@@ -750,7 +750,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const monthlyData = await listHrMonthlyEntriesForPayroll(db, period.start, period.end);
   const calendarDays = dateRange(period.start, period.end);
   const calendarSpecials = await resolveCalendarSpecials(db, calendarDays);
-  const typhoonStopAppliesToRows = (date: string, rows: Array<{ scopeId: string }>) => rows.length > 0 && rows.every((row) => calendarSpecialAppliesToScope(calendarSpecials.get(date), row.scopeId));
+  const typhoonRowsForDate = <T extends { scopeId: string }>(date: string, rows: T[]) => rows.filter((row) => calendarSpecialAppliesToScope(calendarSpecials.get(date), row.scopeId));
+  const typhoonStopTouchesRows = <T extends { scopeId: string }>(date: string, rows: T[]) => typhoonRowsForDate(date, rows).length > 0;
+  const typhoonStopAppliesToRows = <T extends { scopeId: string }>(date: string, rows: T[]) => rows.length > 0 && typhoonRowsForDate(date, rows).length === rows.length;
   const missingCompensation = employees.flatMap((employee) => employmentDaysForPeriod(employee, period)
     .filter((day) => !covering(compensations.filter((row) => row.employmentId === employee.employmentId), day))
     .map((day) => `${employee.employeeName}（${day}）`));
@@ -880,8 +882,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       compensationIds.add(compensation.id);
       payBases.add(compensation.payBasis);
       const special = specialWorkdays.find((item) => item.workerId === workerId && item.workDate === date);
-      const typhoonRows = dateRows.filter((row) => calendarSpecialAppliesToScope(calendarSpecials.get(date), row.scopeId));
-      const typhoonStop = typhoonStopAppliesToRows(date, dateRows) && !special;
+      const typhoonRows = typhoonRowsForDate(date, dateRows);
+      const typhoonStop = typhoonStopTouchesRows(date, dateRows) && !special;
       if (special) {
         const hours = dateRows.reduce((sum, row) => sum + scheduledHours(row), 0);
         if (!hours) calculationWarnings.add(`${workerName} 的特殊上班日 ${date} 缺少工時資料，薪資列為異常且不自動補 0。`);
@@ -936,7 +938,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId && employmentDaySet.has(item.workDate));
     const scheduledDates = scheduledDatesByEmployment.get(employee.employmentId) ?? new Set<string>();
     const specialDates = new Set(specialAssignments.map((item) => item.workDate));
-    const typhoonStopDatesForEmployee = calendarDays.filter((day) => employmentDaySet.has(day) && !specialDates.has(day) && typhoonStopAppliesToRows(day, scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? []));
+    // 月薪／日薪以工作日為單位，當日有任一排班落在停班範圍就把當日基薪移到明細；時薪混合據點則只把受影響排班工時自動補薪，其餘工時沿用人工紀錄。
+    const typhoonStopDatesForEmployee = calendarDays.filter((day) => {
+      if (!employmentDaySet.has(day) || specialDates.has(day)) return false;
+      const rows = scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? [];
+      return typhoonStopTouchesRows(day, rows);
+    });
     const typhoonStopDateSet = new Set(typhoonStopDatesForEmployee);
     if (employeeCompensations.some((item) => item.payBasis === "daily") && scheduledDates.size === 0) {
       calculationWarnings.add(`${employee.employeeName} 為日薪制但本期沒有已發布排班，薪資為 0。`);
@@ -947,6 +954,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       // 日薪是買「已發布的工作日」，不能把整個計算期間誤當成出勤日；特殊上班日則由明確套用資料保留計薪機會。
       if (compensation.payBasis === "daily" && !scheduledDates.has(day) && !specialDates.has(day) && !typhoonStopDateSet.has(day)) continue;
       const special = specialAssignments.find((item) => item.workDate === day);
+      const scheduledRowsForDay = scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? [];
+      const typhoonRowsForDay = typhoonRowsForDate(day, scheduledRowsForDay);
       const typhoonStop = typhoonStopDateSet.has(day) && !special;
       if (special) {
         let hours = 0;
@@ -971,8 +980,19 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           specialCalculationParts.push({ formula: `${day}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)})`, amountMinor: amount });
         }
       } else if (typhoonStop) {
-        const scheduleRows = (scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? []).filter((row) => calendarSpecialAppliesToScope(calendarSpecials.get(day), row.scopeId));
-        const hours = scheduleRows.reduce((sum, row) => sum + scheduledHours(row), 0);
+        const hours = typhoonRowsForDay.reduce((sum, row) => sum + scheduledHours(row), 0);
+        const partialHourlyTyphoon = compensation.payBasis === "hourly" && typhoonRowsForDay.length < scheduledRowsForDay.length;
+        const hourlyEntry = compensation.payBasis === "hourly" ? monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day) : undefined;
+        const manualHours = partialHourlyTyphoon && hourlyEntry && !hourlyEntry.noWork ? hourlyEntry.hoursHalfUnits / 2 : 0;
+        if (partialHourlyTyphoon && manualHours > 0) {
+          const manualAmount = Math.round(compensation.baseAmountMinor * manualHours);
+          baseMinor += manualAmount;
+          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+          current.dayCount += 1;
+          current.hours += manualHours;
+          current.amountMinor += manualAmount;
+          baseCalculationParts.set(compensation.id, current);
+        }
         const amount = compensation.payBasis === "monthly"
           ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
           : compensation.payBasis === "daily"
@@ -984,7 +1004,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
             ? `${day}：颱風停班，floor(月薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天)`
             : compensation.payBasis === "daily"
               ? `${day}：颱風停班，日薪 ${payrollFormulaMoney(compensation.baseAmountMinor)}`
-              : `${day}：颱風停班，時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × ${payrollFormulaHours(hours)} 小時`,
+              : `${day}：颱風停班適用排班，時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × ${payrollFormulaHours(hours)} 小時`,
           amountMinor: amount,
         });
       } else if (compensation.payBasis === "monthly") {
@@ -1014,10 +1034,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         }
       }
       const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
-      const scheduledTyphoonHours = typhoonStop
-        ? (scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? []).filter((row) => calendarSpecialAppliesToScope(calendarSpecials.get(day), row.scopeId)).reduce((sum, row) => sum + scheduledHours(row), 0)
-        : 0;
-      const itemHours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : scheduledTyphoonHours;
+      const scheduledTyphoonHours = typhoonStop ? typhoonRowsForDay.reduce((sum, row) => sum + scheduledHours(row), 0) : 0;
+      const entryHours = entry && !entry.noWork ? entry.hoursHalfUnits / 2 : 0;
+      const partialHourlyTyphoon = typhoonStop && compensation.payBasis === "hourly" && typhoonRowsForDay.length < scheduledRowsForDay.length;
+      const itemHours = partialHourlyTyphoon ? entryHours + scheduledTyphoonHours : entry && !entry.noWork ? entryHours : scheduledTyphoonHours;
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === compensation.id)) {
         /*
          * 日薪人員的月給項目整月照發，不按上班天數比例折算：日薪人員本來就只有排班日才進這個迴圈，

@@ -570,16 +570,21 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(scheduleResponse.status, await scheduleResponse.clone().text()).toBe(200);
     const schedule = await scheduleResponse.json() as { shifts: Array<{ versionId: string }>; version: { revision: number } | null };
     expect(schedule.shifts.length).toBeGreaterThan(0);
+    const otherShiftResponse = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-xinyi", name: "支援人員混合據點班", times: [{ dayType: "weekday", startTime: "18:00", endTime: "23:00" }] });
+    expect(otherShiftResponse.status, await otherShiftResponse.clone().text()).toBe(201);
+    const otherShift = await otherShiftResponse.json() as { versionId: string };
     const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [{ personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" }] });
     expect(saved.status, await saved.clone().text()).toBe(200);
     const savedBody = await saved.json() as { id: string; revision: number };
     const updated = await request("/hr/schedules", "POST", { periodKey: "2026-09", scheduleVersionId: savedBody.id, revision: savedBody.revision, entries: [
       { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+      { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: otherShift.versionId, workDate: "2026-09-03" },
       { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-16" },
     ] });
     expect(updated.status, await updated.clone().text()).toBe(200);
     const db = createDatabase(d1 as never);
     await db.insert(hrCalendarDays).values({ date: "2026-09-03", dayType: "weekday", name: "颱風停班", specialKind: "typhoon_stop", updatedBy: "dev-eli-lin@ecotech.tw" });
+    await db.insert(hrCalendarDayScopes).values({ date: "2026-09-03", scopeId: "cyberbiz:store:demo-ximen" });
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-2026-09" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { workers: Array<{ workerId: string; workerName: string; payBasis: string; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number }> } };
@@ -617,7 +622,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(selected.status, await selected.clone().text()).toBe(200);
     const selectedBody = await selected.json() as { run: { runId: string; runName: string; workers: Array<{ workerId: string; workerName: string; amountMinor: number }> } };
     expect(selectedBody.run.runName).toBe("指定支援人員甲");
-    expect(selectedBody.run.workers).toEqual([{ workerId: firstWorkerId, workerName: "指定支援人員甲", amountMinor: 320_000, payBasis: "daily", scheduledDays: 1, compensationVersionId: expect.any(String) }]);
+    expect(selectedBody.run.workers).toEqual([{ workerId: firstWorkerId, workerName: "指定支援人員甲", amountMinor: 320_000, payBasis: "daily", scheduledDays: 1, typhoonStopDays: 0, typhoonStopPayMinor: 0, compensationVersionId: expect.any(String) }]);
     const calculationInput = d1.sqlite.prepare("SELECT calculation_input_json AS calculationInputJson FROM hr_payroll_runs WHERE id=?").get(selectedBody.run.runId) as { calculationInputJson: string };
     expect(JSON.parse(calculationInput.calculationInputJson)).toEqual(expect.objectContaining({ employeeUserIds: [], workerIds: [firstWorkerId] }));
     const duplicateReady = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds: [firstWorkerId], requestId: "test-payroll-selected-worker-2026-09-ready-duplicate" });
@@ -742,11 +747,12 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
     expect(mode.status, await mode.clone().text()).toBe(200);
     const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
-    const otherShiftResponse = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-xinyi", name: "颱風範圍測試班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
+    const otherShiftResponse = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-xinyi", name: "颱風範圍測試班", times: [{ dayType: "weekday", startTime: "18:00", endTime: "23:00" }] });
     expect(otherShiftResponse.status, await otherShiftResponse.clone().text()).toBe(201);
     const otherShift = await otherShiftResponse.json() as { versionId: string };
     const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
       { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: otherShift.versionId, workDate: "2026-09-03" },
       { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: otherShift.versionId, workDate: "2026-09-04" },
     ] });
     expect(saved.status, await saved.clone().text()).toBe(200);
@@ -760,10 +766,10 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const employee = body.run.employees[0]!;
     expect(employee.earningMinor).toBe(360_000);
     expect(employee.lines).toEqual(expect.arrayContaining([
-      expect.objectContaining({ lineKey: "typhoon_stop_pay", amountMinor: 180_000, explanation: expect.objectContaining({ dates: ["2026-09-03"], rule: expect.stringContaining("不刪除排班資料") }) }),
+      expect.objectContaining({ lineKey: "typhoon_stop_pay", amountMinor: 180_000, explanation: expect.objectContaining({ dates: ["2026-09-03"], scheduledAssignmentCount: 1, rule: expect.stringContaining("不刪除排班資料") }) }),
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 180_000 }),
     ]));
-    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_schedule_entries WHERE employment_id=? AND work_date=?").get("dev-employment-chen", "2026-09-03")).toEqual({ count: 1 });
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_schedule_entries WHERE employment_id=? AND work_date=?").get("dev-employment-chen", "2026-09-03")).toEqual({ count: 2 });
 
     const snapshot = d1.sqlite.prepare("SELECT source_snapshot_json AS snapshot FROM hr_payroll_runs WHERE request_id=?").get("test-payroll-typhoon-stop-employee") as { snapshot: string };
     const source = JSON.parse(snapshot.snapshot) as { calendarDays: Array<{ date: string; specialKind: string }>; calendarDayScopes: Array<{ date: string; scopeId: string }> };

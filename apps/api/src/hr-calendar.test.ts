@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, importHrCalendarYear, overridesFromGovCalendar, syncSystemRoles } from "@rueisiang/db";
-import { hrCalendarDayScopes, hrCalendarDays, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { countHrClockCalendarAnomalies, createDatabase, importHrCalendarYear, overridesFromGovCalendar, syncSystemRoles } from "@rueisiang/db";
+import { hrCalendarDayScopes, hrCalendarDays, hrClockEvents, hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -77,6 +77,13 @@ describe("HR 行事曆與班別日型", () => {
     expect(listed.days.find((day) => day.date === "2026-02-17")).toMatchObject({ dayType: "holiday", specialKind: "typhoon_stop", name: "颱風停班", specialScopeIds: ["scope"] });
     expect((await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "holiday", name: "", specialKind: "storm" }] })).status).toBe(400);
     expect((await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "holiday", name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["missing-scope"] }] })).status).toBe(400);
+  });
+
+  it("颱風停班的適用範圍只接受門市 scope", async () => {
+    await db.insert(scopes).values({ id: "channel", sourceType: "manual", scopeKind: "channel", name: "測試通路", normalizedName: "測試通路" });
+    const response = await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-18", dayType: "holiday", name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["channel"] }] });
+    expect(response.status, await response.clone().text()).toBe(400);
+    expect(await response.text()).toContain("適用門市／地區不存在");
   });
 
   it("重存一個月會整個換掉，取消掉的例外不會留下來", async () => {
@@ -194,7 +201,7 @@ describe("行事曆整年管理與出缺勤", () => {
     cookie = selfCookie;
     const response = await request(`/hr/me/attendance-calendar?year=${year}&month=${month}`);
     cookie = previous;
-    return (await response.json() as { days: Array<{ date: string; dayType: string; status: string }> }).days;
+    return (await response.json() as { days: Array<{ date: string; dayType: string; status: string; eventCount: number; specialKind: string; specialScopeIds: string[] }> }).days;
   }
 
   it("國定假日沒打卡算休息，補班日沒打卡算缺勤", async () => {
@@ -219,6 +226,38 @@ describe("行事曆整年管理與出缺勤", () => {
     // 沒被標記的日子仍照星期幾走，行事曆不會把整個月都變成上班日。
     expect(plainSaturday).toMatchObject({ dayType: "weekend", status: "rest" });
     expect(plainWeekday).toMatchObject({ dayType: "weekday", status: "missing" });
+  });
+
+  it("混合據點排班時，停班據點的打卡不能掩蓋其他據點缺卡", async () => {
+    await db.insert(scopes).values({ id: "scope-other", sourceType: "manual", scopeKind: "store", name: "其他櫃點", normalizedName: "其他櫃點" });
+    const selfCookie = await officeEmployee();
+    const employment = d1.sqlite.prepare("SELECT id FROM hr_employments WHERE employee_user_id=? AND archived_at IS NULL").get("self") as { id: string };
+    const mode = await request(`/hr/employments/${employment.id}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 8, revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+
+    await db.insert(hrShiftTemplates).values([
+      { id: "attendance-shift-a", code: "attendance-shift-a", name: "出勤測試 A 班", createdBy: "admin" },
+      { id: "attendance-shift-b", code: "attendance-shift-b", name: "出勤測試 B 班", createdBy: "admin" },
+    ]);
+    await db.insert(hrShiftVersions).values([
+      { id: "attendance-shift-a-v1", shiftTemplateId: "attendance-shift-a", dayType: "weekday", versionNumber: 1, startSecond: 9 * 3600, endSecond: 18 * 3600, standardMinutes: 480, breakMinutes: 60, createdBy: "admin" },
+      { id: "attendance-shift-b-v1", shiftTemplateId: "attendance-shift-b", dayType: "weekday", versionNumber: 1, startSecond: 10 * 3600, endSecond: 19 * 3600, standardMinutes: 480, breakMinutes: 60, createdBy: "admin" },
+    ]);
+    await db.insert(hrScheduleVersions).values({ id: "attendance-schedule-2021-02", periodStart: "2021-02-01", periodEnd: "2021-03-01", versionNumber: 1, status: "published", submittedBy: "admin", approvedBy: "admin" });
+    await db.insert(hrScheduleEntries).values([
+      { id: "attendance-entry-a", scheduleVersionId: "attendance-schedule-2021-02", employmentId: employment.id, scopeId: "scope", shiftVersionId: "attendance-shift-a-v1", workDate: "2021-02-17", startsAt: "2021-02-17 01:00:00", endsAt: "2021-02-17 10:00:00", standardMinutes: 480, breakMinutes: 60, createdBy: "admin" },
+      { id: "attendance-entry-b", scheduleVersionId: "attendance-schedule-2021-02", employmentId: employment.id, scopeId: "scope-other", shiftVersionId: "attendance-shift-b-v1", workDate: "2021-02-17", startsAt: "2021-02-17 02:00:00", endsAt: "2021-02-17 11:00:00", standardMinutes: 480, breakMinutes: 60, createdBy: "admin" },
+    ]);
+    await db.insert(hrClockEvents).values([
+      { id: "attendance-clock-in", employeeUserId: "self", employmentId: employment.id, scopeId: "scope", idempotencyKey: "attendance-clock-in", sourceKind: "manual", eventKind: "clock_in", occurredAt: "2021-02-17 01:00:00" },
+      { id: "attendance-clock-out", employeeUserId: "self", employmentId: employment.id, scopeId: "scope", idempotencyKey: "attendance-clock-out", sourceKind: "manual", eventKind: "clock_out", occurredAt: "2021-02-17 09:00:00" },
+    ]);
+    const saved = await request("/hr/calendar/2021-02", "PUT", { days: [{ date: "2021-02-17", dayType: "weekday", name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["scope"] }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+
+    const days = await calendarOf(selfCookie, 2021, 2);
+    expect(days.find((day) => day.date === "2021-02-17")).toMatchObject({ status: "missing", eventCount: 2, specialKind: "typhoon_stop", specialScopeIds: ["scope"] });
+    expect(await countHrClockCalendarAnomalies(db, ["self"], 2021, 2)).toBe(1);
   });
 
   it("整年清單只回例外，一年不是 365 列", async () => {

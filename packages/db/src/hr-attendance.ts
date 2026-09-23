@@ -321,11 +321,11 @@ function overnightScheduleForDate(schedules: CalendarSchedule[], date: string) {
   return rows.length ? scheduleForDate(rows, previousDate) : null;
 }
 
-function calendarEventsForDate<T extends { eventKind: "clock_in" | "clock_out"; occurredAt: string }>(eventDates: Map<string, T[]>, date: string, schedule: ReturnType<typeof scheduleForDate>, previousOvernight: ReturnType<typeof scheduleForDate>) {
-  const current = eventDates.get(date) ?? [];
+function calendarEventsForDate<T extends { eventKind: "clock_in" | "clock_out"; occurredAt: string }>(eventDates: Map<string, T[]>, date: string, schedule: ReturnType<typeof scheduleForDate>, previousOvernight: ReturnType<typeof scheduleForDate>, includeEvent: (event: T) => boolean = () => true) {
+  const current = (eventDates.get(date) ?? []).filter(includeEvent);
   const withoutPreviousClose = previousOvernight && current[0]?.eventKind === "clock_out" ? current.slice(1) : current;
   if (!schedule || schedule.endsAt.slice(0, 10) <= date || withoutPreviousClose.at(-1)?.eventKind !== "clock_in") return withoutPreviousClose;
-  const nextClose = (eventDates.get(calendarDate(date, 1)) ?? [])[0];
+  const nextClose = (eventDates.get(calendarDate(date, 1)) ?? []).filter(includeEvent)[0];
   return nextClose?.eventKind === "clock_out" ? [...withoutPreviousClose, nextClose] : withoutPreviousClose;
 }
 
@@ -382,6 +382,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
       rowId: sql<number>`hr_clock_events.rowid`,
       eventKind: hrClockEvents.eventKind,
       occurredAt: hrClockEvents.occurredAt,
+      scopeId: hrClockEvents.scopeId,
       locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`,
       distanceMeters: hrClockEvents.distanceMeters,
     }).from(hrClockEvents)
@@ -422,14 +423,20 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
     const activeRowsForDate = rowsForDate.filter((row) => !calendarSpecialAppliesToScope(special, row.scopeId));
     const schedule = scheduledEmployment ? scheduleForDate(activeRowsForDate, date) : null;
     const previousOvernight = scheduledEmployment ? overnightScheduleForDate(scheduleRows, date) : null;
-    const anomalyEvents = calendarEventsForDate(eventDates, date, schedule, previousOvernight);
-    const specialKind = special?.kind ?? "none";
-    // 颱風停班日仍保留排班，但不把打卡當成應出勤條件；薪資另依已發布排班計算。
+    const includeAttendanceEvent = (event: { scopeId: string | null }) => !scheduledEmployment || activeRowsForDate.length === 0 || !calendarSpecialAppliesToScope(special, event.scopeId);
+    const attendanceEvents = dayEvents.filter(includeAttendanceEvent);
+    const anomalyEvents = calendarEventsForDate(eventDates, date, schedule, previousOvernight, includeAttendanceEvent);
+    const specialApplies = scheduledEmployment
+      ? rowsForDate.some((row) => calendarSpecialAppliesToScope(special, row.scopeId))
+      : calendarSpecialAppliesToScope(special, null);
+    const specialKind = specialApplies ? special?.kind ?? "none" : "none";
+    const specialScopeIds = specialApplies ? special?.scopeIds ?? [] : [];
+    // 颱風停班日仍保留排班，但不把適用停班據點的打卡當成其他據點的出勤證明。
     const typhoonStop = scheduledEmployment
       ? rowsForDate.length > 0 && activeRowsForDate.length === 0
       : calendarSpecialAppliesToScope(special, null);
     const expected = employed && !typhoonStop && (scheduledEmployment ? Boolean(schedule) : expectedOnDayType(dayTypes.get(date)));
-    const status = !employed ? "not-employed" : date > today ? "future" : onLeave ? "leave" : dayEvents.length ? "present" : date === today ? "open" : expected ? "missing" : "rest";
+    const status = !employed ? "not-employed" : date > today ? "future" : onLeave ? "leave" : attendanceEvents.length ? "present" : date === today ? "open" : expected ? "missing" : "rest";
     const detectedAnomaly = typhoonStop || status === "leave" || status === "future" || status === "rest" || status === "not-employed" || status === "open"
       ? null
       : calendarAnomaly(anomalyEvents, schedule, expected, Boolean(scheduledEmployment));
@@ -439,7 +446,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
       weekday,
       dayType: dayTypes.get(date) ?? "weekday",
       specialKind,
-      specialScopeIds: special?.scopeIds ?? [],
+      specialScopeIds,
       status: status as "not-employed" | "future" | "present" | "open" | "missing" | "rest" | "leave",
       eventCount: dayEvents.length,
       firstEventAt: dayEvents[0]?.occurredAt ?? null,
@@ -448,7 +455,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
       anomalyMessage: detectedAnomaly?.message ?? null,
       expectedStartAt: schedule?.startsAt ?? null,
       expectedEndAt: schedule?.endsAt ?? null,
-      events: dayEvents.map(({ eventDate: _eventDate, rowId: _rowId, ...event }) => event),
+      events: dayEvents.map(({ eventDate: _eventDate, rowId: _rowId, scopeId: _scopeId, ...event }) => event),
     };
   });
   return { year, month, today, days };
@@ -488,6 +495,7 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
       employeeUserId: hrClockEvents.employeeUserId,
       eventKind: hrClockEvents.eventKind,
       occurredAt: hrClockEvents.occurredAt,
+      scopeId: hrClockEvents.scopeId,
     }).from(hrClockEvents)
       .where(and(inArray(hrClockEvents.employeeUserId, userIds), sql`${hrClockEvents.occurredAt} >= ${queryStartUtc}`, sql`${hrClockEvents.occurredAt} < ${queryEndUtc}`))
       .orderBy(asc(hrClockEvents.occurredAt), asc(sql`hr_clock_events.rowid`)),
@@ -532,12 +540,14 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
       const activeRowsForDate = rowsForDate.filter((row) => !calendarSpecialAppliesToScope(special, row.scopeId));
       const schedule = scheduledEmployment ? scheduleForDate(activeRowsForDate, date) : null;
       const previousOvernight = scheduledEmployment ? overnightScheduleForDate(scheduleRows, date) : null;
-      const anomalyEvents = calendarEventsForDate(userEvents, date, schedule, previousOvernight);
+      const includeAttendanceEvent = (event: { scopeId: string | null }) => !scheduledEmployment || activeRowsForDate.length === 0 || !calendarSpecialAppliesToScope(special, event.scopeId);
+      const attendanceEvents = dayEvents.filter(includeAttendanceEvent);
+      const anomalyEvents = calendarEventsForDate(userEvents, date, schedule, previousOvernight, includeAttendanceEvent);
       const typhoonStop = scheduledEmployment
         ? rowsForDate.length > 0 && activeRowsForDate.length === 0
         : calendarSpecialAppliesToScope(special, null);
       const expected = employed && !typhoonStop && (scheduledEmployment ? Boolean(schedule) : expectedOnDayType(dayTypes.get(date)));
-      const status = !employed ? "not-employed" : date > today ? "future" : onLeave ? "leave" : dayEvents.length ? "present" : date === today ? "open" : expected ? "missing" : "rest";
+      const status = !employed ? "not-employed" : date > today ? "future" : onLeave ? "leave" : attendanceEvents.length ? "present" : date === today ? "open" : expected ? "missing" : "rest";
       if (typhoonStop || status === "leave" || status === "future" || status === "rest" || status === "not-employed" || status === "open") continue;
       if (calendarAnomaly(anomalyEvents, schedule, expected, Boolean(scheduledEmployment))) anomalyCount += 1;
     }

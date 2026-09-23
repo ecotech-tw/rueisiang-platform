@@ -71,8 +71,8 @@ function AddDayDialog({ year, existing, scopes, onAdd, onClose }: { year: number
   const [specialScopeIds, setSpecialScopeIds] = useState<string[]>([]);
   const [name, setName] = useState("");
   const [message, setMessage] = useState<string | null>(null);
-  // 選到星期六日時預設改成「平日」，因為在週末新增一天，想做的幾乎一定是補班；颱風停班則一律視為假日。
-  useEffect(() => { setDayType(specialKind === "typhoon_stop" ? "holiday" : isWeekendDate(date) ? "weekday" : "holiday"); }, [date, specialKind]);
+  // 選到星期六日時預設改成「平日」，因為在週末新增一天，想做的幾乎一定是補班；特殊標記不改寫日期類型。
+  useEffect(() => { setDayType(isWeekendDate(date) ? "weekday" : "holiday"); }, [date]);
   return <Dialog title={`${year} 年新增日期`} onClose={onClose} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     if (!date.startsWith(`${year}-`)) { setMessage(`請選擇 ${year} 年之內的日期。`); return; }

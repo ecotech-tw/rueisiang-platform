@@ -1,4 +1,4 @@
-import { and, asc, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
@@ -196,7 +196,7 @@ async function assertCalendarUnchanged(db: Database, range: { start: string; end
 async function assertCalendarScopesExist(db: Database, overrides: HrCalendarDayInput[]) {
   const scopeIds = [...new Set(overrides.flatMap((day) => day.specialScopeIds ?? []))];
   if (!scopeIds.length) return;
-  const existing = await db.select({ id: scopes.id }).from(scopes).where(inArray(scopes.id, scopeIds));
+  const existing = await db.select({ id: scopes.id }).from(scopes).where(and(inArray(scopes.id, scopeIds), eq(scopes.scopeKind, "store")));
   if (existing.length !== scopeIds.length) throw new HrError(400, "颱風停班的適用門市／地區不存在。 ");
 }
 

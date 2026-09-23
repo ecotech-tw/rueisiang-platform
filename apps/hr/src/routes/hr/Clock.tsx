@@ -219,10 +219,10 @@ function CalendarGrid({ data, selectedDate, onSelect, slideClass = "" }: { data:
       {cells.map((day) => typeof day === "string" ? <span className="hr-clock-calendar-empty" key={day} /> : <button
         key={day.date}
         type="button"
-        className={`hr-clock-calendar-day ${day.status}${day.date === data.today ? " today" : ""}${day.date === selectedDate ? " selected" : ""}${day.anomaly ? " has-anomaly" : ""}`}
+        className={`hr-clock-calendar-day ${day.status}${day.date === data.today ? " today" : ""}${day.date === selectedDate ? " selected" : ""}${day.anomaly ? " has-anomaly" : ""}${day.specialKind === "typhoon_stop" ? " typhoon-stop" : ""}`}
         onClick={() => onSelect(day.date)}
         aria-pressed={day.date === selectedDate}
-        aria-label={`${day.date}${day.anomaly ? "，有出勤異常" : day.status === "leave" ? "，已核准請假" : day.eventCount ? `，已有 ${day.eventCount} 筆打卡` : "，沒有打卡紀錄"}`}
+        aria-label={`${day.date}${day.specialKind === "typhoon_stop" ? "，颱風停班" : ""}${day.anomaly ? "，有出勤異常" : day.status === "leave" ? "，已核准請假" : day.eventCount ? `，已有 ${day.eventCount} 筆打卡` : "，沒有打卡紀錄"}`}
       >
         <strong>{Number(day.date.slice(-2))}</strong>
         {day.anomaly ? <i aria-hidden="true" /> : null}
@@ -238,6 +238,7 @@ function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendar
   const anomalyTitle = day.anomaly === "missing" ? "尚未完成打卡" : day.anomaly === "short-duration" ? "出勤時數異常" : day.anomaly === "late-arrival" ? "上班打卡較晚" : day.anomaly === "early-leave" ? "下班打卡較早" : day.anomaly === "unscheduled" ? "非排班日打卡" : "打卡紀錄順序異常";
   return <section className={`hr-clock-calendar-details${day.anomaly ? " has-anomaly" : ""}`} aria-live="polite">
     <div className="hr-clock-calendar-details-head"><strong>{dayLabel}</strong><span>{["日", "一", "二", "三", "四", "五", "六"][day.weekday]}曜日</span></div>
+    {day.specialKind === "typhoon_stop" ? <p className="hr-clock-calendar-special">颱風停班：原排班保留，適用範圍內未打卡不列為缺勤。</p> : null}
     {day.status === "leave" ? <p className="hr-clock-calendar-empty-detail">已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="hr-clock-calendar-events">
       {day.events.map((event) => <li key={event.id}><span>{event.eventKind === "clock_in" ? "上班" : "下班"}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}
     </ul> : day.anomaly ? null : <p className="hr-clock-calendar-empty-detail">{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "目前不是活動員工。" : "這天尚未有打卡紀錄。"}</p>}
