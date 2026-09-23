@@ -17,12 +17,12 @@ async function request(path: string, method = "GET", payload?: Record<string, un
     ...(payload ? { body: JSON.stringify(payload) } : {}),
   }), { DB: d1, AUTH_SESSION_SECRET: SECRET, GOOGLE_OAUTH_CLIENT_ID: "test", GOOGLE_OAUTH_CLIENT_SECRET: "test" } as never);
 }
-async function assign() {
-  const response = await request("/hr/employees", "POST", { userId: "employee", employeeNumber: "E-PAY", position: "一般職員" });
+async function assign(serviceStartOn = "2026-01-01") {
+  const response = await request("/hr/employees", "POST", { userId: "employee", employeeNumber: "E-PAY", position: "一般職員", serviceStartOn });
   expect(response.status, await response.clone().text()).toBe(201);
 }
-async function assignUser(userId: string, employeeNumber: string) {
-  const response = await request("/hr/employees", "POST", { userId, employeeNumber, position: "一般職員" });
+async function assignUser(userId: string, employeeNumber: string, serviceStartOn = "2026-01-01") {
+  const response = await request("/hr/employees", "POST", { userId, employeeNumber, position: "一般職員", serviceStartOn });
   expect(response.status, await response.clone().text()).toBe(201);
 }
 
