@@ -26,10 +26,10 @@ function currentInsurance(versions: InsuranceVersion[], scheme: InsuranceVersion
     ?? versions.filter((version) => version.scheme === scheme && version.validFrom <= date).sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0];
 }
 
-function currentSalary(profile: Profile, employment: Employment) {
-  const date = today();
-  return profile.compensation?.filter((version) => version.employmentId === employment.id && version.validFrom <= date && (version.validTo === null || date < version.validTo))
-    .sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0]?.baseAmountMinor;
+export function currentSalary(profile: Profile, employment: Employment, date = today()) {
+  const version = profile.compensation?.filter((item) => item.employmentId === employment.id && item.validFrom <= date && (item.validTo === null || date < item.validTo))
+    .sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0];
+  return version === undefined ? undefined : version.baseAmountMinor + (version.items ?? []).reduce((total, item) => total + item.amountMinor, 0);
 }
 
 function money(minor: number) {
