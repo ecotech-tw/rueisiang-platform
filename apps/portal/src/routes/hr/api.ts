@@ -153,6 +153,7 @@ export interface PayrollLineCalculationPart { formula: string; amountMinor: numb
 export interface PayrollLine { lineKey: string; direction: "earning" | "deduction"; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }
 export interface PayrollEmployee { employmentId: string; employeeUserId: string; employeeNumber: string; employeeName: string; lines: PayrollLine[]; earningMinor: number; deductionMinor: number; netMinor: number; attendanceDays: number; missingPunchDays: number }
 export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; compensationVersionId: string | null }
+export interface PayrollWorkerCandidate { id: string; displayName: string }
 export interface PayrollRun { runId: string; runName: string; periodKey: string; payDate: string | null; status: "ready" | "closed"; engineVersion: string; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
 export type BonusKind = "team_performance" | "individual_performance";
 export type PerformancePeriod = "current_month" | "previous_month";
