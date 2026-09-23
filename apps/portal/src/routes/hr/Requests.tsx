@@ -207,26 +207,21 @@ export function HrRequestCenter() {
   if (!canAccess) return <Alert tone="danger">你沒有檢視 HR 申請的權限。</Alert>;
   if (employees.isPending || leaveTypes.isPending || requests.isPending) return <HrPageSkeleton variant="table" />;
 
-  return <div className="page fills hr-request-page">
+  return <div className="page hr-request-page">
     <PageHeader title="申請與審核" description="申請中心獨立於儀表板、員工與出勤資料頁；目前 HR 代登送出後直接核准，未來員工前台可沿用同一套待審核流程。" />
     <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登目前會保存「已核准」狀態；員工前台上線後則由主管或 HR 進行審核。</Alert>
     <div className="segmented-control hr-request-view-tabs" role="group" aria-label="申請中心工作區">
       <button type="button" className={view === "new" ? "selected" : ""} aria-pressed={view === "new"} onClick={() => setView("new")}>新增申請</button>
       <button type="button" className={view === "history" ? "selected" : ""} aria-pressed={view === "history"} onClick={() => setView("history")}>申請紀錄</button>
     </div>
-    {view === "new" ? <div className="hr-request-layout">
-      <Panel title="建立申請" description="先選擇申請類型，再指定員工與實際期間。">
+    {view === "new" ? <Panel title="建立申請" description="先選擇申請類型，再指定員工與實際期間。">
         <div className="segmented-control hr-request-kind-tabs" role="group" aria-label="申請類型">
           <button type="button" className={kind === "leave" ? "selected" : ""} aria-pressed={kind === "leave"} onClick={() => setKind("leave")}>請假</button>
           <button type="button" className={kind === "overtime" ? "selected" : ""} aria-pressed={kind === "overtime"} onClick={() => setKind("overtime")}>加班</button>
         </div>
         {employees.error || leaveTypes.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message}</Alert> : null}
         {kind === "leave" ? <LeaveForm employees={employees.data?.employees ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onDone={() => { setView("history"); void requests.refetch(); }} /> : <OvertimeForm employees={employees.data?.employees ?? []} onDone={() => { setView("history"); void requests.refetch(); }} />}
-      </Panel>
-      <Panel title="流程說明" className="hr-request-process-panel">
-        <ol className="hr-request-process"><li><strong>選擇員工</strong><span>申請資料以員工任職紀錄為主體保存。</span></li><li><strong>建立申請</strong><span>HR 後台目前直接建立為已核准，保留建立者與核准資訊。</span></li><li><strong>影響出勤</strong><span>請假與核准加班會被後續出勤、薪資查詢讀取。</span></li><li><strong>未來前台</strong><span>本人入口改為待審核，審核後才進入同一個正式結果。</span></li></ol>
-      </Panel>
-    </div> : <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可在此處理。" actions={<div className="hr-request-history-filter" role="group" aria-label="申請類型篩選">{(["all", "leave", "overtime", "clock_correction"] as const).map((value) => <button type="button" key={value} className={historyKind === value ? "selected" : ""} aria-pressed={historyKind === value} onClick={() => setHistoryKind(value)}>{value === "all" ? "全部" : REQUEST_KIND_LABEL[value]}</button>)}</div>}>
+      </Panel> : <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可在此處理。" actions={<div className="hr-request-history-filter" role="group" aria-label="申請類型篩選">{(["all", "leave", "overtime", "clock_correction"] as const).map((value) => <button type="button" key={value} className={historyKind === value ? "selected" : ""} aria-pressed={historyKind === value} onClick={() => setHistoryKind(value)}>{value === "all" ? "全部" : REQUEST_KIND_LABEL[value]}</button>)}</div>}>
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <div className="table-scroll"><table className="data-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工">{row.employeeName}<small className="muted">{row.employeeNumber}</small></td><td data-label="期間">{row.period}</td><td data-label="內容">{row.detail}</td><td data-label="原因">{row.reason}</td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : row.kind === "leave" && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消請假</Button> : "—"}</td></tr>)}</tbody></table></div>
       {!filteredRows.length ? <p className="empty-state">目前沒有符合條件的申請紀錄。</p> : null}
