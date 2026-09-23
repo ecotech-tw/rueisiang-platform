@@ -54,7 +54,7 @@ describe("HR 薪資與出勤設定 migration", () => {
     } finally { sqlite.close(); }
   });
 
-  it("0190 拆分勞保基金時保留既有合併規則", () => {
+  it("0191 拆分勞保基金時保留既有合併規則", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {
       sqlite.exec("PRAGMA foreign_keys=ON");
