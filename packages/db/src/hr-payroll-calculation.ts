@@ -372,6 +372,29 @@ function covering<T extends { validFrom: string; validTo: string | null }>(rows:
   return rows.filter((row) => row.validFrom <= date && (row.validTo === null || date < row.validTo)).sort((a, b) => b.validFrom.localeCompare(a.validFrom))[0];
 }
 
+function insurancePeriodBoundaries(
+  period: { start: string; end: string },
+  rows: Array<{ scheme: string; validFrom: string; validTo: string | null }>,
+  rules: Array<{ scheme: string; validFrom: string; validTo: string | null }>,
+  scheme: "labor" | "health",
+) {
+  const boundaries = new Set([period.start, period.end]);
+  for (const row of [...rows, ...rules]) {
+    if (row.scheme !== scheme) continue;
+    if (row.validFrom > period.start && row.validFrom < period.end) boundaries.add(row.validFrom);
+    if (row.validTo !== null && row.validTo > period.start && row.validTo < period.end) boundaries.add(row.validTo);
+  }
+  return [...boundaries].sort();
+}
+
+function laborInsuranceCoverageDays(start: string, end: string, periodEnd: string, includeEnd = false) {
+  // 勞保的大小月不是曆日天數：區間結束在下個月一日視為第 31 個邊界，
+  // 讓 2/28 加保得到 30 - 28 + 1 = 3 日；月內日期 31 則視為第 30 日。
+  const startDay = Math.min(Number(start.slice(8, 10)), 30);
+  const endDay = end === periodEnd ? 31 : Math.min(Number(end.slice(8, 10)), 30);
+  return Math.max(0, endDay - startDay + (includeEnd ? 1 : 0));
+}
+
 function employeeSelected(employee: { employeeUserId: string; attendanceMode: string }, input: HrPayrollCalculationInput): boolean {
   if (input.employeeUserIds !== undefined && !input.employeeUserIds.includes(employee.employeeUserId)) return false;
   if (input.attendanceMode === "general") return employee.attendanceMode === "general";
@@ -401,6 +424,11 @@ interface PayrollSourceSnapshotInput {
   period: { start: string; end: string; periodKey: string };
   employmentIds: string[];
   workerIds: string[];
+}
+
+async function listHrInsuranceContributionRulesForPeriod(db: Database, period: { start: string; end: string }) {
+  const rules = await listHrInsuranceContributionRules(db);
+  return rules.filter((rule) => rule.validFrom < period.end && (rule.validTo === null || rule.validTo > period.start));
 }
 
 /**
@@ -455,8 +483,8 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrCalendarDayScopes).where(sql`${hrCalendarDayScopes.date} >= ${input.period.start} AND ${hrCalendarDayScopes.date} < ${input.period.end}`),
     db.select().from(hrCompensationVersions).where(and(inArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
     db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
-    db.select().from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} <= ${input.period.start}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} > ${input.period.start})`)),
-    listHrInsuranceContributionRules(db, input.period.start),
+    db.select().from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} < ${input.period.end}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} >= ${input.period.start})`)),
+    listHrInsuranceContributionRulesForPeriod(db, input.period),
     db.select().from(hrLeaveRequests).where(and(eq(hrLeaveRequests.status, "approved"), inArray(hrLeaveRequests.employmentId, employmentIds), sql`${hrLeaveRequests.startsOn} < ${input.period.end}`, sql`${hrLeaveRequests.endsOn} > ${input.period.start}`)),
     db.select().from(hrAnnualLeaveEntitlements).where(sql`${hrAnnualLeaveEntitlements.employmentId} IN (${employmentValues})`),
     db.select().from(hrAnnualLeaveLedger).where(sql`${hrAnnualLeaveLedger.entitlementId} IN (SELECT id FROM hr_annual_leave_entitlements WHERE employment_id IN (${employmentValues}))`),
@@ -751,9 +779,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const insurance = await db.select().from(hrInsuranceVersions).where(and(
     sql`${hrInsuranceVersions.voidedAt} IS NULL`,
     sql`${hrInsuranceVersions.validFrom} < ${period.end}`,
-    sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} > ${period.start})`,
+    sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} >= ${period.start})`,
   ));
-  const insuranceRules = await listHrInsuranceContributionRules(db, period.start);
+  const insuranceRules = await listHrInsuranceContributionRulesForPeriod(db, period);
   const workerCompensations = await db.select().from(hrWorkerCompensationVersions).where(and(
     sql`${hrWorkerCompensationVersions.validFrom} < ${period.end}`,
     sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${period.start})`,
@@ -1395,47 +1423,139 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const missingPunchDays = employmentDays.filter((day) => employeeClocks.filter((row) => taipeiDate(row.occurredAt) === day).length === 1);
     const compensationIds = employeeCompensations.filter((row) => row.validFrom < period.end && (row.validTo === null || row.validTo > period.start)).map((row) => row.id);
     const insuranceIds = insurance.filter((row) => row.employmentId === employee.employmentId).map((row) => row.id);
-    const employeeInsurance = insurance.filter((row) => row.employmentId === employee.employmentId && row.status === "enrolled");
+    const employeeInsurance = insurance.filter((row) => row.employmentId === employee.employmentId);
+    const lastDayOfPeriod = dateRange(period.start, period.end).at(-1)!;
     for (const scheme of ["labor", "health"] as const) {
-      const insuranceVersion = covering(employeeInsurance.filter((row) => row.scheme === scheme), period.start);
-      if (!insuranceVersion || insuranceVersion.status !== "enrolled") continue;
-      const contributionRules = resolveHrInsuranceContributionRules(insuranceRules, scheme, period.start);
-      if (!hasCompleteHrInsuranceContributionRules(scheme, contributionRules)) {
-        calculationWarnings.add(`${employee.employeeName} 的${scheme === "labor" ? "勞保" : "健保"}缺少完整有效負擔規則，請在保險設定完成審閱。`);
-        continue;
+      const insuranceEntries: Array<{
+        version: (typeof insurance)[number];
+        contributionRules: typeof insuranceRules;
+        breakdown: ReturnType<typeof calculateHrInsuranceEmployeeBreakdown>;
+        coverageDays: number | null;
+        start: string;
+        end: string;
+      }> = [];
+      const schemeVersions = employeeInsurance.filter((row) => row.scheme === scheme);
+      if (scheme === "labor") {
+        const boundaries = insurancePeriodBoundaries(period, schemeVersions, insuranceRules, scheme);
+        // 退保日當天仍在勞保效力內；資料模型以退保版本的 validFrom 記錄該日，
+        // 因此若退保剛好落在期間第一天，要補上前一筆加保版本的單日區間。
+        const withdrawnOnPeriodStart = schemeVersions.find((row) => row.status === "withdrawn" && row.validFrom === period.start);
+        const previousEnrolled = schemeVersions.find((row) => row.status === "enrolled" && row.validTo === period.start);
+        if (withdrawnOnPeriodStart && previousEnrolled) {
+          const contributionRules = resolveHrInsuranceContributionRules(insuranceRules, scheme, period.start);
+          if (!hasCompleteHrInsuranceContributionRules(scheme, contributionRules)) {
+            calculationWarnings.add(`${employee.employeeName} 的勞保缺少完整有效負擔規則，請在保險設定完成審閱。`);
+          } else {
+            const coverageDays = 1;
+            insuranceEntries.push({
+              version: previousEnrolled, contributionRules,
+              breakdown: calculateHrInsuranceEmployeeBreakdown({ scheme, insuredAmountMinor: previousEnrolled.insuredAmountMinor, dependentCount: previousEnrolled.dependentCount, coverageDays, rules: contributionRules }),
+              coverageDays, start: period.start, end: nextDateOnly(period.start),
+            });
+          }
+        }
+        for (let index = 0; index < boundaries.length - 1; index += 1) {
+          const start = boundaries[index]!;
+          const end = boundaries[index + 1]!;
+          const insuranceVersion = covering(schemeVersions, start);
+          if (!insuranceVersion || insuranceVersion.status !== "enrolled") continue;
+          const withdrawalOnBoundary = end !== period.end && covering(schemeVersions, end)?.status === "withdrawn" && insuranceVersion.validTo === end;
+          const contributionRules = resolveHrInsuranceContributionRules(insuranceRules, scheme, start);
+          if (!hasCompleteHrInsuranceContributionRules(scheme, contributionRules)) {
+            calculationWarnings.add(`${employee.employeeName} 的勞保缺少完整有效負擔規則，請在保險設定完成審閱。`);
+            continue;
+          }
+          // 退保日也要計入勞保；若當日同時是費率邊界，不能把該日留在舊費率區段。
+          const withdrawalRules = withdrawalOnBoundary ? resolveHrInsuranceContributionRules(insuranceRules, scheme, end) : contributionRules;
+          const rulesChangeOnWithdrawalDate = withdrawalOnBoundary && (
+            withdrawalRules.length !== contributionRules.length
+            || withdrawalRules.some((rule, ruleIndex) => rule.id !== contributionRules[ruleIndex]?.id)
+          );
+          if (rulesChangeOnWithdrawalDate) {
+            const priorCoverageDays = laborInsuranceCoverageDays(start, end, period.end);
+            if (priorCoverageDays > 0) {
+              insuranceEntries.push({
+                version: insuranceVersion, contributionRules,
+                breakdown: calculateHrInsuranceEmployeeBreakdown({ scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount, coverageDays: priorCoverageDays, rules: contributionRules }),
+                coverageDays: priorCoverageDays, start, end,
+              });
+            }
+            if (!hasCompleteHrInsuranceContributionRules(scheme, withdrawalRules)) {
+              calculationWarnings.add(`${employee.employeeName} 的勞保缺少完整有效負擔規則，請在保險設定完成審閱。`);
+              continue;
+            }
+            const withdrawalCoverageDays = 1;
+            insuranceEntries.push({
+              version: insuranceVersion, contributionRules: withdrawalRules,
+              breakdown: calculateHrInsuranceEmployeeBreakdown({ scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount, coverageDays: withdrawalCoverageDays, rules: withdrawalRules }),
+              coverageDays: withdrawalCoverageDays, start: end, end: nextDateOnly(end),
+            });
+            continue;
+          }
+          const coverageDays = laborInsuranceCoverageDays(start, end, period.end, withdrawalOnBoundary);
+          if (!coverageDays) continue;
+          insuranceEntries.push({
+            version: insuranceVersion, contributionRules,
+            breakdown: calculateHrInsuranceEmployeeBreakdown({ scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount, coverageDays, rules: contributionRules }),
+            coverageDays, start, end,
+          });
+        }
+      } else {
+        // 健保以月底最後仍在保的單位計收整月保費，不把月中到職按日折算。
+        const insuranceVersion = covering(schemeVersions, lastDayOfPeriod);
+        if (insuranceVersion?.status === "enrolled") {
+          const contributionRules = resolveHrInsuranceContributionRules(insuranceRules, scheme, lastDayOfPeriod);
+          if (!hasCompleteHrInsuranceContributionRules(scheme, contributionRules)) {
+            calculationWarnings.add(`${employee.employeeName} 的健保缺少完整有效負擔規則，請在保險設定完成審閱。`);
+          } else {
+            insuranceEntries.push({
+              version: insuranceVersion, contributionRules,
+              breakdown: calculateHrInsuranceEmployeeBreakdown({ scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount, rules: contributionRules }),
+              coverageDays: null, start: period.start, end: period.end,
+            });
+          }
+        }
       }
-      const breakdown = calculateHrInsuranceEmployeeBreakdown({
-        scheme,
-        insuredAmountMinor: insuranceVersion.insuredAmountMinor,
-        dependentCount: insuranceVersion.dependentCount,
-        rules: contributionRules,
-      });
-      const employeeShare = breakdown.employeeAmountMinor;
+      const employeeShare = insuranceEntries.reduce((sum, entry) => sum + entry.breakdown.employeeAmountMinor, 0);
       if (employeeShare > 0) {
-        const calculationParts = breakdown.parts.map((part) => {
-          const rule = contributionRules.find((candidate) => candidate.id === part.ruleId);
+        const calculationParts = insuranceEntries.flatMap((entry) => entry.breakdown.parts.map((part) => {
+          const rule = entry.contributionRules.find((candidate) => candidate.id === part.ruleId);
           const rateFormula = rule?.totalRatePpm !== undefined && rule.employeeSharePpm !== undefined
-            ? `${payrollFormulaMoney(insuranceVersion.insuredAmountMinor)} × ${payrollFormulaPercent(rule.totalRatePpm)} × ${payrollFormulaPercent(rule.employeeSharePpm)}`
-            : `${payrollFormulaMoney(insuranceVersion.insuredAmountMinor)} × ${payrollFormulaPercent(part.employeeRatePpm)}`;
+            ? `${payrollFormulaMoney(entry.version.insuredAmountMinor)} × ${payrollFormulaPercent(rule.totalRatePpm)} × ${payrollFormulaPercent(rule.employeeSharePpm)}`
+            : `${payrollFormulaMoney(entry.version.insuredAmountMinor)} × ${payrollFormulaPercent(part.employeeRatePpm)}`;
+          const dayFormula = scheme === "labor" && entry.coverageDays !== null && entry.coverageDays !== monthlyDivisorDays
+            ? ` × ${entry.coverageDays} 天 ÷ ${monthlyDivisorDays} 天`
+            : "";
           return {
-            formula: `floor(${rateFormula}) 先四捨五入至元 = ${payrollFormulaMoney(part.baseEmployeeAmountYuan * 100)}`,
+            formula: `floor(${rateFormula}${dayFormula}) 先四捨五入至元 = ${payrollFormulaMoney(part.baseEmployeeAmountYuan * 100)}`,
             amountMinor: part.employeeAmountMinor,
           };
-        });
-        const dependentRatePpm = scheme === "health" ? contributionRules[0]!.dependentRatePpm : 0;
-        const dependentMultiplier = breakdown.dependentMultiplier;
+        }));
+        const firstEntry = insuranceEntries[0]!;
+        const dependentRatePpm = scheme === "health" ? firstEntry.contributionRules[0]!.dependentRatePpm : 0;
+        const dependentMultiplier = scheme === "health" ? firstEntry.breakdown.dependentMultiplier : 1;
         const dependentMultiplierLabel = dependentMultiplier.toFixed(4).replace(/\.?0+$/, "");
         const formulaDetail = scheme === "health"
-          ? `${calculationParts[0]?.formula ?? "依健保規則計算"} × ${dependentMultiplierLabel}（本人 1 + ${insuranceVersion.dependentCount} 位親屬 × ${payrollFormulaPercent(dependentRatePpm)}） = ${payrollFormulaMoney(employeeShare)}`
+          ? `${calculationParts[0]?.formula ?? "依健保規則計算"} × ${dependentMultiplierLabel}（本人 1 + ${firstEntry.version.dependentCount} 位親屬 × ${payrollFormulaPercent(dependentRatePpm)}） = ${payrollFormulaMoney(employeeShare)}`
           : `${calculationParts.map((part) => part.formula).join(" + ")} = ${payrollFormulaMoney(employeeShare)}`;
-        const sourceKind = contributionRules.every((rule) => rule.sourceKind === "official") ? "official" : "manual";
+        const allRules = insuranceEntries.flatMap((entry) => entry.contributionRules);
+        const ruleIds = [...new Set(allRules.map((rule) => rule.id))];
+        const sourceKind = allRules.every((rule) => rule.sourceKind === "official") ? "official" : "manual";
+        const allParts = insuranceEntries.flatMap((entry) => entry.breakdown.parts);
+        const sameInsuredAmount = insuranceEntries.every((entry) => entry.version.insuredAmountMinor === firstEntry.version.insuredAmountMinor);
         lines.push({ lineKey: `${scheme}_insurance`, direction: "deduction", amountMinor: employeeShare, explanation: {
-          scheme, insuredAmountMinor: insuranceVersion.insuredAmountMinor, dependentCount: insuranceVersion.dependentCount,
-          employeeRatePpm: contributionRules.reduce((sum, rule) => sum + rule.employeeRatePpm, 0), dependentRatePpm,
-          baseEmployeeAmountMinor: breakdown.parts.length === 1 ? breakdown.parts[0]!.baseEmployeeAmountMinor : undefined,
-          baseEmployeeAmountYuan: breakdown.parts.length === 1 ? breakdown.parts[0]!.baseEmployeeAmountYuan : undefined,
-          dependentMultiplier, ruleId: contributionRules.length === 1 ? contributionRules[0]!.id : null, ruleIds: contributionRules.map((rule) => rule.id), sourceKind,
-          components: breakdown.parts.map((part) => ({ component: part.component, ruleId: part.ruleId, employeeRatePpm: part.employeeRatePpm, employeeAmountMinor: part.employeeAmountMinor, totalRatePpm: part.totalRatePpm, employeeSharePpm: part.employeeSharePpm })),
+          scheme, insuredAmountMinor: sameInsuredAmount ? firstEntry.version.insuredAmountMinor : undefined,
+          dependentCount: scheme === "health" ? firstEntry.version.dependentCount : 0,
+          employeeRatePpm: insuranceEntries.length === 1 ? firstEntry.contributionRules.reduce((sum, rule) => sum + rule.employeeRatePpm, 0) : undefined,
+          dependentRatePpm,
+          baseEmployeeAmountMinor: allParts.length === 1 ? allParts[0]!.baseEmployeeAmountMinor : undefined,
+          baseEmployeeAmountYuan: allParts.length === 1 ? allParts[0]!.baseEmployeeAmountYuan : undefined,
+          dependentMultiplier, ruleId: ruleIds.length === 1 ? ruleIds[0] : null, ruleIds, sourceKind,
+          components: insuranceEntries.flatMap((entry) => entry.breakdown.parts.map((part) => ({
+            component: part.component, ruleId: part.ruleId, employeeRatePpm: part.employeeRatePpm, employeeAmountMinor: part.employeeAmountMinor,
+            totalRatePpm: part.totalRatePpm, employeeSharePpm: part.employeeSharePpm,
+            ...(scheme === "labor" ? { coverageStart: entry.start, coverageEnd: entry.end, coverageDays: entry.coverageDays } : {}),
+          }))),
           calculationParts, formulaDetail,
         } });
       }
