@@ -10,7 +10,7 @@ import { InsuranceRateManagementDialog } from "./InsuranceRateManagementDialog.j
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeePageResponse { employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }
-interface InsuranceEdit { employment: Employment; existing: boolean; defaultSalary?: number; dependentCount?: number }
+interface InsuranceEdit { employment: Employment; existing: boolean; insuranceVersions: InsuranceVersion[]; defaultSalary?: number; dependentCount?: number }
 
 const EMPLOYEE_PAGE_SIZES = [10, 25, 50, 100] as const;
 
@@ -22,8 +22,17 @@ function today() {
 
 function currentInsurance(versions: InsuranceVersion[], scheme: InsuranceVersion["scheme"]) {
   const date = today();
-  return versions.filter((version) => version.scheme === scheme).find((version) => version.validFrom <= date && (version.validTo === null || date < version.validTo))
-    ?? versions.filter((version) => version.scheme === scheme && version.validFrom <= date).sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0];
+  const active = versions.filter((version) => version.scheme === scheme && !version.voidedAt);
+  return active.find((version) => version.validFrom <= date && (version.validTo === null || date < version.validTo))
+    ?? (versions.some((version) => version.scheme === scheme && version.voidedAt) ? undefined : active.filter((version) => version.validFrom <= date).sort((left, right) => right.validFrom.localeCompare(left.validFrom))[0]);
+}
+
+function latestInsurance(versions: InsuranceVersion[], scheme: InsuranceVersion["scheme"]) {
+  return versions.filter((version) => version.scheme === scheme).sort((left, right) => right.versionNumber - left.versionNumber || right.validFrom.localeCompare(left.validFrom))[0];
+}
+
+export function insuranceForEmployment(versions: InsuranceVersion[], employmentId: string | undefined) {
+  return employmentId === undefined ? [] : versions.filter((version) => version.employmentId === employmentId);
 }
 
 export function currentSalary(profile: Profile, employment: Employment, date = today()) {
@@ -40,21 +49,29 @@ function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canW
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   if (profile.isPending) return <HrSkeletonTableRow columns={7} />;
   if (profile.error || !profile.data) return <tr><td data-label="員工">{employee.displayName}</td><td data-label="狀態" colSpan={6}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
-  const insurance = profile.data.insurance ?? [];
+  const employment = profile.data.employments.find((item) => !item.archivedAt);
+  const insurance = insuranceForEmployment(profile.data.insurance ?? [], employment?.id);
   const labor = currentInsurance(insurance, "labor");
   const health = currentInsurance(insurance, "health");
-  const employment = profile.data.employments.find((item) => !item.archivedAt);
+  const latestLabor = latestInsurance(insurance, "labor");
+  const latestHealth = latestInsurance(insurance, "health");
   const defaultSalary = employment ? currentSalary(profile.data, employment) : undefined;
   const hasInsurance = Boolean(labor || health);
+  const hasHistory = Boolean(latestLabor || latestHealth);
+  const labelFor = (version: InsuranceVersion | undefined, current: InsuranceVersion | undefined) => current
+    ? `${current.status === "enrolled" ? "加保中" : "已退保"}／${money(current.insuredAmountMinor)}`
+    : version?.voidedAt ? "已撤回"
+      : "未設定";
+  const actionLabel = hasHistory ? "編輯勞健保" : "新增加保資料";
   return <tr>
     <td data-label="員工"><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td data-label="目前職位">{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
-    <td data-label="勞保">{labor ? `${labor.status === "enrolled" ? "加保中" : "已退保"}／${money(labor.insuredAmountMinor)}` : "未設定"}</td>
-    <td data-label="健保">{health ? `${health.status === "enrolled" ? "加保中" : "已退保"}／${money(health.insuredAmountMinor)}` : "未設定"}</td>
+    <td data-label="勞保">{labelFor(latestLabor, labor)}</td>
+    <td data-label="健保">{labelFor(latestHealth, health)}</td>
     <td data-label="眷屬">{health?.status === "enrolled" ? health.dependentCount : "—"}</td>
-    <td data-label="資料提醒">{labor?.sourceKind === "manual" || health?.sourceKind === "manual" ? "需人工覆核" : hasInsurance ? "—" : "待新增"}</td>
+    <td data-label="資料提醒">{labor?.sourceKind === "manual" || health?.sourceKind === "manual" ? "需人工覆核" : hasInsurance ? "—" : hasHistory ? "待修正" : "待新增"}</td>
     <td data-label="操作"><div className="row-actions">
-      {canWrite && employment ? <Button variant="icon" icon={hasInsurance ? "edit" : "plus"} className={hasInsurance ? "compensation-action-update" : "compensation-action-add"} title={`${hasInsurance ? "編輯勞健保" : "新增加保資料"}：${employee.displayName}`} aria-label={`${hasInsurance ? "編輯勞健保" : "新增加保資料"}：${employee.displayName}`} onClick={() => onEdit({ employment, existing: hasInsurance, defaultSalary: defaultSalary === undefined ? undefined : defaultSalary / 100, dependentCount: health?.dependentCount })} /> : null}
+      {canWrite && employment ? <Button variant="icon" icon={hasHistory ? "edit" : "plus"} className={hasHistory ? "compensation-action-update" : "compensation-action-add"} title={`${actionLabel}：${employee.displayName}`} aria-label={`${actionLabel}：${employee.displayName}`} onClick={() => onEdit({ employment, existing: hasHistory, insuranceVersions: insurance, defaultSalary: defaultSalary === undefined ? undefined : defaultSalary / 100, dependentCount: health?.dependentCount ?? latestHealth?.dependentCount })} /> : null}
     </div></td>
   </tr>;
 }
@@ -74,7 +91,7 @@ export function HrInsuranceManagement() {
   if (!canRead) return <Alert tone="danger">勞健保明細僅限全平台 HR 管理者查看。</Alert>;
   if (employeeTable.isPending) return <HrPageSkeleton variant="table" />;
   return <div className="page fills">
-    <PageHeader title="勞健保管理" description="在本頁查看全體員工投保狀態，並一次建立勞保與健保的加退保、級距與眷屬版本；歷史版本不可直接覆寫。" actions={canWrite ? <Button icon="tune" onClick={() => setRateManagementOpen(true)}>級距管理</Button> : null} />
+    <PageHeader title="勞健保管理" description="在本頁查看全體員工投保狀態，並一次建立勞保與健保的加退保、級距與眷屬版本；歷史版本不可直接覆寫，誤登時可依序撤回最新版本。" actions={canWrite ? <Button icon="tune" onClick={() => setRateManagementOpen(true)}>級距管理</Button> : null} />
     <Panel className="grows">
       <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
         <SearchFilterInput label="搜尋" placeholder="搜尋員工編號、姓名或 Email" value={employeeFilters.search} onSearch={(search) => setEmployeeFilters((current) => ({ ...current, search, page: 1 }))} />
@@ -90,7 +107,7 @@ export function HrInsuranceManagement() {
       {!employeeTable.data?.employees.length ? <p className="empty-state">{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</p> : null}
       {employeeTable.data && employeeTable.data.total > 0 ? <Pager page={employeeTable.data.page} pageSize={employeeTable.data.pageSize} pageSizes={EMPLOYEE_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(employeeTable.data.total / employeeTable.data.pageSize))} totalLabel={`共 ${employeeTable.data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => setEmployeeFilters((current) => ({ ...current, page }))} onPageSize={(pageSize) => setEmployeeFilters((current) => ({ ...current, pageSize, page: 1 }))} /> : null}
     </Panel>
-    {editing ? <InsuranceEditor employment={editing.employment} existing={editing.existing} defaultSalary={editing.defaultSalary} defaultDependentCount={editing.dependentCount} onClose={() => setEditing(null)} /> : null}
+    {editing ? <InsuranceEditor employment={editing.employment} existing={editing.existing} insuranceVersions={editing.insuranceVersions} defaultSalary={editing.defaultSalary} defaultDependentCount={editing.dependentCount} onClose={() => setEditing(null)} /> : null}
     {rateManagementOpen ? <InsuranceRateManagementDialog year={Number(year)} onClose={() => setRateManagementOpen(false)} /> : null}
   </div>;
 }

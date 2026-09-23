@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../shell/Toast.js";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Alert, Button, Dialog, Field, SelectField, TextField } from "../../ui/index.js";
-import { useHrInsuranceEstimate, useHrQuery, useHrWrite, type Employment, type InsuranceBracket, type InsuranceContributionEstimate, type InsuranceEstimateRequest, type InsuranceRateTableRecord } from "./api.js";
+import { useHrInsuranceEstimate, useHrQuery, useHrWrite, type Employment, type InsuranceBracket, type InsuranceContributionEstimate, type InsuranceEstimateRequest, type InsuranceRateTableRecord, type InsuranceVersion } from "./api.js";
 
 const INSURANCE_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
 const SCHEMES = ["labor", "health"] as const;
@@ -9,6 +10,10 @@ const ESTIMATE_DEBOUNCE_MS = 180;
 const AUTO_BRACKET = "__auto__";
 
 type InsuranceScheme = typeof SCHEMES[number];
+
+function latestVersion(versions: InsuranceVersion[], scheme: InsuranceScheme) {
+  return versions.filter((version) => version.scheme === scheme).sort((left, right) => right.versionNumber - left.versionNumber || right.validFrom.localeCompare(left.validFrom))[0];
+}
 
 function taipeiToday(): string {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
@@ -46,19 +51,28 @@ function estimateRateLabel(estimate: InsuranceContributionEstimate | undefined, 
 }
 
 /**
- * existing 決定生效日的預設值：新加保與版本更新都從今天起算，存的時候由後端關閉前一個版本。
+ * existing 決定生效日的預設值：一般新版本從今天起算；撤回後沿用被撤回版本的生效日，才能直接建立修正版。
  */
-export function InsuranceEditor({ employment, existing, defaultSalary, defaultDependentCount, onClose }: { employment: Employment; existing: boolean; defaultSalary?: number; defaultDependentCount?: number; onClose: () => void }) {
+export function InsuranceEditor({ employment, existing, insuranceVersions, defaultSalary, defaultDependentCount, onClose }: { employment: Employment; existing: boolean; insuranceVersions: InsuranceVersion[]; defaultSalary?: number; defaultDependentCount?: number; onClose: () => void }) {
+  const latestInsuranceVersions = SCHEMES.map((scheme) => latestVersion(insuranceVersions, scheme)).filter((version): version is InsuranceVersion => Boolean(version));
+  const activeInsuranceVersions = insuranceVersions.filter((version) => !version.voidedAt);
+  const allVoided = insuranceVersions.length > 0 && activeInsuranceVersions.length === 0;
+  const voidableVersions = SCHEMES.map((scheme) => latestVersion(activeInsuranceVersions, scheme)).filter((version): version is InsuranceVersion => Boolean(version));
+  const firstInsuranceVersion = insuranceVersions.slice().sort((left, right) => left.validFrom.localeCompare(right.validFrom) || left.versionNumber - right.versionNumber)[0];
+  const latestVoidedVersion = latestInsuranceVersions.filter((version) => version.voidedAt).sort((left, right) => right.versionNumber - left.versionNumber || right.validFrom.localeCompare(left.validFrom))[0];
+  const initialValidFrom = allVoided ? firstInsuranceVersion?.validFrom ?? taipeiToday() : latestVoidedVersion?.validFrom ?? taipeiToday();
   const currentYear = taipeiToday().slice(0, 4);
   const [status, setStatus] = useState<"enrolled" | "withdrawn">("enrolled");
-  const [validFrom, setValidFrom] = useState(taipeiToday());
+  const [validFrom, setValidFrom] = useState(initialValidFrom);
   const [salary, setSalary] = useState(defaultSalary === undefined ? "" : String(defaultSalary));
   const [bracketSelections, setBracketSelections] = useState<Record<InsuranceScheme, string>>({ labor: AUTO_BRACKET, health: AUTO_BRACKET });
   const [dependents, setDependents] = useState(String(defaultDependentCount ?? 0));
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
+  const [voidConfirmation, setVoidConfirmation] = useState(false);
   const table = useHrQuery<{ tables: InsuranceRateTableRecord[] }>(`/insurance-rates?year=${encodeURIComponent(currentYear)}`);
   const save = useHrWrite<{ ids: string[] }>();
+  const voidInsurance = useHrWrite<{ ids: string[] }>();
   const toast = useToast();
   const closeRequestRef = useRef<(() => void) | null>(null);
   const activeTables = useMemo(() => new Map(table.data?.tables.filter((item) => item.status === "active").map((item) => [item.scheme, item])), [table.data?.tables]);
@@ -105,8 +119,15 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
   const totalPremium = laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined && healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined
     ? laborEstimate.employeeAmountMinor + healthEstimate.employeeAmountMinor
     : undefined;
+  const voidLatest = () => {
+    if (!voidableVersions.length) return;
+    voidInsurance.mutate({ path: `/employments/${employment.id}/insurance/void`, method: "POST", values: { versionIds: voidableVersions.map((version) => version.id) } }, {
+      onSuccess: () => { setVoidConfirmation(false); toast.show("已撤回最新勞健保版本。"); onClose(); },
+    });
+  };
 
-  return <Dialog title={existing ? "編輯勞健保" : "新增加保資料"} titleMeta="勞保與健保一起建立版本" className="hr-insurance-dialog" onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
+  return <>
+    <Dialog title={existing ? "編輯勞健保" : "新增加保資料"} titleMeta="勞保與健保一起建立版本" className="hr-insurance-dialog" onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending || voidInsurance.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     const healthDependents = Number(dependents);
     if (status === "enrolled") {
@@ -136,7 +157,11 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
       };
     };
     save.mutate({ path: `/employments/${employment.id}/insurance`, method: "POST", values: { versions: SCHEMES.map(valuesFor) } }, { onSuccess: () => { toast.show(existing ? "勞健保資料已更新" : "加保資料已建立"); (closeRequestRef.current ?? onClose)(); } });
-  } }} actions={<Button type="submit" loading={save.isPending}>儲存</Button>}>
+  } }} actions={<>
+    {voidableVersions.length ? <Button variant="danger" icon="history" disabled={save.isPending || voidInsurance.isPending} onClick={() => setVoidConfirmation(true)}>撤回最新版本</Button> : null}
+    <Button type="submit" loading={save.isPending} disabled={voidInsurance.isPending}>儲存</Button>
+  </>}>
+    <p>{allVoided ? "所有勞健保版本已撤回；請重新填寫要建立的版本，生效日已帶入最初版本日期。" : existing ? "更新會建立新的勞健保版本，不會覆寫既有紀錄；若上一筆輸入錯誤，可先撤回最新版本，再以原生效日建立修正版。" : "系統會用目前啟用的官方級距依實際月薪自動帶入勞保與健保投保金額；每年級距調整後，再由系統整理需要調整的人員提醒管理者。"}</p>
     <Field label="狀態"><div className="segmented-control" role="group" aria-label="勞健保狀態">
       <button type="button" className={status === "enrolled" ? "selected" : ""} onClick={() => setStatus("enrolled")}>加保／變更級距</button>
       <button type="button" className={status === "withdrawn" ? "selected" : ""} onClick={() => setStatus("withdrawn")}>退保</button>
@@ -174,6 +199,17 @@ export function InsuranceEditor({ employment, existing, defaultSalary, defaultDe
     <TextField label="備註" required={SCHEMES.some(usesManualSource) && status === "enrolled"} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint={SCHEMES.some(usesManualSource) && status === "enrolled" ? "人工來源必須留下覆核備註。" : undefined} />
     {table.error ? <Alert tone="danger">{table.error.message}；請取得並啟用級距後再儲存。</Alert> : null}
     {status === "enrolled" && !table.isPending && SCHEMES.some((scheme) => !activeTables.get(scheme)) ? <Alert tone="warning">目前年度尚未有完整已啟用的級距；請先按「取得級距」並啟用後再儲存。</Alert> : null}
-    {message || save.error || calculationError ? <Alert tone="danger">{message || save.error?.message || calculationError?.message}</Alert> : null}
-  </Dialog>;
+    {message || save.error || voidInsurance.error || calculationError ? <Alert tone="danger">{message || save.error?.message || voidInsurance.error?.message || calculationError?.message}</Alert> : null}
+    </Dialog>
+    {voidConfirmation ? <ConfirmDialog
+      title="撤回最新勞健保版本？"
+      confirmLabel="撤回版本"
+      pending={voidInsurance.isPending}
+      onCancel={() => setVoidConfirmation(false)}
+      onConfirm={voidLatest}
+    >
+      <p>這會撤回 <strong>{voidableVersions.length === 2 ? "最新勞保與健保版本" : "最新勞健保版本"}</strong>；資料不會刪除，既有月份的薪資快照也不會被改動。</p>
+      <p className="muted">撤回後會回到上一個仍有效的版本；可重複撤回，直到第一版，再用原生效日建立修正版。</p>
+    </ConfirmDialog> : null}
+  </>;
 }

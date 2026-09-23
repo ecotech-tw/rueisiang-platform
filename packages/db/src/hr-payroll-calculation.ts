@@ -455,7 +455,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrCalendarDayScopes).where(sql`${hrCalendarDayScopes.date} >= ${input.period.start} AND ${hrCalendarDayScopes.date} < ${input.period.end}`),
     db.select().from(hrCompensationVersions).where(and(inArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
     db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
-    db.select().from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.validFrom} <= ${input.period.start}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} > ${input.period.start})`)),
+    db.select().from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} <= ${input.period.start}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} > ${input.period.start})`)),
     listHrInsuranceContributionRules(db, input.period.start),
     db.select().from(hrLeaveRequests).where(and(eq(hrLeaveRequests.status, "approved"), inArray(hrLeaveRequests.employmentId, employmentIds), sql`${hrLeaveRequests.startsOn} < ${input.period.end}`, sql`${hrLeaveRequests.endsOn} > ${input.period.start}`)),
     db.select().from(hrAnnualLeaveEntitlements).where(sql`${hrAnnualLeaveEntitlements.employmentId} IN (${employmentValues})`),
@@ -749,6 +749,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   ));
   const compensationItems = compensations.length ? await db.select().from(hrCompensationItems).where(inArray(hrCompensationItems.compensationVersionId, compensations.map((item) => item.id))) : [];
   const insurance = await db.select().from(hrInsuranceVersions).where(and(
+    sql`${hrInsuranceVersions.voidedAt} IS NULL`,
     sql`${hrInsuranceVersions.validFrom} < ${period.end}`,
     sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} > ${period.start})`,
   ));

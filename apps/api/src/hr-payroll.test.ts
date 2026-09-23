@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { desc, eq } from "drizzle-orm";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { activityEvents, hrInsuranceVersions, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -231,6 +231,63 @@ describe("HR 薪資與勞健保", () => {
     const withdrawn = (scheme: string) => ({ scheme, status: "withdrawn", validFrom: "2026-03-01", insuredAmountMinor: 0, dependentCount: 0, rateYear: 2026, sourceKind: "official", sourceUrl: "", note: "" });
     const blankNote = await request(path, "POST", { versions: [withdrawn("labor"), withdrawn("health")] });
     expect(blankNote.status, await blankNote.clone().text()).toBe(201);
+  });
+
+  it("最新勞健保版本可依序撤回到第一版並在原生效日建立修正版", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const path = `/hr/employments/${employmentId}/insurance`;
+    const version = (scheme: "labor" | "health", validFrom: string, insuredAmountMinor: number) => ({ scheme, status: "enrolled", validFrom, insuredAmountMinor, dependentCount: scheme === "health" ? 1 : 0, rateYear: 2026, sourceKind: "manual", note: "測試投保" });
+    const detail = async () => (await (await request("/hr/employees/employee")).json() as { insurance: Array<{ id: string; scheme: string; validFrom: string; validTo: string | null; voidedAt: string | null; voidedBy: string | null }> }).insurance;
+
+    expect((await request(path, "POST", { versions: [version("labor", "2026-01-01", 3_000_000), version("health", "2026-01-01", 3_000_000)] })).status).toBe(201);
+    expect((await request(path, "POST", { versions: [version("labor", "2026-02-01", 3_500_000), version("health", "2026-02-01", 3_500_000)] })).status).toBe(201);
+    const beforeVoid = await detail();
+    const latest = beforeVoid.filter((item) => item.validFrom === "2026-02-01");
+    const first = beforeVoid.filter((item) => item.validFrom === "2026-01-01");
+    expect(latest).toHaveLength(2);
+    expect(first).toHaveLength(2);
+    expect((await request(`${path}/${first[0]!.id}/void`, "POST", {})).status).toBe(409);
+    // 舊 migration 建立的版本沒有 superseded metadata，撤回不能從 validTo 猜測前一版原本是否開放。
+    const db = createDatabase(d1 as never);
+    for (const item of first) await db.update(hrInsuranceVersions).set({ supersededValidTo: null, supersededByVersionId: null }).where(eq(hrInsuranceVersions.id, item.id));
+
+    const voided = await request(`/hr/employments/${employmentId}/insurance/void`, "POST", { versionIds: latest.map((item) => item.id) });
+    expect(voided.status, await voided.clone().text()).toBe(200);
+    const afterLatestVoid = await detail();
+    expect(afterLatestVoid).toEqual(expect.arrayContaining([
+      expect.objectContaining({ validFrom: "2026-02-01", voidedAt: expect.any(String), voidedBy: "admin" }),
+      expect.objectContaining({ validFrom: "2026-01-01", validTo: "2026-02-01", voidedAt: null }),
+    ]));
+
+    expect((await request(path, "POST", { versions: [version("labor", "2026-02-01", 3_600_000), version("health", "2026-02-01", 3_600_000)] })).status).toBe(201);
+    const beforeFirstVoid = await detail();
+    const replacement = beforeFirstVoid.filter((item) => item.validFrom === "2026-02-01" && !item.voidedAt);
+    const original = beforeFirstVoid.filter((item) => item.validFrom === "2026-01-01");
+    expect(replacement).toHaveLength(2);
+    expect((await request(`/hr/employments/${employmentId}/insurance/void`, "POST", { versionIds: replacement.map((item) => item.id) })).status).toBe(200);
+    expect((await request(`/hr/employments/${employmentId}/insurance/void`, "POST", { versionIds: original.map((item) => item.id) })).status).toBe(200);
+    expect((await detail()).filter((item) => item.voidedAt)).toHaveLength(6);
+
+    expect((await request(path, "POST", { versions: [version("labor", "2026-01-01", 3_700_000), version("health", "2026-01-01", 3_700_000)] })).status).toBe(201);
+  });
+
+  it("缺少撤回 metadata 時不會延長明確結束的前一版", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const path = `/hr/employments/${employmentId}/insurance`;
+    expect((await request(path, "POST", { versions: [{ scheme: "labor", status: "enrolled", validFrom: "2026-01-01", validTo: "2026-02-01", insuredAmountMinor: 3_000_000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試明確迄日" }] })).status).toBe(201);
+    expect((await request(path, "POST", { versions: [{ scheme: "labor", status: "enrolled", validFrom: "2026-02-01", validTo: null, insuredAmountMinor: 3_500_000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試後續版本" }] })).status).toBe(201);
+    const beforeVoid = await (await request("/hr/employees/employee")).json() as { insurance: Array<{ id: string; validFrom: string; validTo: string | null }> };
+    const latest = beforeVoid.insurance.find((version) => version.validFrom === "2026-02-01")!;
+    const voided = await request(`/hr/employments/${employmentId}/insurance/${latest.id}/void`, "POST", {});
+    expect(voided.status, await voided.clone().text()).toBe(200);
+    const afterVoid = await (await request("/hr/employees/employee")).json() as { insurance: Array<{ validFrom: string; validTo: string | null }> };
+    expect(afterVoid.insurance).toEqual(expect.arrayContaining([
+      expect.objectContaining({ validFrom: "2026-01-01", validTo: "2026-02-01" }),
+    ]));
   });
 
   it("邀請中、還沒登入過平台的員工照樣列入薪資試算", async () => {
