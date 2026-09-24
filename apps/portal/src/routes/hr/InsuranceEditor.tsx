@@ -177,7 +177,12 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
     <Button type="submit" loading={save.isPending} disabled={voidInsurance.isPending}>儲存</Button>
   </>}>
     <p>{allVoided ? "所有勞健保版本已撤回；請重新填寫要建立的版本，生效日已帶入最初版本日期。" : existing ? "這裡會建立新的勞健保版本，不會覆寫既有紀錄；若上一筆輸入錯誤，可先撤回最新版本，再以原生效日建立修正版。" : "系統會用目前啟用的官方級距依實際月薪自動帶入勞保與健保投保金額；每年級距調整後，再由系統整理需要調整的人員提醒管理者。"}</p>
-    {existing && currentVersionDateSummary ? <Alert tone="info">目前已保存版本的生效日：<strong>{currentVersionDateSummary}</strong>。建立新版本時，請在下方填寫新的生效日。</Alert> : null}
+    {existing && currentVersionDateSummary ? <>
+      <Field label="目前已保存版本的生效日" hint="歷史版本不會被覆寫；若要建立修正版，請先撤回最新版本。">
+        <p className="field-static">{currentVersionDateSummary}</p>
+      </Field>
+      <Alert tone="info">下方日期是即將建立的新版本生效日；目前保存的日期請以上方唯讀資訊為準。</Alert>
+    </> : null}
     <Field label="狀態"><div className="segmented-control" role="group" aria-label="勞健保狀態">
       <button type="button" className={status === "enrolled" ? "selected" : ""} onClick={() => setStatus("enrolled")}>加保／變更級距</button>
       <button type="button" className={status === "withdrawn" ? "selected" : ""} onClick={() => setStatus("withdrawn")}>退保</button>
