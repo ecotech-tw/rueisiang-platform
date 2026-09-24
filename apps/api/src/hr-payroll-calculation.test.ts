@@ -139,6 +139,24 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(lines.find((line) => line.lineKey === "health_insurance")).toMatchObject({ amountMinor: 71_000 });
   });
 
+  it("勞保版本在 31 日切換時，前一版本仍計入 3/1～3/30", async () => {
+    d1.sqlite.exec(`
+      UPDATE hr_insurance_versions SET valid_from='2026-03-01', valid_to='2026-03-31'
+        WHERE employment_id='dev-employment-lin' AND scheme='labor';
+      INSERT INTO hr_insurance_versions (id, employment_id, scheme, version_number, status, valid_from, valid_to, insured_amount_minor, dependent_count, rate_year, source_kind, source_url, note, created_by)
+        SELECT 'test-labor-version-0331', employment_id, scheme, 2, 'enrolled', '2026-03-31', NULL, insured_amount_minor, dependent_count, rate_year, source_kind, source_url, note, 'dev-eli-lin@ecotech.tw'
+        FROM hr_insurance_versions
+        WHERE employment_id='dev-employment-lin' AND scheme='labor' AND version_number=1;
+    `);
+    const response = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-03", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-insurance-switch-march-31",
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; explanation: { components?: Array<{ coverageDays?: number }> } }> }> } };
+    const labor = body.run.employees[0]!.lines.find((line) => line.lineKey === "labor_insurance");
+    expect(labor?.explanation.components?.map((component) => component.coverageDays)).toEqual([30, 30, 1, 1]);
+  });
+
   it("健保月中退保不計當月，勞保計至退保當日", async () => {
     const path = "/hr/employments/dev-employment-lin/insurance";
     const enrolled = (scheme: "labor" | "health") => ({ scheme, status: "enrolled", validFrom: "2026-02-10", insuredAmountMinor: 4_580_000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "月中退保測試" });

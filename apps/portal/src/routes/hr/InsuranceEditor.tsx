@@ -15,11 +15,17 @@ function latestVersion(versions: InsuranceVersion[], scheme: InsuranceScheme) {
   return versions.filter((version) => version.scheme === scheme).sort((left, right) => right.versionNumber - left.versionNumber || right.validFrom.localeCompare(left.validFrom))[0];
 }
 
-export function insuranceVersionDateSummary(versions: InsuranceVersion[]) {
+function activeLatestVersions(versions: InsuranceVersion[]) {
   const activeVersions = versions.filter((version) => !version.voidedAt);
-  return SCHEMES.map((scheme) => latestVersion(activeVersions, scheme))
-    .filter((version): version is InsuranceVersion => Boolean(version))
-    .map((version) => `${INSURANCE_LABEL[version.scheme]} ${version.validFrom}`);
+  return SCHEMES.map((scheme) => latestVersion(activeVersions, scheme)).filter((version): version is InsuranceVersion => Boolean(version));
+}
+
+export function currentInsuranceVersionDate(versions: InsuranceVersion[]) {
+  return activeLatestVersions(versions).map((version) => version.validFrom).sort((left, right) => right.localeCompare(left))[0];
+}
+
+export function insuranceVersionDateSummary(versions: InsuranceVersion[]) {
+  return activeLatestVersions(versions).map((version) => `${INSURANCE_LABEL[version.scheme]} ${version.validFrom}`);
 }
 
 function taipeiToday(): string {
@@ -59,7 +65,7 @@ function estimateRateLabel(estimate: InsuranceContributionEstimate | undefined, 
 
 /**
  * 生效日只提供預設值，儲存時仍以表單目前的值為準：初次加保沿用服務年資起算日，
- * 一般新版本從今天起算；撤回後沿用被撤回版本的生效日，才能直接建立修正版。
+ * 既有版本先帶入目前生效日，建立新版本前可改成新的日期；撤回後沿用被撤回版本的生效日，才能直接建立修正版。
  */
 export function InsuranceEditor({ employment, existing, insuranceVersions, defaultSalary, defaultDependentCount, onClose }: { employment: Employment; existing: boolean; insuranceVersions: InsuranceVersion[]; defaultSalary?: number; defaultDependentCount?: number; onClose: () => void }) {
   const latestInsuranceVersions = SCHEMES.map((scheme) => latestVersion(insuranceVersions, scheme)).filter((version): version is InsuranceVersion => Boolean(version));
@@ -68,12 +74,13 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
   const voidableVersions = SCHEMES.map((scheme) => latestVersion(activeInsuranceVersions, scheme)).filter((version): version is InsuranceVersion => Boolean(version));
   const firstInsuranceVersion = insuranceVersions.slice().sort((left, right) => left.validFrom.localeCompare(right.validFrom) || left.versionNumber - right.versionNumber)[0];
   const latestVoidedVersion = latestInsuranceVersions.filter((version) => version.voidedAt).sort((left, right) => right.versionNumber - left.versionNumber || right.validFrom.localeCompare(left.validFrom))[0];
-  const currentVersionDateSummary = insuranceVersionDateSummary(insuranceVersions).join("、");
   const isCorrection = allVoided || Boolean(latestVoidedVersion);
+  const currentVersionValidFrom = currentInsuranceVersionDate(insuranceVersions);
   const initialValidFrom = allVoided
     ? firstInsuranceVersion?.validFrom ?? taipeiToday()
-    : latestVoidedVersion?.validFrom ?? (!existing ? employment.serviceStartOn ?? taipeiToday() : taipeiToday());
+    : latestVoidedVersion?.validFrom ?? (!existing ? employment.serviceStartOn ?? taipeiToday() : currentVersionValidFrom ?? taipeiToday());
   const validFromLabel = !existing ? "生效日" : isCorrection ? "修正版生效日" : "新版本生效日";
+  const validFromHint = existing && !isCorrection ? "目前版本生效日已帶入；建立新版本請選擇新的日期。若要以原日期修正，請先撤回最新版本。" : undefined;
   const currentYear = taipeiToday().slice(0, 4);
   const [status, setStatus] = useState<"enrolled" | "withdrawn">("enrolled");
   const [validFrom, setValidFrom] = useState(initialValidFrom);
@@ -144,6 +151,10 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
     event.preventDefault();
     const submittedValidFrom = new FormData(event.currentTarget).get("validFrom");
     if (typeof submittedValidFrom !== "string" || !submittedValidFrom) { setMessage("請填寫生效日。"); return; }
+    if (existing && !isCorrection && activeInsuranceVersions.some((version) => version.validFrom === submittedValidFrom)) {
+      setMessage("目前版本已使用此生效日；若要建立新版本，請選擇新的日期。若要修正原版本，請先撤回最新版本。");
+      return;
+    }
     const healthDependents = Number(dependents);
     if (status === "enrolled") {
       for (const scheme of SCHEMES) {
@@ -177,12 +188,11 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
     <Button type="submit" loading={save.isPending} disabled={voidInsurance.isPending}>儲存</Button>
   </>}>
     <p>{allVoided ? "所有勞健保版本已撤回；請重新填寫要建立的版本，生效日已帶入最初版本日期。" : existing ? "這裡會建立新的勞健保版本，不會覆寫既有紀錄；若上一筆輸入錯誤，可先撤回最新版本，再以原生效日建立修正版。" : "系統會用目前啟用的官方級距依實際月薪自動帶入勞保與健保投保金額；每年級距調整後，再由系統整理需要調整的人員提醒管理者。"}</p>
-    {existing && currentVersionDateSummary ? <Alert tone="info">目前已保存版本的生效日：<strong>{currentVersionDateSummary}</strong>。建立新版本時，請在下方填寫新的生效日。</Alert> : null}
     <Field label="狀態"><div className="segmented-control" role="group" aria-label="勞健保狀態">
       <button type="button" className={status === "enrolled" ? "selected" : ""} onClick={() => setStatus("enrolled")}>加保／變更級距</button>
       <button type="button" className={status === "withdrawn" ? "selected" : ""} onClick={() => setStatus("withdrawn")}>退保</button>
     </div></Field>
-    <TextField name="validFrom" label={validFromLabel} type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
+    <TextField name="validFrom" label={validFromLabel} type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} hint={validFromHint} />
     {status === "enrolled" ? <>
       <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="勞保／健保級距會依月薪自動帶入，也可以從下拉選單選擇其他級距。" />
       <div className="form-grid two">
