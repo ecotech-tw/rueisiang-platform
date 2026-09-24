@@ -389,10 +389,13 @@ function insurancePeriodBoundaries(
 
 function laborInsuranceCoverageDays(start: string, end: string, periodEnd: string, includeEnd = false) {
   // 勞保的大小月不是曆日天數：區間結束在下個月一日視為第 31 個邊界，
-  // 讓 2/28 加保得到 30 - 28 + 1 = 3 日；月內日期 31 則視為第 30 日。
+  // 讓 2/28 加保得到 30 - 28 + 1 = 3 日；月內 31 日是邊界，不應把前一段少算一天。
   const startDay = Math.min(Number(start.slice(8, 10)), 30);
-  const endDay = end === periodEnd ? 31 : Math.min(Number(end.slice(8, 10)), 30);
-  return Math.max(0, endDay - startDay + (includeEnd ? 1 : 0));
+  const endCalendarDay = Number(end.slice(8, 10));
+  const endDay = end === periodEnd || endCalendarDay === 31 ? 31 : Math.min(endCalendarDay, 30);
+  // 31 日已經是固定 30 日制的邊界；退保日為 31 日時不可再額外 +1。
+  const includeBoundary = includeEnd && endCalendarDay !== 31;
+  return Math.max(0, endDay - startDay + (includeBoundary ? 1 : 0));
 }
 
 function employeeSelected(employee: { employeeUserId: string; attendanceMode: string }, input: HrPayrollCalculationInput): boolean {
