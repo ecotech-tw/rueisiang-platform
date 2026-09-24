@@ -21,7 +21,7 @@ function activeLatestVersions(versions: InsuranceVersion[]) {
 }
 
 export function currentInsuranceVersionDate(versions: InsuranceVersion[]) {
-  return activeLatestVersions(versions).sort((left, right) => right.versionNumber - left.versionNumber || right.validFrom.localeCompare(left.validFrom))[0]?.validFrom;
+  return activeLatestVersions(versions).map((version) => version.validFrom).sort((left, right) => right.localeCompare(left))[0];
 }
 
 export function insuranceVersionDateSummary(versions: InsuranceVersion[]) {

@@ -12,11 +12,11 @@ function version(overrides: Partial<InsuranceVersion>): InsuranceVersion {
 }
 
 describe("勞健保版本生效日顯示", () => {
-  it("以目前仍有效的版本日期作為日期欄位預設值", () => {
+  it("以目前仍有效版本中最晚的生效日作為日期欄位預設值", () => {
     expect(currentInsuranceVersionDate([
       version({ id: "labor-current", scheme: "labor", validFrom: "2026-08-03", versionNumber: 2 }),
-      version({ id: "health-current", scheme: "health", validFrom: "2026-08-03", versionNumber: 1, dependentCount: 1 }),
-    ])).toBe("2026-08-03");
+      version({ id: "health-current", scheme: "health", validFrom: "2026-08-10", versionNumber: 1, dependentCount: 1 }),
+    ])).toBe("2026-08-10");
   });
 
   it("顯示目前仍有效的最新版本，不把已撤回日期誤當成目前日期", () => {
