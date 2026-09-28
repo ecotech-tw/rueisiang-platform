@@ -71,7 +71,7 @@ export async function listHrSpecialWorkdayRules(db: Database) {
 }
 
 export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?: string, periodEnd?: string) {
-  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleVersionNumber: hrSpecialWorkdayRuleVersions.versionNumber, ruleVersionVoidedAt: hrSpecialWorkdayRuleVersions.voidedAt, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName }).from(hrSpecialWorkdayAssignments)
+  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleVersionNumber: hrSpecialWorkdayRuleVersions.versionNumber, ruleVersionVoidedAt: hrSpecialWorkdayRuleVersions.voidedAt, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(trim(${hrEmployments.legalName}), ''), nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName }).from(hrSpecialWorkdayAssignments)
     .innerJoin(hrSpecialWorkdayRuleVersions, eq(hrSpecialWorkdayRuleVersions.id, hrSpecialWorkdayAssignments.ruleVersionId)).leftJoin(hrEmployments, eq(hrEmployments.id, hrSpecialWorkdayAssignments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).leftJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrSpecialWorkdayAssignments.workerId))
     .where(and(periodStart ? sql`${hrSpecialWorkdayAssignments.workDate} >= ${periodStart}` : undefined, periodEnd ? sql`${hrSpecialWorkdayAssignments.workDate} < ${periodEnd}` : undefined)).orderBy(asc(hrSpecialWorkdayAssignments.workDate));
   return rows;

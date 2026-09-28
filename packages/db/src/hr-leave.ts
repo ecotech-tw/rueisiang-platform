@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { allocateHrAnnualLeave } from "./hr-annual-leave.js";
 import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { hrEmployments } from "./schema/hr-people.js";
@@ -15,7 +15,7 @@ const STANDARD_WORKDAY_START = "09:00:00";
 const STANDARD_WORKDAY_END = "18:00:00";
 const STANDARD_LUNCH_START = "12:00:00";
 const STANDARD_LUNCH_END = "13:00:00";
-const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
+const displayName = hrEmployeeName;
 
 export interface HrLeaveDurationInput {
   employeeUserId: string;

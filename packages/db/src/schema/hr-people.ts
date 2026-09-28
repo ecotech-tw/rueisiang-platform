@@ -16,6 +16,7 @@ export const hrEmployments = sqliteTable("hr_employments", {
   id: text("id").primaryKey(),
   employeeUserId: text("employee_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   employeeNumber: text("employee_number").notNull(),
+  legalName: text("legal_name").notNull().default(""),
   position: text("position").notNull().default("一般職員"),
   supervisorUserId: text("supervisor_user_id").references(() => users.id, { onDelete: "restrict" }),
   archivedAt: text("archived_at"),

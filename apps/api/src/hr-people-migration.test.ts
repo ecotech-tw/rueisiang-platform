@@ -55,7 +55,7 @@ describe("HR 新增式 migration", () => {
     try {
       sqlite.exec("PRAGMA foreign_keys=ON");
       for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file < "0174_").sort()) apply(sqlite, file);
-      sqlite.exec("INSERT INTO users(id,email,status) VALUES ('u','u@example.test','active'),('sup','sup@example.test','active'),('other','other@example.test','active');");
+      sqlite.exec("INSERT INTO users(id,email,status,display_name,google_name) VALUES ('u','u@example.test','active','帳號自訂名','Google 名稱'),('sup','sup@example.test','active','主管帳號名','主管 Google 名稱'),('other','other@example.test','active','','其他 Google 名稱');");
       sqlite.exec("INSERT INTO hr_employees(user_id,employee_number,supervisor_user_id) VALUES ('u','E1','sup'),('other','E2',NULL);");
       sqlite.exec("INSERT INTO hr_employments(id,employee_user_id,hired_on,ended_on,seniority_start_on) VALUES ('old','u','2025-01-01','2025-12-31','2025-01-01'),('current','u','2026-01-01',NULL,'2026-01-01');");
       sqlite.exec("INSERT INTO hr_employment_actions(id,employee_user_id,employment_id,action_kind,expected_revision) VALUES ('action-1','u','old','employment_ended',1);");
@@ -67,9 +67,9 @@ describe("HR 新增式 migration", () => {
 
       for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file >= "0174_").sort()) apply(sqlite, file);
 
-      expect(sqlite.prepare("SELECT employee_number, supervisor_user_id, archived_at FROM hr_employments WHERE id='current'").get()).toMatchObject({ employee_number: "E1", supervisor_user_id: "sup", archived_at: null });
-      expect(sqlite.prepare("SELECT employee_number, archived_at FROM hr_employments WHERE id='old'").get()).toMatchObject({ employee_number: "E1", archived_at: "2025-12-31" });
-      expect(sqlite.prepare("SELECT id, employee_number, archived_at FROM hr_employments WHERE employee_user_id='other'").get()).toMatchObject({ id: "legacy-employment-other", employee_number: "E2", archived_at: null });
+      expect(sqlite.prepare("SELECT employee_number, legal_name, supervisor_user_id, archived_at FROM hr_employments WHERE id='current'").get()).toMatchObject({ employee_number: "E1", legal_name: "帳號自訂名", supervisor_user_id: "sup", archived_at: null });
+      expect(sqlite.prepare("SELECT employee_number, legal_name, archived_at FROM hr_employments WHERE id='old'").get()).toMatchObject({ employee_number: "E1", legal_name: "帳號自訂名", archived_at: "2025-12-31" });
+      expect(sqlite.prepare("SELECT id, employee_number, legal_name, archived_at FROM hr_employments WHERE employee_user_id='other'").get()).toMatchObject({ id: "legacy-employment-other", employee_number: "E2", legal_name: "其他 Google 名稱", archived_at: null });
       expect(sqlite.prepare("SELECT employment_id, attendance_mode, monthly_rest_days FROM hr_employment_attendance_settings WHERE employment_id='legacy-employment-other'").get()).toEqual({ employment_id: "legacy-employment-other", attendance_mode: "general", monthly_rest_days: null });
       expect(sqlite.prepare("SELECT attendance_mode, primary_assignment_id FROM hr_employment_attendance_settings WHERE employment_id='old'").get()).toEqual({ attendance_mode: "scheduled", primary_assignment_id: "assignment-1" });
       expect(sqlite.prepare("SELECT adjustment_id, item_name, amount_minor FROM hr_payroll_adjustment_items WHERE id='adjustment-item-1'").get()).toEqual({ adjustment_id: "adjustment-1", item_name: "測試項目", amount_minor: 100 });

@@ -68,7 +68,7 @@ export function HrBonusManagement() {
   if (!canRead) return <Alert tone="danger">獎金資料僅限全平台 HR 管理者查看。</Alert>;
   if (policies.isPending || assignments.isPending || employees.isPending || scopes.isPending) return <HrPageSkeleton variant="table" />;
 
-  const employeeOptions = (employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }));
+  const employeeOptions = (employees.data?.employees ?? []).map((employee) => ({ label: `${employee.legalName}（${employee.employeeNumber}）`, value: employee.userId }));
   const scopeOptions = (scopes.data?.scopes ?? []).map((scope) => ({ label: scope.name, value: scope.id }));
   const assignmentsByVersion = new Map<string, BonusAssignment[]>();
   for (const item of assignments.data?.assignments ?? []) assignmentsByVersion.set(item.policyVersionId, [...(assignmentsByVersion.get(item.policyVersionId) ?? []), item]);

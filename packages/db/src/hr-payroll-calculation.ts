@@ -8,7 +8,7 @@ import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributionRules, listHrInsuranceContributionRules, resolveHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
 import { listHrSpecialWorkdaysForPayroll } from "./hr-special-workdays.js";
-import { HrError, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { listEffectiveDailyPayouts } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrClockEvents } from "./schema/hr-attendance.js";
@@ -83,7 +83,7 @@ function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const PAYROLL_RUN_NAME_MAX_LENGTH = 20;
 const PAYROLL_RUN_NAME_ELLIPSIS = "...";
-const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
+const displayName = hrEmployeeName;
 
 function shortenPayrollRunName(value: string): string {
   const characters = Array.from(value);
@@ -479,7 +479,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       employeeUserId: hrEmployments.employeeUserId,
       serviceStartOn: hrEmploymentServicePeriods.serviceStartOn,
     }).from(hrEmployments).leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id)).where(employmentFilter),
-    db.select({ userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, supervisorUserId: hrEmployments.supervisorUserId, revision: hrEmployments.revision, updatedAt: hrEmployments.updatedAt }).from(hrEmployments).where(sql`${hrEmployments.id} IN (${employmentValues})`),
+    db.select({ userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, legalName: hrEmployments.legalName, supervisorUserId: hrEmployments.supervisorUserId, revision: hrEmployments.revision, updatedAt: hrEmployments.updatedAt }).from(hrEmployments).where(sql`${hrEmployments.id} IN (${employmentValues})`),
     db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
     db.select().from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
     db.select().from(hrCalendarDays).where(sql`${hrCalendarDays.date} >= ${input.period.start} AND ${hrCalendarDays.date} < ${input.period.end}`),
@@ -2027,9 +2027,13 @@ export async function listHrPayrollRuns(db: Database) {
     const input = parsePayrollCalculationInput(row.calculationInputJson);
     return typeof input.runName !== "string" || !input.runName.trim();
   });
-  const legacyEmployeeNames = legacyRunRows.length
-    ? new Map((await db.select({ userId: users.id, employeeName: displayName }).from(users)).map((row) => [row.userId, row.employeeName]))
-    : new Map<string, string>();
+  const legacyEmployeeNames = new Map<string, string>();
+  if (legacyRunRows.length) {
+    const accountNames = await db.select({ userId: users.id, employeeName: displayName }).from(users)
+      .leftJoin(hrEmployments, eq(hrEmployments.employeeUserId, users.id))
+      .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.updatedAt));
+    for (const row of accountNames) if (!legacyEmployeeNames.has(row.userId)) legacyEmployeeNames.set(row.userId, row.employeeName);
+  }
   const legacyWorkerNames = legacyRunRows.length
     ? new Map((await db.select({ workerId: hrScheduleWorkers.id, workerName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers)).map((row) => [row.workerId, row.workerName]))
     : new Map<string, string>();

@@ -1,13 +1,13 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries } from "./schema/hr-payroll.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
 import { users } from "./schema/auth.js";
 
 const PPM = 1_000_000;
-const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
+const displayName = hrEmployeeName;
 
 export interface MonthlyLeaveInput {
   employmentId: string;

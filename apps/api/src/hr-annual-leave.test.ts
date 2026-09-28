@@ -34,7 +34,7 @@ beforeEach(async () => {
   await db.insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
   adminCookie = await sessionCookie("admin", "admin@example.test", "管理者");
   employeeCookie = await sessionCookie("employee", "employee@example.test", "員工");
-  const assigned = await request("/hr/employees", "POST", { userId: "employee", employeeNumber: "E-ANNUAL", position: "一般職員", serviceStartOn: "2025-03-01" });
+  const assigned = await request("/hr/employees", "POST", { userId: "employee", legalName: "特休員工", employeeNumber: "E-ANNUAL", position: "一般職員", serviceStartOn: "2025-03-01" });
   expect(assigned.status, await assigned.clone().text()).toBe(201);
 });
 

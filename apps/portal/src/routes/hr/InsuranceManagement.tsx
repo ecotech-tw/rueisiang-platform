@@ -48,7 +48,7 @@ function money(minor: number) {
 function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (edit: InsuranceEdit) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   if (profile.isPending) return <HrSkeletonTableRow columns={7} />;
-  if (profile.error || !profile.data) return <tr><td data-label="員工">{employee.displayName}</td><td data-label="狀態" colSpan={6}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
+  if (profile.error || !profile.data) return <tr><td data-label="員工">{employee.legalName}</td><td data-label="狀態" colSpan={6}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
   const employment = profile.data.employments.find((item) => !item.archivedAt);
   const insurance = insuranceForEmployment(profile.data.insurance ?? [], employment?.id);
   const labor = currentInsurance(insurance, "labor");
@@ -64,14 +64,14 @@ function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canW
       : "未設定";
   const actionLabel = hasHistory ? "建立勞健保新版本" : "新增加保資料";
   return <tr>
-    <td data-label="員工"><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
+    <td data-label="員工"><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td data-label="目前職位">{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td data-label="勞保">{labelFor(latestLabor, labor)}</td>
     <td data-label="健保">{labelFor(latestHealth, health)}</td>
     <td data-label="眷屬">{health?.status === "enrolled" ? health.dependentCount : "—"}</td>
     <td data-label="資料提醒">{labor?.sourceKind === "manual" || health?.sourceKind === "manual" ? "需人工覆核" : hasInsurance ? "—" : hasHistory ? "待修正" : "待新增"}</td>
     <td data-label="操作"><div className="row-actions">
-      {canWrite && employment ? <Button variant="icon" icon={hasHistory ? "edit" : "plus"} className={hasHistory ? "compensation-action-update" : "compensation-action-add"} title={`${actionLabel}：${employee.displayName}`} aria-label={`${actionLabel}：${employee.displayName}`} onClick={() => onEdit({ employment, existing: hasHistory, insuranceVersions: insurance, defaultSalary: defaultSalary === undefined ? undefined : defaultSalary / 100, dependentCount: health?.dependentCount ?? latestHealth?.dependentCount })} /> : null}
+      {canWrite && employment ? <Button variant="icon" icon={hasHistory ? "edit" : "plus"} className={hasHistory ? "compensation-action-update" : "compensation-action-add"} title={`${actionLabel}：${employee.legalName}`} aria-label={`${actionLabel}：${employee.legalName}`} onClick={() => onEdit({ employment, existing: hasHistory, insuranceVersions: insurance, defaultSalary: defaultSalary === undefined ? undefined : defaultSalary / 100, dependentCount: health?.dependentCount ?? latestHealth?.dependentCount })} /> : null}
     </div></td>
   </tr>;
 }

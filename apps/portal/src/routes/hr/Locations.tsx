@@ -35,7 +35,7 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
   const employment = initialEmployment;
   const locationOptions = locations.map((location) => ({ value: location.id, label: `${location.name}${location.scopeName ? `（${location.scopeName}）` : ""}` }));
   const addLocation = () => { const next = locationOptions.find((option) => !selectedLocationIds.includes(option.value)); if (next) setSelectedLocationIds((current) => [...current, next.value]); };
-  return <Dialog title={`編輯 ${profile.employee.displayName} 的出勤範圍`} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
+  return <Dialog title={`編輯 ${profile.employee.legalName} 的出勤範圍`} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     if (!employment) { setMessage("請選擇任職。"); return; }
     if (mode === "scheduled" && (!monthlyRestDays.trim() || !Number.isSafeInteger(Number(monthlyRestDays)) || Number(monthlyRestDays) < 0 || Number(monthlyRestDays) > 31)) { setMessage("請填寫 0～31 天的每月休假天數。"); return; }
@@ -62,16 +62,16 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
 function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (edit: LocationEdit) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   if (profile.isPending) return <HrSkeletonTableRow columns={5} />;
-  if (profile.error || !profile.data) return <tr><td>{employee.displayName}</td><td colSpan={5}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
+  if (profile.error || !profile.data) return <tr><td>{employee.legalName}</td><td colSpan={5}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
   const data = profile.data;
   const employment = currentEmployment(data.employments);
   const assignments = (data.attendanceAssignments ?? []).filter((assignment) => assignment.employmentId === employment?.id && activeAssignment(assignment, today()));
   return <tr>
-    <td><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
+    <td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td>{employment?.attendanceMode === "scheduled" ? "排班" : employment ? "一般辦公" : "—"}</td>
     <td><div className="hr-location-assignment-list">{assignments.length ? assignments.map((assignment) => <span className="hr-location-assignment" key={assignment.id}><span>{assignment.locationName}</span></span>) : <span className="muted">尚未指派</span>}</div></td>
-    <td>{canWrite ? <div className="row-actions"><Tooltip label={`編輯 ${employee.displayName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" aria-label={`編輯 ${employee.displayName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></div> : null}</td>
+    <td>{canWrite ? <div className="row-actions"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></div> : null}</td>
   </tr>;
 }
 

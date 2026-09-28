@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrFormRequests } from "./schema/hr-requests.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
@@ -18,11 +18,17 @@ export interface HrFormRequestInput {
 }
 
 const requesterName = sql<string | null>`(
-  SELECT coalesce(nullif(requester.display_name, ''), nullif(requester.google_name, ''), requester.email)
+  SELECT coalesce(
+    nullif((SELECT employment.legal_name FROM hr_employments AS employment WHERE employment.id = ${hrFormRequests.employmentId}), ''),
+    nullif(requester.display_name, ''), nullif(requester.google_name, ''), requester.email
+  )
   FROM users AS requester WHERE requester.id = ${hrFormRequests.employeeUserId}
 )`;
 const approverName = sql<string | null>`(
-  SELECT coalesce(nullif(approver.display_name, ''), nullif(approver.google_name, ''), approver.email)
+  SELECT coalesce(
+    nullif((SELECT employment.legal_name FROM hr_employments AS employment WHERE employment.employee_user_id = ${hrFormRequests.approverUserId} AND employment.archived_at IS NULL LIMIT 1), ''),
+    nullif(approver.display_name, ''), nullif(approver.google_name, ''), approver.email
+  )
   FROM users AS approver WHERE approver.id = ${hrFormRequests.approverUserId}
 )`;
 const formFields = {
@@ -84,10 +90,10 @@ async function ensureApprover(db: Database, employeeUserId: string, approverUser
 export async function listHrFormApprovers(db: Database, userId: string) {
   const [supervisor] = await db.select({ supervisorUserId: hrEmployments.supervisorUserId }).from(hrEmployments)
     .where(and(eq(hrEmployments.employeeUserId, userId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
-  const approvers = await db.select({ id: hrEmployments.employeeUserId, name: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` })
+  const approvers = await db.select({ id: hrEmployments.employeeUserId, name: hrEmployeeName })
     .from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(and(ne(hrEmployments.employeeUserId, userId), sql`${hrEmployments.archivedAt} IS NULL`, eq(users.status, "active")))
-    .orderBy(asc(users.displayName), asc(users.email));
+    .orderBy(asc(hrEmployeeName), asc(users.email));
   return { approvers, defaultApproverUserId: supervisor?.supervisorUserId ?? null };
 }
 

@@ -4,6 +4,8 @@ import { API_BASE_URL } from "../../config.js";
 export interface Employee {
   userId: string;
   employeeNumber: string;
+  legalName: string;
+  accountName: string;
   displayName: string;
   email: string;
   position: string;

@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrOvertimeRequests } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
@@ -66,7 +66,7 @@ async function ensureScope(db: Database, employmentId: string, scopeId: string |
   if (!row) throw new HrError(400, "加班指定的營運據點不在員工有效 Scope 指派內。 ");
 }
 
-const fields = { request: hrOvertimeRequests, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` };
+const fields = { request: hrOvertimeRequests, employeeNumber: hrEmployments.employeeNumber, employeeName: hrEmployeeName };
 
 export async function listHrOvertimeRequests(db: Database, employeeUserId?: string, includeArchived = false) {
   return db.select(fields).from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(and(

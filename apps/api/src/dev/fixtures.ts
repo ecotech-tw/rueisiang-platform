@@ -136,6 +136,7 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
       id: "dev-employment-wang",
       employeeUserId: supervisor.id,
       employeeNumber: "DEMO-WANG",
+      legalName: "王小明",
       position: "門市主管",
       supervisorUserId: null,
     }).onConflictDoNothing();
@@ -146,6 +147,7 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
     id: employmentId,
     employeeUserId,
     employeeNumber: "DEMO-CHEN",
+    legalName: "陳美玲",
     position: "一般職員",
     supervisorUserId: supervisor?.id ?? null,
   }).onConflictDoNothing();
@@ -178,13 +180,13 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
 
   const [newHire] = await db.select({ id: users.id }).from(users).where(eq(users.email, "newhire@ecotech.tw")).limit(1);
   if (newHire) {
-    await db.insert(hrEmployments).values({ id: "dev-employment-newhire", employeeUserId: newHire.id, employeeNumber: "DEMO-NEW", position: "一般職員", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
+    await db.insert(hrEmployments).values({ id: "dev-employment-newhire", employeeUserId: newHire.id, employeeNumber: "DEMO-NEW", legalName: "周子晴", position: "一般職員", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
     await ensureDevServicePeriod(db, "dev-employment-newhire", "2026-08-01");
     await db.insert(hrCompensationVersions).values({ id: "dev-comp-newhire-2026", employmentId: "dev-employment-newhire", versionNumber: 1, validFrom: "2026-08-01", validTo: null, payBasis: "monthly", baseAmountMinor: 3_200_000, note: "開發示範：新進同仁月薪 NT$32,000", createdBy: newHire.id }).onConflictDoNothing();
   }
   const [sixMonth] = await db.select({ id: users.id }).from(users).where(eq(users.email, "sixmonth@ecotech.tw")).limit(1);
   if (sixMonth) {
-    await db.insert(hrEmployments).values({ id: "dev-employment-sixmonth", employeeUserId: sixMonth.id, employeeNumber: "DEMO-SIX", position: "一般職員", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
+    await db.insert(hrEmployments).values({ id: "dev-employment-sixmonth", employeeUserId: sixMonth.id, employeeNumber: "DEMO-SIX", legalName: "許家豪", position: "一般職員", supervisorUserId: supervisor?.id ?? null }).onConflictDoNothing();
     await ensureDevServicePeriod(db, "dev-employment-sixmonth", "2026-03-01");
     await db.insert(hrCompensationVersions).values({ id: "dev-comp-sixmonth-2026", employmentId: "dev-employment-sixmonth", versionNumber: 1, validFrom: "2026-03-01", validTo: null, payBasis: "monthly", baseAmountMinor: 3_600_000, note: "開發示範：滿半年同仁月薪 NT$36,000", createdBy: sixMonth.id }).onConflictDoNothing();
   }
@@ -207,7 +209,7 @@ async function seedDevPayrollScenario(
   const ximenScopeId = DEV_ANALYTICS_SCOPES[0].id;
   const month = "2026-08";
 
-  await db.insert(hrEmployments).values({ id: linEmploymentId, employeeUserId: ids.linUserId, employeeNumber: "DEMO-LIN", position: "一般職員", supervisorUserId: ids.supervisorUserId }).onConflictDoNothing();
+  await db.insert(hrEmployments).values({ id: linEmploymentId, employeeUserId: ids.linUserId, employeeNumber: "DEMO-LIN", legalName: "林瑞翔", position: "一般職員", supervisorUserId: ids.supervisorUserId }).onConflictDoNothing();
   await ensureDevServicePeriod(db, linEmploymentId, "2025-03-01");
   await db.insert(hrEmployeeAttendanceLocations).values({ id: "dev-attendance-lin-office", employmentId: linEmploymentId, locationId: ids.locationId, validFrom: "2026-01-01" }).onConflictDoNothing();
   await db.insert(hrEmploymentAttendanceSettings).values({ employmentId: linEmploymentId, attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" })
