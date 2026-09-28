@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrAnnualLeaveBrackets, hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrAnnualLeavePolicyVersions, hrCompensationVersions, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { users } from "./schema/auth.js";
@@ -51,7 +51,7 @@ export interface HrAnnualLeaveAdjustmentInput {
   reason: string;
 }
 
-const employeeName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
+const employeeName = hrEmployeeName;
 
 function todayUtc() {
   return new Date().toISOString().slice(0, 10);

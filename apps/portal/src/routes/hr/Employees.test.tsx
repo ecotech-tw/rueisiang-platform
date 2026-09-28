@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { HrProfileDetails } from "./Employees.js";
 import type { Profile } from "./api.js";
 
-const employee: Profile["employee"] = { userId: "e", employeeNumber: "E001", position: "一般職員", displayName: "測試員工", email: "e@example.test", userStatus: "active", employmentStatus: "active", revision: 1 };
+const employee: Profile["employee"] = { userId: "e", employeeNumber: "E001", position: "一般職員", legalName: "測試員工", accountName: "Google 測試員工", displayName: "測試員工", email: "e@example.test", userStatus: "active", employmentStatus: "active", revision: 1 };
 
 describe("人事資料呈現", () => {
   it("未任職與未指派都呈現明確空狀態", () => {
@@ -34,7 +34,7 @@ describe("人事資料呈現", () => {
 
   it("呈現目前主檔與指派資料，姓名不解析為 HTML", () => {
     const profile: Profile = {
-      employee: { ...employee, displayName: "<script>alert(1)</script>" },
+      employee: { ...employee, legalName: "<script>alert(1)</script>" },
       employments: [{ id: "j1", employeeUserId: "e", employeeNumber: "E001", position: "店務主管", supervisorUserId: null, archivedAt: null, attendanceMode: "general", revision: 2 }],
       assignments: [{ id: "a", employmentId: "j1", scopeName: "測試櫃", validFrom: "2026-01-01", validTo: null, revision: 1 }],
       attendanceAssignments: [{ id: "office-a", employmentId: "j1", locationId: "office", locationName: "台北辦公室", validFrom: "2026-01-01", validTo: null, revision: 1 }],

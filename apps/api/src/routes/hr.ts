@@ -1057,14 +1057,14 @@ export const hr = new Hono<AppEnv>()
   .post("/employees", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
     return c.json(await assignHrEmployee(c.get("db"), {
-      userId: text(input, "userId", "使用者"), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
+      userId: text(input, "userId", "使用者"), legalName: text(input, "legalName", "正式姓名", 100), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
       position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: input.revision === undefined ? undefined : revision(input),
     }, c.get("user")), 201);
   })
   .patch("/employees/:id", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
     return c.json(await updateHrEmployee(c.get("db"), c.req.param("id"), {
-      employeeNumber: text(input, "employeeNumber", "員工編號", 40), position: text(input, "position", "職位", 100), revision: revision(input),
+      legalName: text(input, "legalName", "正式姓名", 100), employeeNumber: text(input, "employeeNumber", "員工編號", 40), position: text(input, "position", "職位", 100), revision: revision(input),
     }, c.get("user")));
   })
   .patch("/employees/:id/supervisor", requirePermission("hr:employee:write"), async (c) => {
@@ -1147,7 +1147,7 @@ export const hr = new Hono<AppEnv>()
   .post("/employments", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
     return c.json(await assignHrEmployee(c.get("db"), {
-      userId: text(input, "userId", "員工"), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
+      userId: text(input, "userId", "員工"), legalName: text(input, "legalName", "正式姓名", 100), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
       position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: input.revision === undefined ? undefined : revision(input),
     }, c.get("user")), 201);
   })

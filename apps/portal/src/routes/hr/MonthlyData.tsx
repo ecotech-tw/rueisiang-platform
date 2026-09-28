@@ -43,7 +43,7 @@ export function HrMonthlyData() {
   const data = useHrQuery<MonthlyResponse>(`/payroll/monthly-data?periodKey=${encodeURIComponent(periodKey)}${employeeUserId ? `&employeeUserId=${encodeURIComponent(employeeUserId)}` : ""}`, canRead && Boolean(periodKey), { keepPreviousData: false });
   const write = useHrWrite();
   const selectedEmployment = profile.data?.employments.find((employment) => !employment.archivedAt);
-  const employeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
+  const employeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.legalName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
   const leaveTypeOptions = [{ label: "請選擇假別", value: "" }, ...(data.data?.leaveTypes ?? []).map((leaveType) => ({ label: leaveType.name, value: leaveType.id }))];
 
   if (!canRead) return <Alert tone="danger">月度資料僅限全平台 HR 管理者查看。</Alert>;

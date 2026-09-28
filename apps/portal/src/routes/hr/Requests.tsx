@@ -155,7 +155,7 @@ function LeaveForm({ employees, leaveTypes, onClose, onDone, onPendingChange }: 
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.displayName}（${employee.employeeNumber}）` }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.legalName}（${employee.employeeNumber}）` }))];
   const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : ""}` }))];
   const leaveDuration = useHrLeaveDuration(employeeUserId && startsAt && endsAt ? { employeeUserId, startsAt, endsAt } : null);
   const durationMinutes = leaveDuration.data?.durationMinutes ?? null;
@@ -192,7 +192,7 @@ function OvertimeForm({ employees, onClose, onDone, onPendingChange }: { employe
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.displayName}（${employee.employeeNumber}）` }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.legalName}（${employee.employeeNumber}）` }))];
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!employeeUserId || !requestedStart || !requestedEnd || !reason.trim()) return;

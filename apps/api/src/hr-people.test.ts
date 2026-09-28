@@ -20,14 +20,14 @@ async function request(path: string, method = "GET", payload?: Record<string, un
 }
 
 async function assign(userId: string, employeeNumber = "E001", position = "一般職員", revision?: number) {
-  const response = await request("/hr/employees", "POST", { userId, employeeNumber, position, attendanceMode: "general", ...(revision === undefined ? {} : { revision }) });
+  const response = await request("/hr/employees", "POST", { userId, legalName: `正式${userId}`, employeeNumber, position, attendanceMode: "general", ...(revision === undefined ? {} : { revision }) });
   expect(response.status, await response.clone().text()).toBe(201);
   return await response.json() as { id: string; employmentId: string };
 }
 
 async function profile(userId: string) {
   return await (await request(`/hr/employees/${userId}`)).json() as {
-    employee: { userId: string; employeeNumber: string; position: string; supervisorUserId: string | null; employmentStatus: string; archivedAt: string | null };
+    employee: { userId: string; legalName: string; accountName: string; displayName: string; employeeNumber: string; position: string; supervisorUserId: string | null; employmentStatus: string; archivedAt: string | null };
     employments: Array<{ id: string; employeeNumber: string; position: string; serviceStartOn: string | null; archivedAt: string | null; revision: number }>;
   };
 }
@@ -58,10 +58,16 @@ describe("HR 扁平員工主檔", () => {
     expect(result.id).toBe("self");
     expect(result.employmentId).toBeTruthy();
     const detail = await profile("self");
-    expect(detail.employee).toMatchObject({ userId: "self", employeeNumber: "E001", position: "門市專員", employmentStatus: "active", archivedAt: null });
+    expect(detail.employee).toMatchObject({ userId: "self", legalName: "正式self", accountName: "self", displayName: "正式self", employeeNumber: "E001", position: "門市專員", employmentStatus: "active", archivedAt: null });
     expect(detail.employments).toHaveLength(1);
     expect(detail.employments[0]).toMatchObject({ id: result.employmentId, employeeNumber: "E001", position: "門市專員", archivedAt: null });
     expect((await (await request("/hr/candidates?search=self")).json() as { users: unknown[] }).users).toEqual([]);
+    expect(d1.sqlite.prepare("SELECT display_name FROM users WHERE id='self'").get()).toEqual({ display_name: "self" });
+  });
+
+  it("正式姓名必填且限制在 100 字內", async () => {
+    expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E001", position: "一般職員" })).status).toBe(400);
+    expect((await request("/hr/employees", "POST", { userId: "self", legalName: "x".repeat(101), employeeNumber: "E001", position: "一般職員" })).status).toBe(400);
   });
 
   it("可修正服務年資起算日，讓薪資使用核定的服務起算日", async () => {
@@ -79,14 +85,15 @@ describe("HR 扁平員工主檔", () => {
 
   it("升遷／調職只更新 position，不建立新的 employmentId", async () => {
     const first = await assign("self");
-    const updated = await request("/hr/employees/self", "PATCH", { employeeNumber: "E001", position: "店長", revision: (await profile("self")).employments[0]!.revision });
+    const updated = await request("/hr/employees/self", "PATCH", { legalName: "身分證姓名", employeeNumber: "E001", position: "店長", revision: (await profile("self")).employments[0]!.revision });
     expect(updated.status, await updated.clone().text()).toBe(200);
     const detail = await profile("self");
     expect(detail.employments).toHaveLength(1);
     expect(detail.employments[0]).toMatchObject({ id: first.employmentId, position: "店長" });
+    expect(detail.employee).toMatchObject({ legalName: "身分證姓名", accountName: "self", displayName: "身分證姓名" });
     const row = d1.sqlite.prepare("SELECT revision FROM hr_employments WHERE id=?").get(first.employmentId) as { revision: number };
     expect(row.revision).toBe(2);
-    expect((await request("/hr/employees/self", "PATCH", { employeeNumber: "E001", position: "過期修改", revision: 1 })).status).toBe(409);
+    expect((await request("/hr/employees/self", "PATCH", { legalName: "過期姓名", employeeNumber: "E001", position: "過期修改", revision: 1 })).status).toBe(409);
   });
 
   it("封存只寫 archivedAt，保留 employmentId、下游外鍵與稽核資料", async () => {
@@ -117,7 +124,7 @@ describe("HR 扁平員工主檔", () => {
   it("重新指派同一位使用者會清除 archivedAt，不會建立第二筆任職", async () => {
     const first = await assign("self", "E001", "原職位");
     expect((await request(`/hr/employments/${first.employmentId}/archive`, "POST", { revision: (await profile("self")).employments[0]!.revision })).status).toBe(200);
-    expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "STALE", position: "過期職位", attendanceMode: "general", revision: 1 })).status).toBe(409);
+    expect((await request("/hr/employees", "POST", { userId: "self", legalName: "過期姓名", employeeNumber: "STALE", position: "過期職位", attendanceMode: "general", revision: 1 })).status).toBe(409);
     const second = await assign("self", "E002", "新職位", 2);
     expect(second.employmentId).toBe(first.employmentId);
     const detail = await profile("self");
@@ -127,13 +134,13 @@ describe("HR 扁平員工主檔", () => {
 
   it("活動員工不能透過重新指派路徑改寫，重新啟用一般辦公會清除月休設定", async () => {
     const first = await assign("self", "E001");
-    expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "STALE", position: "不應覆寫", attendanceMode: "general", revision: 1 })).status).toBe(409);
+    expect((await request("/hr/employees", "POST", { userId: "self", legalName: "不應覆寫姓名", employeeNumber: "STALE", position: "不應覆寫", attendanceMode: "general", revision: 1 })).status).toBe(409);
     const scheduled = await request(`/hr/employments/${first.employmentId}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 8, revision: 1 });
     expect(scheduled.status, await scheduled.clone().text()).toBe(200);
     const scheduledProfile = await profile("self");
     expect((await request(`/hr/employments/${first.employmentId}/archive`, "POST", { revision: scheduledProfile.employments[0]!.revision })).status).toBe(200);
     const archived = await profile("self");
-    const reactivated = await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E002", position: "新職位", attendanceMode: "general", revision: archived.employments[0]!.revision });
+    const reactivated = await request("/hr/employees", "POST", { userId: "self", legalName: "重新啟用姓名", employeeNumber: "E002", position: "新職位", attendanceMode: "general", revision: archived.employments[0]!.revision });
     expect(reactivated.status, await reactivated.clone().text()).toBe(201);
     const setting = d1.sqlite.prepare("SELECT attendance_mode, monthly_rest_days FROM hr_employment_attendance_settings WHERE employment_id=?").get(first.employmentId);
     expect(setting).toEqual({ attendance_mode: "general", monthly_rest_days: null });
@@ -163,7 +170,7 @@ describe("HR 扁平員工主檔", () => {
 
   it("目前員工編號不可重複，封存後可由另一位員工使用", async () => {
     await assign("self", "DUP-1");
-    const duplicate = await request("/hr/employees", "POST", { userId: "other", employeeNumber: "DUP-1", position: "一般職員" });
+    const duplicate = await request("/hr/employees", "POST", { userId: "other", legalName: "正式other", employeeNumber: "DUP-1", position: "一般職員" });
     expect(duplicate.status).toBe(409);
     const self = await profile("self");
     await request(`/hr/employments/${self.employments[0]!.id}/archive`, "POST", { revision: self.employments[0]!.revision });
@@ -172,7 +179,7 @@ describe("HR 扁平員工主檔", () => {
 
   it("員工資料與帳號狀態分離，邀請中的帳號可以指派、停用帳號不能新指派", async () => {
     await expect(assign("invited", "INV-1")).resolves.toBeTruthy();
-    const disabled = await request("/hr/employees", "POST", { userId: "disabled", employeeNumber: "DIS-1", position: "一般職員" });
+    const disabled = await request("/hr/employees", "POST", { userId: "disabled", legalName: "正式disabled", employeeNumber: "DIS-1", position: "一般職員" });
     expect(disabled.status).toBe(409);
   });
 

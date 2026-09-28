@@ -303,7 +303,7 @@ function shortenPayrollRunName(value: string): string {
 function suggestedPayrollRunName(selectionMode: PayrollEmployeeSelectionMode, employees: Employee[], workers: PayrollWorkerCandidate[], selectedEmployeeIds: string[], selectedWorkerIds: string[]): string {
   if (selectionMode === "all") return "全體人員";
   const names = [
-    ...employees.filter((employee) => selectedEmployeeIds.includes(employee.userId)).map((employee) => employee.displayName),
+    ...employees.filter((employee) => selectedEmployeeIds.includes(employee.userId)).map((employee) => employee.legalName),
     ...workers.filter((worker) => selectedWorkerIds.includes(worker.id)).map((worker) => worker.displayName),
   ].join("、");
   return shortenPayrollRunName(names || "選擇人員");
@@ -436,7 +436,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             const checked = selectionMode === "all" || selectedEmployeeIds.includes(employee.userId);
             return <label className={`hr-payroll-employee-option${checked ? " selected" : ""}`} key={`employee-${employee.userId}`}>
               <input type="checkbox" checked={checked} onChange={(event) => toggleEmployee(employee.userId, event.target.checked)} />
-              <span><strong>{employee.displayName}</strong><small>{employee.employeeNumber}・{employee.position || "未設定職位"}</small></span>
+              <span><strong>{employee.legalName}</strong><small>{employee.employeeNumber}・{employee.position || "未設定職位"}</small></span>
             </label>;
           }) : <p className="muted hr-payroll-picker-empty">目前沒有符合資格的正式員工。</p>}
         </div>
@@ -503,8 +503,8 @@ export function HrPayrollSettlement() {
     setAdjustmentEffectivePeriodKey(nextMonth(selectedRun.data.run.periodKey));
   }, [selectedRun.data]);
   useEffect(() => { setAdjustmentEffectivePeriodKey(nextMonth(periodKey)); }, [periodKey]);
-  const historyEmployeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(historyEmployees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [historyEmployees.data]);
-  const adjustmentEmployeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.displayName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
+  const historyEmployeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(historyEmployees.data?.employees ?? []).map((employee) => ({ label: `${employee.legalName}（${employee.employeeNumber}）`, value: employee.userId }))], [historyEmployees.data]);
+  const adjustmentEmployeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: `${employee.legalName}（${employee.employeeNumber}）`, value: employee.userId }))], [employees.data]);
   const payrollTotals = useMemo(() => {
     const employees = payrollResult?.employees ?? [];
     const workers = payrollResult?.workers ?? [];

@@ -62,8 +62,16 @@ export async function isHrAdministrator(db: Database, userId: string): Promise<b
 }
 
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
+/** HRIS 名稱與登入帳號名稱分開；正式姓名由 HR 維護，Google 名稱只作資料回填與候選提示。 */
+export const hrEmployeeName = sql<string>`coalesce(nullif(trim(${hrEmployments.legalName}), ''), ${displayName})`;
 const supervisorName = sql<string | null>`(
-  SELECT coalesce(nullif(supervisor.display_name, ''), nullif(supervisor.google_name, ''), supervisor.email)
+  SELECT coalesce(
+    nullif((SELECT trim(supervisor_employment.legal_name)
+      FROM hr_employments AS supervisor_employment
+      WHERE supervisor_employment.employee_user_id = supervisor.id AND supervisor_employment.archived_at IS NULL
+      LIMIT 1), ''),
+    nullif(supervisor.display_name, ''), nullif(supervisor.google_name, ''), supervisor.email
+  )
   FROM users AS supervisor
   WHERE supervisor.id = ${hrEmployments.supervisorUserId}
 )`;
@@ -74,11 +82,13 @@ export const hrEmployableUser = sql`${users.status} IN ('active', 'invited')`;
 const employeeFields = {
   userId: hrEmployments.employeeUserId,
   employeeNumber: hrEmployments.employeeNumber,
+  legalName: hrEmployments.legalName,
+  displayName: hrEmployeeName,
+  accountName: displayName,
   position: hrEmployments.position,
   supervisorUserId: hrEmployments.supervisorUserId,
   supervisorName,
   archivedAt: hrEmployments.archivedAt,
-  displayName,
   email: users.email,
   userStatus: users.status,
   revision: hrEmployments.revision,
@@ -86,7 +96,7 @@ const employeeFields = {
 
 const EMPLOYEE_SORT_COLUMNS = {
   employeeNumber: hrEmployments.employeeNumber,
-  name: displayName,
+  name: hrEmployeeName,
   email: users.email,
   status: users.status,
 } as const;
@@ -145,6 +155,7 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) 
     employmentStatusCondition,
     query.search ? or(
       like(hrEmployments.employeeNumber, `%${query.search}%`),
+      like(hrEmployments.legalName, `%${query.search}%`),
       like(hrEmployments.position, `%${query.search}%`),
       like(users.email, `%${query.search}%`),
       like(users.displayName, `%${query.search}%`),
@@ -171,9 +182,9 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) 
 }
 
 export async function listHrSupervisorCandidates(db: Database, userId: string) {
-  return db.select({ id: hrEmployments.employeeUserId, name: displayName }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+  return db.select({ id: hrEmployments.employeeUserId, name: hrEmployeeName }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(and(isNull(hrEmployments.archivedAt), ne(hrEmployments.employeeUserId, userId), eq(users.status, "active")))
-    .orderBy(asc(displayName));
+    .orderBy(asc(hrEmployeeName));
 }
 
 export interface HrEmployeeDetailOptions {
@@ -200,9 +211,12 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   const current = row.employment;
   const employmentIds = rows.map(({ employment }) => employment.id);
   const supervisorIds = [...new Set(rows.map(({ employment }) => employment.supervisorUserId).filter((id): id is string => Boolean(id)))];
-  const supervisorRows = supervisorIds.length ? await db.select({ id: users.id, name: displayName }).from(users).where(inArray(users.id, supervisorIds)) : [];
+  const supervisorRows = supervisorIds.length ? await db.select({
+    id: users.id,
+    name: sql<string>`coalesce(nullif((SELECT trim(supervisor_employment.legal_name) FROM hr_employments AS supervisor_employment WHERE supervisor_employment.employee_user_id = ${users.id} AND supervisor_employment.archived_at IS NULL LIMIT 1), ''), nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`,
+  }).from(users).where(inArray(users.id, supervisorIds)) : [];
   const supervisorNames = new Map(supervisorRows.map((supervisor) => [supervisor.id, supervisor.name]));
-  const [account] = await db.select({ displayName, email: users.email, userStatus: users.status }).from(users).where(eq(users.id, userId)).limit(1);
+  const [account] = await db.select({ accountName: displayName, email: users.email, userStatus: users.status }).from(users).where(eq(users.id, userId)).limit(1);
   const employments = rows.map(({ employment, attendanceMode, monthlyRestDays, serviceStartOn }) => ({
     ...employment,
     supervisorName: employment.supervisorUserId ? supervisorNames.get(employment.supervisorUserId) ?? null : null,
@@ -253,9 +267,11 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   }).from(hrClockEvents)
     .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
     .where(inArray(hrClockEvents.employmentId, employmentIds)).orderBy(desc(hrClockEvents.occurredAt)).limit(200) : undefined;
+  const accountName = account?.accountName || userId;
+  const employeeName = current.legalName.trim() || accountName;
   const employeeRecord = {
-    userId: current.employeeUserId, employeeNumber: current.employeeNumber, position: current.position, supervisorUserId: current.supervisorUserId,
-    archivedAt: current.archivedAt, revision: current.revision, displayName: account?.displayName ?? userId, email: account?.email ?? "", userStatus: account?.userStatus ?? "disabled",
+    userId: current.employeeUserId, employeeNumber: current.employeeNumber, legalName: employeeName, displayName: employeeName, accountName, position: current.position, supervisorUserId: current.supervisorUserId,
+    archivedAt: current.archivedAt, revision: current.revision, email: account?.email ?? "", userStatus: account?.userStatus ?? "disabled",
     employmentStatus: current.archivedAt === null ? "active" as const : "inactive" as const,
     supervisorName: current.supervisorUserId ? supervisorNames.get(current.supervisorUserId) ?? null : null,
   };
@@ -283,7 +299,14 @@ export async function listHrScopes(db: Database) {
   return db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(and(eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`)).orderBy(asc(scopes.name));
 }
 
-export async function assignHrEmployee(db: Database, input: { userId: string; employeeNumber: string; position: string; attendanceMode: "general" | "scheduled"; serviceStartOn?: string; revision?: number }, actor: HrActor) {
+function normalizeEmployeeLegalName(value: string) {
+  const name = value.trim();
+  if (!name || name.length > 100) throw new HrError(400, "正式姓名必須是 1～100 字。 ");
+  return name;
+}
+
+export async function assignHrEmployee(db: Database, input: { userId: string; legalName: string; employeeNumber: string; position: string; attendanceMode: "general" | "scheduled"; serviceStartOn?: string; revision?: number }, actor: HrActor) {
+  const legalName = normalizeEmployeeLegalName(input.legalName);
   const [existing] = await db.select({ id: hrEmployments.id, archivedAt: hrEmployments.archivedAt }).from(hrEmployments)
     .where(eq(hrEmployments.employeeUserId, input.userId))
     .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.archivedAt), desc(hrEmployments.updatedAt), desc(hrEmployments.id))
@@ -304,19 +327,20 @@ export async function assignHrEmployee(db: Database, input: { userId: string; em
     WHERE NOT EXISTS (SELECT 1 FROM hr_employment_service_periods WHERE employment_id=${employmentId})
     RETURNING employment_id AS id`;
   const mutations: SQL[] = existing
-    ? [sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, position=${input.position}, archived_at=NULL, revision=revision+1, updated_at=CURRENT_TIMESTAMP
+    ? [sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, legal_name=${legalName}, position=${input.position}, archived_at=NULL, revision=revision+1, updated_at=CURRENT_TIMESTAMP
         WHERE id=${employmentId} AND archived_at IS NOT NULL${revisionGuard} RETURNING id`, attendanceSettings, servicePeriod]
-    : [sql`INSERT INTO hr_employments (id, employee_user_id, employee_number, position)
-        SELECT ${employmentId}, id, ${input.employeeNumber}, ${input.position} FROM users
+    : [sql`INSERT INTO hr_employments (id, employee_user_id, employee_number, legal_name, position)
+        SELECT ${employmentId}, id, ${input.employeeNumber}, ${legalName}, ${input.position} FROM users
         WHERE id=${input.userId} AND status IN ('active', 'invited') RETURNING id`, attendanceSettings, servicePeriod];
-  const mutationOptions: HrMutationOptions = { activity: { payload: { employmentId, userId: input.userId }, summary: "員工已指派" }, allowEmptyMutationIndexes: new Set([2]) };
+  const mutationOptions: HrMutationOptions = { activity: { payload: { employmentId, userId: input.userId, legalName }, summary: "員工已指派" }, allowEmptyMutationIndexes: new Set([2]) };
   await write(db, mutations, employmentId, actor, "employee_assigned", "無法指派員工，資料可能已變更或已存在。", mutationOptions);
   return { id: input.userId, employmentId };
 }
 
-export function updateHrEmployee(db: Database, userId: string, input: { employeeNumber: string; position: string; revision: number }, actor: HrActor) {
-  return write(db, sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, position=${input.position}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
-    WHERE employee_user_id=${userId} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, userId, actor, "employee_updated", "員工不存在、已封存或資料已變更，請重新整理後再試。");
+export function updateHrEmployee(db: Database, userId: string, input: { legalName: string; employeeNumber: string; position: string; revision: number }, actor: HrActor) {
+  const legalName = normalizeEmployeeLegalName(input.legalName);
+  return write(db, sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, legal_name=${legalName}, position=${input.position}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
+    WHERE employee_user_id=${userId} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, userId, actor, "employee_updated", "員工不存在、已封存或資料已變更，請重新整理後再試。", { activity: { payload: { legalName }, summary: "員工主檔已更新" } });
 }
 
 export function updateHrEmployeeSupervisor(db: Database, userId: string, input: { supervisorUserId: string | null; revision: number }, actor: HrActor) {

@@ -3,7 +3,7 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { HR_DAY_TYPE_LABELS, isHrDayType, listHrCalendarMonth } from "./hr-calendar.js";
-import { HrError, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, type HrActor } from "./hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
@@ -179,7 +179,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
     .where(eq(hrShiftTemplates.active, 1));
   const shiftMap = new Map(latestShiftVersions(shiftRows).map((shift) => [`${shift.versionId}:${shift.scopeId}`, shift]));
-  const employmentRows = await db.select({ id: hrEmployments.id, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})` }).from(hrEmployments)
+  const employmentRows = await db.select({ id: hrEmployments.id, employeeName: hrEmployeeName }).from(hrEmployments)
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(sql`${hrEmployments.archivedAt} IS NULL`);
   const employmentMap = new Map(employmentRows.map((employment) => [employment.id, employment]));
@@ -280,7 +280,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
   ]);
   const selectedScopeId = scopeId && scopeId !== "all" ? scopeId : undefined;
   const [employeeEntries, workerEntries] = version ? await Promise.all([
-    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleEntries)
+    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployments.employeeNumber, employeeName: hrEmployeeName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleEntries)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleEntries.scopeId))
@@ -294,7 +294,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
       .where(and(eq(hrScheduleWorkerEntries.scheduleVersionId, version.id), selectedScopeId ? eq(hrScheduleWorkerEntries.scopeId, selectedScopeId) : undefined)),
   ]) : [[], []];
-  const employees = await db.select({ employmentId: hrEmployments.id, userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, name: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmployments)
+  const employees = await db.select({ employmentId: hrEmployments.id, userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, name: hrEmployeeName, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmployments)
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
     .where(sql`${hrEmployments.archivedAt} IS NULL`)

@@ -12,7 +12,8 @@ users 1 ─── 0..1 hr_employments 1 ─── 0..1 hr_employment_service_per
 
 | 欄位 | 語意 |
 |---|---|
-| `employee_user_id` | 對應 `users.id`；姓名、Email 與帳號狀態仍以 `users` 為準 |
+| `employee_user_id` | 對應 `users.id`；Google 帳號名稱、Email 與帳號狀態仍以 `users` 為準 |
+| `legal_name` | 身分證上的正式姓名，由 HR 維護；與 Google 帳號名稱分開使用 |
 | `employee_number` | 員工編號；活動員工不可重複 |
 | `position` | 目前職位；升遷／調職直接更新此欄位 |
 | `supervisor_user_id` | 目前主管，可為 NULL |
@@ -28,8 +29,8 @@ users 1 ─── 0..1 hr_employments 1 ─── 0..1 hr_employment_service_per
 2. `active` 員工的判斷唯一為 `archived_at IS NULL`，不使用到職日、離職日或帳號狀態推導。
 3. `active` 或 `invited` 的 User 可以指派；`disabled` 帳號不能新指派。
 4. 指派時同一個原子操作建立員工主檔與 `hr_employment_attendance_settings`，預設出勤方式為一般辦公。
-5. 員工編號、職位與主管直接保存於同一筆 `hr_employments`。
-6. 封存只改變業務欄位 `archived_at`；`revision` 僅前進作為競態控制，不改寫員工編號、職位、主管、`employmentId` 或下游歷史。
+5. 正式姓名、員工編號、職位與主管直接保存於同一筆 `hr_employments`；Google 帳號名稱留在 `users`。
+6. 封存只改變業務欄位 `archived_at`；`revision` 僅前進作為競態控制，不改寫正式姓名、員工編號、職位、主管、`employmentId` 或下游歷史。
 7. 重新啟用已封存員工沿用同一個 `employmentId`，清除 `archived_at` 並由資料庫唯一索引檢查活動員工編號與 User 的唯一性。
 8. 帳號停用不等於員工封存；封存也不會停用帳號。
 
@@ -38,7 +39,7 @@ users 1 ─── 0..1 hr_employments 1 ─── 0..1 hr_employment_service_per
 ### 包含
 
 - 從既有 User 候選清單指派員工。
-- 編輯員工編號與目前職位。
+- 編輯身分證正式姓名、員工編號與目前職位。
 - 修正服務年資起算日（影響薪資試算與週年制特休）。
 - 設定或清除目前主管。
 - 查看、搜尋、排序與分頁員工。
@@ -69,17 +70,18 @@ HRIS
 ### 員工列表
 
 - 主要操作為「指派員工」，危險操作為「封存」。
-- 搜尋姓名、Email、員工編號與職位。
+- 搜尋正式姓名、Email、員工編號與職位。
 - 任職狀態分為「目前員工」與「已封存」；判斷只看 `archived_at`。
 - 帳號狀態另看 `users.status`，至少顯示全部、啟用中、待啟用與已停用。
-- 欄位包含員工編號、姓名、職位、Email、帳號狀態、主管與員工狀態。
-- 支援排序、分頁與目前員工／已封存計數；姓名與 Email 不複製到 HR 表單。
+- 欄位包含員工編號、正式姓名、職位、Email、帳號狀態、主管與員工狀態。
+- 支援排序、分頁與目前員工／已封存計數；Google 帳號名稱與 Email 不複製到 HR 任職主檔。
 
 ### 指派／重新啟用 Dialog
 
 | 欄位 | 必填 | 規則 |
 |---|---:|---|
 | 使用者 | 是 | 只能選尚未有活動 `hr_employments` 的 `active`／`invited` User |
+| 正式姓名（身分證） | 是 | 1～100 字；不改變 Google 帳號名稱 |
 | 員工編號 | 是 | 1～40 字元；活動員工全平台唯一 |
 | 職位 | 是 | 1～100 字元 |
 | 服務年資起算日 | 指派時是 | `YYYY-MM-DD`；薪資月份與此日期有交集才計算薪資 |
@@ -89,8 +91,7 @@ HRIS
 
 ### 員工內頁
 
-- 姓名、Email、帳號狀態來自 `users`。
-- 員工編號、職位、主管與 `employmentId` 來自同一筆 `hr_employments`。
+- 正式姓名、員工編號、職位、主管與 `employmentId` 來自同一筆 `hr_employments`；Google 帳號名稱、Email、帳號狀態來自 `users`，內頁分開顯示兩種姓名。
 - 顯示封存時間與目前出勤設定；已封存員工仍可查閱下游歷史。
 - 活動任職可從員工管理 Dialog 修正服務年資起算日；該日期是薪資試算與週年制特休的在職起算下限，敘薪生效日不會自動改寫它。
 - 薪資、保險、假勤、打卡、工作範圍與排班使用相同 `employmentId` 查詢。
@@ -106,6 +107,10 @@ HRIS
 3. 寫入 HR activity event。
 
 任一步失敗都不得留下半套員工資料。唯一索引與 mutation guard 同時防止重複指派及競態寫入。
+
+### 正式姓名
+
+HR 指派、編輯或重新啟用員工時必須維護 1～100 字的身分證正式姓名。姓名異動只更新 `hr_employments.legal_name`，不改寫 `users.display_name`、`users.google_name` 或登入帳號；下游 HR 查詢以正式姓名為主，既有帳號名稱只作回填與缺值 fallback。
 
 ### 升遷／調職
 

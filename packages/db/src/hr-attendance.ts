@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes } from "./hr-calendar.js";
-import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
@@ -84,7 +84,7 @@ export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEv
   const startUtc = input.startDate ? taipeiMidnightUtc(input.startDate) : null;
   const endUtc = input.endDate ? taipeiMidnightUtc(input.endDate) : null;
   const where = and(
-    input.search ? or(like(hrEmployments.employeeNumber, `%${input.search}%`), like(users.displayName, `%${input.search}%`), like(users.googleName, `%${input.search}%`), like(users.email, `%${input.search}%`)) : undefined,
+    input.search ? or(like(hrEmployments.employeeNumber, `%${input.search}%`), like(hrEmployments.legalName, `%${input.search}%`), like(users.displayName, `%${input.search}%`), like(users.googleName, `%${input.search}%`), like(users.email, `%${input.search}%`)) : undefined,
     input.eventKind !== "all" ? eq(hrClockEvents.eventKind, input.eventKind) : undefined,
     input.sourceKind !== "all" ? eq(hrClockEvents.sourceKind, input.sourceKind) : undefined,
     // occurred_at 以 UTC 保存；查詢日期是台北當地日，邊界先由 IANA timezone 轉成 UTC wall-clock。
@@ -98,7 +98,7 @@ export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEv
       id: hrClockEvents.id,
       employeeUserId: sql<string>`${hrClockEvents.employeeUserId}`.as("attendance_event_employee_user_id"),
       employeeNumber: sql<string>`${hrEmployments.employeeNumber}`.as("attendance_event_employee_number"),
-      employeeName: sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`.as("attendance_event_employee_name"),
+      employeeName: hrEmployeeName.as("attendance_event_employee_name"),
       eventKind: hrClockEvents.eventKind,
       occurredAt: hrClockEvents.occurredAt,
       locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`.as("attendance_event_location_name"),

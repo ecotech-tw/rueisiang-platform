@@ -1,7 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
-import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrPayrollAdjustmentItems, hrPayrollAdjustments, hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
@@ -9,7 +9,7 @@ import { users } from "./schema/auth.js";
 
 export interface HrPayrollAdjustmentItemInput { itemName: string; amountMinor: number }
 export interface HrPayrollAdjustmentInput { employmentId: string; sourcePeriodKey: string; effectivePeriodKey: string; reason: string; items: HrPayrollAdjustmentItemInput[] }
-const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
+const displayName = hrEmployeeName;
 
 function periodKey(value: string) {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw new HrError(400, "薪資月份必須是 YYYY-MM。 ");

@@ -4,6 +4,10 @@ import { useToast } from "../../shell/Toast.js";
 export interface Employee {
   userId: string;
   employeeNumber: string;
+  legalName: string;
+  /** Google／帳號顯示名稱；HR 流程應使用 legalName。 */
+  accountName: string;
+  /** 相容既有 HR 頁面的 HR 姓名欄位；值與 legalName 相同。 */
   displayName: string;
   email: string;
   position: string;

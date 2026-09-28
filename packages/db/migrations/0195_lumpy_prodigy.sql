@@ -1,0 +1,1 @@
+ALTER TABLE `hr_employments` ADD `legal_name` text DEFAULT '' NOT NULL;

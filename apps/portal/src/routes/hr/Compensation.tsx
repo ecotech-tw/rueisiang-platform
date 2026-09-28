@@ -163,7 +163,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   return <>
     <Dialog
     title={isEditing ? "更新敘薪" : "新增敘薪"}
-    titleMeta={selected ? `${selected.displayName}／${selected.employeeNumber}` : "選一位員工後填寫薪資組成"}
+    titleMeta={selected ? `${selected.legalName}／${selected.employeeNumber}` : "選一位員工後填寫薪資組成"}
     onClose={onClose}
     closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending || voidCompensation.isPending}
@@ -217,7 +217,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       label="員工"
       value={userId}
       required
-      options={[{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.displayName}／${employee.employeeNumber}` }))]}
+      options={[{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.legalName}／${employee.employeeNumber}` }))]}
       disabled={isEditing}
       onChange={(event) => setUserId(event.target.value)}
     />
@@ -275,7 +275,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       onCancel={() => setVoidConfirmation(false)}
       onConfirm={voidLatest}
     >
-      <p>這會解除 <strong>{selected?.displayName ?? "這位員工"}</strong> 的第 {latestVersion.versionNumber} 版敘薪；資料不會刪除，既有月份的薪資快照也不會被改動。</p>
+      <p>這會解除 <strong>{selected?.legalName ?? "這位員工"}</strong> 的第 {latestVersion.versionNumber} 版敘薪；資料不會刪除，既有月份的薪資快照也不會被改動。</p>
       <p className="muted">解除後會回到上一個仍有效的版本；可重複解除，直到第一版，再建立第一版修正版。</p>
     </ConfirmDialog> : null}
   </>;
@@ -320,7 +320,7 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Emp
   const allVoided = compensationVersions.length > 0 && !latest;
   if (profile.isLoading) return <HrSkeletonTableRow columns={6} />;
   return <tr>
-    <td><strong>{employee.displayName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
+    <td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td>{current ? PAY_BASIS_LABEL[current.payBasis] : allVoided ? "已全部撤回" : "尚未設定"}</td>
     <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}</td>
