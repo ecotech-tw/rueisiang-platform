@@ -479,7 +479,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       employeeUserId: hrEmployments.employeeUserId,
       serviceStartOn: hrEmploymentServicePeriods.serviceStartOn,
     }).from(hrEmployments).leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id)).where(employmentFilter),
-    db.select({ userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, legalName: hrEmployments.legalName, supervisorUserId: hrEmployments.supervisorUserId, revision: hrEmployments.revision, updatedAt: hrEmployments.updatedAt }).from(hrEmployments).where(sql`${hrEmployments.id} IN (${employmentValues})`),
+    db.select({ userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, supervisorUserId: hrEmployments.supervisorUserId, revision: hrEmployments.revision, updatedAt: hrEmployments.updatedAt }).from(hrEmployments).where(sql`${hrEmployments.id} IN (${employmentValues})`),
     db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
     db.select().from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
     db.select().from(hrCalendarDays).where(sql`${hrCalendarDays.date} >= ${input.period.start} AND ${hrCalendarDays.date} < ${input.period.end}`),
