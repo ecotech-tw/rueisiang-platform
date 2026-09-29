@@ -196,12 +196,20 @@ export function HrPayrollSettlement() {
 
   const visibleUnsettledKeys = useMemo(() => (records.data?.records ?? []).filter((record) => record.status === "unsettled").map(referenceKey), [records.data?.records]);
   const selectedRecords = useMemo(() => (records.data?.records ?? []).filter((record) => selectedKeys.includes(referenceKey(record)) && record.status === "unsettled"), [records.data?.records, selectedKeys]);
-  const allVisibleSelected = visibleUnsettledKeys.length > 0 && visibleUnsettledKeys.every((key) => selectedKeys.includes(key));
+  const selectedVisibleCount = visibleUnsettledKeys.filter((key) => selectedKeys.includes(key)).length;
+  const allVisibleSelected = visibleUnsettledKeys.length > 0 && selectedVisibleCount === visibleUnsettledKeys.length;
+  const selectAllRef = useRef<HTMLInputElement>(null);
+  const mobileSelectAllRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const validKeys = new Set((records.data?.records ?? []).filter((record) => record.status === "unsettled").map(referenceKey));
     setSelectedKeys((current) => current.filter((key) => validKeys.has(key)));
   }, [records.data?.records]);
+  useEffect(() => {
+    const indeterminate = selectedVisibleCount > 0 && !allVisibleSelected;
+    if (selectAllRef.current) selectAllRef.current.indeterminate = indeterminate;
+    if (mobileSelectAllRef.current) mobileSelectAllRef.current.indeterminate = indeterminate;
+  }, [allVisibleSelected, selectedVisibleCount]);
 
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (records.isPending) return <HrPageSkeleton variant="table" />;
@@ -241,22 +249,30 @@ export function HrPayrollSettlement() {
         <FilterSelect label="計薪方式" value={recordFilters.payBasis} options={[{ value: "all", label: "全部計薪方式" }, { value: "monthly", label: "月薪" }, { value: "daily", label: "日薪" }, { value: "hourly", label: "時薪" }, { value: "mixed", label: "混合" }]} onChange={(event) => updateRecordFilters({ payBasis: event.target.value as PayrollRecordFilters["payBasis"] })} />
       </form>
       {records.error ? <Alert tone="danger">薪資紀錄載入失敗：{records.error.message}</Alert> : null}
-      {selectedRecords.length ? <div className="hr-payroll-bulk-bar" role="status"><strong>已選 {selectedRecords.length} 筆</strong><span>只會核准目前尚未結算的紀錄</span>{canCalculate ? <Button icon="check" loading={approvePayroll.isPending} onClick={() => setApproveOpen(true)}>確定發放</Button> : null}<Button variant="secondary" onClick={() => setSelectedKeys([])}>取消選取</Button></div> : null}
-      <div className={`table-scroll${records.isPlaceholderData ? " is-refreshing" : ""}`}>
-        <table className="data-table hr-payroll-record-table">
-          <thead><tr><th className="hr-payroll-select-cell"><input type="checkbox" checked={allVisibleSelected} disabled={!visibleUnsettledKeys.length} onChange={(event) => toggleVisibleRecords(event.target.checked)} aria-label="選取本頁尚未結算紀錄" /></th><th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th>操作</th></tr></thead>
-          <tbody>{(records.data?.records ?? []).map((record) => <tr key={referenceKey(record)}>
-            <td data-label="選取" className="hr-payroll-select-cell">{record.status === "unsettled" ? <input type="checkbox" checked={selectedKeys.includes(referenceKey(record))} onChange={(event) => toggleRecord(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td>
-            <td data-label="薪資月份"><strong>{payrollPeriodLabel(record.periodKey)}</strong><small className="cell-sub">{record.payDate ? `發薪日 ${record.payDate}` : "未設定發薪日"}</small></td>
-            <td data-label="人員"><div className="hr-payroll-record-person"><strong>{record.personName}</strong><small className="cell-sub">{record.personNumber ? `${record.personNumber}・` : ""}{PAYROLL_PERSON_KIND_LABEL[record.personKind]}</small></div></td>
-            <td data-label="計薪方式">{record.payBasis ? PAY_BASIS_LABEL[record.payBasis] ?? record.payBasis : "—"}</td>
-            <td data-label="應發" className="numeric">{money(record.earningMinor)}</td>
-            <td data-label="扣款" className="numeric">{record.deductionMinor ? deductionMoney(record.deductionMinor) : "—"}</td>
-            <td data-label="實領" className="numeric"><strong>{money(record.netMinor)}</strong></td>
-            <td data-label="狀態"><StatusBadge tone={recordStatusTone(record.status)}>{PAYROLL_RECORD_STATUS_LABEL[record.status]}</StatusBadge></td>
-            <td data-label="操作"><Button variant="secondary" icon="eye" onClick={() => openRecord(record)}>查看明細</Button></td>
-          </tr>)}</tbody>
-        </table>
+      <div className="hr-payroll-table-region">
+        <div className={`table-scroll${records.isPlaceholderData ? " is-refreshing" : ""}`}>
+          <div className="hr-payroll-mobile-select-all">
+            <label className="table-select-all">
+              <input ref={mobileSelectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={!canCalculate || !visibleUnsettledKeys.length || approvePayroll.isPending} onChange={(event) => toggleVisibleRecords(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁尚未結算紀錄" : "全選本頁尚未結算紀錄"} />
+              <span>{allVisibleSelected ? "取消全選本頁" : "全選本頁"}</span>
+            </label>
+          </div>
+          <table className="data-table hr-payroll-record-table">
+            <thead><tr><th className="hr-payroll-select-cell"><input ref={selectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={!canCalculate || !visibleUnsettledKeys.length || approvePayroll.isPending} onChange={(event) => toggleVisibleRecords(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁尚未結算紀錄" : "全選本頁尚未結算紀錄"} /></th><th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th>操作</th></tr></thead>
+            <tbody>{(records.data?.records ?? []).map((record) => <tr key={referenceKey(record)} className={selectedKeys.includes(referenceKey(record)) ? "selected" : undefined}>
+              <td data-label="選取" className="hr-payroll-select-cell">{record.status === "unsettled" ? <input className="table-checkbox" type="checkbox" checked={selectedKeys.includes(referenceKey(record))} disabled={!canCalculate || approvePayroll.isPending} onChange={(event) => toggleRecord(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td>
+              <td data-label="薪資月份"><strong>{payrollPeriodLabel(record.periodKey)}</strong><small className="cell-sub">{record.payDate ? `發薪日 ${record.payDate}` : "未設定發薪日"}</small></td>
+              <td data-label="人員"><div className="hr-payroll-record-person"><strong>{record.personName}</strong><small className="cell-sub">{record.personNumber ? `${record.personNumber}・` : ""}{PAYROLL_PERSON_KIND_LABEL[record.personKind]}</small></div></td>
+              <td data-label="計薪方式">{record.payBasis ? PAY_BASIS_LABEL[record.payBasis] ?? record.payBasis : "—"}</td>
+              <td data-label="應發" className="numeric">{money(record.earningMinor)}</td>
+              <td data-label="扣款" className="numeric">{record.deductionMinor ? deductionMoney(record.deductionMinor) : "—"}</td>
+              <td data-label="實領" className="numeric"><strong>{money(record.netMinor)}</strong></td>
+              <td data-label="狀態"><StatusBadge tone={recordStatusTone(record.status)}>{PAYROLL_RECORD_STATUS_LABEL[record.status]}</StatusBadge></td>
+              <td data-label="操作"><Button variant="secondary" icon="eye" onClick={() => openRecord(record)}>查看明細</Button></td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+        {selectedRecords.length ? <div className="hr-payroll-selection-actions" role="status"><span className="hr-payroll-selection-count" aria-live="polite">已選取 {selectedRecords.length} 筆</span>{canCalculate ? <Button icon="check" loading={approvePayroll.isPending} onClick={() => setApproveOpen(true)}>確定發放</Button> : null}</div> : null}
       </div>
       {records.data && !records.data.records.length ? <p className="empty-state">目前沒有符合條件的薪資發放紀錄。</p> : null}
       {records.data && records.data.total > 0 ? <Pager page={records.data.page} pageSize={records.data.pageSize} pageSizes={PAYROLL_RECORD_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(records.data.total / records.data.pageSize))} totalLabel={`共 ${records.data.total.toLocaleString("zh-TW")} 筆`} onPage={(page) => updateRecordFilters({ page })} onPageSize={(pageSize) => updateRecordFilters({ pageSize })} /> : null}
