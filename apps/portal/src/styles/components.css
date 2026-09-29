@@ -4444,7 +4444,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
 .hr-payroll-records-panel { display: grid; gap: 14px; }
-.hr-payroll-record-filter { align-items: flex-end; padding: 12px 0 0; border-top: 1px solid var(--color-soft-line); }
+.hr-payroll-record-filter { align-items: flex-end; }
 /* 原生 month input 會被日曆圖示的內距撐高；固定工具列控制項高度，避免月份欄比其他篩選器高。 */
 .hr-payroll-record-filter .filter-control > input {
   box-sizing: border-box;
