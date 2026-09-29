@@ -237,7 +237,6 @@ export function HrPayrollSettlement() {
 
   return <div className="page fills hr-payroll-page">
     <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，選取多筆後一次確定發放。" actions={canCalculate ? <Button icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
-    <Alert tone="info">試算只會建立尚未結算的紀錄。薪資加扣項在單筆明細的 modal 管理；確定發放後，該筆紀錄與明細會保留為不可改寫的歷史快照。</Alert>
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
 
     <Panel className="grows hr-payroll-records-panel" title="發放紀錄">
