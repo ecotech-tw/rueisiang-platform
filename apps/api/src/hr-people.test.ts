@@ -96,6 +96,18 @@ describe("HR 扁平員工主檔", () => {
     expect((await request("/hr/employees/self", "PATCH", { legalName: "過期姓名", employeeNumber: "E001", position: "過期修改", revision: 1 })).status).toBe(409);
   });
 
+  it("同一個基本資料操作可更新主管與服務年資起算日", async () => {
+    await assign("self");
+    await assign("other", "E002", "店長");
+    const before = await profile("self");
+    const updated = await request("/hr/employees/self", "PATCH", {
+      legalName: "身分證姓名", employeeNumber: "E001", position: "資深專員", supervisorUserId: "other", serviceStartOn: "2026-08-03", revision: before.employments[0]!.revision,
+    });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect((await profile("self")).employee).toMatchObject({ legalName: "身分證姓名", position: "資深專員", supervisorUserId: "other" });
+    expect((await profile("self")).employments[0]).toMatchObject({ serviceStartOn: "2026-08-03", revision: 2 });
+  });
+
   it("封存只寫 archivedAt，保留 employmentId、下游外鍵與稽核資料", async () => {
     const first = await assign("self");
     const settings = d1.sqlite.prepare("SELECT employment_id FROM hr_employment_attendance_settings WHERE employment_id=?").get(first.employmentId) as { employment_id: string };
@@ -144,6 +156,18 @@ describe("HR 扁平員工主檔", () => {
     expect(reactivated.status, await reactivated.clone().text()).toBe(201);
     const setting = d1.sqlite.prepare("SELECT attendance_mode, monthly_rest_days FROM hr_employment_attendance_settings WHERE employment_id=?").get(first.employmentId);
     expect(setting).toEqual({ attendance_mode: "general", monthly_rest_days: null });
+  });
+
+  it("恢復在職未提供出勤方式時沿用原本的排班與月休設定", async () => {
+    const first = await assign("self", "E001");
+    const scheduled = await request(`/hr/employments/${first.employmentId}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 8, revision: 1 });
+    expect(scheduled.status, await scheduled.clone().text()).toBe(200);
+    const scheduledProfile = await profile("self");
+    expect((await request(`/hr/employments/${first.employmentId}/archive`, "POST", { revision: scheduledProfile.employments[0]!.revision })).status).toBe(200);
+    const archived = await profile("self");
+    const reactivated = await request("/hr/employees", "POST", { userId: "self", legalName: "恢復員工", employeeNumber: "E002", position: "新職位", revision: archived.employments[0]!.revision });
+    expect(reactivated.status, await reactivated.clone().text()).toBe(201);
+    expect(d1.sqlite.prepare("SELECT attendance_mode, monthly_rest_days FROM hr_employment_attendance_settings WHERE employment_id=?").get(first.employmentId)).toEqual({ attendance_mode: "scheduled", monthly_rest_days: 8 });
   });
 
   it("多筆封存任職只出現在一筆員工列，但內頁仍回傳全部歷史", async () => {

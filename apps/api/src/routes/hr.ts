@@ -1058,13 +1058,15 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await assignHrEmployee(c.get("db"), {
       userId: text(input, "userId", "使用者"), legalName: text(input, "legalName", "正式姓名", 100), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
-      position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: input.revision === undefined ? undefined : revision(input),
+      position: text(input, "position", "職位", 100), attendanceMode: input.attendanceMode === undefined ? undefined : attendanceMode(input), serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: input.revision === undefined ? undefined : revision(input),
     }, c.get("user")), 201);
   })
   .patch("/employees/:id", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
     return c.json(await updateHrEmployee(c.get("db"), c.req.param("id"), {
-      legalName: text(input, "legalName", "正式姓名", 100), employeeNumber: text(input, "employeeNumber", "員工編號", 40), position: text(input, "position", "職位", 100), revision: revision(input),
+      legalName: text(input, "legalName", "正式姓名", 100), employeeNumber: text(input, "employeeNumber", "員工編號", 40), position: text(input, "position", "職位", 100),
+      supervisorUserId: input.supervisorUserId === undefined ? undefined : nullableText(input, "supervisorUserId", "主管"),
+      serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: revision(input),
     }, c.get("user")));
   })
   .patch("/employees/:id/supervisor", requirePermission("hr:employee:write"), async (c) => {
@@ -1148,7 +1150,7 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await assignHrEmployee(c.get("db"), {
       userId: text(input, "userId", "員工"), legalName: text(input, "legalName", "正式姓名", 100), employeeNumber: text(input, "employeeNumber", "員工編號", 40),
-      position: text(input, "position", "職位", 100), attendanceMode: attendanceMode(input, true), serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: input.revision === undefined ? undefined : revision(input),
+      position: text(input, "position", "職位", 100), attendanceMode: input.attendanceMode === undefined ? undefined : attendanceMode(input), serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: input.revision === undefined ? undefined : revision(input),
     }, c.get("user")), 201);
   })
   .patch("/employments/:id/attendance-mode", requirePermission("hr:office:write"), async (c) => {

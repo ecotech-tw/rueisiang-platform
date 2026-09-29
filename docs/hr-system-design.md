@@ -46,7 +46,7 @@ erDiagram
 | `position` | 1～100 字元；目前職位唯一來源 |
 | `supervisor_user_id` | 可為 NULL；設定時必須是另一位活動員工且帳號 active |
 | `archived_at` | NULL 是活動；非 NULL 是封存時間 |
-| `revision` | 一般編輯與封存／重新啟用的競態控制版本；封存的業務欄位只更新 `archived_at` |
+| `revision` | 一般編輯與設為未在職／恢復在職的競態控制版本；狀態切換只更新 `archived_at` |
 | `created_at`／`updated_at` | 主檔時間；歷史查詢不可拿它推導在職狀態 |
 
 活動條件固定寫成 `hr_employments.archived_at IS NULL`。不得以 `users.status`、目前日期、到職日或離職日替代。
@@ -57,7 +57,7 @@ erDiagram
 
 ## 三、生命週期與一致性
 
-### 指派與重新啟用
+### 指派與恢復在職
 
 `assignHrEmployee` 在同一個 D1 batch 內：
 
@@ -66,9 +66,9 @@ erDiagram
 3. 建立或更新 `hr_employment_attendance_settings`。
 4. 寫入 activity event。
 
-partial unique index、`RETURNING` mutation guard 與 batch 失敗回滾共同防止重複指派、編號衝突及半套資料。重新啟用沿用同一 ID，不建立第二筆活動任職。
+partial unique index、`RETURNING` mutation guard 與 batch 失敗回滾共同防止重複指派、編號衝突及半套資料。恢復在職沿用同一 ID，不建立第二筆活動任職。
 
-### 封存
+### 設為未在職
 
 `archiveHrEmployment` 的資料更新刻意限定為：
 
@@ -118,21 +118,21 @@ RETURNING id;
 | Endpoint | 語意 |
 |---|---|
 | `GET /api/hr/candidates` | 列出尚未有活動員工列的 `active`／`invited` User |
-| `GET /api/hr/employees` | 依 `archived_at` 列出目前或已封存員工 |
-| `POST /api/hr/employees` | 指派或重新啟用，建立／更新出勤設定 |
-| `PATCH /api/hr/employees/:id` | 同列更新員工編號與目前職位 |
-| `PATCH /api/hr/employees/:id/supervisor` | 設定或清除主管 |
-| `POST /api/hr/employments/:id/archive` | 封存，保留所有歷史 |
+| `GET /api/hr/employees` | 依 `archived_at` 列出在職或未在職員工 |
+| `POST /api/hr/employees` | 指派或恢復在職，建立／更新出勤設定 |
+| `PATCH /api/hr/employees/:id` | 同列更新員工基本資料、主管與服務年資起算日 |
+| `PATCH /api/hr/employees/:id/supervisor` | 設定或清除主管（相容既有 consumer） |
+| `POST /api/hr/employments/:id/archive` | 設為未在職，保留所有歷史 |
 | `PATCH /api/hr/employments/:id/attendance-mode` | 更新出勤設定，不改職位或 employment ID |
 
-員工列表／基本資料需要 `hr:employee:read`；指派、編輯、封存與主管需要 `hr:employee:write`；出勤設定使用 `hr:office:read/write`；薪資、保險、假勤與打卡明細仍依各自敏感資料權限。本人 API 只依 session user 找活動 `hr_employments`，不得接受 URL／body 的替代 User ID。
+員工列表／基本資料需要 `hr:employee:read`；指派、編輯、設為未在職、恢復在職與主管需要 `hr:employee:write`；出勤設定使用 `hr:office:read/write`；薪資、保險、假勤與打卡明細仍依各自敏感資料權限。本人 API 只依 session user 找活動 `hr_employments`，不得接受 URL／body 的替代 User ID。
 
-Portal 沿用 Material 3 元件、`.page.fills`／`.panel.grows`、sticky `.data-table`、既有 Dialog、Tooltip 與 design tokens。列表主要操作靠右，危險操作使用 archive 語意；手機與鍵盤操作必須有可見焦點、欄位 label、錯誤文字與足夠 hit area。封存員工仍可進入內頁查歷史，但不可被活動員工入口或本人 HRIS 判定為目前員工。
+Portal 沿用 Material 3 元件、`.page.fills`／`.panel.grows`、sticky `.data-table`、既有 Dialog、Tooltip 與 design tokens。員工列表主要操作靠右，員工資料 Dialog 直接編輯基本資料與主管；辦公位置在此只讀。狀態以「在職／未在職」呈現，底層仍使用 archive 語意保存歷史；手機與鍵盤操作必須有可見焦點、欄位 label、錯誤文字與足夠 hit area。未在職員工仍可進入內頁查歷史，但不可被活動員工入口或本人 HRIS 判定為目前員工。
 
 ## 七、驗收與部署邊界
 
 - schema migration 從空庫與有舊資料的資料庫各跑一次；每支 migration 用 D1 transaction 測試。
 - 測試活動 User／員工編號的並行唯一性、封存競態、重啟用同 ID、FK 完整性與 trigger。
-- 驗證升遷／調職不建立新列、不改敘薪版本；驗證封存只更新業務欄位 `archived_at`，並讓 `revision` 前進以阻擋舊請求，且下游歷史可查。
-- API、Portal、HR app 分別 typecheck、test、build；瀏覽器驗證列表、內頁、封存／重新啟用、職位／主管與權限邊界。
+- 驗證升遷／調職不建立新列、不改敘薪版本；驗證設為未在職只更新 `archived_at`，並讓 `revision` 前進以阻擋舊請求，且下游歷史可查。
+- API、Portal、HR app 分別 typecheck、test、build；瀏覽器驗證列表、內頁、設為未在職／恢復在職、職位／主管與權限邊界。
 - 本機遵守 repo 規範，不執行 wrangler；Worker 與 D1 實機部署由 CI 驗證。寫入錯誤以修復／調整處理，不刪 HR 表回滾歷史。

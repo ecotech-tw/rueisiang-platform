@@ -76,7 +76,7 @@ const supervisorName = sql<string | null>`(
   WHERE supervisor.id = ${hrEmployments.supervisorUserId}
 )`;
 
-/** 啟用中或邀請中的帳號可以成為員工；封存狀態則由 hr_employments.archived_at 判定。 */
+/** 啟用中或邀請中的帳號可以成為員工；在職狀態則由 hr_employments.archived_at 判定。 */
 export const hrEmployableUser = sql`${users.status} IN ('active', 'invited')`;
 
 const employeeFields = {
@@ -135,7 +135,7 @@ function employmentStatusExpression() {
   return sql<HrEmploymentStatus>`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 'active' ELSE 'inactive' END`;
 }
 
-/** 列表以每位 User 的目前列為準；沒有目前列時才退回最近一筆封存歷史。 */
+/** 列表以每位 User 的在職列為準；沒有在職列時才退回最近一筆未在職歷史。 */
 function canonicalEmploymentCondition() {
   return sql`${hrEmployments.id} = (
     SELECT candidate.id
@@ -305,18 +305,20 @@ function normalizeEmployeeLegalName(value: string) {
   return name;
 }
 
-export async function assignHrEmployee(db: Database, input: { userId: string; legalName: string; employeeNumber: string; position: string; attendanceMode: "general" | "scheduled"; serviceStartOn?: string; revision?: number }, actor: HrActor) {
+export async function assignHrEmployee(db: Database, input: { userId: string; legalName: string; employeeNumber: string; position: string; attendanceMode?: "general" | "scheduled"; serviceStartOn?: string; revision?: number }, actor: HrActor) {
   const legalName = normalizeEmployeeLegalName(input.legalName);
-  const [existing] = await db.select({ id: hrEmployments.id, archivedAt: hrEmployments.archivedAt }).from(hrEmployments)
+  const [existing] = await db.select({ id: hrEmployments.id, archivedAt: hrEmployments.archivedAt, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmployments)
+    .leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
     .where(eq(hrEmployments.employeeUserId, input.userId))
     .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.archivedAt), desc(hrEmployments.updatedAt), desc(hrEmployments.id))
     .limit(1);
   if (existing?.archivedAt === null) throw new HrError(409, "員工目前已在職，請改用編輯員工資料或出勤設定。 ");
-  if (existing && input.revision === undefined) throw new HrError(409, "重新啟用或修改既有員工需要 revision，請重新整理後再試。 ");
+  if (existing && input.revision === undefined) throw new HrError(409, "恢復在職或修改既有員工需要 revision，請重新整理後再試。");
   const employmentId = existing?.id ?? crypto.randomUUID();
+  const nextAttendanceMode = input.attendanceMode ?? existing?.attendanceMode ?? "general";
   const revisionGuard = input.revision === undefined ? sql`` : sql` AND revision=${input.revision}`;
   const attendanceSettings = sql`INSERT INTO hr_employment_attendance_settings (employment_id, attendance_mode)
-    VALUES (${employmentId}, ${input.attendanceMode})
+    VALUES (${employmentId}, ${nextAttendanceMode})
     ON CONFLICT (employment_id) DO UPDATE SET
       attendance_mode=excluded.attendance_mode,
       monthly_rest_days=CASE WHEN excluded.attendance_mode='general' THEN NULL ELSE hr_employment_attendance_settings.monthly_rest_days END,
@@ -337,23 +339,45 @@ export async function assignHrEmployee(db: Database, input: { userId: string; le
   return { id: input.userId, employmentId };
 }
 
-export function updateHrEmployee(db: Database, userId: string, input: { legalName: string; employeeNumber: string; position: string; revision: number }, actor: HrActor) {
+function supervisorCondition(userId: string, supervisorUserId: string | null) {
+  return sql`(${supervisorUserId} IS NULL OR (${supervisorUserId} <> ${userId}
+    AND EXISTS (SELECT 1 FROM hr_employments AS supervisor_employee INNER JOIN users AS supervisor_user ON supervisor_user.id=supervisor_employee.employee_user_id
+      WHERE supervisor_employee.employee_user_id=${supervisorUserId} AND supervisor_employee.archived_at IS NULL AND supervisor_user.status='active'))) `;
+}
+
+export async function updateHrEmployee(db: Database, userId: string, input: { legalName: string; employeeNumber: string; position: string; supervisorUserId?: string | null; serviceStartOn?: string; revision: number }, actor: HrActor) {
   const legalName = normalizeEmployeeLegalName(input.legalName);
-  return write(db, sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, legal_name=${legalName}, position=${input.position}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
-    WHERE employee_user_id=${userId} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, userId, actor, "employee_updated", "員工不存在、已封存或資料已變更，請重新整理後再試。", { activity: { payload: { legalName }, summary: "員工主檔已更新" } });
+  const [current] = await db.select({ id: hrEmployments.id, serviceStartOn: hrEmploymentServicePeriods.serviceStartOn }).from(hrEmployments)
+    .leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
+    .where(and(eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);
+  const serviceStartChanged = Boolean(current && input.serviceStartOn !== undefined && current.serviceStartOn !== input.serviceStartOn);
+  if (serviceStartChanged) {
+    const [existingEntitlement] = await db.select({ id: hrAnnualLeaveEntitlements.id }).from(hrAnnualLeaveEntitlements)
+      .where(eq(hrAnnualLeaveEntitlements.employmentId, current?.id ?? "")).limit(1);
+    if (existingEntitlement) throw new HrError(409, "員工已有特休週期，不能直接修改服務年資起算日；請先依特休／薪資調整流程處理。");
+  }
+  const supervisorSet = input.supervisorUserId === undefined ? sql`` : sql`, supervisor_user_id=${input.supervisorUserId}`;
+  const supervisorGuard = input.supervisorUserId === undefined ? sql`` : sql` AND ${supervisorCondition(userId, input.supervisorUserId)}`;
+  const servicePeriodGuard = serviceStartChanged ? sql` AND NOT EXISTS (SELECT 1 FROM hr_annual_leave_entitlements WHERE employment_id=${current?.id})` : sql``;
+  const mutations: SQL[] = [sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, legal_name=${legalName}, position=${input.position}${supervisorSet}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
+    WHERE employee_user_id=${userId} AND revision=${input.revision} AND archived_at IS NULL${supervisorGuard}${servicePeriodGuard} RETURNING id`];
+  if (serviceStartChanged) mutations.push(sql`INSERT INTO hr_employment_service_periods (employment_id, service_start_on)
+    VALUES (${current?.id}, ${input.serviceStartOn})
+    ON CONFLICT (employment_id) DO UPDATE SET service_start_on=excluded.service_start_on, updated_at=CURRENT_TIMESTAMP
+    RETURNING employment_id AS id`);
+  const payload = { legalName, ...(input.supervisorUserId === undefined ? {} : { supervisorUserId: input.supervisorUserId }), ...(serviceStartChanged ? { beforeServiceStartOn: current?.serviceStartOn ?? null, serviceStartOn: input.serviceStartOn } : {}) };
+  return write(db, mutations, userId, actor, "employee_updated", "員工不存在、已是未在職或資料已變更，請重新整理後再試。", { activity: { payload, summary: "員工資料已更新" } });
 }
 
 export function updateHrEmployeeSupervisor(db: Database, userId: string, input: { supervisorUserId: string | null; revision: number }, actor: HrActor) {
   return write(db, sql`UPDATE hr_employments SET supervisor_user_id=${input.supervisorUserId}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
     WHERE employee_user_id=${userId} AND revision=${input.revision} AND archived_at IS NULL
-      AND (${input.supervisorUserId} IS NULL OR (${input.supervisorUserId} <> ${userId}
-        AND EXISTS (SELECT 1 FROM hr_employments AS supervisor_employee INNER JOIN users AS supervisor_user ON supervisor_user.id=supervisor_employee.employee_user_id
-          WHERE supervisor_employee.employee_user_id=${input.supervisorUserId} AND supervisor_employee.archived_at IS NULL AND supervisor_user.status='active')))
-    RETURNING id`, userId, actor, "employee_supervisor_updated", "主管不存在、不可指定自己、員工已封存或資料已變更，請重新整理後再試。");
+      AND ${supervisorCondition(userId, input.supervisorUserId)}
+    RETURNING id`, userId, actor, "employee_supervisor_updated", "主管不存在、不可指定自己、員工已是未在職或資料已變更，請重新整理後再試。");
 }
 
 export function updateHrEmploymentPosition(db: Database, id: string, input: { position: string; revision: number }, actor: HrActor) {
-  return write(db, sql`UPDATE hr_employments SET position=${input.position}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_position_updated", "員工不存在、已封存或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id, position: input.position }, summary: "職位已更新" } });
+  return write(db, sql`UPDATE hr_employments SET position=${input.position}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_position_updated", "員工不存在、已是未在職或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id, position: input.position }, summary: "職位已更新" } });
 }
 
 export async function updateHrEmploymentServicePeriod(db: Database, id: string, input: { serviceStartOn: string; revision: number }, actor: HrActor) {
@@ -361,7 +385,7 @@ export async function updateHrEmploymentServicePeriod(db: Database, id: string, 
     .where(eq(hrEmploymentServicePeriods.employmentId, id)).limit(1);
   const [existingEntitlement] = await db.select({ id: hrAnnualLeaveEntitlements.id }).from(hrAnnualLeaveEntitlements)
     .where(eq(hrAnnualLeaveEntitlements.employmentId, id)).limit(1);
-  if (existingEntitlement) throw new HrError(409, "員工已有特休週期，不能直接修改服務年資起算日；請先依特休／薪資調整流程處理。 ");
+  if (existingEntitlement) throw new HrError(409, "員工已有特休週期，不能直接修改服務年資起算日；請先依特休／薪資調整流程處理。");
   return write(db, [
     sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
       WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL
@@ -370,19 +394,19 @@ export async function updateHrEmploymentServicePeriod(db: Database, id: string, 
       VALUES (${id}, ${input.serviceStartOn})
       ON CONFLICT (employment_id) DO UPDATE SET service_start_on=excluded.service_start_on, updated_at=CURRENT_TIMESTAMP
       RETURNING employment_id AS id`,
-  ], id, actor, "employment_service_period_updated", "員工不存在、已封存、版本已過期或服務年資資料已變更，請重新整理後再試。", {
+  ], id, actor, "employment_service_period_updated", "員工不存在、已是未在職、版本已過期或服務年資資料已變更，請重新整理後再試。", {
     activity: { payload: { employmentId: id, beforeServiceStartOn: currentServicePeriod?.serviceStartOn ?? null, serviceStartOn: input.serviceStartOn }, summary: "服務年資起算日已更新" },
   });
 }
 
 export function archiveHrEmployment(db: Database, id: string, revision: number, actor: HrActor) {
-  // 封存不改寫業務資料，但 updated_at 要跟著前進，讓多筆封存歷史能按最近一次狀態穩定選取。
-  return write(db, sql`UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_archived", "員工不存在、已封存或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id }, summary: "員工已封存" } });
+  // 設為未在職不改寫業務資料，但 updated_at 要跟著前進，讓多筆未在職歷史能按最近一次狀態穩定選取。
+  return write(db, sql`UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_archived", "員工不存在、已是未在職或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id }, summary: "員工已設為未在職" } });
 }
 
 export function updateHrEmploymentAttendanceMode(db: Database, id: string, input: { attendanceMode: "general" | "scheduled"; monthlyRestDays: number | null | undefined; revision: number }, actor: HrActor) {
   const monthlyRestDays = input.attendanceMode === "general" ? sql`NULL` : input.monthlyRestDays === undefined ? sql`monthly_rest_days` : sql`${input.monthlyRestDays}`;
-  return write(db, [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP WHERE employment_id=${id} RETURNING employment_id AS id`], id, actor, "employment_attendance_mode_updated", "員工不存在、已封存、版本已過期或出勤設定不存在，請重新整理後再試。");
+  return write(db, [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP WHERE employment_id=${id} RETURNING employment_id AS id`], id, actor, "employment_attendance_mode_updated", "員工不存在、已是未在職、版本已過期或出勤設定不存在，請重新整理後再試。");
 }
 
 export function createHrAssignment(db: Database, input: { employmentId: string; scopeId: string; validFrom: string; validTo: string | null }, actor: HrActor) {

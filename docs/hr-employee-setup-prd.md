@@ -2,13 +2,13 @@
 
 ## 1. 目的與資料模型
 
-HR 員工是既有平台使用者（`users`）的人事延伸；帳號狀態與員工封存狀態分開管理。
+HR 員工是既有平台使用者（`users`）的人事延伸；帳號狀態與員工在職狀態分開管理。
 
 ```text
 users 1 ─── 0..1 hr_employments 1 ─── 0..1 hr_employment_service_periods
 ```
 
-`hr_employments` 是唯一的員工主檔，也是目前職位的唯一來源；服務年資起算日另存於 `hr_employment_service_periods.service_start_on`，封存／重新啟用沿用同一筆資料：
+`hr_employments` 是唯一的員工主檔，也是目前職位的唯一來源；服務年資起算日另存於 `hr_employment_service_periods.service_start_on`，設為未在職／恢復在職沿用同一筆資料：
 
 | 欄位 | 語意 |
 |---|---|
@@ -17,11 +17,11 @@ users 1 ─── 0..1 hr_employments 1 ─── 0..1 hr_employment_service_per
 | `employee_number` | 員工編號；活動員工不可重複 |
 | `position` | 目前職位；升遷／調職直接更新此欄位 |
 | `supervisor_user_id` | 目前主管，可為 NULL |
-| `archived_at` | NULL 表示目前員工；非 NULL 表示員工已封存 |
+| `archived_at` | NULL 表示在職；非 NULL 表示未在職（底層保留封存時間） |
 | `id` | 穩定的 `employmentId`，供薪資、出勤、保險、假勤、排班與稽核歷史使用 |
 | `revision` | 一般員工資料異動的競態控制版本 |
 
-服務年資起算日是薪資計算在職日與週年制特休年資的起點，不用來推導目前是否活動；活動條件仍只看 `hr_employments.archived_at IS NULL`。升遷、調職不建立任職版本；`hr_compensation_versions` 仍保留自己的敘薪版本控制。封存不物理刪除列，也不刪除任何下游資料。
+服務年資起算日是薪資計算在職日與週年制特休年資的起點，不用來推導目前是否在職；在職條件仍只看 `hr_employments.archived_at IS NULL`。升遷、調職不建立任職版本；`hr_compensation_versions` 仍保留自己的敘薪版本控制。設為未在職不物理刪除列，也不刪除任何下游資料。
 
 ## 2. 核心決策
 
@@ -30,9 +30,9 @@ users 1 ─── 0..1 hr_employments 1 ─── 0..1 hr_employment_service_per
 3. `active` 或 `invited` 的 User 可以指派；`disabled` 帳號不能新指派。
 4. 指派時同一個原子操作建立員工主檔與 `hr_employment_attendance_settings`，預設出勤方式為一般辦公。
 5. 正式姓名、員工編號、職位與主管直接保存於同一筆 `hr_employments`；Google 帳號名稱留在 `users`。
-6. 封存只改變業務欄位 `archived_at`；`revision` 僅前進作為競態控制，不改寫正式姓名、員工編號、職位、主管、`employmentId` 或下游歷史。
-7. 重新啟用已封存員工沿用同一個 `employmentId`，清除 `archived_at` 並由資料庫唯一索引檢查活動員工編號與 User 的唯一性。
-8. 帳號停用不等於員工封存；封存也不會停用帳號。
+6. 設為未在職只改變業務欄位 `archived_at`；`revision` 僅前進作為競態控制，不改寫正式姓名、員工編號、職位、主管、`employmentId` 或下游歷史。
+7. 恢復在職沿用同一個 `employmentId`，清除 `archived_at` 並由資料庫唯一索引檢查在職員工編號與 User 的唯一性。
+8. 帳號停用不等於員工未在職；員工未在職也不會停用帳號。
 
 ## 3. 範圍
 
@@ -43,7 +43,7 @@ users 1 ─── 0..1 hr_employments 1 ─── 0..1 hr_employment_service_per
 - 修正服務年資起算日（影響薪資試算與週年制特休）。
 - 設定或清除目前主管。
 - 查看、搜尋、排序與分頁員工。
-- 封存與重新啟用員工。
+- 將員工設為未在職與恢復在職。
 - 查看出勤設定、工作範圍與下游歷史入口。
 - 將穩定 `employmentId` 傳給薪資、出勤、保險、請假、加班、排班、獎金與稽核模組。
 
@@ -69,14 +69,14 @@ HRIS
 
 ### 員工列表
 
-- 主要操作為「指派員工」，危險操作為「封存」。
+- 主要操作為「新增員工」與開啟「員工資料」；在職狀態操作以「設為未在職／恢復在職」呈現。
 - 搜尋正式姓名、Email、員工編號與職位。
-- 任職狀態分為「目前員工」與「已封存」；判斷只看 `archived_at`。
+- 員工狀態分為「在職」與「未在職」；判斷只看 `archived_at`。
 - 帳號狀態另看 `users.status`，至少顯示全部、啟用中、待啟用與已停用。
 - 欄位包含員工編號、正式姓名、職位、Email、帳號狀態、主管與員工狀態。
-- 支援排序、分頁與目前員工／已封存計數；Google 帳號名稱與 Email 不複製到 HR 任職主檔。
+- 支援排序、分頁與在職／未在職計數；Google 帳號名稱與 Email 不複製到 HR 任職主檔。
 
-### 指派／重新啟用 Dialog
+### 指派／恢復在職 Dialog
 
 | 欄位 | 必填 | 規則 |
 |---|---:|---|
@@ -85,15 +85,17 @@ HRIS
 | 員工編號 | 是 | 1～40 字元；活動員工全平台唯一 |
 | 職位 | 是 | 1～100 字元 |
 | 服務年資起算日 | 指派時是 | `YYYY-MM-DD`；薪資月份與此日期有交集才計算薪資 |
-| 出勤方式 | 否 | 未提供時為 `general`；排班與月休另在出勤設定維護 |
+| 出勤方式 | — | 員工資料 Dialog 不維護；新員工預設為 `general`，排班與月休在出勤設定維護 |
 
-重新啟用已封存員工時沿用原列、原 `employmentId` 與原服務年資起算日，只清除封存狀態並套用新的員工編號／職位／出勤方式；既有列必須帶目前 `revision`，避免無版本的舊請求覆寫重新啟用資料。
+恢復未在職員工時沿用原列、原 `employmentId` 與原服務年資起算日，只清除未在職狀態並套用新的員工編號／職位；既有列必須帶目前 `revision`，避免無版本的舊請求覆寫恢復資料。
 
-### 員工內頁
+### 員工資料 Dialog 與內頁
 
 - 正式姓名、員工編號、職位、主管與 `employmentId` 來自同一筆 `hr_employments`；Google 帳號名稱、Email、帳號狀態來自 `users`，內頁分開顯示兩種姓名。
-- 顯示封存時間與目前出勤設定；已封存員工仍可查閱下游歷史。
-- 活動任職可從員工管理 Dialog 修正服務年資起算日；該日期是薪資試算與週年制特休的在職起算下限，敘薪生效日不會自動改寫它。
+- 員工資料 Dialog 直接編輯正式姓名、員工編號、職位、主管與服務年資起算日；不把任職另拆成第二層操作。
+- 辦公位置在員工資料 Dialog 只顯示唯讀摘要，新增、變更與結束一律在出勤範圍管理處理。
+- 顯示未在職時間與目前出勤設定；未在職員工仍可查閱下游歷史。
+- 服務年資起算日是薪資試算與週年制特休的在職起算下限，敘薪生效日不會自動改寫它。
 - 薪資、保險、假勤、打卡、工作範圍與排班使用相同 `employmentId` 查詢。
 
 ## 5. 狀態與異動規則
@@ -102,7 +104,7 @@ HRIS
 
 指派須在同一個資料庫 batch 內完成：
 
-1. 建立或重新啟用 `hr_employments`。
+1. 建立或恢復在職 `hr_employments`。
 2. 建立或更新 `hr_employment_attendance_settings`。
 3. 寫入 HR activity event。
 
@@ -110,7 +112,7 @@ HRIS
 
 ### 正式姓名
 
-HR 指派、編輯或重新啟用員工時必須維護 1～100 字的身分證正式姓名。姓名異動只更新 `hr_employments.legal_name`，不改寫 `users.display_name`、`users.google_name` 或登入帳號；下游 HR 查詢以正式姓名為主，既有帳號名稱只作回填與缺值 fallback。
+HR 指派、編輯或恢復在職員工時必須維護 1～100 字的身分證正式姓名。姓名異動只更新 `hr_employments.legal_name`，不改寫 `users.display_name`、`users.google_name` 或登入帳號；下游 HR 查詢以正式姓名為主，既有帳號名稱只作回填與缺值 fallback。
 
 ### 升遷／調職
 
@@ -120,20 +122,20 @@ HR 指派、編輯或重新啟用員工時必須維護 1～100 字的身分證�
 
 HR 可在目前任職的 revision 保護下修正 `hr_employment_service_periods.service_start_on`。這只更新服務年資資料並前進 `hr_employments.revision`，不改寫敘薪版本；薪資試算會以修正後的日期判定該月份是否有在職區間。若敘薪生效日早於服務年資起算日，敘薪頁必須明確提示兩者差異。已有特休週期的任職不可直接修改，避免既有額度與台帳產生重疊；這類更正須依特休／薪資調整流程處理。
 
-### 封存
+### 設為未在職
 
-封存使用 `archived_at = CURRENT_TIMESTAMP`，並寫入 `employment_archived` activity event。封存操作不得物理刪除：
+「設為未在職」使用 `archived_at = CURRENT_TIMESTAMP`，並寫入 `employment_archived` activity event。這是底層保留歷史的實作名稱；使用者介面與業務語意統一稱為「未在職」。此操作不得物理刪除：
 
 - `hr_employments` 原列與 `employmentId`
 - 員工編號、職位、主管與建立／更新時間
 - 出勤、打卡、工作範圍、薪資、保險、假勤、加班、排班、獎金與薪資結算
 - `hr_employment_actions` 與共用 activity log
 
-重新啟用不是建立新版本；仍使用同一筆主檔。舊 client 的 `/end` 與 `/withdraw` 路由可相容地映射到封存，但新 UI 使用 `/archive` 語意。
+恢復在職不是建立新版本；仍使用同一筆主檔。舊 client 的 `/end` 與 `/withdraw` 路由可相容地映射到未在職，但新 UI 使用「設為未在職／恢復在職」語意。
 
 ## 6. 主管規則
 
-- 主管必須是另一位 `active` 帳號且有未封存的 `hr_employments`。
+- 主管必須是另一位 `active` 帳號且有在職的 `hr_employments`。
 - 不可指定自己；可清除主管。
 - 主管保存於 `hr_employments.supervisor_user_id`，補打卡與其他申請可把它作為預設審核者。
 
@@ -142,26 +144,26 @@ HR 可在目前任職的 revision 保護下修正 `hr_employment_service_periods
 | 操作 | 權限 |
 |---|---|
 | 查看員工列表與基本資料 | `hr:employee:read` |
-| 指派、編輯、修正服務年資、封存、重新啟用 | `hr:employee:write` |
+| 指派、編輯、修正服務年資、設為未在職、恢復在職 | `hr:employee:write` |
 | 設定主管 | `hr:employee:write` |
 | 出勤方式與位置設定 | `hr:office:write` |
 | 薪資、保險與敏感歷史 | 依各模組的獨立權限 |
 
-本人入口只依 session User 查詢活動員工，不接受 query string 覆寫身分；已封存員工不再視為 HRIS 活動員工。
+本人入口只依 session User 查詢在職員工，不接受 query string 覆寫身分；未在職員工不再視為 HRIS 活動員工。
 
 ## 8. 失敗狀態與驗收
 
-後端必須明確回報：User 不存在或帳號不可指派、活動 User 已存在、員工編號重複、主管無效、員工已封存或資料在競態中變更。錯誤不得留下成功 activity event 或半套設定。
+後端必須明確回報：User 不存在或帳號不可指派、在職 User 已存在、員工編號重複、主管無效、員工已是未在職或資料在競態中變更。錯誤不得留下成功 activity event 或半套設定。
 
 驗收重點：
 
-- 同一 User 最多一筆未封存 `hr_employments`。
-- 同一員工編號最多一筆未封存 `hr_employments`。
+- 同一 User 最多一筆在職 `hr_employments`。
+- 同一員工編號最多一筆在職 `hr_employments`。
 - 升遷／調職前後 `employmentId` 不變，且不會多出任職列。
-- 封存後資料與所有外鍵歷史仍可查，重新啟用沿用原列。
-- 停用帳號與員工封存互不代替。
+- 設為未在職後資料與所有外鍵歷史仍可查，恢復在職沿用原列。
+- 停用帳號與員工未在職互不代替。
 - 所有活動員工查詢以 `archived_at IS NULL` 為條件。
-- 任何下游歷史不得因員工封存而被刪除或改寫。
+- 任何下游歷史不得因員工設為未在職而被刪除或改寫。
 
 ## 9. UI 要求
 
