@@ -10,13 +10,13 @@ describe("人事資料呈現", () => {
     const html = renderToStaticMarkup(<HrProfileDetails profile={{ employee, employments: [], assignments: [] }} />);
     expect(html).toContain("尚未建立員工資料");
     expect(html).toContain("尚未指派辦公位置");
-    expect(html).toContain("員工資料封存後仍保留");
+    expect(html).toContain("員工不在職後仍保留");
   });
 
   it("內頁將敏感資料與出勤資料拆成獨立收合區塊", () => {
     const html = renderToStaticMarkup(<HrProfileDetails profile={{ employee, employments: [], assignments: [] }} collapsible />);
-    expect(html.match(/hr-profile-section-toggle/g)).toHaveLength(7);
-    expect(html).toContain(">任職</span>");
+    expect(html.match(/hr-profile-section-toggle/g)).toHaveLength(6);
+    expect(html).toContain(">基本資料</span>");
     expect(html).toContain(">薪資</span>");
     expect(html).toContain(">勞健保</span>");
     expect(html).toContain(">辦公位置摘要</span>");
@@ -25,9 +25,9 @@ describe("人事資料呈現", () => {
     expect(html).not.toContain("設為主要");
   });
 
-  it("封存員工仍呈現主檔資料與封存狀態", () => {
+  it("未在職員工仍呈現基本資料與狀態", () => {
     const html = renderToStaticMarkup(<HrProfileDetails profile={{ employee: { ...employee, employmentStatus: "inactive" }, employments: [{ id: "archived", employeeUserId: "e", employeeNumber: "E001", position: "一般職員", supervisorUserId: null, archivedAt: "2026-01-02 00:00:00", revision: 2 }], assignments: [] }} />);
-    expect(html).toContain("已封存");
+    expect(html).toContain("未在職");
     expect(html).toContain("2026/1/2");
     expect(html).not.toContain("已撤回");
   });
