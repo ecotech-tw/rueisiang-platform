@@ -4627,6 +4627,17 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-picker-empty { margin: 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 
 .hr-payroll-table-region { position: relative; min-width: 0; }
+.page.fills > .panel.grows > .hr-payroll-table-region {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.page.fills > .panel.grows > .hr-payroll-table-region > .table-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
 .hr-payroll-mobile-select-all { display: none; }
 .hr-payroll-selection-actions {
   display: flex;
