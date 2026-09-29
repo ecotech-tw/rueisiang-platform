@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
@@ -14,14 +14,44 @@ const DEFAULT_SPECIAL_WORKDAY_SOURCE: SpecialWorkdaySource = "hourly";
 // 版本表的文字欄位是 0146 舊 schema；實際特殊日加班規則已改由 normalized 級距表保存。
 const DEFAULT_SPECIAL_WORKDAY_OVERTIME_RULE = "依員工核准加班規則另計";
 export interface SpecialWorkdayAllowanceInput { itemName: string; unitAmountMinor: number }
+export interface SpecialWorkdayAllowanceQuantityInput { allowanceId: string; quantity: number }
+export interface SpecialWorkdayAllowanceSnapshot { itemName: string; unitAmountMinor: number; quantity: number }
 export interface SpecialWorkdayOvertimeRuleInput { fromHalfHours: number; toHalfHours: number | null; rateKind: SpecialWorkdayOvertimeRateKind; fixedAmountMinor?: number | null; multiplierPpm?: number | null }
 export interface SpecialWorkdayRuleInput { name: string; validFrom: string; validTo: string | null; wageKind: SpecialWorkdayWageKind; fixedAmountMinor?: number | null; multiplierPpm?: number | null; workSource?: SpecialWorkdaySource; note?: string; allowances: SpecialWorkdayAllowanceInput[]; overtimeRules: SpecialWorkdayOvertimeRuleInput[] }
-export interface SpecialWorkdayAssignmentInput { ruleVersionId: string; assignments: Array<{ employmentId?: string; workerId?: string; workDate: string; allowanceQuantity: number }> }
+export interface SpecialWorkdayAssignmentInput { ruleVersionId: string; assignments: Array<{ employmentId?: string; workerId?: string; workDate: string; allowanceQuantities?: SpecialWorkdayAllowanceQuantityInput[]; allowanceQuantity?: number }> }
+
+/** 新快照保存每個補貼自己的數量；舊資料沒有 quantity 時沿用舊欄位的共用數量。 */
+export function parseSpecialWorkdayAllowanceSnapshot(snapshotJson: string, legacyQuantity = 0): SpecialWorkdayAllowanceSnapshot[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(snapshotJson);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(raw)) return [];
+  const fallbackQuantity = Number.isSafeInteger(legacyQuantity) && legacyQuantity >= 0 ? legacyQuantity : 0;
+  return raw.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const item = value as Record<string, unknown>;
+    const itemName = typeof item.itemName === "string" ? item.itemName : "";
+    const unitAmountMinor = item.unitAmountMinor;
+    if (!itemName || typeof unitAmountMinor !== "number" || !Number.isSafeInteger(unitAmountMinor) || unitAmountMinor < 0) return [];
+    const quantity = typeof item.quantity === "number" && Number.isSafeInteger(item.quantity) && item.quantity >= 0 ? item.quantity : fallbackQuantity;
+    return [{ itemName, unitAmountMinor, quantity }];
+  });
+}
+
+export function specialWorkdayAllowanceTotal(snapshotJson: string, legacyQuantity = 0) {
+  return parseSpecialWorkdayAllowanceSnapshot(snapshotJson, legacyQuantity).reduce((sum, item) => sum + item.unitAmountMinor * item.quantity, 0);
+}
 
 function validDate(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new HrError(400, "日期格式必須是 YYYY-MM-DD。 ");
   const parsed = new Date(`${value}T00:00:00Z`);
   if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) throw new HrError(400, "日期不是有效日期。 ");
+}
+function specialWorkdayAssignmentKey(employmentId: string | null | undefined, workerId: string | null | undefined, workDate: string) {
+  return `${employmentId ? `employment:${employmentId}` : `worker:${workerId!}`}:${workDate}`;
 }
 function normalizeOvertimeRules(rules: SpecialWorkdayOvertimeRuleInput[]) {
   if (rules.length > 50) throw new HrError(400, "特殊上班日加班規則最多 50 筆。 ");
@@ -198,29 +228,51 @@ export async function setHrSpecialWorkdayRuleActive(db: Database, ruleId: string
 
 export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkdayAssignmentInput, actor: HrActor) {
   if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HrError(400, "請提供要套用的員工日期。 ");
-  const inputKeys = new Set<string>();
   const [source] = await db.select({ version: hrSpecialWorkdayRuleVersions, ruleName: hrSpecialWorkdayRules.name }).from(hrSpecialWorkdayRuleVersions).innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayRuleVersions.ruleId)).where(and(eq(hrSpecialWorkdayRuleVersions.id, input.ruleVersionId), eq(hrSpecialWorkdayRules.active, 1), sql`${hrSpecialWorkdayRuleVersions.voidedAt} IS NULL`)).limit(1);
   if (!source) throw new HrError(404, "找不到啟用中的特殊上班日規則版本。 ");
   const allowanceRows = await db.select().from(hrSpecialWorkdayAllowances).where(eq(hrSpecialWorkdayAllowances.ruleVersionId, input.ruleVersionId));
-  const allowanceSnapshot = allowanceRows.map(({ id: _id, ruleVersionId: _version, createdAt: _created, ...item }) => item);
-  const statements = [];
-  for (const item of input.assignments) {
+  const allowanceById = new Map(allowanceRows.map((allowance) => [allowance.id, allowance]));
+  const inputKeys = new Set<string>();
+  const preparedAssignments = input.assignments.map((item) => {
     validDate(item.workDate);
     if (item.workDate < source.version.validFrom || (source.version.validTo !== null && item.workDate >= source.version.validTo)) throw new HrError(400, "套用日期不在規則版本有效期間內。 ");
-    if ((item.employmentId ? 1 : 0) + (item.workerId ? 1 : 0) !== 1 || !Number.isSafeInteger(item.allowanceQuantity) || item.allowanceQuantity < 0) throw new HrError(400, "特殊上班日套用對象或補貼數量不正確。 ");
-    const inputKey = `${item.employmentId ?? `worker:${item.workerId!}`}:${item.workDate}`;
+    const hasAllowanceQuantities = item.allowanceQuantities !== undefined;
+    const legacyAllowanceQuantity = item.allowanceQuantity;
+    if ((item.employmentId ? 1 : 0) + (item.workerId ? 1 : 0) !== 1 || hasAllowanceQuantities && legacyAllowanceQuantity !== undefined || !hasAllowanceQuantities && (!Number.isSafeInteger(legacyAllowanceQuantity) || legacyAllowanceQuantity! < 0)) throw new HrError(400, "特殊上班日套用對象或補貼數量不正確。 ");
+    const quantityByAllowanceId = new Map<string, number>();
+    for (const allowanceQuantity of item.allowanceQuantities ?? []) {
+      if (!allowanceById.has(allowanceQuantity.allowanceId) || quantityByAllowanceId.has(allowanceQuantity.allowanceId) || !Number.isSafeInteger(allowanceQuantity.quantity) || allowanceQuantity.quantity < 0) throw new HrError(400, "特殊上班日補貼項目或數量不正確。 ");
+      quantityByAllowanceId.set(allowanceQuantity.allowanceId, allowanceQuantity.quantity);
+    }
+    const allowanceSnapshot = allowanceRows.map(({ id: allowanceId, ruleVersionId: _version, createdAt: _created, ...allowance }) => ({ ...allowance, quantity: quantityByAllowanceId.get(allowanceId) ?? legacyAllowanceQuantity ?? 0 }));
+    const inputKey = specialWorkdayAssignmentKey(item.employmentId, item.workerId, item.workDate);
     if (inputKeys.has(inputKey)) throw new HrError(409, "同一批次不可重複套用同一人員同一天。 ");
     inputKeys.add(inputKey);
-    if (item.employmentId) {
-      const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, item.employmentId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
-      if (!employment) throw new HrError(400, "員工目前不是有效員工。 ");
-    } else {
-      const [worker] = await db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(eq(hrScheduleWorkers.id, item.workerId!), eq(hrScheduleWorkers.active, 1))).limit(1);
-      if (!worker) throw new HrError(400, "支援人員在套用日期不是啟用狀態。 ");
-    }
-    const duplicate = await db.select({ id: hrSpecialWorkdayAssignments.id }).from(hrSpecialWorkdayAssignments).where(item.employmentId ? and(eq(hrSpecialWorkdayAssignments.employmentId, item.employmentId), eq(hrSpecialWorkdayAssignments.workDate, item.workDate)) : and(eq(hrSpecialWorkdayAssignments.workerId, item.workerId!), eq(hrSpecialWorkdayAssignments.workDate, item.workDate))).limit(1);
-    if (duplicate.length) throw new HrError(409, "同一人員同一天已有特殊上班日規則。 ");
-    statements.push(db.insert(hrSpecialWorkdayAssignments).values({ id: crypto.randomUUID(), ruleVersionId: input.ruleVersionId, employmentId: item.employmentId ?? null, workerId: item.workerId ?? null, workDate: item.workDate, ruleNameSnapshot: source.ruleName, wageKindSnapshot: source.version.wageKind, fixedAmountMinorSnapshot: source.version.fixedAmountMinor, multiplierPpmSnapshot: source.version.multiplierPpm, workSourceSnapshot: source.version.workSource, allowanceSnapshotJson: JSON.stringify(allowanceSnapshot), allowanceQuantity: item.allowanceQuantity, appliedBy: actor.id }));
+    return { item, inputKey, allowanceSnapshot };
+  });
+  const employmentIds = [...new Set(preparedAssignments.map(({ item }) => item.employmentId).filter((id): id is string => Boolean(id)))];
+  const workerIds = [...new Set(preparedAssignments.map(({ item }) => item.workerId).filter((id): id is string => Boolean(id)))];
+  const [employmentRows, workerRows] = await Promise.all([
+    employmentIds.length ? db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(inArray(hrEmployments.id, employmentIds), sql`${hrEmployments.archivedAt} IS NULL`)) : Promise.resolve([]),
+    workerIds.length ? db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(inArray(hrScheduleWorkers.id, workerIds), eq(hrScheduleWorkers.active, 1))) : Promise.resolve([]),
+  ]);
+  const activeEmploymentIds = new Set(employmentRows.map((row) => row.id));
+  const activeWorkerIds = new Set(workerRows.map((row) => row.id));
+  const minWorkDate = preparedAssignments.reduce((min, { item }) => item.workDate < min ? item.workDate : min, preparedAssignments[0]!.item.workDate);
+  const maxWorkDate = preparedAssignments.reduce((max, { item }) => item.workDate > max ? item.workDate : max, preparedAssignments[0]!.item.workDate);
+  const [existingEmploymentAssignments, existingWorkerAssignments] = await Promise.all([
+    employmentIds.length ? db.select({ employmentId: hrSpecialWorkdayAssignments.employmentId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inArray(hrSpecialWorkdayAssignments.employmentId, employmentIds), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)) : Promise.resolve([]),
+    workerIds.length ? db.select({ workerId: hrSpecialWorkdayAssignments.workerId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inArray(hrSpecialWorkdayAssignments.workerId, workerIds), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)) : Promise.resolve([]),
+  ]);
+  const existingKeys = new Set([
+    ...existingEmploymentAssignments.map((row) => specialWorkdayAssignmentKey(row.employmentId, null, row.workDate)),
+    ...existingWorkerAssignments.map((row) => specialWorkdayAssignmentKey(null, row.workerId, row.workDate)),
+  ]);
+  const statements = [];
+  for (const { item, inputKey, allowanceSnapshot } of preparedAssignments) {
+    if (item.employmentId ? !activeEmploymentIds.has(item.employmentId) : !activeWorkerIds.has(item.workerId!)) throw new HrError(400, item.employmentId ? "員工目前不是有效員工。 " : "支援人員在套用日期不是啟用狀態。 ");
+    if (existingKeys.has(inputKey)) throw new HrError(409, "同一人員同一天已有特殊上班日規則。 ");
+    statements.push(db.insert(hrSpecialWorkdayAssignments).values({ id: crypto.randomUUID(), ruleVersionId: input.ruleVersionId, employmentId: item.employmentId ?? null, workerId: item.workerId ?? null, workDate: item.workDate, ruleNameSnapshot: source.ruleName, wageKindSnapshot: source.version.wageKind, fixedAmountMinorSnapshot: source.version.fixedAmountMinor, multiplierPpmSnapshot: source.version.multiplierPpm, workSourceSnapshot: source.version.workSource, allowanceSnapshotJson: JSON.stringify(allowanceSnapshot), allowanceQuantity: item.allowanceQuantity ?? 0, appliedBy: actor.id }));
   }
   statements.push(db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: input.ruleVersionId, source: "hr", eventType: "special_workday_assigned", summary: "特殊上班日套用", actor, payload: { count: input.assignments.length } })));
   try {

@@ -64,7 +64,7 @@ export interface SpecialWorkdayAllowance { id: string; ruleVersionId: string; it
 export interface SpecialWorkdayOvertimeRule { id: string; ruleVersionId: string; fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null }
 export interface SpecialWorkdayRuleVersion { id: string; ruleId: string; versionNumber: number; validFrom: string; validTo: string | null; wageKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null; workSource: "schedule" | "hourly" | "manual"; note: string; voidedAt?: string | null; voidedBy?: string | null; allowances: SpecialWorkdayAllowance[]; overtimeRules: SpecialWorkdayOvertimeRule[] }
 export interface SpecialWorkdayRule { rule: { id: string; name: string; active: number; revision: number }; versions: SpecialWorkdayRuleVersion[] }
-export interface SpecialWorkdayAssignment { assignment: { id: string; ruleVersionId: string; employmentId: string | null; workerId: string | null; workDate: string; ruleNameSnapshot: string; wageKindSnapshot: string; fixedAmountMinorSnapshot: number | null; multiplierPpmSnapshot: number | null; allowanceQuantity: number; appliedAt: string }; ruleVersionNumber: number; ruleVersionVoidedAt: string | null; employeeNumber: string | null; employeeName: string | null; workerName: string | null }
+export interface SpecialWorkdayAssignment { assignment: { id: string; ruleVersionId: string; employmentId: string | null; workerId: string | null; workDate: string; ruleNameSnapshot: string; wageKindSnapshot: string; fixedAmountMinorSnapshot: number | null; multiplierPpmSnapshot: number | null; allowanceSnapshotJson: string; allowanceQuantity: number; appliedAt: string }; ruleVersionNumber: number; ruleVersionVoidedAt: string | null; employeeNumber: string | null; employeeName: string | null; workerName: string | null }
 export interface GoogleMapPlace {
   id: string;
   name: string;
@@ -233,7 +233,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  * 敘薪、投保、獎金、薪資結算等管理頁共用的員工名單。
  * 用 employable 而不是 active：邀請中的員工還沒登入過平台，但照樣要敘薪、加保、算薪水。
  */
-export const HR_ROSTER_PATH = "/employees?page=1&pageSize=100&status=employable&employmentStatus=active&sortField=name&sortDirection=asc";
+function hrRosterPagePath(page: number) {
+  return `/employees?page=${page}&pageSize=100&status=employable&employmentStatus=active&sortField=name&sortDirection=asc`;
+}
+export const HR_ROSTER_PATH = hrRosterPagePath(1);
+interface HrAssignableEmployee extends Employee { employmentId: string }
+interface HrEmployeeRosterResponse {
+  employees: HrAssignableEmployee[];
+  total: number;
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+  counts: { active: number; inactive: number };
+}
+async function requestAllHrAssignableEmployees(signal?: AbortSignal): Promise<HrEmployeeRosterResponse> {
+  const first = await request<HrEmployeeRosterResponse>(HR_ROSTER_PATH, { signal });
+  if (!first.hasMore) return first;
+  const pageCount = Math.ceil(first.total / first.pageSize);
+  const remaining = await Promise.all(Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => request<HrEmployeeRosterResponse>(hrRosterPagePath(index + 2), { signal })));
+  return { ...first, employees: [first, ...remaining].flatMap((page) => page.employees), hasMore: false };
+}
+/** 特殊上班日的批次套用需要完整名單，不能只拿共用 roster 的第一頁。 */
+export function useHrEmployeeRoster() {
+  return useQuery({
+    queryKey: ["hr", "employees", "assignable-roster"],
+    queryFn: ({ signal }) => requestAllHrAssignableEmployees(signal),
+    retry: false,
+  });
+}
 
 /**
  * 換條件（月份、分頁、篩選）時留著上一次的資料，頁面才不會整頁換成骨架再長回來；
