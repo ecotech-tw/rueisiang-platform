@@ -186,7 +186,7 @@ export function HrPayrollSettlement() {
   const canRead = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:read"));
   const canCalculate = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:calculate"));
   const currentMonth = taipeiMonth();
-  const [recordFilters, setRecordFilters] = useState<PayrollRecordFilters>({ page: 1, pageSize: 25, search: "", periodKey: currentMonth, status: "all", personKind: "all", payBasis: "all" });
+  const [recordFilters, setRecordFilters] = useState<PayrollRecordFilters>({ page: 1, pageSize: 25, search: "", periodKey: "", status: "all", personKind: "all", payBasis: "all" });
   const [showCalculationDialog, setShowCalculationDialog] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [approveOpen, setApproveOpen] = useState(false);
@@ -240,7 +240,7 @@ export function HrPayrollSettlement() {
     <Alert tone="info">試算只會建立尚未結算的紀錄。薪資加扣項在單筆明細的 modal 管理；確定發放後，該筆紀錄與明細會保留為不可改寫的歷史快照。</Alert>
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
 
-    <Panel className="grows hr-payroll-records-panel" title="發放紀錄" description="預設顯示本月；清除月份即可跨期間查詢。">
+    <Panel className="grows hr-payroll-records-panel" title="發放紀錄">
       <form className="admin-form toolbar hr-payroll-record-filter" onSubmit={(event) => event.preventDefault()}>
         <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} />
         <FilterInput label="薪資月份" type="month" value={recordFilters.periodKey} onChange={(event) => updateRecordFilters({ periodKey: event.target.value })} />
