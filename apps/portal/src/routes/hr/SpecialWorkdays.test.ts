@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultActiveVersionId, fromHoursText, nextOvertimeRule, parseFromHours, parseToHours, toHoursText, type OvertimeRuleDraft } from "./SpecialWorkdays.js";
+import { datesInRange, defaultActiveVersionId, fromHoursText, nextOvertimeRule, parseFromHours, parseToHours, toHoursText, type OvertimeRuleDraft } from "./SpecialWorkdays.js";
 
 describe("特殊上班日加班級距的時數邊界", () => {
   it("把資料庫的第一個半小時索引顯示為 0.0 小時起算", () => {
@@ -33,5 +33,10 @@ describe("特殊上班日加班級距的時數邊界", () => {
       rule: { id: "rule-1", name: "特殊日", active: 1, revision: 1 },
       versions: [version("version-1", 1), version("version-2", 2), version("version-3", 3, "2026-03-01")],
     }])).toBe("version-2");
+  });
+
+  it("日期區間包含開始日與結束日", () => {
+    expect(datesInRange("2026-02-27", "2026-03-01")).toEqual(["2026-02-27", "2026-02-28", "2026-03-01"]);
+    expect(datesInRange("2026-03-01", "2026-02-27")).toEqual([]);
   });
 });

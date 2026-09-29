@@ -7,7 +7,7 @@ import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributionRules, listHrInsuranceContributionRules, resolveHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
-import { listHrSpecialWorkdaysForPayroll } from "./hr-special-workdays.js";
+import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, specialWorkdayAllowanceTotal } from "./hr-special-workdays.js";
 import { HrError, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { listEffectiveDailyPayouts } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
@@ -943,7 +943,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
               : compensation.baseAmountMinor;
           amountMinor += Math.floor(baseAmount * special.multiplierPpmSnapshot / PPM);
         }
-        if (special.allowanceQuantity) amountMinor += (JSON.parse(special.allowanceSnapshotJson) as Array<{ unitAmountMinor: number }>).reduce((sum, item) => sum + item.unitAmountMinor * special.allowanceQuantity, 0);
+        amountMinor += specialWorkdayAllowanceTotal(special.allowanceSnapshotJson, special.allowanceQuantity);
       } else if (compensation.payBasis === "monthly") {
         const amount = Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);
         amountMinor += amount;
@@ -1254,14 +1254,15 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       calculationParts: specialCalculationParts, formulaDetail: payrollFormulaTotal(specialCalculationParts, specialMinor),
     } });
     for (const [index, special] of specialAssignments.entries()) {
-      if (!special.allowanceQuantity) continue;
-      const allowances = JSON.parse(special.allowanceSnapshotJson) as Array<{ itemName: string; unitAmountMinor: number }>;
-      const allowanceTotal = allowances.reduce((sum, item) => sum + item.unitAmountMinor * special.allowanceQuantity, 0);
+      const allowances = parseSpecialWorkdayAllowanceSnapshot(special.allowanceSnapshotJson, special.allowanceQuantity);
+      const payableAllowances = allowances.filter((item) => item.quantity > 0);
+      const allowanceTotal = payableAllowances.reduce((sum, item) => sum + item.unitAmountMinor * item.quantity, 0);
       if (allowanceTotal > 0) {
-        const unitFormula = allowances.map((item) => `${item.itemName} ${payrollFormulaMoney(item.unitAmountMinor)}`).join(" + ");
-        const allowancePart = { formula: `${special.workDate}：(${unitFormula}) × ${special.allowanceQuantity} 次`, amountMinor: allowanceTotal };
+        const unitFormula = payableAllowances.map((item) => `${item.itemName} ${payrollFormulaMoney(item.unitAmountMinor)} × ${item.quantity} 次`).join(" + ");
+        const allowancePart = { formula: `${special.workDate}：${unitFormula}`, amountMinor: allowanceTotal };
         lines.push({ lineKey: `special_allowance_${index + 1}`, direction: "earning", amountMinor: allowanceTotal, explanation: {
-          rule: special.ruleNameSnapshot, quantity: special.allowanceQuantity, allowances: special.allowanceSnapshotJson,
+          rule: special.ruleNameSnapshot, quantity: special.allowanceQuantity,
+          quantities: payableAllowances.map((item) => ({ itemName: item.itemName, quantity: item.quantity })), allowances: special.allowanceSnapshotJson,
           calculationParts: [allowancePart], formulaDetail: payrollFormulaTotal([allowancePart], allowanceTotal),
         } });
       }

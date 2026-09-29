@@ -4602,6 +4602,28 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-picker-group + .hr-payroll-picker-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-soft-line); }
 .hr-payroll-picker-group-title { padding: 6px 10px 3px; color: var(--color-muted); font-size: 12px; font-weight: 700; }
 .hr-payroll-picker-empty { margin: 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
+.special-workday-assign-dialog { width: min(820px, 100%); }
+.special-workday-assign-dialog .modal-body { gap: 18px; }
+.special-workday-target-section { display: grid; gap: 10px; }
+.special-workday-target-picker { max-height: min(38vh, 360px); }
+.special-workday-allowance-quantities { display: grid; gap: 10px; min-width: 0; }
+.special-workday-allowance-quantities > .form-hint { margin: -3px 0 2px; }
+.special-workday-allowance-head,
+.special-workday-allowance-row { display: grid; grid-template-columns: minmax(0, 1fr) 130px 100px; align-items: center; gap: 10px; }
+.special-workday-allowance-head { color: var(--color-muted); font-size: 12px; font-weight: 600; }
+.special-workday-allowance-row + .special-workday-allowance-row { padding-top: 10px; border-top: 1px solid var(--color-soft-line); }
+.special-workday-allowance-row > .field { min-width: 0; margin: 0; }
+.special-workday-allowance-unit { color: var(--color-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.special-workday-allowance-empty { margin: 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
+@media (max-width: 640px) {
+  .special-workday-allowance-head { display: none; }
+  .special-workday-allowance-row { grid-template-columns: minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
+  .special-workday-allowance-row > .salary-item-name { grid-column: 1 / -1; }
+  .special-workday-allowance-row > .special-workday-allowance-unit::before,
+  .special-workday-allowance-row > .field::before { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
+  .special-workday-allowance-row > .special-workday-allowance-unit::before { content: "補貼單價"; }
+  .special-workday-allowance-row > .field::before { content: "數量"; }
+}
 
 @media (max-width: 760px) {
   .hr-payroll-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }

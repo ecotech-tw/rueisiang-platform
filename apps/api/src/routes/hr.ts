@@ -300,6 +300,15 @@ function specialWorkdayRule(input: Record<string, unknown>) {
   if (input.workSource !== undefined) throw new HTTPException(400, { message: "特殊上班日工時來源由系統依人員類型決定，不可由請求指定。" });
   return { name: text(input, "name", "規則名稱", 100), validFrom: date(input, "validFrom")!, validTo: date(input, "validTo", true), wageKind, fixedAmountMinor: wageKind === "fixed_hourly" ? integerValue(input, "fixedAmountMinor", "固定每小時金額（分）", 0, Number.MAX_SAFE_INTEGER) : null, multiplierPpm: wageKind === "multiplier" ? integerValue(input, "multiplierPpm", "薪資倍率（ppm）", 0, 10_000_000) : null, note: noteValue(input), allowances, overtimeRules: specialWorkdayOvertimeRules(input) } as const;
 }
+function specialAllowanceQuantities(input: Record<string, unknown>, assignmentIndex: number) {
+  if (input.allowanceQuantities === undefined) return undefined;
+  if (!Array.isArray(input.allowanceQuantities) || input.allowanceQuantities.length > 50) throw new HTTPException(400, { message: `第 ${assignmentIndex + 1} 筆補貼數量格式不正確。` });
+  return input.allowanceQuantities.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${assignmentIndex + 1} 筆第 ${index + 1} 個補貼數量格式不正確。` });
+    const item = raw as Record<string, unknown>;
+    return { allowanceId: text(item, "allowanceId", "補貼項目", 200), quantity: integerValue(item, "quantity", "補貼數量", 0, Number.MAX_SAFE_INTEGER) };
+  });
+}
 function specialAssignments(input: Record<string, unknown>) {
   if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HTTPException(400, { message: "特殊上班日套用清單格式不正確。" });
   return input.assignments.map((raw, index) => {
@@ -307,7 +316,16 @@ function specialAssignments(input: Record<string, unknown>) {
     const item = raw as Record<string, unknown>;
     const targetCount = [item.employmentId, item.workerId].filter((value) => typeof value === "string" && value.length > 0).length;
     if (targetCount !== 1) throw new HTTPException(400, { message: `第 ${index + 1} 筆必須指定一位員工或支援人員。` });
-    return { employmentId: typeof item.employmentId === "string" ? item.employmentId : undefined, workerId: typeof item.workerId === "string" ? item.workerId : undefined, workDate: date(item, "workDate")!, allowanceQuantity: integerValue(item, "allowanceQuantity", "補貼數量", 0, Number.MAX_SAFE_INTEGER) };
+    const allowanceQuantities = specialAllowanceQuantities(item, index);
+    const hasLegacyQuantity = item.allowanceQuantity !== undefined;
+    if (allowanceQuantities === undefined && !hasLegacyQuantity || allowanceQuantities !== undefined && hasLegacyQuantity) throw new HTTPException(400, { message: `第 ${index + 1} 筆請提供各補貼數量，或使用舊版的共用補貼數量，不能同時提供。` });
+    return {
+      employmentId: typeof item.employmentId === "string" ? item.employmentId : undefined,
+      workerId: typeof item.workerId === "string" ? item.workerId : undefined,
+      workDate: date(item, "workDate")!,
+      allowanceQuantities,
+      allowanceQuantity: hasLegacyQuantity ? integerValue(item, "allowanceQuantity", "補貼數量", 0, Number.MAX_SAFE_INTEGER) : undefined,
+    };
   });
 }
 function dateTimeValue(input: Record<string, unknown>, key: string, label: string) {
