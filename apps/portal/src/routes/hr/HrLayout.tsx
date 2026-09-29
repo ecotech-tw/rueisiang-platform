@@ -36,6 +36,7 @@ const PAYROLL_TABS = [
   { label: "獎金管理", to: "/hr/bonus", permission: "hr:bonus:read" as const, icon: "tag" as const, adminOnly: true },
   { label: "制度設定", to: "/hr/payroll-settings", permission: "hr:payroll:read" as const, icon: "tune" as const, adminOnly: true },
   { label: "薪資結算", to: "/hr/payroll-settlement", permission: "hr:payroll:read" as const, icon: "report" as const, adminOnly: true, activePaths: ["/hr/monthly-data"] },
+  { label: "薪資調整", to: "/hr/payroll-adjustments", permission: "hr:payroll:read" as const, icon: "tune" as const, adminOnly: true },
 ];
 
 const OVERVIEW_PERMISSIONS: Permission[] = ["hr:employee:read", "hr:office:read", "hr:schedule:read", "hr:payroll:read", "hr:bonus:read"];
@@ -66,7 +67,7 @@ const HR_PRIMARY_NAV: HrNavGroup[] = [
   { label: "員工", to: "/hr/employees", icon: "list", permissions: ["hr:employee:read"], activePaths: ["/hr/employees", "/hr/support-workers"], children: EMPLOYEE_TABS },
   { label: "出勤", to: "/hr/attendance-records", icon: "clock", permissions: ["hr:office:read", "hr:payroll:read"], activePaths: ["/hr/attendance-records", "/hr/attendance-scope", "/hr/attendance-settings", "/hr/special-workdays", "/hr/leave-types", "/hr/annual-leave"], children: ATTENDANCE_TABS },
   { label: "排班", to: "/hr/scheduling", icon: "calendar", permissions: ["hr:schedule:read", "hr:office:read"], activePaths: ["/hr/scheduling"], children: SCHEDULING_TABS },
-  { label: "薪資", to: "/hr/compensation", icon: "payments", permissions: ["hr:payroll:read", "hr:bonus:read", "hr:employee:read"], adminOnly: true, activePaths: ["/hr/compensation", "/hr/insurance", "/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/monthly-data"], children: PAYROLL_TABS },
+  { label: "薪資", to: "/hr/compensation", icon: "payments", permissions: ["hr:payroll:read", "hr:bonus:read", "hr:employee:read"], adminOnly: true, activePaths: ["/hr/compensation", "/hr/insurance", "/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/payroll-adjustments", "/hr/monthly-data"], children: PAYROLL_TABS },
 ];
 
 function matchesPath(path: string, pathname: string) {
@@ -106,7 +107,7 @@ export function HrLayout() {
   const isEmployee = pathname.includes("/employees") || pathname.includes("/support-workers");
   const isAttendance = pathname.includes("/attendance-settings") || pathname.includes("/attendance-scope") || pathname.includes("/attendance-records") || pathname.includes("/special-workdays") || pathname.includes("/leave-types") || pathname.includes("/annual-leave");
   const isScheduling = pathname.includes("/scheduling");
-  const isPayroll = pathname.includes("/compensation") || pathname.includes("/insurance") || pathname.includes("/bonus") || pathname.includes("/payroll-settlement") || pathname.includes("/monthly-data") || pathname.includes("/payroll-settings");
+  const isPayroll = pathname.includes("/compensation") || pathname.includes("/insurance") || pathname.includes("/bonus") || pathname.includes("/payroll-settlement") || pathname.includes("/payroll-adjustments") || pathname.includes("/monthly-data") || pathname.includes("/payroll-settings");
   const isOverview = pathname === "/hr" || pathname === "/hr/";
   const current = isOverview ? "儀表板" : isRequests ? "申請與審核" : isEmployee ? "員工管理" : isAttendance ? "出勤管理" : isScheduling ? "排班管理" : isPayroll ? "薪資" : "員工管理";
   const [openMenu, setOpenMenu] = useState<string | null>(null);

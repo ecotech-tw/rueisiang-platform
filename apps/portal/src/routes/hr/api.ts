@@ -2,6 +2,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { useToast } from "../../shell/Toast.js";
 
 export interface Employee {
+  employmentId?: string;
   userId: string;
   employeeNumber: string;
   legalName: string;
@@ -207,6 +208,28 @@ export interface PayrollRecordDetail {
   employee: PayrollEmployee | null;
   worker: PayrollWorker | null;
   items: PayrollRecordItem[];
+}
+export interface PayrollAdjustmentItem {
+  id: string;
+  adjustmentId: string;
+  itemName: string;
+  amountMinor: number;
+  createdAt: string;
+}
+export interface PayrollAdjustment {
+  id: string;
+  employmentId: string;
+  sourcePeriodKey: string;
+  effectivePeriodKey: string;
+  reason: string;
+  createdBy: string;
+  createdAt: string;
+  updatedBy: string;
+  updatedAt: string;
+  revision: number;
+  employeeName: string;
+  employeeNumber?: string;
+  items: PayrollAdjustmentItem[];
 }
 export interface HrOverview { periodKey: string; attendance: { anomalyCount: number }; schedule: { status: "not_started" | "pending" | "published" | "not_applicable"; scheduledEmployeeCount: number; missingEmployeeCount: number }; insurance: { totalEmployeeCount: number; missingEmployeeCount: number }; payroll: { status: "not_started" | "calculating" | "ready" | "approved" | "closed" | "failed"; completedCount: number; expectedCount: number } }
 export interface BonusAllocation { employmentId: string; employeeNumber: string; employeeName: string; weightUnits: number; scheduledDays: number; revenueMinor: number; amountMinor: number }
