@@ -4658,6 +4658,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-selection-actions > button { flex: none; }
 .hr-payroll-record-table tr.selected td { background: --alpha(var(--color-brand) / 8%); }
 .hr-payroll-select-cell { width: 44px; padding-inline: 10px !important; text-align: center; }
+@media (min-width: 761px) {
+  /* th 的預設首欄 padding 會讓全選框的內容中心比資料列偏左；固定同一個內容盒。 */
+  .hr-payroll-record-table .hr-payroll-select-cell { width: 64px; min-width: 64px; padding: 0 !important; }
+  .hr-payroll-record-table .hr-payroll-select-cell > .table-checkbox { display: block; margin-inline: auto; }
+}
 .hr-payroll-select-cell input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-payroll-adjustments-panel { display: grid; gap: 14px; }
 .hr-payroll-adjustment-filter { align-items: flex-end; }
