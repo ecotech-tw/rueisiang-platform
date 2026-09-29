@@ -105,6 +105,42 @@ export const hrPayrollClosedEmployees = sqliteTable("hr_payroll_closed_employees
   check("ck_hr_payroll_closed_employees_period", sql`${table.periodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
 ]);
 
+/** 支援人員沒有正式 payslip；另存同一組 period/person claim，讓發放紀錄可以逐筆核准。 */
+export const hrPayrollClosedWorkers = sqliteTable("hr_payroll_closed_workers", {
+  periodKey: text("period_key").notNull(),
+  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
+  closedAt: text("closed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.periodKey, table.workerId] }),
+  index("idx_hr_payroll_closed_workers_run").on(table.payrollRunId),
+  check("ck_hr_payroll_closed_workers_period", sql`${table.periodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
+]);
+
+/** 試算完成後、結帳前才會加入的人工加扣項；它附著在單一發放紀錄，不改寫原始計算明細。 */
+export const hrPayrollRecordItems = sqliteTable("hr_payroll_record_items", {
+  id: text("id").primaryKey(),
+  payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
+  personKind: text("person_kind", { enum: ["employee", "worker"] as const }).notNull(),
+  employmentId: text("employment_id").references(() => hrEmployments.id, { onDelete: "restrict" }),
+  workerId: text("worker_id").references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  sourcePeriodKey: text("source_period_key").notNull(),
+  itemName: text("item_name").notNull(),
+  direction: text("direction", { enum: ["earning", "deduction"] as const }).notNull(),
+  amountMinor: integer("amount_minor").notNull(),
+  reason: text("reason").notNull(),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_hr_payroll_record_items_record").on(table.payrollRunId, table.personKind, table.employmentId, table.workerId),
+  check("ck_hr_payroll_record_items_person", sql`(${table.personKind} = 'employee' AND ${table.employmentId} IS NOT NULL AND ${table.workerId} IS NULL) OR (${table.personKind} = 'worker' AND ${table.employmentId} IS NULL AND ${table.workerId} IS NOT NULL)`),
+  check("ck_hr_payroll_record_items_source_period", sql`${table.sourcePeriodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
+  check("ck_hr_payroll_record_items_name", sql`length(trim(${table.itemName})) BETWEEN 1 AND 100`),
+  check("ck_hr_payroll_record_items_direction", sql`${table.direction} IN ('earning', 'deduction')`),
+  check("ck_hr_payroll_record_items_amount", sql`${table.amountMinor} > 0`),
+  check("ck_hr_payroll_record_items_reason", sql`length(trim(${table.reason})) BETWEEN 1 AND 1000`),
+]);
+
 export const hrPayrollRunEmployees = sqliteTable("hr_payroll_run_employees", {
   payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
@@ -192,6 +228,8 @@ export type HrPayrollPeriod = typeof hrPayrollPeriods.$inferSelect;
 export type HrPayrollAdjustment = typeof hrPayrollAdjustments.$inferSelect;
 export type HrPayrollAdjustmentItem = typeof hrPayrollAdjustmentItems.$inferSelect;
 export type HrPayrollRun = typeof hrPayrollRuns.$inferSelect;
+export type HrPayrollClosedWorker = typeof hrPayrollClosedWorkers.$inferSelect;
+export type HrPayrollRecordItem = typeof hrPayrollRecordItems.$inferSelect;
 export type HrPayrollWorkerResult = typeof hrPayrollWorkerResults.$inferSelect;
 export type HrPayslip = typeof hrPayslips.$inferSelect;
 export type HrPayslipLine = typeof hrPayslipLines.$inferSelect;

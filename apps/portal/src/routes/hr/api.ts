@@ -190,6 +190,24 @@ export interface PayrollRecord {
   createdAt: string;
   closedAt: string | null;
 }
+export interface PayrollRecordItem {
+  id: string;
+  personKind: PayrollRecordPersonKind;
+  personId: string;
+  sourcePeriodKey: string;
+  itemName: string;
+  direction: "earning" | "deduction";
+  amountMinor: number;
+  reason: string;
+  createdAt: string;
+}
+export interface PayrollRecordDetail {
+  record: PayrollRecord;
+  run: { runId: string; runName: string; periodKey: string; payDate: string | null; engineVersion: string; warnings: string[] };
+  employee: PayrollEmployee | null;
+  worker: PayrollWorker | null;
+  items: PayrollRecordItem[];
+}
 export interface HrOverview { periodKey: string; attendance: { anomalyCount: number }; schedule: { status: "not_started" | "pending" | "published" | "not_applicable"; scheduledEmployeeCount: number; missingEmployeeCount: number }; insurance: { totalEmployeeCount: number; missingEmployeeCount: number }; payroll: { status: "not_started" | "calculating" | "ready" | "approved" | "closed" | "failed"; completedCount: number; expectedCount: number } }
 export interface BonusAllocation { employmentId: string; employeeNumber: string; employeeName: string; weightUnits: number; scheduledDays: number; revenueMinor: number; amountMinor: number }
 export interface BonusPool { poolId: string; policyVersionId: string; policyName: string; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; periodKey: string; status: "calculated" | "approved" | "closed" | "failed"; poolAmountMinor: number; allocations: BonusAllocation[]; daily: Array<{ scopeId?: string; businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>; warnings: string[] }
