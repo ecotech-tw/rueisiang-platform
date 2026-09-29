@@ -80,8 +80,8 @@ const supervisorName = sql<string | null>`(
 export const hrEmployableUser = sql`${users.status} IN ('active', 'invited')`;
 
 const employeeFields = {
-  employmentId: hrEmployments.id,
   userId: hrEmployments.employeeUserId,
+  employmentId: hrEmployments.id,
   employeeNumber: hrEmployments.employeeNumber,
   legalName: hrEmployments.legalName,
   displayName: hrEmployeeName,
