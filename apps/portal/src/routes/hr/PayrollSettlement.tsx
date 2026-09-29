@@ -233,11 +233,6 @@ export function HrPayrollSettlement() {
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
 
     <Panel className="grows hr-payroll-records-panel" title="發放紀錄" description="預設顯示本月；清除月份即可跨期間查詢。">
-      <div className="hr-payroll-record-summary" aria-label="薪資紀錄統計">
-        <div><span>符合條件</span><strong>{records.data?.counts.total.toLocaleString("zh-TW") ?? "—"}</strong><small>筆紀錄</small></div>
-        <div><span>尚未結算</span><strong>{records.data?.counts.unsettled.toLocaleString("zh-TW") ?? "—"}</strong><small>可覆核與確定發放</small></div>
-        <div className="is-closed"><span>已確定發放</span><strong>{records.data?.counts.closed.toLocaleString("zh-TW") ?? "—"}</strong><small>歷史快照</small></div>
-      </div>
       <form className="admin-form toolbar hr-payroll-record-filter" onSubmit={(event) => event.preventDefault()}>
         <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} />
         <FilterInput label="薪資月份" type="month" value={recordFilters.periodKey} onChange={(event) => updateRecordFilters({ periodKey: event.target.value })} />

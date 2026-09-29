@@ -4444,13 +4444,14 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
 .hr-payroll-records-panel { display: grid; gap: 14px; }
-.hr-payroll-record-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.hr-payroll-record-summary > div { display: grid; gap: 3px; min-width: 0; padding: 11px 13px; border: 1px solid var(--color-soft-line); border-radius: 12px; background: --alpha(var(--color-paper) / 58%); }
-.hr-payroll-record-summary > div.is-closed { background: var(--color-brand-soft); }
-.hr-payroll-record-summary span { color: var(--color-muted); font-size: 11px; font-weight: 700; }
-.hr-payroll-record-summary strong { color: var(--color-ink); font-size: 18px; font-variant-numeric: tabular-nums; }
-.hr-payroll-record-summary small { color: var(--color-muted); font-size: 11px; }
 .hr-payroll-record-filter { align-items: flex-end; padding: 12px 0 0; border-top: 1px solid var(--color-soft-line); }
+/* 原生 month input 會被日曆圖示的內距撐高；固定工具列控制項高度，避免月份欄比其他篩選器高。 */
+.hr-payroll-record-filter .filter-control > input {
+  box-sizing: border-box;
+  height: 34px;
+  min-height: 34px;
+}
+.hr-payroll-record-filter .filter-control > input[type="month"]::-webkit-calendar-picker-indicator { padding: 2px; }
 .hr-payroll-record-filter .search-input { flex: 1 1 220px; width: auto; min-width: 130px; }
 .hr-payroll-record-filter input:not(.search-input),
 .hr-payroll-record-filter .filter-select-control { flex: 1 1 150px; min-width: 130px; }
@@ -4645,7 +4646,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-item-dialog .modal-body { gap: 16px; }
 
 @media (max-width: 760px) {
-  .hr-payroll-record-summary { grid-template-columns: 1fr; }
   .hr-payroll-record-filter .search-input,
   .hr-payroll-record-filter input:not(.search-input),
   .hr-payroll-record-filter .filter-select-control { flex-basis: 100%; }
