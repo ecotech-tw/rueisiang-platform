@@ -43,6 +43,28 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.payroll).toEqual(expect.objectContaining({ status: expect.any(String) }));
   });
 
+  it("薪資紀錄列表預設可查全部人員，並依月份、狀態與姓名篩選", async () => {
+    const calculation = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-record-list-2026-08",
+    });
+    expect(calculation.status, await calculation.clone().text()).toBe(200);
+    const calculated = await calculation.json() as { run: { runId: string; runName: string } };
+    const unsettled = await request("/hr/payroll/records?page=1&pageSize=10&periodKey=2026-08&status=unsettled&search=%E6%9E%97%E7%91%9E%E7%BF%94");
+    expect(unsettled.status, await unsettled.clone().text()).toBe(200);
+    const unsettledBody = await unsettled.json() as { records: Array<{ personName: string; status: string; runId: string; payBasis: string | null }>; total: number; counts: { unsettled: number; closed: number } };
+    expect(unsettledBody.records).toEqual(expect.arrayContaining([expect.objectContaining({ personName: "林瑞翔", status: "unsettled", runId: calculated.run.runId, payBasis: "monthly" })]));
+    expect(unsettledBody.counts.unsettled).toBeGreaterThanOrEqual(1);
+    expect(unsettledBody.counts.closed).toBe(0);
+    expect((await request("/hr/payroll/records?periodKey=not-a-month")).status).toBe(400);
+    const closed = await request(`/hr/payroll/runs/${calculated.run.runId}/close`, "POST", {});
+    expect(closed.status, await closed.clone().text()).toBe(200);
+    const closedList = await request("/hr/payroll/records?periodKey=2026-08&status=closed");
+    expect(closedList.status, await closedList.clone().text()).toBe(200);
+    const closedBody = await closedList.json() as { records: Array<{ runId: string; status: string }>; counts: { closed: number } };
+    expect(closedBody.records).toEqual(expect.arrayContaining([expect.objectContaining({ runId: calculated.run.runId, status: "closed" })]));
+    expect(closedBody.counts.closed).toBeGreaterThanOrEqual(1);
+  });
+
   it("使用林瑞翔的假勤與加班紀錄建立辦公室薪資單", async () => {
     const invalidScope = await request("/hr/bonus/policies", "POST", { name: "不存在通路", scopeId: "missing-scope", bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 50_000, guaranteeMinor: 0 });
     expect(invalidScope.status, await invalidScope.clone().text()).toBe(404);
@@ -822,6 +844,9 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { workers: Array<{ workerId: string; workerName: string; payBasis: string; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number }> } };
     expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "測試支援人員", payBasis: "daily", scheduledDays: 2, amountMinor: 960_000, typhoonStopDays: 1, typhoonStopPayMinor: 320_000 })]));
+    const records = await request(`/hr/payroll/records?periodKey=2026-09&personKind=worker&search=${encodeURIComponent("測試支援人員")}`);
+    expect(records.status, await records.clone().text()).toBe(200);
+    expect((await records.json() as { records: Array<{ personKind: string; personId: string; personName: string; payBasis: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ personKind: "worker", personId: workerId, personName: "測試支援人員", payBasis: "daily" })]));
   });
 
   it("薪資結算可只選指定的支援人員，並保存支援人員選取範圍", async () => {

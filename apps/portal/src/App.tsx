@@ -27,6 +27,7 @@ import { HrSupportWorkers } from "./routes/hr/SupportWorkers.js";
 import { HrCompensationManagement } from "./routes/hr/Compensation.js";
 import { HrBonusManagement } from "./routes/hr/BonusManagement.js";
 import { HrPayrollSettlement } from "./routes/hr/PayrollSettlement.js";
+import { HrPayrollRunDetail } from "./routes/hr/PayrollRunDetail.js";
 import { HrMonthlyData } from "./routes/hr/MonthlyData.js";
 import { HrRequestCenter } from "./routes/hr/Requests.js";
 import { HrLeaveTypes } from "./routes/hr/LeaveTypes.js";
@@ -192,6 +193,7 @@ export function App() {
           <Route path="payroll" element={<Navigate to="/hr/payroll-settlement" replace />} />
           <Route path="bonus" element={<HrBonusManagement />} />
           <Route path="payroll-settlement" element={<HrPayrollSettlement />} />
+          <Route path="payroll-settlement/:runId" element={<HrPayrollRunDetail />} />
           <Route path="monthly-data" element={<HrMonthlyData />} />
         </Route>
 

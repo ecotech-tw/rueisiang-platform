@@ -6,7 +6,7 @@ import {
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
-  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollEmployeeHistory, listHrPayrollRuns, listHrPayrollWorkerCandidates,
+  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollEmployeeHistory, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
@@ -938,6 +938,24 @@ export const hr = new Hono<AppEnv>()
     const rawPeriodKey = c.req.query("periodKey");
     if (!rawPeriodKey) throw new HTTPException(400, { message: "計算月份必填。" });
     return c.json({ workers: await listHrPayrollWorkerCandidates(c.get("db"), periodKey({ periodKey: rawPeriodKey })) });
+  })
+  .get("/payroll/records", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const page = calendarNumber(c.req.query("page"), 1, "頁碼", 1, 10000);
+    const rawPageSize = c.req.query("pageSize");
+    const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
+    if (!HR_PAYROLL_RECORD_PAGE_SIZES.includes(pageSize as (typeof HR_PAYROLL_RECORD_PAGE_SIZES)[number])) throw new HTTPException(400, { message: "每頁筆數不正確。" });
+    const search = c.req.query("search")?.trim() ?? "";
+    if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
+    const periodKeyFilter = c.req.query("periodKey")?.trim() || "all";
+    if (periodKeyFilter !== "all" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKeyFilter)) throw new HTTPException(400, { message: "薪資月份不正確。" });
+    const rawStatus = c.req.query("status") ?? "all";
+    if (rawStatus !== "all" && rawStatus !== "unsettled" && rawStatus !== "closed") throw new HTTPException(400, { message: "薪資狀態不正確。" });
+    const rawPersonKind = c.req.query("personKind") ?? "all";
+    if (rawPersonKind !== "all" && rawPersonKind !== "employee" && rawPersonKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
+    const rawPayBasis = c.req.query("payBasis") ?? "all";
+    if (rawPayBasis !== "all" && rawPayBasis !== "monthly" && rawPayBasis !== "daily" && rawPayBasis !== "hourly" && rawPayBasis !== "mixed") throw new HTTPException(400, { message: "計薪方式不正確。" });
+    return c.json(await listHrPayrollRecords(c.get("db"), { page, pageSize, search, periodKey: periodKeyFilter, status: rawStatus, personKind: rawPersonKind, payBasis: rawPayBasis }));
   })
   .get("/payroll/runs", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

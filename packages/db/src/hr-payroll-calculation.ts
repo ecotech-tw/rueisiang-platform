@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, like, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
@@ -193,6 +193,54 @@ export interface HrPayrollEmployeeHistory {
   netMinor: number;
   closedAt: string;
 }
+
+export const HR_PAYROLL_RECORD_PAGE_SIZES = [10, 25, 50, 100] as const;
+export type HrPayrollRecordStatus = "all" | "unsettled" | "closed";
+export type HrPayrollRecordPersonKind = "all" | "employee" | "worker";
+export type HrPayrollRecordPayBasis = "all" | "monthly" | "daily" | "hourly" | "mixed";
+
+export interface HrPayrollRecordListQuery {
+  page: number;
+  pageSize: number;
+  search: string;
+  periodKey: string;
+  status: HrPayrollRecordStatus;
+  personKind: HrPayrollRecordPersonKind;
+  payBasis: HrPayrollRecordPayBasis;
+}
+
+export interface HrPayrollRecord {
+  recordId: string;
+  personKind: "employee" | "worker";
+  personId: string;
+  personNumber: string | null;
+  personName: string;
+  payBasis: "monthly" | "daily" | "hourly" | "mixed" | null;
+  runId: string;
+  runName: string;
+  versionNumber: number;
+  periodKey: string;
+  payDate: string | null;
+  status: "unsettled" | "closed";
+  earningMinor: number;
+  deductionMinor: number;
+  netMinor: number;
+  createdAt: string;
+  closedAt: string | null;
+}
+
+export interface HrPayrollRecordCounts {
+  total: number;
+  unsettled: number;
+  closed: number;
+}
+
+export type HrPayrollRecordRow = Omit<HrPayrollRecord, "runName" | "payBasis" | "status" | "closedAt"> & {
+  runNameInput: string;
+  payBasis: string | null;
+  recordStatus: "unsettled" | "closed";
+  closedAt: string | null;
+};
 
 export type HrBonusKind = "team_performance" | "individual_performance";
 export type HrBonusPerformancePeriod = "current_month" | "previous_month";
@@ -2063,6 +2111,117 @@ export async function listHrPayrollRuns(db: Database) {
       periodStatus: row.periodStatus,
     };
   });
+}
+
+export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordListQuery) {
+  const conditions: SQL[] = [];
+  const search = input.search.trim();
+  if (search) {
+    const pattern = `%${search}%`;
+    conditions.push(sql`(personName LIKE ${pattern} OR personNumber LIKE ${pattern})`);
+  }
+  if (input.periodKey !== "all") conditions.push(sql`periodKey = ${input.periodKey}`);
+  if (input.status !== "all") conditions.push(sql`recordStatus = ${input.status}`);
+  if (input.personKind !== "all") conditions.push(sql`personKind = ${input.personKind}`);
+  if (input.payBasis !== "all") conditions.push(sql`payBasis = ${input.payBasis}`);
+  const filter = conditions.length ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
+  const source = sql`
+    SELECT
+      'employee' AS personKind,
+      payslip.employment_id AS personId,
+      payslip.employment_id AS recordId,
+      payslip.employee_number AS personNumber,
+      payslip.employee_name AS personName,
+      json_extract(base_line.explanation_json, '$.payBasis') AS payBasis,
+      payroll_run.id AS runId,
+      payroll_run.calculation_input_json AS runNameInput,
+      payroll_run.version_number AS versionNumber,
+      payroll_period.period_key AS periodKey,
+      payroll_run.pay_date AS payDate,
+      CASE WHEN payroll_run.status = 'closed' THEN 'closed' ELSE 'unsettled' END AS recordStatus,
+      payslip.earning_minor AS earningMinor,
+      payslip.deduction_minor AS deductionMinor,
+      payslip.net_minor AS netMinor,
+      payroll_run.created_at AS createdAt,
+      CASE WHEN payroll_run.status = 'closed' THEN coalesce(closed_employee.closed_at, payroll_run.updated_at) ELSE NULL END AS closedAt
+    FROM hr_payslips AS payslip
+    INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id = payslip.payroll_run_id
+    INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id = payroll_run.payroll_period_id
+    LEFT JOIN hr_payslip_lines AS base_line ON base_line.payslip_id = payslip.id AND base_line.line_key = 'base_salary'
+    LEFT JOIN hr_payroll_closed_employees AS closed_employee ON closed_employee.payroll_run_id = payroll_run.id AND closed_employee.employment_id = payslip.employment_id
+    UNION ALL
+    SELECT
+      'worker' AS personKind,
+      worker_result.worker_id AS personId,
+      worker_result.worker_id AS recordId,
+      NULL AS personNumber,
+      worker_result.worker_name AS personName,
+      worker_result.pay_basis AS payBasis,
+      payroll_run.id AS runId,
+      payroll_run.calculation_input_json AS runNameInput,
+      payroll_run.version_number AS versionNumber,
+      payroll_period.period_key AS periodKey,
+      payroll_run.pay_date AS payDate,
+      CASE WHEN payroll_run.status = 'closed' THEN 'closed' ELSE 'unsettled' END AS recordStatus,
+      worker_result.amount_minor AS earningMinor,
+      0 AS deductionMinor,
+      worker_result.amount_minor AS netMinor,
+      payroll_run.created_at AS createdAt,
+      CASE WHEN payroll_run.status = 'closed' THEN payroll_run.updated_at ELSE NULL END AS closedAt
+    FROM hr_payroll_worker_results AS worker_result
+    INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id = worker_result.payroll_run_id
+    INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id = payroll_run.payroll_period_id
+  `;
+  const from = sql`FROM (${source}) AS payroll_records`;
+  const [rows, [countRow]] = await Promise.all([
+    db.all<HrPayrollRecordRow>(sql`
+      SELECT personKind, personId, recordId, personNumber, personName, payBasis, runId, runNameInput, versionNumber, periodKey, payDate, recordStatus,
+        earningMinor, deductionMinor, netMinor, createdAt, closedAt
+      ${from}
+      ${filter}
+      ORDER BY periodKey DESC, createdAt DESC, personName ASC, recordId ASC
+      LIMIT ${input.pageSize} OFFSET ${(input.page - 1) * input.pageSize}
+    `),
+    db.all<{ total: number; unsettled: number; closed: number }>(sql`
+      SELECT count(*) AS total,
+        sum(CASE WHEN recordStatus = 'unsettled' THEN 1 ELSE 0 END) AS unsettled,
+        sum(CASE WHEN recordStatus = 'closed' THEN 1 ELSE 0 END) AS closed
+      ${from}
+      ${filter}
+    `),
+  ]);
+  const total = Number(countRow?.total ?? 0);
+  const counts: HrPayrollRecordCounts = {
+    total,
+    unsettled: Number(countRow?.unsettled ?? 0),
+    closed: Number(countRow?.closed ?? 0),
+  };
+  return {
+    records: rows.map((row) => ({
+      recordId: row.recordId,
+      personKind: row.personKind,
+      personId: row.personId,
+      personNumber: row.personNumber,
+      personName: row.personName,
+      payBasis: row.payBasis === "monthly" || row.payBasis === "daily" || row.payBasis === "hourly" || row.payBasis === "mixed" ? row.payBasis : null,
+      runId: row.runId,
+      runName: payrollRunNameFromInput(row.runNameInput, [row.personName]),
+      versionNumber: row.versionNumber,
+      periodKey: row.periodKey,
+      payDate: row.payDate,
+      status: row.recordStatus,
+      earningMinor: row.earningMinor,
+      deductionMinor: row.deductionMinor,
+      netMinor: row.netMinor,
+      createdAt: row.createdAt,
+      closedAt: row.closedAt,
+    } satisfies HrPayrollRecord)),
+    total,
+    page: input.page,
+    pageSize: input.pageSize,
+    hasMore: input.page * input.pageSize < total,
+    counts,
+  };
 }
 
 export async function listHrPayrollEmployeeHistory(db: Database, employeeUserId: string): Promise<HrPayrollEmployeeHistory[]> {

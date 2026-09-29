@@ -168,6 +168,28 @@ export interface BonusAssignment { assignment: { id: string; employmentId: strin
 export interface BonusPerformanceSnapshot { snapshot: { id: string; employmentId: string | null; periodStart: string; periodEnd: string; amountMinor: number; sourceKind: "manual" | "report"; sourceRef: string }; scopeName: string; employeeUserId: string | null; employeeName: string | null }
 export interface PayrollRunSummary { run: { id: string; runName: string; versionNumber: number; status: string; payDate: string | null; engineVersion: string; expectedCount: number; completedCount: number; createdAt: string }; periodKey: string; periodStatus: string }
 export interface PayrollEmployeeHistoryRecord { runId: string; runName: string; periodKey: string; versionNumber: number; payDate: string | null; employmentId: string; employeeNumber: string; employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; closedAt: string }
+export type PayrollRecordStatus = "unsettled" | "closed";
+export type PayrollRecordPersonKind = "employee" | "worker";
+export type PayrollRecordPayBasis = "monthly" | "daily" | "hourly" | "mixed";
+export interface PayrollRecord {
+  recordId: string;
+  personKind: PayrollRecordPersonKind;
+  personId: string;
+  personNumber: string | null;
+  personName: string;
+  payBasis: PayrollRecordPayBasis | null;
+  runId: string;
+  runName: string;
+  versionNumber: number;
+  periodKey: string;
+  payDate: string | null;
+  status: PayrollRecordStatus;
+  earningMinor: number;
+  deductionMinor: number;
+  netMinor: number;
+  createdAt: string;
+  closedAt: string | null;
+}
 export interface HrOverview { periodKey: string; attendance: { anomalyCount: number }; schedule: { status: "not_started" | "pending" | "published" | "not_applicable"; scheduledEmployeeCount: number; missingEmployeeCount: number }; insurance: { totalEmployeeCount: number; missingEmployeeCount: number }; payroll: { status: "not_started" | "calculating" | "ready" | "approved" | "closed" | "failed"; completedCount: number; expectedCount: number } }
 export interface BonusAllocation { employmentId: string; employeeNumber: string; employeeName: string; weightUnits: number; scheduledDays: number; revenueMinor: number; amountMinor: number }
 export interface BonusPool { poolId: string; policyVersionId: string; policyName: string; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; periodKey: string; status: "calculated" | "approved" | "closed" | "failed"; poolAmountMinor: number; allocations: BonusAllocation[]; daily: Array<{ scopeId?: string; businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>; warnings: string[] }
