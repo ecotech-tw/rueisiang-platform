@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, FilterInput, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -123,7 +123,7 @@ function PayrollAdjustmentDialog({
           <SelectField label="類型" value={item.direction} options={[{ value: "earning", label: "補發／加給" }, { value: "deduction", label: "扣款" }]} onChange={(event) => updateItem(item.key, { direction: event.target.value as AdjustmentItemDraft["direction"] })} />
           <TextField label="項目名稱" value={item.itemName} required placeholder="例如：前月差額" onChange={(event) => updateItem(item.key, { itemName: event.target.value })} />
           <TextField label="金額（元）" type="number" min="1" step="1" value={item.amount} required onChange={(event) => updateItem(item.key, { amount: event.target.value })} />
-          <Button type="button" variant="icon" icon="trash" aria-label="移除調整項目" title="移除調整項目" onClick={() => removeItem(item.key)} disabled={items.length === 1} />
+          <Tooltip label="移除調整項目" focusable={false}><Button type="button" variant="icon" icon="trash" aria-label="移除調整項目" onClick={() => removeItem(item.key)} disabled={items.length === 1} /></Tooltip>
         </div>)}
       </div>
     </div>

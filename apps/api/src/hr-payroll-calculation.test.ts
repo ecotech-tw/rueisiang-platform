@@ -69,6 +69,14 @@ describe("HR 薪資與櫃點獎金試算", () => {
     d1.sqlite.exec(`INSERT INTO hr_payroll_periods (id, period_key, attendance_start, attendance_end, status, created_by)
       VALUES ('payroll-period-2025-12', '2025-12', '2025-12-01', '2026-01-01', 'closed', 'dev-eli-lin@ecotech.tw')`);
 
+    const sourceCalculation = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-07", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-record-source-2026-07",
+    });
+    expect(sourceCalculation.status, await sourceCalculation.clone().text()).toBe(200);
+    const sourceRunId = (await sourceCalculation.json() as { run: { runId: string } }).run.runId;
+    const sourceClosed = await request(`/hr/payroll/runs/${sourceRunId}/close`, "POST", {});
+    expect(sourceClosed.status, await sourceClosed.clone().text()).toBe(200);
+
     const calculation = await request("/hr/payroll/calculate", "POST", {
       periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-payroll-record-approval-2026-08",
     });
@@ -83,6 +91,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
       runId, personKind: "employee", personId: runRecords[0]!.personId, sourcePeriodKey: "2025-12", direction: "deduction", itemName: "薪資覆核扣款", amountMinor: 1234, reason: "測試加扣項",
     });
     expect(item.status, await item.clone().text()).toBe(201);
+    const itemBody = await item.json() as { id: string };
     const detail = await request(`/hr/payroll/records/${runId}/employee/${runRecords[0]!.personId}`);
     expect(detail.status, await detail.clone().text()).toBe(200);
     const detailBody = await detail.json() as { record: { deductionMinor: number; netMinor: number }; items: Array<{ itemName: string }> };
@@ -92,6 +101,12 @@ describe("HR 薪資與櫃點獎金試算", () => {
 
     const approveOne = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: runRecords[0]!.personId }] });
     expect(approveOne.status, await approveOne.clone().text()).toBe(200);
+    const deleteClosedItem = await request(`/hr/payroll/records/items/${itemBody.id}`, "DELETE", {});
+    expect(deleteClosedItem.status, await deleteClosedItem.clone().text()).toBe(409);
+    const blockedAdjustment = await request("/hr/payroll/adjustments", "POST", {
+      employmentId: runRecords[0]!.personId, sourcePeriodKey: "2026-07", effectivePeriodKey: "2026-08", reason: "已發放紀錄不可再調整", items: [{ itemName: "不應建立", amountMinor: 100 }],
+    });
+    expect(blockedAdjustment.status, await blockedAdjustment.clone().text()).toBe(409);
     const afterOne = await request(`/hr/payroll/records?periodKey=2026-08&status=all&pageSize=100`);
     const afterOneBody = await afterOne.json() as { records: Array<{ runId: string; personId: string; status: string }> };
     expect(afterOneBody.records.find((record) => record.runId === runId && record.personId === runRecords[0]!.personId)?.status).toBe("closed");

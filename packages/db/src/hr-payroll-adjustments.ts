@@ -4,7 +4,7 @@ import { activityRow } from "./activity.js";
 import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployments } from "./schema/hr-people.js";
-import { hrPayrollAdjustmentItems, hrPayrollAdjustments, hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
+import { hrPayrollAdjustmentItems, hrPayrollAdjustments, hrPayrollClosedEmployees, hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
 import { users } from "./schema/auth.js";
 
 export interface HrPayrollAdjustmentItemInput { itemName: string; amountMinor: number }
@@ -36,7 +36,9 @@ async function ensureEditable(db: Database, employmentId: string, effectivePerio
     .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId))
     .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, effectivePeriodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
-  if (periodRow?.status === "closed" || closed) throw new HrError(409, "調整生效月份已結帳，請建立下一個月份的新調整。 ");
+  const [closedClaim] = await db.select({ employmentId: hrPayrollClosedEmployees.employmentId }).from(hrPayrollClosedEmployees)
+    .where(and(eq(hrPayrollClosedEmployees.periodKey, effectivePeriodKey), eq(hrPayrollClosedEmployees.employmentId, employmentId))).limit(1);
+  if (periodRow?.status === "closed" || closed || closedClaim) throw new HrError(409, "調整生效月份已結帳，請建立下一個月份的新調整。 ");
 }
 async function ensureEmployment(db: Database, employmentId: string) {
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);

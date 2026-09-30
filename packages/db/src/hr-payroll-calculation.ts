@@ -2390,10 +2390,13 @@ export async function deleteHrPayrollRecordItem(db: Database, itemId: string, ac
   if (item.periodStatus !== "open" || item.runStatus !== "ready") throw new HrError(409, "只有開放中的尚未結算紀錄可以刪除薪資加扣項。 ");
   const reference: HrPayrollRecordReference = { runId: item.item.payrollRunId, personKind: item.item.personKind, personId: item.item.personKind === "employee" ? item.item.employmentId! : item.item.workerId! };
   if (await payrollRecordIsClosed(db, reference, item.periodKey)) throw new HrError(409, "這筆薪資發放紀錄已確定發放，不能再修改。 ");
+  const closedClaimGuard = reference.personKind === "employee"
+    ? sql`AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees AS claim WHERE claim.period_key=payroll_period.period_key AND claim.employment_id=${reference.personId})`
+    : sql`AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers AS claim WHERE claim.period_key=payroll_period.period_key AND claim.worker_id=${reference.personId})`;
   await writeHrMutation(db, sql`DELETE FROM hr_payroll_record_items WHERE id=${itemId} AND EXISTS (
     SELECT 1 FROM hr_payroll_runs AS payroll_run
     INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
-    WHERE payroll_run.id=${item.item.payrollRunId} AND payroll_run.status='ready' AND payroll_period.status='open'
+    WHERE payroll_run.id=${item.item.payrollRunId} AND payroll_run.status='ready' AND payroll_period.status='open' ${closedClaimGuard}
   ) RETURNING id`, itemId, actor, "payroll_record_item_deleted", "薪資發放紀錄已確定發放、薪資月份已鎖定或加扣項已被其他人變更，請重新整理。 ", {
     activity: { entityLabel: item.item.itemName, summary: "薪資加扣項已刪除", payload: { runId: item.item.payrollRunId, personKind: item.item.personKind, personId: reference.personId } },
   });
@@ -2586,12 +2589,13 @@ export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrA
     sql`DELETE FROM hr_payslips WHERE payroll_run_id=${runId} RETURNING id`,
     sql`DELETE FROM hr_payroll_run_employees WHERE payroll_run_id=${runId} RETURNING payroll_run_id`,
     sql`DELETE FROM hr_payroll_worker_results WHERE payroll_run_id=${runId} RETURNING id`,
-    sql`DELETE FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId} RETURNING payroll_run_id`,
-    sql`DELETE FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId} RETURNING payroll_run_id`,
-    sql`DELETE FROM hr_payroll_runs WHERE id=${runId} AND status <> 'closed' RETURNING id`,
+    sql`DELETE FROM hr_payroll_runs WHERE id=${runId} AND status <> 'closed'
+      AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId})
+      AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId})
+      RETURNING id`,
   ];
   await writeHrMutation(db, mutations, runId, actor, "payroll_run_deleted", "薪資試算批次已結帳或已被其他人變更，請重新整理。", {
-    allowEmptyMutationIndexes: new Set([0, 1, 2, 3, 4, 5, 6, 7, 8]),
+    allowEmptyMutationIndexes: new Set([0, 1, 2, 3, 4, 5, 6]),
     activity: {
       entityLabel: payrollRunNameFromInput(run.calculationInputJson),
       summary: "薪資試算批次已刪除",
