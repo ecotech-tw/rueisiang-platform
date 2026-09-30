@@ -9,12 +9,12 @@ import { crmCustomerTags, crmTags, crmCustomers } from "./schema/crm.js";
 /**
  * 客戶的寫入操作：新增、編輯、封鎖。
  *
- * 可同步的客戶貫穿這個檔案的一條規則：**先寫官網，成功了才寫本地**。
- *
- * 反過來的話，官網那一步失敗時本地已經留下一筆「看起來同步過」的資料，
- * 而實際上官網根本沒有這個人或沒有這次修改。市話等不能送到官網的電話則明確
- * 走本地模式，不把它偽裝成同步失敗。
+ * 官網同步是最佳努力：能同步就先寫官網，失敗仍要把本地輸入保存下來，
+ * 並用 syncStatus 說明這筆資料沒有和官網確認成功。這樣官網故障不會把 CRM
+ * 表單鎖死，也不會把未連結的資料偽裝成已同步。
  */
+
+export type CustomerSyncStatus = "synced" | "failed";
 
 export interface Actor {
   id: string;
@@ -83,19 +83,21 @@ export async function findCustomer(db: Database, id: string): Promise<any | null
 /**
  * 建立客戶。
  *
- * 呼叫端會先在官網建立可同步的會員，這裡只負責把成功回傳的會員落地；
- * 不能送到官網的電話則不帶 remote，直接建立一筆未連結的本地客戶。
+ * 呼叫端會先嘗試在官網建立可同步的會員；remote 缺席時仍建立一筆未連結的本地
+ * 客戶，但必須帶著 failed 狀態，讓資料不會被誤認為已同步。
  */
 export async function createCustomer(
   db: Database,
   input: CustomerInput & {
     remote?: { externalId: string; uid: string; tags: string[]; raw: unknown; blocked: boolean };
+    syncStatus?: CustomerSyncStatus;
     actor: Actor;
   },
 ): Promise<{ id: string }> {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const linked = input.remote;
+  const syncStatus = input.syncStatus ?? (linked ? "synced" : "failed");
   const tags = linked?.tags ?? input.tags;
 
   await db.batch([
@@ -110,7 +112,7 @@ export async function createCustomer(
       cyberbizCustomerId: linked?.externalId ?? null,
       cyberbizUid: linked?.uid || null,
       rawJson: JSON.stringify(linked?.raw ?? {}),
-      syncStatus: "synced",
+      syncStatus,
       syncedAt: linked ? now : null,
       blockedAt: linked?.blocked ? now : null,
     }),
@@ -119,7 +121,7 @@ export async function createCustomer(
       customerName: input.name,
       eventType: "customer_created",
       summary: linked ? "新增客戶並同步到 CYBERBIZ" : "新增本地客戶",
-      payload: { phone: input.phone, name: input.name, linked: Boolean(linked) },
+      payload: { phone: input.phone, name: input.name, linked: Boolean(linked), syncStatus },
       actor: input.actor,
     }),
   ]);
@@ -131,7 +133,7 @@ export async function createCustomer(
 export async function updateCustomer(
   db: Database,
   id: string,
-  input: CustomerInput & { actor: Actor; syncedToRemote: boolean },
+  input: CustomerInput & { actor: Actor; syncStatus: CustomerSyncStatus },
 ): Promise<void> {
   const before = await findCustomer(db, id);
   if (!before) throw new Error("找不到這筆客戶資料");
@@ -152,7 +154,8 @@ export async function updateCustomer(
         name: input.name,
         email: input.email,
         address: input.address,
-        ...(input.syncedToRemote ? { syncStatus: "synced", syncedAt: new Date().toISOString() } : {}),
+        syncStatus: input.syncStatus,
+        ...(input.syncStatus === "synced" ? { syncedAt: new Date().toISOString() } : {}),
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
       .where(eq(crmCustomers.id, id)),

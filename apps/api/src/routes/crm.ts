@@ -1,3 +1,4 @@
+import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import {
   EVENT_PAGE_SIZES,
   applyTagChange,
@@ -25,6 +26,7 @@ import {
   retryFailedWebhooks,
   upsertCyberbizCustomers,
   type CustomerQuery,
+  type CustomerSyncStatus,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -113,10 +115,11 @@ export const crm = new Hono<AppEnv>()
 
     /*
      * CYBERBIZ 的會員 mobile 欄位需要手機格式；目前只把台灣手機送到官網。
-     * 市話與其他可辨識電話仍是有效的 CRM 資料，但不送到官網；沒有 token 時也
-     * 保留本地客戶，不讓外部服務成為 CRM 的硬依賴。能送官網的手機仍維持「官網成功後才落地」。
+     * 市話與其他可辨識電話仍是有效的 CRM 資料，但不送到官網。官網請求失敗時
+     * 也先保存本地資料，syncStatus 會保留失敗事實，不讓外部服務成為 CRM 的硬依賴。
      */
     const client = cyberbizClient(c.env);
+    let syncStatus: CustomerSyncStatus = "failed";
     let remote: {
       externalId: string;
       uid: string;
@@ -125,27 +128,36 @@ export const crm = new Hono<AppEnv>()
       blocked: boolean;
     } | undefined;
     if (client && isTaiwanMobile(fields.phone)) {
-      const created = await client.create(fields);
-      if (!created.externalId) {
-        throw new HTTPException(502, { message: "CYBERBIZ 已建立會員但沒有回傳會員 ID，請重新同步確認。" });
+      try {
+        const created = await client.create(fields);
+        if (!created.externalId) {
+          throw new Error("CYBERBIZ 建立會員後沒有回傳會員 ID");
+        }
+        remote = {
+          externalId: created.externalId,
+          uid: created.uid,
+          tags: created.tags,
+          raw: created.raw,
+          blocked: created.blocked,
+        };
+        syncStatus = "synced";
+      } catch (error) {
+        assistantLog("warn", "crm.customer_sync_failed", {
+          operation: "create",
+          error: assistantErrorDetails(error),
+        });
       }
-      remote = {
-        externalId: created.externalId,
-        uid: created.uid,
-        tags: created.tags,
-        raw: created.raw,
-        blocked: created.blocked,
-      };
     }
 
     const user = c.get("user");
     const result = await createCustomer(c.get("db"), {
       ...fields,
       remote,
+      syncStatus,
       actor: { id: user.id, email: user.email },
     });
     await forgetCrmStats(cacheClient(c.env));
-    return c.json({ id: result.id, linked: Boolean(remote) }, 201);
+    return c.json({ id: result.id, linked: Boolean(remote), syncStatus }, 201);
   })
 
   .patch("/customers/:id", requirePermission("crm:customer:write"), async (c) => {
@@ -162,19 +174,28 @@ export const crm = new Hono<AppEnv>()
     }
 
     const client = cyberbizClient(c.env);
-    if (existing.cyberbizCustomerId) {
-      if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN，無法更新已連結官網的客戶。" });
-      await client.update(existing.cyberbizCustomerId, fields);
+    let syncStatus: CustomerSyncStatus = "failed";
+    if (existing.cyberbizCustomerId && client && isTaiwanMobile(fields.phone)) {
+      try {
+        await client.update(existing.cyberbizCustomerId, fields);
+        syncStatus = "synced";
+      } catch (error) {
+        assistantLog("warn", "crm.customer_sync_failed", {
+          operation: "update",
+          customerId: id,
+          error: assistantErrorDetails(error),
+        });
+      }
     }
 
     const user = c.get("user");
     await updateCustomer(c.get("db"), id, {
       ...fields,
-      syncedToRemote: Boolean(existing.cyberbizCustomerId),
+      syncStatus,
       actor: { id: user.id, email: user.email },
     });
     await forgetCrmStats(cacheClient(c.env));
-    return c.json({ id });
+    return c.json({ id, syncStatus });
   })
 
   .post("/customers/:id/block", requirePermission("crm:customer:block"), async (c) => {

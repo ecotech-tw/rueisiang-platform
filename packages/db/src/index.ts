@@ -405,6 +405,7 @@ export {
   updateCustomer,
   type Actor,
   type CustomerInput,
+  type CustomerSyncStatus,
 } from "./crm-write.js";
 export {
   DEFAULT_PAYOUT_STORES,
