@@ -6,7 +6,7 @@ import {
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
-  assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollEmployeeHistory, listHrPayrollRuns, listHrPayrollWorkerCandidates,
+  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollRecordItem, deleteHrBonusPolicy, deleteHrPayrollRecordItem, deleteHrPayrollRun, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollEmployeeHistory, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
@@ -244,10 +244,28 @@ function adjustmentItems(input: Record<string, unknown>) {
     return { itemName: text(item, "itemName", "調整項目", 100), amountMinor };
   });
 }
-function periodKey(input: Record<string, unknown>) {
-  const value = text(input, "periodKey", "計算月份", 7);
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw new HTTPException(400, { message: "計算月份必須是 YYYY-MM。" });
+function payrollPeriodInput(input: Record<string, unknown>, key: string, label: string) {
+  const value = text(input, key, label, 7);
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw new HTTPException(400, { message: `${label}必須是 YYYY-MM。` });
   return value;
+}
+function periodKey(input: Record<string, unknown>) {
+  return payrollPeriodInput(input, "periodKey", "計算月份");
+}
+function payrollRecordReference(input: Record<string, unknown>, label = "薪資發放紀錄") {
+  const personKind = input.personKind === "employee" || input.personKind === "worker" ? input.personKind : null;
+  if (!personKind) throw new HTTPException(400, { message: `${label}人員類型不正確。` });
+  return { runId: text(input, "runId", `${label}試算`, 200), personKind, personId: text(input, "personId", `${label}人員`, 200) } as const;
+}
+function payrollRecordReferences(input: Record<string, unknown>) {
+  if (!Array.isArray(input.records) || input.records.length < 1 || input.records.length > 100) throw new HTTPException(400, { message: "薪資發放紀錄清單不正確。" });
+  const references = input.records.map((raw, index) => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資發放紀錄格式不正確。` });
+    return payrollRecordReference(raw as Record<string, unknown>, `第 ${index + 1} 筆`);
+  });
+  const keys = references.map((reference) => `${reference.runId}:${reference.personKind}:${reference.personId}`);
+  if (new Set(keys).size !== keys.length) throw new HTTPException(400, { message: "薪資發放紀錄不可重複。" });
+  return references;
 }
 function optionalInteger(input: Record<string, unknown>, key: string, label: string, min: number, max: number) {
   return input[key] === undefined ? undefined : integerValue(input, key, label, min, max);
@@ -939,7 +957,7 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const effectivePeriodKey = c.req.query("effectivePeriodKey");
     const rows = await listHrPayrollAdjustments(c.get("db"), effectivePeriodKey);
-    return c.json({ adjustments: rows.map((row) => ({ ...row.adjustment, employeeName: row.employeeName, items: row.items })) });
+    return c.json({ adjustments: rows.map((row) => ({ ...row.adjustment, employeeName: row.employeeName, employeeNumber: row.employeeNumber, items: row.items })) });
   })
   .post("/payroll/adjustments", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
@@ -956,6 +974,53 @@ export const hr = new Hono<AppEnv>()
     const rawPeriodKey = c.req.query("periodKey");
     if (!rawPeriodKey) throw new HTTPException(400, { message: "計算月份必填。" });
     return c.json({ workers: await listHrPayrollWorkerCandidates(c.get("db"), periodKey({ periodKey: rawPeriodKey })) });
+  })
+  .get("/payroll/records", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const page = calendarNumber(c.req.query("page"), 1, "頁碼", 1, 10000);
+    const rawPageSize = c.req.query("pageSize");
+    const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
+    if (!HR_PAYROLL_RECORD_PAGE_SIZES.includes(pageSize as (typeof HR_PAYROLL_RECORD_PAGE_SIZES)[number])) throw new HTTPException(400, { message: "每頁筆數不正確。" });
+    const search = c.req.query("search")?.trim() ?? "";
+    if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
+    const periodKeyFilter = c.req.query("periodKey")?.trim() || "all";
+    if (periodKeyFilter !== "all" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKeyFilter)) throw new HTTPException(400, { message: "薪資月份不正確。" });
+    const rawStatus = c.req.query("status") ?? "all";
+    if (rawStatus !== "all" && rawStatus !== "unsettled" && rawStatus !== "closed") throw new HTTPException(400, { message: "薪資狀態不正確。" });
+    const rawPersonKind = c.req.query("personKind") ?? "all";
+    if (rawPersonKind !== "all" && rawPersonKind !== "employee" && rawPersonKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
+    const rawPayBasis = c.req.query("payBasis") ?? "all";
+    if (rawPayBasis !== "all" && rawPayBasis !== "monthly" && rawPayBasis !== "daily" && rawPayBasis !== "hourly" && rawPayBasis !== "mixed") throw new HTTPException(400, { message: "計薪方式不正確。" });
+    return c.json(await listHrPayrollRecords(c.get("db"), { page, pageSize, search, periodKey: periodKeyFilter, status: rawStatus, personKind: rawPersonKind, payBasis: rawPayBasis }));
+  })
+  .post("/payroll/records/approve", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await approveHrPayrollRecords(c.get("db"), payrollRecordReferences(input), c.get("user")));
+  })
+  .get("/payroll/records/:runId/:personKind/:personId", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const personKind = c.req.param("personKind");
+    if (personKind !== "employee" && personKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
+    const detail = await getHrPayrollRecordDetail(c.get("db"), { runId: c.req.param("runId"), personKind, personId: c.req.param("personId") });
+    return c.json(detail);
+  })
+  .post("/payroll/records/items", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    const reference = payrollRecordReference(input);
+    return c.json(await createHrPayrollRecordItem(c.get("db"), {
+      ...reference,
+      sourcePeriodKey: payrollPeriodInput(input, "sourcePeriodKey", "原薪資月份"),
+      itemName: text(input, "itemName", "加扣項名稱", 100),
+      direction: input.direction === "earning" || input.direction === "deduction" ? input.direction : (() => { throw new HTTPException(400, { message: "加扣項類型不正確。" }); })(),
+      amountMinor: integerValue(input, "amountMinor", "加扣項金額（分）", 1, Number.MAX_SAFE_INTEGER),
+      reason: text(input, "reason", "加扣項原因", 1000),
+    }, c.get("user")), 201);
+  })
+  .delete("/payroll/records/items/:id", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await deleteHrPayrollRecordItem(c.get("db"), c.req.param("id"), c.get("user")));
   })
   .get("/payroll/runs", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

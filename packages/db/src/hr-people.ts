@@ -271,7 +271,7 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   const accountName = account?.accountName || userId;
   const employeeName = current.legalName.trim() || accountName;
   const employeeRecord = {
-    userId: current.employeeUserId, employeeNumber: current.employeeNumber, legalName: employeeName, displayName: employeeName, accountName, position: current.position, supervisorUserId: current.supervisorUserId,
+    employmentId: current.id, userId: current.employeeUserId, employeeNumber: current.employeeNumber, legalName: employeeName, displayName: employeeName, accountName, position: current.position, supervisorUserId: current.supervisorUserId,
     archivedAt: current.archivedAt, revision: current.revision, email: account?.email ?? "", userStatus: account?.userStatus ?? "disabled",
     employmentStatus: current.archivedAt === null ? "active" as const : "inactive" as const,
     supervisorName: current.supervisorUserId ? supervisorNames.get(current.supervisorUserId) ?? null : null,
