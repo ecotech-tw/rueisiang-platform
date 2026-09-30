@@ -26,8 +26,9 @@ export const crmCustomers = sqliteTable("crm_customers", {
   index("idx_crm_customers_cb_updated").on(table.cyberbizUpdatedAt),
   // 補資料的清單頁專用：只有姓名或地址是空的才進索引。
   index("idx_crm_customers_incomplete").on(table.id).where(sql`${table.name} = '' OR ${table.address} = ''`),
-  // 兩欄都是控制流程用的：status 決定客戶出現在哪張清單，sync_status 決定補跑
-  // 撈不撈得到它。值域外的字串不會報錯，只會讓那一列對所有 WHERE 都隱形。
+  // status 決定客戶出現在哪張清單；sync_status 記錄是否曾和官網確認成功。
+  // cyberbiz_customer_id 為 NULL 的本地客戶也要是 failed，不能用 synced 假裝已同步。
+  // 值域外的字串不會報錯，只會讓那一列對所有 WHERE 都隱形。
   check("ck_crm_customers_status", sql`${table.status} IN ('active', 'blocked')`),
   check("ck_crm_customers_sync_status", sql`${table.syncStatus} IN ('synced', 'failed')`),
 ]);

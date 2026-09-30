@@ -108,7 +108,7 @@ function useCrmMutation<TInput, TResult>(mutationFn: (input: TInput) => Promise<
 
 export function useCreateCustomer() {
   return useCrmMutation((input: CustomerForm) =>
-    write<{ id: string; linked: boolean }>("/api/crm/customers", {
+    write<{ id: string; linked: boolean; syncStatus: string }>("/api/crm/customers", {
       method: "POST",
       body: JSON.stringify(input),
     }),
@@ -117,7 +117,7 @@ export function useCreateCustomer() {
 
 export function useUpdateCustomer() {
   return useCrmMutation((input: CustomerForm & { id: string }) =>
-    write<{ id: string }>(`/api/crm/customers/${encodeURIComponent(input.id)}`, {
+    write<{ id: string; syncStatus: string }>(`/api/crm/customers/${encodeURIComponent(input.id)}`, {
       method: "PATCH",
       body: JSON.stringify(input),
     }),

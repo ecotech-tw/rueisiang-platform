@@ -10,6 +10,11 @@ export function normalizePhone(value: string): string {
   return digits.replace(/\D/g, "");
 }
 
+/** 目前只把台灣手機送到 CYBERBIZ；市話與其他電話仍可作為本地客戶電話。 */
+export function isTaiwanMobile(value: string): boolean {
+  return /^09\d{8}$/.test(normalizePhone(value));
+}
+
 /** 回傳錯誤訊息，通過則回 null。 */
 export function validatePhone(value: string): string | null {
   const normalized = normalizePhone(value);

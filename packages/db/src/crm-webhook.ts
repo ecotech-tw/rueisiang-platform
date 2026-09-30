@@ -268,14 +268,22 @@ export interface SyncStatus {
 }
 
 export async function readSyncStatus(db: Database): Promise<SyncStatus> {
-  const [customerCounts, lastSynced, webhookCounts, recent] = await Promise.all([
+  const [customerTotal, syncedCustomers, failedCustomers, lastSynced, webhookCounts, recent] = await Promise.all([
     db
-      .select({ status: crmCustomers.syncStatus, value: sql<number>`count(*)` })
+      .select({ value: sql<number>`count(*)` })
+      .from(crmCustomers),
+    db
+      .select({ value: sql<number>`count(*)` })
       .from(crmCustomers)
-      .groupBy(crmCustomers.syncStatus),
+      .where(and(isNotNull(crmCustomers.cyberbizCustomerId), eq(crmCustomers.syncStatus, "synced"))),
+    db
+      .select({ value: sql<number>`count(*)` })
+      .from(crmCustomers)
+      .where(and(isNotNull(crmCustomers.cyberbizCustomerId), eq(crmCustomers.syncStatus, "failed"))),
     db
       .select({ value: sql<string | null>`max(${crmCustomers.syncedAt})` })
-      .from(crmCustomers),
+      .from(crmCustomers)
+      .where(isNotNull(crmCustomers.cyberbizCustomerId)),
     db
       .select({ status: cyberbizWebhookEvents.status, value: sql<number>`count(*)` })
       .from(cyberbizWebhookEvents)
@@ -297,14 +305,13 @@ export async function readSyncStatus(db: Database): Promise<SyncStatus> {
       .limit(20),
   ]);
 
-  const bySync = Object.fromEntries(customerCounts.map((row) => [row.status, Number(row.value)]));
   const byWebhook = Object.fromEntries(webhookCounts.map((row) => [row.status, Number(row.value)]));
 
   return {
     customers: {
-      total: customerCounts.reduce((sum, row) => sum + Number(row.value), 0),
-      synced: bySync.synced ?? 0,
-      failed: bySync.failed ?? 0,
+      total: Number(customerTotal[0]?.value ?? 0),
+      synced: Number(syncedCustomers[0]?.value ?? 0),
+      failed: Number(failedCustomers[0]?.value ?? 0),
     },
     syncedAt: lastSynced[0]?.value ?? null,
     webhooks: {

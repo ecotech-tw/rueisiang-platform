@@ -3692,7 +3692,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .tag-combo { display: grid; }
 
 /* 放大鏡疊在輸入框左邊，跟一般搜尋框長得一樣。 */
-.tag-search { display: flex; align-items: center; }
+.tag-search { position: relative; display: flex; align-items: center; }
 .tag-search svg {
   position: absolute;
   left: 11px;

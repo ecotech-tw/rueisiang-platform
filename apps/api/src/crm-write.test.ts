@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, readSyncStatus, syncSystemRoles } from "@rueisiang/db";
 import { activityEvents, crmCustomers, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -7,8 +7,9 @@ import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 /**
- * 新增、編輯、封鎖。這裡最重要的一條是「先寫官網、成功了才寫本地」——
- * 反過來的話官網失敗時本地會留下一筆看起來同步過、實際上不存在的客戶。
+ * 新增、編輯、封鎖。可同步的客戶會先嘗試寫官網，但官網失敗仍要保存本地輸入，
+ * 並標記 failed，不能把沒有會員 ID 的資料寫成 synced；市話等不能送到官網的電話
+ * 則明確只建立本地客戶。
  */
 
 const SECRET = "test-secret";
@@ -160,7 +161,7 @@ describe("新增客戶", () => {
     expect(row?.address).toBe("台北市大安區忠孝東路四段 1 號");
   });
 
-  it("官網失敗時本地什麼都不留", async () => {
+  it("官網失敗時仍保留本地資料並標記同步失敗", async () => {
     stubCyberbiz([{ status: 422, body: { errors: { mobile: ["已存在"] } } }]);
     const id = await seedUser("staff@ecotech.tw", "role-staff");
 
@@ -169,12 +170,40 @@ describe("新增客戶", () => {
       body: NEW_CUSTOMER,
     });
 
-    expect(response.status).toBe(422);
-    // 這是這個檔案最重要的一條：不要留下看起來同步過、實際上官網沒有的客戶。
-    expect(await db().select().from(crmCustomers)).toHaveLength(0);
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({ linked: false, syncStatus: "failed" });
+    const [row] = await db().select().from(crmCustomers);
+    expect(row).toMatchObject({
+      phone: "0912345678",
+      cyberbizCustomerId: null,
+      syncStatus: "failed",
+      syncedAt: null,
+    });
   });
 
-  it("沒有 CYBERBIZ 設定時不能建立本地客戶", async () => {
+  it("市話不送到 CYBERBIZ，但會建立本地客戶", async () => {
+    const calls = stubCyberbiz();
+    const id = await seedUser("staff@ecotech.tw", "role-staff");
+
+    const response = await as(id, "staff@ecotech.tw", "/api/crm/customers", {
+      method: "POST",
+      body: JSON.stringify({ phone: "03-4821120", name: "市話客戶" }),
+    });
+
+    expect(response.status).toBe(201);
+    expect(calls).toHaveLength(0);
+    const [row] = await db().select().from(crmCustomers);
+    expect(row).toMatchObject({
+      phone: "03-4821120",
+      normalizedPhone: "034821120",
+      cyberbizCustomerId: null,
+      syncStatus: "failed",
+      syncedAt: null,
+    });
+    expect((await db().select().from(activityEvents))[0]?.summary).toBe("新增本地客戶");
+  });
+
+  it("沒有 CYBERBIZ 設定時仍可建立本地客戶", async () => {
     const calls = stubCyberbiz();
     env = { ...env, CYBERBIZ_API_TOKEN: undefined };
     const id = await seedUser("staff@ecotech.tw", "role-staff");
@@ -184,9 +213,11 @@ describe("新增客戶", () => {
       body: JSON.stringify({ phone: "0912345678", name: "只在本地" }),
     });
 
-    expect(response.status).toBe(409);
+    expect(response.status).toBe(201);
     expect(calls).toHaveLength(0);
-    expect(await db().select().from(crmCustomers)).toHaveLength(0);
+    const [row] = await db().select().from(crmCustomers);
+    expect(row?.syncStatus).toBe("failed");
+    expect((await readSyncStatus(db())).customers).toEqual({ total: 1, synced: 0, failed: 0 });
   });
 
   it("電話重複時擋下來", async () => {
@@ -257,14 +288,15 @@ describe("編輯客戶", () => {
     });
 
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ syncStatus: "synced" });
     // 先 GET 讀現況（地址沒改時要把官網原本的欄位原樣送回去），第二支才是寫入。
     expect(calls[0]?.method).toBe("GET");
     expect(calls[1]?.method).toBe("PUT");
     const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c1"));
-    expect(row?.name).toBe("改過的名字");
+    expect(row).toMatchObject({ name: "改過的名字", syncStatus: "synced" });
   });
 
-  it("推不上官網就整筆不改", async () => {
+  it("推不上官網仍會更新本地並標記同步失敗", async () => {
     stubCyberbiz([{ status: 500, body: { error: "官網掛了" } }, { status: 500, body: { error: "官網掛了" } }, { status: 500, body: { error: "官網掛了" } }, { status: 500, body: { error: "官網掛了" } }]);
     await seedLinked();
     const id = await seedUser("staff@ecotech.tw", "role-staff");
@@ -274,9 +306,50 @@ describe("編輯客戶", () => {
       body: JSON.stringify({ phone: "0912345678", name: "改過的名字" }),
     });
 
-    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ syncStatus: "failed" });
     const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c1"));
-    expect(row?.name).toBe("原本的名字");
+    expect(row).toMatchObject({ name: "改過的名字", cyberbizCustomerId: "cb-1", syncStatus: "failed" });
+  });
+
+  it("已連結客戶改成市話仍會保存本地資料", async () => {
+    const calls = stubCyberbiz();
+    await seedLinked();
+    const id = await seedUser("staff@ecotech.tw", "role-staff");
+
+    const response = await as(id, "staff@ecotech.tw", "/api/crm/customers/c1", {
+      method: "PATCH",
+      body: JSON.stringify({ phone: "03-4821120", name: "改成市話" }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ syncStatus: "failed" });
+    expect(calls).toHaveLength(0);
+    const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c1"));
+    expect(row).toMatchObject({
+      phone: "03-4821120",
+      name: "改成市話",
+      cyberbizCustomerId: "cb-1",
+      syncStatus: "failed",
+    });
+  });
+
+  it("已連結客戶沒有 CYBERBIZ 設定時仍會更新本地", async () => {
+    const calls = stubCyberbiz();
+    env = { ...env, CYBERBIZ_API_TOKEN: undefined };
+    await seedLinked();
+    const id = await seedUser("staff@ecotech.tw", "role-staff");
+
+    const response = await as(id, "staff@ecotech.tw", "/api/crm/customers/c1", {
+      method: "PATCH",
+      body: JSON.stringify({ phone: "0912345678", name: "沒有官網也更新" }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ syncStatus: "failed" });
+    expect(calls).toHaveLength(0);
+    const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c1"));
+    expect(row).toMatchObject({ name: "沒有官網也更新", syncStatus: "failed" });
   });
 
   it("沒有連結官網的客戶只改本地", async () => {
@@ -296,7 +369,7 @@ describe("編輯客戶", () => {
 
     expect(calls).toHaveLength(0);
     const [row] = await db().select().from(crmCustomers).where(eq(crmCustomers.id, "c2"));
-    expect(row?.name).toBe("改過了");
+    expect(row).toMatchObject({ name: "改過了", syncStatus: "failed" });
   });
 
   it("換成別人已經在用的電話會被擋下", async () => {

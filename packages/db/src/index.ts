@@ -359,7 +359,7 @@ export {
   type SavedViewQuery,
   type SavedViewRow,
 } from "./crm-views.js";
-export { normalizePhone, validatePhone } from "./phone.js";
+export { isTaiwanMobile, normalizePhone, validatePhone } from "./phone.js";
 export {
   syncCyberbizCustomer,
   syncCyberbizCustomers,
@@ -405,6 +405,7 @@ export {
   updateCustomer,
   type Actor,
   type CustomerInput,
+  type CustomerSyncStatus,
 } from "./crm-write.js";
 export {
   DEFAULT_PAYOUT_STORES,
