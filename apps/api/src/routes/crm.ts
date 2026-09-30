@@ -9,6 +9,7 @@ import {
   normalizeCustomerQuery,
   findCustomer,
   findCustomerByPhone,
+  isTaiwanMobile,
   setCustomerBlocked,
   updateCustomer,
   validatePhone,
@@ -111,24 +112,31 @@ export const crm = new Hono<AppEnv>()
     if (duplicate) throw new HTTPException(409, { message: "這支電話已經建立過客戶資料。" });
 
     /*
-     * 先在官網建會員，成功了才寫本地。
-     *
-     * 反過來的話，官網失敗時本地會留下一筆「看起來同步過」的客戶，實際上
-     * 官網根本沒有這個人。沿用舊 CRM 的順序，理由一樣。
+     * CYBERBIZ 的會員 mobile 欄位需要手機格式；目前只把台灣手機送到官網。
+     * 市話與其他可辨識電話仍是有效的 CRM 資料，但不送到官網；沒有 token 時也
+     * 保留本地客戶，不讓外部服務成為 CRM 的硬依賴。能送官網的手機仍維持「官網成功後才落地」。
      */
     const client = cyberbizClient(c.env);
-    if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN，無法建立客戶。" });
-    const created = await client.create(fields);
-    if (!created.externalId) {
-      throw new HTTPException(502, { message: "CYBERBIZ 已建立會員但沒有回傳會員 ID，請重新同步確認。" });
+    let remote: {
+      externalId: string;
+      uid: string;
+      tags: string[];
+      raw: unknown;
+      blocked: boolean;
+    } | undefined;
+    if (client && isTaiwanMobile(fields.phone)) {
+      const created = await client.create(fields);
+      if (!created.externalId) {
+        throw new HTTPException(502, { message: "CYBERBIZ 已建立會員但沒有回傳會員 ID，請重新同步確認。" });
+      }
+      remote = {
+        externalId: created.externalId,
+        uid: created.uid,
+        tags: created.tags,
+        raw: created.raw,
+        blocked: created.blocked,
+      };
     }
-    const remote = {
-      externalId: created.externalId,
-      uid: created.uid,
-      tags: created.tags,
-      raw: created.raw,
-      blocked: created.blocked,
-    };
 
     const user = c.get("user");
     const result = await createCustomer(c.get("db"), {

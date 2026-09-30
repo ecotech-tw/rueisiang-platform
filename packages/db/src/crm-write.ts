@@ -9,11 +9,11 @@ import { crmCustomerTags, crmTags, crmCustomers } from "./schema/crm.js";
 /**
  * 客戶的寫入操作：新增、編輯、封鎖。
  *
- * 貫穿這個檔案的一條規則：**先寫官網，成功了才寫本地**。
+ * 可同步的客戶貫穿這個檔案的一條規則：**先寫官網，成功了才寫本地**。
  *
  * 反過來的話，官網那一步失敗時本地已經留下一筆「看起來同步過」的資料，
- * 而實際上官網根本沒有這個人或沒有這次修改。寧可整個操作失敗讓人重試，
- * 也不要留下兩邊不一致又沒人知道的狀態。
+ * 而實際上官網根本沒有這個人或沒有這次修改。市話等不能送到官網的電話則明確
+ * 走本地模式，不把它偽裝成同步失敗。
  */
 
 export interface Actor {
@@ -83,19 +83,20 @@ export async function findCustomer(db: Database, id: string): Promise<any | null
 /**
  * 建立客戶。
  *
- * 呼叫端先在官網建立會員，這裡只負責把成功回傳的會員落地；
- * 因此新客戶一定有 cyberbizCustomerId，歷史本地資料才可能是 NULL。
+ * 呼叫端會先在官網建立可同步的會員，這裡只負責把成功回傳的會員落地；
+ * 不能送到官網的電話則不帶 remote，直接建立一筆未連結的本地客戶。
  */
 export async function createCustomer(
   db: Database,
   input: CustomerInput & {
-    remote: { externalId: string; uid: string; tags: string[]; raw: unknown; blocked: boolean };
+    remote?: { externalId: string; uid: string; tags: string[]; raw: unknown; blocked: boolean };
     actor: Actor;
   },
 ): Promise<{ id: string }> {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
   const linked = input.remote;
+  const tags = linked?.tags ?? input.tags;
 
   await db.batch([
     db.insert(crmCustomers).values({
@@ -105,24 +106,24 @@ export async function createCustomer(
       name: input.name,
       email: input.email,
       address: input.address,
-      status: linked.blocked ? "blocked" : "active",
-      cyberbizCustomerId: linked.externalId,
-      cyberbizUid: linked.uid || null,
-      rawJson: JSON.stringify(linked.raw),
+      status: linked?.blocked ? "blocked" : "active",
+      cyberbizCustomerId: linked?.externalId ?? null,
+      cyberbizUid: linked?.uid || null,
+      rawJson: JSON.stringify(linked?.raw ?? {}),
       syncStatus: "synced",
-      syncedAt: now,
-      blockedAt: linked.blocked ? now : null,
+      syncedAt: linked ? now : null,
+      blockedAt: linked?.blocked ? now : null,
     }),
     writeEvent(db, {
       customerId: id,
       customerName: input.name,
       eventType: "customer_created",
-      summary: "新增客戶並同步到 CYBERBIZ",
-      payload: { phone: input.phone, name: input.name, linked: true },
+      summary: linked ? "新增客戶並同步到 CYBERBIZ" : "新增本地客戶",
+      payload: { phone: input.phone, name: input.name, linked: Boolean(linked) },
       actor: input.actor,
     }),
   ]);
-  await replaceCustomerTags(db, id, linked.tags);
+  await replaceCustomerTags(db, id, tags);
 
   return { id };
 }

@@ -44,8 +44,9 @@ function fieldsOf(customer: Customer): Fields {
 /**
  * 新增與編輯共用一張表單。
  *
- * 送出時會先寫官網再寫本地（由 API 負責），所以失敗訊息可能來自 CYBERBIZ，
- * 例如「這支手機已存在」——那些訊息要原樣顯示，使用者才知道要改什麼。
+ * 可同步的手機送出時會先寫官網再寫本地；市話、其他不能送的電話或未設定官網時則只寫本地。
+ * 手機同步失敗時，錯誤訊息可能來自 CYBERBIZ，例如「這支手機已存在」——那些訊息
+ * 要原樣顯示，使用者才知道要改什麼。
  */
 export function CustomerForm({ customer, onClose }: Props) {
   const [fields, setFields] = useState<Fields>(customer ? fieldsOf(customer) : emptyFields());
@@ -104,10 +105,10 @@ export function CustomerForm({ customer, onClose }: Props) {
             required
             autoFocus
             inputMode="tel"
-            placeholder="例如 0912 345 678"
+            placeholder="例如 03-4821120 或 0912 345 678"
             value={fields.phone}
             onChange={(event) => set({ phone: event.target.value })}
-            hint="電話是辨識客戶的主要欄位，同一支不會重複建立。"
+            hint="電話是辨識客戶的主要欄位，同一支不會重複建立；市話等電話只保留在本地，不會送到 CYBERBIZ。"
           />
 
           <div className="field-grid">

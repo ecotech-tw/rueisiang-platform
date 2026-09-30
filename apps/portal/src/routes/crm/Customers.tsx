@@ -75,8 +75,8 @@ function CustomerRow({
       <td data-label="電話" className="whitespace-nowrap">{customer.phone}</td>
       <td data-label="地址" className="cell-sub">{customer.address || "—"}</td>
       <td data-label="狀態">
-        <span className={`status status-sync-${customer.syncStatus}`}>
-          {SYNC_LABEL[customer.syncStatus] ?? customer.syncStatus}
+        <span className={customer.cyberbizCustomerId ? `status status-sync-${customer.syncStatus}` : "status quiet"}>
+          {customer.cyberbizCustomerId ? (SYNC_LABEL[customer.syncStatus] ?? customer.syncStatus) : "僅本地"}
         </span>
         {customer.status === "blocked" ? <span className="status status-disabled">已封鎖</span> : null}
       </td>
