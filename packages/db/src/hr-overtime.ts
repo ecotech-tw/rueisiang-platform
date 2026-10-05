@@ -29,6 +29,11 @@ export interface HrOvertimeRequestCreateOptions {
   autoApprove?: boolean;
 }
 
+export interface HrOvertimeCancellationOptions {
+  /** 管理端可代為取消；本人入口只能取消自己的申請。 */
+  allowAny?: boolean;
+}
+
 function stamp(value: string) {
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) throw new HrError(400, "加班時間必須是 YYYY-MM-DD HH:mm:ss。 ");
   const parsed = new Date(`${value.replace(" ", "T")}Z`);
@@ -121,9 +126,23 @@ export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInp
   return { id };
 }
 
+export async function cancelHrOvertimeRequest(db: Database, id: string, actor: HrActor, options: HrOvertimeCancellationOptions = {}) {
+  const [current] = await db.select({ employeeUserId: hrEmployments.employeeUserId, status: hrOvertimeRequests.status })
+    .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);
+  if (!current) throw new HrError(404, "找不到加班申請。 ");
+  if (!options.allowAny && current.employeeUserId !== actor.id) throw new HrError(404, "找不到可取消的加班申請。 ");
+  if (current.status !== "pending" && current.status !== "approved") throw new HrError(409, "加班申請不存在或已完成處理。 ");
+
+  return writeHrMutation(db, sql`UPDATE hr_overtime_requests SET
+    status='cancelled', actual_start=NULL, actual_end=NULL, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP,
+    decision_reason='申請已取消', updated_at=CURRENT_TIMESTAMP
+    WHERE id=${id} AND status=${current.status} RETURNING id`, id, actor, "overtime_request_cancelled", "加班申請已變更或完成處理，請重新整理。 ");
+}
+
 export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval) {
   if (!["approved", "rejected", "cancelled"].includes(decision)) throw new HrError(400, "加班審核結果不正確。 ");
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
+  if (decision === "cancelled") return cancelHrOvertimeRequest(db, id, actor, { allowAny: true });
   if (decision === "rejected" && !comment.trim()) throw new HrError(400, "駁回加班申請時必須填寫審核意見。 ");
   const [current] = await db.select({ employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, status: hrOvertimeRequests.status, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
     .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);

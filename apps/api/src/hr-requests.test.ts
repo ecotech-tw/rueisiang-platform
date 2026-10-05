@@ -200,4 +200,36 @@ describe("HR 申請中心", () => {
     expect(after.leaves.find((item) => item.request.id === pendingLeaveBody.id)?.request.status).toBe("approved");
     expect(after.overtime.find((item) => item.request.id === pendingOvertimeBody.id)?.request.status).toBe("approved");
   });
+
+  it("本人與管理端可以取消待審與已核准的加班申請", async () => {
+    await assignEmployee();
+
+    const pending = await request("/hr/me/overtime", "POST", {
+      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "compensatory", reason: "待審取消測試",
+    }, employeeCookie);
+    expect(pending.status, await pending.clone().text()).toBe(201);
+    const pendingId = (await pending.json() as { id: string }).id;
+    expect((await request(`/hr/me/overtime/${pendingId}/cancel`, "POST", {}, adminCookie)).status).toBe(404);
+    expect((await request(`/hr/me/overtime/${pendingId}/cancel`, "POST", {}, employeeCookie)).status).toBe(200);
+
+    const approvedForEmployee = await request("/hr/requests/overtime", "POST", {
+      employeeUserId: "employee", requestedStart: "2026-02-07T18:00", requestedEnd: "2026-02-07T20:00", settlementKind: "pay", reason: "本人取消已核准測試",
+    });
+    expect(approvedForEmployee.status, await approvedForEmployee.clone().text()).toBe(201);
+    const approvedForEmployeeId = (await approvedForEmployee.json() as { id: string }).id;
+    expect((await request(`/hr/me/overtime/${approvedForEmployeeId}/cancel`, "POST", {}, employeeCookie)).status).toBe(200);
+
+    const approvedForAdmin = await request("/hr/requests/overtime", "POST", {
+      employeeUserId: "employee", requestedStart: "2026-02-08T18:00", requestedEnd: "2026-02-08T20:00", settlementKind: "pay", reason: "管理端取消測試",
+    });
+    expect(approvedForAdmin.status, await approvedForAdmin.clone().text()).toBe(201);
+    const approvedForAdminId = (await approvedForAdmin.json() as { id: string }).id;
+    expect((await request(`/hr/requests/overtime/${approvedForAdminId}/cancel`, "POST", {})).status).toBe(200);
+
+    const center = await (await request("/hr/requests")).json() as { overtime: Array<{ request: { id: string; status: string; actualStart: string | null; actualEnd: string | null } }> };
+    expect(center.overtime.find((item) => item.request.id === pendingId)?.request.status).toBe("cancelled");
+    expect(center.overtime.find((item) => item.request.id === approvedForEmployeeId)?.request).toMatchObject({ status: "cancelled", actualStart: null, actualEnd: null });
+    expect(center.overtime.find((item) => item.request.id === approvedForAdminId)?.request.status).toBe("cancelled");
+    expect((await request(`/hr/me/overtime/${approvedForEmployeeId}/cancel`, "POST", {}, employeeCookie)).status).toBe(409);
+  });
 });

@@ -51,6 +51,34 @@ function RequestSummary({ request, reviewer = false }: { request: FormRequest; r
   </div>;
 }
 
+function OvertimeCancelDialog({ item, onClose }: { item: OvertimeRequest; onClose: () => void }) {
+  const cancel = useHrWrite();
+  const closeRequestRef = useRef<(() => void) | null>(null);
+  function submit() {
+    cancel.mutate({ path: `/me/overtime/${item.request.id}/cancel`, method: "POST", values: {} }, { onSuccess: () => (closeRequestRef.current ?? onClose)() });
+  }
+  return <Dialog title="取消加班申請" titleMeta={formatTaipei(item.request.requestedStart)} role="alertdialog" onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={cancel.isPending} actions={<>
+    <Button variant="secondary" onClick={onClose} disabled={cancel.isPending}>保留申請</Button>
+    <Button variant="danger" loading={cancel.isPending} onClick={submit}>確認取消</Button>
+  </>}>
+    <p>取消後這筆加班申請不會再納入薪資試算；已取消的申請仍會保留在申請紀錄。</p>
+    {cancel.error ? <Alert tone="danger">{cancel.error.message}</Alert> : null}
+  </Dialog>;
+}
+
+function OvertimeRequestCard({ item, onCancel }: { item: OvertimeRequest; onCancel: (item: OvertimeRequest) => void }) {
+  const status = item.request.status;
+  const canCancel = status === "pending" || status === "approved";
+  const tone = status === "approved" ? "success" : status === "rejected" ? "danger" : status === "cancelled" ? "neutral" : "info";
+  const label = status === "pending" ? "申請中" : status === "approved" ? "已核准" : status === "rejected" ? "已駁回" : status === "cancelled" ? "已取消" : "草稿";
+  return <article className="hr-form-request-card">
+    <div className="hr-form-request-title"><strong>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</strong><StatusBadge tone={tone}>{label}</StatusBadge></div>
+    <p>{item.request.settlementKind === "pay" ? "付薪" : "補休"}・倍率 {(item.request.ratePpm / 10_000).toFixed(2)}%・{item.request.reason || "—"}</p>
+    {item.request.decisionReason ? <small>審核意見：{item.request.decisionReason}</small> : null}
+    {canCancel ? <div className="hr-form-request-actions"><Button variant="secondary" onClick={() => onCancel(item)}>取消申請</Button></div> : null}
+  </article>;
+}
+
 function ReviewDialog({ request, onClose }: { request: FormRequest; onClose: () => void }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
@@ -93,6 +121,7 @@ export function HrForms() {
   usePageTitle("表單申請");
   const navigate = useNavigate();
   const [reviewing, setReviewing] = useState<FormRequest | null>(null);
+  const [cancelling, setCancelling] = useState<OvertimeRequest | null>(null);
   const query = useHrQuery<{ requests: FormRequest[]; reviewRequests: FormRequest[] }>("/me/form-requests");
   const overtime = useHrQuery<{ requests: OvertimeRequest[] }>("/me/overtime");
   const data = query.data;
@@ -110,7 +139,7 @@ export function HrForms() {
     <Panel>
       <div className="panel-head"><div><h2>我的加班申請</h2><p className="muted">加班與特殊上班日分開；只有核准且選擇付薪的時段才會進入薪資試算。</p></div></div>
       {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
-      {overtime.data?.requests.length ? <div className="hr-form-request-list">{overtime.data.requests.map((item) => <article className="hr-form-request-card" key={item.request.id}><div className="hr-form-request-title"><strong>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</strong><StatusBadge tone={item.request.status === "approved" ? "success" : item.request.status === "rejected" ? "danger" : "info"}>{item.request.status === "pending" ? "申請中" : item.request.status === "approved" ? "已核准" : item.request.status === "rejected" ? "已駁回" : item.request.status === "cancelled" ? "已取消" : "草稿"}</StatusBadge></div><p>{item.request.settlementKind === "pay" ? "付薪" : "補休"}・倍率 {(item.request.ratePpm / 10_000).toFixed(2)}%・{item.request.reason || "—"}</p>{item.request.decisionReason ? <small>審核意見：{item.request.decisionReason}</small> : null}</article>)}</div> : <p className="muted">目前沒有加班申請紀錄。</p>}
+      {overtime.data?.requests.length ? <div className="hr-form-request-list">{overtime.data.requests.map((item) => <OvertimeRequestCard key={item.request.id} item={item} onCancel={setCancelling} />)}</div> : <p className="muted">目前沒有加班申請紀錄。</p>}
     </Panel>
     <Panel>
       <div className="panel-head"><div><h2>我的補打卡申請</h2><p className="muted">可查看草稿、申請中、已核准與已駁回的處理進度。</p></div></div>
@@ -120,6 +149,7 @@ export function HrForms() {
       </article>)}</div> : <p className="muted">目前沒有申請紀錄。</p>}
     </Panel>
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
+    {cancelling ? <OvertimeCancelDialog item={cancelling} onClose={() => setCancelling(null)} /> : null}
   </div>;
 }
 
