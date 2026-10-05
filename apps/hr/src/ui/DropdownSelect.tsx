@@ -1,6 +1,6 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { Select } from "@base-ui/react/select";
-import { useLayoutEffect, useRef, useState, type ChangeEventHandler } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ChangeEventHandler } from "react";
 import { useLocation } from "react-router";
 import { Icon } from "../shell/icons.js";
 import { Tooltip } from "./Tooltip.js";
@@ -306,26 +306,42 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
    */
   const [uncontrolledValue, setUncontrolledValue] = useState<readonly string[]>(defaultValue ?? []);
   const currentValue = value ?? uncontrolledValue;
-  const selectedOptions = optionsForValues(options, currentValue) ?? [];
-  // 還沒載入、或已經不在名單上的已選值畫不出 chip，但不能因為使用者動了別的項目就被順手丟掉。
-  const unlistedValues = currentValue.filter((selected) => !options.some((option) => option.value === selected));
-  // 已選的已經是輸入框裡的 chip，清單只留還能加的；留著只會讓人在長名單裡重複找同一個人。
-  const remainingOptions = options.filter((option) => !currentValue.includes(option.value));
-  // 短名撞名時（同名同姓）chip 會分不出誰是誰，那幾位改回完整 label；提示只能是補充，不能是唯一分辨得出來的地方。
-  const chipLabelCounts = new Map<string, number>();
-  for (const option of options) if (option.chipLabel) chipLabelCounts.set(option.chipLabel, (chipLabelCounts.get(option.chipLabel) ?? 0) + 1);
-  // 已選的人不在清單裡，搜尋他只會得到空清單；要講清楚是「已經選了」，不是「沒有這個人」。
-  const [query, setQuery] = useState("");
-  const normalizedQuery = query.trim().toLowerCase();
-  const queryMatchesSelected = normalizedQuery !== "" && selectedOptions.some((option) => option.label.toLowerCase().includes(normalizedQuery));
+  /*
+   * 呼叫端幾乎都是 render 時才 map 出 options 與 value，每輪都是新陣列。Combobox 的 layout effect
+   * 依賴這兩個參考，參考一變就同步更新 store；父層只要多重繪幾輪就會疊到 React 的巢狀更新上限、整頁當掉。
+   * 所以用內容算出來的 key 記住結果：內容沒變就交出同一個陣列。
+   */
+  const optionsKey = JSON.stringify(options.map((option) => [option.value, option.label, option.chipLabel ?? null, option.disabled === true]));
+  const valueKey = JSON.stringify(currentValue);
+  const { selectedOptions, remainingOptions, duplicatedChipLabels } = useMemo(() => {
+    const selected = new Set(currentValue);
+    // 短名撞名時（同名同姓）chip 會分不出誰是誰，那幾位改回完整 label；提示只能是補充，不能是唯一分辨得出來的地方。
+    const seenChipLabels = new Set<string>();
+    const duplicated = new Set<string>();
+    for (const option of options) {
+      if (!option.chipLabel) continue;
+      if (seenChipLabels.has(option.chipLabel)) duplicated.add(option.chipLabel);
+      seenChipLabels.add(option.chipLabel);
+    }
+    return {
+      selectedOptions: optionsForValues(options, currentValue) ?? [],
+      // 已選的已經是輸入框裡的 chip，清單只留還能加的；留著只會讓人在長名單裡重複找同一個人。
+      remainingOptions: options.filter((option) => !selected.has(option.value)),
+      duplicatedChipLabels: duplicated,
+    };
+    // options 與 currentValue 的內容已經由兩個 key 代表。
+  }, [optionsKey, valueKey]);
   /*
    * chip 區超過高度會自己捲，而輸入框排在所有 chip 後面：預選幾十人時它一開始就在捲動範圍外，
-   * 欄位看起來像一張不能打字的清單。選取數量變動時捲到底，讓輸入框留在看得到的地方。
+   * 欄位看起來像一張不能打字的清單。只在掛載與新增時捲到底；移除時不動，
+   * 不然捲到上面連續移除幾個人，每移一個就被拉回底部。
    */
   const chipsRef = useRef<HTMLDivElement>(null);
+  const previousSelectedCount = useRef(-1);
   useLayoutEffect(() => {
     const chips = chipsRef.current;
-    if (chips) chips.scrollTop = chips.scrollHeight;
+    if (chips && selectedOptions.length > previousSelectedCount.current) chips.scrollTop = chips.scrollHeight;
+    previousSelectedCount.current = selectedOptions.length;
   }, [selectedOptions.length]);
 
   return (
@@ -334,12 +350,9 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
       items={remainingOptions}
       value={selectedOptions}
       onValueChange={(nextValue) => {
-        const nextValues = [...unlistedValues, ...nextValue.map((option) => option.value)];
-        if (value === undefined) setUncontrolledValue(nextValues);
-        props.onValueChange?.(nextValues);
-        props.onChange?.(multipleChangeEvent(nextValues));
+        if (value === undefined) setUncontrolledValue(nextValue.map((option) => option.value));
+        emitMultiple(props, nextValue);
       }}
-      onInputValueChange={setQuery}
       isItemEqualToValue={sameOption}
       itemToStringLabel={(option) => option?.label ?? ""}
       disabled={disabled}
@@ -354,7 +367,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
             return (
               <Combobox.Chips ref={chipsRef} aria-label={ariaLabel ?? "已選項目"} className="dropdown-combobox-chips">
                 {selected.map((option) => {
-                  const shortened = option.chipLabel !== undefined && chipLabelCounts.get(option.chipLabel) === 1;
+                  const shortened = option.chipLabel !== undefined && !duplicatedChipLabels.has(option.chipLabel);
                   const chip = (
                     <Combobox.Chip key={option.value} className="dropdown-combobox-chip" aria-description="按 Backspace 或 Delete 移除">
                       {/* 螢幕閱讀器唸完整 label：提示掛在外層，聚焦 chip 時不會被唸到。 */}
@@ -384,7 +397,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
       <Combobox.Portal>
         <Combobox.Positioner className="combobox-positioner">
           <Combobox.Popup className={popupClass(isHrSystem)}>
-            <Combobox.Empty>{options.length && !remainingOptions.length ? "已經全部選取" : queryMatchesSelected ? "符合的項目已經選取" : "找不到符合條件的選項"}</Combobox.Empty>
+            <Combobox.Empty>{options.length && !remainingOptions.length ? "已經全部選取" : selectedOptions.length ? "沒有其他符合條件的選項（已選取的不會列在這裡）" : "找不到符合條件的選項"}</Combobox.Empty>
             <Combobox.List>
               {(option: DropdownSelectOption) => (
                 <Combobox.Item key={option.value} value={option} disabled={option.disabled} className="combobox-item">

@@ -450,7 +450,7 @@ describe("HR 薪資與勞健保", () => {
     expect(maxBoundParams).toBeLessThanOrEqual(100);
     const rows = await (await request("/hr/special-workdays/assignments?start=2026-03-01&end=2026-03-02")).json() as { assignments: unknown[] };
     expect(rows.assignments).toHaveLength(120);
-    // 分批之後，落在後面幾批的人一樣要擋得到重複。
+    // 清單再長，排在後面的人一樣要擋得到重複。
     expect((await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [assignments[119]!] })).status).toBe(409);
   });
 
