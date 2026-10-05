@@ -163,7 +163,34 @@ export interface HrAnnualLeaveEntitlement { id: string; employmentId: string; em
 export interface HrAnnualLeaveLedgerEntry { id: string; entryKind: "grant" | "leave_request" | "manual_adjustment" | "settlement" | "settlement_reversal"; deltaHalfHours: number; sourceKey: string; leaveRequestId: string | null; note: string; createdBy: string | null; createdAt: string }
 export interface HrAnnualLeaveEntitlementDetail extends HrAnnualLeaveEntitlement { serviceStartOn: string; policyVersionNumber: number; policyValidFrom: string; policyValidTo: string | null; policyBasis: "anniversary"; policyDailyMinutes: number; policyMinimumUnitMinutes: number; policyCarryoverAllowed: number; policyNote: string; bracketMinServiceMonths: number; bracketMaxServiceMonths: number | null; bracketEntitledDays: number; bracketLabel: string; ledger: HrAnnualLeaveLedgerEntry[] }
 export interface HrAnnualLeaveResponse { entitlements: HrAnnualLeaveEntitlement[] }
-export interface HrRequestCenterResponse { leaves: HrLeaveRequest[]; overtime: HrOvertimeRequest[]; clockCorrections: FormRequest[] }
+export interface HrRequestCenterRow {
+  kind: "leave" | "overtime" | "clock_correction";
+  id: string;
+  employeeName: string | null;
+  employeeNumber: string | null;
+  status: "draft" | "pending" | "approved" | "rejected" | "cancelled";
+  reason: string;
+  createdAt: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  startsOn: string | null;
+  endsOn: string | null;
+  leaveType: string | null;
+  durationMinutes: number | null;
+  requestedStart: string | null;
+  requestedEnd: string | null;
+  settlementKind: "pay" | "compensatory" | null;
+  correctionDate: string | null;
+  requestedEventKind: "clock_in" | "clock_out" | null;
+  requestedAt: string | null;
+}
+export interface HrRequestCenterResponse {
+  leaves?: HrLeaveRequest[];
+  overtime?: HrOvertimeRequest[];
+  clockCorrections?: FormRequest[];
+  rows?: HrRequestCenterRow[];
+  pagination?: { page: number; pageSize: number; total: number };
+}
 export interface FormApproversResponse { approvers: FormApprover[]; defaultApproverUserId: string | null }
 export interface PayrollLineCalculationPart { formula: string; amountMinor: number }
 export interface PayrollLine { lineKey: string; direction: "earning" | "deduction"; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }

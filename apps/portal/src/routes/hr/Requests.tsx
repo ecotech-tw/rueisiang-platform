@@ -1,11 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Field, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
-import { hrEmployeeLabel, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeRequest, type HrRequestCenterResponse } from "./api.js";
+import { Alert, Button, Dialog, Field, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { hrEmployeeLabel, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 type RequestKind = "leave" | "overtime" | "clock_correction";
@@ -94,7 +94,50 @@ function leaveDisplayValue(value: string, fallbackDate: string) {
 const LEAVE_UNIT_MINUTES = 30;
 const MAX_LEAVE_MINUTES = 31 * 24 * 60;
 
+function toRequestRow(row: HrRequestCenterRow): RequestRow {
+  if (row.kind === "leave") {
+    return {
+      id: row.id,
+      kind: row.kind,
+      employeeName: row.employeeName ?? "未命名員工",
+      employeeNumber: row.employeeNumber ?? "—",
+      period: `${leaveDisplayValue(row.startsAt ?? "", row.startsOn ?? "—")}～${leaveDisplayValue(row.endsAt ?? "", row.endsOn ?? "—")}`,
+      detail: `${row.leaveType ?? "請假"}・${((row.durationMinutes ?? 0) / 60).toFixed(1)} 小時`,
+      reason: row.reason || "—",
+      status: row.status,
+      createdAt: row.createdAt,
+    };
+  }
+  if (row.kind === "overtime") {
+    return {
+      id: row.id,
+      kind: row.kind,
+      employeeName: row.employeeName ?? "未命名員工",
+      employeeNumber: row.employeeNumber ?? "—",
+      period: `${taipeiDisplayValue(row.requestedStart ?? "")}～${taipeiDisplayValue(row.requestedEnd ?? "")}`,
+      detail: row.settlementKind === "pay" ? "付薪" : "補休",
+      reason: row.reason || "—",
+      status: row.status,
+      createdAt: row.createdAt,
+      requestedStart: row.requestedStart ?? undefined,
+      requestedEnd: row.requestedEnd ?? undefined,
+    };
+  }
+  return {
+    id: row.id,
+    kind: row.kind,
+    employeeName: row.employeeName ?? "未命名員工",
+    employeeNumber: row.employeeNumber ?? "—",
+    period: row.correctionDate ?? "—",
+    detail: row.requestedEventKind === "clock_in" ? `補上班 ${taipeiDisplayValue(row.requestedAt ?? "")}` : `補下班 ${taipeiDisplayValue(row.requestedAt ?? "")}`,
+    reason: row.reason || "—",
+    status: row.status,
+    createdAt: row.createdAt,
+  };
+}
+
 function toRequestRows(data: HrRequestCenterResponse | undefined): RequestRow[] {
+  if (data?.rows) return data.rows.map(toRequestRow);
   const leaves = (data?.leaves ?? []).map(({ request, employeeName, employeeNumber }: HrLeaveRequest) => ({
     id: request.id,
     kind: "leave" as const,
@@ -269,12 +312,22 @@ export function HrRequestCenter() {
   const [createOpen, setCreateOpen] = useState(false);
   const [initialKind] = useState<"leave" | "overtime">(searchParams.get("type") === "overtime" ? "overtime" : "leave");
   const [filters, setFilters] = useState<RequestFilters>(DEFAULT_REQUEST_FILTERS);
+  const [showFilters, setShowFilters] = useState(false);
   const [reviewing, setReviewing] = useState<RequestRow | null>(null);
   const employees = useHrQuery<EmployeePageResponse>("/requests/employees", canAccess, { keepPreviousData: false });
   const leaveTypes = useHrQuery<{ leaveTypes: LeaveType[] }>("/requests/leave-types", canAccess, { keepPreviousData: false });
-  const requests = useHrQuery<HrRequestCenterResponse>("/requests", canAccess, { keepPreviousData: false });
+  const requestPath = useMemo(() => {
+    const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize) });
+    const search = filters.search.trim();
+    if (search) params.set("search", search);
+    if (filters.kind !== "all") params.set("kind", filters.kind);
+    if (filters.status !== "all") params.set("status", filters.status);
+    return `/requests?${params.toString()}`;
+  }, [filters.kind, filters.page, filters.pageSize, filters.search, filters.status]);
+  const requests = useHrQuery<HrRequestCenterResponse>(requestPath, canAccess);
   const rows = useMemo(() => toRequestRows(requests.data), [requests.data]);
   const filteredRows = useMemo(() => {
+    if (requests.data?.pagination) return rows;
     const term = filters.search.trim().toLocaleLowerCase("zh-TW");
     return rows.filter((row) => {
       if (filters.kind !== "all" && row.kind !== filters.kind) return false;
@@ -290,11 +343,19 @@ export function HrRequestCenter() {
         statusLabel(row.status),
       ].some((value) => value.toLocaleLowerCase("zh-TW").includes(term));
     });
-  }, [filters.kind, filters.search, filters.status, rows]);
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / filters.pageSize));
-  const page = Math.min(filters.page, totalPages);
-  const visibleRows = filteredRows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
+  }, [filters.kind, filters.search, filters.status, requests.data?.pagination, rows]);
+  const isServerPaged = Boolean(requests.data?.pagination);
+  const total = isServerPaged ? requests.data?.pagination?.total ?? 0 : filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / filters.pageSize));
+  const page = requests.data?.pagination?.page ?? Math.min(filters.page, totalPages);
+  const visibleRows = isServerPaged ? rows : filteredRows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
+  const loadedPage = requests.data?.pagination?.page;
   const activeFilterCount = [filters.kind, filters.status].filter((value) => value !== "all").length;
+
+  useEffect(() => {
+    if (!loadedPage) return;
+    setFilters((current) => current.page === loadedPage ? current : { ...current, page: loadedPage });
+  }, [loadedPage]);
 
   if (!canAccess) return <Alert tone="danger">你沒有檢視 HR 申請的權限。</Alert>;
   if (employees.isPending || leaveTypes.isPending || requests.isPending) return <HrPageSkeleton variant="table" />;
@@ -318,14 +379,17 @@ export function HrRequestCenter() {
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <form className="admin-form toolbar hr-request-toolbar" onSubmit={(event) => event.preventDefault()}>
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
-        <FilterSelect label="申請類型" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
-        <FilterSelect label="狀態" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
+        <Button variant="secondary" icon="filter" className={`filter-toggle${showFilters ? " active" : ""}`} aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選{activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}</Button>
         {activeFilterCount ? <Button variant="link" onClick={() => updateFilters({ kind: "all", status: "all" })}>清除篩選</Button> : null}
+        <div className={`filter-fields${showFilters ? " open" : ""}`}>
+          <FilterSelect label="申請類型" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
+          <FilterSelect label="狀態" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
+        </div>
       </form>
       {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
-      <div className={`table-scroll${requests.isFetching ? " is-refreshing" : ""}`}><table className="data-table hr-request-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td><td data-label="期間">{row.period}</td><td data-label="內容">{row.detail}</td><td data-label="原因">{row.reason}</td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : (row.kind === "leave" || row.kind === "overtime") && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消{REQUEST_KIND_LABEL[row.kind]}</Button> : "—"}</td></tr>)}</tbody></table></div>
-      {requests.data && !filteredRows.length ? <p className="muted table-note">{rows.length ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</p> : null}
-      {filteredRows.length ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${filteredRows.length.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => setFilters((current) => ({ ...current, page: nextPage }))} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
+      <div className={`table-scroll${requests.isFetching ? " is-refreshing" : ""}`}><table className="data-table hr-request-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td><td data-label="期間">{row.period}</td><td data-label="內容"><Tooltip label={row.detail} focusable={false}><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td><td data-label="原因"><Tooltip label={row.reason} focusable={false}><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : (row.kind === "leave" || row.kind === "overtime") && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消{REQUEST_KIND_LABEL[row.kind]}</Button> : "—"}</td></tr>)}</tbody></table></div>
+      {requests.data && !visibleRows.length ? <p className="muted table-note">{total ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</p> : null}
+      {total ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => setFilters((current) => ({ ...current, page: nextPage }))} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
     {reviewing ? <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}

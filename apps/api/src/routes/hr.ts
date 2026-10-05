@@ -13,6 +13,7 @@ import {
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   cancelHrOvertimeRequest, createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
+  HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
   calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
@@ -612,12 +613,30 @@ export const hr = new Hono<AppEnv>()
   })
   /* 管理端申請中心是獨立入口；目前代登直接核准，但資料仍使用 pending／approved 審核狀態。 */
   .get("/requests", requirePermission("hr:request:review"), async (c) => {
-    const [leaves, overtime, formRequests] = await Promise.all([
-      listHrLeaveRequests(c.get("db")),
-      listHrOvertimeRequests(c.get("db")),
-      listHrFormRequestsForHr(c.get("db")),
-    ]);
-    return c.json({ leaves, overtime, clockCorrections: formRequests });
+    const hasPagedQuery = ["page", "pageSize", "search", "kind", "status"].some((key) => c.req.query(key) !== undefined);
+    if (!hasPagedQuery) {
+      const [leaves, overtime, formRequests] = await Promise.all([
+        listHrLeaveRequests(c.get("db")),
+        listHrOvertimeRequests(c.get("db")),
+        listHrFormRequestsForHr(c.get("db")),
+      ]);
+      return c.json({ leaves, overtime, clockCorrections: formRequests });
+    }
+    const page = calendarNumber(c.req.query("page"), 1, "頁碼", 1, 10000);
+    const rawPageSize = c.req.query("pageSize");
+    const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
+    if (!HR_REQUEST_CENTER_PAGE_SIZES.includes(pageSize as (typeof HR_REQUEST_CENTER_PAGE_SIZES)[number])) throw new HTTPException(400, { message: "每頁筆數不正確。" });
+    const search = c.req.query("search")?.trim() ?? "";
+    if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
+    const kind = c.req.query("kind") ?? "all";
+    if (!(kind === "all" || kind === "leave" || kind === "overtime" || kind === "clock_correction")) throw new HTTPException(400, { message: "申請類型不正確。" });
+    const status = c.req.query("status") ?? "all";
+    if (!(status === "all" || status === "draft" || status === "pending" || status === "approved" || status === "rejected" || status === "cancelled")) throw new HTTPException(400, { message: "申請狀態不正確。" });
+    const result = await listHrRequestCenterPage(c.get("db"), { page, pageSize, search, kind, status });
+    return c.json({
+      rows: result.rows,
+      pagination: { page: result.page, pageSize: result.pageSize, total: result.total },
+    });
   })
   .get("/requests/employees", requirePermission("hr:request:review"), async (c) => {
     const db = c.get("db");
