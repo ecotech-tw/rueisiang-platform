@@ -82,7 +82,7 @@ export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInp
   if ((endMs - startMs) % (30 * 60 * 1000) !== 0) throw new HrError(400, "加班時數必須以 0.5 小時為單位。 ");
   if (input.settlementKind !== "pay" && input.settlementKind !== "compensatory") throw new HrError(400, "加班結算方式不正確。 ");
   if (input.ratePpm !== undefined && input.ratePpm !== DEFAULT_OVERTIME_RATE_PPM) throw new HrError(400, "加班倍率由公司制度決定，不可由申請人指定。 ");
-  if (!input.reason.trim() || input.reason.length > 1000) throw new HrError(400, "加班原因必填。 ");
+  if (input.reason.length > 1000) throw new HrError(400, "加班原因不可超過 1000 字。 ");
   const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd);
   await ensureScope(db, employmentId, input.scopeId ?? null, input.requestedStart, input.requestedEnd);
   const id = crypto.randomUUID();

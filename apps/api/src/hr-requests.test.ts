@@ -128,6 +128,27 @@ describe("HR 申請中心", () => {
     expect(afterScheduleCalculation.leaves.find((item) => item.request.id === screenshotId)?.request.durationMinutes).toBe(900);
   });
 
+  it("加班申請的原因可以留空", async () => {
+    await assignEmployee();
+    const adminCreated = await request("/hr/requests/overtime", "POST", {
+      employeeUserId: "employee", requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T20:00", settlementKind: "pay",
+    });
+    expect(adminCreated.status, await adminCreated.clone().text()).toBe(201);
+    const adminCreatedBody = await adminCreated.json() as { id: string };
+
+    const employeeCreated = await request("/hr/me/overtime", "POST", {
+      requestedStart: "2026-01-07T18:00", requestedEnd: "2026-01-07T20:00", settlementKind: "compensatory", reason: "",
+    }, employeeCookie);
+    expect(employeeCreated.status, await employeeCreated.clone().text()).toBe(201);
+    const employeeCreatedBody = await employeeCreated.json() as { id: string };
+
+    const center = await request("/hr/requests");
+    expect(center.status, await center.clone().text()).toBe(200);
+    const body = await center.json() as { overtime: Array<{ request: { id: string; reason: string } }> };
+    expect(body.overtime.find((item) => item.request.id === adminCreatedBody.id)?.request.reason).toBe("");
+    expect(body.overtime.find((item) => item.request.id === employeeCreatedBody.id)?.request.reason).toBe("");
+  });
+
   it("HR 代登不允許申請人直接核准自己的請假與加班", async () => {
     await request("/hr/employees", "POST", { userId: "admin", legalName: "管理員工", employeeNumber: "E-ADMIN", position: "一般職員", serviceStartOn: "2026-01-01" });
     const leaveType = await request("/hr/leave-types", "POST", { name: "自審測試假", defaultPayRatePpm: 1_000_000 });

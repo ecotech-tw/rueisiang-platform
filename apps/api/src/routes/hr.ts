@@ -363,7 +363,7 @@ function optionalDateTimeValue(input: Record<string, unknown>, key: string, labe
 function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
   const settlementKind = input.settlementKind === "pay" || input.settlementKind === "compensatory" ? input.settlementKind : null;
   if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
-  return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), reason: text(input, "reason", "加班原因", 1000) } as const;
+  return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), reason: nullableText(input, "reason", "加班原因", 1000) ?? "" } as const;
 }
 function leaveDateTimeValue(input: Record<string, unknown>, key: "startsAt" | "endsAt", alias: "startAt" | "endAt", label: string) {
   const raw = input[key] ?? input[alias];
