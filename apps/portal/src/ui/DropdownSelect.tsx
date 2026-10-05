@@ -1,6 +1,6 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { Select } from "@base-ui/react/select";
-import type { ChangeEventHandler } from "react";
+import { useState, type ChangeEventHandler } from "react";
 import { useLocation } from "react-router";
 import { Icon } from "../shell/icons.js";
 import { Tooltip } from "./Tooltip.js";
@@ -300,18 +300,28 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
   } = props;
-  const selectedOptions = optionsForValues(options, value) ?? [];
-  const initialOptions = optionsForValues(options, defaultValue) ?? [];
+  /*
+   * 沒有傳 value 的呼叫端也由這裡自己記住選了誰，不交給 Combobox 的 defaultValue：
+   * 下面要靠「目前選了誰」把已選的從清單拿掉，兩種用法的行為才會一樣。
+   */
+  const [uncontrolledValue, setUncontrolledValue] = useState<readonly string[]>(defaultValue ?? []);
+  const currentValue = value ?? uncontrolledValue;
+  const selectedOptions = optionsForValues(options, currentValue) ?? [];
   // 已選的已經是輸入框裡的 chip，清單只留還能加的；留著只會讓人在長名單裡重複找同一個人。
-  const remainingOptions = value === undefined ? options : options.filter((option) => !value.includes(option.value));
+  const remainingOptions = options.filter((option) => !currentValue.includes(option.value));
+  // 短名撞名時（同名同姓）chip 會分不出誰是誰，那幾位改回完整 label；提示只能是補充，不能是唯一分辨得出來的地方。
+  const chipLabelCounts = new Map<string, number>();
+  for (const option of options) if (option.chipLabel) chipLabelCounts.set(option.chipLabel, (chipLabelCounts.get(option.chipLabel) ?? 0) + 1);
 
   return (
     <Combobox.Root<DropdownSelectOption, true>
       multiple
       items={remainingOptions}
-      value={value === undefined ? undefined : selectedOptions}
-      defaultValue={defaultValue === undefined ? undefined : initialOptions}
-      onValueChange={(nextValue) => emitMultiple(props, nextValue)}
+      value={selectedOptions}
+      onValueChange={(nextValue) => {
+        if (value === undefined) setUncontrolledValue(nextValue.map((option) => option.value));
+        emitMultiple(props, nextValue);
+      }}
       isItemEqualToValue={sameOption}
       itemToStringLabel={(option) => option?.label ?? ""}
       disabled={disabled}
@@ -325,12 +335,17 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
             const selected = selectedValue ?? [];
             return (
               <Combobox.Chips aria-label={ariaLabel ?? "已選項目"} className="dropdown-combobox-chips">
-                {selected.map((option) => (
-                  <Combobox.Chip key={option.value} className="dropdown-combobox-chip" aria-description="按 Backspace 或 Delete 移除">
-                    {option.chipLabel ? <Tooltip label={option.label} focusable={false}>{option.chipLabel}</Tooltip> : <span>{option.label}</span>}
-                    <Combobox.ChipRemove aria-label={`移除${option.label}`} className="dropdown-combobox-chip-remove"><Icon name="close" /></Combobox.ChipRemove>
-                  </Combobox.Chip>
-                ))}
+                {selected.map((option) => {
+                  const shortened = option.chipLabel !== undefined && chipLabelCounts.get(option.chipLabel) === 1;
+                  const chip = (
+                    <Combobox.Chip key={option.value} className="dropdown-combobox-chip" aria-description="按 Backspace 或 Delete 移除">
+                      <span>{shortened ? option.chipLabel : option.label}</span>
+                      <Combobox.ChipRemove aria-label={`移除${option.label}`} className="dropdown-combobox-chip-remove"><Icon name="close" /></Combobox.ChipRemove>
+                    </Combobox.Chip>
+                  );
+                  // 提示包在 chip 外面：chip 自己拿得到焦點，focus 冒泡上來，鍵盤與觸控點選也看得到完整 label。
+                  return shortened ? <Tooltip key={option.value} label={option.label} focusable={false}>{chip}</Tooltip> : chip;
+                })}
                 <Combobox.Input
                   id={id}
                   className="combobox-input"
@@ -350,12 +365,11 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
       <Combobox.Portal>
         <Combobox.Positioner className="combobox-positioner">
           <Combobox.Popup className={popupClass(isHrSystem)}>
-            <Combobox.Empty>{remainingOptions.length ? "找不到符合條件的選項" : "已經全部選取"}</Combobox.Empty>
+            <Combobox.Empty>{options.length && !remainingOptions.length ? "已經全部選取" : "找不到符合條件的選項"}</Combobox.Empty>
             <Combobox.List>
               {(option: DropdownSelectOption) => (
                 <Combobox.Item key={option.value} value={option} disabled={option.disabled} className="combobox-item">
                   <span>{option.label}</span>
-                  <Combobox.ItemIndicator>✓</Combobox.ItemIndicator>
                 </Combobox.Item>
               )}
             </Combobox.List>

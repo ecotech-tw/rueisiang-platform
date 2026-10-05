@@ -80,7 +80,7 @@ export function HrBonusManagement() {
     ...(assignmentsByVersion.get(editingPolicyVersionId ?? "") ?? []).filter((assignment) => !activeEmployeeIds.has(assignment.employeeUserId)).map((assignment) => ({
       employeeNumber: assignment.employeeNumber,
       legalName: assignment.employeeName,
-      option: { label: `${assignment.employeeNumber}・${assignment.employeeName}（目前不在職）`, value: assignment.employeeUserId, disabled: true },
+      option: { label: `${assignment.employeeNumber}・${assignment.employeeName}（目前不在職）`, chipLabel: `${assignment.employeeName}（不在職）`, value: assignment.employeeUserId, disabled: true },
     })),
   ]).map((item) => item.option);
   const selectedActiveEmployeeCount = selectedEmployeeIds.filter((employeeUserId) => activeEmployeeIds.has(employeeUserId)).length;

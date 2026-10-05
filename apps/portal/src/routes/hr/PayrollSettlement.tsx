@@ -82,7 +82,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const selectedCount = selectionMode === "all" ? peopleCount : selectedEmployeeIds.length + selectedWorkerIds.length;
   const unselectedCount = Math.max(0, peopleCount - selectedCount);
   const selectionLimitError = selectionMode === "selected" && (selectedEmployeeIds.length > MAX_PAYROLL_SELECTED_EMPLOYEES || selectedWorkerIds.length > MAX_PAYROLL_SELECTED_WORKERS)
-    ? `正式員工最多選擇 ${MAX_PAYROLL_SELECTED_EMPLOYEES} 位、支援人員最多選擇 ${MAX_PAYROLL_SELECTED_WORKERS} 位；若要納入全體，請勾選「全體人員」。`
+    ? `正式員工最多選擇 ${MAX_PAYROLL_SELECTED_EMPLOYEES} 位、支援人員最多選擇 ${MAX_PAYROLL_SELECTED_WORKERS} 位；若要納入全體，請按「全選」。`
     : null;
 
   useEffect(() => {

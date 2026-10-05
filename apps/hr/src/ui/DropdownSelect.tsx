@@ -1,6 +1,6 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { Select } from "@base-ui/react/select";
-import type { ChangeEventHandler } from "react";
+import { useState, type ChangeEventHandler } from "react";
 import { useLocation } from "react-router";
 import { Icon } from "../shell/icons.js";
 
@@ -297,18 +297,25 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
   } = props;
-  const selectedOptions = optionsForValues(options, value) ?? [];
-  const initialOptions = optionsForValues(options, defaultValue) ?? [];
+  /*
+   * 沒有傳 value 的呼叫端也由這裡自己記住選了誰，不交給 Combobox 的 defaultValue：
+   * 下面要靠「目前選了誰」把已選的從清單拿掉，兩種用法的行為才會一樣。
+   */
+  const [uncontrolledValue, setUncontrolledValue] = useState<readonly string[]>(defaultValue ?? []);
+  const currentValue = value ?? uncontrolledValue;
+  const selectedOptions = optionsForValues(options, currentValue) ?? [];
   // 已選的已經是輸入框裡的 chip，清單只留還能加的；留著只會讓人在長名單裡重複找同一個人。
-  const remainingOptions = value === undefined ? options : options.filter((option) => !value.includes(option.value));
+  const remainingOptions = options.filter((option) => !currentValue.includes(option.value));
 
   return (
     <Combobox.Root<DropdownSelectOption, true>
       multiple
       items={remainingOptions}
-      value={value === undefined ? undefined : selectedOptions}
-      defaultValue={defaultValue === undefined ? undefined : initialOptions}
-      onValueChange={(nextValue) => emitMultiple(props, nextValue)}
+      value={selectedOptions}
+      onValueChange={(nextValue) => {
+        if (value === undefined) setUncontrolledValue(nextValue.map((option) => option.value));
+        emitMultiple(props, nextValue);
+      }}
       isItemEqualToValue={sameOption}
       itemToStringLabel={(option) => option?.label ?? ""}
       disabled={disabled}
@@ -347,12 +354,11 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
       <Combobox.Portal>
         <Combobox.Positioner className="combobox-positioner">
           <Combobox.Popup className={popupClass(isHrSystem)}>
-            <Combobox.Empty>{remainingOptions.length ? "找不到符合條件的選項" : "已經全部選取"}</Combobox.Empty>
+            <Combobox.Empty>{options.length && !remainingOptions.length ? "已經全部選取" : "找不到符合條件的選項"}</Combobox.Empty>
             <Combobox.List>
               {(option: DropdownSelectOption) => (
                 <Combobox.Item key={option.value} value={option} disabled={option.disabled} className="combobox-item">
                   <span>{option.label}</span>
-                  <Combobox.ItemIndicator>✓</Combobox.ItemIndicator>
                 </Combobox.Item>
               )}
             </Combobox.List>
