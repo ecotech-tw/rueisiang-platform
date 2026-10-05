@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
-import { inJsonArray, jsonArrayValues, type Database } from "./client.js";
+import type { Database } from "./client.js";
+import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
 import { calculateHrLeaveWorkdayBreakdown, type HrLeaveWorkdayBreakdown } from "./hr-leave.js";

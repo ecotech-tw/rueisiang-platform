@@ -415,7 +415,7 @@ describe("HR 薪資與勞健保", () => {
     expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: createdBody.id, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] })).status).toBe(409);
   });
 
-  it("特殊上班日一次套用超過一百人時，沒有任何一句 SQL 超過 D1 的綁定參數上限", async () => {
+  it("特殊上班日可以一次套用超過一百人，不會超過 D1 的綁定參數上限", async () => {
     const created = await request("/hr/special-workdays/rules", "POST", { name: "大批套用", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [], allowances: [] });
     expect(created.status, await created.clone().text()).toBe(201);
     const ruleId = (await created.json() as { id: string }).id;
@@ -431,23 +431,9 @@ describe("HR 薪資與勞健保", () => {
     }
     const assignments = workerIds.map((workerId) => ({ workerId, workDate: "2026-03-01", allowanceQuantities: [] }));
 
-    // 本機的 node:sqlite 收得下三萬多個參數，不自己數的話這個測試永遠是綠的。
-    const prepare = d1.prepare.bind(d1);
-    let maxBoundParams = 0;
-    vi.spyOn(d1, "prepare").mockImplementation((query) => {
-      const statement = prepare(query);
-      const bind = statement.bind.bind(statement);
-      statement.bind = (...values) => {
-        maxBoundParams = Math.max(maxBoundParams, values.length);
-        return bind(...values);
-      };
-      return statement;
-    });
-
+    // 本機的 D1 替身照 D1 的規格擋 100 個綁定參數；ID 清單退回一個 ID 一個參數的寫法時這裡會 500。
     const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
-    expect(maxBoundParams).toBeGreaterThan(0);
-    expect(maxBoundParams).toBeLessThanOrEqual(100);
     const rows = await (await request("/hr/special-workdays/assignments?start=2026-03-01&end=2026-03-02")).json() as { assignments: unknown[] };
     expect(rows.assignments).toHaveLength(120);
     // 清單再長，排在後面的人一樣要擋得到重複。

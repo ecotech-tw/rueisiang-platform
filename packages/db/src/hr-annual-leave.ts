@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrAnnualLeaveBrackets, hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrAnnualLeavePolicyVersions, hrCompensationVersions, hrLeaveTypes } from "./schema/hr-payroll.js";
@@ -281,7 +282,7 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
     balanceHalfHours: sql<number>`coalesce(sum(${hrAnnualLeaveLedger.deltaHalfHours}), 0)`,
     debitHalfHours: sql<number>`coalesce(sum(case when ${hrAnnualLeaveLedger.deltaHalfHours} < 0 then -${hrAnnualLeaveLedger.deltaHalfHours} else 0 end), 0)`,
   }).from(hrAnnualLeaveLedger)
-    .where(inArray(hrAnnualLeaveLedger.entitlementId, rows.map((row) => row.id)))
+    .where(inJsonArray(hrAnnualLeaveLedger.entitlementId, rows.map((row) => row.id)))
     .groupBy(hrAnnualLeaveLedger.entitlementId);
   const balanceById = new Map(balances.map((row) => [row.entitlementId, {
     balanceHalfHours: Number(row.balanceHalfHours ?? 0),
@@ -407,7 +408,7 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
           ? sql`${hrEmployments.archivedAt} IS NOT NULL AND substr(${hrEmployments.archivedAt}, 1, 10) <= ${options.asOfDate}`
           : sql`${hrEmployments.archivedAt} IS NOT NULL AND substr(${hrEmployments.archivedAt}, 1, 10) >= ${options.periodStart} AND substr(${hrEmployments.archivedAt}, 1, 10) <= ${options.asOfDate}`,
       ),
-      options.employmentIds ? inArray(hrAnnualLeaveEntitlements.employmentId, options.employmentIds) : undefined,
+      options.employmentIds ? inJsonArray(hrAnnualLeaveEntitlements.employmentId, options.employmentIds) : undefined,
     ))
     .orderBy(...hrEmployeeNumberOrder(), asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
   if (!rows.length) return [];
@@ -415,7 +416,7 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
   const balances = await db.select({
     entitlementId: hrAnnualLeaveLedger.entitlementId,
     balanceHalfHours: sql<number>`coalesce(sum(${hrAnnualLeaveLedger.deltaHalfHours}), 0)`,
-  }).from(hrAnnualLeaveLedger).where(inArray(hrAnnualLeaveLedger.entitlementId, rows.map((row) => row.entitlementId)))
+  }).from(hrAnnualLeaveLedger).where(inJsonArray(hrAnnualLeaveLedger.entitlementId, rows.map((row) => row.entitlementId)))
     .groupBy(hrAnnualLeaveLedger.entitlementId);
   const balanceById = new Map(balances.map((row) => [row.entitlementId, Number(row.balanceHalfHours ?? 0)]));
 

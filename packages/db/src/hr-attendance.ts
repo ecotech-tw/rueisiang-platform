@@ -1,5 +1,6 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes } from "./hr-calendar.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
@@ -477,15 +478,15 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
   const queryEndUtc = taipeiMidnightUtc(calendarDate(queryEnd, 1));
   const [employments, attendanceSettings, schedules, events, leaves] = await Promise.all([
     db.select({ userId: hrEmployments.employeeUserId, employmentId: hrEmployments.id, archivedAt: hrEmployments.archivedAt }).from(hrEmployments)
-      .where(and(inArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt))),
+      .where(and(inJsonArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt))),
     db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmploymentAttendanceSettings)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmploymentAttendanceSettings.employmentId))
-      .where(and(inArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt))),
+      .where(and(inJsonArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt))),
     db.select({ employmentId: hrScheduleEntries.employmentId, scopeId: hrScheduleEntries.scopeId, workDate: hrScheduleEntries.workDate, startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt }).from(hrScheduleEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
       .where(and(
-        inArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt), eq(hrScheduleVersions.status, "published"),
+        inJsonArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt), eq(hrScheduleVersions.status, "published"),
         sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
         sql`${hrScheduleEntries.workDate} BETWEEN ${queryStart} AND ${monthEnd}`,
       )),
@@ -497,12 +498,12 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
       occurredAt: hrClockEvents.occurredAt,
       scopeId: hrClockEvents.scopeId,
     }).from(hrClockEvents)
-      .where(and(inArray(hrClockEvents.employeeUserId, userIds), sql`${hrClockEvents.occurredAt} >= ${queryStartUtc}`, sql`${hrClockEvents.occurredAt} < ${queryEndUtc}`))
+      .where(and(inJsonArray(hrClockEvents.employeeUserId, userIds), sql`${hrClockEvents.occurredAt} >= ${queryStartUtc}`, sql`${hrClockEvents.occurredAt} < ${queryEndUtc}`))
       .orderBy(asc(hrClockEvents.occurredAt), asc(sql`hr_clock_events.rowid`)),
     db.select({ userId: hrEmployments.employeeUserId, startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn }).from(hrLeaveRequests)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
       .where(and(
-        inArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt), eq(hrLeaveRequests.status, "approved"),
+        inJsonArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt), eq(hrLeaveRequests.status, "approved"),
         sql`${hrLeaveRequests.startsOn} <= ${monthEnd}`, sql`${hrLeaveRequests.endsOn} > ${monthStart}`,
       )),
   ]);

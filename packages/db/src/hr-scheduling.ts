@@ -1,7 +1,8 @@
-import { and, asc, count, desc, eq, inArray, like, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, like, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { HR_DAY_TYPE_LABELS, isHrDayType, listHrCalendarMonth } from "./hr-calendar.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, type HrActor } from "./hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
@@ -514,7 +515,7 @@ export interface HrScheduleWorkerListQuery {
 async function withWorkerCompensation(db: Database, workers: Array<typeof hrScheduleWorkers.$inferSelect>) {
   const compensation = workers.length
     ? await db.select().from(hrWorkerCompensationVersions)
-      .where(inArray(hrWorkerCompensationVersions.workerId, workers.map((worker) => worker.id)))
+      .where(inJsonArray(hrWorkerCompensationVersions.workerId, workers.map((worker) => worker.id)))
       .orderBy(desc(hrWorkerCompensationVersions.validFrom), desc(hrWorkerCompensationVersions.versionNumber))
     : [];
   return workers.map((worker) => ({ ...worker, compensation: compensation.filter((version) => version.workerId === worker.id) }));

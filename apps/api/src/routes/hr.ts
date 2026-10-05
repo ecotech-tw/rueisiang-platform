@@ -191,9 +191,14 @@ function employeeUserIds(input: Record<string, unknown>): string[] | undefined {
   if (!Array.isArray(input.employeeUserIds) || input.employeeUserIds.length > 80 || input.employeeUserIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.employeeUserIds).size !== input.employeeUserIds.length) throw new HTTPException(400, { message: "指派員工格式不正確。" });
   return input.employeeUserIds as string[];
 }
+/*
+ * 指定名單的上限只是擋離譜的 payload。全體模式本來就不送名單、人數不受限，
+ * 所以這裡設得比全體還緊沒有保護到任何東西，只會讓人數多的公司沒辦法「全體扣掉一兩位」。
+ */
+const MAX_PAYROLL_SELECTED_PEOPLE = 1000;
 function payrollWorkerIds(input: Record<string, unknown>): string[] | undefined {
   if (input.workerIds === undefined) return undefined;
-  if (!Array.isArray(input.workerIds) || input.workerIds.length > 100 || input.workerIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.workerIds).size !== input.workerIds.length) throw new HTTPException(400, { message: "指定支援人員格式不正確。" });
+  if (!Array.isArray(input.workerIds) || input.workerIds.length > MAX_PAYROLL_SELECTED_PEOPLE || input.workerIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.workerIds).size !== input.workerIds.length) throw new HTTPException(400, { message: "指定支援人員格式不正確。" });
   return input.workerIds as string[];
 }
 function bonusEmployeeAssignments(input: Record<string, unknown>): Array<{ employeeUserId: string; weightUnits: number }> | undefined {
@@ -1058,7 +1063,7 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
     const selectedUsers = input.employeeUserIds === undefined ? undefined : input.employeeUserIds;
-    if (selectedUsers !== undefined && (!Array.isArray(selectedUsers) || selectedUsers.length > 100 || selectedUsers.some((id) => typeof id !== "string" || !id))) {
+    if (selectedUsers !== undefined && (!Array.isArray(selectedUsers) || selectedUsers.length > MAX_PAYROLL_SELECTED_PEOPLE || selectedUsers.some((id) => typeof id !== "string" || !id))) {
       throw new HTTPException(400, { message: "指定員工清單不正確。" });
     }
     const selectedWorkers = payrollWorkerIds(input);

@@ -28,8 +28,9 @@ interface PayrollRecordFilters {
 type PayrollEmployeeSelectionMode = "all" | "selected";
 
 const PAYROLL_RECORD_PAGE_SIZES = [10, 25, 50, 100] as const;
-const MAX_PAYROLL_SELECTED_EMPLOYEES = 80;
-const MAX_PAYROLL_SELECTED_WORKERS = 100;
+// 跟 API 的 MAX_PAYROLL_SELECTED_PEOPLE 一致；只是擋離譜的名單，不是業務上的人數限制。
+const MAX_PAYROLL_SELECTED_EMPLOYEES = 1000;
+const MAX_PAYROLL_SELECTED_WORKERS = 1000;
 // 載入中的空名單要是同一個參考：每次 render 都給新的 [] 會讓依賴它的 effect 每輪都重跑、再 setState，變成無限重繪。
 const NO_PAYROLL_WORKERS: PayrollWorkerCandidate[] = [];
 const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放" } as const;

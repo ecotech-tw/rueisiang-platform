@@ -1,5 +1,6 @@
 import { and, asc, desc, eq, or, sql } from "drizzle-orm";
-import { inJsonArray, type Database } from "./client.js";
+import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";

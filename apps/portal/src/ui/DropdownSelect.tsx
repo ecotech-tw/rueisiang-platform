@@ -92,6 +92,25 @@ function optionsForValues(options: readonly DropdownSelectOption[], values: read
   });
 }
 
+function sameFields(left: object, right: object): boolean {
+  const leftEntries = Object.entries(left);
+  return leftEntries.length === Object.keys(right).length && leftEntries.every(([key, fieldValue]) => (right as Record<string, unknown>)[key] === fieldValue);
+}
+
+/**
+ * 內容沒變就交回上一輪的同一個陣列。
+ *
+ * 呼叫端幾乎都是 render 時才 map 出 options 與 value，每輪都是新陣列。Combobox 的 layout effect
+ * 依賴這些參考，參考一變就同步更新 store；父層只要多重繪幾輪就會疊到 React 的巢狀更新上限、整頁當掉。
+ * 在這裡擋，就不必靠每個呼叫端記得 useMemo。
+ */
+function useStableList<T>(list: readonly T[], sameItem: (left: T, right: T) => boolean): readonly T[] {
+  const stable = useRef(list);
+  const previous = stable.current;
+  if (previous !== list && !(previous.length === list.length && previous.every((item, index) => sameItem(item, list[index]!)))) stable.current = list;
+  return stable.current;
+}
+
 function popupClass(isHrSystem: boolean) {
   return `combobox-popup${isHrSystem ? " hr-liquid-select-popup" : ""}`;
 }
@@ -240,12 +259,13 @@ function SearchableSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps)
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
   } = props;
-  const selectedOption = optionForValue(options, value) ?? null;
+  const stableOptions = useStableList(options, sameFields);
+  const selectedOption = useMemo(() => optionForValue(stableOptions, value) ?? null, [stableOptions, value]);
   const initialOption = optionForValue(options, defaultValue) ?? null;
 
   return (
     <Combobox.Root<DropdownSelectOption>
-      items={options}
+      items={stableOptions}
       value={selectedOption}
       defaultValue={initialOption}
       onValueChange={(nextValue) => emitSingle(props, nextValue)}
@@ -305,37 +325,31 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
   } = props;
+  const stableOptions = useStableList(options, sameFields);
   /*
-   * 沒有傳 value 的呼叫端也由這裡自己記住選了誰，不交給 Combobox 的 defaultValue：
-   * 下面要靠「目前選了誰」把已選的從清單拿掉，兩種用法的行為才會一樣。
+   * 沒有傳 value 時選取交給 Combobox 自己管（表單 reset、初始值都由它處理），這裡只跟著記一份：
+   * 下面要靠「目前選了誰」把已選的從清單拿掉，受控與非受控兩種用法的行為才會一樣。
    */
-  const [uncontrolledValue, setUncontrolledValue] = useState<readonly string[]>(defaultValue ?? []);
-  const currentValue = value ?? uncontrolledValue;
-  /*
-   * 呼叫端幾乎都是 render 時才 map 出 options 與 value，每輪都是新陣列。Combobox 的 layout effect
-   * 依賴這兩個參考，參考一變就同步更新 store；父層只要多重繪幾輪就會疊到 React 的巢狀更新上限、整頁當掉。
-   * 所以用內容算出來的 key 記住結果：內容沒變就交出同一個陣列。
-   */
-  const optionsKey = JSON.stringify(options.map((option) => [option.value, option.label, option.chipLabel ?? null, option.disabled === true]));
-  const valueKey = JSON.stringify(currentValue);
+  const [initialOptions] = useState(() => optionsForValues(options, defaultValue) ?? []);
+  const [mirroredValue, setMirroredValue] = useState<readonly string[]>(defaultValue ?? []);
+  const currentValue = useStableList(value ?? mirroredValue, Object.is);
   const { selectedOptions, remainingOptions, duplicatedChipLabels } = useMemo(() => {
     const selected = new Set(currentValue);
     // 短名撞名時（同名同姓）chip 會分不出誰是誰，那幾位改回完整 label；提示只能是補充，不能是唯一分辨得出來的地方。
     const seenChipLabels = new Set<string>();
     const duplicated = new Set<string>();
-    for (const option of options) {
+    for (const option of stableOptions) {
       if (!option.chipLabel) continue;
       if (seenChipLabels.has(option.chipLabel)) duplicated.add(option.chipLabel);
       seenChipLabels.add(option.chipLabel);
     }
     return {
-      selectedOptions: optionsForValues(options, currentValue) ?? [],
+      selectedOptions: optionsForValues(stableOptions, currentValue) ?? [],
       // 已選的已經是輸入框裡的 chip，清單只留還能加的；留著只會讓人在長名單裡重複找同一個人。
-      remainingOptions: options.filter((option) => !selected.has(option.value)),
+      remainingOptions: stableOptions.filter((option) => !selected.has(option.value)),
       duplicatedChipLabels: duplicated,
     };
-    // options 與 currentValue 的內容已經由兩個 key 代表。
-  }, [optionsKey, valueKey]);
+  }, [stableOptions, currentValue]);
   /*
    * chip 區超過高度會自己捲，而輸入框排在所有 chip 後面：預選幾十人時它一開始就在捲動範圍外，
    * 欄位看起來像一張不能打字的清單。只在掛載與新增時捲到底；移除時不動，
@@ -353,9 +367,10 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
     <Combobox.Root<DropdownSelectOption, true>
       multiple
       items={remainingOptions}
-      value={selectedOptions}
+      value={value === undefined ? undefined : selectedOptions}
+      defaultValue={value === undefined ? initialOptions : undefined}
       onValueChange={(nextValue) => {
-        if (value === undefined) setUncontrolledValue(nextValue.map((option) => option.value));
+        if (value === undefined) setMirroredValue(nextValue.map((option) => option.value));
         emitMultiple(props, nextValue);
       }}
       isItemEqualToValue={sameOption}
@@ -388,6 +403,8 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
                   id={id}
                   className="combobox-input"
                   placeholder={selected.length ? "" : placeholder}
+                  // 連續挑人時多按一下 Enter 不該變成送出整張表單（薪資試算就會直接開跑）。
+                  onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }}
                   aria-label={ariaLabel}
                   aria-labelledby={ariaLabelledby}
                   aria-describedby={ariaDescribedby}

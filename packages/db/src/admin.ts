@@ -9,7 +9,8 @@ import {
   type UserStatus,
 } from "@rueisiang/auth";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import { chunks, type Database } from "./client.js";
+import type { Database } from "./client.js";
+import { chunks } from "./sql-lists.js";
 import { revokeUserDeviceSessions } from "./device-sessions.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { rolePermissionGrants, roles, userPermissionGrants, userRoleAssignments, users } from "./schema/auth.js";

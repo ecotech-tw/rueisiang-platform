@@ -1,5 +1,6 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { countHrClockCalendarAnomalies } from "./hr-attendance.js";
 import { hrEmployableUser } from "./hr-people.js";
 import { hrPayrollPeriods, hrPayrollRuns } from "./schema/hr-payroll-runs.js";
@@ -50,9 +51,9 @@ export async function getHrOverview(db: Database): Promise<HrOverviewResult> {
   const anomalyCount = await countHrClockCalendarAnomalies(db, activeUserIds, year, month);
 
   const [attendanceSettings, scheduleVersionRows, insuranceRows, payrollRows] = await Promise.all([
-    db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, [...activeEmploymentIds])),
+    db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmploymentAttendanceSettings).where(inJsonArray(hrEmploymentAttendanceSettings.employmentId, [...activeEmploymentIds])),
     db.select({ id: hrScheduleVersions.id, status: hrScheduleVersions.status, versionNumber: hrScheduleVersions.versionNumber }).from(hrScheduleVersions).where(and(eq(hrScheduleVersions.periodStart, periodStart), eq(hrScheduleVersions.periodEnd, nextPeriodStart))).orderBy(desc(hrScheduleVersions.versionNumber)).limit(1),
-    db.select({ employmentId: hrInsuranceVersions.employmentId, scheme: hrInsuranceVersions.scheme, status: hrInsuranceVersions.status, validFrom: hrInsuranceVersions.validFrom, validTo: hrInsuranceVersions.validTo }).from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, [...activeEmploymentIds]), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} <= ${today} AND (${hrInsuranceVersions.validTo} IS NULL OR ${today} < ${hrInsuranceVersions.validTo})`)),
+    db.select({ employmentId: hrInsuranceVersions.employmentId, scheme: hrInsuranceVersions.scheme, status: hrInsuranceVersions.status, validFrom: hrInsuranceVersions.validFrom, validTo: hrInsuranceVersions.validTo }).from(hrInsuranceVersions).where(and(inJsonArray(hrInsuranceVersions.employmentId, [...activeEmploymentIds]), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} <= ${today} AND (${hrInsuranceVersions.validTo} IS NULL OR ${today} < ${hrInsuranceVersions.validTo})`)),
     db.select({ runId: hrPayrollRuns.id, runStatus: hrPayrollRuns.status, versionNumber: hrPayrollRuns.versionNumber, completedCount: hrPayrollRuns.completedCount, expectedCount: hrPayrollRuns.expectedCount }).from(hrPayrollRuns)
       .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
       .where(eq(hrPayrollPeriods.periodKey, periodKey)).orderBy(desc(hrPayrollRuns.versionNumber), desc(hrPayrollRuns.createdAt)).limit(1),

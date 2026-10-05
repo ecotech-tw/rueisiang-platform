@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, sql, sum } from "drizzle-orm";
-import { chunks, type Database } from "./client.js";
+import type { Database } from "./client.js";
+import { chunks } from "./sql-lists.js";
 import {
   reportBundleSalesMonthly,
   reportItemSalesMonthly,
@@ -938,7 +939,6 @@ export async function insertReportPayoutDaily(
   }
   if (writes.length) await db.batch(writes as [Statement, ...Statement[]]);
 }
-
 
 type SalesGroupBy = Exclude<ReportGroupBy, "day">;
 
