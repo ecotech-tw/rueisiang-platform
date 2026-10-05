@@ -12,7 +12,7 @@ import {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
-  createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
+  cancelHrOvertimeRequest, createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
@@ -363,7 +363,7 @@ function optionalDateTimeValue(input: Record<string, unknown>, key: string, labe
 function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
   const settlementKind = input.settlementKind === "pay" || input.settlementKind === "compensatory" ? input.settlementKind : null;
   if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
-  return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), reason: nullableText(input, "reason", "加班原因", 1000) ?? "" } as const;
+  return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), revision: input.revision === undefined ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER), reason: nullableText(input, "reason", "加班原因", 1000) ?? "" } as const;
 }
 function leaveDateTimeValue(input: Record<string, unknown>, key: "startsAt" | "endsAt", alias: "startAt" | "endAt", label: string) {
   const raw = input[key] ?? input[alias];
@@ -561,6 +561,8 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/me/overtime", async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), c.get("user").id) }))
   .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .patch("/me/overtime/:id", async (c) => c.json(await updateHrOvertimeRequest(c.get("db"), c.req.param("id"), overtimeInput(await body(c), c.get("user").id), c.get("user"))))
+  .post("/me/overtime/:id/cancel", async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"))))
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), undefined, true) }))
   .get("/me/leave-requests", async (c) => c.json({ requests: await listHrLeaveRequests(c.get("db"), c.get("user").id) }))
   .post("/me/leave-duration", async (c) => c.json(await calculateHrLeaveDuration(c.get("db"), leaveDurationInput(await body(c), c.get("user").id))))
@@ -634,6 +636,7 @@ export const hr = new Hono<AppEnv>()
     const employeeUserId = text(input, "employeeUserId", "員工");
     return c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(input, employeeUserId), c.get("user"), { autoApprove: true }), 201);
   })
+  .post("/requests/overtime/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
   .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;

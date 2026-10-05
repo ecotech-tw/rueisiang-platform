@@ -19,6 +19,8 @@ export interface HrOvertimeInput {
   settlementKind: "pay" | "compensatory";
   /** 舊 client 可帶入，但 server 只接受目前已確認的制度倍率。 */
   ratePpm?: number;
+  /** 修改待審申請時使用，避免覆寫較新的版本。 */
+  revision?: number;
   reason: string;
 }
 
@@ -27,6 +29,11 @@ export interface HrOvertimeActualInterval { start: string; end: string }
 export interface HrOvertimeRequestCreateOptions {
   /** 後台代登目前直接核准；本人入口省略此選項則保留待審核狀態。 */
   autoApprove?: boolean;
+}
+
+export interface HrOvertimeCancellationOptions {
+  /** 管理端可代為取消；本人入口只能取消自己的申請。 */
+  allowAny?: boolean;
 }
 
 function stamp(value: string) {
@@ -66,6 +73,17 @@ async function ensureScope(db: Database, employmentId: string, scopeId: string |
   if (!row) throw new HrError(400, "加班指定的營運據點不在員工有效 Scope 指派內。 ");
 }
 
+function validateOvertimeInput(input: HrOvertimeInput) {
+  const startMs = stamp(input.requestedStart);
+  const endMs = stamp(input.requestedEnd);
+  if (endMs <= startMs) throw new HrError(400, "加班結束時間必須晚於開始時間。 ");
+  if ((endMs - startMs) % (30 * 60 * 1000) !== 0) throw new HrError(400, "加班時數必須以 0.5 小時為單位。 ");
+  if (input.settlementKind !== "pay" && input.settlementKind !== "compensatory") throw new HrError(400, "加班結算方式不正確。 ");
+  if (input.ratePpm !== undefined && input.ratePpm !== DEFAULT_OVERTIME_RATE_PPM) throw new HrError(400, "加班倍率由公司制度決定，不可由申請人指定。 ");
+  if (input.reason.length > 1000) throw new HrError(400, "加班原因不可超過 1000 字。 ");
+  return { startMs, endMs };
+}
+
 const fields = { request: hrOvertimeRequests, employeeNumber: hrEmployments.employeeNumber, employeeName: hrEmployeeName };
 
 export async function listHrOvertimeRequests(db: Database, employeeUserId?: string, includeArchived = false) {
@@ -76,13 +94,7 @@ export async function listHrOvertimeRequests(db: Database, employeeUserId?: stri
 }
 
 export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInput, actor: HrActor, options: HrOvertimeRequestCreateOptions = {}) {
-  const startMs = stamp(input.requestedStart);
-  const endMs = stamp(input.requestedEnd);
-  if (endMs <= startMs) throw new HrError(400, "加班結束時間必須晚於開始時間。 ");
-  if ((endMs - startMs) % (30 * 60 * 1000) !== 0) throw new HrError(400, "加班時數必須以 0.5 小時為單位。 ");
-  if (input.settlementKind !== "pay" && input.settlementKind !== "compensatory") throw new HrError(400, "加班結算方式不正確。 ");
-  if (input.ratePpm !== undefined && input.ratePpm !== DEFAULT_OVERTIME_RATE_PPM) throw new HrError(400, "加班倍率由公司制度決定，不可由申請人指定。 ");
-  if (input.reason.length > 1000) throw new HrError(400, "加班原因不可超過 1000 字。 ");
+  validateOvertimeInput(input);
   const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd);
   await ensureScope(db, employmentId, input.scopeId ?? null, input.requestedStart, input.requestedEnd);
   const id = crypto.randomUUID();
@@ -121,9 +133,64 @@ export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInp
   return { id };
 }
 
+export async function updateHrOvertimeRequest(db: Database, id: string, input: HrOvertimeInput, actor: HrActor) {
+  validateOvertimeInput(input);
+  const [current] = await db.select({
+    employeeUserId: hrEmployments.employeeUserId,
+    employmentId: hrOvertimeRequests.employmentId,
+    scopeId: hrOvertimeRequests.scopeId,
+    status: hrOvertimeRequests.status,
+    revision: hrOvertimeRequests.revision,
+    archivedAt: hrEmployments.archivedAt,
+  }).from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);
+  if (!current) throw new HrError(404, "找不到加班申請。 ");
+  if (current.employeeUserId !== actor.id) throw new HrError(404, "找不到可修改的加班申請。 ");
+  if (current.status !== "pending") throw new HrError(409, "只有待審核的加班申請可以修改；已核准請先取消後重新申請。 ");
+  if (current.revision !== input.revision) throw new HrError(409, "加班申請不存在或版本已過期，請重新整理。 ");
+  if (current.archivedAt) throw new HrError(409, "員工任職已結束，無法修改加班申請。 ");
+  if (input.employeeUserId !== current.employeeUserId) throw new HrError(400, "加班申請員工不可變更。 ");
+
+  const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd, current.employmentId);
+  const scopeId = input.scopeId ?? current.scopeId;
+  await ensureScope(db, employmentId, scopeId, input.requestedStart, input.requestedEnd);
+  try {
+    return await writeHrMutation(db, sql`UPDATE hr_overtime_requests SET
+      scope_id=${scopeId}, requested_start=${input.requestedStart}, requested_end=${input.requestedEnd},
+      actual_start=NULL, actual_end=NULL, settlement_kind=${input.settlementKind}, reason=${input.reason.trim()},
+      updated_at=CURRENT_TIMESTAMP, revision=revision+1
+      WHERE id=${id} AND employment_id=${current.employmentId} AND status='pending' AND revision=${input.revision}
+        AND NOT EXISTS (
+          SELECT 1 FROM hr_overtime_requests AS existing_request
+          WHERE existing_request.id <> ${id}
+            AND existing_request.employment_id=${current.employmentId}
+            AND existing_request.status IN ('draft', 'pending', 'approved')
+            AND existing_request.requested_start < ${input.requestedEnd}
+            AND existing_request.requested_end > ${input.requestedStart}
+        ) RETURNING id`, id, actor, "overtime_request_updated", "加班申請已變更、時段重疊或資料不合法，請重新整理。 ");
+  } catch (error) {
+    if (error instanceof HrError) throw error;
+    if (error instanceof Error && /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed/.test(error.message)) throw new HrError(409, "加班申請已變更、時段重疊或資料不合法，請重新整理。 ");
+    throw error;
+  }
+}
+
+export async function cancelHrOvertimeRequest(db: Database, id: string, actor: HrActor, options: HrOvertimeCancellationOptions = {}) {
+  const [current] = await db.select({ employeeUserId: hrEmployments.employeeUserId, status: hrOvertimeRequests.status })
+    .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);
+  if (!current) throw new HrError(404, "找不到加班申請。 ");
+  if (!options.allowAny && current.employeeUserId !== actor.id) throw new HrError(404, "找不到可取消的加班申請。 ");
+  if (current.status !== "pending" && current.status !== "approved") throw new HrError(409, "加班申請不存在或已完成處理。 ");
+
+  return writeHrMutation(db, sql`UPDATE hr_overtime_requests SET
+    status='cancelled', actual_start=NULL, actual_end=NULL, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP,
+    decision_reason='申請已取消', updated_at=CURRENT_TIMESTAMP
+    WHERE id=${id} AND status=${current.status} RETURNING id`, id, actor, "overtime_request_cancelled", "加班申請已變更或完成處理，請重新整理。 ");
+}
+
 export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval) {
   if (!["approved", "rejected", "cancelled"].includes(decision)) throw new HrError(400, "加班審核結果不正確。 ");
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
+  if (decision === "cancelled") return cancelHrOvertimeRequest(db, id, actor, { allowAny: true });
   if (decision === "rejected" && !comment.trim()) throw new HrError(400, "駁回加班申請時必須填寫審核意見。 ");
   const [current] = await db.select({ employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, status: hrOvertimeRequests.status, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
     .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);
