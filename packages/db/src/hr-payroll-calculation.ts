@@ -1076,9 +1076,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const employeeAnnualLeaveSettlements = annualLeaveSettlements.filter((settlement) => settlement.employmentId === employee.employmentId);
     const lines: HrPayrollLineResult[] = [];
     let baseMinor = 0;
-    let specialMinor = 0;
+    let specialAdjustmentMinor = 0;
     let typhoonStopMinor = 0;
-    const baseCalculationParts = new Map<string, { payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; dayCount: number; hours: number; amountMinor: number; fullMonth: boolean; specialDailyBaseMinor: number }>();
+    const baseCalculationParts = new Map<string, { payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; dayCount: number; hours: number; amountMinor: number; fullMonth: boolean; removedDailyBaseMinor: number }>();
     const specialCalculationParts: PayrollCalculationPart[] = [];
     const typhoonStopCalculationParts: PayrollCalculationPart[] = [];
     const compensationItemTotals = new Map<string, number>();
@@ -1087,6 +1087,15 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId && employmentDaySet.has(item.workDate));
     const scheduledDates = scheduledDatesByEmployment.get(employee.employmentId) ?? new Set<string>();
     const specialDates = new Set(specialAssignments.map((item) => item.workDate));
+    const addBaseAmount = (compensation: (typeof employeeCompensations)[number], amount: number, hours = 0) => {
+      if (amount <= 0) return;
+      baseMinor += amount;
+      const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
+      current.dayCount += 1;
+      current.hours += hours;
+      current.amountMinor += amount;
+      baseCalculationParts.set(compensation.id, current);
+    };
     // 月薪／日薪以工作日為單位，當日有任一排班落在停班範圍就把當日基薪移到明細；時薪混合據點則只把受影響排班工時自動補薪，其餘工時沿用人工紀錄。
     const typhoonStopDatesForEmployee = calendarDays.filter((day) => {
       if (!employmentDaySet.has(day) || specialDates.has(day)) return false;
@@ -1120,14 +1129,19 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const requiresHours = special.wageKindSnapshot === "fixed_hourly" || compensation.payBasis === "hourly";
         if (hours <= 0 && requiresHours) calculationWarnings.add(`${employee.employeeName} 的特殊上班日 ${day} 缺少工時資料，薪資列為異常且不自動補 0。`);
         else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) {
-          const amount = Math.round(special.fixedAmountMinorSnapshot * hours);
-          specialMinor += amount;
-          specialCalculationParts.push({ formula: `${day}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時)`, amountMinor: amount });
+          const dailyBase = compensation.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * hours);
+          const specialAmount = Math.round(special.fixedAmountMinorSnapshot * hours);
+          addBaseAmount(compensation, dailyBase, compensation.payBasis === "hourly" ? hours : 0);
+          const adjustment = specialAmount - dailyBase;
+          specialAdjustmentMinor += adjustment;
+          specialCalculationParts.push({ formula: `${day}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
         } else if (special.multiplierPpmSnapshot !== null) {
           const dailyBase = compensation.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * hours);
-          const amount = Math.floor(dailyBase * special.multiplierPpmSnapshot / PPM);
-          specialMinor += amount;
-          specialCalculationParts.push({ formula: `${day}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)})`, amountMinor: amount });
+          const specialAmount = Math.floor(dailyBase * special.multiplierPpmSnapshot / PPM);
+          addBaseAmount(compensation, dailyBase, compensation.payBasis === "hourly" ? hours : 0);
+          const adjustment = specialAmount - dailyBase;
+          specialAdjustmentMinor += adjustment;
+          specialCalculationParts.push({ formula: `${day}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)}) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
         }
       } else if (typhoonStop) {
         const hours = typhoonRowsForDay.reduce((sum, row) => sum + scheduledHours(row), 0);
@@ -1137,7 +1151,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         if (partialHourlyTyphoon && manualHours > 0) {
           const manualAmount = Math.round(compensation.baseAmountMinor * manualHours);
           baseMinor += manualAmount;
-          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
           current.dayCount += 1;
           current.hours += manualHours;
           current.amountMinor += manualAmount;
@@ -1160,13 +1174,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       } else if (compensation.payBasis === "monthly") {
         const amount = Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);
         baseMinor += amount;
-        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
         current.dayCount += 1;
         current.amountMinor += amount;
         baseCalculationParts.set(compensation.id, current);
       } else if (compensation.payBasis === "daily") {
         baseMinor += compensation.baseAmountMinor;
-        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
         current.dayCount += 1;
         current.amountMinor += compensation.baseAmountMinor;
         baseCalculationParts.set(compensation.id, current);
@@ -1176,7 +1190,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           const hours = entry.hoursHalfUnits / 2;
           const amount = Math.round(compensation.baseAmountMinor * hours);
           baseMinor += amount;
-          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
           current.dayCount += 1;
           current.hours += hours;
           current.amountMinor += amount;
@@ -1240,10 +1254,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     if (uniformMonthlyComp && isFullPeriodEmployment) {
       // 整月則直接給一個月，不把補足日數當成額外月份。
       baseMinor = Math.max(0, uniformMonthlyComp.baseAmountMinor -
-        specialAssignments.reduce((sum) => sum + Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), 0) -
         typhoonStopDatesForEmployee.reduce((sum) => sum + Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), 0));
       baseCalculationParts.clear();
-      baseCalculationParts.set(uniformMonthlyComp.id, { payBasis: "monthly", baseAmountMinor: uniformMonthlyComp.baseAmountMinor, dayCount: calendarDays.length, hours: 0, amountMinor: baseMinor, fullMonth: true, specialDailyBaseMinor: (specialAssignments.length + typhoonStopDatesForEmployee.length) * Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays) });
+      baseCalculationParts.set(uniformMonthlyComp.id, { payBasis: "monthly", baseAmountMinor: uniformMonthlyComp.baseAmountMinor, dayCount: calendarDays.length, hours: 0, amountMinor: baseMinor, fullMonth: true, removedDailyBaseMinor: typhoonStopDatesForEmployee.length * Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays) });
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === uniformMonthlyComp.id && candidate.amountBasis === "monthly")) {
         compensationItemTotals.set(item.id, item.amountMinor);
         itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: calendarDays.length, quantityUnit: "天", amountMinor: item.amountMinor, fullMonth: true });
@@ -1254,16 +1267,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       baseCalculationParts.clear();
       for (const { compensation } of monthlySegments) {
         const prorationDays = monthlyProrationDayCounts.get(compensation.id)!;
-        const specialDailyBase = specialAssignments
-          .filter((item) => covering(employeeCompensations, item.workDate)?.id === compensation.id)
-          .reduce((sum) => sum + Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), 0);
         const typhoonStopDailyBase = typhoonStopDatesForEmployee
           .filter((day) => covering(employeeCompensations, day)?.id === compensation.id)
           .reduce((sum) => sum + Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), 0);
         const proratedBase = Math.round(compensation.baseAmountMinor * prorationDays / monthlyDivisorDays);
-        const amount = Math.max(0, proratedBase - specialDailyBase - typhoonStopDailyBase);
+        const amount = Math.max(0, proratedBase - typhoonStopDailyBase);
         baseMinor += amount;
-        baseCalculationParts.set(compensation.id, { payBasis: "monthly", baseAmountMinor: compensation.baseAmountMinor, dayCount: prorationDays, hours: 0, amountMinor: amount, fullMonth: true, specialDailyBaseMinor: specialDailyBase + typhoonStopDailyBase });
+        baseCalculationParts.set(compensation.id, { payBasis: "monthly", baseAmountMinor: compensation.baseAmountMinor, dayCount: prorationDays, hours: 0, amountMinor: amount, fullMonth: true, removedDailyBaseMinor: typhoonStopDailyBase });
         for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === compensation.id && candidate.amountBasis === "monthly")) {
           const itemAmount = Math.round(item.amountMinor * prorationDays / monthlyDivisorDays);
           compensationItemTotals.set(item.id, itemAmount);
@@ -1307,8 +1317,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         .map((part) => ({
           formula: part.fullMonth
             ? isFullPeriodEmployment && part.dayCount === calendarDays.length
-              ? `月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × 1 個月${part.specialDailyBaseMinor ? ` − 特殊日替代基薪 ${payrollFormulaMoney(part.specialDailyBaseMinor)}` : ""}`
-              : `round(月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × ${part.dayCount} 天 ÷ ${monthlyDivisorDays} 天)${part.specialDailyBaseMinor ? ` − 特殊日替代基薪 ${payrollFormulaMoney(part.specialDailyBaseMinor)}` : ""}`
+              ? `月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × 1 個月${part.removedDailyBaseMinor ? ` − 災防停班移出基薪 ${payrollFormulaMoney(part.removedDailyBaseMinor)}` : ""}`
+              : `round(月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × ${part.dayCount} 天 ÷ ${monthlyDivisorDays} 天)${part.removedDailyBaseMinor ? ` − 災防停班移出基薪 ${payrollFormulaMoney(part.removedDailyBaseMinor)}` : ""}`
             : part.payBasis === "monthly"
               ? `每日 floor(${payrollFormulaMoney(part.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天) × ${part.dayCount} 天`
               : part.payBasis === "daily"
@@ -1351,9 +1361,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       calculationParts: annualLeaveSettlementParts,
       formulaDetail: payrollFormulaTotal(annualLeaveSettlementParts, annualLeaveSettlementMinor),
     } });
-    if (specialMinor > 0) lines.push({ lineKey: "special_workday", direction: "earning", amountMinor: specialMinor, explanation: {
-      rule: "特殊上班日取代當日基本薪資", assignmentIds: specialAssignments.map((item) => item.id),
-      calculationParts: specialCalculationParts, formulaDetail: payrollFormulaTotal(specialCalculationParts, specialMinor),
+    if (specialAdjustmentMinor !== 0) lines.push({ lineKey: "special_workday", direction: specialAdjustmentMinor > 0 ? "earning" : "deduction", amountMinor: Math.abs(specialAdjustmentMinor), explanation: {
+      rule: "特殊上班日差額：特殊日應發薪資 − 原本薪資", assignmentIds: specialAssignments.map((item) => item.id),
+      calculationParts: specialCalculationParts, formulaDetail: payrollFormulaTotal(specialCalculationParts, specialAdjustmentMinor),
     } });
     for (const [index, special] of specialAssignments.entries()) {
       const allowances = parseSpecialWorkdayAllowanceSnapshot(special.allowanceSnapshotJson, special.allowanceQuantity);
@@ -1700,7 +1710,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const versionNumber = Number(latest?.value ?? 0) + 1;
   const periodInsert = db.insert(hrPayrollPeriods).values({ id: `payroll-period-${period.periodKey}`, periodKey: period.periodKey, attendanceStart: period.start, attendanceEnd: period.end, payDate, createdBy: actor.id }).onConflictDoNothing();
   const totalResults = statementRows.length + workerStatements.size;
-  const runInsert = db.insert(hrPayrollRuns).values({ id: runId, payrollPeriodId: `payroll-period-${period.periodKey}`, versionNumber, requestId, inputRevision: Math.max(1, ...employees.map((employee) => employee.employeeRevision)), payDate, calculationInputJson, sourceSnapshotJson, warningsJson: JSON.stringify([...calculationWarnings]), engineVersion: "hr-payroll-demo-v2", status: "ready", expectedCount: totalResults, completedCount: totalResults, createdBy: actor.id });
+  const runInsert = db.insert(hrPayrollRuns).values({ id: runId, payrollPeriodId: `payroll-period-${period.periodKey}`, versionNumber, requestId, inputRevision: Math.max(1, ...employees.map((employee) => employee.employeeRevision)), payDate, calculationInputJson, sourceSnapshotJson, warningsJson: JSON.stringify([...calculationWarnings]), engineVersion: "hr-payroll-demo-v3", status: "ready", expectedCount: totalResults, completedCount: totalResults, createdBy: actor.id });
   const statements = [periodInsert, runInsert, ...statementRows.flatMap(({ payslipId, employee, lines, compensationIds, insuranceIds }) => [
     db.insert(hrPayrollRunEmployees).values({ payrollRunId: runId, employmentId: employee.employmentId, inputRevision: 1, status: "succeeded" }),
     db.insert(hrPayslips).values({ id: payslipId, payrollRunId: runId, employmentId: employee.employmentId, employeeNumber: employee.employeeNumber, employeeName: employee.employeeName, earningMinor: employee.earningMinor, deductionMinor: employee.deductionMinor, netMinor: employee.netMinor }),
@@ -1709,7 +1719,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ...insuranceIds.map((id) => db.insert(hrPayslipInsuranceLinks).values({ payslipId, insuranceVersionId: id })),
   ]),
   ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
-  db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v2" } }))];
+  db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v3" } }))];
   try {
     await db.batch(batchStatements(statements));
   } catch (error) {

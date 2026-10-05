@@ -16,7 +16,7 @@ const LINE_LABELS: Record<string, string> = {
   booth_bonus: "櫃點獎金",
   labor_insurance: "勞保員工負擔",
   health_insurance: "健保員工負擔",
-  special_workday: "特殊上班日薪資",
+  special_workday: "特殊上班日差額",
   annual_leave_settlement: "未休特休折現",
 };
 
