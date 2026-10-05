@@ -30,6 +30,8 @@ type PayrollEmployeeSelectionMode = "all" | "selected";
 const PAYROLL_RECORD_PAGE_SIZES = [10, 25, 50, 100] as const;
 const MAX_PAYROLL_SELECTED_EMPLOYEES = 80;
 const MAX_PAYROLL_SELECTED_WORKERS = 100;
+// 載入中的空名單要是同一個參考：每次 render 都給新的 [] 會讓依賴它的 effect 每輪都重跑、再 setState，變成無限重繪。
+const NO_PAYROLL_WORKERS: PayrollWorkerCandidate[] = [];
 const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放" } as const;
 const PAYROLL_PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
@@ -75,7 +77,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const calculatePayroll = useHrWrite<{ run: PayrollRun }>();
   const closeRequestRef = useRef<(() => void) | null>(null);
   const supportWorkers = useHrQuery<{ workers: PayrollWorkerCandidate[] }>(periodKey ? `/payroll/workers?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/workers?periodKey=", Boolean(periodKey), { keepPreviousData: false });
-  const workerOptions = supportWorkers.data?.workers ?? [];
+  const workerOptions = supportWorkers.data?.workers ?? NO_PAYROLL_WORKERS;
   const peopleCount = employees.length + workerOptions.length;
   const selectedCount = selectionMode === "all" ? peopleCount : selectedEmployeeIds.length + selectedWorkerIds.length;
   const unselectedCount = Math.max(0, peopleCount - selectedCount);
