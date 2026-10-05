@@ -74,6 +74,11 @@ function sameOption(left: DropdownSelectOption, right: DropdownSelectOption): bo
   return left.value === right.value;
 }
 
+// 放在模組層：inline 寫在 props 上每輪都是新函式，Base UI 會當成設定變了而重新同步 store。
+function optionLabel(option: DropdownSelectOption | null | undefined): string {
+  return option?.label ?? "";
+}
+
 function optionForValue(options: readonly DropdownSelectOption[], value: string | number | undefined) {
   if (value === undefined) return undefined;
   return options.find((option) => option.value === String(value));
@@ -135,7 +140,7 @@ function SelectSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps) {
       required={required}
       name={name}
       id={id}
-      itemToStringLabel={(option) => option?.label ?? ""}
+      itemToStringLabel={optionLabel}
     >
       <Select.Trigger className={`dropdown-control select-trigger ${className}`.trim()} {...ariaProps}>
         <Select.Value className="select-trigger-value" placeholder={placeholder} />
@@ -245,7 +250,7 @@ function SearchableSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps)
       defaultValue={initialOption}
       onValueChange={(nextValue) => emitSingle(props, nextValue)}
       isItemEqualToValue={sameOption}
-      itemToStringLabel={(option) => option?.label ?? ""}
+      itemToStringLabel={optionLabel}
       disabled={disabled}
       required={required}
       name={name}
@@ -354,7 +359,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
         emitMultiple(props, nextValue);
       }}
       isItemEqualToValue={sameOption}
-      itemToStringLabel={(option) => option?.label ?? ""}
+      itemToStringLabel={optionLabel}
       disabled={disabled}
       required={required}
       name={name}
@@ -367,7 +372,8 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
             return (
               <Combobox.Chips ref={chipsRef} aria-label={ariaLabel ?? "已選項目"} className="dropdown-combobox-chips">
                 {selected.map((option) => {
-                  const shortened = option.chipLabel !== undefined && !duplicatedChipLabels.has(option.chipLabel);
+                  // 空字串也當成沒有短名：沒填法定姓名的員工不能變成一顆只有移除鈕的空白 chip。
+                  const shortened = Boolean(option.chipLabel) && !duplicatedChipLabels.has(option.chipLabel!);
                   const chip = (
                     <Combobox.Chip key={option.value} className="dropdown-combobox-chip" aria-description="按 Backspace 或 Delete 移除">
                       {/* 螢幕閱讀器唸完整 label：提示掛在外層，聚焦 chip 時不會被唸到。 */}
