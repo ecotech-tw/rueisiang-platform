@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useSession } from "../../auth/session.js";
+import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeRequest, type HrRequestCenterResponse } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -33,9 +34,34 @@ const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
   overtime: "加班",
   clock_correction: "補打卡",
 };
+const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
+  draft: "草稿",
+  pending: "待審核",
+  approved: "已核准",
+  rejected: "已駁回",
+  cancelled: "已取消",
+};
+const REQUEST_PAGE_SIZES = [10, 25, 50, 100] as const;
+
+type RequestStatusFilter = "all" | RequestStatus;
+interface RequestFilters {
+  page: number;
+  pageSize: number;
+  search: string;
+  kind: HistoryKind;
+  status: RequestStatusFilter;
+}
+
+const DEFAULT_REQUEST_FILTERS: RequestFilters = {
+  page: 1,
+  pageSize: 25,
+  search: "",
+  kind: "all",
+  status: "all",
+};
 
 function statusLabel(status: RequestStatus) {
-  return status === "pending" ? "待審核" : status === "approved" ? "已核准" : status === "rejected" ? "已駁回" : status === "cancelled" ? "已取消" : "草稿";
+  return REQUEST_STATUS_LABEL[status];
 }
 
 function statusTone(status: RequestStatus): "success" | "warning" | "danger" | "neutral" {
@@ -242,32 +268,64 @@ export function HrRequestCenter() {
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [initialKind] = useState<"leave" | "overtime">(searchParams.get("type") === "overtime" ? "overtime" : "leave");
-  const [historyKind, setHistoryKind] = useState<HistoryKind>("all");
+  const [filters, setFilters] = useState<RequestFilters>(DEFAULT_REQUEST_FILTERS);
   const [reviewing, setReviewing] = useState<RequestRow | null>(null);
   const employees = useHrQuery<EmployeePageResponse>("/requests/employees", canAccess, { keepPreviousData: false });
   const leaveTypes = useHrQuery<{ leaveTypes: LeaveType[] }>("/requests/leave-types", canAccess, { keepPreviousData: false });
   const requests = useHrQuery<HrRequestCenterResponse>("/requests", canAccess, { keepPreviousData: false });
   const rows = useMemo(() => toRequestRows(requests.data), [requests.data]);
-  const filteredRows = historyKind === "all" ? rows : rows.filter((row) => row.kind === historyKind);
+  const filteredRows = useMemo(() => {
+    const term = filters.search.trim().toLocaleLowerCase("zh-TW");
+    return rows.filter((row) => {
+      if (filters.kind !== "all" && row.kind !== filters.kind) return false;
+      if (filters.status !== "all" && row.status !== filters.status) return false;
+      if (!term) return true;
+      return [
+        REQUEST_KIND_LABEL[row.kind],
+        row.employeeName,
+        row.employeeNumber,
+        row.period,
+        row.detail,
+        row.reason,
+        statusLabel(row.status),
+      ].some((value) => value.toLocaleLowerCase("zh-TW").includes(term));
+    });
+  }, [filters.kind, filters.search, filters.status, rows]);
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / filters.pageSize));
+  const page = Math.min(filters.page, totalPages);
+  const visibleRows = filteredRows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
+  const activeFilterCount = [filters.kind, filters.status].filter((value) => value !== "all").length;
 
   if (!canAccess) return <Alert tone="danger">你沒有檢視 HR 申請的權限。</Alert>;
   if (employees.isPending || leaveTypes.isPending || requests.isPending) return <HrPageSkeleton variant="table" />;
 
+  function updateFilters(patch: Partial<RequestFilters>) {
+    setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
+  }
+
   function finishCreate() {
     setCreateOpen(false);
-    setHistoryKind("all");
+    setFilters({ ...DEFAULT_REQUEST_FILTERS });
     void navigate("/hr/requests", { replace: true });
     void requests.refetch();
   }
 
-  return <div className="page hr-request-page">
+  return <div className="page fills hr-request-page">
     <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" className="add-action" onClick={() => setCreateOpen(true)}>新增申請</Button>} />
     <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登目前會保存「已核准」狀態；員工前台上線後則由主管或 HR 進行審核。</Alert>
     {employees.error || leaveTypes.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message}</Alert> : null}
-    <Panel className="hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可直接在此處理。" actions={<div className="hr-request-history-filter" role="group" aria-label="申請類型篩選">{(["all", "leave", "overtime", "clock_correction"] as const).map((value) => <button type="button" key={value} className={historyKind === value ? "selected" : ""} aria-pressed={historyKind === value} onClick={() => setHistoryKind(value)}>{value === "all" ? "全部" : REQUEST_KIND_LABEL[value]}</button>)}</div>}>
+    <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可直接在此處理。">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工">{row.employeeName}<small className="muted">{row.employeeNumber}</small></td><td data-label="期間">{row.period}</td><td data-label="內容">{row.detail}</td><td data-label="原因">{row.reason}</td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : (row.kind === "leave" || row.kind === "overtime") && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消{REQUEST_KIND_LABEL[row.kind]}</Button> : "—"}</td></tr>)}</tbody></table></div>
-      {!filteredRows.length ? <p className="empty-state">目前沒有符合條件的申請紀錄。</p> : null}
+      <form className="admin-form toolbar hr-request-toolbar" onSubmit={(event) => event.preventDefault()}>
+        <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
+        <FilterSelect label="申請類型" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
+        <FilterSelect label="狀態" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
+        {activeFilterCount ? <Button variant="link" onClick={() => updateFilters({ kind: "all", status: "all" })}>清除篩選</Button> : null}
+      </form>
+      {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
+      <div className={`table-scroll${requests.isFetching ? " is-refreshing" : ""}`}><table className="data-table hr-request-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td><td data-label="期間">{row.period}</td><td data-label="內容">{row.detail}</td><td data-label="原因">{row.reason}</td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : (row.kind === "leave" || row.kind === "overtime") && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消{REQUEST_KIND_LABEL[row.kind]}</Button> : "—"}</td></tr>)}</tbody></table></div>
+      {requests.data && !filteredRows.length ? <p className="muted table-note">{rows.length ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</p> : null}
+      {filteredRows.length ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${filteredRows.length.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => setFilters((current) => ({ ...current, page: nextPage }))} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
     {reviewing ? <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}
