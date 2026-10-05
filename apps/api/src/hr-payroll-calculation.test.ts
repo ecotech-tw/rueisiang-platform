@@ -312,14 +312,16 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const [unpaidLeave] = await db.select({ id: hrLeaveTypes.id, name: hrLeaveTypes.name }).from(hrLeaveTypes).where(eq(hrLeaveTypes.name, "無薪假")).limit(1);
     expect(unpaidLeave).toBeDefined();
     await db.update(hrCompensationVersions).set({ payBasis: "hourly", baseAmountMinor: 100_000 }).where(eq(hrCompensationVersions.id, "dev-comp-wang-2026"));
-    await db.insert(hrMonthlyHourlyEntries).values(Array.from({ length: 31 }, (_, index) => {
+    const hourlyEntries = Array.from({ length: 31 }, (_, index) => {
       const day = String(index + 1).padStart(2, "0");
       const isScheduledDay = day === "10";
       return {
         id: `test-scheduled-hourly-${day}`, employmentId: "dev-employment-wang", workDate: `2026-08-${day}`,
         hoursHalfUnits: isScheduledDay ? 12 : 0, noWork: isScheduledDay ? 0 : 1, note: "排班制時薪請假測試", createdBy: actor, updatedBy: actor,
       };
-    }));
+    });
+    // 一句寫不完：本機的 D1 替身照 D1 的規格擋 100 個綁定參數。
+    for (let offset = 0; offset < hourlyEntries.length; offset += 10) await db.insert(hrMonthlyHourlyEntries).values(hourlyEntries.slice(offset, offset + 10));
     await db.insert(hrLeaveRequests).values({
       id: "test-scheduled-hourly-leave", employmentId: "dev-employment-wang", leaveTypeId: unpaidLeave!.id, leaveType: unpaidLeave!.name,
       status: "approved", startsAt: "2026-08-09 18:00:00", endsAt: "2026-08-09 18:30:00", startsOn: "2026-08-10", endsOn: "2026-08-11",

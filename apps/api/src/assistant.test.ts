@@ -783,7 +783,8 @@ describe("AI 助理 Sandbox", () => {
         createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 30)).toISOString(),
       },
     ]).flat();
-    await db().insert(assistantSandboxMessages).values(messages);
+    // 一句寫不完：本機的 D1 替身照 D1 的規格擋 100 個綁定參數。
+    for (let offset = 0; offset < messages.length; offset += 5) await db().insert(assistantSandboxMessages).values(messages.slice(offset, offset + 5));
     await updateAssistantSandboxContext(db(), {
       assistantKey: "rueisiang-xiaoxiang",
       createdBy: "admin",
@@ -2042,7 +2043,8 @@ describe("AI 助理 Sandbox", () => {
         createdAt: new Date(Date.UTC(2026, 7, 22, 10, index, 30)).toISOString(),
       },
     ]).flat();
-    await db().insert(assistantSandboxMessages).values(messages);
+    // 一句寫不完：本機的 D1 替身照 D1 的規格擋 100 個綁定參數。
+    for (let offset = 0; offset < messages.length; offset += 5) await db().insert(assistantSandboxMessages).values(messages.slice(offset, offset + 5));
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;

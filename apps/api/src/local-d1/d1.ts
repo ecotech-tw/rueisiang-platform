@@ -15,6 +15,8 @@ import { fileURLToPath } from "node:url";
  * 這一層只在測試與 `pnpm dev` 用得到，永遠不會進 Worker 的打包
  * （apps/api/tsconfig.json 把這個目錄排除在外，誤用 node: 內建模組會被擋下）。
  */
+const D1_MAX_BOUND_PARAMETERS = 100;
+
 class LocalStatement {
   constructor(
     private readonly db: DatabaseSync,
@@ -23,6 +25,14 @@ class LocalStatement {
   ) {}
 
   bind(...values: unknown[]): LocalStatement {
+    /*
+     * D1 文件寫單一語句最多 100 個綁定參數，node:sqlite 卻收得下三萬多個。不在這裡照著擋的話，
+     * 「IN 清單太長」「一次寫太多列」這種錯在測試與本機永遠是綠的，只會在正式環境整句被拒絕。
+     * 長清單用 client.ts 的 inJsonArray／jsonArrayValues，多列寫入用 chunks 切批。
+     */
+    if (values.length > D1_MAX_BOUND_PARAMETERS) {
+      throw new Error(`D1_ERROR: too many SQL variables（${values.length} 個綁定參數，D1 單一語句上限 ${D1_MAX_BOUND_PARAMETERS}）: ${this.sql.slice(0, 120)}`);
+    }
     return new LocalStatement(this.db, this.sql, values);
   }
 

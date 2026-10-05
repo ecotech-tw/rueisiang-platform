@@ -9,7 +9,7 @@ import {
   type UserStatus,
 } from "@rueisiang/auth";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
-import type { Database } from "./client.js";
+import { chunks, type Database } from "./client.js";
 import { revokeUserDeviceSessions } from "./device-sessions.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { rolePermissionGrants, roles, userPermissionGrants, userRoleAssignments, users } from "./schema/auth.js";
@@ -389,7 +389,7 @@ export async function createRole(
     description: (input.description ?? "").trim(),
     isSystem: false,
   });
-  await writePermissions(db, id, input.permissions);
+  await writeRolePermissions(db, id, input.permissions);
   return { kind: "ok", key };
 }
 
@@ -417,23 +417,30 @@ export async function updateRole(
   if (Object.keys(patch).length) {
     await db.update(roles).set(patch).where(eq(roles.id, role.id));
   }
-  if (input.permissions) await writePermissions(db, role.id, input.permissions);
+  if (input.permissions) await writeRolePermissions(db, role.id, input.permissions);
 
   return { kind: "ok", key };
 }
 
-/** 整組重寫而不是逐一比對。權限清單很短，差異計算省下的那點 I/O 不值得那份複雜度。 */
-async function writePermissions(
+/** 每列兩個綁定參數（role_id、permission）；D1 單一語句上限 100 個，留一點餘裕。 */
+const ROLE_PERMISSION_GRANT_BATCH_SIZE = 40;
+
+/**
+ * 整組重寫而不是逐一比對。權限清單很短，差異計算省下的那點 I/O 不值得那份複雜度。
+ *
+ * 刪除與寫入放在同一個 batch：分開做的話，寫入那一句失敗（例如權限多到超過綁定參數上限）
+ * 會留下一個授權被清空的角色，而那個角色如果是 admin，就沒有人進得來修了。
+ */
+export async function writeRolePermissions(
   db: Database,
   roleId: string,
   permissions: readonly string[],
 ): Promise<void> {
-  await db.delete(rolePermissionGrants).where(eq(rolePermissionGrants.roleId, roleId));
-  if (permissions.length) {
-    await db.insert(rolePermissionGrants).values(
-      [...new Set(permissions)].map((permission) => ({ roleId, permission })),
-    );
-  }
+  const rows = [...new Set(permissions)].map((permission) => ({ roleId, permission }));
+  await db.batch([
+    db.delete(rolePermissionGrants).where(eq(rolePermissionGrants.roleId, roleId)),
+    ...chunks(rows, ROLE_PERMISSION_GRANT_BATCH_SIZE).map((batch) => db.insert(rolePermissionGrants).values(batch)),
+  ] as never);
 }
 
 /**

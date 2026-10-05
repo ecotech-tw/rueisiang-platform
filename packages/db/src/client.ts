@@ -23,5 +23,17 @@ export function createDatabase(d1: D1Database) {
  * 這裡把整份清單當成一個 JSON 參數交給 `json_each` 展開，清單多長都只佔一個。
  */
 export function inJsonArray(column: AnyColumn, values: readonly string[]): SQL {
-  return sql`${column} IN (SELECT value FROM json_each(${JSON.stringify(values)}))`;
+  return sql`${column} IN (${jsonArrayValues(values)})`;
+}
+
+/** 手寫 SQL 裡的 `IN (...)` 用：`WHERE x IN (${jsonArrayValues(ids)})`。理由同 `inJsonArray`。 */
+export function jsonArrayValues(values: readonly string[]): SQL {
+  return sql`SELECT value FROM json_each(${JSON.stringify(values)})`;
+}
+
+/** 多列寫入每列都佔綁定參數，同一個 100 個的上限；一次寫很多列時用它切批。 */
+export function chunks<T>(values: readonly T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size));
+  return result;
 }

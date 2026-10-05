@@ -1,5 +1,5 @@
-import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
-import type { Database } from "./client.js";
+import { and, asc, count, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
+import { inJsonArray, jsonArrayValues, type Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
 import { calculateHrLeaveWorkdayBreakdown, type HrLeaveWorkdayBreakdown } from "./hr-leave.js";
@@ -526,9 +526,9 @@ async function listHrInsuranceContributionRulesForPeriod(db: Database, period: {
 async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapshotInput) {
   const employmentIds = input.employmentIds.length ? input.employmentIds : ["__none__"];
   const workerIds = input.workerIds.length ? input.workerIds : ["__none__"];
-  const employmentFilter = inArray(hrEmployments.id, employmentIds);
-  const workerFilter = inArray(hrScheduleWorkers.id, workerIds);
-  const employmentValues = sql.join(employmentIds.map((id) => sql`${id}`), sql`, `);
+  const employmentFilter = inJsonArray(hrEmployments.id, employmentIds);
+  const workerFilter = inJsonArray(hrScheduleWorkers.id, workerIds);
+  const employmentValues = jsonArrayValues(employmentIds);
   /*
    * 已解除的版本不是薪資的來源，它的店與排班也不該進快照：那些 Scope 的出金事後變動時，
    * 會把一個跟這次薪資無關的異動當成「來源已變更」，擋住結帳並逼人重新試算。
@@ -553,10 +553,10 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
         AND latest_schedule_version.status = 'published')`;
   const selectedScheduleVersions = sql`EXISTS (SELECT 1 FROM hr_schedule_entries AS selected_entry
       WHERE selected_entry.schedule_version_id = hr_schedule_versions.id
-        AND selected_entry.employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}))
+        AND selected_entry.employment_id IN (${jsonArrayValues(employmentIds)}))
     OR EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS selected_worker_entry
       WHERE selected_worker_entry.schedule_version_id = hr_schedule_versions.id
-        AND selected_worker_entry.worker_id IN (${sql.join(workerIds.map((id) => sql`${id}`), sql`, `)}))`;
+        AND selected_worker_entry.worker_id IN (${jsonArrayValues(workerIds)}))`;
   const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({
       id: hrEmployments.id,
@@ -565,31 +565,31 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     }).from(hrEmployments).leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id)).where(employmentFilter),
     db.select({ userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, supervisorUserId: hrEmployments.supervisorUserId, revision: hrEmployments.revision, updatedAt: hrEmployments.updatedAt }).from(hrEmployments).where(sql`${hrEmployments.id} IN (${employmentValues})`),
     db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
-    db.select().from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
+    db.select().from(hrEmploymentAttendanceSettings).where(inJsonArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
     db.select().from(hrCalendarDays).where(sql`${hrCalendarDays.date} >= ${input.period.start} AND ${hrCalendarDays.date} < ${input.period.end}`),
     db.select().from(hrCalendarDayScopes).where(sql`${hrCalendarDayScopes.date} >= ${input.period.start} AND ${hrCalendarDayScopes.date} < ${input.period.end}`),
-    db.select().from(hrCompensationVersions).where(and(inArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
-    db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
-    db.select().from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} < ${input.period.end}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} >= ${input.period.start})`)),
+    db.select().from(hrCompensationVersions).where(and(inJsonArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
+    db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${jsonArrayValues(employmentIds)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
+    db.select().from(hrInsuranceVersions).where(and(inJsonArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} < ${input.period.end}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} >= ${input.period.start})`)),
     listHrInsuranceContributionRulesForPeriod(db, input.period),
-    db.select().from(hrLeaveRequests).where(and(eq(hrLeaveRequests.status, "approved"), inArray(hrLeaveRequests.employmentId, employmentIds), sql`${hrLeaveRequests.startsOn} < ${input.period.end}`, sql`${hrLeaveRequests.endsOn} > ${input.period.start}`)),
+    db.select().from(hrLeaveRequests).where(and(eq(hrLeaveRequests.status, "approved"), inJsonArray(hrLeaveRequests.employmentId, employmentIds), sql`${hrLeaveRequests.startsOn} < ${input.period.end}`, sql`${hrLeaveRequests.endsOn} > ${input.period.start}`)),
     db.select().from(hrAnnualLeaveEntitlements).where(sql`${hrAnnualLeaveEntitlements.employmentId} IN (${employmentValues})`),
     db.select().from(hrAnnualLeaveLedger).where(sql`${hrAnnualLeaveLedger.entitlementId} IN (SELECT id FROM hr_annual_leave_entitlements WHERE employment_id IN (${employmentValues}))`),
-    db.select().from(hrMonthlyLeaveEntries).where(and(inArray(hrMonthlyLeaveEntries.employmentId, employmentIds), sql`${hrMonthlyLeaveEntries.leaveDate} >= ${input.period.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${input.period.end}`)),
-    db.select().from(hrMonthlyHourlyEntries).where(and(inArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
-    db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), eq(hrOvertimeRequests.settlementKind, "pay"), inArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
-    db.select().from(hrClockEvents).where(and(inArray(hrClockEvents.employmentId, employmentIds), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
+    db.select().from(hrMonthlyLeaveEntries).where(and(inJsonArray(hrMonthlyLeaveEntries.employmentId, employmentIds), sql`${hrMonthlyLeaveEntries.leaveDate} >= ${input.period.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${input.period.end}`)),
+    db.select().from(hrMonthlyHourlyEntries).where(and(inJsonArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
+    db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), eq(hrOvertimeRequests.settlementKind, "pay"), inJsonArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
+    db.select().from(hrClockEvents).where(and(inJsonArray(hrClockEvents.employmentId, employmentIds), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
     db.select().from(hrScheduleVersions).where(and(latestPublishedSchedule, selectedScheduleVersions)),
     db.select({ entry: hrScheduleEntries }).from(hrScheduleEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
-      .where(and(latestPublishedSchedule, inArray(hrScheduleEntries.employmentId, employmentIds), sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`)),
+      .where(and(latestPublishedSchedule, inJsonArray(hrScheduleEntries.employmentId, employmentIds), sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`)),
     db.select({ entry: hrScheduleWorkerEntries }).from(hrScheduleWorkerEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
-      .where(and(latestPublishedSchedule, inArray(hrScheduleWorkerEntries.workerId, workerIds), sql`${hrScheduleWorkerEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${input.period.end}`)),
+      .where(and(latestPublishedSchedule, inJsonArray(hrScheduleWorkerEntries.workerId, workerIds), sql`${hrScheduleWorkerEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${input.period.end}`)),
     db.select().from(hrScheduleWorkers).where(workerFilter),
-    db.select().from(hrWorkerCompensationVersions).where(and(inArray(hrWorkerCompensationVersions.workerId, workerIds), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
+    db.select().from(hrWorkerCompensationVersions).where(and(inJsonArray(hrWorkerCompensationVersions.workerId, workerIds), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
     listHrSpecialWorkdaysForPayroll(db, input.period.start, input.period.end, { employmentIds: input.employmentIds, workerIds: input.workerIds }),
-    db.select().from(hrBonusPolicyMembers).where(and(inArray(hrBonusPolicyMembers.employmentId, employmentIds), sql`${hrBonusPolicyMembers.validFrom} < ${input.period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.period.start})`)),
+    db.select().from(hrBonusPolicyMembers).where(and(inJsonArray(hrBonusPolicyMembers.employmentId, employmentIds), sql`${hrBonusPolicyMembers.validFrom} < ${input.period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.period.start})`)),
     db.select().from(hrBonusPolicyVersions).where(sql`${hrBonusPolicyVersions.id} IN (${relevantBonusVersionIds})`),
     db.select().from(hrBonusPolicies).where(sql`${hrBonusPolicies.id} IN (SELECT policy_id FROM hr_bonus_policy_versions WHERE id IN (${relevantBonusVersionIds}))`),
     db.select().from(hrBonusPolicyVersionScopes).where(sql`${hrBonusPolicyVersionScopes.policyVersionId} IN (${relevantBonusVersionIds})`),
@@ -602,8 +602,8 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
       .where(and(eq(hrScheduleVersions.status, "published"), sql`${hrScheduleEntries.employmentId} IN (SELECT employment_id FROM hr_bonus_policy_members WHERE policy_version_id IN (${relevantBonusVersionIds}))`, sql`${hrScheduleEntries.workDate} >= ${sourcePeriod.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`))
       .orderBy(asc(hrScheduleEntries.employmentId), asc(hrScheduleEntries.workDate), asc(hrScheduleEntries.scopeId)),
-    db.select().from(hrPayrollAdjustments).where(and(eq(hrPayrollAdjustments.effectivePeriodKey, input.period.periodKey), inArray(hrPayrollAdjustments.employmentId, employmentIds))),
-    db.select().from(hrPayrollAdjustmentItems).where(sql`${hrPayrollAdjustmentItems.adjustmentId} IN (SELECT id FROM hr_payroll_adjustments WHERE effective_period_key=${input.period.periodKey} AND employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}))`),
+    db.select().from(hrPayrollAdjustments).where(and(eq(hrPayrollAdjustments.effectivePeriodKey, input.period.periodKey), inJsonArray(hrPayrollAdjustments.employmentId, employmentIds))),
+    db.select().from(hrPayrollAdjustmentItems).where(sql`${hrPayrollAdjustmentItems.adjustmentId} IN (SELECT id FROM hr_payroll_adjustments WHERE effective_period_key=${input.period.periodKey} AND employment_id IN (${jsonArrayValues(employmentIds)}))`),
   ]);
   return stableJson({
     periodKey: input.period.periodKey,
@@ -812,7 +812,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     LEFT JOIN hr_payroll_closed_employees AS claim ON claim.period_key=payroll_period.period_key AND claim.employment_id=payslip.employment_id
     WHERE payroll_period.period_key=${period.periodKey}
       AND (payroll_run.status='closed' OR claim.employment_id IS NOT NULL)
-      AND payslip.employment_id IN (${sql.join(employees.map((employee) => sql`${employee.employmentId}`), sql`, `)})
+      AND payslip.employment_id IN (${jsonArrayValues(employees.map((employee) => employee.employmentId))})
   `) : [];
   if (closedEmploymentIds.length) throw new HrError(409, "同一員工同一月份已有已結帳結果，請改用薪資調整。 ");
   await ensureHrAnnualLeaveEntitlements(db, { asOfDate: period.end, createdBy: actor.id });
@@ -839,7 +839,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const scheduledWorkerIdSet = new Set(scheduledWorkerRowsAll.map((row) => row.workerId));
   const missingWorkerIds = requestedWorkerIds?.filter((workerId) => !scheduledWorkerIdSet.has(workerId)) ?? [];
   if (missingWorkerIds.length) {
-    const missingWorkers = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inArray(hrScheduleWorkers.id, missingWorkerIds));
+    const missingWorkers = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inJsonArray(hrScheduleWorkers.id, missingWorkerIds));
     const namesById = new Map(missingWorkers.map((worker) => [worker.id, worker.displayName]));
     throw new HrError(400, `以下支援人員在 ${period.periodKey} 沒有已發布排班，無法計算薪資：${missingWorkerIds.map((workerId) => namesById.get(workerId) ?? workerId).join("、")}。`);
   }
@@ -855,7 +855,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     LEFT JOIN hr_payroll_closed_workers AS claim ON claim.period_key=payroll_period.period_key AND claim.worker_id=worker_result.worker_id
     WHERE payroll_period.period_key=${period.periodKey}
       AND (payroll_run.status='closed' OR claim.worker_id IS NOT NULL)
-      AND worker_result.worker_id IN (${sql.join(selectedWorkerIds.map((workerId) => sql`${workerId}`), sql`, `)})
+      AND worker_result.worker_id IN (${jsonArrayValues(selectedWorkerIds)})
   `) : [];
   if (closedWorkerRows.length) throw new HrError(409, "同一支援人員同一月份已有已結帳結果，請改用薪資調整。 ");
   const runName = requestedRunName ?? suggestedPayrollRunName(input.employeeUserIds, input.workerIds, [...selectedEmployees.map((employee) => employee.employeeName), ...new Set(scheduledWorkerRows.map((row) => row.workerName))]);
@@ -875,7 +875,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     sql`${hrCompensationVersions.validFrom} < ${period.end}`,
     sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${period.start})`,
   ));
-  const compensationItems = compensations.length ? await db.select().from(hrCompensationItems).where(inArray(hrCompensationItems.compensationVersionId, compensations.map((item) => item.id))) : [];
+  const compensationItems = compensations.length ? await db.select().from(hrCompensationItems).where(inJsonArray(hrCompensationItems.compensationVersionId, compensations.map((item) => item.id))) : [];
   const insurance = await db.select().from(hrInsuranceVersions).where(and(
     sql`${hrInsuranceVersions.voidedAt} IS NULL`,
     sql`${hrInsuranceVersions.validFrom} < ${period.end}`,
@@ -979,7 +979,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           eq(hrScheduleVersions.status, "published"),
           // 一個月可能有多個已發布版本，只認每個月份編號最大的那一版。
           sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest.version_number) FROM hr_schedule_versions AS latest WHERE latest.period_start = hr_schedule_versions.period_start AND latest.period_end = hr_schedule_versions.period_end AND latest.status = 'published')`,
-          inArray(hrScheduleEntries.employmentId, bonusMemberIds),
+          inJsonArray(hrScheduleEntries.employmentId, bonusMemberIds),
           sql`${hrScheduleEntries.workDate} >= ${previous.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
         ))
       : Promise.resolve([]),
@@ -1835,12 +1835,12 @@ export async function listHrBonusPolicies(db: Database, input: HrBonusPolicyList
   const total = totalRow?.value ?? 0;
   const policyIds = [...new Set(rows.map((row) => row.policyId))];
   const latestRows = policyIds.length ? await db.select({ policyId: hrBonusPolicyVersions.policyId, versionId: hrBonusPolicyVersions.id }).from(hrBonusPolicyVersions)
-    .where(and(inArray(hrBonusPolicyVersions.policyId, policyIds), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)).orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber)) : [];
+    .where(and(inJsonArray(hrBonusPolicyVersions.policyId, policyIds), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)).orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber)) : [];
   const latestByPolicy = new Map<string, string>();
   for (const row of latestRows) if (!latestByPolicy.has(row.policyId)) latestByPolicy.set(row.policyId, row.versionId);
   const versionIds = rows.map((row) => row.policyVersionId);
   const scopeRows = versionIds.length ? await db.select({ policyVersionId: hrBonusPolicyVersionScopes.policyVersionId, scopeId: hrBonusPolicyVersionScopes.scopeId, scopeName: scopes.name })
-    .from(hrBonusPolicyVersionScopes).innerJoin(scopes, eq(scopes.id, hrBonusPolicyVersionScopes.scopeId)).where(inArray(hrBonusPolicyVersionScopes.policyVersionId, versionIds)) : [];
+    .from(hrBonusPolicyVersionScopes).innerJoin(scopes, eq(scopes.id, hrBonusPolicyVersionScopes.scopeId)).where(inJsonArray(hrBonusPolicyVersionScopes.policyVersionId, versionIds)) : [];
   const scopesByVersion = new Map<string, Array<{ id: string; name: string }>>();
   for (const scope of scopeRows) scopesByVersion.set(scope.policyVersionId, [...(scopesByVersion.get(scope.policyVersionId) ?? []), { id: scope.scopeId, name: scope.scopeName }]);
   return { policies: rows.map((row) => {
@@ -1879,7 +1879,7 @@ function validateBonusPolicy(input: CreateHrBonusPolicyInput) {
 
 async function ensureBonusScopes(db: Database, scopeIds: string[]) {
   const found = await db.select({ id: scopes.id }).from(scopes).where(and(
-    inArray(scopes.id, scopeIds), eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`,
+    inJsonArray(scopes.id, scopeIds), eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`,
   ));
   if (found.length !== scopeIds.length) throw new HrError(404, "找不到一個或多個啟用中的營運 Scope。 ");
 }
@@ -1887,7 +1887,7 @@ async function ensureBonusScopes(db: Database, scopeIds: string[]) {
 async function resolveBonusPolicyEmployments(db: Database, employeeUserIds: string[] | undefined) {
   if (!employeeUserIds?.length) return [];
   const rows = await db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId }).from(hrEmployments)
-    .where(and(inArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.archivedAt} IS NULL`));
+    .where(and(inJsonArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.archivedAt} IS NULL`));
   const employmentByUser = new Map<string, { id: string; employeeUserId: string }>();
   for (const row of rows) employmentByUser.set(row.employeeUserId, row);
   const missing = employeeUserIds.filter((employeeUserId) => !employmentByUser.has(employeeUserId));
@@ -1974,7 +1974,7 @@ export async function updateHrBonusPolicy(db: Database, input: UpdateHrBonusPoli
        * 關成員時把原本的迄日與關它的版本留著，解除版本才還原得回來（見 schema 的註解）。
        * 必須排在新版本插入之後：superseded_by_version_id 指著那一列。
        */
-      ...(activeMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom, supersededValidTo: sql`valid_to`, supersededByVersionId: policyVersionId }).where(inArray(hrBonusPolicyMembers.id, activeMembers.map(({ member }) => member.id)))] : []),
+      ...(activeMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom, supersededValidTo: sql`valid_to`, supersededByVersionId: policyVersionId }).where(inJsonArray(hrBonusPolicyMembers.id, activeMembers.map(({ member }) => member.id)))] : []),
       ...nextMembers.map((member) => db.insert(hrBonusPolicyMembers).values({ id: crypto.randomUUID(), policyVersionId, employmentId: member.employmentId, validFrom: input.validFrom, validTo: member.validTo, weightUnits: member.weightUnits, createdBy: actor.id })),
       db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policyVersionId, source: "hr", eventType: "bonus_policy_version_created", summary: "獎金更新", actor, payload: { policyId: current.policyId, previousPolicyVersionId: input.policyVersionId, policyVersionId, versionNumber, validFrom: input.validFrom, scopeIds, assignmentCount: nextMembers.length } })),
     ]));

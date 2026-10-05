@@ -1,7 +1,8 @@
 import { PERMISSIONS, SYSTEM_ROLES } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
+import { writeRolePermissions } from "./admin.js";
 import type { Database } from "./client.js";
-import { permissions, rolePermissionGrants, roles } from "./schema/auth.js";
+import { permissions, roles } from "./schema/auth.js";
 
 /**
  * 把程式碼裡定義的初始角色同步進資料庫。
@@ -44,11 +45,6 @@ export async function syncSystemRoles(db: Database): Promise<void> {
     // admin 是唯一受保護的角色，必須永遠保有完整的系統管理權限；
     // 其他角色只在第一次建立時灌入模板，之後由管理者的設定為準。
     if (!isProtected && existing) continue;
-    await db.delete(rolePermissionGrants).where(eq(rolePermissionGrants.roleId, roleId));
-    if (definition.permissions.length) {
-      await db.insert(rolePermissionGrants).values(
-        definition.permissions.map((permission) => ({ roleId, permission })),
-      ).onConflictDoNothing();
-    }
+    await writeRolePermissions(db, roleId, definition.permissions);
   }
 }

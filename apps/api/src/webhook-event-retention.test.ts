@@ -15,13 +15,15 @@ beforeEach(() => {
 });
 
 async function seed(rows: Array<{ id: string; status: string; days: number }>) {
-  await db.insert(cyberbizWebhookEvents).values(rows.map((row) => ({
+  const events = rows.map((row) => ({
     id: row.id,
     topic: "customers/update",
     status: row.status,
     payloadJson: "{}",
     receivedAt: daysAgo(row.days),
-  })));
+  }));
+  // 一句寫不完：本機的 D1 替身照 D1 的規格擋 100 個綁定參數。
+  for (let offset = 0; offset < events.length; offset += 5) await db.insert(cyberbizWebhookEvents).values(events.slice(offset, offset + 5));
 }
 
 async function remaining() {
