@@ -195,7 +195,7 @@ function OvertimeForm({ employees, onClose, onDone, onPendingChange }: { employe
   const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.legalName}（${employee.employeeNumber}）` }))];
   function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!employeeUserId || !requestedStart || !requestedEnd || !reason.trim()) return;
+    if (!employeeUserId || !requestedStart || !requestedEnd) return;
     onPendingChange(true);
     write.mutate({ path: "/requests/overtime", method: "POST", values: { employeeUserId, requestedStart, requestedEnd, settlementKind, reason } }, {
       onSuccess: () => {
@@ -210,7 +210,7 @@ function OvertimeForm({ employees, onClose, onDone, onPendingChange }: { employe
     <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
     <div className="form-grid two"><TextField label="加班開始" type="datetime-local" required value={requestedStart} disabled={write.isPending} onChange={(event) => setRequestedStart(event.target.value)} /><TextField label="加班結束" type="datetime-local" required min={requestedStart} value={requestedEnd} disabled={write.isPending} onChange={(event) => setRequestedEnd(event.target.value)} /></div>
     <SelectField label="結算方式" required value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={write.isPending} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} />
-    <Field label="加班原因" required><textarea rows={4} maxLength={1000} required value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
+    <Field label="加班原因（選填）"><textarea rows={4} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
     <div className="button-row"><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" icon="plus" loading={write.isPending} disabled={!employees.length}>建立加班申請</Button></div>
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
   </form>;
