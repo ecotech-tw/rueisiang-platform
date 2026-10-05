@@ -204,7 +204,7 @@ export interface PayrollRecordItem {
 }
 export interface PayrollRecordDetail {
   record: PayrollRecord;
-  run: { runId: string; runName: string; periodKey: string; payDate: string | null; engineVersion: string; warnings: string[] };
+  run: { runId: string; runName: string; periodKey: string; payDate: string | null; engineVersion: string; warnings: string[]; canDelete: boolean };
   employee: PayrollEmployee | null;
   worker: PayrollWorker | null;
   items: PayrollRecordItem[];
