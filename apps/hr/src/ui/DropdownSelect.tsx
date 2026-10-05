@@ -299,11 +299,13 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
   } = props;
   const selectedOptions = optionsForValues(options, value) ?? [];
   const initialOptions = optionsForValues(options, defaultValue) ?? [];
+  // 已選的已經是輸入框裡的 chip，清單只留還能加的；留著只會讓人在長名單裡重複找同一個人。
+  const remainingOptions = value === undefined ? options : options.filter((option) => !value.includes(option.value));
 
   return (
     <Combobox.Root<DropdownSelectOption, true>
       multiple
-      items={options}
+      items={remainingOptions}
       value={value === undefined ? undefined : selectedOptions}
       defaultValue={defaultValue === undefined ? undefined : initialOptions}
       onValueChange={(nextValue) => emitMultiple(props, nextValue)}
@@ -345,7 +347,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
       <Combobox.Portal>
         <Combobox.Positioner className="combobox-positioner">
           <Combobox.Popup className={popupClass(isHrSystem)}>
-            <Combobox.Empty>找不到符合條件的選項</Combobox.Empty>
+            <Combobox.Empty>{remainingOptions.length ? "找不到符合條件的選項" : "已經全部選取"}</Combobox.Empty>
             <Combobox.List>
               {(option: DropdownSelectOption) => (
                 <Combobox.Item key={option.value} value={option} disabled={option.disabled} className="combobox-item">
