@@ -2,6 +2,7 @@ import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
+import { chunks } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrScheduleWorkers, hrSpecialWorkdayAllowances, hrSpecialWorkdayAssignments, hrSpecialWorkdayOvertimeRules, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
@@ -266,6 +267,8 @@ export async function resolveHrSpecialWorkdayRuleId(db: Database, ruleVersionId:
   return version?.ruleId ?? ruleVersionId;
 }
 
+const SPECIAL_WORKDAY_ID_BATCH_SIZE = 50;
+
 export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkdayAssignmentInput, actor: HrActor) {
   if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HrError(400, "請提供要套用的員工日期。 ");
   const ruleId = input.ruleId;
@@ -297,17 +300,23 @@ export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkda
   });
   const employmentIds = [...new Set(preparedAssignments.map(({ item }) => item.employmentId).filter((id): id is string => Boolean(id)))];
   const workerIds = [...new Set(preparedAssignments.map(({ item }) => item.workerId).filter((id): id is string => Boolean(id)))];
+  /*
+   * 一批最多 1000 筆，人數可以遠超過 D1 單一語句 100 個綁定參數的上限，所以 IN 清單要分批查。
+   * 本機的 node:sqlite 上限是三萬多，這個錯只會在正式環境出現。
+   */
+  const employmentIdBatches = chunks(employmentIds, SPECIAL_WORKDAY_ID_BATCH_SIZE);
+  const workerIdBatches = chunks(workerIds, SPECIAL_WORKDAY_ID_BATCH_SIZE);
   const [employmentRows, workerRows] = await Promise.all([
-    employmentIds.length ? db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(inArray(hrEmployments.id, employmentIds), sql`${hrEmployments.archivedAt} IS NULL`)) : Promise.resolve([]),
-    workerIds.length ? db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(inArray(hrScheduleWorkers.id, workerIds), eq(hrScheduleWorkers.active, 1))) : Promise.resolve([]),
+    Promise.all(employmentIdBatches.map((batch) => db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(inArray(hrEmployments.id, batch), sql`${hrEmployments.archivedAt} IS NULL`)))).then((rows) => rows.flat()),
+    Promise.all(workerIdBatches.map((batch) => db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(inArray(hrScheduleWorkers.id, batch), eq(hrScheduleWorkers.active, 1))))).then((rows) => rows.flat()),
   ]);
   const activeEmploymentIds = new Set(employmentRows.map((row) => row.id));
   const activeWorkerIds = new Set(workerRows.map((row) => row.id));
   const minWorkDate = preparedAssignments.reduce((min, { item }) => item.workDate < min ? item.workDate : min, preparedAssignments[0]!.item.workDate);
   const maxWorkDate = preparedAssignments.reduce((max, { item }) => item.workDate > max ? item.workDate : max, preparedAssignments[0]!.item.workDate);
   const [existingEmploymentAssignments, existingWorkerAssignments] = await Promise.all([
-    employmentIds.length ? db.select({ employmentId: hrSpecialWorkdayAssignments.employmentId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inArray(hrSpecialWorkdayAssignments.employmentId, employmentIds), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)) : Promise.resolve([]),
-    workerIds.length ? db.select({ workerId: hrSpecialWorkdayAssignments.workerId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inArray(hrSpecialWorkdayAssignments.workerId, workerIds), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)) : Promise.resolve([]),
+    Promise.all(employmentIdBatches.map((batch) => db.select({ employmentId: hrSpecialWorkdayAssignments.employmentId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inArray(hrSpecialWorkdayAssignments.employmentId, batch), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)))).then((rows) => rows.flat()),
+    Promise.all(workerIdBatches.map((batch) => db.select({ workerId: hrSpecialWorkdayAssignments.workerId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inArray(hrSpecialWorkdayAssignments.workerId, batch), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)))).then((rows) => rows.flat()),
   ]);
   const existingKeys = new Set([
     ...existingEmploymentAssignments.map((row) => specialWorkdayAssignmentKey(row.employmentId, null, row.workDate)),
