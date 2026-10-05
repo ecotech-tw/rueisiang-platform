@@ -201,6 +201,52 @@ describe("HR 申請中心", () => {
     expect(after.overtime.find((item) => item.request.id === pendingOvertimeBody.id)?.request.status).toBe("approved");
   });
 
+  it("本人可以更新待審加班申請，已核准申請需取消後重送", async () => {
+    await assignEmployee();
+
+    const pending = await request("/hr/me/overtime", "POST", {
+      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "compensatory", reason: "待審更新測試",
+    }, employeeCookie);
+    expect(pending.status, await pending.clone().text()).toBe(201);
+    const pendingId = (await pending.json() as { id: string }).id;
+    const pendingRequests = await (await request("/hr/me/overtime", "GET", undefined, employeeCookie)).json() as { requests: Array<{ request: { id: string; revision: number } }> };
+    const pendingRevision = pendingRequests.requests.find((item) => item.request.id === pendingId)?.request.revision;
+    expect(pendingRevision).toBe(1);
+
+    const blocker = await request("/hr/requests/overtime", "POST", {
+      employeeUserId: "employee", requestedStart: "2026-02-08T18:00", requestedEnd: "2026-02-08T20:00", settlementKind: "pay", reason: "更新重疊測試",
+    });
+    expect(blocker.status, await blocker.clone().text()).toBe(201);
+
+    const updated = await request(`/hr/me/overtime/${pendingId}`, "PATCH", {
+      requestedStart: "2026-02-07T18:00", requestedEnd: "2026-02-07T20:00", settlementKind: "pay", reason: "已更新的加班原因", revision: pendingRevision,
+    }, employeeCookie);
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect((await request(`/hr/me/overtime/${pendingId}`, "PATCH", {
+      requestedStart: "2026-02-07T18:00", requestedEnd: "2026-02-07T20:00", settlementKind: "pay", reason: "過期版本", revision: pendingRevision,
+    }, employeeCookie)).status).toBe(409);
+    expect((await request(`/hr/me/overtime/${pendingId}`, "PATCH", {
+      requestedStart: "2026-02-08T18:00", requestedEnd: "2026-02-08T20:00", settlementKind: "pay", reason: "不應重疊", revision: 2,
+    }, employeeCookie)).status).toBe(409);
+    expect((await request(`/hr/me/overtime/${pendingId}`, "PATCH", {
+      requestedStart: "2026-02-07T18:00", requestedEnd: "2026-02-07T20:00", settlementKind: "pay", reason: "非本人更新", revision: 2,
+    })).status).toBe(404);
+
+    const center = await (await request("/hr/requests")).json() as { overtime: Array<{ request: { id: string; status: string; requestedStart: string; requestedEnd: string; settlementKind: string; reason: string } }> };
+    expect(center.overtime.find((item) => item.request.id === pendingId)?.request).toMatchObject({
+      status: "pending", requestedStart: "2026-02-07 10:00:00", requestedEnd: "2026-02-07 12:00:00", settlementKind: "pay", reason: "已更新的加班原因",
+    });
+
+    const approved = await request("/hr/requests/overtime", "POST", {
+      employeeUserId: "employee", requestedStart: "2026-02-09T18:00", requestedEnd: "2026-02-09T20:00", settlementKind: "pay", reason: "核准後不可更新",
+    });
+    expect(approved.status, await approved.clone().text()).toBe(201);
+    const approvedId = (await approved.json() as { id: string }).id;
+    expect((await request(`/hr/me/overtime/${approvedId}`, "PATCH", {
+      requestedStart: "2026-02-10T18:00", requestedEnd: "2026-02-10T20:00", settlementKind: "pay", reason: "不應修改已核准", revision: 1,
+    }, employeeCookie)).status).toBe(409);
+  });
+
   it("本人與管理端可以取消待審與已核准的加班申請", async () => {
     await assignEmployee();
 
