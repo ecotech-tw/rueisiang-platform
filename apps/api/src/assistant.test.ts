@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { ASSISTANT_REPORT_TOOL_ROUTING } from "@rueisiang/assistant";
 import { CRM_SEARCH_CUSTOMERS_TOOL_KEY, PLATFORM_TOOL_MAP } from "@rueisiang/tools";
-import { appendAssistantSandboxMessage, createDatabase, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
+import { appendAssistantSandboxMessage, chunks, createDatabase, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
 import {
   activityEvents,
   assistantConfigs,
@@ -784,7 +784,7 @@ describe("AI 助理 Sandbox", () => {
       },
     ]).flat();
     // 一句寫不完：本機的 D1 替身照 D1 的規格擋 100 個綁定參數。
-    for (let offset = 0; offset < messages.length; offset += 5) await db().insert(assistantSandboxMessages).values(messages.slice(offset, offset + 5));
+    for (const batch of chunks(messages, 5)) await db().insert(assistantSandboxMessages).values(batch);
     await updateAssistantSandboxContext(db(), {
       assistantKey: "rueisiang-xiaoxiang",
       createdBy: "admin",
@@ -2044,7 +2044,7 @@ describe("AI 助理 Sandbox", () => {
       },
     ]).flat();
     // 一句寫不完：本機的 D1 替身照 D1 的規格擋 100 個綁定參數。
-    for (let offset = 0; offset < messages.length; offset += 5) await db().insert(assistantSandboxMessages).values(messages.slice(offset, offset + 5));
+    for (const batch of chunks(messages, 5)) await db().insert(assistantSandboxMessages).values(batch);
 
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const body = JSON.parse(String(init?.body)) as Record<string, unknown>;

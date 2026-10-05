@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { inJsonArray } from "./sql-lists.js";
+import { chunks, inJsonArray } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
@@ -267,6 +267,8 @@ export async function resolveHrSpecialWorkdayRuleId(db: Database, ruleVersionId:
   return version?.ruleId ?? ruleVersionId;
 }
 
+const SPECIAL_WORKDAY_ASSIGNMENT_BATCH_SIZE = 12;
+
 export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkdayAssignmentInput, actor: HrActor) {
   if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HrError(400, "請提供要套用的員工日期。 ");
   const ruleId = input.ruleId;
@@ -314,12 +316,17 @@ export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkda
     ...existingEmploymentAssignments.map((row) => specialWorkdayAssignmentKey(row.employmentId, null, row.workDate)),
     ...existingWorkerAssignments.map((row) => specialWorkdayAssignmentKey(null, row.workerId, row.workDate)),
   ]);
-  const statements = [];
+  const assignmentRows = [];
   for (const { item, inputKey, allowanceSnapshot } of preparedAssignments) {
     if (item.employmentId ? !activeEmploymentIds.has(item.employmentId) : !activeWorkerIds.has(item.workerId!)) throw new HrError(400, item.employmentId ? "員工目前不是有效員工。 " : "支援人員在套用日期不是啟用狀態。 ");
     if (existingKeys.has(inputKey)) throw new HrError(409, "同一人員同一天已有特殊上班日規則。 ");
-    statements.push(db.insert(hrSpecialWorkdayAssignments).values({ id: crypto.randomUUID(), ruleId, employmentId: item.employmentId ?? null, workerId: item.workerId ?? null, workDate: item.workDate, allowanceSnapshotJson: JSON.stringify(allowanceSnapshot), allowanceQuantity: item.allowanceQuantity ?? 0, appliedBy: actor.id }));
+    assignmentRows.push({ id: crypto.randomUUID(), ruleId, employmentId: item.employmentId ?? null, workerId: item.workerId ?? null, workDate: item.workDate, allowanceSnapshotJson: JSON.stringify(allowanceSnapshot), allowanceQuantity: item.allowanceQuantity ?? 0, appliedBy: actor.id });
   }
+  /*
+   * 一列一句的話，一千筆套用就是一千句，貼著 D1 每次請求的查詢數上限。改成多列寫入：
+   * 每列 8 個綁定參數，一句最多 100 個，所以一批 12 列。
+   */
+  const statements: unknown[] = chunks(assignmentRows, SPECIAL_WORKDAY_ASSIGNMENT_BATCH_SIZE).map((batch) => db.insert(hrSpecialWorkdayAssignments).values(batch));
   statements.push(db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_assigned", summary: "特殊上班日套用", actor, payload: { count: input.assignments.length } })));
   try {
     await db.batch(statements as never);

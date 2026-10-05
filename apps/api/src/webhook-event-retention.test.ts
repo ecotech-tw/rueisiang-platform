@@ -1,4 +1,4 @@
-import { createDatabase, purgeSettledWebhookEvents, WEBHOOK_EVENT_RETENTION_DAYS } from "@rueisiang/db";
+import { chunks, createDatabase, purgeSettledWebhookEvents, WEBHOOK_EVENT_RETENTION_DAYS } from "@rueisiang/db";
 import { cyberbizWebhookEvents } from "@rueisiang/db/schema";
 import { asc } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -23,7 +23,7 @@ async function seed(rows: Array<{ id: string; status: string; days: number }>) {
     receivedAt: daysAgo(row.days),
   }));
   // 一句寫不完：本機的 D1 替身照 D1 的規格擋 100 個綁定參數。
-  for (let offset = 0; offset < events.length; offset += 5) await db.insert(cyberbizWebhookEvents).values(events.slice(offset, offset + 5));
+  for (const batch of chunks(events, 5)) await db.insert(cyberbizWebhookEvents).values(batch);
 }
 
 async function remaining() {

@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
-import { createDatabase } from "@rueisiang/db";
+import { chunks, createDatabase } from "@rueisiang/db";
 import { hrCalendarDayScopes, hrCalendarDays, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -321,7 +321,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
       };
     });
     // 一句寫不完：本機的 D1 替身照 D1 的規格擋 100 個綁定參數。
-    for (let offset = 0; offset < hourlyEntries.length; offset += 10) await db.insert(hrMonthlyHourlyEntries).values(hourlyEntries.slice(offset, offset + 10));
+    for (const batch of chunks(hourlyEntries, 10)) await db.insert(hrMonthlyHourlyEntries).values(batch);
     await db.insert(hrLeaveRequests).values({
       id: "test-scheduled-hourly-leave", employmentId: "dev-employment-wang", leaveTypeId: unpaidLeave!.id, leaveType: unpaidLeave!.name,
       status: "approved", startsAt: "2026-08-09 18:00:00", endsAt: "2026-08-09 18:30:00", startsOn: "2026-08-10", endsOn: "2026-08-11",

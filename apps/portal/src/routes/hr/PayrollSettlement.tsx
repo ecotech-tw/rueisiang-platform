@@ -165,7 +165,8 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             options={employees.map((employee) => ({ value: employee.userId, label: `${hrEmployeeLabel(employee)}・${employee.position || "未設定職位"}`, chipLabel: employee.legalName, disabled: selectionMode !== "all" && selectedEmployeeIds.length >= MAX_PAYROLL_SELECTED_EMPLOYEES && !selectedEmployeeIds.includes(employee.userId) }))}
             placeholder="搜尋姓名或員工編號"
             aria-label="選擇正式員工"
-            disabled={calculatePayroll.isPending}
+            // 另一份名單還沒載完時不能動：這時從「全體」移除一個人，會把還沒出現的那一邊記成「一個都沒選」。
+            disabled={calculatePayroll.isPending || supportWorkers.isPending}
             onValueChange={updateEmployeeSelection}
           /> : <p className="muted hr-payroll-picker-empty">目前沒有符合資格的正式員工。</p>}
         </div>
@@ -178,7 +179,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             options={workerOptions.map((worker) => ({ value: worker.id, label: worker.displayName, disabled: selectionMode !== "all" && selectedWorkerIds.length >= MAX_PAYROLL_SELECTED_WORKERS && !selectedWorkerIds.includes(worker.id) }))}
             placeholder="搜尋支援人員"
             aria-label="選擇支援人員"
-            disabled={calculatePayroll.isPending}
+            disabled={calculatePayroll.isPending || employeesPending}
             onValueChange={updateWorkerSelection}
           /> : <p className="muted hr-payroll-picker-empty">本月份沒有已發布排班的支援人員。</p>}
         </div>

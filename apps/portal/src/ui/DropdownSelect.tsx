@@ -1,6 +1,6 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { Select } from "@base-ui/react/select";
-import { useLayoutEffect, useMemo, useRef, useState, type ChangeEventHandler } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEventHandler } from "react";
 import { useLocation } from "react-router";
 import { Icon } from "../shell/icons.js";
 import { Tooltip } from "./Tooltip.js";
@@ -331,10 +331,12 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
    * 下面要靠「目前選了誰」把已選的從清單拿掉，受控與非受控兩種用法的行為才會一樣。
    */
   const [initialOptions] = useState(() => optionsForValues(options, defaultValue) ?? []);
-  const [mirroredValue, setMirroredValue] = useState<readonly string[]>(defaultValue ?? []);
+  // 從 Combobox 實際拿到的初始選取記起，不是原始的 defaultValue：對不到 option 的值它沒有選，這裡也不能當成已選而藏起來。
+  const [mirroredValue, setMirroredValue] = useState<readonly string[]>(() => initialOptions.map((option) => option.value));
   const currentValue = useStableList(value ?? mirroredValue, Object.is);
   const { selectedOptions, remainingOptions, duplicatedChipLabels } = useMemo(() => {
     const selected = new Set(currentValue);
+    const optionByValue = new Map(stableOptions.map((option) => [option.value, option]));
     // 短名撞名時（同名同姓）chip 會分不出誰是誰，那幾位改回完整 label；提示只能是補充，不能是唯一分辨得出來的地方。
     const seenChipLabels = new Set<string>();
     const duplicated = new Set<string>();
@@ -344,7 +346,11 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
       seenChipLabels.add(option.chipLabel);
     }
     return {
-      selectedOptions: optionsForValues(stableOptions, currentValue) ?? [],
+      // 全體預選時兩邊都可能上千筆，逐一 find 會是平方級。
+      selectedOptions: currentValue.flatMap((selectedValue) => {
+        const option = optionByValue.get(selectedValue);
+        return option ? [option] : [];
+      }),
       // 已選的已經是輸入框裡的 chip，清單只留還能加的；留著只會讓人在長名單裡重複找同一個人。
       remainingOptions: stableOptions.filter((option) => !selected.has(option.value)),
       duplicatedChipLabels: duplicated,
@@ -356,6 +362,14 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
    * 不然捲到上面連續移除幾個人，每移一個就被拉回底部。
    */
   const chipsRef = useRef<HTMLDivElement>(null);
+  // 表單 reset 時 Combobox 會回到初始選取，跟著記的那一份也要回去，不然被記成已選的項目會從清單消失。
+  useEffect(() => {
+    const form = value === undefined ? chipsRef.current?.closest("form") : null;
+    if (!form) return;
+    const restore = () => setMirroredValue(initialOptions.map((option) => option.value));
+    form.addEventListener("reset", restore);
+    return () => form.removeEventListener("reset", restore);
+  }, [value === undefined, initialOptions]);
   const previousSelectedCount = useRef(-1);
   useLayoutEffect(() => {
     const chips = chipsRef.current;

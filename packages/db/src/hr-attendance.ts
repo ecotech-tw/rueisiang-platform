@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { inJsonArray } from "./sql-lists.js";
+import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
 import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes } from "./hr-calendar.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
@@ -224,8 +224,8 @@ export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUp
     sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
       WHERE employment_id=${input.employmentId} RETURNING employment_id AS id`];
   const endingAssignmentIds = input.assignmentsToEnd.map((assignment) => assignment.id);
-  const endingIdList = endingAssignmentIds.length ? sql`AND id NOT IN (${sql.join(endingAssignmentIds.map((id) => sql`${id}`), sql`, `)})` : sql``;
-  const primaryEndingCondition = endingAssignmentIds.length ? sql` OR primary_assignment_id IN (${sql.join(endingAssignmentIds.map((id) => sql`${id}`), sql`, `)})` : sql``;
+  const endingIdList = endingAssignmentIds.length ? sql`AND id NOT IN (${jsonArrayValues(endingAssignmentIds)})` : sql``;
+  const primaryEndingCondition = endingAssignmentIds.length ? sql` OR primary_assignment_id IN (${jsonArrayValues(endingAssignmentIds)})` : sql``;
   for (const assignment of input.assignmentsToEnd) mutations.push(sql`UPDATE hr_employee_attendance_locations SET valid_to=CASE WHEN valid_from < ${input.assignmentValidTo} THEN ${input.assignmentValidTo} ELSE ${input.validTo} END, revision=revision+1, updated_at=CURRENT_TIMESTAMP
     WHERE id=${assignment.id} AND employment_id=${input.employmentId} AND revision=${assignment.revision}
       AND (valid_to IS NULL OR valid_to > CASE WHEN valid_from < ${input.assignmentValidTo} THEN ${input.assignmentValidTo} ELSE ${input.validTo} END)
