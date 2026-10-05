@@ -1,5 +1,6 @@
-import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { normalizePhone } from "./phone.js";
 import { crmCustomerTags, crmTags, crmCustomers } from "./schema/crm.js";
 
@@ -208,7 +209,7 @@ export async function listCustomers(
       .select({ customerId: crmCustomerTags.customerId, name: crmTags.name })
       .from(crmCustomerTags)
       .innerJoin(crmTags, eq(crmTags.id, crmCustomerTags.crmTagId))
-      .where(inArray(crmCustomerTags.customerId, customerIds))
+      .where(inJsonArray(crmCustomerTags.customerId, customerIds))
       .orderBy(asc(crmTags.name))
     : [];
   const tagsByCustomer = new Map<string, string[]>();

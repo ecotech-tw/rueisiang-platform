@@ -1,6 +1,6 @@
-import { and, asc, eq, inArray, sql, sum } from "drizzle-orm";
+import { and, asc, eq, sql, sum } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { chunks } from "./sql-lists.js";
+import { chunks, inJsonArray } from "./sql-lists.js";
 import {
   reportBundleSalesMonthly,
   reportItemSalesMonthly,
@@ -125,7 +125,7 @@ async function ensureTargetSalesItems(
   const categoryNames = [...new Set(rows.map((row) => (row.category ?? "").trim()).filter((category) => category && category !== "未分類"))];
   const categories = (await Promise.all(chunks(categoryNames, 50).map((batch) => db.select({ id: itemCategories.id, name: itemCategories.name })
     .from(itemCategories)
-    .where(inArray(itemCategories.name, batch))))).flat();
+    .where(inJsonArray(itemCategories.name, batch))))).flat();
   const categoryByName = new Map(categories.map((category) => [category.name, category.id]));
   if (createMissing) for (const row of rows) {
     const sku = row.sku.trim();
@@ -574,7 +574,7 @@ export async function latestReportSalesPeriods(
 
   const targetRows = await db.select({ scopeId: reportItemSalesMonthly.scopeId, reportMonth: sql<string | null>`max(${reportItemSalesMonthly.reportMonth})` })
     .from(reportItemSalesMonthly)
-    .where(inArray(reportItemSalesMonthly.scopeId, [...scopeIds]))
+    .where(inJsonArray(reportItemSalesMonthly.scopeId, [...scopeIds]))
     .groupBy(reportItemSalesMonthly.scopeId);
 
   const byScope: Record<string, string> = {};

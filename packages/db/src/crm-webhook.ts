@@ -5,8 +5,9 @@ import {
   isCustomerTopic,
   parseCyberbizCustomer,
 } from "@rueisiang/cyberbiz";
-import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, lt, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
 import { crmCustomers, cyberbizWebhookEvents } from "./schema/crm.js";
 import {
@@ -386,14 +387,14 @@ export async function purgeSettledWebhookEvents(
   const stale = await db.select({ id: cyberbizWebhookEvents.id })
     .from(cyberbizWebhookEvents)
     .where(and(
-      inArray(cyberbizWebhookEvents.status, ["processed", "ignored"]),
+      inJsonArray(cyberbizWebhookEvents.status, ["processed", "ignored"]),
       lt(cyberbizWebhookEvents.receivedAt, cutoff),
     ));
   if (!stale.length) return { deleted: 0 };
   // 一次刪一批，不要用 IN (幾千個 id)：D1 對單一語句的參數量有上限。
   for (let offset = 0; offset < stale.length; offset += 100) {
     const batch = stale.slice(offset, offset + 100).map((row) => row.id);
-    await db.delete(cyberbizWebhookEvents).where(inArray(cyberbizWebhookEvents.id, batch));
+    await db.delete(cyberbizWebhookEvents).where(inJsonArray(cyberbizWebhookEvents.id, batch));
   }
   return { deleted: stale.length };
 }

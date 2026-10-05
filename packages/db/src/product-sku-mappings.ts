@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { activityEvents } from "./schema/activity.js";
 import { itemCategories, itemComponents, cyberbizProducts, items as itemMasters } from "./schema/items.js";
@@ -204,13 +205,13 @@ async function loadTargetProductSkuMappingManagement(db: Database): Promise<Prod
   const componentRows = await inBatches(parentIds, (batch) => db
     .select({ parentItemId: itemComponents.parentItemId, componentItemId: itemComponents.componentItemId, quantity: itemComponents.quantity })
     .from(itemComponents)
-    .where(inArray(itemComponents.parentItemId, batch))
+    .where(inJsonArray(itemComponents.parentItemId, batch))
     .orderBy(asc(itemComponents.parentItemId), sql`rowid`));
   const componentIds = [...new Set(componentRows.map((row) => row.componentItemId))];
   const componentItems = await inBatches(componentIds, (batch) => db
     .select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
     .from(itemMasters)
-    .where(inArray(itemMasters.id, batch)));
+    .where(inJsonArray(itemMasters.id, batch)));
   const componentById = new Map(componentItems.map((row) => [row.id, row]));
   const componentsByParent = new Map<string, typeof componentRows>();
   for (const row of componentRows) {
@@ -618,7 +619,7 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
       itemId: reportExternalProducts.itemId,
     })
       .from(reportExternalProducts)
-      .where(and(eq(reportExternalProducts.sourceType, normalizedChannel), inArray(reportExternalProducts.externalKey, batch)))),
+      .where(and(eq(reportExternalProducts.sourceType, normalizedChannel), inJsonArray(reportExternalProducts.externalKey, batch)))),
     inBatches(lookupWanted, (batch) => db.select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
       .from(wmsItems)
       .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
@@ -637,12 +638,12 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
   const bundleRows = await inBatches(parentIds, (batch) => db
     .select({ parentItemId: itemComponents.parentItemId, componentItemId: itemComponents.componentItemId, quantity: itemComponents.quantity })
     .from(itemComponents)
-    .where(inArray(itemComponents.parentItemId, batch))
+    .where(inJsonArray(itemComponents.parentItemId, batch))
     .orderBy(asc(itemComponents.parentItemId), sql`rowid`));
   const componentIds = [...new Set(bundleRows.map((row) => row.componentItemId))];
   const [componentItems, wmsComponentRows] = await Promise.all([
-    inBatches(componentIds, (batch) => db.select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId }).from(itemMasters).where(inArray(itemMasters.id, batch))),
-    inBatches(componentIds, (batch) => db.select({ itemId: wmsItems.itemId }).from(wmsItems).where(inArray(wmsItems.itemId, batch))),
+    inBatches(componentIds, (batch) => db.select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId }).from(itemMasters).where(inJsonArray(itemMasters.id, batch))),
+    inBatches(componentIds, (batch) => db.select({ itemId: wmsItems.itemId }).from(wmsItems).where(inJsonArray(wmsItems.itemId, batch))),
   ]);
   const componentById = new Map(componentItems.map((row) => [row.id, row]));
   const wmsIds = new Set(wmsComponentRows.map((row) => row.itemId));
@@ -806,7 +807,7 @@ export async function resolveIgnoredSkus(db: Database, externalSkus: string[], c
     .where(and(
       eq(reportExternalProducts.sourceType, normalizedChannel),
       eq(reportExternalProducts.resolution, "ignored"),
-      inArray(reportExternalProducts.externalKey, batch),
+      inJsonArray(reportExternalProducts.externalKey, batch),
     )));
   const ignored = new Set(rows.map((row) => normalizeExternalSku(row.externalKey)));
   for (const [sku, base] of basePairs) if (ignored.has(base)) ignored.add(sku);

@@ -1,10 +1,11 @@
-import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   AssistantToolCall as RecordedToolCall,
   AssistantToolStatus,
   AssistantUsage,
 } from "@rueisiang/assistant";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import {
   assistantPromptRevisions,
   assistantConfigs,
@@ -991,7 +992,7 @@ async function linePushLocalUsage(db: Database, channelKey: string, windowKey: s
     .where(and(
       eq(assistantLinePushDeliveries.channelKey, channelKey),
       eq(assistantLinePushDeliveries.windowKey, windowKey),
-      inArray(assistantLinePushDeliveries.status, ["reserved", "sent", "failed"]),
+      inJsonArray(assistantLinePushDeliveries.status, ["reserved", "sent", "failed"]),
     ));
   return Math.max(0, Number(row?.total ?? 0));
 }
@@ -1055,7 +1056,7 @@ export async function findEarlierAssistantLineQueueJob(
       lt(assistantLineMessages.sequence, input.sequence),
       or(
         isNull(assistantLineQueueJobs.status),
-        inArray(assistantLineQueueJobs.status, ["pending", "enqueued", "processing"]),
+        inJsonArray(assistantLineQueueJobs.status, ["pending", "enqueued", "processing"]),
       ),
     ))
     .orderBy(asc(assistantLineMessages.sequence), asc(assistantLineMessages.createdAt), asc(assistantLineMessages.id))
@@ -1568,7 +1569,7 @@ export async function setAssistantChannelTools(
   const added = wanted.filter((key) => !existing.some((row) => row.toolKey === key));
 
   if (removed.length) {
-    await db.delete(assistantChannelTools).where(inArray(assistantChannelTools.id, removed.map((row) => row.id)));
+    await db.delete(assistantChannelTools).where(inJsonArray(assistantChannelTools.id, removed.map((row) => row.id)));
   }
   if (added.length) {
     const now = new Date().toISOString();

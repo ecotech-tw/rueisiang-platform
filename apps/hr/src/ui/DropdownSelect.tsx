@@ -1,6 +1,6 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { Select } from "@base-ui/react/select";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEventHandler } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEventHandler, type KeyboardEvent } from "react";
 import { useLocation } from "react-router";
 import { Icon } from "../shell/icons.js";
 import { Tooltip } from "./Tooltip.js";
@@ -27,6 +27,13 @@ interface DropdownSelectCommonProps {
   className?: string;
   placeholder?: string;
   searchable?: boolean;
+  /**
+   * 多選的搜尋輸入框按 Enter 時不送出外層表單。
+   *
+   * 挑完一位清單會收起來，這時再按一次 Enter 就是原生的表單送出；
+   * 送出代價高的表單（例如直接開始薪資試算）要打開這個。
+   */
+  preventEnterSubmit?: boolean;
   "aria-label"?: string;
   "aria-labelledby"?: string;
   "aria-describedby"?: string;
@@ -111,6 +118,10 @@ function useStableList<T>(list: readonly T[], sameItem: (left: T, right: T) => b
   return stable.current;
 }
 
+function preventEnterDefault(event: KeyboardEvent<HTMLInputElement>) {
+  if (event.key === "Enter") event.preventDefault();
+}
+
 function popupClass(isHrSystem: boolean) {
   return `combobox-popup${isHrSystem ? " hr-liquid-select-popup" : ""}`;
 }
@@ -141,6 +152,7 @@ function SelectSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps) {
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
+    preventEnterSubmit: _preventEnterSubmit,
     multiple: _multiple,
     ...ariaProps
   } = props;
@@ -197,6 +209,7 @@ function SelectMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownProps)
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
+    preventEnterSubmit: _preventEnterSubmit,
     multiple: _multiple,
     ...ariaProps
   } = props;
@@ -255,6 +268,7 @@ function SearchableSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps)
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
+    preventEnterSubmit: _preventEnterSubmit,
     "aria-label": ariaLabel,
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
@@ -321,6 +335,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
+    preventEnterSubmit = false,
     "aria-label": ariaLabel,
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
@@ -417,8 +432,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
                   id={id}
                   className="combobox-input"
                   placeholder={selected.length ? "" : placeholder}
-                  // 連續挑人時多按一下 Enter 不該變成送出整張表單（薪資試算就會直接開跑）。
-                  onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }}
+                  onKeyDown={preventEnterSubmit ? preventEnterDefault : undefined}
                   aria-label={ariaLabel}
                   aria-labelledby={ariaLabelledby}
                   aria-describedby={ariaDescribedby}

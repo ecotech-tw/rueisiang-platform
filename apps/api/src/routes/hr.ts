@@ -196,10 +196,11 @@ function employeeUserIds(input: Record<string, unknown>): string[] | undefined {
  * 所以這裡設得比全體還緊沒有保護到任何東西，只會讓人數多的公司沒辦法「全體扣掉一兩位」。
  */
 const MAX_PAYROLL_SELECTED_PEOPLE = 1000;
-function payrollWorkerIds(input: Record<string, unknown>): string[] | undefined {
-  if (input.workerIds === undefined) return undefined;
-  if (!Array.isArray(input.workerIds) || input.workerIds.length > MAX_PAYROLL_SELECTED_PEOPLE || input.workerIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.workerIds).size !== input.workerIds.length) throw new HTTPException(400, { message: "指定支援人員格式不正確。" });
-  return input.workerIds as string[];
+function payrollSelectedIds(input: Record<string, unknown>, key: "employeeUserIds" | "workerIds", message: string): string[] | undefined {
+  const ids = input[key];
+  if (ids === undefined) return undefined;
+  if (!Array.isArray(ids) || ids.length > MAX_PAYROLL_SELECTED_PEOPLE || ids.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(ids).size !== ids.length) throw new HTTPException(400, { message });
+  return ids as string[];
 }
 function bonusEmployeeAssignments(input: Record<string, unknown>): Array<{ employeeUserId: string; weightUnits: number }> | undefined {
   if (input.employeeAssignments === undefined) return undefined;
@@ -1062,17 +1063,14 @@ export const hr = new Hono<AppEnv>()
   .post("/payroll/calculate",  requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
-    const selectedUsers = input.employeeUserIds === undefined ? undefined : input.employeeUserIds;
-    if (selectedUsers !== undefined && (!Array.isArray(selectedUsers) || selectedUsers.length > MAX_PAYROLL_SELECTED_PEOPLE || selectedUsers.some((id) => typeof id !== "string" || !id))) {
-      throw new HTTPException(400, { message: "指定員工清單不正確。" });
-    }
-    const selectedWorkers = payrollWorkerIds(input);
+    const selectedUsers = payrollSelectedIds(input, "employeeUserIds", "指定員工清單不正確。");
+    const selectedWorkers = payrollSelectedIds(input, "workerIds", "指定支援人員格式不正確。");
     const mode = input.attendanceMode === undefined || input.attendanceMode === "all" || input.attendanceMode === "general" || input.attendanceMode === "scheduled" ? input.attendanceMode : null;
     if (mode === null) throw new HTTPException(400, { message: "員工出勤方式篩選不正確。" });
     const payDate = input.payDate === undefined ? undefined : date(input, "payDate");
     const runName = input.runName === undefined ? undefined : text(input, "runName", "結算名稱", 20);
     return c.json({ run: await calculateHrPayroll(c.get("db"), {
-      periodKey: periodKey(input), payDate: payDate ?? undefined, runName, employeeUserIds: selectedUsers as string[] | undefined, workerIds: selectedWorkers,
+      periodKey: periodKey(input), payDate: payDate ?? undefined, runName, employeeUserIds: selectedUsers, workerIds: selectedWorkers,
       attendanceMode: mode, requestId: input.requestId === undefined ? undefined : text(input, "requestId", "請求識別碼", 200),
       monthlyDivisorDays: optionalInteger(input, "monthlyDivisorDays", "月薪除數", 1, 366),
       standardDailyHours: input.standardDailyHours === undefined ? undefined : Number(input.standardDailyHours),

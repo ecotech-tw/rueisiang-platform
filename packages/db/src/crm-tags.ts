@@ -1,5 +1,6 @@
-import { and, asc, count, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { activityEvents } from "./schema/activity.js";
 import { crmCustomerTags, crmTags, crmCustomers } from "./schema/crm.js";
@@ -52,7 +53,7 @@ export async function replaceCustomerTags(db: Database, customerId: string, name
     await db.insert(crmTags).values({ id: crypto.randomUUID(), name }).onConflictDoNothing();
   }
   const tags = uniqueNames.length
-    ? await db.select({ id: crmTags.id }).from(crmTags).where(inArray(crmTags.name, uniqueNames))
+    ? await db.select({ id: crmTags.id }).from(crmTags).where(inJsonArray(crmTags.name, uniqueNames))
     : [];
   await db.delete(crmCustomerTags).where(eq(crmCustomerTags.customerId, customerId));
   if (tags.length) {
@@ -138,7 +139,7 @@ export async function applyTagChange(
       .select({ customerId: crmCustomerTags.customerId, name: crmTags.name })
       .from(crmCustomerTags)
       .innerJoin(crmTags, eq(crmTags.id, crmCustomerTags.crmTagId))
-      .where(inArray(crmCustomerTags.customerId, affected.map((customer) => customer.id)))
+      .where(inJsonArray(crmCustomerTags.customerId, affected.map((customer) => customer.id)))
     : [];
   const tagsByCustomer = new Map<string, string[]>();
   for (const row of allTags) {
