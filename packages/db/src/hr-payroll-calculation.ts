@@ -272,7 +272,7 @@ export interface HrPayrollRecordItemView {
 
 export interface HrPayrollRecordDetail {
   record: HrPayrollRecord;
-  run: Pick<HrPayrollRunResult, "runId" | "runName" | "periodKey" | "payDate" | "engineVersion" | "warnings">;
+  run: Pick<HrPayrollRunResult, "runId" | "runName" | "periodKey" | "payDate" | "engineVersion" | "warnings"> & { canDelete: boolean };
   employee: HrPayrollEmployeeResult | null;
   worker: HrPayrollRunResult["workers"][number] | null;
   items: HrPayrollRecordItemView[];
@@ -2312,6 +2312,13 @@ async function sourcePeriodIsClosed(db: Database, sourcePeriodKey: string) {
   return period?.status === "closed";
 }
 
+async function payrollRunHasClosedClaims(db: Database, runId: string) {
+  const [claims] = await db.all<{ count: number }>(sql`SELECT
+    (SELECT count(*) FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId}) +
+    (SELECT count(*) FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId}) AS count`);
+  return Number(claims?.count ?? 0) > 0;
+}
+
 async function payrollRecordIsClosed(db: Database, input: HrPayrollRecordReference, periodKey: string) {
   if (input.personKind === "employee") {
     const [claim] = await db.select({ closedAt: hrPayrollClosedEmployees.closedAt }).from(hrPayrollClosedEmployees)
@@ -2411,6 +2418,7 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
   if (!employee && !worker) throw new HrError(404, "找不到薪資發放紀錄。 ");
   const [run] = await db.select({ versionNumber: hrPayrollRuns.versionNumber, createdAt: hrPayrollRuns.createdAt, updatedAt: hrPayrollRuns.updatedAt, status: hrPayrollRuns.status }).from(hrPayrollRuns).where(eq(hrPayrollRuns.id, input.runId)).limit(1);
   if (!run) throw new HrError(404, "找不到薪資試算。 ");
+  const canDelete = run.status !== "closed" && !(await payrollRunHasClosedClaims(db, input.runId));
   const items = await listHrPayrollRecordItems(db, input);
   const earningItems = items.filter((item) => item.direction === "earning").reduce((sum, item) => sum + item.amountMinor, 0);
   const deductionItems = items.filter((item) => item.direction === "deduction").reduce((sum, item) => sum + item.amountMinor, 0);
@@ -2438,7 +2446,7 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
     createdAt: run.createdAt,
     closedAt: closedAt ?? (run.status === "closed" ? run.updatedAt : null),
   };
-  return { record, run: { runId: result.runId, runName: result.runName, periodKey: result.periodKey, payDate: result.payDate, engineVersion: result.engineVersion, warnings: result.warnings }, employee, worker, items };
+  return { record, run: { runId: result.runId, runName: result.runName, periodKey: result.periodKey, payDate: result.payDate, engineVersion: result.engineVersion, warnings: result.warnings, canDelete }, employee, worker, items };
 }
 
 export async function listHrPayrollRecordReferences(db: Database, runId: string): Promise<HrPayrollRecordReference[]> {
@@ -2577,10 +2585,7 @@ export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrA
     .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .where(eq(hrPayrollRuns.id, runId)).limit(1);
   if (!run) throw new HrError(404, "找不到薪資試算批次。 ");
-  const [claims] = await db.all<{ count: number }>(sql`SELECT
-    (SELECT count(*) FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId}) +
-    (SELECT count(*) FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId}) AS count`);
-  if (run.status === "closed" || Number(claims?.count ?? 0) > 0) throw new HrError(409, "已結帳／確定發放的薪資紀錄不可刪除，請使用薪資加扣項。 ");
+  if (run.status === "closed" || await payrollRunHasClosedClaims(db, runId)) throw new HrError(409, "已結帳／確定發放的薪資紀錄不可刪除，請使用薪資加扣項。 ");
 
   const mutations = [
     sql`DELETE FROM hr_payroll_record_items WHERE payroll_run_id=${runId} RETURNING id`,
@@ -2611,10 +2616,7 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
     .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId)).where(eq(hrPayrollRuns.id, runId)).limit(1);
   if (!run) throw new HrError(404, "找不到薪資試算批次。 ");
   if (run.status !== "ready") throw new HrError(409, "只有已完成試算的批次可以結帳。 ");
-  const [existingClaims] = await db.all<{ count: number }>(sql`SELECT
-    (SELECT count(*) FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId}) +
-    (SELECT count(*) FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId}) AS count`);
-  if (Number(existingClaims?.count ?? 0) > 0) throw new HrError(409, "此試算已有逐筆確定發放紀錄，請從發放紀錄完成剩餘人員。 ");
+  if (await payrollRunHasClosedClaims(db, runId)) throw new HrError(409, "此試算已有逐筆確定發放紀錄，請從發放紀錄完成剩餘人員。 ");
   if (run.expectedCount !== run.completedCount || run.periodStatus !== "open") throw new HrError(409, "薪資批次尚未完成或薪資期間已鎖定，不能結帳。 ");
   const payslipRows = await db.select({ employmentId: hrPayslips.employmentId }).from(hrPayslips).where(eq(hrPayslips.payrollRunId, runId));
   const employmentIds = payslipRows.map((row) => row.employmentId);

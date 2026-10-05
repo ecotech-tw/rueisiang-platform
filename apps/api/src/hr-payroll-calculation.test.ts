@@ -94,7 +94,8 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const itemBody = await item.json() as { id: string };
     const detail = await request(`/hr/payroll/records/${runId}/employee/${runRecords[0]!.personId}`);
     expect(detail.status, await detail.clone().text()).toBe(200);
-    const detailBody = await detail.json() as { record: { deductionMinor: number; netMinor: number }; items: Array<{ itemName: string }> };
+    const detailBody = await detail.json() as { record: { deductionMinor: number; netMinor: number }; run: { canDelete: boolean }; items: Array<{ itemName: string }> };
+    expect(detailBody.run.canDelete).toBe(true);
     expect(detailBody.record.deductionMinor).toBe(runRecords[0]!.deductionMinor + 1234);
     expect(detailBody.record.netMinor).toBe(runRecords[0]!.netMinor - 1234);
     expect(detailBody.items).toEqual(expect.arrayContaining([expect.objectContaining({ itemName: "薪資覆核扣款" })]));
@@ -107,6 +108,12 @@ describe("HR 薪資與櫃點獎金試算", () => {
       employmentId: runRecords[0]!.personId, sourcePeriodKey: "2026-07", effectivePeriodKey: "2026-08", reason: "已發放紀錄不可再調整", items: [{ itemName: "不應建立", amountMinor: 100 }],
     });
     expect(blockedAdjustment.status, await blockedAdjustment.clone().text()).toBe(409);
+    const partialDetail = await request(`/hr/payroll/records/${runId}/employee/${runRecords[1]!.personId}`);
+    expect(partialDetail.status, await partialDetail.clone().text()).toBe(200);
+    const partialDetailBody = await partialDetail.json() as { record: { status: string }; run: { canDelete: boolean } };
+    expect(partialDetailBody.record.status).toBe("unsettled");
+    expect(partialDetailBody.run.canDelete).toBe(false);
+
     const afterOne = await request(`/hr/payroll/records?periodKey=2026-08&status=all&pageSize=100`);
     const afterOneBody = await afterOne.json() as { records: Array<{ runId: string; personId: string; status: string }> };
     expect(afterOneBody.records.find((record) => record.runId === runId && record.personId === runRecords[0]!.personId)?.status).toBe("closed");
