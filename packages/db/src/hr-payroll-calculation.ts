@@ -48,7 +48,7 @@ import {
 } from "./schema/hr-payroll-runs.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments } from "./schema/hr-scheduling.js";
+import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 import { scopes } from "./schema/reports.js";
@@ -588,7 +588,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       .where(and(latestPublishedSchedule, inArray(hrScheduleWorkerEntries.workerId, workerIds), sql`${hrScheduleWorkerEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${input.period.end}`)),
     db.select().from(hrScheduleWorkers).where(workerFilter),
     db.select().from(hrWorkerCompensationVersions).where(and(inArray(hrWorkerCompensationVersions.workerId, workerIds), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
-    db.select().from(hrSpecialWorkdayAssignments).where(and(sql`${hrSpecialWorkdayAssignments.workDate} >= ${input.period.start}`, sql`${hrSpecialWorkdayAssignments.workDate} < ${input.period.end}`, or(inArray(hrSpecialWorkdayAssignments.employmentId, employmentIds), inArray(hrSpecialWorkdayAssignments.workerId, workerIds)))),
+    listHrSpecialWorkdaysForPayroll(db, input.period.start, input.period.end, { employmentIds: input.employmentIds, workerIds: input.workerIds }),
     db.select().from(hrBonusPolicyMembers).where(and(inArray(hrBonusPolicyMembers.employmentId, employmentIds), sql`${hrBonusPolicyMembers.validFrom} < ${input.period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.period.start})`)),
     db.select().from(hrBonusPolicyVersions).where(sql`${hrBonusPolicyVersions.id} IN (${relevantBonusVersionIds})`),
     db.select().from(hrBonusPolicies).where(sql`${hrBonusPolicies.id} IN (SELECT policy_id FROM hr_bonus_policy_versions WHERE id IN (${relevantBonusVersionIds}))`),
@@ -911,7 +911,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const missingWorkerCompensation = scheduledWorkerRows.flatMap((row) => !covering(workerCompensations.filter((item) => item.workerId === row.workerId), row.workDate) ? [`${row.workerName}（${row.workDate}）`] : []);
   if (missingWorkerCompensation.length) throw new HrError(400, `以下支援排班日期沒有有效薪資基準：${missingWorkerCompensation.slice(0, 10).join("、")}${missingWorkerCompensation.length > 10 ? "…" : ""}。`);
   const payrollAdjustments = await listHrPayrollAdjustmentsForPeriod(db, period.periodKey);
-  const specialWorkdays = await listHrSpecialWorkdaysForPayroll(db, period.start, period.end);
+  const specialWorkdays = await listHrSpecialWorkdaysForPayroll(db, period.start, period.end, {
+    employmentIds: employees.map((employee) => employee.employmentId),
+    workerIds: [...new Set(scheduledWorkerRows.map((row) => row.workerId))],
+  });
   const periodStartUtc = taipeiMidnightUtc(period.start);
   const periodEndUtc = taipeiMidnightUtc(period.end);
   const overtime = await db.select().from(hrOvertimeRequests).where(and(
@@ -1030,7 +1033,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const typhoonStop = typhoonStopTouchesRows(date, dateRows) && !special;
       if (special) {
         const hours = dateRows.reduce((sum, row) => sum + scheduledHours(row), 0);
-        if (!hours) calculationWarnings.add(`${workerName} 的特殊上班日 ${date} 缺少工時資料，薪資列為異常且不自動補 0。`);
+        const requiresHours = special.wageKindSnapshot === "fixed_hourly" || compensation.payBasis === "hourly";
+        if (!hours && requiresHours) calculationWarnings.add(`${workerName} 的特殊上班日 ${date} 缺少工時資料，薪資列為異常且不自動補 0。`);
         else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) amountMinor += Math.round(special.fixedAmountMinorSnapshot * hours);
         else if (special.multiplierPpmSnapshot !== null) {
           const baseAmount = compensation.payBasis === "monthly"
@@ -1090,7 +1094,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       return typhoonStopTouchesRows(day, rows);
     });
     const typhoonStopDateSet = new Set(typhoonStopDatesForEmployee);
-    if (employeeCompensations.some((item) => item.payBasis === "daily") && scheduledDates.size === 0) {
+    if (employeeCompensations.some((item) => item.payBasis === "daily") && scheduledDates.size === 0 && !specialDates.size) {
       calculationWarnings.add(`${employee.employeeName} 為日薪制但本期沒有已發布排班，薪資為 0。`);
     }
     for (const day of employmentDays) {
@@ -1113,7 +1117,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
             .where(and(eq(hrScheduleEntries.employmentId, employee.employmentId), eq(hrScheduleEntries.workDate, day), eq(hrScheduleVersions.status, "published"), eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end), sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`));
           hours = scheduleRows.reduce((sum, row) => sum + scheduledHours(row), 0);
         }
-        if (hours <= 0) calculationWarnings.add(`${employee.employeeName} 的特殊上班日 ${day} 缺少工時資料，薪資列為異常且不自動補 0。`);
+        const requiresHours = special.wageKindSnapshot === "fixed_hourly" || compensation.payBasis === "hourly";
+        if (hours <= 0 && requiresHours) calculationWarnings.add(`${employee.employeeName} 的特殊上班日 ${day} 缺少工時資料，薪資列為異常且不自動補 0。`);
         else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) {
           const amount = Math.round(special.fixedAmountMinorSnapshot * hours);
           specialMinor += amount;
@@ -1435,7 +1440,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       for (const segment of splitOvertimeByTaipeiDate(clippedStart, clippedEnd)) {
         if (!employmentDaySet.has(segment.date)) continue;
         const special = specialAssignments.find((item) => item.workDate === segment.date);
-        if (special) specialWorkdayRuleSnapshots.set(`${segment.date}:${special.ruleVersionId}`, {
+        if (special?.ruleVersionId) specialWorkdayRuleSnapshots.set(`${segment.date}:${special.ruleVersionId}`, {
           workDate: segment.date,
           ruleVersionId: special.ruleVersionId,
           overtimeRules: special.overtimeRules.map((rule) => ({ fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.fixedAmountMinor, multiplierPpm: rule.multiplierPpm })),
