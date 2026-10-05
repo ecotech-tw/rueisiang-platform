@@ -95,10 +95,14 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     setSelectedWorkerIds((current) => current.filter((workerId) => availableWorkerIds.has(workerId)));
   }, [workerOptions]);
 
-  function setAllPeople(checked: boolean) {
-    setSelectionMode(checked ? "all" : "selected");
-    setSelectedEmployeeIds(checked ? employees.map((employee) => employee.userId) : []);
-    setSelectedWorkerIds(checked ? workerOptions.map((worker) => worker.id) : []);
+  /*
+   * 「全選」不能只靠把人一個一個加回去：指定名單有人數上限，超過上限的公司少選一個人之後，
+   * 剩下那位在清單裡會是停用的，加不回來。全體模式不送名單、也不受上限限制，所以要留一個入口回得去。
+   */
+  function selectAllPeople() {
+    setSelectionMode("all");
+    setSelectedEmployeeIds(employees.map((employee) => employee.userId));
+    setSelectedWorkerIds(workerOptions.map((worker) => worker.id));
   }
   function updateSelection(nextEmployeeIds: string[], nextWorkerIds: string[]) {
     setSelectedEmployeeIds(nextEmployeeIds);
@@ -149,11 +153,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
       <TextField type="date" label="發薪日（選填）" value={payDate} onChange={(event) => setPayDate(event.target.value)} />
     </div>
     <div className="hr-payroll-employee-picker-section">
-      <div className="hr-payroll-picker-heading"><div><strong>試算人員</strong><small>每位人員會在發放紀錄建立一筆資料，可選全體或指定人員。</small></div><span className="hr-payroll-picker-count">已選 {selectedCount} 人</span></div>
-      <label className={`hr-payroll-employee-option hr-payroll-employee-option-all${selectionMode === "all" ? " selected" : ""}`}>
-        <input type="checkbox" checked={selectionMode === "all"} onChange={(event) => setAllPeople(event.target.checked)} />
-        <span><strong>全體人員</strong><small>納入全部符合資格的員工與本月有排班的支援人員</small></span>
-      </label>
+      <div className="hr-payroll-picker-heading"><div><strong>試算人員</strong><small>每位人員會在發放紀錄建立一筆資料；預設納入全部符合資格的員工與本月有排班的支援人員，可移除不試算的人。</small></div><span className="flex flex-none items-center gap-2"><Button variant="link" onClick={selectAllPeople} disabled={selectionMode === "all" || peopleCount === 0 || calculatePayroll.isPending}>全選</Button><span className="hr-payroll-picker-count">{selectionMode === "all" ? `全體 ${selectedCount} 人` : `已選 ${selectedCount} 人`}</span></span></div>
       <div className="hr-payroll-employee-picker" role="group" aria-label="選擇員工與支援人員">
         <div className="hr-payroll-picker-group">
           <strong className="hr-payroll-picker-group-title">正式員工</strong>
