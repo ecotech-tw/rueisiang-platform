@@ -3,11 +3,14 @@ import { Select } from "@base-ui/react/select";
 import type { ChangeEventHandler } from "react";
 import { useLocation } from "react-router";
 import { Icon } from "../shell/icons.js";
+import { Tooltip } from "./Tooltip.js";
 
 export interface DropdownSelectOption {
   label: string;
   value: string;
   disabled?: boolean;
+  /** 多選 chip 上的短名。清單要靠編號與職稱分辨人，選完之後只需要認得是誰；完整的 label 放在提示裡。 */
+  chipLabel?: string;
 }
 
 export interface DropdownSelectMultipleChangeEvent {
@@ -324,7 +327,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
               <Combobox.Chips aria-label={ariaLabel ?? "已選項目"} className="dropdown-combobox-chips">
                 {selected.map((option) => (
                   <Combobox.Chip key={option.value} className="dropdown-combobox-chip" aria-description="按 Backspace 或 Delete 移除">
-                    <span>{option.label}</span>
+                    {option.chipLabel ? <Tooltip label={option.label} focusable={false}>{option.chipLabel}</Tooltip> : <span>{option.label}</span>}
                     <Combobox.ChipRemove aria-label={`移除${option.label}`} className="dropdown-combobox-chip-remove"><Icon name="close" /></Combobox.ChipRemove>
                   </Combobox.Chip>
                 ))}

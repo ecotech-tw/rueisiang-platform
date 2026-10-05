@@ -161,7 +161,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             multiple
             searchable
             value={selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds}
-            options={employees.map((employee) => ({ value: employee.userId, label: `${hrEmployeeLabel(employee)}・${employee.position || "未設定職位"}`, disabled: selectionMode !== "all" && selectedEmployeeIds.length >= MAX_PAYROLL_SELECTED_EMPLOYEES && !selectedEmployeeIds.includes(employee.userId) }))}
+            options={employees.map((employee) => ({ value: employee.userId, label: `${hrEmployeeLabel(employee)}・${employee.position || "未設定職位"}`, chipLabel: employee.legalName, disabled: selectionMode !== "all" && selectedEmployeeIds.length >= MAX_PAYROLL_SELECTED_EMPLOYEES && !selectedEmployeeIds.includes(employee.userId) }))}
             placeholder="搜尋姓名或員工編號"
             aria-label="選擇正式員工"
             disabled={calculatePayroll.isPending}

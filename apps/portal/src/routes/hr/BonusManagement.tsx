@@ -75,7 +75,7 @@ export function HrBonusManagement() {
     ...(employees.data?.employees ?? []).map((employee) => ({
       employeeNumber: employee.employeeNumber,
       legalName: employee.legalName,
-      option: { label: hrEmployeeLabel(employee), value: employee.userId, disabled: false },
+      option: { label: hrEmployeeLabel(employee), chipLabel: employee.legalName, value: employee.userId, disabled: false },
     })),
     ...(assignmentsByVersion.get(editingPolicyVersionId ?? "") ?? []).filter((assignment) => !activeEmployeeIds.has(assignment.employeeUserId)).map((assignment) => ({
       employeeNumber: assignment.employeeNumber,
