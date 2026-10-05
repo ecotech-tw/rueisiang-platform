@@ -263,7 +263,7 @@ export function HrClockCorrectionForm() {
 
   const approverOptions = [
     { label: "請選擇審核者", value: "" },
-    ...(approvers.data?.approvers ?? []).map((approver) => ({ label: approver.name, value: approver.id })),
+    ...(approvers.data?.approvers ?? []).map((approver) => ({ label: approver.employeeNumber ? `${approver.employeeNumber}・${approver.name}` : approver.name, value: approver.id })),
   ];
   return <div className="page hr-form-page">
     <PageHeader title="補打卡申請單" description="補登實際應出勤時間，送出後由指定審核者確認。" />
@@ -275,7 +275,7 @@ export function HrClockCorrectionForm() {
           <TextField label="補打卡時間" required type="time" value={requestedTime} onChange={(event) => setRequestedTime(event.target.value)} />
         </div>
         <SelectField label="補登類型" required value={requestedEventKind} onChange={(event) => setRequestedEventKind(event.target.value as "clock_in" | "clock_out")} options={[{ label: "上班打卡", value: "clock_in" }, { label: "下班打卡", value: "clock_out" }]} />
-        <SelectField label="審核者" required value={approverUserId} onChange={(event) => setApproverUserId(event.target.value)} options={approverOptions} hint={approvers.data?.defaultApproverUserId ? "預設帶入後台設定的員工主管，可依需要改選其他審核者。" : "尚未設定員工主管，請先選擇一位啟用中的員工審核。"} />
+        <SelectField label="審核者" required value={approverUserId} searchable onChange={(event) => setApproverUserId(event.target.value)} options={approverOptions} hint={approvers.data?.defaultApproverUserId ? "預設帶入後台設定的員工主管，可依需要改選其他審核者。" : "尚未設定員工主管，請先選擇一位啟用中的員工審核。"} />
         <Field label="申請原因" required hint="最多 1000 字，請說明未能正常打卡的原因。">
           <textarea required maxLength={1000} rows={5} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：手機當日故障，抵達辦公位置後無法完成打卡。" />
         </Field>

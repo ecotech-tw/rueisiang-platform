@@ -2110,6 +2110,16 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .combobox-group { position: relative; display: flex; align-items: center; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-canvas); }
 .combobox-group:focus-within { border-color: var(--color-brand); box-shadow: 0 0 0 3px --alpha(var(--color-brand) / 14%); }
 .combobox-input { min-width: 0; flex: 1; border: 0 !important; outline: 0; background: transparent; padding-right: 44px !important; }
+.dropdown-combobox { width: 100%; min-height: var(--size-field); }
+.dropdown-combobox .combobox-input { min-height: calc(var(--size-field) - 2px); padding: 10px 52px 10px 12px !important; color: var(--color-ink); font: inherit; }
+.dropdown-combobox-multiple { align-items: stretch; }
+.dropdown-combobox-chips { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 76px 4px 8px; }
+.dropdown-combobox-chips .combobox-input { min-width: 90px; padding: 6px 0 !important; }
+.dropdown-combobox-chip { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: 4px; padding: 4px 6px 4px 9px; border-radius: 7px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 12px; font-weight: 700; }
+.dropdown-combobox-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dropdown-combobox-chip-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; padding: 1px; border: 0; border-radius: 50%; background: transparent; color: currentColor; cursor: pointer; }
+.dropdown-combobox-chip-remove:hover { background: --alpha(var(--color-brand) / 14%); }
+.dropdown-combobox-chip-remove svg { width: 13px; height: 13px; }
 .combobox-clear { position: absolute; right: 34px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 8px 4px; cursor: pointer; }
 .combobox-clear svg { width: 16px; height: 16px; }
 .combobox-trigger { position: absolute; right: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 10px 14px; cursor: pointer; }
@@ -2233,7 +2243,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-bonus-member-field { min-width: 0; }
 .hr-bonus-picker-list { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-paper); }
 .hr-bonus-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
-.hr-bonus-employee-row { grid-template-columns: minmax(0, 1fr) 116px 44px; }
+.hr-bonus-employee-row { grid-template-columns: minmax(0, 1fr) 116px; }
+.hr-bonus-selected-employee { min-width: 0; overflow: hidden; color: var(--color-ink); font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .hr-bonus-picker-row .select-trigger { width: 100%; min-width: 0; }
 .hr-bonus-picker-row .icon-button { justify-self: end; }
 .hr-bonus-picker-list > .chip-action { justify-self: start; }

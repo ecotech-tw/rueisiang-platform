@@ -36,7 +36,16 @@ export interface InsuranceVersion { id: string; employmentId: string; scheme: "l
 export interface LeaveRequest { id: string; employmentId: string; leaveType: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number; payRatePpm?: number; reason: string; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string | null; createdAt: string; createdBy: string }
 export interface AttendanceEvent { id: string; eventKind: "clock_in" | "clock_out"; occurredAt: string; locationName: string | null; scopeName?: string | null; distanceMeters: number | null; sourceKind?: string; manualReason?: string; recordedBy?: string | null }
 export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; /** 只有出勤讀取權限時不回傳。 */ assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[]; compensation?: CompensationVersion[]; insurance?: InsuranceVersion[]; leave?: LeaveRequest[]; attendanceEvents?: AttendanceEvent[] }
-export interface NamedOption { id: string; name: string }
+
+const employeeNumberCollator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+export function sortHrEmployees<T extends Pick<Employee, "employeeNumber" | "legalName">>(employees: readonly T[]): T[] {
+  return [...employees].sort((left, right) => employeeNumberCollator.compare(left.employeeNumber, right.employeeNumber) || left.legalName.localeCompare(right.legalName, "zh-Hant"));
+}
+export function hrEmployeeLabel(employee: Pick<Employee, "employeeNumber" | "legalName">): string {
+  return `${employee.employeeNumber}・${employee.legalName}`;
+}
+
+export interface NamedOption { id: string; name: string; employeeNumber?: string }
 export interface Candidate { userId: string; displayName: string; email: string; status: "invited" | "active" }
 export interface InsuranceBracket { level: number; lowerSalary: number; upperSalary: number | null; insuredAmount: number }
 export interface InsuranceBracketTable { scheme: "labor" | "health"; year: number; sourceUrl: string; fetchedAt: string; brackets: InsuranceBracket[] }
@@ -143,7 +152,7 @@ export interface FormRequest {
   createdAt: string;
   updatedAt: string;
 }
-export interface FormApprover { id: string; name: string }
+export interface FormApprover { id: string; name: string; employeeNumber?: string }
 export interface HrOvertimeRequest { request: { id: string; employmentId: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; reviewedBy?: string | null; reviewedAt?: string | null; decisionReason: string; createdBy?: string; createdAt: string }; employeeUserId?: string; employeeName: string | null; employeeNumber: string | null }
 export interface HrLeaveType { id: string; name: string; leaveKind: "annual" | "other"; defaultPayRatePpm: number; active: number; createdBy: string; createdAt: string; updatedAt: string }
 export interface HrLeaveDurationResponse { startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number }
@@ -165,7 +174,7 @@ export interface PayrollRun { runId: string; runName: string; periodKey: string;
 export type BonusKind = "team_performance" | "individual_performance";
 export type PerformancePeriod = "current_month" | "previous_month";
 export interface BonusPolicy { policyVersionId: string; policyId: string; policyName: string; versionNumber: number; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; scopes?: Array<{ id: string; name: string }>; bonusKind: BonusKind; performancePeriod: PerformancePeriod; ratePpm: number; guaranteeMinor: number; validFrom: string; validTo: string | null; isLatest?: boolean }
-export interface BonusAssignment { assignment: { id: string; employmentId: string; validFrom: string; validTo: string | null; weightUnits: number }; policyVersionId: string; policyName: string; bonusKind: BonusKind; performancePeriod: PerformancePeriod; employeeUserId: string; employeeNumber: string; employeeName: string }
+export interface BonusAssignment { assignment: { id: string; employmentId: string; validFrom: string; validTo: string | null; weightUnits: number }; policyVersionId: string; policyName: string; bonusKind: BonusKind; performancePeriod: PerformancePeriod; employeeUserId: string; employeeNumber: string; employeeName: string; employmentStatus: "active" | "inactive" }
 export interface BonusPerformanceSnapshot { snapshot: { id: string; employmentId: string | null; periodStart: string; periodEnd: string; amountMinor: number; sourceKind: "manual" | "report"; sourceRef: string }; scopeName: string; employeeUserId: string | null; employeeName: string | null }
 export interface PayrollRunSummary { run: { id: string; runName: string; versionNumber: number; status: string; payDate: string | null; engineVersion: string; expectedCount: number; completedCount: number; createdAt: string }; periodKey: string; periodStatus: string }
 export interface PayrollEmployeeHistoryRecord { runId: string; runName: string; periodKey: string; versionNumber: number; payDate: string | null; employmentId: string; employeeNumber: string; employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; closedAt: string }
@@ -297,7 +306,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
  * 用 employable 而不是 active：邀請中的員工還沒登入過平台，但照樣要敘薪、加保、算薪水。
  */
 function hrRosterPagePath(page: number) {
-  return `/employees?page=${page}&pageSize=100&status=employable&employmentStatus=active&sortField=name&sortDirection=asc`;
+  return `/employees?page=${page}&pageSize=100&status=employable&employmentStatus=active&sortField=employeeNumber&sortDirection=asc`;
 }
 export const HR_ROSTER_PATH = hrRosterPagePath(1);
 interface HrAssignableEmployee extends Employee { employmentId: string }
@@ -311,16 +320,17 @@ interface HrEmployeeRosterResponse {
 }
 async function requestAllHrAssignableEmployees(signal?: AbortSignal): Promise<HrEmployeeRosterResponse> {
   const first = await request<HrEmployeeRosterResponse>(HR_ROSTER_PATH, { signal });
-  if (!first.hasMore) return first;
+  if (!first.hasMore) return { ...first, employees: sortHrEmployees(first.employees) };
   const pageCount = Math.ceil(first.total / first.pageSize);
   const remaining = await Promise.all(Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => request<HrEmployeeRosterResponse>(hrRosterPagePath(index + 2), { signal })));
-  return { ...first, employees: [first, ...remaining].flatMap((page) => page.employees), hasMore: false };
+  return { ...first, employees: sortHrEmployees([first, ...remaining].flatMap((page) => page.employees)), hasMore: false };
 }
 /** 特殊上班日的批次套用需要完整名單，不能只拿共用 roster 的第一頁。 */
-export function useHrEmployeeRoster() {
+export function useHrEmployeeRoster(enabled = true) {
   return useQuery({
     queryKey: ["hr", "employees", "assignable-roster"],
     queryFn: ({ signal }) => requestAllHrAssignableEmployees(signal),
+    enabled,
     retry: false,
   });
 }

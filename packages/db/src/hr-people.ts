@@ -101,6 +101,15 @@ const EMPLOYEE_SORT_COLUMNS = {
   email: users.email,
   status: users.status,
 } as const;
+
+/** Employee numbers are usually a prefix plus a numeric suffix (E2, E10). Keep paginated SQL results in the same natural order as the UI. */
+export function hrEmployeeNumberOrder(direction: "asc" | "desc" = "asc") {
+  const prefix = sql<string>`CASE WHEN ${hrEmployments.employeeNumber} GLOB '*[0-9]' THEN rtrim(${hrEmployments.employeeNumber}, '0123456789') ELSE ${hrEmployments.employeeNumber} END`;
+  const suffix = sql<number>`CASE WHEN ${hrEmployments.employeeNumber} GLOB '*[0-9]' THEN CAST(substr(${hrEmployments.employeeNumber}, length(rtrim(${hrEmployments.employeeNumber}, '0123456789')) + 1) AS INTEGER) ELSE -1 END`;
+  return direction === "asc"
+    ? [asc(prefix), asc(suffix), asc(hrEmployments.employeeNumber)]
+    : [desc(prefix), desc(suffix), desc(hrEmployments.employeeNumber)];
+}
 export type HrEmployeeSortField = keyof typeof EMPLOYEE_SORT_COLUMNS;
 export const HR_EMPLOYEE_PAGE_SIZES = [10, 25, 50, 100] as const;
 export type HrEmploymentStatus = "active" | "inactive";
@@ -165,14 +174,16 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) 
   ];
   const where = and(...conditions);
   const sortColumn = EMPLOYEE_SORT_COLUMNS[query.sortField];
-  const orderColumn = query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn);
+  const orderColumns = query.sortField === "employeeNumber"
+    ? hrEmployeeNumberOrder(query.sortDirection)
+    : [query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn), asc(hrEmployments.employeeNumber)];
   const selectFields = { ...employeeFields, employmentStatus: employmentStatusExpression() };
   const baseConditions = conditions.filter((condition) => condition !== employmentStatusCondition);
   const activeWhere = and(...baseConditions, activeCondition);
   const inactiveWhere = and(...baseConditions, sql`NOT (${activeCondition})`);
   const [employees, [totalRow], [activeRow], [inactiveRow]] = await Promise.all([
     db.select(selectFields).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-      .where(where).orderBy(orderColumn, asc(hrEmployments.employeeNumber), asc(hrEmployments.employeeUserId))
+      .where(where).orderBy(...orderColumns, asc(hrEmployments.employeeUserId))
       .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
     db.select({ value: count() }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(where),
     db.select({ value: count() }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(activeWhere),
@@ -183,9 +194,9 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) 
 }
 
 export async function listHrSupervisorCandidates(db: Database, userId: string) {
-  return db.select({ id: hrEmployments.employeeUserId, name: hrEmployeeName }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+  return db.select({ id: hrEmployments.employeeUserId, name: hrEmployeeName, employeeNumber: hrEmployments.employeeNumber }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(and(isNull(hrEmployments.archivedAt), ne(hrEmployments.employeeUserId, userId), eq(users.status, "active")))
-    .orderBy(asc(hrEmployeeName));
+    .orderBy(...hrEmployeeNumberOrder(), asc(hrEmployeeName));
 }
 
 export interface HrEmployeeDetailOptions {

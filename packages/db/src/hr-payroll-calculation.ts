@@ -2045,17 +2045,18 @@ export async function listHrBonusAssignments(db: Database) {
     employeeUserId: sql<string>`${hrEmployments.employeeUserId}`.as("bonus_assignment_employee_user_id"),
     employeeNumber: sql<string>`${hrEmployments.employeeNumber}`.as("bonus_assignment_employee_number"),
     employeeName: displayName,
+    employmentStatus: sql<"active" | "inactive">`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 'active' ELSE 'inactive' END`.as("bonus_assignment_employment_status"),
   }).from(hrBonusPolicyMembers)
     .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPolicyMembers.policyVersionId))
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrBonusPolicyMembers.employmentId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(and(sql`${hrEmployments.archivedAt} IS NULL`, sql`${hrBonusPolicyVersions.voidedAt} IS NULL`))
+    .where(sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)
     .orderBy(desc(hrBonusPolicyMembers.createdAt));
   return rows.map((row) => ({
     assignment: { id: row.assignmentId, employmentId: row.assignmentEmploymentId, validFrom: row.validFrom, validTo: row.validTo, weightUnits: row.weightUnits },
     policyVersionId: row.policyVersionId, policyName: row.policyName, bonusKind: normalizeBonusKind(row.bonusKind), performancePeriod: row.performancePeriod,
-    employeeUserId: row.employeeUserId, employeeNumber: row.employeeNumber, employeeName: row.employeeName,
+    employeeUserId: row.employeeUserId, employeeNumber: row.employeeNumber, employeeName: row.employeeName, employmentStatus: row.employmentStatus,
   }));
 }
 

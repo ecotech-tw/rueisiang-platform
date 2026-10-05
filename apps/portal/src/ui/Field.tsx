@@ -1,5 +1,5 @@
-import type { InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
-import { DropdownSelect } from "./DropdownSelect.js";
+import type { ChangeEventHandler, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
+import { DropdownSelect, type DropdownSelectMultipleChangeEvent } from "./DropdownSelect.js";
 
 interface FieldProps {
   label?: ReactNode;
@@ -33,10 +33,31 @@ export function TextField({ label, required, hint, error, inputClassName = "", .
   );
 }
 
-interface SelectFieldProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "className" | "children">, Omit<FieldProps, "children" | "className"> {
+type SelectFieldCommonProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "className" | "children" | "value" | "defaultValue" | "multiple" | "onChange"> & Omit<FieldProps, "children" | "className"> & {
   options: readonly { label: string; value: string }[];
   selectClassName?: string;
-}
+  searchable?: boolean;
+};
+
+type SelectFieldProps = SelectFieldCommonProps & ({
+  multiple?: false;
+  value?: string | number;
+  defaultValue?: string | number;
+  onChange?: ChangeEventHandler<HTMLSelectElement>;
+  onValueChange?: (value: string) => void;
+} | {
+  multiple: true;
+  value?: readonly string[];
+  defaultValue?: readonly string[];
+  onChange?: (event: DropdownSelectMultipleChangeEvent) => void;
+  onValueChange?: (value: string[]) => void;
+} | {
+  multiple: boolean;
+  value?: string | number | readonly string[];
+  defaultValue?: string | number | readonly string[];
+  onChange?: ChangeEventHandler<HTMLSelectElement> | ((event: DropdownSelectMultipleChangeEvent) => void);
+  onValueChange?: ((value: string) => void) | ((value: string[]) => void);
+});
 
 export function SelectField({
   label,
@@ -45,12 +66,15 @@ export function SelectField({
   error,
   options,
   selectClassName = "",
+  searchable = false,
+  multiple = false,
   value,
   defaultValue,
   disabled,
   name,
   id,
   onChange,
+  onValueChange,
   "aria-label": ariaLabel,
   "aria-labelledby": ariaLabelledby,
   "aria-describedby": ariaDescribedby,
@@ -59,14 +83,17 @@ export function SelectField({
     <Field label={label} required={required} hint={hint} error={error}>
       <DropdownSelect
         options={options}
-        value={value as string | undefined}
-        defaultValue={defaultValue as string | undefined}
+        multiple={multiple}
+        value={value}
+        defaultValue={defaultValue}
         disabled={disabled}
         required={required}
         name={name}
         id={id}
         className={selectClassName}
+        searchable={searchable}
         onChange={onChange}
+        onValueChange={onValueChange}
         aria-label={ariaLabel}
         aria-labelledby={ariaLabelledby}
         aria-describedby={ariaDescribedby}

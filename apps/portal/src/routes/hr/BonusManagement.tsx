@@ -6,10 +6,9 @@ import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type BonusAssignment, type BonusPolicy, type Employee, type NamedOption } from "./api.js";
+import { hrEmployeeLabel, sortHrEmployees, useHrEmployeeRoster, useHrQuery, useHrWrite, type BonusAssignment, type BonusPolicy, type NamedOption } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
-interface EmployeeListResponse { employees: Employee[] }
 interface PolicyResponse { policies: BonusPolicy[]; total: number; page: number; pageSize: number; hasMore: boolean }
 interface AssignmentResponse { assignments: BonusAssignment[] }
 interface ScopeResponse { scopes: NamedOption[] }
@@ -17,6 +16,7 @@ interface PolicyWriteResult { policyId: string; policyVersionId: string; assignm
 
 const BONUS_KIND_LABEL = { team_performance: "團體績效", individual_performance: "個人績效" } as const;
 const PERIOD_LABEL = { current_month: "當月業績", previous_month: "前月業績" } as const;
+const MAX_BONUS_EMPLOYEES = 80;
 
 function money(minor: number): string {
   return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`;
@@ -57,7 +57,7 @@ export function HrBonusManagement() {
   // 第一版沒有可以回去的上一版；整個獎金設錯要用刪除，不是解除。
   const canVoidEditingPolicy = editingPolicy !== null && editingPolicy.versionNumber > 1 && editingPolicy.isLatest !== false;
 
-  const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, canRead && permissions.has("hr:employee:read"));
+  const employees = useHrEmployeeRoster(canRead && permissions.has("hr:employee:read"));
   const scopes = useHrQuery<ScopeResponse>("/scopes", canRead && permissions.has("hr:employee:read"));
   const policies = useHrQuery<PolicyResponse>(`/bonus/policies?page=${filters.page}&pageSize=${filters.pageSize}&search=${encodeURIComponent(filters.search)}&scopeId=${encodeURIComponent(filters.scopeId)}&bonusKind=${filters.bonusKind}&performancePeriod=${filters.performancePeriod}`, canRead);
   const assignments = useHrQuery<AssignmentResponse>("/bonus/assignments", canRead);
@@ -68,10 +68,26 @@ export function HrBonusManagement() {
   if (!canRead) return <Alert tone="danger">獎金資料僅限全平台 HR 管理者查看。</Alert>;
   if (policies.isPending || assignments.isPending || employees.isPending || scopes.isPending) return <HrPageSkeleton variant="table" />;
 
-  const employeeOptions = (employees.data?.employees ?? []).map((employee) => ({ label: `${employee.legalName}（${employee.employeeNumber}）`, value: employee.userId }));
-  const scopeOptions = (scopes.data?.scopes ?? []).map((scope) => ({ label: scope.name, value: scope.id }));
   const assignmentsByVersion = new Map<string, BonusAssignment[]>();
   for (const item of assignments.data?.assignments ?? []) assignmentsByVersion.set(item.policyVersionId, [...(assignmentsByVersion.get(item.policyVersionId) ?? []), item]);
+  const activeEmployeeIds = new Set((employees.data?.employees ?? []).map((employee) => employee.userId));
+  const baseEmployeeOptions = sortHrEmployees([
+    ...(employees.data?.employees ?? []).map((employee) => ({
+      employeeNumber: employee.employeeNumber,
+      legalName: employee.legalName,
+      option: { label: hrEmployeeLabel(employee), value: employee.userId, disabled: false },
+    })),
+    ...(assignmentsByVersion.get(editingPolicyVersionId ?? "") ?? []).filter((assignment) => !activeEmployeeIds.has(assignment.employeeUserId)).map((assignment) => ({
+      employeeNumber: assignment.employeeNumber,
+      legalName: assignment.employeeName,
+      option: { label: `${assignment.employeeNumber}・${assignment.employeeName}（目前不在職）`, value: assignment.employeeUserId, disabled: true },
+    })),
+  ]).map((item) => item.option);
+  const selectedActiveEmployeeCount = selectedEmployeeIds.filter((employeeUserId) => activeEmployeeIds.has(employeeUserId)).length;
+  const employeeOptions = baseEmployeeOptions.map((option) => option.disabled || selectedActiveEmployeeCount < MAX_BONUS_EMPLOYEES || selectedEmployeeIds.includes(option.value)
+    ? option
+    : { ...option, disabled: true });
+  const scopeOptions = (scopes.data?.scopes ?? []).map((scope) => ({ label: scope.name, value: scope.id }));
 
   function fail(cause: Error) { setError(cause.message); }
   function succeed(text: string) { setError(null); toast.show(text); }
@@ -141,35 +157,11 @@ export function HrBonusManagement() {
   function removeScope(index: number) {
     setPolicyScopeIds((current) => current.filter((_, currentIndex) => currentIndex !== index));
   }
-  function addEmployee() {
-    const next = employeeOptions.find((employee) => !selectedEmployeeIds.includes(employee.value));
-    if (!next) return;
-    setSelectedEmployeeIds((current) => [...current, next.value]);
-    setSelectedEmployeeWeights((current) => ({ ...current, [next.value]: current[next.value] ?? "1" }));
-  }
-  function updateEmployee(index: number, employeeUserId: string) {
-    setSelectedEmployeeIds((current) => {
-      const previous = current[index];
-      const nextIds = current.map((value, currentIndex) => currentIndex === index ? employeeUserId : value);
-      setSelectedEmployeeWeights((weights) => {
-        const next = { ...weights, [employeeUserId]: weights[employeeUserId] ?? (previous ? weights[previous] : undefined) ?? "1" };
-        if (previous && previous !== employeeUserId) delete next[previous];
-        return next;
-      });
-      return nextIds;
-    });
-  }
-  function removeEmployee(index: number) {
-    setSelectedEmployeeIds((current) => {
-      const employeeUserId = current[index];
-      setSelectedEmployeeWeights((weights) => {
-        if (!employeeUserId) return weights;
-        const next = { ...weights };
-        delete next[employeeUserId];
-        return next;
-      });
-      return current.filter((_, currentIndex) => currentIndex !== index);
-    });
+  function updateEmployees(nextIds: string[]) {
+    const order = new Map(employeeOptions.map((employee, index) => [employee.value, index]));
+    const sortedIds = [...nextIds].sort((left, right) => (order.get(left) ?? Number.MAX_SAFE_INTEGER) - (order.get(right) ?? Number.MAX_SAFE_INTEGER));
+    setSelectedEmployeeIds(sortedIds);
+    setSelectedEmployeeWeights((current) => Object.fromEntries(sortedIds.map((employeeUserId) => [employeeUserId, current[employeeUserId] ?? "1"])));
   }
   function updateEmployeeWeight(employeeUserId: string, value: string) {
     setSelectedEmployeeWeights((current) => ({ ...current, [employeeUserId]: value }));
@@ -181,6 +173,9 @@ export function HrBonusManagement() {
     const amount = Number(guarantee);
     if (!Number.isFinite(rate) || rate < 0 || rate > 100 || !Number.isSafeInteger(amount) || amount < 0) { setError("請輸入有效的百分比與保底金額。"); return; }
     if (!policyScopeIds.length) { setError("至少選擇一個適用 Scope。"); return; }
+    const inactiveEmployeeIds = selectedEmployeeIds.filter((employeeUserId) => !activeEmployeeIds.has(employeeUserId));
+    if (inactiveEmployeeIds.length) { setError("目前不在職的員工不能套用到新版本，請先從選擇清單移除。 "); return; }
+    if (selectedEmployeeIds.length > MAX_BONUS_EMPLOYEES) { setError(`一次最多選擇 ${MAX_BONUS_EMPLOYEES} 位員工。`); return; }
     const employeeAssignments = selectedEmployeeIds.map((employeeUserId) => ({ employeeUserId, weightUnits: Number(selectedEmployeeWeights[employeeUserId] ?? "1") }));
     if (bonusKind === "team_performance" && employeeAssignments.some((assignment) => !Number.isSafeInteger(assignment.weightUnits) || assignment.weightUnits < 1 || assignment.weightUnits > 1000)) { setError("團體績效的員工權重必須是 1～1000 的整數。"); return; }
     const assignmentValues = bonusKind === "team_performance" ? { employeeAssignments, assignmentValidFrom } : { employeeUserIds: selectedEmployeeIds, assignmentValidFrom };
@@ -245,10 +240,10 @@ export function HrBonusManagement() {
         <TextField label="百分比（%）" type="number" min="0" max="100" step="0.01" value={ratePercent} required onChange={(event) => setRatePercent(event.target.value)} />
         <TextField label="保底金額（元）" type="number" min="0" step="1" value={guarantee} required onChange={(event) => setGuarantee(event.target.value)} />
         <>
-          <div className="field hr-bonus-member-field"><span>{editingPolicyVersionId ? "套用員工與權重" : "建立時套用員工"}</span><small>{bonusKind === "team_performance" ? "按新增後選擇員工並調整分配權重；保存時會按這份清單建立套用紀錄。" : "按新增後選擇員工；個人績效不使用分配權重。"}</small><div className="hr-bonus-picker-list">{selectedEmployeeIds.map((employeeUserId, index) => {
+          <div className="field hr-bonus-member-field"><span>{editingPolicyVersionId ? "套用員工與權重" : "建立時套用員工"}</span><small>{bonusKind === "team_performance" ? "可複選員工，再調整每位員工的分配權重；保存時會按這份清單建立套用紀錄。" : "可複選員工；個人績效不使用分配權重。"}</small><div className="hr-bonus-picker-list"><DropdownSelect multiple searchable value={selectedEmployeeIds} aria-label="選擇套用員工" placeholder="搜尋姓名或員工編號" options={employeeOptions} onValueChange={updateEmployees} />{selectedEmployeeIds.some((employeeUserId) => !activeEmployeeIds.has(employeeUserId)) ? <p className="muted hr-bonus-picker-empty">清單中包含目前不在職的既有指派；請先移除後才能保存新版本。</p> : null}{bonusKind === "team_performance" ? selectedEmployeeIds.map((employeeUserId) => {
             const employee = employeeOptions.find((option) => option.value === employeeUserId);
-            return <div key={`${employeeUserId}-${index}`} className="hr-bonus-picker-row hr-bonus-employee-row"><DropdownSelect value={employeeUserId} aria-label="選擇員工" options={employeeOptions.map((option) => ({ ...option, disabled: selectedEmployeeIds.includes(option.value) && option.value !== employeeUserId }))} onChange={(event) => updateEmployee(index, event.target.value)} />{bonusKind === "team_performance" ? <div className="hr-bonus-weight-field"><input className="hr-bonus-weight-input" type="number" min="1" max="1000" step="1" value={selectedEmployeeWeights[employeeUserId] ?? "1"} aria-label={`${employee?.label ?? "員工"} 權重`} onChange={(event) => updateEmployeeWeight(employeeUserId, event.target.value)} /><span aria-hidden="true">份</span></div> : null}<Button type="button" variant="icon" icon="trash" aria-label="移除員工" title="移除員工" onClick={() => removeEmployee(index)} /></div>;
-          })}{selectedEmployeeIds.length === 0 ? <p className="muted hr-bonus-picker-empty">尚未套用員工。</p> : null}<Button type="button" variant="chip-action" icon="plus" onClick={addEmployee} disabled={selectedEmployeeIds.length >= employeeOptions.length}>{selectedEmployeeIds.length ? "新增員工" : "新增第一位員工"}</Button></div></div>
+            return <div key={employeeUserId} className="hr-bonus-picker-row hr-bonus-employee-row"><span className="hr-bonus-selected-employee">{employee?.label ?? employeeUserId}</span><div className="hr-bonus-weight-field"><input className="hr-bonus-weight-input" type="number" min="1" max="1000" step="1" value={selectedEmployeeWeights[employeeUserId] ?? "1"} aria-label={`${employee?.label ?? "員工"} 權重`} onChange={(event) => updateEmployeeWeight(employeeUserId, event.target.value)} /><span aria-hidden="true">份</span></div></div>;
+          }) : null}{selectedEmployeeIds.length === 0 ? <p className="muted hr-bonus-picker-empty">尚未套用員工。</p> : null}</div></div>
           <TextField label={editingPolicyVersionId ? "變更生效日" : "員工套用生效日"} type="date" value={assignmentValidFrom} required={editingPolicyVersionId !== null || selectedEmployeeIds.length > 0} disabled={!editingPolicyVersionId && selectedEmployeeIds.length === 0} onChange={(event) => setAssignmentValidFrom(event.target.value)} />
         </>
         {/*

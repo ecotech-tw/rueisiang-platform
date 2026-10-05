@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, gt, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrAnnualLeaveBrackets, hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrAnnualLeavePolicyVersions, hrCompensationVersions, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { users } from "./schema/auth.js";
@@ -273,7 +273,7 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
       isNull(hrEmployments.archivedAt),
       options.employeeUserId ? eq(hrEmployments.employeeUserId, options.employeeUserId) : undefined,
     ))
-    .orderBy(asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
+    .orderBy(...hrEmployeeNumberOrder(), asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
   if (!rows.length) return [];
 
   const balances = await db.select({
@@ -409,7 +409,7 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
       ),
       options.employmentIds ? inArray(hrAnnualLeaveEntitlements.employmentId, options.employmentIds) : undefined,
     ))
-    .orderBy(asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
+    .orderBy(...hrEmployeeNumberOrder(), asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
   if (!rows.length) return [];
 
   const balances = await db.select({

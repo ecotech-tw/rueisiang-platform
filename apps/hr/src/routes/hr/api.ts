@@ -26,7 +26,16 @@ export interface AttendanceAssignment {
   revision: number;
 }
 export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[] }
-export interface NamedOption { id: string; name: string }
+
+const employeeNumberCollator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+export function sortHrEmployees<T extends Pick<Employee, "employeeNumber" | "legalName">>(employees: readonly T[]): T[] {
+  return [...employees].sort((left, right) => employeeNumberCollator.compare(left.employeeNumber, right.employeeNumber) || left.legalName.localeCompare(right.legalName, "zh-Hant"));
+}
+export function hrEmployeeLabel(employee: Pick<Employee, "employeeNumber" | "legalName">): string {
+  return `${employee.employeeNumber}・${employee.legalName}`;
+}
+
+export interface NamedOption { id: string; name: string; employeeNumber?: string }
 export interface Candidate { userId: string; displayName: string; email: string; status: "invited" | "active" }
 export interface AttendanceLocation {
   id: string;
@@ -129,7 +138,7 @@ export interface FormRequest {
   createdAt: string;
   updatedAt: string;
 }
-export interface FormApprover { id: string; name: string }
+export interface FormApprover { id: string; name: string; employeeNumber?: string }
 export interface FormApproversResponse { approvers: FormApprover[]; defaultApproverUserId: string | null }
 export interface OvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; revision: number; createdAt: string }; employeeName: string | null }
 
