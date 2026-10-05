@@ -2,7 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, FilterInput, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
-import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
+import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface PayrollAdjustmentsResponse { adjustments: PayrollAdjustment[] }
@@ -112,7 +112,7 @@ function PayrollAdjustmentDialog({
   >
     <p className="form-hint hr-payroll-adjustment-dialog-note">原薪資月份必須已結帳；調整會在生效月份開始試算時自動帶入。</p>
     <div className="form-grid two">
-      <SelectField label="員工" value={employmentId} required options={[{ value: "", label: employeesPending ? "正在載入員工…" : "請選擇員工" }, ...employeeOptions.map((employee) => ({ value: employee.employmentId, label: `${employee.legalName}／${employee.employeeNumber}` }))]} onChange={(event) => setEmploymentId(event.target.value)} />
+      <SelectField label="員工" value={employmentId} required searchable options={[{ value: "", label: employeesPending ? "正在載入員工…" : "請選擇員工" }, ...employeeOptions.map((employee) => ({ value: employee.employmentId, label: hrEmployeeLabel(employee) }))]} onChange={(event) => setEmploymentId(event.target.value)} />
       <TextField label="生效薪資月份" type="month" value={effectivePeriodKey} required onChange={(event) => setEffectivePeriodKey(event.target.value)} />
     </div>
     <TextField label="原薪資月份" type="month" value={sourcePeriodKey} required hint="用來對應已結帳的原始薪資。" onChange={(event) => setSourcePeriodKey(event.target.value)} />
@@ -142,7 +142,7 @@ export function HrPayrollAdjustments() {
   const [editing, setEditing] = useState<PayrollAdjustment | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const adjustments = useHrQuery<PayrollAdjustmentsResponse>(`/payroll/adjustments${effectivePeriodKey ? `?effectivePeriodKey=${encodeURIComponent(effectivePeriodKey)}` : ""}`, canRead);
-  const employees = useHrQuery<{ employees: Employee[] }>(HR_ROSTER_PATH, canCalculate);
+  const employees = useHrEmployeeRoster(canCalculate);
 
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (adjustments.isPending) return <HrPageSkeleton variant="table" />;

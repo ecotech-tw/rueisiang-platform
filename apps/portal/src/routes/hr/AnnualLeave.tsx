@@ -73,7 +73,7 @@ function currentRows(rows: HrAnnualLeaveEntitlement[], asOfDate: string) {
         ?? sorted.at(-1);
     })
     .filter((row): row is HrAnnualLeaveEntitlement => Boolean(row))
-    .sort((a, b) => a.employeeName.localeCompare(b.employeeName, "zh-Hant") || a.employeeNumber.localeCompare(b.employeeNumber));
+    .sort((a, b) => a.employeeNumber.localeCompare(b.employeeNumber, "zh-Hant", { numeric: true }) || a.employeeName.localeCompare(b.employeeName, "zh-Hant"));
 }
 
 function EntitlementAdjustmentDialog({ row, onClose }: { row: HrAnnualLeaveEntitlement; onClose: () => void }) {

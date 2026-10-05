@@ -4,7 +4,7 @@ import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
-import { useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeRequest, type HrRequestCenterResponse } from "./api.js";
+import { hrEmployeeLabel, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeRequest, type HrRequestCenterResponse } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 type RequestKind = "leave" | "overtime" | "clock_correction";
@@ -158,7 +158,7 @@ function LeaveForm({ employees, leaveTypes, onClose, onDone, onPendingChange }: 
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.legalName}（${employee.employeeNumber}）` }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
   const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : ""}` }))];
   const leaveDuration = useHrLeaveDuration(employeeUserId && startsAt && endsAt ? { employeeUserId, startsAt, endsAt } : null);
   const durationMinutes = leaveDuration.data?.durationMinutes ?? null;
@@ -177,7 +177,7 @@ function LeaveForm({ employees, leaveTypes, onClose, onDone, onPendingChange }: 
     });
   }
   return <form className="hr-request-form" onSubmit={submit}>
-    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
+    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} searchable disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
     <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length || write.isPending} onChange={(event) => setLeaveTypeId(event.target.value)} />
     <div className="form-grid two"><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} disabled={write.isPending} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} disabled={write.isPending} onChange={(event) => setEndsAt(event.target.value)} /></div>
     <p className="muted field-note">系統依工作日、班表與休息時間計算請假時數：{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</p>
@@ -195,7 +195,7 @@ function OvertimeForm({ employees, onClose, onDone, onPendingChange }: { employe
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.legalName}（${employee.employeeNumber}）` }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!employeeUserId || !requestedStart || !requestedEnd) return;
@@ -210,7 +210,7 @@ function OvertimeForm({ employees, onClose, onDone, onPendingChange }: { employe
     });
   }
   return <form className="hr-request-form" onSubmit={submit}>
-    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
+    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} searchable disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
     <div className="form-grid two"><TextField label="加班開始" type="datetime-local" required value={requestedStart} disabled={write.isPending} onChange={(event) => setRequestedStart(event.target.value)} /><TextField label="加班結束" type="datetime-local" required min={requestedStart} value={requestedEnd} disabled={write.isPending} onChange={(event) => setRequestedEnd(event.target.value)} /></div>
     <SelectField label="結算方式" required value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={write.isPending} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} />
     <Field label="加班原因（選填）"><textarea rows={4} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>

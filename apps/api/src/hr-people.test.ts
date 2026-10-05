@@ -65,6 +65,13 @@ describe("HR 扁平員工主檔", () => {
     expect(d1.sqlite.prepare("SELECT display_name FROM users WHERE id='self'").get()).toEqual({ display_name: "self" });
   });
 
+  it("員工清單依員工編號自然排序", async () => {
+    await assign("self", "E10");
+    await assign("other", "E2");
+    const listed = await (await request("/hr/employees?page=1&pageSize=100&sortField=employeeNumber&sortDirection=asc")).json() as { employees: Array<{ employeeNumber: string }> };
+    expect(listed.employees.map((employee) => employee.employeeNumber)).toEqual(["E2", "E10"]);
+  });
+
   it("正式姓名必填且限制在 100 字內", async () => {
     expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E001", position: "一般職員" })).status).toBe(400);
     expect((await request("/hr/employees", "POST", { userId: "self", legalName: "x".repeat(101), employeeNumber: "E001", position: "一般職員" })).status).toBe(400);

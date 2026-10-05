@@ -619,9 +619,16 @@ export const hr = new Hono<AppEnv>()
     ]);
     return c.json({ leaves, overtime, clockCorrections: formRequests });
   })
-  .get("/requests/employees", requirePermission("hr:request:review"), async (c) => c.json(await listHrEmployees(c.get("db"), {
-    page: 1, pageSize: 100, search: "", status: "employable", employmentStatus: "active", sortField: "name", sortDirection: "asc",
-  })))
+  .get("/requests/employees", requirePermission("hr:request:review"), async (c) => {
+    const db = c.get("db");
+    const query = (page: number) => listHrEmployees(db, {
+      page, pageSize: 100, search: "", status: "employable", employmentStatus: "active", sortField: "employeeNumber", sortDirection: "asc",
+    });
+    const first = await query(1);
+    if (!first.hasMore) return c.json(first);
+    const remaining = await Promise.all(Array.from({ length: Math.ceil(first.total / first.pageSize) - 1 }, (_, index) => query(index + 2)));
+    return c.json({ ...first, employees: [first, ...remaining].flatMap((page) => page.employees), hasMore: false });
+  })
   .get("/requests/leave-types", requirePermission("hr:request:review"), async (c) => c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) }))
   .post("/requests/leave-duration", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);

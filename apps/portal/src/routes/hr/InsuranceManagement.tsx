@@ -99,7 +99,7 @@ export function HrInsuranceManagement() {
       </form>
       {employeeTable.error ? <Alert tone="danger">{employeeTable.error.message}</Alert> : null}
       <div className="table-scroll"><table className="data-table"><thead><tr>
-        <SortableHeader label="員工" field="name" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
+        <SortableHeader label="員工" field="employeeNumber" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
         <th>目前任職</th><th>勞保</th><th>健保</th><th>眷屬</th><th>資料提醒</th><th>操作</th>
       </tr></thead><tbody>
         {(employeeTable.data?.employees ?? []).map((employee) => <InsuranceRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}

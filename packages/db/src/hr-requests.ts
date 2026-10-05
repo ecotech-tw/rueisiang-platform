@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrFormRequests } from "./schema/hr-requests.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
@@ -90,10 +90,10 @@ async function ensureApprover(db: Database, employeeUserId: string, approverUser
 export async function listHrFormApprovers(db: Database, userId: string) {
   const [supervisor] = await db.select({ supervisorUserId: hrEmployments.supervisorUserId }).from(hrEmployments)
     .where(and(eq(hrEmployments.employeeUserId, userId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
-  const approvers = await db.select({ id: hrEmployments.employeeUserId, name: hrEmployeeName })
+  const approvers = await db.select({ id: hrEmployments.employeeUserId, name: hrEmployeeName, employeeNumber: hrEmployments.employeeNumber })
     .from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(and(ne(hrEmployments.employeeUserId, userId), sql`${hrEmployments.archivedAt} IS NULL`, eq(users.status, "active")))
-    .orderBy(asc(hrEmployeeName), asc(users.email));
+    .orderBy(...hrEmployeeNumberOrder(), asc(hrEmployeeName), asc(users.email));
   return { approvers, defaultApproverUserId: supervisor?.supervisorUserId ?? null };
 }
 

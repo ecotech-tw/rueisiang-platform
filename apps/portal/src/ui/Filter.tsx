@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, SelectHTMLAttributes } from "react";
+import type { ChangeEventHandler, InputHTMLAttributes } from "react";
 import { DropdownSelect } from "./DropdownSelect.js";
 
 interface FilterInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "aria-label"> {
@@ -20,9 +20,19 @@ interface FilterSelectOption {
   value: string;
 }
 
-interface FilterSelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement>, "aria-label" | "children"> {
+interface FilterSelectProps {
   label: string;
   options: readonly FilterSelectOption[];
+  value?: string | number;
+  defaultValue?: string | number;
+  disabled?: boolean;
+  required?: boolean;
+  name?: string;
+  id?: string;
+  className?: string;
+  onChange?: ChangeEventHandler<HTMLSelectElement>;
+  "aria-labelledby"?: string;
+  "aria-describedby"?: string;
 }
 
 /** 工具列用的精簡下拉欄位：options 與 aria label 都由元件統一輸出。 */

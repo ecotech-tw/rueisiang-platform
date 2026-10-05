@@ -604,6 +604,28 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   outline-offset: 3px;
 }
 .hr-liquid-select-popup .select-item-indicator { color: var(--color-brand); }
+.hr-liquid-select-popup .combobox-item {
+  border-radius: 12px;
+  color: var(--color-muted);
+  font-weight: 800;
+  transition-property: background-color, color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+.hr-liquid-select-popup .combobox-item:hover:not([data-highlighted]),
+.hr-liquid-select-popup .combobox-item[data-highlighted]:not([data-selected]) {
+  background: --alpha(var(--color-brand) / 7%);
+  color: var(--color-brand-dark);
+}
+.hr-liquid-select-popup .combobox-item[data-selected] {
+  background: --alpha(var(--color-brand) / 16%);
+  color: var(--color-brand-dark);
+  box-shadow: 0 0 0 1px --alpha(var(--color-brand) / 18%) inset;
+}
+.hr-liquid-select-popup .combobox-item:focus-visible {
+  outline: 2px solid var(--color-info);
+  outline-offset: 3px;
+}
 .hr-module-header {
   display: flex;
   align-items: center;

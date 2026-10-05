@@ -3,7 +3,7 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { HR_DAY_TYPE_LABELS, isHrDayType, listHrCalendarMonth } from "./hr-calendar.js";
-import { HrError, hrEmployeeName, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, hrEmployeeNumberOrder, type HrActor } from "./hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
@@ -298,7 +298,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
     .where(sql`${hrEmployments.archivedAt} IS NULL`)
-    .orderBy(asc(hrEmployments.employeeNumber));
+    .orderBy(...hrEmployeeNumberOrder());
   return {
     periodKey,
     period,

@@ -1,7 +1,7 @@
 import { and, asc, count, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes } from "./hr-calendar.js";
-import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
@@ -92,7 +92,7 @@ export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEv
     endUtc ? sql`${hrClockEvents.occurredAt} < ${endUtc}` : undefined,
   );
   const sortColumn = input.sortField === "employee" ? hrEmployments.employeeNumber : input.sortField === "source" ? hrClockEvents.sourceKind : hrClockEvents.occurredAt;
-  const order = input.sortDirection === "desc" ? desc(sortColumn) : asc(sortColumn);
+  const orderColumns = input.sortField === "employee" ? hrEmployeeNumberOrder(input.sortDirection) : [input.sortDirection === "desc" ? desc(sortColumn) : asc(sortColumn)];
   const [events, [totalRow]] = await Promise.all([
     db.select({
       id: hrClockEvents.id,
@@ -115,7 +115,7 @@ export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEv
       .innerJoin(users, eq(users.id, hrClockEvents.employeeUserId))
       .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
       .leftJoin(scopes, eq(scopes.id, hrClockEvents.scopeId))
-      .where(where).orderBy(order, desc(hrClockEvents.occurredAt), desc(sql`hr_clock_events.rowid`))
+      .where(where).orderBy(...orderColumns, desc(hrClockEvents.occurredAt), desc(sql`hr_clock_events.rowid`))
       .limit(input.pageSize).offset((input.page - 1) * input.pageSize),
     db.select({ value: count() }).from(hrClockEvents)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrClockEvents.employmentId))
