@@ -381,6 +381,24 @@ describe("HR 薪資與勞健保", () => {
     expect(close.status, await close.clone().text()).toBe(409);
   });
 
+  it("移除來源月份後，既有含薪資加扣項的試算仍可結帳", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 3_000_000 })).status).toBe(201);
+    const adjustment = await request("/hr/payroll/adjustments", "POST", { employmentId, effectivePeriodKey: "2026-01", reason: "舊版加扣項", items: [{ itemName: "舊版補發", amountMinor: 100 }] });
+    expect(adjustment.status, await adjustment.clone().text()).toBe(201);
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "legacy-adjustment-snapshot" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+    const row = d1.sqlite.prepare("SELECT source_snapshot_json AS snapshot FROM hr_payroll_runs WHERE id=?").get(runId) as { snapshot: string };
+    const snapshot = JSON.parse(row.snapshot) as { adjustments: Array<Record<string, unknown>> };
+    snapshot.adjustments[0]!.sourcePeriodKey = "2025-12";
+    d1.sqlite.prepare("UPDATE hr_payroll_runs SET source_snapshot_json=? WHERE id=?").run(JSON.stringify(snapshot), runId);
+    const closed = await request(`/hr/payroll/runs/${runId}/close`, "POST", {});
+    expect(closed.status, await closed.clone().text()).toBe(200);
+  });
+
   it("特殊上班日套用只關聯規則，允許零補貼且阻擋重複套用", async () => {
     await assign();
     await assignUser("admin", "E-ADMIN");
@@ -502,7 +520,7 @@ describe("HR 薪資與勞健保", () => {
     expect(stillListed.rules).toEqual(expect.arrayContaining([expect.objectContaining({ rule: expect.objectContaining({ id: usedBody.id, active: 1 }) })]));
   });
 
-  it("公司負擔規則會進入薪資扣款，結帳後同員工月份改用薪資調整", async () => {
+  it("公司負擔規則會進入薪資扣款，薪資加扣項可直接指定生效月份", async () => {
     const systemRules = await request("/hr/insurance-contribution-rules");
     expect(systemRules.status, await systemRules.clone().text()).toBe(200);
     expect(await systemRules.json()).toMatchObject({ rules: expect.arrayContaining([
@@ -551,7 +569,13 @@ describe("HR 薪資與勞健保", () => {
     const closed = await request(`/hr/payroll/runs/${result.run.runId}/close`, "POST", {});
     expect(closed.status, await closed.clone().text()).toBe(200);
     expect((await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], requestId: "close-test-2026-01-repeat" })).status).toBe(409);
-    const adjustment = await request("/hr/payroll/adjustments", "POST", { employmentId, sourcePeriodKey: "2026-01", effectivePeriodKey: "2026-02", reason: "結帳後補發", items: [{ itemName: "補發", amountMinor: 50000 }] });
+    const zeroAdjustment = await request("/hr/payroll/adjustments", "POST", { employmentId, effectivePeriodKey: "2026-02", reason: "零元項目", items: [{ itemName: "不應建立", amountMinor: 0 }] });
+    expect(zeroAdjustment.status, await zeroAdjustment.clone().text()).toBe(400);
+    const adjustment = await request("/hr/payroll/adjustments", "POST", { employmentId, effectivePeriodKey: "2026-02", reason: "一次性獎金", items: [{ itemName: "獎金", amountMinor: 100000 }] });
     expect(adjustment.status, await adjustment.clone().text()).toBe(201);
+    const nextCalculation = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-02", employeeUserIds: ["employee"], requestId: "one-off-bonus-2026-02" });
+    expect(nextCalculation.status, await nextCalculation.clone().text()).toBe(200);
+    const nextResult = await nextCalculation.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(nextResult.run.employees[0]?.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "adjustment_1", amountMinor: 100000 })]));
   });
 });

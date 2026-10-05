@@ -20,12 +20,6 @@ const LINE_LABELS: Record<string, string> = {
   annual_leave_settlement: "未休特休折現",
 };
 
-function previousMonth(value: string) {
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return "";
-  const [year, month] = value.split("-").map(Number);
-  const previous = new Date(Date.UTC(year!, month! - 2, 1));
-  return `${previous.getUTCFullYear()}-${String(previous.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 function money(minor: number): string {
   return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`;
 }
@@ -57,7 +51,6 @@ interface PayrollRecordItemDialogProps {
   onSuccess: () => void;
 }
 function PayrollRecordItemDialog({ detail, onClose, onSuccess }: PayrollRecordItemDialogProps) {
-  const [sourcePeriodKey, setSourcePeriodKey] = useState(previousMonth(detail.record.periodKey));
   const [direction, setDirection] = useState<"earning" | "deduction">("deduction");
   const [itemName, setItemName] = useState("");
   const [amount, setAmount] = useState("");
@@ -68,7 +61,6 @@ function PayrollRecordItemDialog({ detail, onClose, onSuccess }: PayrollRecordIt
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const amountYuan = Number(amount);
-    if (!sourcePeriodKey || sourcePeriodKey === detail.record.periodKey) { setValidationError("請選擇與生效月份不同、且已結帳的原薪資月份。"); return; }
     if (!itemName.trim()) { setValidationError("請填寫加扣項名稱。"); return; }
     if (!Number.isSafeInteger(amountYuan) || amountYuan <= 0) { setValidationError("金額必須是正整數元。"); return; }
     if (!reason.trim()) { setValidationError("請填寫加扣項原因。"); return; }
@@ -76,7 +68,7 @@ function PayrollRecordItemDialog({ detail, onClose, onSuccess }: PayrollRecordIt
     createItem.mutate({
       path: "/payroll/records/items",
       method: "POST",
-      values: { runId: detail.record.runId, personKind: detail.record.personKind, personId: detail.record.personId, sourcePeriodKey, direction, itemName: itemName.trim(), amountMinor: amountYuan * 100, reason: reason.trim() },
+      values: { runId: detail.record.runId, personKind: detail.record.personKind, personId: detail.record.personId, direction, itemName: itemName.trim(), amountMinor: amountYuan * 100, reason: reason.trim() },
     }, { onSuccess: () => { onSuccess(); } });
   }
 
@@ -89,15 +81,12 @@ function PayrollRecordItemDialog({ detail, onClose, onSuccess }: PayrollRecordIt
     formProps={{ onSubmit: submit }}
     actions={<><Button variant="secondary" onClick={onClose} disabled={createItem.isPending}>取消</Button><Button type="submit" icon="check" loading={createItem.isPending}>保存加扣項</Button></>}
   >
-    <Alert tone="info">原薪資月份必須已結帳。加扣項會直接附加到這筆尚未結算的發放紀錄，不會改寫原始試算明細。</Alert>
+    <Alert tone="info">加扣項會直接附加到這筆尚未結算的發放紀錄，不需要對應原薪資月份。</Alert>
     <div className="form-grid two">
-      <TextField label="原薪資月份" type="month" value={sourcePeriodKey} required onChange={(event) => setSourcePeriodKey(event.target.value)} />
       <SelectField label="項目類型" value={direction} options={[{ value: "deduction", label: "扣款" }, { value: "earning", label: "補發" }]} onChange={(event) => setDirection(event.target.value as "earning" | "deduction")} />
+      <TextField label="項目名稱" value={itemName} maxLength={100} required placeholder="例如：一次性獎金" onChange={(event) => setItemName(event.target.value)} />
     </div>
-    <div className="form-grid two">
-      <TextField label="項目名稱" value={itemName} maxLength={100} required placeholder="例如：勞保差額" onChange={(event) => setItemName(event.target.value)} />
-      <TextField label="金額（元）" type="number" min="1" step="1" value={amount} required onChange={(event) => setAmount(event.target.value)} />
-    </div>
+    <TextField label="金額（元）" type="number" min="1" step="1" value={amount} required onChange={(event) => setAmount(event.target.value)} />
     <TextField label="原因" value={reason} maxLength={1000} required placeholder="說明這筆加扣項的依據" onChange={(event) => setReason(event.target.value)} />
     {validationError || createItem.error ? <Alert tone="danger">{validationError ?? createItem.error?.message}</Alert> : null}
   </Dialog>;
@@ -160,7 +149,7 @@ export function HrPayrollRecordDetail() {
 
       <section className="hr-payroll-record-items" aria-labelledby="payroll-items-title">
         <div className="hr-payroll-section-head"><div><h3 id="payroll-items-title">薪資加扣項</h3><p>附加在這筆紀錄的補發與扣款。</p></div>{canCalculate && detail.record.status === "unsettled" ? <Button variant="secondary" icon="plus" onClick={() => setItemDialogOpen(true)}>新增加扣項</Button> : null}</div>
-        {detail.items.length ? <div className="table-scroll"><table className="data-table compact"><thead><tr><th>項目</th><th>原薪資月份</th><th>原因</th><th className="numeric">金額</th><th>操作</th></tr></thead><tbody>{detail.items.map((item) => <tr key={item.id}><td><strong>{item.itemName}</strong><small className="cell-sub">{item.direction === "earning" ? "補發" : "扣款"}</small></td><td>{periodLabel(item.sourcePeriodKey)}</td><td>{item.reason}</td><td className="numeric">{item.direction === "earning" ? money(item.amountMinor) : deductionMoney(item.amountMinor)}</td><td>{canCalculate && detail.record.status === "unsettled" ? <Button variant="danger" onClick={() => setDeleteItemId(item.id)}>刪除</Button> : null}</td></tr>)}</tbody></table></div> : <p className="empty-state">尚未加入薪資加扣項。</p>}
+        {detail.items.length ? <div className="table-scroll"><table className="data-table compact"><thead><tr><th>項目</th><th>原因</th><th className="numeric">金額</th><th>操作</th></tr></thead><tbody>{detail.items.map((item) => <tr key={item.id}><td><strong>{item.itemName}</strong><small className="cell-sub">{item.direction === "earning" ? "補發" : "扣款"}</small></td><td>{item.reason}</td><td className="numeric">{item.direction === "earning" ? money(item.amountMinor) : deductionMoney(item.amountMinor)}</td><td>{canCalculate && detail.record.status === "unsettled" ? <Button variant="danger" onClick={() => setDeleteItemId(item.id)}>刪除</Button> : null}</td></tr>)}</tbody></table></div> : <p className="empty-state">尚未加入薪資加扣項。</p>}
         {detail.items.length ? <p className="form-hint">加扣項合計：補發 {money(itemTotals.earningMinor)}・扣款 {itemTotals.deductionMinor ? deductionMoney(itemTotals.deductionMinor) : "—"}</p> : null}
       </section>
       {approve.error ? <Alert tone="danger">{approve.error.message}</Alert> : null}

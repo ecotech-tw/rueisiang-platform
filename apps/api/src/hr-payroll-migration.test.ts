@@ -54,6 +54,43 @@ describe("HR 薪資與出勤設定 migration", () => {
     } finally { sqlite.close(); }
   });
 
+  it("0201 薪資加扣項移除來源月份、正規化未結帳快照並保留資料與結帳鎖", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    try {
+      sqlite.exec("PRAGMA foreign_keys=ON");
+      for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file < "0201").sort()) apply(sqlite, file);
+      sqlite.exec(`
+        INSERT INTO users(id,email,status) VALUES ('u','u@example.test','active');
+        INSERT INTO hr_employments(id,employee_user_id,employee_number,position) VALUES ('j','u','E1','一般職員');
+        INSERT INTO hr_payroll_periods(id,period_key,attendance_start,attendance_end,status,created_by) VALUES
+          ('p-open','2026-09','2026-09-01','2026-10-01','open','u'),
+          ('p-closed','2026-08','2026-08-01','2026-09-01','closed','u');
+        INSERT INTO hr_payroll_adjustments(id,employment_id,source_period_key,effective_period_key,reason,created_by,updated_by)
+          VALUES ('adj-old','j','2026-07','2026-09','舊資料','u','u');
+        INSERT INTO hr_payroll_adjustment_items(id,adjustment_id,item_name,amount_minor)
+          VALUES ('item-old','adj-old','舊項目',100);
+        INSERT INTO hr_payroll_runs(id,payroll_period_id,version_number,request_id,input_revision,engine_version,status,expected_count,completed_count,created_by)
+          VALUES ('run-new','p-open',1,'req-new',1,'test','ready',1,0,'u');
+        UPDATE hr_payroll_runs SET source_snapshot_json='{"adjustments":[{"id":"adj-old","sourcePeriodKey":"2026-07","effectivePeriodKey":"2026-09"}],"adjustmentItems":[]}' WHERE id='run-new';
+        INSERT INTO hr_payslips(id,payroll_run_id,employment_id,employee_number,employee_name,earning_minor,deduction_minor,net_minor)
+          VALUES ('payslip-new','run-new','j','E1','一般職員',100,0,100);
+        INSERT INTO hr_payslip_lines(id,payslip_id,line_key,direction,amount_minor,explanation_json)
+          VALUES ('line-old','payslip-new','adjustment_1','earning',100,'{"adjustmentId":"adj-old","itemName":"舊項目","sourcePeriodKey":"2026-07","reason":"舊資料","formulaDetail":"人工調整（來源 2026-07） = NT$ 1"}');
+      `);
+      apply(sqlite, "0201_useful_living_lightning.sql");
+      expect(sqlite.prepare("SELECT reason FROM hr_payroll_adjustments WHERE id='adj-old'").get()).toEqual({ reason: "舊資料" });
+      expect(sqlite.prepare("SELECT item_name, amount_minor FROM hr_payroll_adjustment_items WHERE id='item-old'").get()).toEqual({ item_name: "舊項目", amount_minor: 100 });
+      expect(sqlite.prepare("SELECT name FROM pragma_table_info('hr_payroll_adjustments') WHERE name='source_period_key'").get()).toBeUndefined();
+      expect(sqlite.prepare("SELECT name FROM pragma_table_info('hr_payroll_record_items') WHERE name='source_period_key'").get()).toBeUndefined();
+      expect(sqlite.prepare("SELECT json_extract(source_snapshot_json, '$.adjustments[0].sourcePeriodKey') AS source FROM hr_payroll_runs WHERE id='run-new'").get()).toEqual({ source: null });
+      expect(sqlite.prepare("SELECT json_extract(explanation_json, '$.sourcePeriodKey') AS source, json_extract(explanation_json, '$.formulaDetail') AS formula FROM hr_payslip_lines WHERE id='line-old'").get()).toEqual({ source: null, formula: "人工加扣項（舊項目） = NT$ 1" });
+      sqlite.exec("INSERT INTO hr_payroll_adjustments(id,employment_id,effective_period_key,reason,created_by,updated_by) VALUES ('adj-new','j','2026-09','一次性獎金','u','u'); INSERT INTO hr_payroll_record_items(id,payroll_run_id,person_kind,employment_id,item_name,direction,amount_minor,reason,created_by) VALUES ('record-item-new','run-new','employee','j','一次性獎金','earning',100000,'無來源月份','u');");
+      expect(() => sqlite.exec("INSERT INTO hr_payroll_adjustment_items(id,adjustment_id,item_name,amount_minor) VALUES ('item-zero','adj-new','零元',0)")).toThrow(/payroll_adjustment_amount_invalid/);
+      expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+      expect(() => sqlite.exec("INSERT INTO hr_payroll_adjustments(id,employment_id,effective_period_key,reason,created_by,updated_by) VALUES ('adj-closed-0201','j','2026-08','結帳後修改','u','u')")).toThrow(/payroll_period_closed/);
+    } finally { sqlite.close(); }
+  });
+
   it("0191 拆分勞保基金時保留既有合併規則", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {
