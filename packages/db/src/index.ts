@@ -18,7 +18,7 @@ export {
 export { HR_CALENDAR_SPECIAL_KINDS } from "./schema/hr-scheduling.js";
 export type { HrCalendarSpecialKind, HrDayType } from "./schema/hr-scheduling.js";
 export {
-  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, parseSpecialWorkdayAllowanceSnapshot, setHrSpecialWorkdayRuleActive, specialWorkdayAllowanceTotal, voidHrSpecialWorkdayRuleVersion,
+  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, parseSpecialWorkdayAllowanceSnapshot, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, specialWorkdayAllowanceTotal, voidHrSpecialWorkdayRuleVersion,
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAllowanceQuantityInput, type SpecialWorkdayAllowanceSnapshot, type SpecialWorkdayAssignmentInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
 } from "./hr-special-workdays.js";
 export { createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";

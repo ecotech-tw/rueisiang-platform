@@ -381,7 +381,7 @@ describe("HR 薪資與勞健保", () => {
     expect(close.status, await close.clone().text()).toBe(409);
   });
 
-  it("特殊上班日保存規則版本快照，允許零補貼且阻擋重複套用", async () => {
+  it("特殊上班日套用只關聯規則，允許零補貼且阻擋重複套用", async () => {
     await assign();
     await assignUser("admin", "E-ADMIN");
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
@@ -392,17 +392,19 @@ describe("HR 薪資與勞健保", () => {
     expect(invalid.status, await invalid.clone().text()).toBe(400);
     const created = await request("/hr/special-workdays/rules", "POST", { name: "測試國定日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [{ fromHalfHours: 1, toHalfHours: 4, rateKind: "multiplier", multiplierPpm: 1_500_000 }, { fromHalfHours: 5, toHalfHours: null, rateKind: "fixed_hourly", fixedAmountMinor: 35000 }], allowances: [{ itemName: "餐費", unitAmountMinor: 0 }, { itemName: "交通補貼", unitAmountMinor: 12000 }] });
     expect(created.status, await created.clone().text()).toBe(201);
-    const createdBody = await created.json() as { versionId: string };
+    const createdBody = await created.json() as { id: string; versionId: string };
     const listed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { name: string }; versions: Array<{ id: string; workSource: string; note: string; allowances: Array<{ id: string; itemName: string; unitAmountMinor: number }>; overtimeRules: Array<{ fromHalfHours: number; toHalfHours: number | null; rateKind: string; fixedAmountMinor: number | null; multiplierPpm: number | null }> }> }> };
     expect(listed.rules).toEqual(expect.arrayContaining([expect.objectContaining({ rule: expect.objectContaining({ name: "測試國定日" }), versions: [expect.objectContaining({ id: createdBody.versionId, workSource: "hourly", note: "", overtimeRules: [expect.objectContaining({ fromHalfHours: 1, toHalfHours: 4, rateKind: "multiplier", multiplierPpm: 1_500_000 }), expect.objectContaining({ fromHalfHours: 5, toHalfHours: null, rateKind: "fixed_hourly", fixedAmountMinor: 35000 })], allowances: [expect.objectContaining({ itemName: "餐費", unitAmountMinor: 0 }), expect.objectContaining({ itemName: "交通補貼", unitAmountMinor: 12000 })] })] })]));
-    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: createdBody.versionId, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] });
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: createdBody.id, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const legacyAssigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: createdBody.versionId, assignments: [{ employmentId: adminEmploymentId, workDate: "2026-02-27", allowanceQuantity: 0 }] });
+    expect(legacyAssigned.status, await legacyAssigned.clone().text()).toBe(201);
     const versionAllowances = listed.rules.flatMap((rule) => rule.versions).find((version) => version.id === createdBody.versionId)!.allowances;
     const workerResponse = await request("/hr/schedule-workers", "POST", { displayName: "支援測試" });
     expect(workerResponse.status, await workerResponse.clone().text()).toBe(201);
     const workerId = (await workerResponse.json() as { id: string }).id;
     const allowanceQuantities = [{ allowanceId: versionAllowances[0]!.id, quantity: 1 }, { allowanceId: versionAllowances[1]!.id, quantity: 3 }];
-    const bulkAssigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: createdBody.versionId, assignments: [{ employmentId, workDate: "2026-03-01", allowanceQuantities }, { employmentId: adminEmploymentId, workDate: "2026-03-01", allowanceQuantities }, { workerId, workDate: "2026-03-01", allowanceQuantities }] });
+    const bulkAssigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: createdBody.id, assignments: [{ employmentId, workDate: "2026-03-01", allowanceQuantities }, { employmentId: adminEmploymentId, workDate: "2026-03-01", allowanceQuantities }, { workerId, workDate: "2026-03-01", allowanceQuantities }] });
     expect(bulkAssigned.status, await bulkAssigned.clone().text()).toBe(201);
     const assignmentRows = await (await request("/hr/special-workdays/assignments?start=2026-03-01&end=2026-03-02")).json() as { assignments: Array<{ assignment: { allowanceSnapshotJson: string } }> };
     expect(assignmentRows.assignments).toHaveLength(3);
@@ -410,7 +412,7 @@ describe("HR 薪資與勞健保", () => {
       expect.objectContaining({ itemName: "餐費", quantity: 1 }), expect.objectContaining({ itemName: "交通補貼", quantity: 3 }),
     ]));
     expect((await request("/hr/special-workdays/assignments?start=2026-02-01&end=2026-03-01")).status).toBe(200);
-    expect((await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: createdBody.versionId, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] })).status).toBe(409);
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: createdBody.id, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] })).status).toBe(409);
   });
 
   it("特殊上班日舊快照沒有逐項數量時沿用舊共用數量", () => {
@@ -421,7 +423,7 @@ describe("HR 薪資與勞健保", () => {
     expect(specialWorkdayAllowanceTotal(legacySnapshot, 2)).toBe(4_400);
   });
 
-  it("特殊上班日最新版本可解除並回到上一版，已套用日期保留快照", async () => {
+  it("特殊上班日最新版本可解除並回到上一版，日期套用跟隨目前規則", async () => {
     await assign();
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
     const employmentId = profile.employments[0]!.id;
@@ -432,7 +434,7 @@ describe("HR 薪資與勞健保", () => {
     expect(second.status, await second.clone().text()).toBe(201);
     const secondBody = await second.json() as { versionId: string; versionNumber: number };
     expect(secondBody.versionNumber).toBe(2);
-    expect((await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: secondBody.versionId, assignments: [{ employmentId, workDate: "2026-02-20", allowanceQuantity: 0 }] })).status).toBe(201);
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-02-20", allowanceQuantity: 0 }] })).status).toBe(201);
 
     expect((await request(`/hr/special-workdays/rules/${firstBody.id}/versions/${firstBody.versionId}/void`, "POST", {})).status).toBe(409);
     const voided = await request(`/hr/special-workdays/rules/${firstBody.id}/versions/${secondBody.versionId}/void`, "POST", {});
@@ -446,9 +448,9 @@ describe("HR 薪資與勞健保", () => {
       expect.objectContaining({ id: secondBody.versionId, versionNumber: 2, voidedAt: expect.any(String), voidedBy: "admin" }),
     ]));
     expect((await request(`/hr/special-workdays/rules/${firstBody.id}/versions/${firstBody.versionId}/void`, "POST", {})).status).toBe(409);
-    expect((await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: secondBody.versionId, assignments: [{ employmentId, workDate: "2026-02-21", allowanceQuantity: 0 }] })).status).toBe(404);
-    const assignmentRows = await (await request("/hr/special-workdays/assignments?start=2026-02-01&end=2026-03-01")).json() as { assignments: Array<{ assignment: { ruleVersionId: string }; ruleVersionVoidedAt: string | null }> };
-    expect(assignmentRows.assignments).toEqual(expect.arrayContaining([expect.objectContaining({ assignment: expect.objectContaining({ ruleVersionId: secondBody.versionId }), ruleVersionVoidedAt: expect.any(String) })]));
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-02-21", allowanceQuantity: 0 }] })).status).toBe(201);
+    const assignmentRows = await (await request("/hr/special-workdays/assignments?start=2026-02-01&end=2026-03-01")).json() as { assignments: Array<{ assignment: { ruleId: string }; currentVersionNumber: number | null; currentVersionVoidedAt: string | null }> };
+    expect(assignmentRows.assignments).toEqual(expect.arrayContaining([expect.objectContaining({ assignment: expect.objectContaining({ ruleId: firstBody.id }), currentVersionNumber: 1, currentVersionVoidedAt: null })]));
 
     const rebuilt = await request(`/hr/special-workdays/rules/${firstBody.id}/versions`, "POST", { name: "可解除特殊日", validFrom: "2026-02-01", wageKind: "fixed_hourly", fixedAmountMinor: 45000, allowances: [], overtimeRules: [] });
     expect(rebuilt.status, await rebuilt.clone().text()).toBe(201);
@@ -492,7 +494,7 @@ describe("HR 薪資與勞健保", () => {
     const used = await request("/hr/special-workdays/rules", "POST", { name: "已有套用不可刪除", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [], overtimeRules: [] });
     expect(used.status, await used.clone().text()).toBe(201);
     const usedBody = await used.json() as { id: string; versionId: string };
-    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: usedBody.versionId, assignments: [{ employmentId, workDate: "2026-01-15", allowanceQuantity: 0 }] });
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: usedBody.id, assignments: [{ employmentId, workDate: "2026-01-15", allowanceQuantity: 0 }] });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
     const rejected = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", { revision: 1 });
     expect(rejected.status, await rejected.clone().text()).toBe(409);

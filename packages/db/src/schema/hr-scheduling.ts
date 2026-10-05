@@ -277,15 +277,11 @@ export const hrSpecialWorkdayAllowances = sqliteTable("hr_special_workday_allowa
 
 export const hrSpecialWorkdayAssignments = sqliteTable("hr_special_workday_assignments", {
   id: text("id").primaryKey(),
-  ruleVersionId: text("rule_version_id").notNull().references(() => hrSpecialWorkdayRuleVersions.id, { onDelete: "restrict" }),
+  ruleId: text("rule_id").notNull().references(() => hrSpecialWorkdayRules.id, { onDelete: "restrict" }),
   employmentId: text("employment_id").references(() => hrEmployments.id, { onDelete: "restrict" }),
   workerId: text("worker_id").references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
   workDate: text("work_date").notNull(),
-  ruleNameSnapshot: text("rule_name_snapshot").notNull(),
-  wageKindSnapshot: text("wage_kind_snapshot").notNull(),
-  fixedAmountMinorSnapshot: integer("fixed_amount_minor_snapshot"),
-  multiplierPpmSnapshot: integer("multiplier_ppm_snapshot"),
-  workSourceSnapshot: text("work_source_snapshot").notNull(),
+  // 只保存套用當下各補貼的數量；單價與薪資方式結算時從目前規則解析。
   allowanceSnapshotJson: text("allowance_snapshot_json").notNull().default("[]"),
   allowanceQuantity: integer("allowance_quantity").notNull().default(0),
   appliedBy: text("applied_by").notNull().references(() => users.id, { onDelete: "restrict" }),

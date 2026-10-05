@@ -472,10 +472,8 @@ describe("HR 薪資與櫃點獎金試算", () => {
       overtimeRule: "測試級距", workSource: "hourly", note: "", createdBy: actor,
     });
     await db.insert(hrSpecialWorkdayAssignments).values({
-      id: "test-newhire-prestart-special-assignment", ruleVersionId: "test-newhire-prestart-special-version", employmentId, workerId: null,
-      workDate: "2026-08-01", ruleNameSnapshot: "到職前特殊日測試", wageKindSnapshot: "fixed_hourly", fixedAmountMinorSnapshot: 10_000,
-      multiplierPpmSnapshot: null, workSourceSnapshot: "hourly", allowanceSnapshotJson: JSON.stringify([{ itemName: "特殊日補貼", unitAmountMinor: 5_000 }]),
-      allowanceQuantity: 1, appliedBy: actor,
+      id: "test-newhire-prestart-special-assignment", ruleId: "test-newhire-prestart-special-rule", employmentId, workerId: null,
+      workDate: "2026-08-01", allowanceSnapshotJson: JSON.stringify([{ itemName: "特殊日補貼", quantity: 1 }]), allowanceQuantity: 1, appliedBy: actor,
     });
     d1.sqlite.exec("UPDATE hr_employment_service_periods SET service_start_on='2026-08-03' WHERE employment_id='dev-employment-newhire'");
     const response = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", employeeUserIds: ["dev-newhire@ecotech.tw"], requestId: "test-newhire-prestart-inputs" });
@@ -991,10 +989,11 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(saved.status, await saved.clone().text()).toBe(200);
     const rule = await request("/hr/special-workdays/rules", "POST", { name: "特殊日時薪倍率", validFrom: "2026-09-01", wageKind: "multiplier", multiplierPpm: 2_000_000, overtimeRules: [], allowances: [{ itemName: "餐費", unitAmountMinor: 10_000 }, { itemName: "交通補貼", unitAmountMinor: 20_000 }] });
     expect(rule.status, await rule.clone().text()).toBe(201);
-    const versionId = (await rule.json() as { versionId: string }).versionId;
+    const ruleBody = await rule.json() as { id: string; versionId: string };
+    const versionId = ruleBody.versionId;
     const listedRules = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ versions: Array<{ id: string; allowances: Array<{ id: string }> }> }> };
     const allowances = listedRules.rules.flatMap((item) => item.versions).find((version) => version.id === versionId)!.allowances;
-    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: versionId, assignments: [{ workerId, workDate: "2026-09-03", allowanceQuantities: [{ allowanceId: allowances[0]!.id, quantity: 1 }, { allowanceId: allowances[1]!.id, quantity: 3 }] }] });
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: ruleBody.id, assignments: [{ workerId, workDate: "2026-09-03", allowanceQuantities: [{ allowanceId: allowances[0]!.id, quantity: 1 }, { allowanceId: allowances[1]!.id, quantity: 3 }] }] });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-hourly-special-multiplier-2026-09" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
@@ -1054,6 +1053,48 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 300_000, explanation: expect.objectContaining({ itemName: "職務津貼", amountBasis: "monthly" }) }),
     ]));
     expect(body.run.warnings.some((warning) => warning.includes("日薪制但本期沒有已發布排班"))).toBe(false);
+  });
+
+  it("特殊上班日月薪／日薪倍率不要求月度工時，且結算使用目前規則", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "特殊日倍率測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+    const rule = await request("/hr/special-workdays/rules", "POST", { name: "特殊日目前規則測試", validFrom: "2026-09-01", wageKind: "multiplier", multiplierPpm: 1_000_000, overtimeRules: [], allowances: [] });
+    expect(rule.status, await rule.clone().text()).toBe(201);
+    const ruleBody = await rule.json() as { id: string; versionId: string };
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: ruleBody.id, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-30", allowanceQuantities: [] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    expect(d1.sqlite.prepare("SELECT rule_id AS ruleId FROM hr_special_workday_assignments WHERE rule_id=?").get(ruleBody.id)).toEqual({ ruleId: ruleBody.id });
+    const assignmentColumns = d1.sqlite.prepare("PRAGMA table_info(hr_special_workday_assignments)").all() as Array<{ name: string }>;
+    expect(assignmentColumns.map((column) => column.name)).toContain("rule_id");
+    expect(assignmentColumns.map((column) => column.name)).not.toContain("rule_version_id");
+    const beforeUpdate = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-before-rule-update-2026-09" });
+    expect(beforeUpdate.status, await beforeUpdate.clone().text()).toBe(200);
+    const beforeBody = await beforeUpdate.json() as { run: { runId: string; employees: Array<{ earningMinor: number }> } };
+    expect(beforeBody.run.employees[0]?.earningMinor).toBe(180_000);
+
+    const updated = await request(`/hr/special-workdays/rules/${ruleBody.id}/versions`, "POST", { name: "特殊日目前規則測試", validFrom: "2026-09-02", wageKind: "multiplier", multiplierPpm: 1_800_000, overtimeRules: [], allowances: [] });
+    expect(updated.status, await updated.clone().text()).toBe(201);
+    const staleClose = await request(`/hr/payroll/runs/${beforeBody.run.runId}/close`, "POST", {});
+    expect(staleClose.status, await staleClose.clone().text()).toBe(409);
+
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-current-rule-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { runId: string; employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number }> }>; warnings: string[] } };
+    const employee = body.run.employees[0]!;
+    expect(employee.earningMinor).toBe(324_000);
+    expect(employee.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "special_workday", amountMinor: 324_000 })]));
+    expect(body.run.warnings.some((warning) => warning.includes("特殊上班日 2026-09-30 缺少工時資料"))).toBe(false);
+    expect(body.run.warnings.some((warning) => warning.includes("沒有已發布排班"))).toBe(false);
+    const closed = await request(`/hr/payroll/runs/${body.run.runId}/close`, "POST", {});
+    expect(closed.status, await closed.clone().text()).toBe(200);
+    const afterCloseUpdate = await request(`/hr/special-workdays/rules/${ruleBody.id}/versions`, "POST", { name: "特殊日目前規則測試", validFrom: "2026-10-01", wageKind: "multiplier", multiplierPpm: 2_000_000, overtimeRules: [], allowances: [] });
+    expect(afterCloseUpdate.status, await afterCloseUpdate.clone().text()).toBe(201);
+    const settled = await request(`/hr/payroll/runs/${body.run.runId}`);
+    expect(settled.status, await settled.clone().text()).toBe(200);
+    const settledBody = await settled.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(settledBody.run.employees[0]?.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "special_workday", amountMinor: 324_000 })]));
   });
 
   it("災防停班保留原排班並建立可追溯的給薪明細", async () => {
@@ -1168,8 +1209,8 @@ describe("HR 薪資與櫃點獎金試算", () => {
       { fromHalfHours: 5, toHalfHours: null, rateKind: "fixed_hourly", fixedAmountMinor: 35000 },
     ], allowances: [] });
     expect(ruleResponse.status, await ruleResponse.clone().text()).toBe(201);
-    const versionId = (await ruleResponse.json() as { versionId: string }).versionId;
-    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: versionId, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-03", allowanceQuantity: 0 }] });
+    const ruleBody = await ruleResponse.json() as { id: string };
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: ruleBody.id, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-03", allowanceQuantity: 0 }] });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
     const adminCookie = cookie;
     const employeeCookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
@@ -1198,8 +1239,9 @@ describe("HR 薪資與櫃點獎金試算", () => {
       { fromHalfHours: 1, toHalfHours: null, rateKind: "fixed_hourly", fixedAmountMinor: 0 },
     ], allowances: [] });
     expect(ruleResponse.status, await ruleResponse.clone().text()).toBe(201);
-    const versionId = (await ruleResponse.json() as { versionId: string }).versionId;
-    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleVersionId: versionId, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-04", allowanceQuantity: 0 }] });
+    const ruleBody = await ruleResponse.json() as { id: string; versionId: string };
+    const versionId = ruleBody.versionId;
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: ruleBody.id, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-04", allowanceQuantity: 0 }] });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
     const adminCookie = cookie;
     cookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;

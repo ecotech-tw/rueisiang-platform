@@ -1,0 +1,1 @@
+ALTER TABLE `hr_special_workday_assignments` ADD `rule_id` text REFERENCES hr_special_workday_rules(id);
