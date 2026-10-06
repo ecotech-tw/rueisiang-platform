@@ -44,18 +44,39 @@ function ruleNamesOf(line: PayrollLine): string[] {
   const legacyName = line.lineKey.startsWith("special_allowance_") ? explanationString(line, "rule") : null;
   return [...new Set([...names, ...(singleName ? [singleName] : []), ...(legacyName ? [legacyName] : [])])];
 }
-function namedLineLabel(line: PayrollLine, label: string): string {
+function explanationItemNamesOf(line: PayrollLine): string[] {
+  const names = [explanationString(line, "itemName")].filter((name): name is string => Boolean(name));
+  const quantities = line.explanation.quantities;
+  if (Array.isArray(quantities)) {
+    for (const value of quantities) {
+      if (!value || typeof value !== "object") continue;
+      const itemName = (value as { itemName?: unknown }).itemName;
+      if (typeof itemName === "string" && itemName.trim()) names.push(itemName);
+    }
+  }
+  return [...new Set(names)];
+}
+function specialAllowanceLabel(line: PayrollLine): string {
+  const ruleName = explanationString(line, "ruleName") ?? explanationString(line, "rule");
+  const itemNames = explanationItemNamesOf(line);
+  if (ruleName && itemNames.length) return `${ruleName}：${itemNames.join("、")}`;
+  if (itemNames.length) return itemNames.join("、");
+  return ruleName ? `特殊上班日補貼（${ruleName}）` : "特殊上班日補貼";
+}
+function specialWorkdayDifferenceLabel(line: PayrollLine): string {
   const names = ruleNamesOf(line);
-  return names.length ? `${label}（${names.join("、")}）` : label;
+  if (names.length === 1) return `${names[0]}：補貼差額`;
+  if (names.length > 1) return `特殊上班日（${names.join("、")}）補貼差額`;
+  return "特殊上班日差額";
 }
 function lineLabel(line: PayrollLine): string {
+  if (line.lineKey.startsWith("special_allowance_")) return specialAllowanceLabel(line);
+  if (line.lineKey === "special_workday") return specialWorkdayDifferenceLabel(line);
   const itemName = explanationString(line, "itemName");
   if (itemName) return itemName;
   if (line.lineKey.startsWith("bonus_")) return "業績獎金";
   if (line.lineKey.startsWith("salary_item_")) return "薪資項目";
   if (line.lineKey.startsWith("adjustment_")) return "薪資加扣項";
-  if (line.lineKey === "special_workday") return namedLineLabel(line, "特殊上班日差額");
-  if (line.lineKey.startsWith("special_allowance_")) return namedLineLabel(line, "特殊上班日補貼");
   return LINE_LABELS[line.lineKey] ?? line.lineKey;
 }
 function lineFormula(line: PayrollLine): string {
