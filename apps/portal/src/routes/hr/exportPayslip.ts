@@ -15,6 +15,8 @@ export async function downloadPayslipImage(element: HTMLElement, personName: str
     backgroundColor: "#ffffff",
     cacheBust: true,
     pixelRatio: EXPORT_PIXEL_RATIO,
+    // 預覽紙張在 Dialog 外要留 36px，但 PNG 不應把這段操作介面留白一起帶出去。
+    style: { margin: "0" },
   });
   if (!blob) throw new Error("圖片產生失敗，請再試一次。");
 

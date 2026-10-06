@@ -87,7 +87,6 @@ function PayrollPayslip({ detail, elementRef }: { detail: PayrollRecordDetail; e
       <div><dt>扣款合計</dt><dd>{detail.record.deductionMinor ? deductionMoney(detail.record.deductionMinor) : "—"}</dd></div>
       <div><dt>實領合計</dt><dd>{money(detail.record.netMinor)}</dd></div>
     </dl>
-    <p className="hr-payroll-payslip-note">本薪資條依薪資發放紀錄保存的明細快照產生。</p>
   </section>;
 }
 
