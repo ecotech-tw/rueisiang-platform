@@ -241,14 +241,14 @@ function compensationItems(input: Record<string, unknown>) {
   });
 }
 function adjustmentItems(input: Record<string, unknown>) {
-  if (!Array.isArray(input.items) || input.items.length < 1 || input.items.length > 50) throw new HTTPException(400, { message: "薪資調整項目格式不正確。" });
+  if (!Array.isArray(input.items) || input.items.length < 1 || input.items.length > 50) throw new HTTPException(400, { message: "薪資加扣項格式不正確。" });
   return input.items.map((raw, index) => {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資調整格式不正確。` });
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資加扣項格式不正確。` });
     const item = raw as Record<string, unknown>;
     const rawAmount = item.amountMinor;
     const amountMinor = typeof rawAmount === "number" ? rawAmount : typeof rawAmount === "string" ? Number(rawAmount) : NaN;
-    if (!Number.isSafeInteger(amountMinor)) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資調整金額不正確。` });
-    return { itemName: text(item, "itemName", "調整項目", 100), amountMinor };
+    if (!Number.isSafeInteger(amountMinor) || amountMinor === 0) throw new HTTPException(400, { message: `第 ${index + 1} 筆薪資加扣項金額不正確。` });
+    return { itemName: text(item, "itemName", "加扣項目", 100), amountMinor };
   });
 }
 function payrollPeriodInput(input: Record<string, unknown>, key: string, label: string) {
@@ -997,12 +997,12 @@ export const hr = new Hono<AppEnv>()
   .post("/payroll/adjustments", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
-    return c.json(await createHrPayrollAdjustment(c.get("db"), { employmentId: text(input, "employmentId", "員工任職"), sourcePeriodKey: text(input, "sourcePeriodKey", "原薪資月份", 7), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "調整原因", 1000), items: adjustmentItems(input) }, c.get("user")), 201);
+    return c.json(await createHrPayrollAdjustment(c.get("db"), { employmentId: text(input, "employmentId", "員工任職"), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "加扣項原因", 1000), items: adjustmentItems(input) }, c.get("user")), 201);
   })
   .patch("/payroll/adjustments/:id", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
-    return c.json(await updateHrPayrollAdjustment(c.get("db"), c.req.param("id"), { employmentId: text(input, "employmentId", "員工任職"), sourcePeriodKey: text(input, "sourcePeriodKey", "原薪資月份", 7), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "調整原因", 1000), items: adjustmentItems(input), revision: revision(input) }, c.get("user")));
+    return c.json(await updateHrPayrollAdjustment(c.get("db"), c.req.param("id"), { employmentId: text(input, "employmentId", "員工任職"), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "加扣項原因", 1000), items: adjustmentItems(input), revision: revision(input) }, c.get("user")));
   })
   .get("/payroll/workers", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
@@ -1046,7 +1046,6 @@ export const hr = new Hono<AppEnv>()
     const reference = payrollRecordReference(input);
     return c.json(await createHrPayrollRecordItem(c.get("db"), {
       ...reference,
-      sourcePeriodKey: payrollPeriodInput(input, "sourcePeriodKey", "原薪資月份"),
       itemName: text(input, "itemName", "加扣項名稱", 100),
       direction: input.direction === "earning" || input.direction === "deduction" ? input.direction : (() => { throw new HTTPException(400, { message: "加扣項類型不正確。" }); })(),
       amountMinor: integerValue(input, "amountMinor", "加扣項金額（分）", 1, Number.MAX_SAFE_INTEGER),

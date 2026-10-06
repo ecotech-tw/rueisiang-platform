@@ -36,7 +36,7 @@ const PAYROLL_TABS = [
   { label: "獎金管理", to: "/hr/bonus", permission: "hr:bonus:read" as const, icon: "tag" as const, adminOnly: true },
   { label: "制度設定", to: "/hr/payroll-settings", permission: "hr:payroll:read" as const, icon: "tune" as const, adminOnly: true },
   { label: "薪資結算", to: "/hr/payroll-settlement", permission: "hr:payroll:read" as const, icon: "report" as const, adminOnly: true, activePaths: ["/hr/monthly-data"] },
-  { label: "薪資調整", to: "/hr/payroll-adjustments", permission: "hr:payroll:read" as const, icon: "tune" as const, adminOnly: true },
+  { label: "薪資加扣項", to: "/hr/payroll-adjustments", permission: "hr:payroll:read" as const, icon: "tune" as const, adminOnly: true },
 ];
 
 const OVERVIEW_PERMISSIONS: Permission[] = ["hr:employee:read", "hr:office:read", "hr:schedule:read", "hr:payroll:read", "hr:bonus:read"];

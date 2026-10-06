@@ -231,7 +231,6 @@ export interface PayrollRecordItem {
   id: string;
   personKind: PayrollRecordPersonKind;
   personId: string;
-  sourcePeriodKey: string;
   itemName: string;
   direction: "earning" | "deduction";
   amountMinor: number;
@@ -255,7 +254,6 @@ export interface PayrollAdjustmentItem {
 export interface PayrollAdjustment {
   id: string;
   employmentId: string;
-  sourcePeriodKey: string;
   effectivePeriodKey: string;
   reason: string;
   createdBy: string;

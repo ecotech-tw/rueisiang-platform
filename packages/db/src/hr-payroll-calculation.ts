@@ -252,7 +252,6 @@ export interface HrPayrollRecordReference {
 }
 
 export interface HrPayrollRecordItemInput extends HrPayrollRecordReference {
-  sourcePeriodKey: string;
   itemName: string;
   direction: "earning" | "deduction";
   amountMinor: number;
@@ -263,7 +262,6 @@ export interface HrPayrollRecordItemView {
   id: string;
   personKind: "employee" | "worker";
   personId: string;
-  sourcePeriodKey: string;
   itemName: string;
   direction: "earning" | "deduction";
   amountMinor: number;
@@ -506,6 +504,23 @@ function stableJson(value: unknown): string {
     return `{${Object.entries(value as Record<string, unknown>).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
+}
+
+/** 0201 移除來源月份後，讓尚未結帳的舊快照仍可和新快照比較。 */
+function comparablePayrollSnapshot(value: string): string {
+  try {
+    const snapshot = JSON.parse(value) as Record<string, unknown>;
+    if (Array.isArray(snapshot.adjustments)) {
+      snapshot.adjustments = snapshot.adjustments.map((adjustment) => {
+        if (!adjustment || typeof adjustment !== "object" || Array.isArray(adjustment)) return adjustment;
+        const { sourcePeriodKey: _sourcePeriodKey, ...withoutLegacySource } = adjustment as Record<string, unknown>;
+        return withoutLegacySource;
+      });
+    }
+    return stableJson(snapshot);
+  } catch {
+    return value;
+  }
 }
 
 interface PayrollSourceSnapshotInput {
@@ -1427,8 +1442,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const amount = Math.abs(item.amountMinor);
       if (!amount) return;
       lines.push({ lineKey: `adjustment_${index + 1}`, direction: item.amountMinor >= 0 ? "earning" : "deduction", amountMinor: amount, explanation: {
-        adjustmentId: adjustment.id, itemName: item.itemName, sourcePeriodKey: adjustment.sourcePeriodKey, reason: adjustment.reason,
-        formulaDetail: `人工調整（來源 ${adjustment.sourcePeriodKey}） = ${payrollFormulaMoney(amount)}`,
+        adjustmentId: adjustment.id, itemName: item.itemName, reason: adjustment.reason,
+        formulaDetail: `人工加扣項（${item.itemName}） = ${payrollFormulaMoney(amount)}`,
       } });
     });
 
@@ -2294,7 +2309,6 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
 
 function assertPayrollRecordItemInput(input: HrPayrollRecordItemInput) {
   if (!input.runId || !input.personId || (input.personKind !== "employee" && input.personKind !== "worker")) throw new HrError(400, "薪資發放紀錄不正確。 ");
-  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(input.sourcePeriodKey) || input.sourcePeriodKey.length !== 7) throw new HrError(400, "原薪資月份不正確。 ");
   if (input.itemName.trim().length < 1 || Array.from(input.itemName.trim()).length > 100) throw new HrError(400, "加扣項名稱必填且不可超過 100 個字。 ");
   if (input.direction !== "earning" && input.direction !== "deduction") throw new HrError(400, "加扣項類型不正確。 ");
   if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) throw new HrError(400, "加扣項金額必須是正整數分。 ");
@@ -2324,11 +2338,6 @@ async function findPayrollRecordRun(db: Database, input: HrPayrollRecordReferenc
   return row;
 }
 
-async function sourcePeriodIsClosed(db: Database, sourcePeriodKey: string) {
-  const [period] = await db.select({ status: hrPayrollPeriods.status }).from(hrPayrollPeriods).where(eq(hrPayrollPeriods.periodKey, sourcePeriodKey)).limit(1);
-  return period?.status === "closed";
-}
-
 async function payrollRunHasClosedClaims(db: Database, runId: string) {
   const [claims] = await db.all<{ count: number }>(sql`SELECT
     (SELECT count(*) FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId}) +
@@ -2353,7 +2362,6 @@ export async function listHrPayrollRecordItems(db: Database, input: HrPayrollRec
     personKind: hrPayrollRecordItems.personKind,
     employmentId: hrPayrollRecordItems.employmentId,
     workerId: hrPayrollRecordItems.workerId,
-    sourcePeriodKey: hrPayrollRecordItems.sourcePeriodKey,
     itemName: hrPayrollRecordItems.itemName,
     direction: hrPayrollRecordItems.direction,
     amountMinor: hrPayrollRecordItems.amountMinor,
@@ -2368,7 +2376,6 @@ export async function listHrPayrollRecordItems(db: Database, input: HrPayrollRec
     id: row.id,
     personKind: row.personKind,
     personId: row.personKind === "employee" ? row.employmentId! : row.workerId!,
-    sourcePeriodKey: row.sourcePeriodKey,
     itemName: row.itemName,
     direction: row.direction,
     amountMinor: row.amountMinor,
@@ -2381,25 +2388,22 @@ export async function createHrPayrollRecordItem(db: Database, input: HrPayrollRe
   assertPayrollRecordItemInput(input);
   const target = await findPayrollRecordRun(db, input);
   if (target.periodStatus !== "open" || target.runStatus !== "ready") throw new HrError(409, "只有開放中的尚未結算紀錄可以新增薪資加扣項。 ");
-  if (input.sourcePeriodKey === target.periodKey) throw new HrError(400, "原薪資月份必須與生效月份不同。 ");
-  if (!await sourcePeriodIsClosed(db, input.sourcePeriodKey)) throw new HrError(409, "原薪資月份尚未結帳，不能建立薪資加扣項。 ");
   if (await payrollRecordIsClosed(db, input, target.periodKey)) throw new HrError(409, "這筆薪資發放紀錄已確定發放，不能再修改。 ");
   const id = crypto.randomUUID();
   await writeHrMutation(db, sql`
     INSERT INTO hr_payroll_record_items
-      (id, payroll_run_id, person_kind, employment_id, worker_id, source_period_key, item_name, direction, amount_minor, reason, created_by)
+      (id, payroll_run_id, person_kind, employment_id, worker_id, item_name, direction, amount_minor, reason, created_by)
     SELECT ${id}, ${input.runId}, ${input.personKind}, ${input.personKind === "employee" ? input.personId : null}, ${input.personKind === "worker" ? input.personId : null},
-      ${input.sourcePeriodKey}, ${input.itemName.trim()}, ${input.direction}, ${input.amountMinor}, ${input.reason.trim()}, ${actor.id}
+      ${input.itemName.trim()}, ${input.direction}, ${input.amountMinor}, ${input.reason.trim()}, ${actor.id}
     WHERE EXISTS (
       SELECT 1 FROM hr_payroll_periods AS effective_period
       INNER JOIN hr_payroll_runs AS effective_run ON effective_run.payroll_period_id=effective_period.id
       WHERE effective_run.id=${input.runId} AND effective_period.status='open' AND effective_run.status='ready'
-    ) AND EXISTS (SELECT 1 FROM hr_payroll_periods WHERE period_key=${input.sourcePeriodKey} AND status='closed')
-      AND NOT EXISTS (
+    ) AND NOT EXISTS (
         SELECT 1 FROM ${input.personKind === "employee" ? sql`hr_payroll_closed_employees` : sql`hr_payroll_closed_workers`} AS claim
         WHERE claim.period_key=${target.periodKey} AND claim.${input.personKind === "employee" ? sql`employment_id` : sql`worker_id`}=${input.personId}
       )
-    RETURNING id`, id, actor, "payroll_record_item_created", "薪資發放紀錄已確定發放、薪資月份已鎖定或原薪資月份尚未結帳，不能新增加扣項。 ", {
+    RETURNING id`, id, actor, "payroll_record_item_created", "薪資發放紀錄已確定發放、薪資月份已鎖定或加扣項資料不合法，不能新增加扣項。 ", {
       activity: { entityLabel: input.itemName.trim(), summary: "薪資加扣項已新增", payload: { runId: input.runId, personKind: input.personKind, personId: input.personId, direction: input.direction, amountMinor: input.amountMinor } },
     });
   return { id };
@@ -2498,7 +2502,7 @@ export async function approveHrPayrollRecords(db: Database, references: HrPayrol
     const [runRow] = await db.select({ sourceSnapshotJson: hrPayrollRuns.sourceSnapshotJson, payrollPeriodId: hrPayrollRuns.payrollPeriodId, expectedCount: hrPayrollRuns.expectedCount, completedCount: hrPayrollRuns.completedCount, calculationInputJson: hrPayrollRuns.calculationInputJson }).from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
     if (!runRow?.sourceSnapshotJson || runRow.sourceSnapshotJson === "{}") throw new HrError(409, "此薪資試算沒有來源快照，請重新試算後再確定發放。 ");
     const currentSnapshot = await getPayrollSourceSnapshot(db, { period, employmentIds: employeeIds, workerIds });
-    if (currentSnapshot !== runRow.sourceSnapshotJson) throw new HrError(409, "薪資試算來源已變更，請重新試算後再確定發放。 ");
+    if (comparablePayrollSnapshot(currentSnapshot) !== comparablePayrollSnapshot(runRow.sourceSnapshotJson)) throw new HrError(409, "薪資試算來源已變更，請重新試算後再確定發放。 ");
     const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds: group.references.filter((reference) => reference.personKind === "employee").map((reference) => reference.personId) });
     mutations.push(...buildHrAnnualLeaveSettlementMutations(annualLeaveSettlements, actor));
     for (const reference of group.references) {
@@ -2641,7 +2645,7 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
   if (!run.sourceSnapshotJson || run.sourceSnapshotJson === "{}") throw new HrError(409, "此薪資批次沒有來源快照，請重新試算後再結帳。 ");
   const period = periodFromKey(run.periodKey);
   const currentSnapshot = await getPayrollSourceSnapshot(db, { period, employmentIds, workerIds: workerRows.map((row) => row.workerId) });
-  if (currentSnapshot !== run.sourceSnapshotJson) throw new HrError(409, "薪資試算來源已變更，請重新試算後再結帳。 ");
+  if (comparablePayrollSnapshot(currentSnapshot) !== comparablePayrollSnapshot(run.sourceSnapshotJson)) throw new HrError(409, "薪資試算來源已變更，請重新試算後再結帳。 ");
   const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds });
   const annualLeaveSettlementMutations = buildHrAnnualLeaveSettlementMutations(annualLeaveSettlements, actor);
   const settlementMutationCount = annualLeaveSettlementMutations.length;

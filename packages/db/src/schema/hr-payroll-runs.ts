@@ -30,11 +30,10 @@ export const hrPayrollPeriods = sqliteTable("hr_payroll_periods", {
   check("ck_hr_payroll_periods_revision", sql`${table.revision} > 0`),
 ]);
 
-/** 已結帳期間的差額補發／扣回；不改寫原薪資單，於生效月份產生獨立明細。 */
+/** 指定生效月份的人工薪資加扣項；不改寫原薪資單，於該月份產生獨立明細。 */
 export const hrPayrollAdjustments = sqliteTable("hr_payroll_adjustments", {
   id: text("id").primaryKey(),
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
-  sourcePeriodKey: text("source_period_key").notNull(),
   effectivePeriodKey: text("effective_period_key").notNull(),
   reason: text("reason").notNull(),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
@@ -44,7 +43,6 @@ export const hrPayrollAdjustments = sqliteTable("hr_payroll_adjustments", {
   revision: integer("revision").notNull().default(1),
 }, (table) => [
   index("idx_hr_payroll_adjustments_effective").on(table.effectivePeriodKey, table.employmentId),
-  check("ck_hr_payroll_adjustments_source_period", sql`${table.sourcePeriodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
   check("ck_hr_payroll_adjustments_effective_period", sql`${table.effectivePeriodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
   check("ck_hr_payroll_adjustments_reason", sql`length(trim(${table.reason})) BETWEEN 1 AND 1000`),
   check("ck_hr_payroll_adjustments_revision", sql`${table.revision} > 0`),
@@ -124,7 +122,6 @@ export const hrPayrollRecordItems = sqliteTable("hr_payroll_record_items", {
   personKind: text("person_kind", { enum: ["employee", "worker"] as const }).notNull(),
   employmentId: text("employment_id").references(() => hrEmployments.id, { onDelete: "restrict" }),
   workerId: text("worker_id").references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
-  sourcePeriodKey: text("source_period_key").notNull(),
   itemName: text("item_name").notNull(),
   direction: text("direction", { enum: ["earning", "deduction"] as const }).notNull(),
   amountMinor: integer("amount_minor").notNull(),
@@ -134,7 +131,6 @@ export const hrPayrollRecordItems = sqliteTable("hr_payroll_record_items", {
 }, (table) => [
   index("idx_hr_payroll_record_items_record").on(table.payrollRunId, table.personKind, table.employmentId, table.workerId),
   check("ck_hr_payroll_record_items_person", sql`(${table.personKind} = 'employee' AND ${table.employmentId} IS NOT NULL AND ${table.workerId} IS NULL) OR (${table.personKind} = 'worker' AND ${table.employmentId} IS NULL AND ${table.workerId} IS NOT NULL)`),
-  check("ck_hr_payroll_record_items_source_period", sql`${table.sourcePeriodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
   check("ck_hr_payroll_record_items_name", sql`length(trim(${table.itemName})) BETWEEN 1 AND 100`),
   check("ck_hr_payroll_record_items_direction", sql`${table.direction} IN ('earning', 'deduction')`),
   check("ck_hr_payroll_record_items_amount", sql`${table.amountMinor} > 0`),
