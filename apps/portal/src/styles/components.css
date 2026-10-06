@@ -2204,23 +2204,9 @@
  * 拉出 card 邊界，靠 overflow hidden 裁掉圓角。
  */
 
-.filter-select-control {
-  display: inline-flex;
-  width: max-content;
-  max-width: 100%;
-  min-width: 0;
-}
-.filter-select-control .select-trigger { width: 100%; max-width: 100%; }
 .analytics-filter-field .select-trigger,
 .field .select-trigger { width: 100%; }
 .pager-size .select-trigger { width: auto; }
-.filter-control .dropdown-control {
-  min-height: 34px;
-  padding: 7px 38px 7px 10px;
-  border-radius: 10px;
-  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
-  background-size: 5px 5px, 5px 5px;
-}
 .pager-size .select-control { display: inline-flex; width: max-content; }
 .pager-size .dropdown-control {
   min-height: 32px;
@@ -2614,8 +2600,6 @@
  * 就看得到的東西前面。
  */
 .filter-fields { display: contents; }
-/* compact filter 控制項要保留在 toolbar 的 flex layout，不沿用一般 Field 的欄位高度。 */
-.filter-control { display: contents; }
 /*
  * 兩個 class 是為了壓過 .ghost-button.with-icon 的 display: inline-flex——
  * 單一個 .filter-toggle 特異性較低，會輸給它。

@@ -447,6 +447,31 @@
   width: min(340px, 100%);
 }
 
+/* 篩選控制項的 wrapper 不佔工具列額外欄位，並讓下拉維持緊湊高度。 */
+.filter-control {
+  display: contents;
+}
+
+.filter-select-control {
+  display: inline-flex;
+  width: max-content;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.filter-select-control .select-trigger {
+  width: 100%;
+  max-width: 100%;
+}
+
+.filter-control .dropdown-control {
+  min-height: 34px;
+  padding: 7px 38px 7px 10px;
+  border-radius: 10px;
+  background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+  background-size: 5px 5px, 5px 5px;
+}
+
 /* Field and dropdown base styles; filters and domain forms add their own layout modifiers. */
 .field {
   display: grid;
