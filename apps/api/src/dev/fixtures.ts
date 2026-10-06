@@ -1,5 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import {
+  calculateHrPayroll,
   createDatabase,
   ensureAssistantDefaults,
   ensureHrAnnualLeaveEntitlements,
@@ -21,6 +22,7 @@ import {
   hrBonusPolicyMembers,
   hrBonusPolicyVersions,
   hrClockEvents,
+  hrCompensationItems,
   hrCompensationVersions,
   hrEmployeeAttendanceLocations,
   hrEmployeeScopes,
@@ -33,6 +35,10 @@ import {
   hrAnnualLeaveLedger,
   hrLeaveRequests,
   hrOvertimeRequests,
+  hrPayrollAdjustmentItems,
+  hrPayrollAdjustments,
+  hrPayrollPeriods,
+  hrPayrollRuns,
   hrScheduleEntries,
   hrScheduleVersions,
   hrScopeShiftAssignments,
@@ -83,7 +89,7 @@ const DEV_CUSTOMERS = [
   { name: "黃美華", phone: "0955 999 000", email: "huang@example.com", address: "高雄市前鎮區中山二路 5 號", channel: "manual", tags: ["需追蹤"], status: "blocked", sync: "synced" },
 ] as const;
 
-export async function seedDevData(d1: LocalD1): Promise<void> {
+export async function seedDevData(d1: LocalD1, options: { includePayrollPreview?: boolean } = {}): Promise<void> {
   const db = createDatabase(d1 as never);
   await syncSystemRoles(db);
   await ensureAssistantDefaults(db, {
@@ -111,7 +117,7 @@ export async function seedDevData(d1: LocalD1): Promise<void> {
     if (account.role) await db.insert(userRoleAssignments).values({ userId: id, roleId: account.role }).onConflictDoNothing();
   }
 
-  await seedDevHr(db);
+  await seedDevHr(db, options);
 }
 
 async function ensureDevServicePeriod(db: ReturnType<typeof createDatabase>, employmentId: string, serviceStartOn: string) {
@@ -121,7 +127,7 @@ async function ensureDevServicePeriod(db: ReturnType<typeof createDatabase>, emp
   });
 }
 
-async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
+async function seedDevHr(db: ReturnType<typeof createDatabase>, options: { includePayrollPreview?: boolean } = {}): Promise<void> {
   const [employee] = await db.select({ id: users.id }).from(users).where(eq(users.email, "chen@ecotech.tw")).limit(1);
   if (!employee) return;
   const [supervisor] = await db.select({ id: users.id }).from(users).where(eq(users.email, "wang@ecotech.tw")).limit(1);
@@ -193,7 +199,7 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
 
   const [lin] = await db.select({ id: users.id }).from(users).where(eq(users.email, "eli-lin@ecotech.tw")).limit(1);
   if (!lin || !supervisor) return;
-  await seedDevPayrollScenario(db, { linUserId: lin.id, supervisorUserId: supervisor.id, locationId });
+  await seedDevPayrollScenario(db, { linUserId: lin.id, supervisorUserId: supervisor.id, locationId }, options);
 }
 
 /**
@@ -203,6 +209,7 @@ async function seedDevHr(db: ReturnType<typeof createDatabase>): Promise<void> {
 async function seedDevPayrollScenario(
   db: ReturnType<typeof createDatabase>,
   ids: { linUserId: string; supervisorUserId: string; locationId: string },
+  options: { includePayrollPreview?: boolean } = {},
 ) {
   const linEmploymentId = "dev-employment-lin";
   const boothEmploymentId = "dev-employment-wang";
@@ -215,6 +222,14 @@ async function seedDevPayrollScenario(
   await db.insert(hrEmploymentAttendanceSettings).values({ employmentId: linEmploymentId, attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" })
     .onConflictDoUpdate({ target: hrEmploymentAttendanceSettings.employmentId, set: { attendanceMode: "general", primaryAssignmentId: "dev-attendance-lin-office" } });
   await db.insert(hrCompensationVersions).values({ id: "dev-comp-lin-2026", employmentId: linEmploymentId, versionNumber: 1, validFrom: "2026-01-01", validTo: null, payBasis: "monthly", baseAmountMinor: 6_000_000, note: "開發示範：月薪 NT$60,000", createdBy: ids.linUserId }).onConflictDoNothing();
+  if (options.includePayrollPreview) {
+    await db.insert(hrCompensationItems).values({ id: "dev-comp-item-lin-transport-2026", compensationVersionId: "dev-comp-lin-2026", itemName: "每月交通津貼", amountMinor: 300_000, itemKind: "fixed", amountBasis: "monthly", includeOvertime: 0, includeInsurance: 0, includeTax: 1, createdBy: ids.linUserId }).onConflictDoNothing();
+    await db.insert(hrPayrollAdjustments).values({ id: "dev-payroll-adjustment-lin-2026-08", employmentId: linEmploymentId, effectivePeriodKey: "2026-08", reason: "開發示範：專案獎金與福利代扣", createdBy: ids.linUserId, updatedBy: ids.linUserId }).onConflictDoNothing();
+    await db.insert(hrPayrollAdjustmentItems).values([
+      { id: "dev-payroll-adjustment-item-lin-bonus", adjustmentId: "dev-payroll-adjustment-lin-2026-08", itemName: "專案獎金", amountMinor: 800_000 },
+      { id: "dev-payroll-adjustment-item-lin-welfare", adjustmentId: "dev-payroll-adjustment-lin-2026-08", itemName: "福利代扣", amountMinor: -120_000 },
+    ]).onConflictDoNothing();
+  }
   await db.insert(hrInsuranceVersions).values([
     { id: "dev-insurance-lin-labor-2026", employmentId: linEmploymentId, scheme: "labor", versionNumber: 1, status: "enrolled", validFrom: "2026-01-01", validTo: null, insuredAmountMinor: 45_800_00, dependentCount: 0, rateYear: 2026, sourceKind: "manual", sourceUrl: "", note: "開發示範；正式金額請依官方級距與公司規則確認。", createdBy: ids.linUserId },
     { id: "dev-insurance-lin-health-2026", employmentId: linEmploymentId, scheme: "health", versionNumber: 1, status: "enrolled", validFrom: "2026-01-01", validTo: null, insuredAmountMinor: 45_800_00, dependentCount: 0, rateYear: 2026, sourceKind: "manual", sourceUrl: "", note: "開發示範；正式金額請依官方級距與公司規則確認。", createdBy: ids.linUserId },
@@ -296,6 +311,27 @@ async function seedDevPayrollScenario(
     // 出金表的單位是元，跟正式環境一樣；寫成分的話獎金換算錯了測試也看不出來。
     reportRunId: null, payoutAmount: 180_000 + index * 15_000, updatedByEmail: "eli-lin@ecotech.tw",
   }))).onConflictDoNothing();
+
+  if (options.includePayrollPreview) await ensureDevPayrollPreview(db, { linUserId: ids.linUserId });
+}
+
+async function ensureDevPayrollPreview(db: ReturnType<typeof createDatabase>, ids: { linUserId: string }) {
+  const periodKey = "2026-08";
+  const [period] = await db.select({ id: hrPayrollPeriods.id, status: hrPayrollPeriods.status }).from(hrPayrollPeriods).where(eq(hrPayrollPeriods.periodKey, periodKey)).limit(1);
+  if (period?.status === "closed") return;
+  if (period) {
+    const [existingRun] = await db.select({ id: hrPayrollRuns.id }).from(hrPayrollRuns).where(eq(hrPayrollRuns.payrollPeriodId, period.id)).limit(1);
+    if (existingRun) return;
+  }
+  await calculateHrPayroll(db, {
+    periodKey,
+    payDate: "2026-09-05",
+    runName: "2026-08示範薪資",
+    attendanceMode: "all",
+    employeeUserIds: [ids.linUserId],
+    workerIds: [],
+    requestId: "dev-payroll-preview-2026-08-v1",
+  }, { id: ids.linUserId, email: "eli-lin@ecotech.tw" });
 }
 
 const DEV_ANALYTICS_SCOPES = [

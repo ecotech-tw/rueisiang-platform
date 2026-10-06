@@ -81,7 +81,7 @@ function loadDevVars(): Record<string, string> {
 const d1 = createTargetOnlyD1(DB_FILE);
 // 上傳的檔案跟 local.sqlite 放一起，想重來就把兩個一起刪掉。
 const uploads = createLocalR2(path.resolve(here, "../../local-uploads"));
-await seedDevData(d1);
+await seedDevData(d1, { includePayrollPreview: true });
 
 const env = {
   DB: d1,

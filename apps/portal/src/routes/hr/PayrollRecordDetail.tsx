@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -65,11 +65,12 @@ function PayrollPayslipTable({ title, lines, direction }: { title: string; lines
   </section>;
 }
 
-function PayrollPayslip({ detail }: { detail: PayrollRecordDetail }) {
+function PayrollPayslip({ detail, preview = false }: { detail: PayrollRecordDetail; preview?: boolean }) {
   const lines = detail.employee?.lines ?? (detail.worker ? [{ lineKey: "worker_pay", direction: "earning" as const, amountMinor: detail.worker.amountMinor, explanation: {} }] : []);
-  return <section className="hr-payroll-payslip" aria-labelledby="hr-payroll-payslip-title">
+  const titleId = preview ? "hr-payroll-payslip-preview-title" : "hr-payroll-payslip-title";
+  return <section className={`hr-payroll-payslip${preview ? " hr-payroll-payslip-preview" : ""}`} aria-labelledby={titleId}>
     <header className="hr-payroll-payslip-head">
-      <div><p>員工薪資條</p><h1 id="hr-payroll-payslip-title">{detail.record.personName}</h1></div>
+      <div><p>員工薪資條</p><h1 id={titleId}>{detail.record.personName}</h1></div>
       <strong>{periodLabel(detail.record.periodKey)}</strong>
     </header>
     <dl className="hr-payroll-payslip-meta">
@@ -97,6 +98,7 @@ export function HrPayrollRecordDetail() {
   const canRead = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:read"));
   const canCalculate = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:calculate"));
   const [deleteRunOpen, setDeleteRunOpen] = useState(false);
+  const [payslipPreviewOpen, setPayslipPreviewOpen] = useState(false);
   const result = useHrQuery<PayrollRecordDetail>(runId && (personKind === "employee" || personKind === "worker") && personId ? `/payroll/records/${encodeURIComponent(runId)}/${personKind}/${encodeURIComponent(personId)}` : "/payroll/records/__none__/employee/__none__", canRead && Boolean(runId && personId), { keepPreviousData: false });
   const approve = useHrWrite<{ approved: number }>();
   const deleteRun = useHrWrite<{ id: string; deleted: true }>();
@@ -114,7 +116,7 @@ export function HrPayrollRecordDetail() {
   }
 
   return <div className="page hr-payroll-page hr-payroll-detail-page">
-    <PageHeader title={detail.record.personName} description={`${periodLabel(detail.record.periodKey)}・${PERSON_KIND_LABEL[detail.record.personKind]}・${payBasisOf(detail)}`} actions={<div className="hr-payroll-detail-page-actions"><Button variant="secondary" icon="print" onClick={() => window.print()}>列印薪資條</Button><Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/hr/payroll-settlement")}>返回發放紀錄</Button></div>} />
+    <PageHeader title={detail.record.personName} description={`${periodLabel(detail.record.periodKey)}・${PERSON_KIND_LABEL[detail.record.personKind]}・${payBasisOf(detail)}`} actions={<div className="hr-payroll-detail-page-actions"><Button variant="secondary" icon="eye" onClick={() => setPayslipPreviewOpen(true)}>預覽薪資條</Button><Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/hr/payroll-settlement")}>返回發放紀錄</Button></div>} />
     <Panel className="hr-payroll-record-detail-panel" title="發放明細" description={`${detail.record.payDate ? `發薪日 ${detail.record.payDate}` : "未設定發薪日"}・試算版本 v${detail.record.versionNumber}`}>
       <div className="hr-payroll-detail-head">
         <div><strong>{detail.record.personNumber ? `${detail.record.personNumber}・` : ""}{PERSON_KIND_LABEL[detail.record.personKind]}</strong><small>建立於 {detail.record.createdAt}</small></div>
@@ -135,6 +137,14 @@ export function HrPayrollRecordDetail() {
       {approve.error ? <Alert tone="danger">{approve.error.message}</Alert> : null}
     </Panel>
     <PayrollPayslip detail={detail} />
+    {payslipPreviewOpen ? <Dialog
+      className="hr-payroll-preview-dialog"
+      bodyClassName="hr-payroll-payslip-preview-body"
+      title="薪資條預覽"
+      titleMeta={`${detail.record.personName}・${periodLabel(detail.record.periodKey)}`}
+      onClose={() => setPayslipPreviewOpen(false)}
+      actions={<><Button variant="secondary" onClick={() => setPayslipPreviewOpen(false)}>關閉</Button><Button icon="print" onClick={() => window.print()}>列印薪資條</Button></>}
+    ><PayrollPayslip detail={detail} preview /></Dialog> : null}
     {deleteRunOpen ? <ConfirmDialog title="刪除整批薪資試算？" confirmLabel="刪除試算" pending={deleteRun.isPending} onCancel={() => { if (!deleteRun.isPending) setDeleteRunOpen(false); }} onConfirm={removeRun}>
       <p><strong>{detail.run.runName}</strong>（{periodLabel(detail.run.periodKey)}）會連同本批次所有尚未結算的發放紀錄、試算明細與薪資加扣項一併刪除。</p>
       <p>已確定發放的歷史紀錄不受影響；刪除只適用於尚未有任何人員確定發放的批次。</p>
