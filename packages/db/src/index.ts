@@ -40,10 +40,10 @@ export {
   type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceContributionComponent, type HrInsuranceContributionComponentEstimate, type HrInsuranceContributionEstimate, type HrInsuranceContributionInput, type HrInsuranceContributionRuleRecord, type HrInsuranceEmployeeAmountPart, type HrInsuranceEstimateVersionInput, type HrInsuranceInput, type HrInsuranceRateTableRecord, type HrInsuranceRateTableSourceKind, type HrInsuranceRateTableUpdateInput, type HrManualInsuranceRateTableInput, type HrInsuranceScheme,
 } from "./hr-payroll.js";
 export {
-  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollRecordDetail, listHrPayrollEmployeeHistory, listHrPayrollRecordReferences, listHrPayrollRecords, updateHrBonusPolicy, voidHrBonusPolicyVersion,
+  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollRecordDetail, listHrPayrollEmployeeHistory, listHrPayrollRecordItems, listHrPayrollRecordReferences, listHrPayrollRecords, updateHrBonusPolicy, voidHrBonusPolicyVersion,
   getHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   type AssignHrBonusPolicyInput, type CreateHrBonusPolicyInput, type HrBonusKind, type HrBonusPerformancePeriod, type HrPayrollCalculationInput, type HrPayrollEmployeeResult, type UpdateHrBonusPolicyInput,
-  type HrPayrollEmployeeHistory, type HrPayrollRecordCounts, type HrPayrollRecordDetail, type HrPayrollRecordListQuery, type HrPayrollRecordPayBasis, type HrPayrollRecordPersonKind, type HrPayrollRecordReference, type HrPayrollRecordStatus, type HrPayrollRecord, type HrPayrollRunResult,
+  type HrPayrollEmployeeHistory, type HrPayrollRecordCounts, type HrPayrollRecordDetail, type HrPayrollRecordItemView, type HrPayrollRecordListQuery, type HrPayrollRecordPayBasis, type HrPayrollRecordPersonKind, type HrPayrollRecordReference, type HrPayrollRecordStatus, type HrPayrollRecord, type HrPayrollRunResult,
 } from "./hr-payroll-calculation.js";
 export {
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, listHrLeaveTypes, listHrMonthlyData, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave,

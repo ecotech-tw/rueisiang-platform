@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import { chunks, createDatabase } from "@rueisiang/db";
-import { hrCalendarDayScopes, hrCalendarDays, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
+import { hrCalendarDayScopes, hrCalendarDays, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrPayrollRecordItems, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -63,6 +63,31 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const closedBody = await closedList.json() as { records: Array<{ runId: string; status: string }>; counts: { closed: number } };
     expect(closedBody.records).toEqual(expect.arrayContaining([expect.objectContaining({ runId: calculated.run.runId, status: "closed" })]));
     expect(closedBody.counts.closed).toBeGreaterThanOrEqual(1);
+  });
+
+  it("歷史薪資紀錄仍會讀取舊版薪資加扣項", async () => {
+    const calculation = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-legacy-payroll-record-item-2026-08",
+    });
+    expect(calculation.status, await calculation.clone().text()).toBe(200);
+    const runId = (await calculation.json() as { run: { runId: string } }).run.runId;
+    const before = await request(`/hr/payroll/records?periodKey=2026-08&status=unsettled&pageSize=100`);
+    const beforeBody = await before.json() as { records: Array<{ runId: string; personId: string; earningMinor: number; deductionMinor: number; netMinor: number }> };
+    const baseRecord = beforeBody.records.find((record) => record.runId === runId)!;
+    const db = createDatabase(d1 as never);
+    await db.insert(hrPayrollRecordItems).values({ id: "legacy-record-item-test", payrollRunId: runId, personKind: "employee", employmentId: baseRecord.personId, workerId: null, itemName: "歷史覆核扣款", direction: "deduction", amountMinor: 2_500, reason: "既有資料相容性測試", createdBy: "dev-eli-lin@ecotech.tw" });
+
+    const list = await request(`/hr/payroll/records?periodKey=2026-08&status=unsettled&pageSize=100`);
+    const listBody = await list.json() as { records: Array<{ runId: string; personId: string; earningMinor: number; deductionMinor: number; netMinor: number }> };
+    const listed = listBody.records.find((record) => record.runId === runId && record.personId === baseRecord.personId)!;
+    expect(listed.deductionMinor).toBe(baseRecord.deductionMinor + 2_500);
+    expect(listed.netMinor).toBe(baseRecord.netMinor - 2_500);
+
+    const detail = await request(`/hr/payroll/records/${runId}/employee/${baseRecord.personId}`);
+    const detailBody = await detail.json() as { record: { deductionMinor: number; netMinor: number }; items: Array<{ itemName: string; amountMinor: number }> };
+    expect(detailBody.record.deductionMinor).toBe(baseRecord.deductionMinor + 2_500);
+    expect(detailBody.record.netMinor).toBe(baseRecord.netMinor - 2_500);
+    expect(detailBody.items).toEqual(expect.arrayContaining([expect.objectContaining({ itemName: "歷史覆核扣款", amountMinor: 2_500 })]));
   });
 
   it("薪資加扣項與薪資單使用同一份試算快照，並可逐筆確定發放", async () => {

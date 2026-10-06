@@ -55,6 +55,16 @@ function lineFormula(line: PayrollLine): string {
 function payBasisOf(detail: PayrollRecordDetail) {
   return detail.record.payBasis ? PAY_BASIS_LABEL[detail.record.payBasis] ?? detail.record.payBasis : "—";
 }
+function payrollLinesOf(detail: PayrollRecordDetail): PayrollLine[] {
+  const baseLines = detail.employee?.lines ?? (detail.worker ? [{ lineKey: "worker_pay", direction: "earning" as const, amountMinor: detail.worker.amountMinor, explanation: {} }] : []);
+  const legacyLines = detail.items.map((item) => ({
+    lineKey: `legacy_adjustment_${item.id}`,
+    direction: item.direction,
+    amountMinor: item.amountMinor,
+    explanation: { itemName: item.itemName, reason: item.reason, formulaDetail: `歷史薪資加扣項（${item.itemName}）：${item.reason}` },
+  }));
+  return [...baseLines, ...legacyLines];
+}
 function PayrollPayslipTable({ title, lines, direction }: { title: string; lines: PayrollLine[]; direction: PayrollLine["direction"] }) {
   const filteredLines = lines.filter((line) => line.direction === direction);
   return <section className="hr-payroll-payslip-section" aria-labelledby={`payroll-payslip-${direction}`}>
@@ -67,7 +77,7 @@ function PayrollPayslipTable({ title, lines, direction }: { title: string; lines
 }
 
 function PayrollPayslip({ detail, elementRef }: { detail: PayrollRecordDetail; elementRef?: Ref<HTMLElement> }) {
-  const lines = detail.employee?.lines ?? (detail.worker ? [{ lineKey: "worker_pay", direction: "earning" as const, amountMinor: detail.worker.amountMinor, explanation: {} }] : []);
+  const lines = payrollLinesOf(detail);
   const titleId = "hr-payroll-payslip-preview-title";
   return <section ref={elementRef} className="hr-payroll-payslip hr-payroll-payslip-preview" aria-labelledby={titleId}>
     <header className="hr-payroll-payslip-head">
@@ -110,6 +120,7 @@ export function HrPayrollRecordDetail() {
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (result.isPending) return <HrPageSkeleton variant="detail" />;
   if (result.error || !detail) return <Alert tone="danger">{result.error?.message ?? "找不到這筆薪資發放紀錄。"}</Alert>;
+  const detailLines = payrollLinesOf(detail);
 
   function approveRecord() {
     approve.mutate({ path: "/payroll/records/approve", method: "POST", values: { records: [{ runId: detail!.record.runId, personKind: detail!.record.personKind, personId: detail!.record.personId }] } }, { onSuccess: () => void result.refetch() });
@@ -146,7 +157,7 @@ export function HrPayrollRecordDetail() {
       {detail.record.status === "closed" ? <Alert tone="info">這筆紀錄已確定發放，以下明細是不可改寫的歷史快照。</Alert> : detail.run.canDelete ? <Alert tone="warning">請確認試算公式與薪資加扣項後，再確定發放。薪資加扣項會以試算時保存的明細快照呈現；若資料有變更，請重新試算。</Alert> : <Alert tone="info">本批次已有其他人員確定發放，不能刪除整批試算；目前紀錄仍可繼續確認。</Alert>}
       {detail.run.warnings.length ? <Alert tone="warning"><strong>試算提醒</strong><ul className="hr-payroll-warning-list">{detail.run.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></Alert> : null}
 
-      {detail.employee ? <div className="hr-payroll-line-list">{detail.employee.lines.map((line) => <details className={`hr-payroll-line hr-payroll-line-${line.direction}`} key={line.lineKey}>
+      {detail.employee ? <div className="hr-payroll-line-list">{detailLines.map((line) => <details className={`hr-payroll-line hr-payroll-line-${line.direction}`} key={line.lineKey}>
         <summary className="hr-payroll-line-summary"><span className="hr-payroll-line-title"><strong>{lineLabel(line)}</strong><span className="hr-payroll-line-direction">{line.direction === "earning" ? "應發" : "扣款"}</span></span><strong className="hr-payroll-line-amount">{line.direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</strong></summary>
         <div className="hr-payroll-line-content"><div className="hr-payroll-line-formula"><span>計算公式</span><p>{lineFormula(line)}</p></div></div>
       </details>)}</div> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班與有效敘薪計算；原始試算結果保留在這筆發放紀錄中。</p></div>}
