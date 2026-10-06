@@ -348,6 +348,25 @@
   display: contents;
 }
 
+/* 確認對話框比一般對話框窄，內容只保留後果說明與兩顆操作按鈕。 */
+.confirm-card {
+  width: min(420px, 100%);
+}
+
+.confirm-body {
+  display: grid;
+  gap: 8px;
+  padding-bottom: 4px;
+}
+
+.confirm-body p {
+  margin: 0;
+}
+
+.confirm-body strong {
+  color: var(--color-brand-dark);
+}
+
 /* Panel base styles; page spacing and domain modifiers remain app-specific. */
 .panel {
   padding: 20px 22px;
