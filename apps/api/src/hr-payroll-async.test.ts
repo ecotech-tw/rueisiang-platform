@@ -1,4 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
+import { createDatabase, markHrPayrollJobDispatchFailed, markHrPayrollJobEnqueued } from "@rueisiang/db";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app, { queue } from "./index.js";
 import { PayrollRunAgent } from "./payroll-run-do.js";
@@ -90,6 +91,24 @@ describe("薪資背景 Queue 與 Durable Object", () => {
     expect(replay.status, await replay.clone().text()).toBe(202);
     expect((await replay.json() as { job: { status: string; dispatchPending: boolean } }).job).toEqual(expect.objectContaining({ status: "queued", dispatchPending: false }));
     expect(queueMessages).toHaveLength(1);
+  });
+
+  it("成功 enqueue 與延遲 dispatch failure race 時保留 enqueued 狀態", async () => {
+    queueFailure = new Error("initial queue failure");
+    const created = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], expectedCount: 1, requestId: "async-payroll-dispatch-race",
+    });
+    const createdBody = await created.json() as { job: { jobId: string } };
+    queueFailure = null;
+
+    const db = createDatabase(d1 as never);
+    await Promise.all([
+      markHrPayrollJobEnqueued(db, createdBody.job.jobId),
+      markHrPayrollJobDispatchFailed(db, createdBody.job.jobId, "late dispatch failure"),
+    ]);
+
+    const status = await request(`/hr/payroll/jobs/${createdBody.job.jobId}`);
+    expect((await status.json() as { job: { status: string; dispatchPending: boolean; error: string | null } }).job).toEqual(expect.objectContaining({ status: "queued", dispatchPending: false, error: null }));
   });
 
   it("Queue consumer 耗盡重試時保留訊息進 DLQ 並標記尚未開始的工作失敗", async () => {
