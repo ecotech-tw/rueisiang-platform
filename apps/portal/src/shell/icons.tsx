@@ -34,7 +34,7 @@ export type IconName =
   | "webhook"
   | "analytics"
   | "report"
-  | "print"
+  | "download"
   | "link"
   | "tune"
   | "chat"
@@ -305,12 +305,11 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="m8.2 9.2 1.7-1.4 1.5 1.1 2-2" />
     </>
   ),
-  print: (
+  download: (
     <>
-      <path d="M7 9V4.5h10V9" />
-      <path d="M6.2 17.8H4.8a1.8 1.8 0 0 1-1.8-1.8v-4.6a1.8 1.8 0 0 1 1.8-1.8h14.4a1.8 1.8 0 0 1 1.8 1.8V16a1.8 1.8 0 0 1-1.8 1.8H18" />
-      <path d="M7 14h10v6H7z" />
-      <path d="M17.2 12.2h.01" />
+      <path d="M12 3.8v11.1" />
+      <path d="m7.7 10.8 4.3 4.3 4.3-4.3" />
+      <path d="M5 19.2h14" />
     </>
   ),
   link: (

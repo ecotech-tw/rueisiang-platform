@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useRef, useState, type Ref } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
+import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { downloadPayslipImage } from "./exportPayslip.js";
 import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -53,13 +55,6 @@ function lineFormula(line: PayrollLine): string {
 function payBasisOf(detail: PayrollRecordDetail) {
   return detail.record.payBasis ? PAY_BASIS_LABEL[detail.record.payBasis] ?? detail.record.payBasis : "—";
 }
-function printPayslip() {
-  document.documentElement.classList.add("hr-payroll-printing");
-  const cleanup = () => document.documentElement.classList.remove("hr-payroll-printing");
-  window.addEventListener("afterprint", cleanup, { once: true });
-  window.print();
-}
-
 function PayrollPayslipTable({ title, lines, direction }: { title: string; lines: PayrollLine[]; direction: PayrollLine["direction"] }) {
   const filteredLines = lines.filter((line) => line.direction === direction);
   return <section className="hr-payroll-payslip-section" aria-labelledby={`payroll-payslip-${direction}`}>
@@ -71,10 +66,10 @@ function PayrollPayslipTable({ title, lines, direction }: { title: string; lines
   </section>;
 }
 
-function PayrollPayslip({ detail, preview = false }: { detail: PayrollRecordDetail; preview?: boolean }) {
+function PayrollPayslip({ detail, preview = false, elementRef }: { detail: PayrollRecordDetail; preview?: boolean; elementRef?: Ref<HTMLElement> }) {
   const lines = detail.employee?.lines ?? (detail.worker ? [{ lineKey: "worker_pay", direction: "earning" as const, amountMinor: detail.worker.amountMinor, explanation: {} }] : []);
   const titleId = preview ? "hr-payroll-payslip-preview-title" : "hr-payroll-payslip-title";
-  return <section className={`hr-payroll-payslip${preview ? " hr-payroll-payslip-preview" : ""}`} aria-labelledby={titleId}>
+  return <section ref={elementRef} className={`hr-payroll-payslip${preview ? " hr-payroll-payslip-preview" : ""}`} aria-labelledby={titleId}>
     <header className="hr-payroll-payslip-head">
       <div><p>員工薪資條</p><h1 id={titleId}>{detail.record.personName}</h1></div>
       <strong>{periodLabel(detail.record.periodKey)}</strong>
@@ -92,7 +87,7 @@ function PayrollPayslip({ detail, preview = false }: { detail: PayrollRecordDeta
       <div><dt>扣款合計</dt><dd>{detail.record.deductionMinor ? deductionMoney(detail.record.deductionMinor) : "—"}</dd></div>
       <div><dt>實領合計</dt><dd>{money(detail.record.netMinor)}</dd></div>
     </dl>
-    <p className="hr-payroll-payslip-note">本薪資條依薪資發放紀錄保存的明細快照列印。</p>
+    <p className="hr-payroll-payslip-note">本薪資條依薪資發放紀錄保存的明細快照產生。</p>
   </section>;
 }
 
@@ -105,6 +100,9 @@ export function HrPayrollRecordDetail() {
   const canCalculate = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:calculate"));
   const [deleteRunOpen, setDeleteRunOpen] = useState(false);
   const [payslipPreviewOpen, setPayslipPreviewOpen] = useState(false);
+  const [payslipDownloading, setPayslipDownloading] = useState(false);
+  const payslipPreviewRef = useRef<HTMLElement>(null);
+  const toast = useToast();
   const result = useHrQuery<PayrollRecordDetail>(runId && (personKind === "employee" || personKind === "worker") && personId ? `/payroll/records/${encodeURIComponent(runId)}/${personKind}/${encodeURIComponent(personId)}` : "/payroll/records/__none__/employee/__none__", canRead && Boolean(runId && personId), { keepPreviousData: false });
   const approve = useHrWrite<{ approved: number }>();
   const deleteRun = useHrWrite<{ id: string; deleted: true }>();
@@ -119,6 +117,19 @@ export function HrPayrollRecordDetail() {
   }
   function removeRun() {
     deleteRun.mutate({ path: `/payroll/runs/${encodeURIComponent(detail!.record.runId)}`, method: "DELETE", values: {} }, { onSuccess: () => { setDeleteRunOpen(false); navigate("/hr/payroll-settlement", { replace: true }); } });
+  }
+  async function downloadPayslip() {
+    const element = payslipPreviewRef.current;
+    if (!element || payslipDownloading) return;
+    setPayslipDownloading(true);
+    try {
+      await downloadPayslipImage(element, detail!.record.personName, detail!.record.periodKey);
+      toast.show("薪資條 PNG 已下載。");
+    } catch (failure) {
+      toast.show(failure instanceof Error ? failure.message : "圖片產生失敗，請再試一次。", "danger");
+    } finally {
+      setPayslipDownloading(false);
+    }
   }
 
   return <div className="page hr-payroll-page hr-payroll-detail-page">
@@ -142,15 +153,14 @@ export function HrPayrollRecordDetail() {
       </details>)}</div> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班與有效敘薪計算；原始試算結果保留在這筆發放紀錄中。</p></div>}
       {approve.error ? <Alert tone="danger">{approve.error.message}</Alert> : null}
     </Panel>
-    <PayrollPayslip detail={detail} />
     {payslipPreviewOpen ? <Dialog
       className="hr-payroll-preview-dialog"
       bodyClassName="hr-payroll-payslip-preview-body"
       title="薪資條預覽"
       titleMeta={`${detail.record.personName}・${periodLabel(detail.record.periodKey)}`}
       onClose={() => setPayslipPreviewOpen(false)}
-      actions={<><Button variant="secondary" onClick={() => setPayslipPreviewOpen(false)}>關閉</Button><Button icon="print" onClick={printPayslip}>列印薪資條</Button></>}
-    ><PayrollPayslip detail={detail} preview /></Dialog> : null}
+      actions={<><Button variant="secondary" onClick={() => setPayslipPreviewOpen(false)}>關閉</Button><Button icon="download" loading={payslipDownloading} loadingLabel="產生圖片…" onClick={() => { void downloadPayslip(); }}>下載薪資條</Button></>}
+    ><PayrollPayslip detail={detail} preview elementRef={payslipPreviewRef} /></Dialog> : null}
     {deleteRunOpen ? <ConfirmDialog title="刪除整批薪資試算？" confirmLabel="刪除試算" pending={deleteRun.isPending} onCancel={() => { if (!deleteRun.isPending) setDeleteRunOpen(false); }} onConfirm={removeRun}>
       <p><strong>{detail.run.runName}</strong>（{periodLabel(detail.run.periodKey)}）會連同本批次所有尚未結算的發放紀錄、試算明細與薪資加扣項一併刪除。</p>
       <p>已確定發放的歷史紀錄不受影響；刪除只適用於尚未有任何人員確定發放的批次。</p>
