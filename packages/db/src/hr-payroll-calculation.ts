@@ -1095,6 +1095,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const itemCalculationParts = new Map<string, { amountBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; quantity: number; quantityUnit: "個月" | "天" | "小時"; amountMinor: number; fullMonth: boolean }>();
     const dailyMonthlyItems = new Map<string, (typeof compensationItems)[number]>();
     const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId && employmentDaySet.has(item.workDate));
+    const specialRuleNames = [...new Set(specialAssignments.map((item) => item.ruleNameSnapshot).filter((name) => name.trim()))];
     const scheduledDates = scheduledDatesByEmployment.get(employee.employmentId) ?? new Set<string>();
     const specialDates = new Set(specialAssignments.map((item) => item.workDate));
     const addBaseAmount = (compensation: (typeof employeeCompensations)[number], amount: number, hours = 0) => {
@@ -1144,14 +1145,14 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           addBaseAmount(compensation, dailyBase, compensation.payBasis === "hourly" ? hours : 0);
           const adjustment = specialAmount - dailyBase;
           specialAdjustmentMinor += adjustment;
-          specialCalculationParts.push({ formula: `${day}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
+          specialCalculationParts.push({ formula: `${day}・${special.ruleNameSnapshot}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
         } else if (special.multiplierPpmSnapshot !== null) {
           const dailyBase = compensation.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * hours);
           const specialAmount = Math.floor(dailyBase * special.multiplierPpmSnapshot / PPM);
           addBaseAmount(compensation, dailyBase, compensation.payBasis === "hourly" ? hours : 0);
           const adjustment = specialAmount - dailyBase;
           specialAdjustmentMinor += adjustment;
-          specialCalculationParts.push({ formula: `${day}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)}) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
+          specialCalculationParts.push({ formula: `${day}・${special.ruleNameSnapshot}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)}) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
         }
       } else if (typhoonStop) {
         const hours = typhoonRowsForDay.reduce((sum, row) => sum + scheduledHours(row), 0);
@@ -1372,7 +1373,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       formulaDetail: payrollFormulaTotal(annualLeaveSettlementParts, annualLeaveSettlementMinor),
     } });
     if (specialAdjustmentMinor !== 0) lines.push({ lineKey: "special_workday", direction: specialAdjustmentMinor > 0 ? "earning" : "deduction", amountMinor: Math.abs(specialAdjustmentMinor), explanation: {
-      rule: "特殊上班日差額：特殊日應發薪資 − 原本薪資", assignmentIds: specialAssignments.map((item) => item.id),
+      rule: "特殊上班日差額：特殊日應發薪資 − 原本薪資", ruleNames: specialRuleNames, assignmentIds: specialAssignments.map((item) => item.id),
       calculationParts: specialCalculationParts, formulaDetail: payrollFormulaTotal(specialCalculationParts, specialAdjustmentMinor),
     } });
     for (const [index, special] of specialAssignments.entries()) {
@@ -1381,9 +1382,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const allowanceTotal = payableAllowances.reduce((sum, item) => sum + item.unitAmountMinor * item.quantity, 0);
       if (allowanceTotal > 0) {
         const unitFormula = payableAllowances.map((item) => `${item.itemName} ${payrollFormulaMoney(item.unitAmountMinor)} × ${item.quantity} 次`).join(" + ");
-        const allowancePart = { formula: `${special.workDate}：${unitFormula}`, amountMinor: allowanceTotal };
+        const allowancePart = { formula: `${special.workDate}・${special.ruleNameSnapshot}：${unitFormula}`, amountMinor: allowanceTotal };
         lines.push({ lineKey: `special_allowance_${index + 1}`, direction: "earning", amountMinor: allowanceTotal, explanation: {
-          rule: special.ruleNameSnapshot, quantity: special.allowanceQuantity,
+          rule: special.ruleNameSnapshot, ruleName: special.ruleNameSnapshot, quantity: special.allowanceQuantity,
           quantities: payableAllowances.map((item) => ({ itemName: item.itemName, quantity: item.quantity })), allowances: special.allowanceSnapshotJson,
           calculationParts: [allowancePart], formulaDetail: payrollFormulaTotal([allowancePart], allowanceTotal),
         } });

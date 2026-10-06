@@ -1103,13 +1103,13 @@ describe("HR 薪資與櫃點獎金試算", () => {
 
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-current-rule-2026-09" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
-    const body = await payroll.json() as { run: { runId: string; engineVersion: string; employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number }> }>; warnings: string[] } };
+    const body = await payroll.json() as { run: { runId: string; engineVersion: string; employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }>; warnings: string[] } };
     const employee = body.run.employees[0]!;
     expect(body.run.engineVersion).toBe("hr-payroll-demo-v3");
     expect(employee.earningMinor).toBe(3_080_000);
     expect(employee.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 3_000_000 }),
-      expect.objectContaining({ lineKey: "special_workday", amountMinor: 80_000, direction: "earning", explanation: expect.objectContaining({ rule: "特殊上班日差額：特殊日應發薪資 − 原本薪資", formulaDetail: expect.stringContaining("− NT$ 1,000") }) }),
+      expect.objectContaining({ lineKey: "special_workday", amountMinor: 80_000, direction: "earning", explanation: expect.objectContaining({ rule: "特殊上班日差額：特殊日應發薪資 − 原本薪資", ruleNames: ["特殊日目前規則測試"], formulaDetail: expect.stringContaining("2026-09-30・特殊日目前規則測試") }) }),
     ]));
     expect(body.run.warnings.some((warning) => warning.includes("特殊上班日 2026-09-30 缺少工時資料"))).toBe(false);
     expect(body.run.warnings.some((warning) => warning.includes("沒有已發布排班"))).toBe(false);
