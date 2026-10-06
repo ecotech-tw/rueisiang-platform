@@ -66,10 +66,10 @@ function PayrollPayslipTable({ title, lines, direction }: { title: string; lines
   </section>;
 }
 
-function PayrollPayslip({ detail, preview = false, elementRef }: { detail: PayrollRecordDetail; preview?: boolean; elementRef?: Ref<HTMLElement> }) {
+function PayrollPayslip({ detail, elementRef }: { detail: PayrollRecordDetail; elementRef?: Ref<HTMLElement> }) {
   const lines = detail.employee?.lines ?? (detail.worker ? [{ lineKey: "worker_pay", direction: "earning" as const, amountMinor: detail.worker.amountMinor, explanation: {} }] : []);
-  const titleId = preview ? "hr-payroll-payslip-preview-title" : "hr-payroll-payslip-title";
-  return <section ref={elementRef} className={`hr-payroll-payslip${preview ? " hr-payroll-payslip-preview" : ""}`} aria-labelledby={titleId}>
+  const titleId = "hr-payroll-payslip-preview-title";
+  return <section ref={elementRef} className="hr-payroll-payslip hr-payroll-payslip-preview" aria-labelledby={titleId}>
     <header className="hr-payroll-payslip-head">
       <div><p>員工薪資條</p><h1 id={titleId}>{detail.record.personName}</h1></div>
       <strong>{periodLabel(detail.record.periodKey)}</strong>
@@ -160,7 +160,7 @@ export function HrPayrollRecordDetail() {
       titleMeta={`${detail.record.personName}・${periodLabel(detail.record.periodKey)}`}
       onClose={() => setPayslipPreviewOpen(false)}
       actions={<><Button variant="secondary" onClick={() => setPayslipPreviewOpen(false)}>關閉</Button><Button icon="download" loading={payslipDownloading} loadingLabel="產生圖片…" onClick={() => { void downloadPayslip(); }}>下載薪資條</Button></>}
-    ><PayrollPayslip detail={detail} preview elementRef={payslipPreviewRef} /></Dialog> : null}
+    ><PayrollPayslip detail={detail} elementRef={payslipPreviewRef} /></Dialog> : null}
     {deleteRunOpen ? <ConfirmDialog title="刪除整批薪資試算？" confirmLabel="刪除試算" pending={deleteRun.isPending} onCancel={() => { if (!deleteRun.isPending) setDeleteRunOpen(false); }} onConfirm={removeRun}>
       <p><strong>{detail.run.runName}</strong>（{periodLabel(detail.run.periodKey)}）會連同本批次所有尚未結算的發放紀錄、試算明細與薪資加扣項一併刪除。</p>
       <p>已確定發放的歷史紀錄不受影響；刪除只適用於尚未有任何人員確定發放的批次。</p>
