@@ -1,7 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, FilterInput, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -155,13 +155,12 @@ export function HrPayrollAdjustments() {
   return <div className="page fills hr-payroll-page hr-payroll-adjustments-page">
     <PageHeader title="薪資加扣項" description="登記指定薪資月份的補發與扣款，於試算時自動帶入。" actions={canCalculate ? <Button icon="plus" onClick={openCreate}>新增薪資加扣項</Button> : null} />
     <Panel className="grows hr-payroll-adjustments-panel">
-      <form className="admin-form toolbar hr-payroll-adjustment-filter" onSubmit={(event) => event.preventDefault()}>
+      <FilterToolbar className="hr-payroll-adjustment-filter">
         <FilterInput label="生效薪資月份" type="month" value={effectivePeriodKey} onChange={(event) => setEffectivePeriodKey(event.target.value)} />
-      </form>
+      </FilterToolbar>
       {adjustments.error ? <Alert tone="danger">薪資加扣項載入失敗：{adjustments.error.message}</Alert> : null}
       <div className="hr-payroll-adjustments-table-region">
-        <div className="table-scroll">
-          <table className="data-table hr-payroll-adjustment-table">
+        <DataTable className="hr-payroll-adjustment-table">
             <thead><tr><th>生效月份</th><th>員工</th><th>加扣項目</th><th className="numeric">加扣金額</th><th>原因</th><th>操作</th></tr></thead>
             <tbody>{(adjustments.data?.adjustments ?? []).map((adjustment) => <tr key={adjustment.id}>
               <td data-label="生效月份"><strong>{periodLabel(adjustment.effectivePeriodKey)}</strong></td>
@@ -171,10 +170,9 @@ export function HrPayrollAdjustments() {
               <td data-label="原因" className="hr-payroll-adjustment-reason">{adjustment.reason}</td>
               <td data-label="操作">{canCalculate ? <Button variant="secondary" icon="edit" onClick={() => openEdit(adjustment)}>編輯</Button> : null}</td>
             </tr>)}</tbody>
-          </table>
-        </div>
+        </DataTable>
       </div>
-      {adjustments.data && !adjustments.data.adjustments.length ? <p className="empty-state">目前沒有符合條件的薪資加扣項。</p> : null}
+      {adjustments.data && !adjustments.data.adjustments.length ? <EmptyState>目前沒有符合條件的薪資加扣項。</EmptyState> : null}
     </Panel>
     {dialogOpen ? <PayrollAdjustmentDialog key={editing?.id ?? "new"} employees={employees.data?.employees ?? []} employeesPending={employees.isPending} employeesError={employees.error instanceof Error ? employees.error : null} adjustment={editing ?? undefined} onClose={closeDialog} onSuccess={() => { closeDialog(); void adjustments.refetch(); }} /> : null}
   </div>;

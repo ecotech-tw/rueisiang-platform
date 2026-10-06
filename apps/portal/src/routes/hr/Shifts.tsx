@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, PageHeader, Panel, TextField, Tooltip } from "../../ui/index.js";
 import { groupShiftsByTemplate, shiftTimeRange, useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrDayType, type HrShiftsResponse, type ScheduleScope, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -252,7 +252,7 @@ export function HrShifts() {
   return <div className="page fills">
     <PageHeader title="班別管理" description="每個班別可分別設定平日、週末與國定假日的時間；沒設定的日型會沿用平日。" />
     <Panel className="grows">
-      <div className="table-scroll"><table className="data-table"><thead><tr>
+      <DataTable><thead><tr>
         <th>營運據點</th><th className="numeric">班別數</th><th>班別</th>
       </tr></thead><tbody>
         {data.scopes.map((scope) => {
@@ -264,7 +264,7 @@ export function HrShifts() {
             <td data-label="班別">{list.length ? list.map(groupSummary).join("、") : <span className="muted">尚未設定</span>}</td>
           </tr>;
         })}
-      </tbody></table></div>
+      </tbody></DataTable>
       {!data.scopes.length ? <p className="muted table-note">目前沒有啟用中的營運據點。</p> : null}
     </Panel>
     {openScope ? <StoreShiftsDialog

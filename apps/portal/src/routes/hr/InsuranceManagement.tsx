@@ -3,10 +3,11 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterSelect, PageHeader, Panel, SearchFilterInput } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, PageHeader, Panel } from "../../ui/index.js";
 import { useHrQuery, type Employee, type Employment, type InsuranceVersion, type Profile } from "./api.js";
 import { InsuranceEditor } from "./InsuranceEditor.js";
 import { InsuranceRateManagementDialog } from "./InsuranceRateManagementDialog.js";
+import { EmployeeFilterBar } from "./EmployeeFilterBar.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeePageResponse { employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }
@@ -93,18 +94,20 @@ export function HrInsuranceManagement() {
   return <div className="page fills">
     <PageHeader title="勞健保管理" description="在本頁查看全體員工投保狀態，並一次建立勞保與健保的加退保、級距與眷屬版本；歷史版本不可直接覆寫，誤登時可依序撤回最新版本。" actions={canWrite ? <Button icon="tune" onClick={() => setRateManagementOpen(true)}>級距管理</Button> : null} />
     <Panel className="grows">
-      <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-        <SearchFilterInput label="搜尋" placeholder="搜尋員工編號、姓名或 Email" value={employeeFilters.search} onSearch={(search) => setEmployeeFilters((current) => ({ ...current, search, page: 1 }))} />
-        <FilterSelect label="狀態" value={employeeFilters.status} onChange={(event) => setEmployeeFilters((current) => ({ ...current, status: event.target.value, page: 1 }))} options={[{ value: "all", label: "全部狀態" }, { value: "employable", label: "可任職" }, { value: "disabled", label: "已停用帳號" }]} />
-      </form>
+      <EmployeeFilterBar
+        search={employeeFilters.search}
+        status={employeeFilters.status}
+        onSearch={(search) => setEmployeeFilters((current) => ({ ...current, search, page: 1 }))}
+        onStatusChange={(status) => setEmployeeFilters((current) => ({ ...current, status, page: 1 }))}
+      />
       {employeeTable.error ? <Alert tone="danger">{employeeTable.error.message}</Alert> : null}
-      <div className="table-scroll"><table className="data-table"><thead><tr>
+      <DataTable><thead><tr>
         <SortableHeader label="員工" field="employeeNumber" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
         <th>目前任職</th><th>勞保</th><th>健保</th><th>眷屬</th><th>資料提醒</th><th>操作</th>
       </tr></thead><tbody>
         {(employeeTable.data?.employees ?? []).map((employee) => <InsuranceRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
-      </tbody></table></div>
-      {!employeeTable.data?.employees.length ? <p className="empty-state">{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</p> : null}
+      </tbody></DataTable>
+      {!employeeTable.data?.employees.length ? <EmptyState>{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</EmptyState> : null}
       {employeeTable.data && employeeTable.data.total > 0 ? <Pager page={employeeTable.data.page} pageSize={employeeTable.data.pageSize} pageSizes={EMPLOYEE_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(employeeTable.data.total / employeeTable.data.pageSize))} totalLabel={`共 ${employeeTable.data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => setEmployeeFilters((current) => ({ ...current, page }))} onPageSize={(pageSize) => setEmployeeFilters((current) => ({ ...current, pageSize, page: 1 }))} /> : null}
     </Panel>
     {editing ? <InsuranceEditor employment={editing.employment} existing={editing.existing} insuranceVersions={editing.insuranceVersions} defaultSalary={editing.defaultSalary} defaultDependentCount={editing.dependentCount} onClose={() => setEditing(null)} /> : null}

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type GoogleMapPlace, type NamedOption } from "./api.js";
@@ -247,13 +247,12 @@ export function HrAttendanceSettings() {
         actions={(canWrite || canReviewOvertime) ? <div className="button-row">{canReviewOvertime ? <Button variant="secondary" onClick={() => navigate("/hr/requests?type=overtime")}>申請與審核</Button> : null}{canWrite ? <Button icon="plus" onClick={() => setEditor("new")}>新增辦公位置</Button> : null}</div> : undefined}
       />
       <Panel className="grows">
-        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <FilterToolbar>
           <FilterInput label="搜尋辦公位置或據點" type="search" className="search-input" placeholder="搜尋辦公位置或營運據點" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
           <FilterSelect label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => { setScopeId(event.target.value); setPage(1); }} />
-        </form>
+        </FilterToolbar>
         {locations.isFetching ? <p className="form-hint">更新中…</p> : null}
-        <div className="table-scroll">
-          <table className="data-table hr-location-table">
+        <DataTable className="hr-location-table">
             <thead><tr><SortableHeader label="辦公位置" field="name" active={sortField} direction={sortDirection} onSort={updateSort} /><SortableHeader label="營運據點" field="scope" active={sortField} direction={sortDirection} onSort={updateSort} /><th>定位判斷</th><SortableHeader label="半徑" field="radius" active={sortField} direction={sortDirection} onSort={updateSort} />{canWrite ? <th>操作</th> : null}</tr></thead>
             <tbody>
               {rows.map((office) => (
@@ -266,8 +265,7 @@ export function HrAttendanceSettings() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+        </DataTable>
         {!rows.length ? <p className="muted table-note">沒有符合條件的辦公位置。</p> : null}
         <Pager page={page} pageSize={pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.ceil(total / pageSize)} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
       </Panel>

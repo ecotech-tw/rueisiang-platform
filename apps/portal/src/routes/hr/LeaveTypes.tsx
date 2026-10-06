@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrLeaveType } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -71,7 +71,7 @@ export function HrLeaveTypes() {
     <Alert tone="info">請假申請在「申請與審核」處理；特休假別會扣除週年制額度，其他假別維持獨立規則。個別申請仍可保存當次核定比例。</Alert>
     {leaveTypes.error || toggle.error ? <Alert tone="danger">{leaveTypes.error?.message ?? toggle.error?.message}</Alert> : null}
     <Panel className="grows" title="假別主檔" description="停用取代刪除，避免破壞既有月度假勤與申請紀錄。">
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>假別</th><th>額度規則</th><th>預設給薪比例</th><th>狀態</th><th>最近更新</th><th>操作</th></tr></thead><tbody>
+      <DataTable><thead><tr><th>假別</th><th>額度規則</th><th>預設給薪比例</th><th>狀態</th><th>最近更新</th><th>操作</th></tr></thead><tbody>
         {rows.map((leaveType) => <tr key={leaveType.id}>
           <td data-label="假別"><strong>{leaveType.name}</strong></td>
           <td data-label="額度規則">{leaveType.leaveKind === "annual" ? "週年制特休" : "其他假別"}</td>
@@ -80,8 +80,8 @@ export function HrLeaveTypes() {
           <td data-label="最近更新">{timestampLabel(leaveType.updatedAt)}</td>
           <td data-label="操作"><div className="row-actions">{canWrite ? <><Button variant="secondary" icon="edit" onClick={() => setEditor(leaveType)}>編輯</Button><Button variant="secondary" icon={leaveType.active ? "archive" : "check"} loading={toggle.isPending} onClick={() => toggle.mutate({ path: `/leave-types/${leaveType.id}/status`, method: "POST", values: { active: !leaveType.active } }, { onSuccess: () => void leaveTypes.refetch() })}>{leaveType.active ? "停用" : "啟用"}</Button></> : null}</div></td>
         </tr>)}
-      </tbody></table></div>
-      {!rows.length ? <p className="empty-state">尚未建立假別，請先新增一個假別再建立請假申請。</p> : null}
+      </tbody></DataTable>
+      {!rows.length ? <EmptyState>尚未建立假別，請先新增一個假別再建立請假申請。</EmptyState> : null}
     </Panel>
     {editor === "new" ? <LeaveTypeDialog onClose={() => { setEditor(null); void leaveTypes.refetch(); }} /> : null}
     {editor && editor !== "new" ? <LeaveTypeDialog leaveType={editor} onClose={() => { setEditor(null); void leaveTypes.refetch(); }} /> : null}

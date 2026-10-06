@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, DropdownSelect, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, isDefaultHrCalendarSpecialName, type HrCalendarDay, type HrCalendarResponse, type HrCalendarSpecialKind, type HrDayType, type ScheduleScope } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
@@ -230,7 +230,7 @@ export function HrCalendar() {
         {changed ? <p className="hr-schedule-status"><StatusBadge tone="warning">尚未儲存</StatusBadge><span>按「儲存」才會生效。</span></p> : null}
       </div>
       {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
-      <div className={`table-scroll${loading ? " is-refreshing" : ""}`}><table className="data-table"><thead><tr>
+      <DataTable containerClassName={loading ? "is-refreshing" : ""}><thead><tr>
         <th>日期</th><th>星期</th><th>日型／災防</th><th>適用門市／地區</th><th>備註／名稱</th><th className="numeric">操作</th>
       </tr></thead><tbody>
         {days.map((day) => {
@@ -267,7 +267,7 @@ export function HrCalendar() {
             </td>
           </tr>;
         })}
-      </tbody></table></div>
+      </tbody></DataTable>
       {!days.length && !loading ? <p className="muted table-note">{year} 年還沒有登記任何特殊日期。可以按「匯入政府行事曆」一次帶進來，再手動標記災防停班。</p> : null}
     </Panel>
     {adding ? <AddDayDialog year={year} existing={days} scopes={calendar.data?.scopes ?? []} onAdd={(day) => setDraft(sortByDate([...days, day]))} onClose={() => setAdding(false)} /> : null}

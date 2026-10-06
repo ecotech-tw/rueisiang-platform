@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type Candidate, type CompensationVersion, type Employee, type Employment, type InsuranceVersion, type LeaveRequest, type NamedOption, type Profile } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -67,8 +67,8 @@ function Section({ title, open, onToggle, children }: { title: string; open: boo
 }
 
 function EmploymentHistoryTable({ employments }: { employments: Employment[] }) {
-  return <table className="data-table"><thead><tr><th>員工編號</th><th>職位</th><th>主管</th><th>服務年資起算日</th><th>出勤方式</th><th>狀態</th></tr></thead>
-    <tbody>{employments.map((job) => <tr key={job.id}><td>{job.employeeNumber}</td><td>{job.position}</td><td>{job.supervisorName ?? job.supervisorUserId ?? "未設定"}</td><td>{job.serviceStartOn ?? "未設定"}</td><td>{job.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</td><td>{job.archivedAt ? `未在職（${dateTime(job.archivedAt)}）` : "在職"}</td></tr>)}</tbody></table>;
+  return <DataTable><thead><tr><th>員工編號</th><th>職位</th><th>主管</th><th>服務年資起算日</th><th>出勤方式</th><th>狀態</th></tr></thead>
+    <tbody>{employments.map((job) => <tr key={job.id}><td>{job.employeeNumber}</td><td>{job.position}</td><td>{job.supervisorName ?? job.supervisorUserId ?? "未設定"}</td><td>{job.serviceStartOn ?? "未設定"}</td><td>{job.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</td><td>{job.archivedAt ? `未在職（${dateTime(job.archivedAt)}）` : "在職"}</td></tr>)}</tbody></DataTable>;
 }
 
 function BasicSection({ profile }: { profile: Profile }) {
@@ -99,9 +99,9 @@ function BasicSection({ profile }: { profile: Profile }) {
 function CompensationTable({ rows, heading = true }: { rows: CompensationVersion[]; heading?: boolean }) {
   return <>
     {heading ? <h3>職務／薪資歷史</h3> : null}
-    <table className="data-table"><thead><tr><th>生效期間</th><th>計算方式</th><th className="numeric">金額</th><th>備註</th></tr></thead><tbody>
+    <DataTable><thead><tr><th>生效期間</th><th>計算方式</th><th className="numeric">金額</th><th>備註</th></tr></thead><tbody>
       {rows.map((row) => <tr key={row.id}><td>{row.validFrom}～{row.validTo ?? "目前"}</td><td>{PAY_BASIS_LABEL[row.payBasis]}</td><td className="numeric">{money(row.baseAmountMinor)}</td><td>{row.note || "—"}</td></tr>)}
-    </tbody></table>
+    </tbody></DataTable>
     {!rows.length ? <p>尚無薪資版本資料。</p> : null}
   </>;
 }
@@ -109,9 +109,9 @@ function CompensationTable({ rows, heading = true }: { rows: CompensationVersion
 function AssignmentTable({ assignments, heading = true }: { assignments: AttendanceAssignment[]; heading?: boolean }) {
   return <>
     {heading ? <h3>辦公位置摘要（唯讀）</h3> : null}
-    <table className="data-table"><thead><tr><th>辦公位置</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
+    <DataTable><thead><tr><th>辦公位置</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
       {assignments.map((assignment) => <tr key={assignment.id}><td>{assignment.locationName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
-    </tbody></table>
+    </tbody></DataTable>
     {!assignments.length ? <p>尚未指派辦公位置。</p> : null}
   </>;
 }
@@ -119,9 +119,9 @@ function AssignmentTable({ assignments, heading = true }: { assignments: Attenda
 function InsuranceTable({ rows, heading = true }: { rows: InsuranceVersion[]; heading?: boolean }) {
   return <>
     {heading ? <h3>勞健保加退保與異動歷史</h3> : null}
-    <table className="data-table"><thead><tr><th>種類</th><th>狀態</th><th>生效期間</th><th className="numeric">投保金額</th><th>眷屬</th><th>級距來源</th></tr></thead><tbody>
-      {rows.map((row) => <tr key={row.id}><td>{INSURANCE_LABEL[row.scheme]}</td><td>{row.voidedAt ? "已撤回" : INSURANCE_STATUS_LABEL[row.status]}</td><td>{row.validFrom}～{row.validTo ?? "目前"}</td><td className="numeric">{money(row.insuredAmountMinor)}</td><td>{row.scheme === "health" ? row.dependentCount : "—"}</td><td>{row.sourceKind === "official" ? `官方 ${row.rateYear}` : `人工 ${row.rateYear}`}</td></tr>)}
-    </tbody></table>
+    <DataTable><thead><tr><th>種類</th><th>狀態</th><th>生效期間</th><th className="numeric">投保金額</th><th>眷屬</th><th>級距來源</th></tr></thead><tbody>
+      {rows.map((row) => <tr key={row.id}><td>{INSURANCE_LABEL[row.scheme]}</td><td><StatusBadge tone={row.voidedAt ? "danger" : row.status === "enrolled" ? "success" : "neutral"}>{row.voidedAt ? "已撤回" : INSURANCE_STATUS_LABEL[row.status]}</StatusBadge></td><td>{row.validFrom}～{row.validTo ?? "目前"}</td><td className="numeric">{money(row.insuredAmountMinor)}</td><td>{row.scheme === "health" ? row.dependentCount : "—"}</td><td>{row.sourceKind === "official" ? `官方 ${row.rateYear}` : `人工 ${row.rateYear}`}</td></tr>)}
+    </tbody></DataTable>
     {!rows.length ? <p>尚無勞健保資料。</p> : null}
   </>;
 }
@@ -130,9 +130,9 @@ function AttendanceEventsTable({ profile }: { profile: Profile }) {
   const events = profile.attendanceEvents;
   if (!events) return <p className="muted">打卡明細僅限全平台 HR 管理者查看。</p>;
   return <>
-    <table className="data-table"><thead><tr><th>時間</th><th>事件</th><th>辦公位置</th><th className="numeric">距離（公尺）</th></tr></thead><tbody>
+    <DataTable><thead><tr><th>時間</th><th>事件</th><th>辦公位置</th><th className="numeric">距離（公尺）</th></tr></thead><tbody>
       {events.map((event) => <tr key={event.id}><td>{dateTime(event.occurredAt)}</td><td>{event.eventKind === "clock_in" ? "上班" : "下班"}</td><td>{event.locationName ?? "—"}</td><td className="numeric">{event.distanceMeters ?? "—"}</td></tr>)}
-    </tbody></table>
+    </tbody></DataTable>
     {!events.length ? <p>尚無打卡紀錄。</p> : null}
   </>;
 }
@@ -140,9 +140,9 @@ function AttendanceEventsTable({ profile }: { profile: Profile }) {
 function LeaveTable({ rows }: { rows: LeaveRequest[] }) {
   return <>
     <h3>請假紀錄</h3>
-    <table className="data-table"><thead><tr><th>假別</th><th>狀態</th><th>期間</th><th>時數</th><th>原因</th></tr></thead><tbody>
-      {rows.map((row) => <tr key={row.id}><td>{row.leaveType}</td><td>{LEAVE_STATUS_LABEL[row.status]}</td><td>{leaveDateTime(row.startsAt, row.startsOn)}～{leaveDateTime(row.endsAt, row.endsOn)}</td><td>{Math.floor(row.durationMinutes / 60)} 小時 {row.durationMinutes % 60 ? `${row.durationMinutes % 60} 分` : ""}</td><td>{row.reason || "—"}</td></tr>)}
-    </tbody></table>
+    <DataTable><thead><tr><th>假別</th><th>狀態</th><th>期間</th><th>時數</th><th>原因</th></tr></thead><tbody>
+      {rows.map((row) => <tr key={row.id}><td>{row.leaveType}</td><td><StatusBadge tone={row.status === "approved" ? "success" : row.status === "rejected" ? "danger" : row.status === "pending" ? "warning" : "neutral"}>{LEAVE_STATUS_LABEL[row.status]}</StatusBadge></td><td>{leaveDateTime(row.startsAt, row.startsOn)}～{leaveDateTime(row.endsAt, row.endsOn)}</td><td>{Math.floor(row.durationMinutes / 60)} 小時 {row.durationMinutes % 60 ? `${row.durationMinutes % 60} 分` : ""}</td><td>{row.reason || "—"}</td></tr>)}
+    </tbody></DataTable>
     {!rows.length ? <p>尚無請假紀錄。</p> : null}
   </>;
 }
@@ -170,9 +170,9 @@ export function HrProfileDetails({ profile, collapsible = false }: { profile: Pr
     <h2>{profile.employee.employeeNumber} · {profile.employee.legalName}</h2>
     <BasicSection profile={profile} />
     <h3>營運據點歸屬</h3>
-    <table className="data-table"><thead><tr><th>營運據點</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
+    <DataTable><thead><tr><th>營運據點</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>
       {(profile.assignments ?? []).map((assignment) => <tr key={assignment.id}><td>{assignment.scopeName}</td><td>{assignment.validFrom}</td><td>{assignment.validTo ?? "未設定"}</td></tr>)}
-    </tbody></table>
+    </tbody></DataTable>
     {!profile.assignments?.length ? <p>尚無營運據點歸屬。</p> : null}
     <AssignmentTable assignments={profile.attendanceAssignments ?? []} />
     {profile.compensation ? <CompensationTable rows={profile.compensation} /> : null}
@@ -280,7 +280,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onSaved, onArchiv
   </>}>
     <div className="hr-management-identity">
       <div><strong>{data.employee.legalName}</strong><span>{data.employee.email}</span></div>
-      <span className={`status ${data.employee.employmentStatus === "active" ? "status-active" : "status-invited"}`}>{data.employee.employmentStatus === "active" ? "在職" : "未在職"}</span>
+      <StatusBadge tone={data.employee.employmentStatus === "active" ? "success" : "neutral"}>{data.employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge>
     </div>
     <p className="hr-management-description">這裡只維護員工基本資料：正式姓名、員工編號、職位、主管與服務年資起算日。辦公位置只顯示目前狀態，異動請到出勤範圍管理處理。</p>
     {activeEmployment ? <div className="field-grid hr-management-form-grid">
@@ -294,7 +294,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onSaved, onArchiv
     {supervisorCandidates.error ? <Alert tone="danger">主管清單載入失敗，請重新整理後再試。</Alert> : null}
     {saveMutation.error ? <Alert tone="danger">{saveMutation.error.message}</Alert> : null}
     <div className="hr-management-group">
-      <div className="hr-management-group-heading"><h3>辦公位置</h3><span className="status status-invited">唯讀</span></div>
+      <div className="hr-management-group-heading"><h3>辦公位置</h3><StatusBadge tone="neutral">唯讀</StatusBadge></div>
       {locationAssignments.length ? <div className="hr-management-readonly-list">{locationAssignments.map((assignment) => <div className="hr-management-readonly-row" key={assignment.id}><strong>{assignment.locationName}</strong><span>{assignment.validFrom}～{assignment.validTo ?? "目前"}</span></div>)}</div> : <p className="muted">尚未指派辦公位置。</p>}
       <p className="muted">辦公位置由「出勤／出勤範圍管理」維護，本頁不提供結束或移除操作。</p>
     </div>
@@ -333,13 +333,13 @@ export function HrEmployees() {
         <button type="button" role="tab" aria-selected={filters.employmentStatus === "active"} className={filters.employmentStatus === "active" ? "active" : ""} onClick={() => update({ employmentStatus: "active" })}>在職 <span>{data?.counts.active ?? "—"}</span></button>
         <button type="button" role="tab" aria-selected={filters.employmentStatus === "inactive"} className={filters.employmentStatus === "inactive" ? "active" : ""} onClick={() => update({ employmentStatus: "inactive" })}>未在職 <span>{data?.counts.inactive ?? "—"}</span></button>
       </div>
-      <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+      <FilterToolbar>
         <SearchFilterInput label="搜尋" placeholder="搜尋員工編號、姓名或 Email" value={filters.search} onSearch={(search) => update({ search })} />
         <FilterSelect label="帳號狀態" value={filters.status} onChange={(event) => update({ status: event.target.value })} options={[{ value: "all", label: "全部帳號" }, { value: "active", label: "啟用中" }, { value: "invited", label: "待啟用" }, { value: "disabled", label: "已停用" }]} />
-      </form>
+      </FilterToolbar>
       {employees.error ? <Alert tone="danger">{employees.error.message}</Alert> : null}
       {candidates.error ? <Alert tone="danger">{candidates.error.message}</Alert> : null}
-      <div className="table-scroll"><table className="data-table"><thead><tr>
+      <DataTable><thead><tr>
         <SortableHeader label="員工編號" field="employeeNumber" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} />
         <SortableHeader label="姓名" field="name" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} />
         <SortableHeader label="帳號" field="email" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} />
@@ -347,8 +347,8 @@ export function HrEmployees() {
         <th>職位</th><th>主管</th><th>員工狀態</th>
         {canWrite ? <th>操作</th> : null}
       </tr></thead><tbody>
-        {data?.employees.map((employee) => <tr key={employee.userId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(`/hr/employees/${encodeURIComponent(employee.userId)}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(`/hr/employees/${encodeURIComponent(employee.userId)}`); } }}><td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}</td><td data-label="帳號" className="cell-sub">{employee.email}</td><td data-label="帳號狀態"><span className={`status ${employee.userStatus === "active" ? "status-active" : employee.userStatus === "invited" ? "status-invited" : "status-disabled"}`}>{statusLabel(employee.userStatus)}</span></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? employee.supervisorUserId ?? "未設定"}</td><td data-label="員工狀態"><span className={`status ${employee.employmentStatus === "active" ? "status-active" : "status-invited"}`}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</span></td>{canWrite ? <td data-label="操作"><Button variant="secondary" icon="edit" onClick={(event) => { event.stopPropagation(); setManageEmployee(employee); }}>員工資料</Button></td> : null}</tr>)}
-      </tbody></table></div>
+        {data?.employees.map((employee) => <tr key={employee.userId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(`/hr/employees/${encodeURIComponent(employee.userId)}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(`/hr/employees/${encodeURIComponent(employee.userId)}`); } }}><td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}</td><td data-label="帳號" className="cell-sub">{employee.email}</td><td data-label="帳號狀態"><StatusBadge tone={employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? employee.supervisorUserId ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>{canWrite ? <td data-label="操作"><Button variant="secondary" icon="edit" onClick={(event) => { event.stopPropagation(); setManageEmployee(employee); }}>員工資料</Button></td> : null}</tr>)}
+      </tbody></DataTable>
       {employees.isPlaceholderData ? <p className="muted table-note">載入中…</p> : null}
       {data && !data.employees.length ? <p className="muted table-note">{data.total ? "沒有符合條件的員工，調整一下搜尋或篩選看看。" : filters.employmentStatus === "active" ? "目前沒有在職員工。" : "目前沒有未在職員工。"}</p> : null}
       {data && data.total > 0 ? <Pager page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}

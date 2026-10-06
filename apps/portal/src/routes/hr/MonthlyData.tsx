@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type Profile } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -72,9 +72,9 @@ export function HrMonthlyData() {
     </Panel>
     <Panel className="grows" title={mode === "leave" ? "本月假勤紀錄" : "本月時薪工時"}>
       {data.error ? <Alert tone="danger">{data.error.message}</Alert> : null}
-      <div className="table-scroll"><table className="data-table"><thead>{mode === "leave" ? <tr><th>日期</th><th>員工任職</th><th>假別</th><th>時數</th><th>給薪比例</th><th className="numeric">扣款</th><th>備註</th></tr> : <tr><th>日期</th><th>員工任職</th><th>工時</th><th>狀態</th><th>備註</th></tr>}</thead><tbody>{mode === "leave" ? (data.data?.leaves ?? []).map((entry) => <tr key={entry.id}><td data-label="日期">{entry.leaveDate}</td><td data-label="員工任職">{entry.employeeName}（{entry.employeeNumber}）</td><td data-label="假別">{entry.leaveTypeName}</td><td data-label="時數">{entry.hours.toFixed(1)} 小時</td><td data-label="給薪比例">{(entry.payRatePpm / 10_000).toFixed(2)}%</td><td data-label="扣款" className="numeric">{deductionYuan(entry.deductionAmount)}</td><td data-label="備註">{entry.note || "—"}</td></tr>) : (data.data?.hourly ?? []).map((entry) => <tr key={entry.id}><td data-label="日期">{entry.workDate}</td><td data-label="員工任職">{entry.employeeName}（{entry.employeeNumber}）</td><td data-label="工時">{entry.noWork ? "—" : `${entry.hours.toFixed(1)} 小時`}</td><td data-label="狀態">{entry.noWork ? "本期無工時" : "已登記"}</td><td data-label="備註">{entry.note || "—"}</td></tr>)}</tbody></table></div>
-      {mode === "leave" && !data.data?.leaves.length ? <p className="empty-state">本月尚未登記假勤。</p> : null}
-      {mode === "hourly" && !data.data?.hourly.length ? <p className="empty-state">本月尚未登記時薪工時。</p> : null}
+      <DataTable><thead>{mode === "leave" ? <tr><th>日期</th><th>員工任職</th><th>假別</th><th>時數</th><th>給薪比例</th><th className="numeric">扣款</th><th>備註</th></tr> : <tr><th>日期</th><th>員工任職</th><th>工時</th><th>狀態</th><th>備註</th></tr>}</thead><tbody>{mode === "leave" ? (data.data?.leaves ?? []).map((entry) => <tr key={entry.id}><td data-label="日期">{entry.leaveDate}</td><td data-label="員工任職">{entry.employeeName}（{entry.employeeNumber}）</td><td data-label="假別">{entry.leaveTypeName}</td><td data-label="時數">{entry.hours.toFixed(1)} 小時</td><td data-label="給薪比例">{(entry.payRatePpm / 10_000).toFixed(2)}%</td><td data-label="扣款" className="numeric">{deductionYuan(entry.deductionAmount)}</td><td data-label="備註">{entry.note || "—"}</td></tr>) : (data.data?.hourly ?? []).map((entry) => <tr key={entry.id}><td data-label="日期">{entry.workDate}</td><td data-label="員工任職">{entry.employeeName}（{entry.employeeNumber}）</td><td data-label="工時">{entry.noWork ? "—" : `${entry.hours.toFixed(1)} 小時`}</td><td data-label="狀態">{entry.noWork ? "本期無工時" : "已登記"}</td><td data-label="備註">{entry.note || "—"}</td></tr>)}</tbody></DataTable>
+      {mode === "leave" && !data.data?.leaves.length ? <EmptyState>本月尚未登記假勤。</EmptyState> : null}
+      {mode === "hourly" && !data.data?.hourly.length ? <EmptyState>本月尚未登記時薪工時。</EmptyState> : null}
     </Panel>
   </div>;
 }

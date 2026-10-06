@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Dialog, Field, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, SelectField, SegmentedControl, TextField } from "../../ui/index.js";
 import { useHrInsuranceEstimate, useHrQuery, useHrWrite, type Employment, type InsuranceBracket, type InsuranceContributionEstimate, type InsuranceEstimateRequest, type InsuranceRateTableRecord, type InsuranceVersion } from "./api.js";
 
 const INSURANCE_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
@@ -188,10 +188,12 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
     <Button type="submit" loading={save.isPending} disabled={voidInsurance.isPending}>儲存</Button>
   </>}>
     <p>{allVoided ? "所有勞健保版本已撤回；請重新填寫要建立的版本，生效日已帶入最初版本日期。" : existing ? "這裡會建立新的勞健保版本，不會覆寫既有紀錄；若上一筆輸入錯誤，可先撤回最新版本，再以原生效日建立修正版。" : "系統會用目前啟用的官方級距依實際月薪自動帶入勞保與健保投保金額；每年級距調整後，再由系統整理需要調整的人員提醒管理者。"}</p>
-    <Field label="狀態"><div className="segmented-control" role="group" aria-label="勞健保狀態">
-      <button type="button" className={status === "enrolled" ? "selected" : ""} onClick={() => setStatus("enrolled")}>加保／變更級距</button>
-      <button type="button" className={status === "withdrawn" ? "selected" : ""} onClick={() => setStatus("withdrawn")}>退保</button>
-    </div></Field>
+    <Field label="狀態"><SegmentedControl
+      aria-label="勞健保狀態"
+      value={status}
+      options={[{ value: "enrolled", label: "加保／變更級距" }, { value: "withdrawn", label: "退保" }]}
+      onChange={(value) => { if (value === "enrolled" || value === "withdrawn") setStatus(value); }}
+    /></Field>
     <TextField name="validFrom" label={validFromLabel} type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} hint={validFromHint} />
     {status === "enrolled" ? <>
       <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="勞保／健保級距會依月薪自動帶入，也可以從下拉選單選擇其他級距。" />

@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon, type IconName } from "../../shell/icons.js";
-import { Alert, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, EmptyState, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type HrOverview } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -53,7 +53,7 @@ export function HrOverview() {
         <p>{card.description}</p>
         <span className="hr-overview-action">{card.action} <span aria-hidden="true">→</span></span>
       </Link>)}</div>
-      {!cards.length ? <p className="empty-state">目前帳號沒有可顯示的 HRIS 待辦。</p> : null}
+      {!cards.length ? <EmptyState>目前帳號沒有可顯示的 HRIS 待辦。</EmptyState> : null}
     </Panel>
   </div>;
 }

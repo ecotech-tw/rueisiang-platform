@@ -75,6 +75,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.7.0
         version: 1.7.0(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      '@rueisiang/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@tanstack/react-query':
         specifier: ^5.90.2
         version: 5.101.4(react@19.2.6)
@@ -136,6 +139,9 @@ importers:
       '@rueisiang/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@rueisiang/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@tanstack/react-query':
         specifier: ^5.90.2
         version: 5.101.4(react@19.2.6)
@@ -276,6 +282,34 @@ importers:
       '@rueisiang/config':
         specifier: workspace:*
         version: link:../config
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/ui:
+    dependencies:
+      '@base-ui/react':
+        specifier: ^1.7.0
+        version: 1.7.0(@types/react@19.2.14)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      react:
+        specifier: 19.2.6
+        version: 19.2.6
+      react-dom:
+        specifier: 19.2.6
+        version: 19.2.6(react@19.2.6)
+      react-router:
+        specifier: ^7.9.3
+        version: 7.18.2(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+    devDependencies:
+      '@rueisiang/config':
+        specifier: workspace:*
+        version: link:../config
+      '@types/react':
+        specifier: 19.2.14
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: 19.2.3
+        version: 19.2.3(@types/react@19.2.14)
       typescript:
         specifier: 5.9.3
         version: 5.9.3
