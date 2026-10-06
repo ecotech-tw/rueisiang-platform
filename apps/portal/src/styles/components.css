@@ -2114,8 +2114,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 下拉放在 .field 裡時，`.field input` 的底色、圓角與 focus 外框比上面那一條優先，會落在這個輸入框上，
  * 變成框中框（多選最明顯：chip 旁邊多一個小框）。外框與焦點都由 .combobox-group 負責，這裡把那幾樣壓回來。
  */
-.combobox-group .combobox-input { border-radius: 0; background: transparent; }
+.combobox-group .combobox-input,
+.combobox-group .combobox-input:disabled { border-radius: 0; background: transparent; }
 .combobox-group .combobox-input:focus-visible { outline: 0; }
+/* 停用時整個控制項一起變灰；只有裡面的輸入框灰的話，清除與展開按鈕那一側還是白的。 */
+.combobox-group:has(.combobox-input:disabled) { background: var(--color-soft-line); }
 .dropdown-combobox { width: 100%; min-height: var(--size-field); }
 .dropdown-combobox .combobox-input { min-height: calc(var(--size-field) - 2px); padding: 10px 52px 10px 12px !important; color: var(--color-ink); font: inherit; }
 .dropdown-combobox-multiple { align-items: stretch; }
@@ -2457,6 +2460,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-size: 12px;
   text-decoration: underline;
 }
+/* 其他按鈕 variant 都有停用的樣子，只有這個沒有：停用的連結看起來跟可以按一樣，按了卻沒反應。 */
+.link-button:disabled { opacity: .45; cursor: not-allowed; text-decoration: none; }
 
 .boot { padding: 48px; color: var(--color-muted); }
 
@@ -4636,8 +4641,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .special-workday-assign-dialog { width: min(820px, 100%); }
 .special-workday-assign-dialog .modal-body { gap: 18px; }
 .special-workday-target-section { display: grid; gap: 10px; }
-/* 載入中與沒有人員時的提示佔的是下拉的位置，給它同樣的外框與高度（輸入框 + chip 區上下留白 + 外框），換成下拉時版面才不會跳。 */
-.special-workday-target-section > .hr-payroll-picker-empty { display: flex; align-items: center; min-height: calc(var(--size-field) + 8px); border: 1px solid var(--color-line); border-radius: 10px; }
+/*
+ * 載入中的提示佔的是下拉的位置，給它同樣的外框與高度（輸入框 + chip 區上下留白 + 外框），換成下拉時版面才不會跳。
+ * 「沒有可套用的人員」是不會再變的狀態，不套這個樣子——畫成輸入框會讓人以為可以點。
+ */
+.special-workday-target-loading { display: flex; align-items: center; min-height: calc(var(--size-field) + 8px); border: 1px solid var(--color-line); border-radius: 10px; }
 .special-workday-allowance-quantities { display: grid; gap: 10px; min-width: 0; }
 .special-workday-allowance-quantities > .form-hint { margin: -3px 0 2px; }
 .special-workday-allowance-head,
