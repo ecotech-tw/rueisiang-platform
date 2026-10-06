@@ -2111,7 +2111,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .combobox-group:focus-within { border-color: var(--color-brand); box-shadow: 0 0 0 3px --alpha(var(--color-brand) / 14%); }
 .combobox-input { min-width: 0; flex: 1; border: 0 !important; outline: 0; background: transparent; padding-right: 44px !important; }
 .dropdown-combobox { width: 100%; min-height: var(--size-field); }
-.dropdown-combobox .combobox-input { min-height: calc(var(--size-field) - 2px); padding: 10px 52px 10px 12px !important; color: var(--color-ink); font: inherit; }
+.dropdown-combobox .combobox-input { min-height: calc(var(--size-field) - 2px); padding: 10px 64px 10px 12px !important; color: var(--color-ink); font: inherit; }
 .dropdown-combobox-multiple { align-items: stretch; }
 /* 選到幾十人時不讓輸入框把整個表單往下推：約三列之後改成框內自己捲。 */
 /* 右側 76px 留給清除與展開按鈕，用 margin 不用 padding：捲軸要停在按鈕左邊，壓在按鈕底下會讓人想拖捲軸卻按到「清除全部」。 */
@@ -2129,9 +2129,13 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .dropdown-combobox-chip-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; padding: 1px; border: 0; border-radius: 50%; background: transparent; color: currentColor; cursor: pointer; }
 .dropdown-combobox-chip-remove:hover { background: --alpha(var(--color-brand) / 14%); }
 .dropdown-combobox-chip-remove svg { width: 13px; height: 13px; }
-.combobox-clear { position: absolute; right: 34px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 8px 4px; cursor: pointer; }
+/*
+ * 清除與展開兩顆的可點範圍要剛好相鄰、不能重疊：展開是 38px 寬（左 4 + 圖示 20 + 右 14），所以清除從 right: 38px 開始。
+ * 重疊的話展開排在後面會蓋住清除，按清除的中央其實是按到展開——只會打開清單，清不掉。
+ */
+.combobox-clear { position: absolute; right: 38px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 8px 4px; cursor: pointer; }
 .combobox-clear svg { width: 16px; height: 16px; }
-.combobox-trigger { position: absolute; right: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 10px 14px; cursor: pointer; }
+.combobox-trigger { position: absolute; right: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 10px 14px 10px 4px; cursor: pointer; }
 .combobox-trigger svg { width: 20px; height: 20px; }
 /* 多選的外框是 stretch（chip 要撐滿高度），絕對定位的兩顆按鈕會跟著貼頂，高度不同就一高一低。 */
 .dropdown-combobox-multiple > .combobox-clear,
