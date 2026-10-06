@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, DataTable, PageHeader, Panel } from "../../ui/index.js";
 import { useHrQuery, type HrAnnualLeaveBracket, type HrAnnualLeavePolicy } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -34,9 +34,9 @@ export function HrAnnualLeaveSettings() {
         </div>
       </Panel>
       <Panel title="年資級距" description="額度依員工取得額度時的年資套用；10 年以上級距由政策資料列保存。">
-        <div className="table-scroll"><table className="data-table hr-annual-policy-table"><thead><tr><th>適用年資</th><th>給予天數</th><th>換算額度</th></tr></thead><tbody>
+        <DataTable className="hr-annual-policy-table"><thead><tr><th>適用年資</th><th>給予天數</th><th>換算額度</th></tr></thead><tbody>
           {brackets.map((bracket) => <tr key={bracket.id}><td>{bracket.label}</td><td><strong>{bracket.entitledDays} 日</strong></td><td>{(bracket.entitledDays * current.dailyMinutes / 60).toFixed(1)} 小時</td></tr>)}
-        </tbody></table></div>
+        </tbody></DataTable>
       </Panel>
       <Panel title="套用原則" description="申請與額度頁只呈現結果；規則集中在本頁供 HR 查核。">
         <div className="hr-annual-principles"><div><strong>依任職年資起算</strong><span>以每筆 employment 的服務年資起算日建立週年期別。</span></div><div><strong>核准才扣額度</strong><span>待審與駁回申請不會扣除；取消已核准申請會留下反向紀錄。</span></div><div><strong>不可跨期挪用</strong><span>每個週期獨立使用，跨週年申請必須拆成不同申請。</span></div></div>

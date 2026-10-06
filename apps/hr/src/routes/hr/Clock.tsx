@@ -403,7 +403,7 @@ export function HrClock() {
         {clock.error ? <Alert tone="danger">{clock.error.message}</Alert> : null}
       </div> : null}
     </section>
-    {confirmOpen ? <Dialog title="確認打卡" role="alertdialog" onClose={closeConfirm} closeRequestRef={confirmCloseRef} actions={<><Button variant="secondary" onClick={closeConfirm}>取消</Button><Button onClick={() => { (confirmCloseRef.current ?? closeConfirm)(); void confirmClock(); }}>確認{actionLabel}打卡</Button></>}>
+    {confirmOpen ? <Dialog title="確認打卡" role="alertdialog" portal={false} onClose={closeConfirm} closeRequestRef={confirmCloseRef} actions={<><Button variant="secondary" onClick={closeConfirm}>取消</Button><Button onClick={() => { (confirmCloseRef.current ?? closeConfirm)(); void confirmClock(); }}>確認{actionLabel}打卡</Button></>}>
       <p>確定要{actionLabel}打卡嗎？</p>
     </Dialog> : null}
   </div>;

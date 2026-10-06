@@ -1,5 +1,11 @@
 export { Button } from "./Button.js";
+export { DataTable } from "./DataTable.js";
 export { Dialog } from "./Dialog.js";
+export { DropdownSelect } from "./DropdownSelect.js";
+export { EmptyState } from "./EmptyState.js";
+export { FilterToolbar } from "./FilterToolbar.js";
 export { Field, SelectField, TextField } from "./Field.js";
 export { Alert, StatusBadge } from "./Feedback.js";
 export { PageHeader, Panel } from "./Panel.js";
+export { SegmentedControl } from "./SegmentedControl.js";
+export { Tooltip } from "./Tooltip.js";

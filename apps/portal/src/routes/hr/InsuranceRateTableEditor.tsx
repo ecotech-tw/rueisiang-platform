@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, TextField } from "../../ui/index.js";
 import { useHrWrite, type InsuranceBracket, type InsuranceRateTableRecord } from "./api.js";
 
 const SCHEME_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
@@ -88,8 +88,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
     <form className="hr-rate-editor-form" onSubmit={submit}>
       <div className="hr-rate-editor-intro"><strong>{isExistingDraft ? "編輯待審閱版本" : table ? "從目前啟用版本建立人工版本" : "建立人工版本"}</strong><span className="muted">{year} 年・{SCHEME_LABEL[scheme]}；人工資料會保留來源與覆核備註。</span></div>
       <div className="hr-rate-editor">
-        <div className="table-scroll hr-rate-editor-scroll">
-          <table className="data-table compact hr-rate-editor-table">
+        <DataTable containerClassName="hr-rate-editor-scroll" className="compact hr-rate-editor-table">
             <thead><tr><th>級距</th><th>薪資下限（元）</th><th>薪資上限（元）</th><th>投保金額（元）</th><th>操作</th></tr></thead>
             <tbody>
               {brackets.map((bracket, index) => <tr key={bracket.key}>
@@ -100,9 +99,8 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
                 <td data-label="操作"><Button type="button" variant="icon" icon="trash" title={`刪除第 ${index + 1} 筆級距`} aria-label={`刪除第 ${index + 1} 筆級距`} onClick={() => removeBracket(bracket.key)} /></td>
               </tr>)}
             </tbody>
-          </table>
-        </div>
-        {!brackets.length ? <p className="empty-state">尚無級距，請新增一筆。</p> : null}
+        </DataTable>
+        {!brackets.length ? <EmptyState>尚無級距，請新增一筆。</EmptyState> : null}
         <div className="hr-rate-editor-foot"><Button type="button" icon="plus" onClick={addBracket}>新增級距</Button><span className="muted">上限留空代表該級距沒有上限。</span></div>
       </div>
       <div className="field-grid">

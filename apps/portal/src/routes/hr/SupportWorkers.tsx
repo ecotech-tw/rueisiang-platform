@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type ScheduleWorkerPageResponse, type ScheduleWorkerRecord } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -66,12 +66,12 @@ export function HrSupportWorkers() {
   return <div className="page fills">
     <PageHeader title="支援人員" description="管理可排班、可計薪但不屬於平台員工的外部人力；停用取代刪除，以保留歷史排班與薪資快照。" actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditing(null)}>新增支援人員</Button> : null} />
     <Panel className="grows">
-      <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+      <FilterToolbar>
         <SearchFilterInput label="搜尋" placeholder="搜尋支援人員姓名" value={filters.search} onSearch={(search) => update({ search })} />
         <FilterSelect label="狀態" value={filters.status} onChange={(event) => update({ status: event.target.value })} options={STATUS_OPTIONS} />
-      </form>
+      </FilterToolbar>
       {workers.error ? <Alert tone="danger">{workers.error.message}</Alert> : null}
-      <div className="table-scroll"><table className="data-table"><thead><tr>
+      <DataTable><thead><tr>
         <SortableHeader label="姓名" field="name" active={filters.sortField} direction={filters.sortDirection} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} />
         <SortableHeader label="狀態" field="status" active={filters.sortField} direction={filters.sortDirection} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} />
         <th>目前薪資</th><th>生效日</th>{canWrite ? <th>操作</th> : null}
@@ -80,13 +80,13 @@ export function HrSupportWorkers() {
           const compensation = currentCompensation(worker);
           return <tr key={worker.id}>
             <td data-label="姓名"><span className="cell-strong">{worker.displayName}</span></td>
-            <td data-label="狀態"><span className={`status-badge ${isActive(worker) ? "status-active" : "status-disabled"}`}>{isActive(worker) ? "啟用中" : "已停用"}</span></td>
+            <td data-label="狀態"><StatusBadge tone={isActive(worker) ? "success" : "danger"}>{isActive(worker) ? "啟用中" : "已停用"}</StatusBadge></td>
             <td data-label="目前薪資" className="numeric">{compensation ? `${PAY_BASIS_LABEL[compensation.payBasis]} · ${money(compensation.baseAmountMinor)}` : <span className="muted">尚未設定</span>}</td>
             <td data-label="生效日">{compensation?.validFrom ?? "—"}</td>
             {canWrite ? <td data-label="操作"><Button variant="secondary" onClick={() => setEditing(worker)}>管理</Button></td> : null}
           </tr>;
         })}
-      </tbody></table></div>
+      </tbody></DataTable>
       {workers.isFetching ? <p className="muted table-note">載入中…</p> : null}
       {data && !data.workers.length ? <p className="muted table-note">{data.total ? "沒有符合條件的支援人員，調整一下搜尋或篩選看看。" : "尚無支援人員，請先新增一位可排班的外部人力。"}</p> : null}
       {data && data.total > 0 ? <Pager page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}

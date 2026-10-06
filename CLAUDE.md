@@ -144,7 +144,7 @@ agent 一個，因為同一個 agent 會同時開好幾個 session 做不同的�
 
 ## 命名慣例與 Coding Style
 
-照現代 TypeScript / ESM 標準，沒有額外的 linter（見「禁止事項」）。
+照現代 TypeScript / ESM 標準，沒有額外的 code-style linter（見「禁止事項」）；`pnpm lint` 目前執行 shared UI contract guard，不取代 TypeScript typecheck。
 
 - **ESM 全開**：所有 package 都是 `"type": "module"`。相對 import **一律帶 `.js` 副檔名**（`from "./env.js"`），即使原始檔是 `.ts`——`verbatimModuleSyntax` 要求這樣。
 - **具名 export**，不用 default export。全專案只有三個 default：Worker 進入點與兩個工具設定檔。
@@ -163,15 +163,19 @@ UI 一律照 Material 3 的規格做，不要自己發明一套。既有的元�
 品牌色套進 Material 的角色：`--color-brand` 當 primary，`--color-brand-soft` 當
 primary-container，`--color-muted` 當 on-surface-variant。
 
+跨 app 的元件盤點、共用邊界、token 與 UI 狀態契約集中在 [`docs/design-guidelines.md`](./docs/design-guidelines.md)。所有 UI 變更先讀那份文件；不要在 `apps/hr` 與 `apps/portal` 之間再複製一份既有 primitive。
+
 ### CSS 怎麼分工：Tailwind v4 ＋ 語意化元件 class
 
-**token 只有一份，寫在 `apps/portal/src/styles.css` 的 `@theme` 裡。**
-Tailwind v4 沒有 `tailwind.config.js`，設定就是 CSS。`@theme` 裡的每個值同時是
-CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`），所以
-不會有「CSS 改了但 config 沒改」這種漂移。要加顏色、圓角、陰影就加在那裡，
-不要在元件裡寫死色碼。
+**token 只有一份，寫在 `packages/ui/theme.css` 的 `@theme` 裡。**
+兩個 app 的 `styles.css` import 這份 token 與 `packages/ui/components.css`；不要各自再宣告一組 token 或 primitive base style。Tailwind v4 沒有
+`tailwind.config.js`，設定就是 CSS。`@theme` 裡的每個值同時是 CSS 變數
+（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`），所以不會有
+「CSS 改了但 config 沒改」這種漂移。要加顏色、圓角、陰影就加在那裡，不要在元件裡
+寫死色碼。
 
-**元件樣式在 `apps/portal/src/styles/components.css`，用 `layer(components)` 匯入。**
+**shared primitive 的 base style 在 `packages/ui/components.css`，用 `layer(components)` 匯入；各 app 的 `src/styles/components.css` 只放 shell 或 domain-specific modifier。**
+跨 app 的 shared primitive 只改共用 package，不要在 app CSS 補一份相同 selector。
 掛在 layer 裡的理由：utility 一定贏。沒有 layer 的話「`.panel` 的 padding」跟
 「`p-6`」誰贏要看誰寫在後面，那是最難查的一種 bug。
 

@@ -512,8 +512,6 @@
 .hr-location-toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 32px; }
 
 .hr-employee-supervisor { padding: 10px 12px; border-radius: 9px; background: var(--color-canvas); }
-.field textarea { width: 100%; min-height: 96px; resize: vertical; border: 1px solid var(--color-line); border-radius: var(--radius-field); background: var(--color-paper); color: var(--color-ink); padding: 10px 12px; font: inherit; }
-.field textarea:focus { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 .hr-location-toggle input { position: absolute; width: 42px; height: 28px; margin: 0; opacity: 0; cursor: pointer; }
 .hr-location-toggle-track { display: inline-flex; align-items: center; width: 42px; height: 26px; padding: 3px; border-radius: 999px; background: var(--color-line); transition-property: background-color; transition-duration: 120ms; transition-timing-function: ease-out; }
 .hr-location-toggle-track span { width: 20px; height: 20px; border-radius: 50%; background: var(--color-paper); box-shadow: 0 1px 3px rgba(64, 30, 30, .25); transition-property: transform; transition-duration: 120ms; transition-timing-function: ease-out; }
@@ -551,17 +549,6 @@
 .page.fills > .panel.grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
 
 
-/* 表頭在自己的捲動容器裡固定。 */
-.table-scroll .data-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--color-paper);
-  /* sticky 的元素沒有邊框會在捲動時「切」到內容，用陰影代替 border-bottom。 */
-  box-shadow: inset 0 -1px 0 var(--color-line);
-}
-/* 表頭底下的第一列不需要再一條線，會跟表頭的陰影疊成雙線。 */
-.data-table tbody tr:first-child td { border-top: 0; }
 /*
  * 頁面層級的間距由容器負責，不由各元件自己記得加 margin。
  *
@@ -576,38 +563,12 @@
 .page-head { margin-bottom: 0; }
 .page-head h1 { margin: 0 0 4px; font-size: 24px; }
 .muted { color: var(--color-muted); margin: 0; }
-.panel {
-  padding: 20px 22px;
-  border: 1px solid var(--color-line);
-  border-radius: 14px;
-  background: var(--color-paper);
-  box-shadow: var(--shadow-panel);
-}
-
 /* useHrQuery 換條件時畫面上還是舊資料；變淡並擋掉點擊，免得對著舊資料操作。 */
 .is-refreshing { opacity: .55; pointer-events: none; transition: opacity 150ms ease-out; }
 
 /* 間距改由 .page 統一負責，見上面的說明；這裡只保留非 .page 容器內的相鄰 Panel。 */
 .panel + .panel { margin-top: 20px; }
 .page > .panel + .panel { margin-top: 20px; }
-.panel-title { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; font-size: 15px; }
-/*
- * 面板的標題列。
- *
- * margin-bottom 是必要的，不是裝飾：panel-head 內的 .panel-title 被歸零了，所以少了這一段
- * 的話標題與說明會直接黏在下面第一個欄位上，整個面板讀起來像沒斷句。
- */
-.panel-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 22px;
-}
-.panel-head .panel-title { margin-bottom: 0; }
-.panel-head > div > .muted { margin: 6px 0 0; }
-/* 面板裡最後一個元素不需要再撐出下緣，padding 已經處理了。 */
-.panel > :last-child { margin-bottom: 0; }
 
 /* AI 助理 Sandbox */
 .assistant-sandbox-page { display: flex; height: 100%; min-height: 0; flex-direction: column; }
@@ -885,15 +846,8 @@
 .line-group-label { display: flex; align-items: center; flex: none; }
 .line-group-name { width: 150px; min-width: 0; padding: 7px 9px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
 .line-groups-table code { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
-.empty-state { margin: 18px 0 0; padding: 18px; border: 1px dashed var(--color-line); border-radius: 10px; color: var(--color-muted); text-align: center; }
 
 /* 權限管理頁 */
-.admin-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
 /* 跟在 .panel-head 後面時，距離由 panel-head 的 margin-bottom 決定，這裡不再疊加。 */
 /*
  * 修飾詞叫 row 不叫 inline。
@@ -960,18 +914,6 @@
   .sku-mapping-component-row > .field:nth-child(2) { grid-column: 1; }
 }
 /*
- * 表格上方的工具列。先前它跟表頭之間沒有任何界線，看起來像黏在一起的兩排東西。
- * 給它自己的下緣分隔線與內距，讓「篩選」與「資料」是兩個區塊。
- */
-.admin-form.toolbar {
-  gap: 10px;
-  margin: -4px -22px 0;
-  padding: 4px 22px 18px;
-  border-bottom: 1px solid var(--color-line);
-}
-/* 下拉選單會撐到最長的那個選項——標籤名稱一長，整排就被推到第二行。 */
-.admin-form.toolbar select { max-width: 190px; }
-/*
  * 儲存的檢視，做成 Material 的 filter chip：一列膠囊，選中的用色調容器
  * （淡底深字）＋前置打勾，不是高彩度的填滿。
  *
@@ -986,164 +928,8 @@
   margin: -4px -22px 0;
   padding: 2px 22px 12px;
 }
-.filter-chip {
-  display: inline-flex;
-  align-items: center;
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--color-line);
-  border-radius: 999px;
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font-size: 13px;
-  font-weight: 500;
-  transition-property: background-color, border-color, color;
-  transition-duration: 120ms;
-  transition-timing-function: ease-out;
-}
-.filter-chip:hover { background: --alpha(var(--color-brand) / 5%); }
-.filter-chip.selected {
-  border-color: transparent;
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-}
-/* 有刪除鈕時，外層是膠囊、裡面兩顆按鈕各自可點。 */
-span.filter-chip { padding: 0 4px 0 0; gap: 0; }
-.filter-chip-label,
-.filter-chip-remove {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 4px 0 14px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-}
-.filter-chip-label svg,
-.filter-chip svg { width: 18px; height: 18px; }
-.filter-chip-remove {
-  width: 24px;
-  padding: 0;
-  justify-content: center;
-  color: var(--color-muted);
-}
-.filter-chip.selected .filter-chip-remove { color: var(--color-brand-dark); }
-.filter-chip-remove svg { width: 14px; height: 14px; }
-.filter-chip-remove:hover:not(:disabled) { background: rgba(0, 0, 0, .07); }
-.filter-chip-label:focus-visible,
-.filter-chip-remove:focus-visible,
-.filter-chip:focus-visible,
-.chip-action:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 
-/* 「儲存目前條件」：虛線邊，看得出是新增而不是又一個檢視。 */
-.chip-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 14px;
-  border: 1px dashed var(--color-line);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-muted);
-  font-size: 13px;
-}
-.chip-action svg { width: 18px; height: 18px; }
-.chip-action:hover:not(:disabled) { background: --alpha(var(--color-brand) / 5%); color: var(--color-brand); border-color: var(--color-brand); }
-.chip-action:disabled { opacity: .45; cursor: not-allowed; }
 
-.admin-form input,
-.admin-form select {
-  padding: 7px 10px;
-  border: 1px solid var(--color-line);
-  border-radius: 9px;
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font: inherit;
-}
-.admin-form input:focus-visible,
-.admin-form select:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
-.admin-form input[type="email"] { min-width: 260px; }
-
-.primary-button {
-  padding: 7px 14px;
-  border: 0;
-  border-radius: 9px;
-  background: var(--color-brand);
-  color: #fff;
-  font-weight: 700;
-  font-size: 13px;
-}
-.primary-button:hover:not(:disabled) { background: var(--color-brand-dark); }
-.primary-button:disabled { opacity: .55; cursor: not-allowed; }
-
-.ghost-button {
-  padding: 6px 12px;
-  border: 1px solid var(--color-line);
-  border-radius: 9px;
-  background: transparent;
-  color: var(--color-ink);
-  font-size: 12px;
-  white-space: nowrap;
-}
-.ghost-button:hover:not(:disabled) { border-color: var(--color-secondary); }
-.ghost-button.danger { color: var(--color-brand-dark); }
-.ghost-button:disabled { opacity: .45; cursor: not-allowed; }
-
-/*
- * 圖示按鈕（Material 的 icon button）：40px 的圓，hover 才浮出 state layer。
- * 表格裡一列有兩三個操作時，文字按鈕會把欄位撐得很寬又互相干擾，改用圖示；
- * 每一顆都要有 title 與 aria-label，不能只靠圖形猜。
- */
-.icon-button {
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--color-muted);
-  transition-property: background-color, color, scale;
-  transition-duration: 120ms;
-  transition-timing-function: ease-out;
-}
-.icon-button svg { width: 20px; height: 20px; }
-.icon-button:hover:not(:disabled) { background: --alpha(var(--color-brand) / 8%); color: var(--color-brand); }
-.icon-button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
-.icon-button:disabled { opacity: .4; cursor: not-allowed; }
-.icon-button.danger:hover:not(:disabled) { background: var(--color-brand-soft); color: var(--color-brand-dark); }
-
-/* 共用按鈕的回饋集中在這裡：按下時有觸感，鍵盤焦點則不依賴瀏覽器預設樣式。 */
-.primary-button,
-.ghost-button,
-.link-button,
-.filter-chip,
-.filter-chip-label,
-.filter-chip-remove,
-.chip-action {
-  transition-property: background-color, border-color, color, box-shadow, scale;
-  transition-duration: 120ms;
-  transition-timing-function: ease-out;
-}
-.primary-button:not(.button-static):active:not(:disabled),
-.ghost-button:not(.button-static):active:not(:disabled),
-.icon-button:not(.button-static):active:not(:disabled),
-.link-button:not(.button-static):active:not(:disabled),
-.filter-chip:not(.button-static):active:not(:disabled),
-.filter-chip-label:not(.button-static):active:not(:disabled),
-.filter-chip-remove:not(.button-static):active:not(:disabled),
-.chip-action:not(.button-static):active:not(:disabled) { scale: .96; }
-.primary-button:focus-visible,
-.ghost-button:focus-visible,
-.link-button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-
-/* 一列裡的圖示按鈕群組，靠右並縮成一組。 */
-.row-actions { display: flex; justify-content: flex-end; gap: 2px; }
 
 .table-select-all {
   display: inline-flex;
@@ -1160,7 +946,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .table-checkbox:disabled { cursor: not-allowed; }
 
-/* 帶圖示的實心按鈕。 */
 /* 表格內可直接編輯的欄位。邊框只在 hover 或聚焦時出現，不然整張表會滿是框線。 */
 .cell-input {
   width: 100%;
@@ -1297,10 +1082,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .step.doing { color: var(--color-brand-dark); font-weight: 500; }
 .step.fail { color: var(--color-brand); font-weight: 500; }
 
-.primary-button.with-icon,
-.ghost-button.with-icon { display: inline-flex; align-items: center; gap: 8px; }
-.primary-button.with-icon svg,
-.ghost-button.with-icon svg { width: 18px; height: 18px; }
 
 .form-error {
   width: 100%;
@@ -2375,61 +2156,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   transition: width .3s ease;
 }
 
-/* ── 資料表 ──────────────────────────────────────────────────────────────
-   比照 Material 3 的 data table：
-     - 表頭 56px、內文列 52px，兩者的文字都是 14px，差在字重與顏色
-     - 欄距 16px，最外側 24px，讓內容不貼著卡片邊緣
-     - 只有列與列之間有分隔線，欄之間沒有——直線太多會蓋過資料本身
-     - hover 是一層薄薄的 state layer，不是換底色
-   ─────────────────────────────────────────────────────────────────────── */
-.table-scroll { overflow-x: auto; }
 
-.data-table { width: 100%; border-collapse: collapse; }
-
-.data-table th {
-  height: 56px;
-  padding: 0 16px;
-  color: var(--color-muted);
-  font-size: 14px;
-  font-weight: 500;
-  text-align: left;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-.data-table td {
-  height: 52px;
-  padding: 14px 16px;
-  border-top: 1px solid var(--color-soft-line);
-  font-size: 14px;
-  vertical-align: middle;
-}
-/* 最外側留寬一點，跟卡片邊緣拉開距離。 */
-.data-table th:first-child,
-.data-table td:first-child { padding-left: 24px; }
-.data-table th:last-child,
-.data-table td:last-child { padding-right: 24px; }
-
-.data-table tbody tr { transition-property: background-color; transition-duration: 120ms; transition-timing-function: ease-out; }
-.data-table tbody tr:hover { background: --alpha(var(--color-brand) / 4%); }
-
-/* 數字靠右比較好對齊；用 class 標而不是猜欄位。 */
-.data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
-
-.cell-strong { font-weight: 700; }
-.cell-sub { color: var(--color-muted); font-size: 12px; }
-
-.status {
-  display: inline-block;
-  padding: 2px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.status-active { background: var(--color-ok-soft); color: var(--color-ok); }
-.status-development { background: var(--color-warn-soft); color: var(--color-warn); }
-.status-invited { background: var(--color-soft-line); color: var(--color-muted); }
-.status-disabled { background: var(--color-brand-soft); color: var(--color-brand-dark); }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip {
@@ -2455,16 +2182,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 }
 .chip button:hover { background: var(--color-brand); color: #fff; }
 
-.link-button {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--color-brand);
-  font-size: 12px;
-  text-decoration: underline;
-}
-/* 停用的連結要看得出來不能按，數值跟 .ghost-button、.chip-action 一致。 */
-.link-button:disabled { opacity: .45; cursor: not-allowed; }
 
 .boot { padding: 48px; color: var(--color-muted); }
 
@@ -2478,200 +2195,15 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .page-head-row > :last-child { flex: none; }
 .page-head-row .add-action { white-space: nowrap; }
 
-/* ── 對話框（Material 的 dialog）───────────────────────────────────────── */
-@keyframes modal-backdrop-enter {
-  from { background-color: rgba(53, 28, 29, 0); }
-  to { background-color: rgba(53, 28, 29, .42); }
-}
-@keyframes modal-card-enter {
-  from {
-    opacity: 0;
-    filter: blur(4px);
-    transform: translateY(12px) scale(.96);
-  }
-  to {
-    opacity: 1;
-    filter: blur(0);
-    transform: translateY(0) scale(1);
-  }
-}
-/* Dialog.tsx 的 DIALOG_EXIT_DURATION_MS 要與退場 transition 的 180ms 對齊。 */
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: grid;
-  place-items: center;
-  padding: 24px;
-  background-color: rgba(53, 28, 29, .42);
-  animation: modal-backdrop-enter 150ms ease-out both;
-  transition-property: background-color;
-  transition-duration: 180ms;
-  transition-timing-function: ease-out;
-}
-.modal-backdrop.closing {
-  animation: none;
-  background-color: rgba(53, 28, 29, 0);
-  pointer-events: none;
-}
-.modal-card {
-  width: min(560px, 100%);
-  max-height: calc(100vh - 48px);
-  display: flex;
-  flex-direction: column;
-  border-radius: 28px;
-  background: var(--color-paper);
-  box-shadow: 0 24px 60px rgba(64, 30, 30, .28);
-  overflow: hidden;
-  opacity: 1;
-  filter: blur(0);
-  transform-origin: center;
-  transform: translateY(0) scale(1);
-  animation: modal-card-enter 220ms cubic-bezier(0.2, 0, 0, 1) both;
-  transition-property: opacity, filter, transform;
-  transition-duration: 180ms;
-  transition-timing-function: ease-out;
-}
-.modal-card.closing {
-  animation: none;
-  opacity: 0;
-  filter: blur(4px);
-  transform: translateY(8px) scale(.98);
-}
-@media (prefers-reduced-motion: reduce) {
-  .modal-backdrop,
-  .modal-card { animation: none; transition: none; }
-}
-.modal-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 22px 24px 14px;
-}
-.modal-head h2 { margin: 0; font-size: 20px; }
-.modal-form {
-  display: flex;
-  flex: 1 1 auto;
-  flex-direction: column;
-  min-width: 0;
-  min-height: 0;
-}
-.modal-body { display: grid; flex: 1 1 auto; gap: 16px; min-width: 0; min-height: 0; padding: 0 24px 8px; overflow-x: hidden; overflow-y: auto; }
-.modal-body > * { min-width: 0; }
 /*
  * 底部的按鈕列與可捲動內容分開：footer 永遠是 modal-card 的最後一層，不會跟著內容捲走，
  * 也不會讓半透明內容穿透到按鈕下面。form footer 與非 form dialog 都使用實色 surface。
  */
-.modal-actions {
-  display: flex;
-  flex: 0 0 auto;
-  justify-content: flex-end;
-  gap: 8px;
-  position: relative;
-  z-index: 1;
-  margin: 8px -24px 0;
-  padding: 16px 24px 20px;
-  background: var(--color-paper);
-  border-top: 1px solid var(--color-soft-line);
-  box-shadow: 0 -10px 20px --alpha(var(--color-ink) / 8%);
-}
 /*
  * footer 若直接掛在 card 或 form 下方，就不需要抵銷 body 的左右 padding；負 margin 會把它
  * 拉出 card 邊界，靠 overflow hidden 裁掉圓角。
  */
-.modal-card > .modal-actions,
-.modal-form > .modal-actions { margin-inline: 0; }
 
-/*
- * align-content: start 是必要的，不是裝飾。
- *
- * .field 在 .field-grid 裡會被拉成整列的高度。少了這一行，多出來的高度會平均
- * 塞進各列，於是「有說明文字的欄位」旁邊那個「沒有說明文字的欄位」，它的輸入框
- * 會被往下推——兩個並排的輸入框差了 20px，看起來就是沒對齊。
- */
-.field { display: grid; align-content: start; gap: 6px; }
-/*
- * input 與 select 只靠 padding 撐高時會差 1px（43 vs 44），並排就看得出來。
- * 釘同一個高度。checkbox 與 radio 不算控制項，排除掉。
- */
-.field input:not([type="checkbox"]):not([type="radio"]),
-.field select { min-height: var(--size-field); }
-.field > span { font-size: 13px; font-weight: 700; }
-.field > span b { margin-left: 6px; color: var(--color-brand); font-size: 11px; }
-.field > small { color: var(--color-muted); font-size: 12px; }
-.field input {
-  padding: 10px 12px;
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font: inherit;
-}
-/*
- * 所有一般下拉共用 autocomplete 的輸入框外觀，但不提供文字輸入：
- * 可以展開選項並選取，不會把 dropdown 變成可搜尋欄位。
- */
-.field select,
-.dropdown-control {
-  appearance: none;
-  min-height: var(--size-field);
-  min-width: 0;
-  padding: 10px 44px 10px 12px;
-  border: 1px solid var(--color-line);
-  border-radius: 10px;
-  background-color: var(--color-canvas);
-  background-image:
-    linear-gradient(45deg, transparent 50%, var(--color-muted) 50%),
-    linear-gradient(135deg, var(--color-muted) 50%, transparent 50%);
-  background-position: calc(100% - 17px) 50%, calc(100% - 11px) 50%;
-  background-repeat: no-repeat;
-  background-size: 6px 6px, 6px 6px;
-  color: var(--color-ink);
-  font: inherit;
-  cursor: pointer;
-}
-.field select:disabled,
-.dropdown-control:disabled { background-color: var(--color-soft-line); color: var(--color-muted); cursor: not-allowed; }
-/* select 是 replaced element，不能可靠地繪製偽元素；用外層放置固定的 Chevron。 */
-.select-control {
-  position: relative;
-  display: block;
-  min-width: 0;
-}
-.select-control::after {
-  position: absolute;
-  top: calc(50% - 4px);
-  right: 16px;
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid var(--color-muted);
-  border-bottom: 2px solid var(--color-muted);
-  content: "";
-  pointer-events: none;
-  transform: rotate(45deg);
-}
-.select-control > .dropdown-control {
-  width: 100%;
-  background-image: none;
-}
-/* 唯讀的欄位（例如已連結 CYBERBIZ 的安全庫存）跟 select 用同一個外觀，看起來是鎖住不是壞掉。 */
-.field input:disabled { background: var(--color-soft-line); color: var(--color-muted); cursor: not-allowed; }
-/*
- * input 的預設寬度是 ~20 個字元，而 grid item 的 min-width 預設是 auto——兩件事
- * 加起來，欄位就縮不到比那個預設寬度更窄。三個窄欄位並排時會直接撐爆對話框，
- * 長出一條橫向捲軸。min-width: 0 讓它可以照著格線縮。
- */
-.field input,
-.field select { min-width: 0; }
-.field input:focus-visible,
-.field select:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
-.dropdown-control:focus-visible {
-  outline: 0;
-  border-color: var(--color-brand);
-  box-shadow: 0 0 0 3px --alpha(var(--color-brand) / 14%);
-}
-.dropdown-control.select-trigger { background-image: none; }
 .filter-select-control {
   display: inline-flex;
   width: max-content;
@@ -2792,8 +2324,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .shift-day-label { grid-column: 1 / -1; padding-left: 2px; }
   .shift-day-row-empty { grid-template-columns: minmax(0, 1fr) auto; }
 }
-/* 對話框移到 body 之後用來補回頁面的樣式範圍；display: contents 才不會多出一層版面。 */
-.modal-scope { display: contents; }
 /*
  * 好幾個 HR 對話框用 form-grid／form-grid two 排兩欄，但這個 class 一直沒有定義，
  * 所以那些欄位其實是一欄一欄疊著、標題與輸入框的間距看起來鬆掉。補上定義比逐一改頁面安全。
@@ -2824,30 +2354,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 
 /* 共用 UI layer：page 只傳入語意 props，視覺狀態集中在這裡。 */
 .ui-field-error { color: var(--color-brand-dark) !important; }
-.ui-status-success { background: var(--color-ok-soft); color: var(--color-ok); }
-.ui-status-info { background: var(--color-info-soft); color: var(--color-info); }
-.ui-status-warning { background: var(--color-warn-soft); color: var(--color-warn); }
-.ui-status-danger { background: var(--color-brand-soft); color: var(--color-brand-dark); }
-.ui-status-neutral { background: var(--color-soft-line); color: var(--color-muted); }
-
-.ui-alert {
-  display: flex;
-  flex: 0 0 100%;
-  align-items: flex-start;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid currentColor;
-  border-radius: 10px;
-  font-size: 13px;
-}
-.ui-alert > svg { width: 19px; height: 19px; flex: none; margin-top: 1px; }
-.ui-alert > div { min-width: 0; }
-.ui-alert-success { background: var(--color-ok-soft); color: var(--color-ok); }
-.ui-alert-info { background: var(--color-info-soft); color: var(--color-info); }
-.ui-alert-warning { background: var(--color-warn-soft); color: var(--color-warn); }
-.ui-alert-danger { background: var(--color-brand-soft); color: var(--color-brand-dark); }
-.ui-alert-neutral { background: var(--color-soft-line); color: var(--color-muted); }
 
 .style-guide > .ui-alert { margin-bottom: 20px; }
 .style-guide-stack { display: grid; gap: 12px; }
@@ -3080,11 +2586,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 六個下拉全攤在工具列上會把搜尋框擠成一小格，而且大部分時候一個都沒動到。
  * 收進一顆按鈕之後，工具列剩下「搜尋 ＋ 篩選」兩件事。
  */
-/*
- * 搜尋框給一個舒服的固定寬度，不要 flex: 1 吃滿整行——在 1440px 的螢幕上那會
- * 變成一條 1000px 的輸入框，而沒有人會打那麼長的搜尋字串。
- */
-.admin-form.toolbar .search-input { width: min(340px, 100%); }
 
 /* 生效中的條件數。按鈕上有數字，收起來也知道自己在篩。 */
 .filter-count {
@@ -3306,8 +2807,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .confirm-body p { margin: 0; }
 .confirm-body strong { color: var(--color-brand-dark); }
 /* 破壞性動作的主要按鈕。primary 的紅底已經夠醒目，這裡只是換成深一階。 */
-.primary-button.danger { background: var(--color-brand-dark); }
-.primary-button.danger:hover:not(:disabled) { background: #8f1f22; }
 
 /*
  * ── 手機版的資料表 ────────────────────────────────────────────────────────
@@ -3636,8 +3135,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   overflow-x: auto;
 }
 .hr-profile-section-content > h3 { margin: 0 0 12px; font-size: 15px; }
-.hr-profile-section-content > .data-table { width: min(100%, 1120px); }
-.hr-profile-section-content > .data-table + p { margin-top: 12px; }
+.hr-profile-section-content > .table-scroll { width: min(100%, 1120px); }
+.hr-profile-section-content > .table-scroll + p { margin-top: 12px; }
 .checkbox-field { display: inline-flex; align-items: center; gap: 8px; font-weight: 400; }
 .checkbox-field input { width: 18px; height: 18px; accent-color: var(--color-brand); }
 .hr-employee-management-dialog { width: min(720px, 100%); }
@@ -4030,34 +3529,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  * 12px 字、hover 立刻出現。圓角取「小元件 9–12px」那一段，跟輸入框同級。
  * 深底直接用 --color-ink，淺字用 --color-canvas，不另外定義一組反轉色票。
  */
-.tooltip-anchor { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
-.tooltip-anchor:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 6px; }
-/*
- * 停用的按鈕不會收到滑鼠事件，事件也就傳不到外層的 anchor，提示永遠不出現——
- * 偏偏停用的按鈕最需要一句「為什麼不能按」。讓指標穿過它，落在 anchor 上。
- */
-.tooltip-anchor > :disabled { pointer-events: none; }
-.tooltip {
-  position: fixed;
-  z-index: 90;
-  /* 垂直位置由 JS 決定（上方放不下要翻到下方），這裡只負責水平置中。 */
-  transform: translateX(-50%);
-  width: max-content;
-  max-width: min(280px, calc(100vw - 16px));
-  padding: 6px 12px;
-  border-radius: 10px;
-  background: var(--color-ink);
-  box-shadow: var(--shadow-panel);
-  color: var(--color-canvas);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1.5;
-  /* 不能 nowrap：KPI 的成長率說明是整句中文，會拉成比螢幕還寬的一條。 */
-  overflow-wrap: anywhere;
-  pointer-events: none;
-  font-variant-numeric: tabular-nums;
-}
-
 .analytics-tooltip { min-width: 148px; padding: 11px 12px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-paper); box-shadow: var(--shadow-panel); color: var(--color-ink); font-size: 12px; }
 .analytics-tooltip > strong { display: block; margin-bottom: 7px; font-size: 12px; }
 .analytics-tooltip-row { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 4px; }
@@ -4754,13 +4225,16 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-payslip-meta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
 .hr-payroll-payslip-section { margin-top: 20px; break-inside: avoid; }
 .hr-payroll-payslip-section h2 { margin: 0 0 8px; font-size: 15px; }
-.hr-payroll-payslip-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
-.hr-payroll-payslip-table th,
-.hr-payroll-payslip-table td { padding: 9px 0; border-bottom: 1px solid var(--color-soft-line); text-align: left; }
-.hr-payroll-payslip-table th { color: var(--color-muted); font-size: 12px; font-weight: 700; }
-.hr-payroll-payslip-table th:last-child,
-.hr-payroll-payslip-table td:last-child { width: 180px; }
-.hr-payroll-payslip-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.hr-payroll-payslip-table-scroll .data-table { table-layout: fixed; }
+.hr-payroll-payslip-table-scroll .data-table th,
+.hr-payroll-payslip-table-scroll .data-table td { height: auto; padding: 9px 0; border-top: 0; border-bottom: 1px solid var(--color-soft-line); text-align: left; }
+.hr-payroll-payslip-table-scroll .data-table thead th { box-shadow: none; }
+.hr-payroll-payslip-table-scroll .data-table th:first-child,
+.hr-payroll-payslip-table-scroll .data-table td:first-child { padding-left: 0; }
+.hr-payroll-payslip-table-scroll .data-table th:last-child,
+.hr-payroll-payslip-table-scroll .data-table td:last-child { width: 180px; padding-right: 0; }
+.hr-payroll-payslip-table-scroll .data-table th { color: var(--color-muted); font-size: 12px; font-weight: 700; }
+.hr-payroll-payslip-table-scroll .data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .hr-payroll-payslip-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 28px 0 0; padding-top: 14px; border-top: 2px solid var(--color-ink); }
 .hr-payroll-payslip-totals > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .hr-payroll-payslip-totals dt { color: var(--color-muted); font-size: 12px; }
@@ -4804,15 +4278,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .m3-switch-thumb,
   .m3-switch-thumb svg,
   .page-tab,
-  .primary-button,
-  .ghost-button,
-  .icon-button,
-  .link-button,
-  .filter-chip,
-  .filter-chip-label,
-  .filter-chip-remove,
-  .chip-action,
-  .data-table tbody tr,
   .hr-overview-card,
   .hr-overview-action span,
   .hr-payroll-disclosure-content,
@@ -4822,14 +4287,6 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-payroll-line-summary,
   .hr-payroll-secondary > summary,
   .hr-payroll-line-steps-summary { transition-property: none; }
-  .primary-button:not(.button-static):active:not(:disabled),
-  .ghost-button:not(.button-static):active:not(:disabled),
-  .icon-button:not(.button-static):active:not(:disabled),
-  .link-button:not(.button-static):active:not(:disabled),
-  .filter-chip:not(.button-static):active:not(:disabled),
-  .filter-chip-label:not(.button-static):active:not(:disabled),
-  .filter-chip-remove:not(.button-static):active:not(:disabled),
-  .chip-action:not(.button-static):active:not(:disabled) { scale: 1; }
   .hr-overview-card:hover { transform: none; }
   .hr-overview-card:hover .hr-overview-action span { transform: none; }
 }

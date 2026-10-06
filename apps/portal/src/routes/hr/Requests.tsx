@@ -4,7 +4,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Field, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -294,10 +294,14 @@ function CreateRequestDialog({ initialKind, employees, leaveTypes, onClose, onDo
   return <Dialog title="新增申請" titleMeta="建立後會出現在申請紀錄" className="hr-request-dialog" bodyClassName="hr-request-dialog-body" onClose={onClose} closeDisabled={pending}>
     <div className="hr-request-kind-picker">
       <span className="muted">申請類型</span>
-      <div className="segmented-control hr-request-kind-tabs" role="group" aria-label="申請類型">
-        <button type="button" className={kind === "leave" ? "selected" : ""} aria-pressed={kind === "leave"} disabled={pending} onClick={() => setKind("leave")}>請假</button>
-        <button type="button" className={kind === "overtime" ? "selected" : ""} aria-pressed={kind === "overtime"} disabled={pending} onClick={() => setKind("overtime")}>加班</button>
-      </div>
+      <SegmentedControl
+        className="hr-request-kind-tabs"
+        aria-label="申請類型"
+        value={kind}
+        options={[{ value: "leave", label: "請假" }, { value: "overtime", label: "加班" }]}
+        disabled={pending}
+        onChange={(value) => { if (value === "leave" || value === "overtime") setKind(value); }}
+      />
     </div>
     {kind === "leave" ? <LeaveForm employees={employees} leaveTypes={leaveTypes} onClose={onClose} onDone={onDone} onPendingChange={setPending} /> : <OvertimeForm employees={employees} onClose={onClose} onDone={onDone} onPendingChange={setPending} />}
   </Dialog>;
@@ -377,7 +381,7 @@ export function HrRequestCenter() {
     {employees.error || leaveTypes.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message}</Alert> : null}
     <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可直接在此處理。">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
-      <form className="admin-form toolbar hr-request-toolbar" onSubmit={(event) => event.preventDefault()}>
+      <FilterToolbar className="hr-request-toolbar">
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
         <Button variant="secondary" icon="filter" className={`filter-toggle${showFilters ? " active" : ""}`} aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選{activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}</Button>
         {activeFilterCount ? <Button variant="link" onClick={() => updateFilters({ kind: "all", status: "all" })}>清除篩選</Button> : null}
@@ -385,9 +389,9 @@ export function HrRequestCenter() {
           <FilterSelect label="申請類型" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
           <FilterSelect label="狀態" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
         </div>
-      </form>
+      </FilterToolbar>
       {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
-      <div className={`table-scroll${requests.isFetching ? " is-refreshing" : ""}`}><table className="data-table hr-request-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td><td data-label="期間">{row.period}</td><td data-label="內容"><Tooltip label={row.detail} focusable={false}><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td><td data-label="原因"><Tooltip label={row.reason} focusable={false}><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : (row.kind === "leave" || row.kind === "overtime") && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消{REQUEST_KIND_LABEL[row.kind]}</Button> : "—"}</td></tr>)}</tbody></table></div>
+      <DataTable className="hr-request-table" containerClassName={requests.isFetching ? "is-refreshing" : ""}><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td><td data-label="期間">{row.period}</td><td data-label="內容"><Tooltip label={row.detail} focusable={false}><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td><td data-label="原因"><Tooltip label={row.reason} focusable={false}><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : (row.kind === "leave" || row.kind === "overtime") && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消{REQUEST_KIND_LABEL[row.kind]}</Button> : "—"}</td></tr>)}</tbody></DataTable>
       {requests.data && !visibleRows.length ? <p className="muted table-note">{total ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</p> : null}
       {total ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => setFilters((current) => ({ ...current, page: nextPage }))} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>

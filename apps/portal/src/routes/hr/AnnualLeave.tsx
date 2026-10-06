@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SegmentedControl, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrAnnualLeaveEntitlement, type HrAnnualLeaveEntitlementDetail, type HrAnnualLeaveLedgerEntry, type HrAnnualLeaveResponse } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -153,16 +153,16 @@ function EntitlementDetailDialog({ row, onClose }: { row: HrAnnualLeaveEntitleme
     </section>
     <section className="hr-annual-detail-section">
       <h3>額度台帳</h3>
-      <div className="table-scroll"><table className="data-table compact hr-annual-ledger-table"><thead><tr><th>寫入時間</th><th>類型</th><th className="numeric">變化</th><th>說明</th></tr></thead><tbody>
+      <DataTable className="compact hr-annual-ledger-table"><thead><tr><th>寫入時間</th><th>類型</th><th className="numeric">變化</th><th>說明</th></tr></thead><tbody>
         {entitlement.ledger.map((entry) => <tr key={entry.id}><td>{taipeiDateTime(entry.createdAt)}<small>台北時間</small></td><td>{ledgerKindLabel(entry.entryKind)}</td><td className="numeric">{signedHours(entry.deltaHalfHours)}</td><td>{ledgerDisplayNote(entry, entitlement)}</td></tr>)}
-        {!entitlement.ledger.length ? <tr><td colSpan={4}><p className="empty-state">目前沒有台帳紀錄。</p></td></tr> : null}
-      </tbody></table></div>
+        {!entitlement.ledger.length ? <tr><td colSpan={4}><EmptyState>目前沒有台帳紀錄。</EmptyState></td></tr> : null}
+      </tbody></DataTable>
     </section>
   </Dialog>;
 }
 
 function EntitlementTable({ rows, canWrite, onAdjust, onDetail }: { rows: HrAnnualLeaveEntitlement[]; canWrite: boolean; onAdjust: (row: HrAnnualLeaveEntitlement) => void; onDetail: (row: HrAnnualLeaveEntitlement) => void }) {
-  return <div className="table-scroll"><table className="data-table hr-annual-entitlement-table"><thead><tr><th>員工</th><th>可用額度</th><th>本期使用</th><th>到期日</th><th>額度週期</th><th>狀態</th><th>操作</th></tr></thead><tbody>
+  return <DataTable className="hr-annual-entitlement-table"><thead><tr><th>員工</th><th>可用額度</th><th>本期使用</th><th>到期日</th><th>額度週期</th><th>狀態</th><th>操作</th></tr></thead><tbody>
     {rows.map((row) => <tr key={row.id}>
       <td data-label="員工"><strong>{row.employeeName}</strong><small>{row.employeeNumber}</small></td>
       <td data-label="可用額度"><div className="hr-annual-balance"><strong>{hours(row.balanceHalfHours)}</strong><small>共 {hours(row.entitledHalfHours)}</small><span className="hr-annual-progress" aria-hidden="true"><span style={{ width: `${balancePercent(row)}%` }} /></span></div></td>
@@ -172,8 +172,8 @@ function EntitlementTable({ rows, canWrite, onAdjust, onDetail }: { rows: HrAnnu
       <td data-label="狀態"><StatusBadge tone={row.status === "open" ? "success" : "neutral"}>{row.status === "open" ? "可使用" : "已結算"}</StatusBadge></td>
       <td data-label="操作"><div className="hr-annual-row-actions"><Button variant="secondary" icon="info" onClick={() => onDetail(row)}>查看明細</Button>{canWrite && row.status === "open" ? <Button variant="secondary" icon="edit" onClick={() => onAdjust(row)}>人工調整</Button> : null}</div></td>
     </tr>)}
-    {!rows.length ? <tr><td colSpan={7}><p className="empty-state">目前沒有可建立的特休週期；請確認員工已設定服務年資起算日，或執行回溯／補建額度。</p></td></tr> : null}
-  </tbody></table></div>;
+    {!rows.length ? <tr><td colSpan={7}><EmptyState>目前沒有可建立的特休週期；請確認員工已設定服務年資起算日，或執行回溯／補建額度。</EmptyState></td></tr> : null}
+  </tbody></DataTable>;
 }
 
 export function HrAnnualLeave() {
@@ -202,7 +202,7 @@ export function HrAnnualLeave() {
       actions={<div className="hr-annual-header-actions"><Button variant="secondary" icon="tune" onClick={() => navigate("/hr/annual-leave/settings")}>特休政策</Button>{canWrite ? <Button icon="sync" loading={backfill.isPending} onClick={() => backfill.mutate({ path: "/annual-leave/backfill", method: "POST", values: {} }, { onSuccess: () => { void entitlements.refetch(); } })}>回溯／補建額度</Button> : null}</div>}
     />
     {entitlements.error || backfill.error ? <Alert tone="danger">{entitlements.error?.message ?? backfill.error?.message}</Alert> : null}
-    <Panel className="grows hr-annual-list-panel" title={showHistory ? "全部額度週期" : "員工目前額度"} description={showHistory ? "包含歷史週期；人工修正與核准使用都保留在各期台帳。" : "每位員工只顯示目前適用的週期；到期日為該週期結束日前一天。"} actions={<div className="segmented-control hr-annual-view-tabs" role="group" aria-label="額度顯示範圍"><button type="button" className={!showHistory ? "selected" : ""} aria-pressed={!showHistory} onClick={() => setShowHistory(false)}>目前週期</button><button type="button" className={showHistory ? "selected" : ""} aria-pressed={showHistory} onClick={() => setShowHistory(true)}>全部週期</button></div>}>
+    <Panel className="grows hr-annual-list-panel" title={showHistory ? "全部額度週期" : "員工目前額度"} description={showHistory ? "包含歷史週期；人工修正與核准使用都保留在各期台帳。" : "每位員工只顯示目前適用的週期；到期日為該週期結束日前一天。"} actions={<SegmentedControl className="hr-annual-view-tabs" aria-label="額度顯示範圍" value={showHistory ? "all" : "current"} options={[{ value: "current", label: "目前週期" }, { value: "all", label: "全部週期" }]} onChange={(value) => setShowHistory(value === "all")} />}>
       <EntitlementTable rows={visibleRows} canWrite={canWrite} onAdjust={setAdjustment} onDetail={setDetail} />
     </Panel>
     {adjustment ? <EntitlementAdjustmentDialog row={adjustment} onClose={() => { setAdjustment(null); void entitlements.refetch(); }} /> : null}

@@ -8,12 +8,14 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
+    "lint": "node ../../scripts/check-ui-contract.mjs",
     "deploy": "wrangler deploy",
     "dry-run": "wrangler deploy --dry-run",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
+    "@rueisiang/ui": "workspace:*",
     "@tanstack/react-query": "^5.90.2",
     "maplibre-gl": "^5.24.0",
     "react": "19.2.6",

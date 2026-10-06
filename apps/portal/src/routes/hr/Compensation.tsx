@@ -6,7 +6,8 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { EmployeeFilterBar } from "./EmployeeFilterBar.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeePageResponse { employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }
@@ -376,26 +377,28 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
         <div className="panel-head"><div><h2>公司採用負擔規則</h2><p className="muted">勞保總基金費率 12.5%＝普通事故保險 11.5%＋就業保險 1%；兩項都是獨立基金，員工與雇主負擔各自套用。薪資試算會將兩筆員工金額分別四捨五入到元後再加總。若公司適用特殊身分類別，可在此建立覆核版本覆蓋對應項目。</p></div></div>
         <div className="admin-form toolbar"><SelectField label="保險項目" value={contributionTarget} options={CONTRIBUTION_TARGETS.map((item) => ({ value: item.value, label: item.label }))} onChange={(event) => setContributionTarget(event.target.value as ContributionTarget)} /><TextField label="生效日" type="date" value={contributionFrom} onChange={(event) => setContributionFrom(event.target.value)} /><TextField label="員工實際負擔（%）" type="number" min="0" max="100" step="0.0001" value={employeeRate} onChange={(event) => setEmployeeRate(event.target.value)} /><TextField label="雇主實際負擔（%）" type="number" min="0" max="100" step="0.0001" value={employerRate} onChange={(event) => setEmployerRate(event.target.value)} />{selectedContributionTarget.scheme === "health" ? <TextField label="眷屬倍率（%）" type="number" min="0" max="100" step="0.0001" value={dependentRate} onChange={(event) => setDependentRate(event.target.value)} /> : null}{canWrite ? <Button icon="plus" loading={createContribution.isPending} disabled={!employeeRate || !employerRate} onClick={() => createContribution.mutate({ path: "/insurance-contribution-rules", method: "POST", values: { scheme: selectedContributionTarget.scheme, component: selectedContributionTarget.component, validFrom: contributionFrom, validTo: null, employeeRatePpm: Math.round(Number(employeeRate) * 10_000), employerRatePpm: Math.round(Number(employerRate) * 10_000), dependentRatePpm: selectedContributionTarget.scheme === "health" ? Math.round(Number(dependentRate || "100") * 10_000) : 0, sourceKind: "manual", note: `公司確認${selectedContributionTarget.label}規則` } }, { onSuccess: () => { setEmployeeRate(""); setEmployerRate(""); void contributionRules.refetch(); } })}>保存負擔規則</Button> : null}</div>
         {contributionRules.error || createContribution.error ? <Alert tone="danger">{contributionRules.error?.message ?? createContribution.error?.message}</Alert> : null}
-        <div className="table-scroll"><table className="data-table compact"><thead><tr><th>保險項目</th><th>基金費率</th><th>員工分攤</th><th>雇主分攤</th><th>生效日</th><th>員工實際負擔</th><th>雇主實際負擔</th><th>眷屬倍率</th><th>來源</th></tr></thead><tbody>{(contributionRules.data?.rules ?? []).map((rule) => <tr key={rule.id}><td>{contributionLabel(rule)}</td><td>{contributionPercent(rule.totalRatePpm)}</td><td>{contributionPercent(rule.employeeSharePpm)}</td><td>{contributionPercent(rule.employerSharePpm)}</td><td>{rule.validFrom}</td><td>{contributionPercent(rule.employeeRatePpm)}</td><td>{contributionPercent(rule.employerRatePpm)}</td><td>{rule.scheme === "health" ? contributionPercent(rule.dependentRatePpm) : "—"}</td><td><div className="hr-rate-source"><span className={`status ${rule.isSystemDefault ? "status-active" : "status-manual"}`}>{rule.isSystemDefault ? "系統預設" : "公司覆核"}</span>{rule.sourceUrl ? <a href={rule.sourceUrl} target="_blank" rel="noreferrer">官方資料</a> : null}</div></td></tr>)}</tbody></table></div>
+        <DataTable className="compact"><thead><tr><th>保險項目</th><th>基金費率</th><th>員工分攤</th><th>雇主分攤</th><th>生效日</th><th>員工實際負擔</th><th>雇主實際負擔</th><th>眷屬倍率</th><th>來源</th></tr></thead><tbody>{(contributionRules.data?.rules ?? []).map((rule) => <tr key={rule.id}><td>{contributionLabel(rule)}</td><td>{contributionPercent(rule.totalRatePpm)}</td><td>{contributionPercent(rule.employeeSharePpm)}</td><td>{contributionPercent(rule.employerSharePpm)}</td><td>{rule.validFrom}</td><td>{contributionPercent(rule.employeeRatePpm)}</td><td>{contributionPercent(rule.employerRatePpm)}</td><td>{rule.scheme === "health" ? contributionPercent(rule.dependentRatePpm) : "—"}</td><td><div className="hr-rate-source"><StatusBadge tone={rule.isSystemDefault ? "success" : "warning"}>{rule.isSystemDefault ? "系統預設" : "公司覆核"}</StatusBadge>{rule.sourceUrl ? <a href={rule.sourceUrl} target="_blank" rel="noreferrer">官方資料</a> : null}</div></td></tr>)}</tbody></DataTable>
       </Panel>
     </> : <>
       {!canWrite ? <Alert tone="info">目前帳號只有敘薪檢視權限，無法新增薪資版本。</Alert> : null}
       <Panel>
-      <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
-        <SearchFilterInput label="搜尋" placeholder="搜尋員工編號、姓名或 Email" value={employeeFilters.search} onSearch={(search) => setEmployeeFilters((current) => ({ ...current, search, page: 1 }))} />
-        <FilterSelect label="狀態" value={employeeFilters.status} onChange={(event) => setEmployeeFilters((current) => ({ ...current, status: event.target.value, page: 1 }))} options={[{ value: "all", label: "全部狀態" }, { value: "employable", label: "可任職" }, { value: "disabled", label: "已停用帳號" }]} />
-      </form>
+      <EmployeeFilterBar
+        search={employeeFilters.search}
+        status={employeeFilters.status}
+        onSearch={(search) => setEmployeeFilters((current) => ({ ...current, search, page: 1 }))}
+        onStatusChange={(status) => setEmployeeFilters((current) => ({ ...current, status, page: 1 }))}
+      />
       {employeeTable.error ? <Alert tone="danger">{employeeTable.error.message}</Alert> : null}
-      <div className="table-scroll"><table className="data-table"><thead><tr>
+      <DataTable><thead><tr>
         <SortableHeader label="員工" field="employeeNumber" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
         <th>目前任職</th><th>方式</th><th className="numeric">總計薪資</th><th>生效期間</th><th>操作</th>
       </tr></thead><tbody>
         {(employeeTable.data?.employees ?? []).map((employee) => <EmployeeCompensationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={(userId) => setEditing({ userId })} />)}
-      </tbody></table></div>
-      {!employeeTable.data?.employees.length ? <p className="empty-state">{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</p> : null}
+      </tbody></DataTable>
+      {!employeeTable.data?.employees.length ? <EmptyState>{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</EmptyState> : null}
       {employeeTable.data && employeeTable.data.total > 0 ? <Pager page={employeeTable.data.page} pageSize={employeeTable.data.pageSize} pageSizes={EMPLOYEE_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(employeeTable.data.total / employeeTable.data.pageSize))} totalLabel={`共 ${employeeTable.data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => setEmployeeFilters((current) => ({ ...current, page }))} onPageSize={(pageSize) => setEmployeeFilters((current) => ({ ...current, pageSize, page: 1 }))} /> : null}
     </Panel>
-      {permissions.has("hr:schedule:read") ? <Panel><div className="panel-head"><div><h2>支援人員敘薪</h2><p>薪資直接 mapping 到支援人員主檔；可選日薪或時薪，日薪依已發布排班日期計算，時薪依排班快照的計薪工時扣除休息時間，不參與獎金。</p></div></div>{workers.error ? <Alert tone="danger">{workers.error.message}</Alert> : null}<div className="table-scroll"><table className="data-table"><thead><tr><th>人員</th><th>方式</th><th className="numeric">目前金額</th><th>生效期間</th><th>操作</th></tr></thead><tbody>{(workers.data?.workers ?? []).map((worker) => <WorkerCompensationRow key={worker.id} worker={worker} canWrite={canWrite} onEdit={() => setEditingWorker(worker)} />)}</tbody></table></div>{!workers.error && !workers.data?.workers.length ? <p className="empty-state">尚無排班支援人員。</p> : null}</Panel> : null}
+      {permissions.has("hr:schedule:read") ? <Panel><div className="panel-head"><div><h2>支援人員敘薪</h2><p>薪資直接 mapping 到支援人員主檔；可選日薪或時薪，日薪依已發布排班日期計算，時薪依排班快照的計薪工時扣除休息時間，不參與獎金。</p></div></div>{workers.error ? <Alert tone="danger">{workers.error.message}</Alert> : null}<DataTable><thead><tr><th>人員</th><th>方式</th><th className="numeric">目前金額</th><th>生效期間</th><th>操作</th></tr></thead><tbody>{(workers.data?.workers ?? []).map((worker) => <WorkerCompensationRow key={worker.id} worker={worker} canWrite={canWrite} onEdit={() => setEditingWorker(worker)} />)}</tbody></DataTable>{!workers.error && !workers.data?.workers.length ? <EmptyState>尚無排班支援人員。</EmptyState> : null}</Panel> : null}
       {editing ? <CompensationEditor employees={employees.data?.employees ?? []} initialUserId={editing.userId} onClose={() => setEditing(null)} /> : null}
       {editingWorker ? <WorkerCompensationEditor worker={editingWorker} onClose={() => setEditingWorker(null)} /> : null}
     </>}

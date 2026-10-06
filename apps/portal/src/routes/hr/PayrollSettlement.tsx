@@ -4,7 +4,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, DropdownSelect, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, StatusBadge, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -271,23 +271,22 @@ export function HrPayrollSettlement() {
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
 
     <Panel className="grows hr-payroll-records-panel">
-      <form className="admin-form toolbar hr-payroll-record-filter" onSubmit={(event) => event.preventDefault()}>
+      <FilterToolbar className="hr-payroll-record-filter">
         <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} />
         <FilterInput label="薪資月份" type="month" value={recordFilters.periodKey} onChange={(event) => updateRecordFilters({ periodKey: event.target.value })} />
         <FilterSelect label="狀態" value={recordFilters.status} options={[{ value: "all", label: "全部狀態" }, { value: "unsettled", label: "尚未結算" }, { value: "closed", label: "已確定發放" }]} onChange={(event) => updateRecordFilters({ status: event.target.value as PayrollRecordFilters["status"] })} />
         <FilterSelect label="人員類型" value={recordFilters.personKind} options={[{ value: "all", label: "全部人員" }, { value: "employee", label: "正式員工" }, { value: "worker", label: "支援人員" }]} onChange={(event) => updateRecordFilters({ personKind: event.target.value as PayrollRecordFilters["personKind"] })} />
         <FilterSelect label="計薪方式" value={recordFilters.payBasis} options={[{ value: "all", label: "全部計薪方式" }, { value: "monthly", label: "月薪" }, { value: "daily", label: "日薪" }, { value: "hourly", label: "時薪" }, { value: "mixed", label: "混合" }]} onChange={(event) => updateRecordFilters({ payBasis: event.target.value as PayrollRecordFilters["payBasis"] })} />
-      </form>
+      </FilterToolbar>
       {records.error ? <Alert tone="danger">薪資紀錄載入失敗：{records.error.message}</Alert> : null}
       <div className="hr-payroll-table-region">
-        <div className={`table-scroll${records.isPlaceholderData ? " is-refreshing" : ""}`}>
-          <div className="hr-payroll-mobile-select-all">
-            <label className="table-select-all">
-              <input ref={mobileSelectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={!canCalculate || !visibleUnsettledKeys.length || approvePayroll.isPending} onChange={(event) => toggleVisibleRecords(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁尚未結算紀錄" : "全選本頁尚未結算紀錄"} />
-              <span>{allVisibleSelected ? "取消全選本頁" : "全選本頁"}</span>
-            </label>
-          </div>
-          <table className="data-table hr-payroll-record-table">
+        <div className="hr-payroll-mobile-select-all">
+          <label className="table-select-all">
+            <input ref={mobileSelectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={!canCalculate || !visibleUnsettledKeys.length || approvePayroll.isPending} onChange={(event) => toggleVisibleRecords(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁尚未結算紀錄" : "全選本頁尚未結算紀錄"} />
+            <span>{allVisibleSelected ? "取消全選本頁" : "全選本頁"}</span>
+          </label>
+        </div>
+        <DataTable className="hr-payroll-record-table" containerClassName={records.isPlaceholderData ? "is-refreshing" : ""}>
             <thead><tr><th className="hr-payroll-select-cell"><input ref={selectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={!canCalculate || !visibleUnsettledKeys.length || approvePayroll.isPending} onChange={(event) => toggleVisibleRecords(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁尚未結算紀錄" : "全選本頁尚未結算紀錄"} /></th><th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th>操作</th></tr></thead>
             <tbody>{(records.data?.records ?? []).map((record) => <tr key={referenceKey(record)} className={selectedKeys.includes(referenceKey(record)) ? "selected" : undefined}>
               <td data-label="選取" className="hr-payroll-select-cell">{record.status === "unsettled" ? <input className="table-checkbox" type="checkbox" checked={selectedKeys.includes(referenceKey(record))} disabled={!canCalculate || approvePayroll.isPending} onChange={(event) => toggleRecord(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td>
@@ -300,11 +299,10 @@ export function HrPayrollSettlement() {
               <td data-label="狀態"><StatusBadge tone={recordStatusTone(record.status)}>{PAYROLL_RECORD_STATUS_LABEL[record.status]}</StatusBadge></td>
               <td data-label="操作"><Button variant="secondary" icon="eye" onClick={() => openRecord(record)}>查看明細</Button></td>
             </tr>)}</tbody>
-          </table>
-        </div>
+        </DataTable>
         {selectedRecords.length ? <div className="hr-payroll-selection-actions" role="status"><span className="hr-payroll-selection-count" aria-live="polite">已選取 {selectedRecords.length} 筆</span>{canCalculate ? <Button icon="check" loading={approvePayroll.isPending} onClick={() => setApproveOpen(true)}>確定發放</Button> : null}</div> : null}
       </div>
-      {records.data && !records.data.records.length ? <p className="empty-state">目前沒有符合條件的薪資發放紀錄。</p> : null}
+      {records.data && !records.data.records.length ? <EmptyState>目前沒有符合條件的薪資發放紀錄。</EmptyState> : null}
       {records.data && records.data.total > 0 ? <Pager page={records.data.page} pageSize={records.data.pageSize} pageSizes={PAYROLL_RECORD_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(records.data.total / records.data.pageSize))} totalLabel={`共 ${records.data.total.toLocaleString("zh-TW")} 筆`} onPage={(page) => updateRecordFilters({ page })} onPageSize={(pageSize) => updateRecordFilters({ pageSize })} /> : null}
     </Panel>
 

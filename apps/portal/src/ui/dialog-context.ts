@@ -1,11 +1,2 @@
-import { createContext } from "react";
-
-export type DialogCloseRequest = (afterClose?: () => void) => void;
-export type DialogCloseRef = { current: DialogCloseRequest | null };
-
-export interface DialogContextValue {
-  onClose?: () => void;
-  requestClose: () => void;
-}
-
-export const DialogContext = createContext<DialogContextValue | null>(null);
+export { DialogContext } from "@rueisiang/ui";
+export type { DialogCloseRef, DialogCloseRequest, DialogContextValue } from "@rueisiang/ui";
