@@ -69,14 +69,18 @@ jobs:
           set -euo pipefail
           if [[ "$CURRENT_RUN" != "true" ]]; then
             changed="過期的 workflow_run"
-            platform=false
-            migrations=false
-            hr=false
+            {
+              echo "platform=false"
+              echo "migrations=false"
+              echo "hr=false"
+            } >> "$GITHUB_OUTPUT"
           elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             changed="manual trigger"
-            platform=true
-            migrations=true
-            hr=true
+            {
+              echo "platform=true"
+              echo "migrations=true"
+              echo "hr=true"
+            } >> "$GITHUB_OUTPUT"
           else
             last_deployed_sha=""
             runs_url="$API_URL/repos/$REPOSITORY/actions/workflows/deploy.yml/runs?branch=main&per_page=100"
@@ -102,30 +106,10 @@ jobs:
               changed="$(git ls-tree -r --name-only "$TARGET_SHA")"
               echo "找不到可用的上次成功 Deploy 基準，使用完整 tree。"
             fi
-
-            platform=false
-            migrations=false
-            hr=false
-            while IFS= read -r path; do
-              case "$path" in
-                apps/api/*|apps/portal/*|packages/assistant/*|packages/auth/*|packages/config/*|packages/cyberbiz/*|packages/db/src/*|packages/db/package.json|packages/db/tsconfig.json|packages/db/drizzle.config.ts|packages/tools/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|.github/workflows/deploy.yml)
-                  platform=true ;;
-              esac
-              case "$path" in
-                packages/db/migrations/*)
-                  migrations=true ;;
-              esac
-              case "$path" in
-                apps/hr/*|packages/auth/*|packages/config/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|.github/workflows/deploy.yml)
-                  hr=true ;;
-              esac
-            done <<< "$changed"
+            bash "$GITHUB_WORKSPACE/.github/scripts/detect-deploy-scope.sh" "$GITHUB_OUTPUT" <<< "$changed"
           fi
           echo "變更檔案："
           printf '%s\n' "$changed"
-          echo "platform=$platform" >> "$GITHUB_OUTPUT"
-          echo "migrations=$migrations" >> "$GITHUB_OUTPUT"
-          echo "hr=$hr" >> "$GITHUB_OUTPUT"
 
   prepare:
     needs: detect
