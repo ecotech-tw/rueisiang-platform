@@ -180,6 +180,7 @@ export async function markHrPayrollJobEnqueued(db: Database, jobId: string): Pro
   }).where(and(
     eq(hrPayrollJobs.id, jobId),
     sql`${hrPayrollJobs.status} IN ('queued', 'calculating')`,
+    eq(hrPayrollJobs.queueStatus, "pending"),
   ));
 }
 
@@ -200,12 +201,13 @@ export async function markHrPayrollJobDispatchFailed(db: Database, jobId: string
   }).where(and(
     eq(hrPayrollJobs.id, jobId),
     eq(hrPayrollJobs.status, "queued"),
+    eq(hrPayrollJobs.queueStatus, "pending"),
   ));
 }
 
 export async function beginHrPayrollJob(db: Database, jobId: string): Promise<HrPayrollJob> {
   const job = await getHrPayrollJobRecord(db, jobId);
-  if (job.status === "ready" || job.status === "failed") return job;
+  if (job.status === "ready" || job.status === "failed" || job.status === "calculating") return job;
   const next = {
     status: "calculating" as const,
     phase: "preparing" as const,
@@ -214,7 +216,7 @@ export async function beginHrPayrollJob(db: Database, jobId: string): Promise<Hr
     lastError: "",
     updatedAt: sql`CURRENT_TIMESTAMP`,
   };
-  await db.update(hrPayrollJobs).set(next).where(and(eq(hrPayrollJobs.id, jobId), sql`${hrPayrollJobs.status} IN ('queued', 'calculating')`));
+  await db.update(hrPayrollJobs).set(next).where(and(eq(hrPayrollJobs.id, jobId), eq(hrPayrollJobs.status, "queued")));
   return getHrPayrollJobRecord(db, jobId);
 }
 
@@ -265,9 +267,28 @@ export async function failHrPayrollJob(db: Database, jobId: string, message: str
   ));
 }
 
+/**
+ * Queue terminal failure may only fail a job that the DO has never claimed.
+ * The status and attempt guard must be in the same UPDATE as the transition:
+ * a duplicate Queue delivery can race the DO alarm between its read and write.
+ */
+export async function failHrPayrollQueueJob(db: Database, jobId: string, message: string): Promise<void> {
+  await db.update(hrPayrollJobs).set({
+    status: "failed",
+    phase: "failed",
+    queueStatus: "enqueued",
+    lastError: message.slice(0, 2000),
+    updatedAt: sql`CURRENT_TIMESTAMP`,
+  }).where(and(
+    eq(hrPayrollJobs.id, jobId),
+    eq(hrPayrollJobs.status, "queued"),
+    eq(hrPayrollJobs.attemptCount, 0),
+  ));
+}
+
 export async function retryHrPayrollJobLater(db: Database, jobId: string, message: string, expectedAttemptCount?: number): Promise<void> {
   await db.update(hrPayrollJobs).set({
-    status: "calculating",
+    status: "queued",
     phase: "preparing",
     lastError: message.slice(0, 2000),
     updatedAt: sql`CURRENT_TIMESTAMP`,

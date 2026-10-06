@@ -1,6 +1,6 @@
 import {
   createDatabase,
-  failHrPayrollJob,
+  failHrPayrollQueueJob,
   getHrPayrollJobRecord,
   listPendingHrPayrollJobs,
   markHrPayrollJobDispatchFailed,
@@ -55,7 +55,9 @@ export async function failPayrollQueueMessage(message: PayrollQueueMessage, env:
   const db = createDatabase(env.DB);
   const job = await getHrPayrollJobRecord(db, message.jobId);
   // DO 已經接手後，Queue 的重複訊息不可以把正在計算的新嘗試標成失敗。
-  if (job.status !== "queued") return;
+  // Once the DO has claimed the job, a duplicate Queue delivery must not
+  // turn the active calculation into a terminal failure.
+  if (job.status !== "queued" || job.attemptCount > 0) return;
   const details = error instanceof Error ? error.message : "背景佇列投遞失敗。";
-  await failHrPayrollJob(db, message.jobId, `背景工作佇列重試 ${PAYROLL_QUEUE_MAX_RETRIES} 次後仍失敗：${details}`);
+  await failHrPayrollQueueJob(db, message.jobId, `背景工作佇列重試 ${PAYROLL_QUEUE_MAX_RETRIES} 次後仍失敗：${details}`);
 }

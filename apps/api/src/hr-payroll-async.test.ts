@@ -127,6 +127,35 @@ describe("薪資背景 Queue 與 Durable Object", () => {
     expect((await failed.json() as { job: { status: string; dispatchPending: boolean; error: string | null } }).job).toEqual(expect.objectContaining({ status: "failed", dispatchPending: false, error: expect.stringContaining("重試 3 次後仍失敗") }));
   });
 
+  it("DO 已接手後，Queue terminal failure 不會把工作標成失敗", async () => {
+    const created = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], expectedCount: 1, requestId: "async-payroll-do-claimed",
+    });
+    const createdBody = await created.json() as { job: { jobId: string } };
+    const local = doState();
+    const agent = new PayrollRunAgent(local.state, testEnv());
+    const accepted = await agent.fetch(new Request("https://payroll-run/start", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "payroll", jobId: createdBody.job.jobId }),
+    }));
+    expect(accepted.status).toBe(200);
+
+    const consumerEnv = {
+      ...(testEnv() as unknown as Record<string, unknown>),
+      PAYROLL_RUN_AGENT: { getByName: () => ({ fetch: async () => new Response("temporary failure", { status: 503 }) }) } as unknown as DurableObjectNamespace,
+    } as never;
+    const terminalMessage = {
+      id: "payroll-consumer-claimed-terminal",
+      timestamp: new Date(),
+      body: { kind: "payroll", jobId: createdBody.job.jobId } as PayrollQueueMessage,
+      attempts: 4,
+      ack: () => { throw new Error("terminal payroll message must not be acked"); },
+      retry: () => { throw new Error("terminal payroll message must be left for DLQ"); },
+    };
+    await expect(queue({ queue: "rueisiang-payroll", messages: [terminalMessage] } as never, consumerEnv)).rejects.toThrow("啟動失敗（503）");
+    const stillRunning = await request(`/hr/payroll/jobs/${createdBody.job.jobId}`);
+    expect((await stillRunning.json() as { job: { status: string; completedCount: number } }).job).toEqual(expect.objectContaining({ status: "calculating", completedCount: 0 }));
+  });
+
   it("Queue 派送連續失敗時進入 failed terminal state，停止 outbox 無限重送", async () => {
     queueFailure = new Error("permanent queue failure");
     const payload = { periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], expectedCount: 1, requestId: "async-payroll-dispatch-terminal" };

@@ -46,7 +46,7 @@ export {
   type HrPayrollEmployeeHistory, type HrPayrollRecordCounts, type HrPayrollRecordDetail, type HrPayrollRecordItemView, type HrPayrollRecordListQuery, type HrPayrollRecordPayBasis, type HrPayrollRecordPersonKind, type HrPayrollRecordReference, type HrPayrollRecordStatus, type HrPayrollRecord, type HrPayrollRunResult,
 } from "./hr-payroll-calculation.js";
 export {
-  beginHrPayrollJob, completeHrPayrollJob, createHrPayrollJob, failHrPayrollJob, getHrPayrollJob, getHrPayrollJobInput, getHrPayrollJobRecord, HR_PAYROLL_MAX_QUEUE_DISPATCH_ATTEMPTS, listHrPayrollJobs, listPendingHrPayrollJobs, markHrPayrollJobDispatchFailed, markHrPayrollJobEnqueued, reportHrPayrollJobProgress, retryHrPayrollJob, retryHrPayrollJobLater,
+  beginHrPayrollJob, completeHrPayrollJob, createHrPayrollJob, failHrPayrollJob, failHrPayrollQueueJob, getHrPayrollJob, getHrPayrollJobInput, getHrPayrollJobRecord, HR_PAYROLL_MAX_QUEUE_DISPATCH_ATTEMPTS, listHrPayrollJobs, listPendingHrPayrollJobs, markHrPayrollJobDispatchFailed, markHrPayrollJobEnqueued, reportHrPayrollJobProgress, retryHrPayrollJob, retryHrPayrollJobLater,
   type CreateHrPayrollJobInput, type HrPayrollJobPhase, type HrPayrollJobStatus, type HrPayrollJobView,
 } from "./hr-payroll-jobs.js";
 export {

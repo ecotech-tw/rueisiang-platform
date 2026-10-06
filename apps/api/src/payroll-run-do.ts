@@ -33,6 +33,18 @@ export class PayrollRunAgent {
     if (!isPayrollQueueMessage(body)) return new Response("Invalid payroll queue message", { status: 400 });
     const currentJobId = await this.state.storage.get<string>("jobId");
     if (currentJobId && currentJobId !== body.jobId) return new Response("Payroll DO job mismatch", { status: 409 });
+    const db = createDatabase(this.env.DB);
+    // 在回覆 Queue 前先由 D1 原子 claim：terminal Queue failure 只能處理
+    // 尚未被 DO 接手的工作，不能覆蓋已排入 alarm 的計算。
+    // 若退避 alarm 已存在，重複 Queue 投遞不可提前消耗下一次 attempt。
+    const job = await this.state.storage.getAlarm() === null
+      ? await beginHrPayrollJob(db, body.jobId)
+      : await getHrPayrollJobRecord(db, body.jobId);
+    if (job.status === "ready" || job.status === "failed") {
+      return new Response(JSON.stringify({ accepted: true, jobId: body.jobId }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     await this.state.storage.put("jobId", body.jobId);
     // Queue 重複投遞只需要確保有 alarm；不要把既有的退避時間重設成現在，
     // 否則暫時性 D1／外部錯誤會因 duplicate message 變成忙迴圈。
@@ -56,7 +68,9 @@ export class PayrollRunAgent {
       throw error;
     }
     if (current.status === "ready" || current.status === "failed") return;
-    const job = await beginHrPayrollJob(db, jobId);
+    // The Queue fetch claims the initial attempt. A retry alarm moves the job
+    // back to queued, so only that path needs another atomic begin here.
+    const job = current.status === "calculating" ? current : await beginHrPayrollJob(db, jobId);
     if (job.status === "ready" || job.status === "failed") return;
 
     try {
