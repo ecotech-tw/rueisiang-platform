@@ -4635,7 +4635,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .special-workday-assign-dialog { width: min(820px, 100%); }
 .special-workday-assign-dialog .modal-body { gap: 18px; }
 .special-workday-target-section { display: grid; gap: 10px; }
-.special-workday-target-picker { max-height: min(38vh, 360px); }
+/* 只有一個多選，下拉自己就有外框；再包一層薪資試算那種卡片框會變成雙層外框。 */
+.special-workday-target-picker { display: grid; }
 .special-workday-allowance-quantities { display: grid; gap: 10px; min-width: 0; }
 .special-workday-allowance-quantities > .form-hint { margin: -3px 0 2px; }
 .special-workday-allowance-head,

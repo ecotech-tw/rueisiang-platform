@@ -250,7 +250,7 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
     <SelectField label="規則" value={ruleId} options={ruleOptions} disabled={save.isPending} onChange={(event) => setRuleId(event.target.value)} hint={selectedVersion ? `目前設定 v${selectedVersion.versionNumber}；重新試算會使用當時的目前設定` : undefined} />
     <div className="special-workday-target-section">
       <div className="hr-payroll-picker-heading"><div><strong>套用人員</strong><small>可一次複選正式員工與啟用中的支援人員；以下選擇會套用到區間內每一天。</small></div><span className="flex flex-none items-center gap-2"><Button variant="link" onClick={() => setSelectedTargetKeys(targets.map((target) => target.key))} disabled={allTargetsSelected || !targets.length || save.isPending}>全選</Button><span className="hr-payroll-picker-count">已選 {selectedTargets.length} 人</span></span></div>
-      <div className="hr-payroll-employee-picker special-workday-target-picker" role="group" aria-label="選擇套用人員">
+      <div className="special-workday-target-picker" role="group" aria-label="選擇套用人員">
         {employees.isPending || workers.isPending ? <p className="muted hr-payroll-picker-empty">正在載入人員名單…</p> : targets.length ? <DropdownSelect
           multiple
           searchable
