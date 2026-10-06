@@ -49,7 +49,7 @@ import {
 } from "./schema/hr-payroll-runs.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers } from "./schema/hr-scheduling.js";
+import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 import { scopes } from "./schema/reports.js";
@@ -636,14 +636,48 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
     .where(eq(hrPayslips.payrollRunId, runId)).orderBy(asc(hrPayslips.employeeNumber));
   const lines = await db.select().from(hrPayslipLines).where(sql`${hrPayslipLines.payslipId} IN (SELECT id FROM hr_payslips WHERE payroll_run_id = ${runId})`);
   const workerResults = await db.select().from(hrPayrollWorkerResults).where(eq(hrPayrollWorkerResults.payrollRunId, runId)).orderBy(asc(hrPayrollWorkerResults.workerName));
+  const parsedLines = lines.map((line) => ({
+    payslipId: line.payslipId,
+    lineKey: line.lineKey,
+    direction: line.direction,
+    amountMinor: line.amountMinor,
+    ...(line.quantitySeconds === null ? {} : { quantitySeconds: line.quantitySeconds }),
+    explanation: JSON.parse(line.explanationJson) as Record<string, unknown>,
+  }));
+  // 早期已結算快照只有 assignmentIds；讀取時從不可刪除的特殊上班日套用資料補回規則名稱，不改寫歷史薪資快照。
+  const legacySpecialWorkdayAssignmentIds = [...new Set(parsedLines
+    .filter((line) => {
+      if (line.lineKey !== "special_workday") return false;
+      return !(Array.isArray(line.explanation.ruleNames) && line.explanation.ruleNames.some((name) => typeof name === "string" && Boolean(name.trim())));
+    })
+    .flatMap((line) => Array.isArray(line.explanation.assignmentIds) ? line.explanation.assignmentIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim())) : []))];
+  const specialWorkdayRuleNamesByAssignment = new Map<string, string>();
+  if (legacySpecialWorkdayAssignmentIds.length) {
+    const assignments = await db.select({ assignmentId: hrSpecialWorkdayAssignments.id, ruleName: hrSpecialWorkdayRules.name })
+      .from(hrSpecialWorkdayAssignments)
+      .innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayAssignments.ruleId))
+      .where(inJsonArray(hrSpecialWorkdayAssignments.id, legacySpecialWorkdayAssignmentIds));
+    for (const assignment of assignments) specialWorkdayRuleNamesByAssignment.set(assignment.assignmentId, assignment.ruleName);
+  }
   const employees = payslips.map(({ payslip, employeeUserId }) => {
-    const employeeLines = lines.filter((line) => line.payslipId === payslip.id).map((line) => ({
-      lineKey: line.lineKey,
-      direction: line.direction,
-      amountMinor: line.amountMinor,
-      ...(line.quantitySeconds === null ? {} : { quantitySeconds: line.quantitySeconds }),
-      explanation: JSON.parse(line.explanationJson) as Record<string, unknown>,
-    }));
+    const employeeLines = parsedLines.filter((line) => line.payslipId === payslip.id).map((line) => {
+      let explanation = line.explanation;
+      if (line.lineKey === "special_workday") {
+        const existingRuleNames = Array.isArray(explanation.ruleNames) ? explanation.ruleNames.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [];
+        if (!existingRuleNames.length) {
+          const assignmentIds = Array.isArray(explanation.assignmentIds) ? explanation.assignmentIds.filter((id): id is string => typeof id === "string" && Boolean(id.trim())) : [];
+          const ruleNames = [...new Set(assignmentIds.map((id) => specialWorkdayRuleNamesByAssignment.get(id)).filter((name): name is string => Boolean(name?.trim())))];
+          if (ruleNames.length) explanation = { ...explanation, ruleNames };
+        }
+      }
+      return {
+        lineKey: line.lineKey,
+        direction: line.direction,
+        amountMinor: line.amountMinor,
+        ...(line.quantitySeconds === undefined ? {} : { quantitySeconds: line.quantitySeconds }),
+        explanation,
+      };
+    });
     const attendance = employeeLines.find((line) => line.lineKey === "attendance_summary")?.explanation ?? {};
     return {
       employmentId: payslip.employmentId,
