@@ -2003,6 +2003,13 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /* 右側 76px 留給清除與展開按鈕，用 margin 不用 padding：捲軸要停在按鈕左邊，壓在按鈕底下會讓人想拖捲軸卻按到「清除全部」。 */
 .dropdown-combobox-chips { display: flex; flex: 1; min-width: 0; max-height: 112px; overflow-y: auto; flex-wrap: wrap; align-items: center; gap: 4px; margin-right: 76px; padding: 4px 8px; }
 .dropdown-combobox-chips .combobox-input { min-width: 90px; padding: 6px 0 !important; }
+/*
+ * 多選放在 .field 裡時，`.field input` 的底色、圓角與 focus 外框會落在 chip 旁邊這個小輸入框上，變成框中框。
+ * 外框與焦點由外層的 .combobox-group 負責，這裡把那幾樣壓回來。只管多選：單選的輸入框佔滿整個控制項，
+ * 沒有框中框的問題，動它會改到全站表單裡下拉的底色。停用狀態也不碰，灰底是那個狀態的提示。
+ */
+.dropdown-combobox-chips .combobox-input:not(:disabled) { border-radius: 0; background: transparent; }
+.dropdown-combobox-chips .combobox-input:focus-visible { outline: 0; }
 .dropdown-combobox-chip { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: 4px; padding: 4px 6px 4px 9px; border-radius: 7px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 12px; font-weight: 700; }
 .dropdown-combobox-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dropdown-combobox-chip-remove { display: inline-flex; flex: none; align-items: center; justify-content: center; padding: 1px; border: 0; border-radius: 50%; background: transparent; color: currentColor; cursor: pointer; }
@@ -2395,6 +2402,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-size: 12px;
   text-decoration: underline;
 }
+/* 停用的連結要看得出來不能按，數值跟 .ghost-button、.chip-action 一致。 */
+.link-button:disabled { opacity: .45; cursor: not-allowed; }
 
 .boot { padding: 48px; color: var(--color-muted); }
 
