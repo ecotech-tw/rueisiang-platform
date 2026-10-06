@@ -22,6 +22,7 @@ export {
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAllowanceQuantityInput, type SpecialWorkdayAllowanceSnapshot, type SpecialWorkdayAssignmentInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
 } from "./hr-special-workdays.js";
 export { cancelHrOvertimeRequest, createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest, type HrOvertimeCancellationOptions, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
+export { HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage, type HrRequestCenterKind, type HrRequestCenterListQuery, type HrRequestCenterPage, type HrRequestCenterRow, type HrRequestCenterStatus } from "./hr-request-center.js";
 export { calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest, type HrLeaveCancellationOptions, type HrLeaveDurationInput, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput } from "./hr-leave.js";
 export {
   addCalendarMonths, allocateHrAnnualLeave, buildHrAnnualLeaveSettlementMutations, createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements,

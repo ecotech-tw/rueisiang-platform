@@ -84,6 +84,41 @@ describe("HR 申請中心", () => {
     expect(body.overtime[0]?.request).toMatchObject({ status: "approved", actualStart: expect.any(String), actualEnd: expect.any(String) });
   });
 
+  it("申請中心的搜尋、篩選與分頁由 API 在資料庫端完成", async () => {
+    await assignEmployee();
+    const leaveType = await request("/hr/leave-types", "POST", { name: "分頁測試假", defaultPayRatePpm: 1_000_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+    const leave = await request("/hr/requests/leave", "POST", {
+      employeeUserId: "employee", leaveTypeId, startsAt: "2026-01-05T09:00", endsAt: "2026-01-05T17:00", reason: "分頁請假原因",
+    });
+    expect(leave.status, await leave.clone().text()).toBe(201);
+    const overtime = await request("/hr/requests/overtime", "POST", {
+      employeeUserId: "employee", requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T20:00", settlementKind: "pay", reason: "分頁加班原因",
+    });
+    expect(overtime.status, await overtime.clone().text()).toBe(201);
+    const form = await request("/hr/me/form-requests", "POST", {
+      correctionDate: "2026-01-07", requestedTime: "09:00", requestedEventKind: "clock_in", reason: "分頁補打卡原因",
+    }, employeeCookie);
+    expect(form.status, await form.clone().text()).toBe(201);
+
+    const firstPage = await request("/hr/requests?page=1&pageSize=10");
+    expect(firstPage.status, await firstPage.clone().text()).toBe(200);
+    const firstBody = await firstPage.json() as { rows: Array<{ kind: string }>; pagination: { page: number; pageSize: number; total: number } };
+    expect(firstBody.rows).toHaveLength(3);
+    expect(firstBody.pagination).toMatchObject({ page: 1, pageSize: 10, total: 3 });
+
+    const searchResult = await request("/hr/requests?page=1&pageSize=25&search=%E8%A3%9C%E6%89%93%E5%8D%A1%E5%8E%9F%E5%9B%A0");
+    expect(searchResult.status, await searchResult.clone().text()).toBe(200);
+    const searchBody = await searchResult.json() as { rows: Array<{ kind: string; reason: string }>; pagination: { total: number } };
+    expect(searchBody.rows).toEqual([expect.objectContaining({ kind: "clock_correction", reason: "分頁補打卡原因" })]);
+    expect(searchBody.pagination.total).toBe(1);
+
+    const filteredResult = await request("/hr/requests?page=1&pageSize=25&kind=overtime&status=approved");
+    expect(filteredResult.status, await filteredResult.clone().text()).toBe(200);
+    const filteredBody = await filteredResult.json() as { rows: Array<{ kind: string; status: string }> };
+    expect(filteredBody.rows).toEqual([expect.objectContaining({ kind: "overtime", status: "approved" })]);
+  });
+
   it("請假時數依工作時段計算，給薪比例固定採用假別預設值並以實際時段防重疊", async () => {
     await assignEmployee();
     const leaveType = await request("/hr/leave-types", "POST", { name: "自動計算測試假", defaultPayRatePpm: 500_000 });
