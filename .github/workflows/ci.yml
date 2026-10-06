@@ -21,6 +21,16 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: 驗證 GitHub Actions workflows
+        uses: raven-actions/actionlint@v2
+        with:
+          version: 1.7.12
+          shellcheck: false
+          pyflakes: false
+
+      - name: 測試 Deploy 變更範圍
+        run: bash .github/scripts/test-deploy-scope.sh
+
       # 版本從 package.json 的 packageManager 欄位讀，不在這裡再寫一次。
       - uses: pnpm/action-setup@v6
 
