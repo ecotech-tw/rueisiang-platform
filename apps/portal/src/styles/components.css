@@ -2106,39 +2106,6 @@
   word-break: break-all;
 }
 
-.pager-meta { display: flex; align-items: center; gap: 14px; }
-.pager-size { display: flex; align-items: center; gap: 6px; color: var(--color-muted); font-size: 13px; }
-.pager-size select { padding: 5px 8px; }
-.pager-nav { display: flex; align-items: center; gap: 2px; }
-/* 頁碼是膠囊，跟導覽列同一套形狀；目前這頁用色調容器標出來。 */
-.pager-page {
-  min-width: 34px;
-  height: 34px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-ink);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-.pager-page:hover { background: --alpha(var(--color-brand) / 7%); }
-.pager-page.active {
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-  font-weight: 700;
-}
-.pager-page:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
-
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--color-soft-line);
-}
 .pager-buttons { display: flex; gap: 8px; }
 
 .progress-bar {
@@ -2206,16 +2173,6 @@
 
 .analytics-filter-field .select-trigger,
 .field .select-trigger { width: 100%; }
-.pager-size .select-trigger { width: auto; }
-.pager-size .select-control { display: inline-flex; width: max-content; }
-.pager-size .dropdown-control {
-  min-height: 32px;
-  padding: 5px 30px 5px 8px;
-  border-radius: 9px;
-  background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
-  background-size: 5px 5px, 5px 5px;
-}
-.pager-size .select-control::after { right: 10px; width: 6px; height: 6px; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 .field-grid > .field { min-width: 0; }
 .field > .combobox-group { width: 100%; min-width: 0; }
@@ -3057,14 +3014,6 @@
     padding-top: 4px;
   }
   .filter-fields.open select { flex: 1 1 100%; width: 100%; max-width: none; }
-
-  /*
-   * 分頁器在手機上疊成兩列：上面是「共 N 筆 ＋ 每頁」，下面是導覽。
-   * 擠成一列的話導覽會被推出畫面右緣——量出來需要 346px，而畫面只有 375px。
-   */
-  .pager { flex-direction: column; align-items: stretch; gap: 10px; }
-  .pager-meta { justify-content: space-between; }
-  .pager-nav { justify-content: center; }
 
   /* 提示改從上面下來：手機的右下角是拇指區，浮卡片在那裡會擋住要按的東西。 */
   .toast-stack {

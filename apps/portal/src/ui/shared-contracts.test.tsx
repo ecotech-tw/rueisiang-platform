@@ -2,6 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { ConfirmDialog } from "@rueisiang/ui";
+import { Pager } from "../shell/Pager.js";
 import { DataTable } from "./DataTable";
 import { FilterInput, FilterSelect, FilterToolbar, SearchFilterInput } from "./index.js";
 
@@ -32,6 +33,26 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toContain('role="alertdialog"');
     expect(markup).toContain("取消");
     expect(markup).toContain("確定");
+  });
+
+  it("renders pagers with shared navigation and page-size contracts", () => {
+    const markup = renderToStaticMarkup(
+      <Pager
+        page={4}
+        pageSize={20}
+        pageSizes={[10, 20, 50]}
+        totalPages={8}
+        totalLabel="共 158 筆"
+        onPage={() => {}}
+        onPageSize={() => {}}
+      />,
+    );
+
+    expect(markup).toContain('class="pager"');
+    expect(markup).toContain('aria-label="每頁筆數"');
+    expect(markup).toContain('aria-label="分頁"');
+    expect(markup).toContain('class="pager-page active"');
+    expect(markup).toContain('aria-current="page"');
   });
 
   it("renders filters with shared labels and compact control wrappers", () => {
