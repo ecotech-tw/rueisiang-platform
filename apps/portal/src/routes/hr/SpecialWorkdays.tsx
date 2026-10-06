@@ -205,6 +205,7 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
   const targetOptions = useMemo(() => targets.map((target) => ({
     value: target.key,
     label: target.kind === "employee" ? `${target.secondary}・${target.displayName}` : `${target.displayName}・${target.secondary}`,
+    chipLabel: target.displayName,
   })), [targets]);
   const selectedTargets = useMemo(() => {
     const selected = new Set(selectedTargetKeys);

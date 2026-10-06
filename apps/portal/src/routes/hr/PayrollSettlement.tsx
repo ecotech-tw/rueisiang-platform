@@ -28,8 +28,10 @@ interface PayrollRecordFilters {
 type PayrollEmployeeSelectionMode = "all" | "selected";
 
 const PAYROLL_RECORD_PAGE_SIZES = [10, 25, 50, 100] as const;
-const MAX_PAYROLL_SELECTED_EMPLOYEES = 80;
-const MAX_PAYROLL_SELECTED_WORKERS = 100;
+// 每份名單的上限，跟 API（apps/api/src/routes/hr.ts）的同名常數一致；只是擋離譜的名單，不是業務上的人數限制。
+const MAX_PAYROLL_SELECTED_PEOPLE = 1000;
+// 載入中的空名單要是同一個參考：每次 render 都給新的 [] 會讓依賴它的 effect 每輪都重跑、再 setState，變成無限重繪。
+const NO_PAYROLL_WORKERS: PayrollWorkerCandidate[] = [];
 const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放" } as const;
 const PAYROLL_PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
@@ -75,13 +77,29 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const calculatePayroll = useHrWrite<{ run: PayrollRun }>();
   const closeRequestRef = useRef<(() => void) | null>(null);
   const supportWorkers = useHrQuery<{ workers: PayrollWorkerCandidate[] }>(periodKey ? `/payroll/workers?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/workers?periodKey=", Boolean(periodKey), { keepPreviousData: false });
-  const workerOptions = supportWorkers.data?.workers ?? [];
+  const workerOptions = supportWorkers.data?.workers ?? NO_PAYROLL_WORKERS;
   const peopleCount = employees.length + workerOptions.length;
   const selectedCount = selectionMode === "all" ? peopleCount : selectedEmployeeIds.length + selectedWorkerIds.length;
   const unselectedCount = Math.max(0, peopleCount - selectedCount);
-  const selectionLimitError = selectionMode === "selected" && (selectedEmployeeIds.length > MAX_PAYROLL_SELECTED_EMPLOYEES || selectedWorkerIds.length > MAX_PAYROLL_SELECTED_WORKERS)
-    ? `正式員工最多選擇 ${MAX_PAYROLL_SELECTED_EMPLOYEES} 位、支援人員最多選擇 ${MAX_PAYROLL_SELECTED_WORKERS} 位；若要納入全體，請勾選「全體人員」。`
+  const selectionLimitError = selectionMode === "selected" && (selectedEmployeeIds.length > MAX_PAYROLL_SELECTED_PEOPLE || selectedWorkerIds.length > MAX_PAYROLL_SELECTED_PEOPLE)
+    ? `正式員工與支援人員各最多指定 ${MAX_PAYROLL_SELECTED_PEOPLE} 位；若要納入全體，請按「全選」。`
     : null;
+  /*
+   * 兩份名單的 options 與 value 都先記起來：人多的公司一份就是上千筆，
+   * 每次重繪都重新 map 一遍，下拉還得逐筆比對內容有沒有變。
+   */
+  const employeeOptions = useMemo(() => {
+    const selected = new Set(selectedEmployeeIds);
+    const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_PEOPLE;
+    return employees.map((employee) => ({ value: employee.userId, label: `${hrEmployeeLabel(employee)}・${employee.position || "未設定職位"}`, chipLabel: employee.legalName, disabled: atLimit && !selected.has(employee.userId) }));
+  }, [employees, selectionMode, selectedEmployeeIds]);
+  const employeeValue = useMemo(() => selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds, [employees, selectionMode, selectedEmployeeIds]);
+  const workerSelectOptions = useMemo(() => {
+    const selected = new Set(selectedWorkerIds);
+    const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_PEOPLE;
+    return workerOptions.map((worker) => ({ value: worker.id, label: worker.displayName, disabled: atLimit && !selected.has(worker.id) }));
+  }, [workerOptions, selectionMode, selectedWorkerIds]);
+  const workerValue = useMemo(() => selectionMode === "all" ? workerOptions.map((worker) => worker.id) : selectedWorkerIds, [workerOptions, selectionMode, selectedWorkerIds]);
 
   useEffect(() => {
     setSelectionMode("all");
@@ -93,10 +111,14 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     setSelectedWorkerIds((current) => current.filter((workerId) => availableWorkerIds.has(workerId)));
   }, [workerOptions]);
 
-  function setAllPeople(checked: boolean) {
-    setSelectionMode(checked ? "all" : "selected");
-    setSelectedEmployeeIds(checked ? employees.map((employee) => employee.userId) : []);
-    setSelectedWorkerIds(checked ? workerOptions.map((worker) => worker.id) : []);
+  /*
+   * 「全選」不能只靠把人一個一個加回去：指定名單有人數上限，超過上限的公司少選一個人之後，
+   * 剩下那位在清單裡會是停用的，加不回來。全體模式不送名單、也不受上限限制，所以要留一個入口回得去。
+   */
+  function selectAllPeople() {
+    setSelectionMode("all");
+    setSelectedEmployeeIds(employees.map((employee) => employee.userId));
+    setSelectedWorkerIds(workerOptions.map((worker) => worker.id));
   }
   function updateSelection(nextEmployeeIds: string[], nextWorkerIds: string[]) {
     setSelectedEmployeeIds(nextEmployeeIds);
@@ -147,35 +169,34 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
       <TextField type="date" label="發薪日（選填）" value={payDate} onChange={(event) => setPayDate(event.target.value)} />
     </div>
     <div className="hr-payroll-employee-picker-section">
-      <div className="hr-payroll-picker-heading"><div><strong>試算人員</strong><small>每位人員會在發放紀錄建立一筆資料，可選全體或指定人員。</small></div><span className="hr-payroll-picker-count">已選 {selectedCount} 人</span></div>
-      <label className={`hr-payroll-employee-option hr-payroll-employee-option-all${selectionMode === "all" ? " selected" : ""}`}>
-        <input type="checkbox" checked={selectionMode === "all"} onChange={(event) => setAllPeople(event.target.checked)} />
-        <span><strong>全體人員</strong><small>納入全部符合資格的員工與本月有排班的支援人員</small></span>
-      </label>
+      <div className="hr-payroll-picker-heading"><div><strong>試算人員</strong><small>每位人員會在發放紀錄建立一筆資料；預設納入全部符合資格的員工與本月有排班的支援人員，可移除不試算的人。</small></div><span className="flex flex-none items-center gap-2"><Button variant="link" onClick={selectAllPeople} disabled={selectionMode === "all" || peopleCount === 0 || calculatePayroll.isPending}>全選</Button><span className="hr-payroll-picker-count">{selectionMode === "all" ? `全體 ${selectedCount} 人` : `已選 ${selectedCount} 人`}</span></span></div>
       <div className="hr-payroll-employee-picker" role="group" aria-label="選擇員工與支援人員">
         <div className="hr-payroll-picker-group">
           <strong className="hr-payroll-picker-group-title">正式員工</strong>
           {employeesPending ? <p className="muted hr-payroll-picker-empty">正在載入符合資格的員工…</p> : employees.length ? <DropdownSelect
             multiple
             searchable
-            value={selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds}
-            options={employees.map((employee) => ({ value: employee.userId, label: `${hrEmployeeLabel(employee)}・${employee.position || "未設定職位"}`, disabled: selectionMode !== "all" && selectedEmployeeIds.length >= MAX_PAYROLL_SELECTED_EMPLOYEES && !selectedEmployeeIds.includes(employee.userId) }))}
+            value={employeeValue}
+            options={employeeOptions}
             placeholder="搜尋姓名或員工編號"
             aria-label="選擇正式員工"
-            disabled={calculatePayroll.isPending}
+            // 另一份名單還沒載完時不能動：這時從「全體」移除一個人，會把還沒出現的那一邊記成「一個都沒選」。
+            // 用 isLoading 不用 isPending：月份清空時查詢是停用的，isPending 會一直是 true，下拉就再也解不開。
+            // 載入失敗也算沒載完：重試成功之前名單一樣是空的。
+            disabled={calculatePayroll.isPending || supportWorkers.isLoading || Boolean(supportWorkers.error)}
             onValueChange={updateEmployeeSelection}
           /> : <p className="muted hr-payroll-picker-empty">目前沒有符合資格的正式員工。</p>}
         </div>
         <div className="hr-payroll-picker-group">
           <strong className="hr-payroll-picker-group-title">支援人員</strong>
-          {supportWorkers.isPending ? <p className="muted hr-payroll-picker-empty">正在載入本月已發布排班…</p> : workerOptions.length ? <DropdownSelect
+          {!periodKey ? <p className="muted hr-payroll-picker-empty">選擇計算月份後會列出該月有排班的支援人員。</p> : supportWorkers.isPending ? <p className="muted hr-payroll-picker-empty">正在載入本月已發布排班…</p> : workerOptions.length ? <DropdownSelect
             multiple
             searchable
-            value={selectionMode === "all" ? workerOptions.map((worker) => worker.id) : selectedWorkerIds}
-            options={workerOptions.map((worker) => ({ value: worker.id, label: worker.displayName, disabled: selectionMode !== "all" && selectedWorkerIds.length >= MAX_PAYROLL_SELECTED_WORKERS && !selectedWorkerIds.includes(worker.id) }))}
+            value={workerValue}
+            options={workerSelectOptions}
             placeholder="搜尋支援人員"
             aria-label="選擇支援人員"
-            disabled={calculatePayroll.isPending}
+            disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError)}
             onValueChange={updateWorkerSelection}
           /> : <p className="muted hr-payroll-picker-empty">本月份沒有已發布排班的支援人員。</p>}
         </div>

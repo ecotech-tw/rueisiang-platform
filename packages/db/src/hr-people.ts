@@ -1,7 +1,8 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, ne, notExists, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, like, ne, notExists, or, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
@@ -226,7 +227,7 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   const supervisorRows = supervisorIds.length ? await db.select({
     id: users.id,
     name: sql<string>`coalesce(nullif((SELECT trim(supervisor_employment.legal_name) FROM hr_employments AS supervisor_employment WHERE supervisor_employment.employee_user_id = ${users.id} AND supervisor_employment.archived_at IS NULL LIMIT 1), ''), nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`,
-  }).from(users).where(inArray(users.id, supervisorIds)) : [];
+  }).from(users).where(inJsonArray(users.id, supervisorIds)) : [];
   const supervisorNames = new Map(supervisorRows.map((supervisor) => [supervisor.id, supervisor.name]));
   const [account] = await db.select({ accountName: displayName, email: users.email, userStatus: users.status }).from(users).where(eq(users.id, userId)).limit(1);
   const employments = rows.map(({ employment, attendanceMode, monthlyRestDays, serviceStartOn }) => ({
@@ -239,7 +240,7 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   const assignments = options.includeScopeAssignments === false ? undefined : await db.select({
     id: hrEmployeeScopes.id, employmentId: hrEmployeeScopes.employmentId, scopeId: hrEmployeeScopes.scopeId,
     scopeName: scopes.name, validFrom: hrEmployeeScopes.validFrom, validTo: hrEmployeeScopes.validTo, revision: hrEmployeeScopes.revision,
-  }).from(hrEmployeeScopes).innerJoin(scopes, eq(scopes.id, hrEmployeeScopes.scopeId)).where(inArray(hrEmployeeScopes.employmentId, employmentIds)).orderBy(asc(hrEmployeeScopes.validFrom), asc(hrEmployeeScopes.employmentId));
+  }).from(hrEmployeeScopes).innerJoin(scopes, eq(scopes.id, hrEmployeeScopes.scopeId)).where(inJsonArray(hrEmployeeScopes.employmentId, employmentIds)).orderBy(asc(hrEmployeeScopes.validFrom), asc(hrEmployeeScopes.employmentId));
   const attendanceAssignments = await db.select({
     id: hrEmployeeAttendanceLocations.id, employmentId: hrEmployeeAttendanceLocations.employmentId,
     locationId: hrEmployeeAttendanceLocations.locationId, locationName: hrAttendanceLocations.name,
@@ -247,9 +248,9 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     revision: hrEmployeeAttendanceLocations.revision,
   }).from(hrEmployeeAttendanceLocations)
     .innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrEmployeeAttendanceLocations.locationId))
-    .where(inArray(hrEmployeeAttendanceLocations.employmentId, employmentIds)).orderBy(asc(hrEmployeeAttendanceLocations.validFrom), asc(hrEmployeeAttendanceLocations.employmentId));
+    .where(inJsonArray(hrEmployeeAttendanceLocations.employmentId, employmentIds)).orderBy(asc(hrEmployeeAttendanceLocations.validFrom), asc(hrEmployeeAttendanceLocations.employmentId));
   const attendanceSettings = await db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, primaryAssignmentId: hrEmploymentAttendanceSettings.primaryAssignmentId })
-    .from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds));
+    .from(hrEmploymentAttendanceSettings).where(inJsonArray(hrEmploymentAttendanceSettings.employmentId, employmentIds));
   const primaryAssignmentIds = new Set(attendanceSettings.map(({ primaryAssignmentId }) => primaryAssignmentId).filter((id): id is string => Boolean(id)));
   const withPrimary = attendanceAssignments.map((assignment) => ({ ...assignment, isPrimary: primaryAssignmentIds.has(assignment.id) }));
   const compensationRows = options.includeCompensation ? await db.select({
@@ -257,28 +258,28 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     validFrom: hrCompensationVersions.validFrom, validTo: hrCompensationVersions.validTo, payBasis: hrCompensationVersions.payBasis,
     baseAmountMinor: hrCompensationVersions.baseAmountMinor, note: hrCompensationVersions.note, voidedAt: hrCompensationVersions.voidedAt, voidedBy: hrCompensationVersions.voidedBy,
     createdAt: hrCompensationVersions.createdAt, createdBy: hrCompensationVersions.createdBy,
-  }).from(hrCompensationVersions).where(inArray(hrCompensationVersions.employmentId, employmentIds)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
-  const compensationItems = compensationRows?.length ? await db.select().from(hrCompensationItems).where(inArray(hrCompensationItems.compensationVersionId, compensationRows.map((item) => item.id))) : [];
+  }).from(hrCompensationVersions).where(inJsonArray(hrCompensationVersions.employmentId, employmentIds)).orderBy(desc(hrCompensationVersions.validFrom)) : undefined;
+  const compensationItems = compensationRows?.length ? await db.select().from(hrCompensationItems).where(inJsonArray(hrCompensationItems.compensationVersionId, compensationRows.map((item) => item.id))) : [];
   const insuranceRows = options.includeInsurance ? await db.select({
     id: hrInsuranceVersions.id, employmentId: hrInsuranceVersions.employmentId, scheme: hrInsuranceVersions.scheme, versionNumber: hrInsuranceVersions.versionNumber,
     status: hrInsuranceVersions.status, validFrom: hrInsuranceVersions.validFrom, validTo: hrInsuranceVersions.validTo, insuredAmountMinor: hrInsuranceVersions.insuredAmountMinor,
     dependentCount: hrInsuranceVersions.dependentCount, rateYear: hrInsuranceVersions.rateYear, sourceKind: hrInsuranceVersions.sourceKind, sourceUrl: hrInsuranceVersions.sourceUrl,
     note: hrInsuranceVersions.note, voidedAt: hrInsuranceVersions.voidedAt, voidedBy: hrInsuranceVersions.voidedBy,
     createdAt: hrInsuranceVersions.createdAt, createdBy: hrInsuranceVersions.createdBy,
-  }).from(hrInsuranceVersions).where(inArray(hrInsuranceVersions.employmentId, employmentIds)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
+  }).from(hrInsuranceVersions).where(inJsonArray(hrInsuranceVersions.employmentId, employmentIds)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
   const leaveRows = options.includeLeave ? await db.select({
     id: hrLeaveRequests.id, employmentId: hrLeaveRequests.employmentId, leaveType: hrLeaveRequests.leaveType, status: hrLeaveRequests.status,
     startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn, durationMinutes: hrLeaveRequests.durationMinutes, payRatePpm: hrLeaveRequests.payRatePpm,
     reason: hrLeaveRequests.reason, reviewedBy: hrLeaveRequests.reviewedBy, reviewedAt: hrLeaveRequests.reviewedAt,
     reviewComment: hrLeaveRequests.reviewComment, createdAt: hrLeaveRequests.createdAt, createdBy: hrLeaveRequests.createdBy,
-  }).from(hrLeaveRequests).where(inArray(hrLeaveRequests.employmentId, employmentIds)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
+  }).from(hrLeaveRequests).where(inJsonArray(hrLeaveRequests.employmentId, employmentIds)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
   const compensation = compensationRows?.map((item) => ({ ...item, items: compensationItems.filter((child) => child.compensationVersionId === item.id) }));
   const attendanceEvents = options.includeAttendanceEvents ? await db.select({
     id: hrClockEvents.id, eventKind: hrClockEvents.eventKind, occurredAt: hrClockEvents.occurredAt,
     locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`, distanceMeters: hrClockEvents.distanceMeters,
   }).from(hrClockEvents)
     .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
-    .where(inArray(hrClockEvents.employmentId, employmentIds)).orderBy(desc(hrClockEvents.occurredAt)).limit(200) : undefined;
+    .where(inJsonArray(hrClockEvents.employmentId, employmentIds)).orderBy(desc(hrClockEvents.occurredAt)).limit(200) : undefined;
   const accountName = account?.accountName || userId;
   const employeeName = current.legalName.trim() || accountName;
   const employeeRecord = {

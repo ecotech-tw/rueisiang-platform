@@ -1,7 +1,8 @@
-import { and, asc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, lt, lte, sql } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { HrError, type HrActor } from "./hr-people.js";
 import { hrCalendarDayScopes, hrCalendarDays, HR_CALENDAR_SPECIAL_KINDS, type HrCalendarSpecialKind, type HrDayType } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
@@ -67,7 +68,7 @@ async function selectOverrides(db: Database, where: ReturnType<typeof and>) {
   const scopeRows = rows.length
     ? await db.select({ date: hrCalendarDayScopes.date, scopeId: hrCalendarDayScopes.scopeId })
       .from(hrCalendarDayScopes)
-      .where(inArray(hrCalendarDayScopes.date, rows.map((row) => row.date)))
+      .where(inJsonArray(hrCalendarDayScopes.date, rows.map((row) => row.date)))
       .orderBy(asc(hrCalendarDayScopes.date), asc(hrCalendarDayScopes.scopeId))
     : [];
   const scopeIdsByDate = new Map<string, string[]>();
@@ -199,7 +200,7 @@ async function assertCalendarUnchanged(db: Database, range: { start: string; end
 async function assertCalendarScopesExist(db: Database, overrides: HrCalendarDayInput[]) {
   const scopeIds = [...new Set(overrides.flatMap((day) => day.specialScopeIds ?? []))];
   if (!scopeIds.length) return;
-  const existing = await db.select({ id: scopes.id }).from(scopes).where(and(inArray(scopes.id, scopeIds), eq(scopes.scopeKind, "store")));
+  const existing = await db.select({ id: scopes.id }).from(scopes).where(and(inJsonArray(scopes.id, scopeIds), eq(scopes.scopeKind, "store")));
   if (existing.length !== scopeIds.length) throw new HrError(400, "災防停班的適用門市／地區不存在。 ");
 }
 

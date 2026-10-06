@@ -1999,7 +1999,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .dropdown-combobox { width: 100%; min-height: var(--size-field); }
 .dropdown-combobox .combobox-input { min-height: calc(var(--size-field) - 2px); padding: 10px 52px 10px 12px !important; color: var(--color-ink); font: inherit; }
 .dropdown-combobox-multiple { align-items: stretch; }
-.dropdown-combobox-chips { display: flex; flex: 1; min-width: 0; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 76px 4px 8px; }
+/* 選到幾十人時不讓輸入框把整個表單往下推：約三列之後改成框內自己捲。 */
+/* 右側 76px 留給清除與展開按鈕，用 margin 不用 padding：捲軸要停在按鈕左邊，壓在按鈕底下會讓人想拖捲軸卻按到「清除全部」。 */
+.dropdown-combobox-chips { display: flex; flex: 1; min-width: 0; max-height: 112px; overflow-y: auto; flex-wrap: wrap; align-items: center; gap: 4px; margin-right: 76px; padding: 4px 8px; }
 .dropdown-combobox-chips .combobox-input { min-width: 90px; padding: 6px 0 !important; }
 .dropdown-combobox-chip { display: inline-flex; min-width: 0; max-width: 100%; align-items: center; gap: 4px; padding: 4px 6px 4px 9px; border-radius: 7px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 12px; font-weight: 700; }
 .dropdown-combobox-chip > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2010,6 +2012,9 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .combobox-clear svg { width: 16px; height: 16px; }
 .combobox-trigger { position: absolute; right: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--color-muted); padding: 10px 14px; cursor: pointer; }
 .combobox-trigger svg { width: 20px; height: 20px; }
+/* 多選的外框是 stretch（chip 要撐滿高度），絕對定位的兩顆按鈕會跟著貼頂，高度不同就一高一低。 */
+.dropdown-combobox-multiple > .combobox-clear,
+.dropdown-combobox-multiple > .combobox-trigger { align-self: center; }
 .combobox-positioner { z-index: 100; }
 .combobox-popup { z-index: 100; width: var(--anchor-width); max-height: 320px; overflow: auto; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-canvas); box-shadow: var(--shadow-panel); padding: 6px; }
 .combobox-item { display: flex; align-items: center; gap: 8px; min-height: 44px; width: 100%; padding: 10px 12px; border: 0; border-radius: 8px; text-align: left; background: transparent; color: var(--color-ink); cursor: pointer; }
@@ -3565,6 +3570,11 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
  
 .tooltip-anchor { position: relative; display: inline-flex; min-width: 0; max-width: 100%; }
 .tooltip-anchor:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 6px; }
+/*
+ * 停用的按鈕不會收到滑鼠事件，事件也就傳不到外層的 anchor，提示永遠不出現——
+ * 偏偏停用的按鈕最需要一句「為什麼不能按」。讓指標穿過它，落在 anchor 上。
+ */
+.tooltip-anchor > :disabled { pointer-events: none; }
 .tooltip {
   position: fixed;
   z-index: 90;

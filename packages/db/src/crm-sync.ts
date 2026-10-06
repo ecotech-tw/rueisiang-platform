@@ -1,6 +1,7 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
-import { eq, inArray, sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { replaceCustomerTags } from "./crm-tags.js";
 import { normalizePhone } from "./phone.js";
@@ -297,7 +298,7 @@ export async function upsertCyberbizCustomers(
   const stored = await db
     .select({ id: crmCustomers.id, cyberbizCustomerId: crmCustomers.cyberbizCustomerId })
     .from(crmCustomers)
-    .where(inArray(crmCustomers.cyberbizCustomerId, usable.map((customer) => customer.externalId)));
+    .where(inJsonArray(crmCustomers.cyberbizCustomerId, usable.map((customer) => customer.externalId)));
   const storedByExternalId = new Map(stored.map((customer) => [customer.cyberbizCustomerId, customer.id]));
   for (const customer of usable) {
     const customerId = storedByExternalId.get(customer.externalId);

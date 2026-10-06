@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrCompensationVersions, hrInsuranceContributionRules, hrInsuranceRateTables, hrInsuranceVersions } from "./schema/hr-payroll.js";
 
@@ -587,7 +588,7 @@ export async function voidHrInsuranceVersions(db: Database, employmentId: string
   const versions = await db.select({
     id: hrInsuranceVersions.id, scheme: hrInsuranceVersions.scheme, versionNumber: hrInsuranceVersions.versionNumber,
     validFrom: hrInsuranceVersions.validFrom, voidedAt: hrInsuranceVersions.voidedAt,
-  }).from(hrInsuranceVersions).where(and(eq(hrInsuranceVersions.employmentId, employmentId), inArray(hrInsuranceVersions.id, versionIds)));
+  }).from(hrInsuranceVersions).where(and(eq(hrInsuranceVersions.employmentId, employmentId), inJsonArray(hrInsuranceVersions.id, versionIds)));
   if (versions.length !== versionIds.length) throw new HrError(404, "找不到這個勞健保版本。 ");
   if (versions.some((version) => version.voidedAt !== null)) throw new HrError(409, "這個勞健保版本已經撤回。 ");
 

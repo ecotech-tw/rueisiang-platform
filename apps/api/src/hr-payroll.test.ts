@@ -415,6 +415,31 @@ describe("HR 薪資與勞健保", () => {
     expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: createdBody.id, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] })).status).toBe(409);
   });
 
+  it("特殊上班日可以一次套用超過一百人，不會超過 D1 的綁定參數上限", async () => {
+    const created = await request("/hr/special-workdays/rules", "POST", { name: "大批套用", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [], allowances: [] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const ruleId = (await created.json() as { id: string }).id;
+    const firstWorker = await request("/hr/schedule-workers", "POST", { displayName: "支援 0" });
+    expect(firstWorker.status, await firstWorker.clone().text()).toBe(201);
+    const workerIds = [(await firstWorker.json() as { id: string }).id];
+    // 其餘的直接寫進資料庫：走 API 建一百多位會把測試時間花在跟這個案例無關的地方。
+    const insertWorker = d1.sqlite.prepare("INSERT INTO hr_schedule_workers (id, display_name, created_by) SELECT ?, ?, created_by FROM hr_schedule_workers WHERE id = ?");
+    for (let index = 1; index < 120; index += 1) {
+      const id = `bulk-worker-${index}`;
+      insertWorker.run(id, `支援 ${index}`, workerIds[0]!);
+      workerIds.push(id);
+    }
+    const assignments = workerIds.map((workerId) => ({ workerId, workDate: "2026-03-01", allowanceQuantities: [] }));
+
+    // 本機的 D1 替身照 D1 的規格擋 100 個綁定參數；ID 清單退回一個 ID 一個參數的寫法時這裡會 500。
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const rows = await (await request("/hr/special-workdays/assignments?start=2026-03-01&end=2026-03-02")).json() as { assignments: unknown[] };
+    expect(rows.assignments).toHaveLength(120);
+    // 清單再長，排在後面的人一樣要擋得到重複。
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [assignments[119]!] })).status).toBe(409);
+  });
+
   it("特殊上班日舊快照沒有逐項數量時沿用舊共用數量", () => {
     const legacySnapshot = JSON.stringify([{ itemName: "餐費", unitAmountMinor: 1_000 }, { itemName: "交通補貼", unitAmountMinor: 1_200 }]);
     expect(parseSpecialWorkdayAllowanceSnapshot(legacySnapshot, 2)).toEqual([
