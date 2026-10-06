@@ -6,7 +6,7 @@ import {
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
-  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollRecordItem, deleteHrBonusPolicy, deleteHrPayrollRecordItem, deleteHrPayrollRun, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollEmployeeHistory, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollWorkerCandidates,
+  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollEmployeeHistory, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
@@ -1039,22 +1039,6 @@ export const hr = new Hono<AppEnv>()
     if (personKind !== "employee" && personKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
     const detail = await getHrPayrollRecordDetail(c.get("db"), { runId: c.req.param("runId"), personKind, personId: c.req.param("personId") });
     return c.json(detail);
-  })
-  .post("/payroll/records/items", requirePermission("hr:payroll:calculate"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    const input = await body(c);
-    const reference = payrollRecordReference(input);
-    return c.json(await createHrPayrollRecordItem(c.get("db"), {
-      ...reference,
-      itemName: text(input, "itemName", "加扣項名稱", 100),
-      direction: input.direction === "earning" || input.direction === "deduction" ? input.direction : (() => { throw new HTTPException(400, { message: "加扣項類型不正確。" }); })(),
-      amountMinor: integerValue(input, "amountMinor", "加扣項金額（分）", 1, Number.MAX_SAFE_INTEGER),
-      reason: text(input, "reason", "加扣項原因", 1000),
-    }, c.get("user")), 201);
-  })
-  .delete("/payroll/records/items/:id", requirePermission("hr:payroll:calculate"), async (c) => {
-    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
-    return c.json(await deleteHrPayrollRecordItem(c.get("db"), c.req.param("id"), c.get("user")));
   })
   .get("/payroll/runs", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

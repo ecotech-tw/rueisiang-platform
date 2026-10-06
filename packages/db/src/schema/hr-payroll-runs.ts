@@ -115,7 +115,7 @@ export const hrPayrollClosedWorkers = sqliteTable("hr_payroll_closed_workers", {
   check("ck_hr_payroll_closed_workers_period", sql`${table.periodKey} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'`),
 ]);
 
-/** 試算完成後、結帳前才會加入的人工加扣項；它附著在單一發放紀錄，不改寫原始計算明細。 */
+/** 舊版單筆發放加扣項的相容資料表；新的薪資加扣項一律使用 hrPayrollAdjustments 並在試算時寫入薪資單快照。 */
 export const hrPayrollRecordItems = sqliteTable("hr_payroll_record_items", {
   id: text("id").primaryKey(),
   payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),

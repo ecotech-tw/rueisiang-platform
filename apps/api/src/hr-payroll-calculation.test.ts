@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import { chunks, createDatabase } from "@rueisiang/db";
-import { hrCalendarDayScopes, hrCalendarDays, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
+import { hrCalendarDayScopes, hrCalendarDays, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrPayrollRecordItems, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -65,7 +65,36 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(closedBody.counts.closed).toBeGreaterThanOrEqual(1);
   });
 
-  it("發放紀錄可以逐筆確定發放，並在明細管理薪資加扣項", async () => {
+  it("歷史薪資紀錄仍會讀取舊版薪資加扣項", async () => {
+    const calculation = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-legacy-payroll-record-item-2026-08",
+    });
+    expect(calculation.status, await calculation.clone().text()).toBe(200);
+    const runId = (await calculation.json() as { run: { runId: string } }).run.runId;
+    const before = await request(`/hr/payroll/records?periodKey=2026-08&status=unsettled&pageSize=100`);
+    const beforeBody = await before.json() as { records: Array<{ runId: string; personId: string; earningMinor: number; deductionMinor: number; netMinor: number }> };
+    const baseRecord = beforeBody.records.find((record) => record.runId === runId)!;
+    const db = createDatabase(d1 as never);
+    await db.insert(hrPayrollRecordItems).values({ id: "legacy-record-item-test", payrollRunId: runId, personKind: "employee", employmentId: baseRecord.personId, workerId: null, itemName: "歷史覆核扣款", direction: "deduction", amountMinor: 2_500, reason: "既有資料相容性測試", createdBy: "dev-eli-lin@ecotech.tw" });
+
+    const list = await request(`/hr/payroll/records?periodKey=2026-08&status=unsettled&pageSize=100`);
+    const listBody = await list.json() as { records: Array<{ runId: string; personId: string; earningMinor: number; deductionMinor: number; netMinor: number }> };
+    const listed = listBody.records.find((record) => record.runId === runId && record.personId === baseRecord.personId)!;
+    expect(listed.deductionMinor).toBe(baseRecord.deductionMinor + 2_500);
+    expect(listed.netMinor).toBe(baseRecord.netMinor - 2_500);
+
+    const detail = await request(`/hr/payroll/records/${runId}/employee/${baseRecord.personId}`);
+    const detailBody = await detail.json() as { record: { deductionMinor: number; netMinor: number }; items: Array<{ itemName: string; amountMinor: number }> };
+    expect(detailBody.record.deductionMinor).toBe(baseRecord.deductionMinor + 2_500);
+    expect(detailBody.record.netMinor).toBe(baseRecord.netMinor - 2_500);
+    expect(detailBody.items).toEqual(expect.arrayContaining([expect.objectContaining({ itemName: "歷史覆核扣款", amountMinor: 2_500 })]));
+  });
+
+  it("薪資加扣項與薪資單使用同一份試算快照，並可逐筆確定發放", async () => {
+    const adjustment = await request("/hr/payroll/adjustments", "POST", {
+      employmentId: "dev-employment-lin", effectivePeriodKey: "2026-08", reason: "測試薪資加扣項", items: [{ itemName: "薪資覆核扣款", amountMinor: -1234 }],
+    });
+    expect(adjustment.status, await adjustment.clone().text()).toBe(201);
     const calculation = await request("/hr/payroll/calculate", "POST", {
       periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-payroll-record-approval-2026-08",
     });
@@ -75,29 +104,24 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const beforeBody = await before.json() as { records: Array<{ runId: string; personKind: string; personId: string; personName: string; earningMinor: number; deductionMinor: number; netMinor: number }> };
     const runRecords = beforeBody.records.filter((record) => record.runId === runId);
     expect(runRecords).toHaveLength(2);
+    const adjustedRecord = runRecords.find((record) => record.personId === "dev-employment-lin")!;
+    const otherRecord = runRecords.find((record) => record.personId !== adjustedRecord.personId)!;
 
-    const item = await request("/hr/payroll/records/items", "POST", {
-      runId, personKind: "employee", personId: runRecords[0]!.personId, direction: "deduction", itemName: "薪資覆核扣款", amountMinor: 1234, reason: "測試加扣項",
-    });
-    expect(item.status, await item.clone().text()).toBe(201);
-    const itemBody = await item.json() as { id: string };
-    const detail = await request(`/hr/payroll/records/${runId}/employee/${runRecords[0]!.personId}`);
+    const detail = await request(`/hr/payroll/records/${runId}/employee/${adjustedRecord.personId}`);
     expect(detail.status, await detail.clone().text()).toBe(200);
-    const detailBody = await detail.json() as { record: { deductionMinor: number; netMinor: number }; run: { canDelete: boolean }; items: Array<{ itemName: string }> };
+    const detailBody = await detail.json() as { record: { deductionMinor: number; netMinor: number }; run: { canDelete: boolean }; employee: { lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> } };
     expect(detailBody.run.canDelete).toBe(true);
-    expect(detailBody.record.deductionMinor).toBe(runRecords[0]!.deductionMinor + 1234);
-    expect(detailBody.record.netMinor).toBe(runRecords[0]!.netMinor - 1234);
-    expect(detailBody.items).toEqual(expect.arrayContaining([expect.objectContaining({ itemName: "薪資覆核扣款" })]));
+    expect(detailBody.record.deductionMinor).toBe(adjustedRecord.deductionMinor);
+    expect(detailBody.record.netMinor).toBe(adjustedRecord.netMinor);
+    expect(detailBody.employee.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "adjustment_1", amountMinor: 1234, explanation: expect.objectContaining({ itemName: "薪資覆核扣款" }) })]));
 
-    const approveOne = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: runRecords[0]!.personId }] });
+    const approveOne = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: adjustedRecord.personId }] });
     expect(approveOne.status, await approveOne.clone().text()).toBe(200);
-    const deleteClosedItem = await request(`/hr/payroll/records/items/${itemBody.id}`, "DELETE", {});
-    expect(deleteClosedItem.status, await deleteClosedItem.clone().text()).toBe(409);
     const blockedAdjustment = await request("/hr/payroll/adjustments", "POST", {
-      employmentId: runRecords[0]!.personId, effectivePeriodKey: "2026-08", reason: "已發放紀錄不可再加扣", items: [{ itemName: "不應建立", amountMinor: 100 }],
+      employmentId: adjustedRecord.personId, effectivePeriodKey: "2026-08", reason: "已發放紀錄不可再加扣", items: [{ itemName: "不應建立", amountMinor: 100 }],
     });
     expect(blockedAdjustment.status, await blockedAdjustment.clone().text()).toBe(409);
-    const partialDetail = await request(`/hr/payroll/records/${runId}/employee/${runRecords[1]!.personId}`);
+    const partialDetail = await request(`/hr/payroll/records/${runId}/employee/${otherRecord.personId}`);
     expect(partialDetail.status, await partialDetail.clone().text()).toBe(200);
     const partialDetailBody = await partialDetail.json() as { record: { status: string }; run: { canDelete: boolean } };
     expect(partialDetailBody.record.status).toBe("unsettled");
@@ -105,10 +129,10 @@ describe("HR 薪資與櫃點獎金試算", () => {
 
     const afterOne = await request(`/hr/payroll/records?periodKey=2026-08&status=all&pageSize=100`);
     const afterOneBody = await afterOne.json() as { records: Array<{ runId: string; personId: string; status: string }> };
-    expect(afterOneBody.records.find((record) => record.runId === runId && record.personId === runRecords[0]!.personId)?.status).toBe("closed");
-    expect(afterOneBody.records.find((record) => record.runId === runId && record.personId === runRecords[1]!.personId)?.status).toBe("unsettled");
+    expect(afterOneBody.records.find((record) => record.runId === runId && record.personId === adjustedRecord.personId)?.status).toBe("closed");
+    expect(afterOneBody.records.find((record) => record.runId === runId && record.personId === otherRecord.personId)?.status).toBe("unsettled");
 
-    const approveTwo = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: runRecords[1]!.personId }] });
+    const approveTwo = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: otherRecord.personId }] });
     expect(approveTwo.status, await approveTwo.clone().text()).toBe(200);
     const afterTwo = await request(`/hr/payroll/records?periodKey=2026-08&status=closed&pageSize=100`);
     const afterTwoBody = await afterTwo.json() as { records: Array<{ runId: string; personId: string; status: string }> };

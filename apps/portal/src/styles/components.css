@@ -4735,17 +4735,38 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-adjustment-item-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) 132px 40px; align-items: end; gap: 10px; padding: 10px; border: 1px solid var(--color-soft-line); border-radius: 12px; background: var(--color-canvas); }
 .hr-payroll-adjustment-item-row > .icon-button { align-self: end; margin-bottom: 2px; }
 .hr-payroll-record-detail-panel { display: grid; gap: 16px; }
+.hr-payroll-detail-page-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .hr-payroll-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-bottom: 14px; border-bottom: 1px solid var(--color-soft-line); }
 .hr-payroll-detail-head > div:first-child { display: grid; gap: 3px; min-width: 0; }
 .hr-payroll-detail-head small { color: var(--color-muted); font-size: 12px; }
 .hr-payroll-detail-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.hr-payroll-record-items { display: grid; gap: 12px; padding-top: 4px; }
-.hr-payroll-section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.hr-payroll-section-head h3 { margin: 0; font-size: 15px; }
-.hr-payroll-section-head p { margin: 3px 0 0; color: var(--color-muted); font-size: 12px; }
-.hr-payroll-record-items .table-scroll { border: 1px solid var(--color-soft-line); border-radius: 12px; }
-.hr-payroll-item-dialog { width: min(620px, 100%); }
-.hr-payroll-item-dialog .modal-body { gap: 16px; }
+.hr-payroll-preview-dialog { width: min(900px, 100%); }
+.hr-payroll-preview-dialog > .modal-actions { margin-top: 0; }
+.modal-body.hr-payroll-payslip-preview-body { flex: 0 1 auto; align-content: start; max-height: calc(100vh - 180px); padding: 0; background: var(--color-canvas); }
+.hr-payroll-payslip-preview { display: block; width: min(794px, 100%); margin: 36px auto; padding: 42px 48px; background: var(--color-paper); box-shadow: 0 0 0 1px --alpha(var(--color-ink) / 6%), 0 14px 36px rgba(53, 28, 29, .12); }
+.hr-payroll-payslip-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 2px solid var(--color-ink); }
+.hr-payroll-payslip-head p { margin: 0 0 4px; color: var(--color-muted); font-size: 13px; font-weight: 700; letter-spacing: .08em; }
+.hr-payroll-payslip-head h1 { margin: 0; font-size: 26px; }
+.hr-payroll-payslip-head > strong { padding-top: 20px; font-size: 18px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hr-payroll-payslip-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px 18px; margin: 18px 0 24px; }
+.hr-payroll-payslip-meta > div { min-width: 0; }
+.hr-payroll-payslip-meta dt { color: var(--color-muted); font-size: 11px; font-weight: 700; }
+.hr-payroll-payslip-meta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
+.hr-payroll-payslip-section { margin-top: 20px; break-inside: avoid; }
+.hr-payroll-payslip-section h2 { margin: 0 0 8px; font-size: 15px; }
+.hr-payroll-payslip-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.hr-payroll-payslip-table th,
+.hr-payroll-payslip-table td { padding: 9px 0; border-bottom: 1px solid var(--color-soft-line); text-align: left; }
+.hr-payroll-payslip-table th { color: var(--color-muted); font-size: 12px; font-weight: 700; }
+.hr-payroll-payslip-table th:last-child,
+.hr-payroll-payslip-table td:last-child { width: 180px; }
+.hr-payroll-payslip-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
+.hr-payroll-payslip-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 28px 0 0; padding-top: 14px; border-top: 2px solid var(--color-ink); }
+.hr-payroll-payslip-totals > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.hr-payroll-payslip-totals dt { color: var(--color-muted); font-size: 12px; }
+.hr-payroll-payslip-totals dd { margin: 0; font-size: 17px; font-variant-numeric: tabular-nums; }
+.hr-payroll-payslip-totals > div:last-child dt,
+.hr-payroll-payslip-totals > div:last-child dd { color: var(--color-brand-dark); font-weight: 700; }
 
 @media (max-width: 760px) {
   .hr-payroll-record-filter .search-input,
@@ -4765,7 +4786,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-payroll-selection-actions > button { width: auto; justify-content: center; }
   .hr-payroll-detail-head { align-items: flex-start; flex-direction: column; }
   .hr-payroll-detail-actions { justify-content: flex-start; width: 100%; }
-  .hr-payroll-section-head { align-items: flex-start; flex-direction: column; }
+  .hr-payroll-detail-page-actions { justify-content: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -4821,6 +4842,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   .hr-payroll-line-content { padding-inline: 12px; }
   .hr-payroll-result-body { padding-inline: 12px; }
 }
+
 /* 行事曆管理頁：年份切換與統計放同一條，跟排班月曆的月份切換用同一組元件。 */
 .hr-calendar-year-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--color-soft-line); }
 .hr-calendar-year-count { margin: 0; margin-inline-start: auto; color: var(--color-muted); font-size: 13px; }
