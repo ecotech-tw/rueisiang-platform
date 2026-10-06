@@ -4842,6 +4842,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   body,
   #root { height: auto !important; min-height: 0 !important; overflow: visible !important; }
   body { background: #fff !important; }
+  html.hr-payroll-printing body * { visibility: hidden !important; }
+  html.hr-payroll-printing .hr-payroll-detail-page > .hr-payroll-payslip:not(.hr-payroll-payslip-preview),
+  html.hr-payroll-printing .hr-payroll-detail-page > .hr-payroll-payslip:not(.hr-payroll-payslip-preview) * { visibility: visible !important; }
+  html.hr-payroll-printing .hr-payroll-detail-page > .hr-payroll-payslip:not(.hr-payroll-payslip-preview) { position: absolute !important; inset: 0 !important; width: 100% !important; }
   .shell { display: block !important; height: auto !important; min-height: 0 !important; overflow: visible !important; }
   .shell > .content { height: auto !important; min-height: 0 !important; overflow: visible !important; padding: 0 !important; background: var(--color-paper) !important; }
   .modal-backdrop { display: none !important; }

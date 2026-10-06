@@ -53,6 +53,12 @@ function lineFormula(line: PayrollLine): string {
 function payBasisOf(detail: PayrollRecordDetail) {
   return detail.record.payBasis ? PAY_BASIS_LABEL[detail.record.payBasis] ?? detail.record.payBasis : "—";
 }
+function printPayslip() {
+  document.documentElement.classList.add("hr-payroll-printing");
+  const cleanup = () => document.documentElement.classList.remove("hr-payroll-printing");
+  window.addEventListener("afterprint", cleanup, { once: true });
+  window.print();
+}
 
 function PayrollPayslipTable({ title, lines, direction }: { title: string; lines: PayrollLine[]; direction: PayrollLine["direction"] }) {
   const filteredLines = lines.filter((line) => line.direction === direction);
@@ -143,7 +149,7 @@ export function HrPayrollRecordDetail() {
       title="薪資條預覽"
       titleMeta={`${detail.record.personName}・${periodLabel(detail.record.periodKey)}`}
       onClose={() => setPayslipPreviewOpen(false)}
-      actions={<><Button variant="secondary" onClick={() => setPayslipPreviewOpen(false)}>關閉</Button><Button icon="print" onClick={() => window.print()}>列印薪資條</Button></>}
+      actions={<><Button variant="secondary" onClick={() => setPayslipPreviewOpen(false)}>關閉</Button><Button icon="print" onClick={printPayslip}>列印薪資條</Button></>}
     ><PayrollPayslip detail={detail} preview /></Dialog> : null}
     {deleteRunOpen ? <ConfirmDialog title="刪除整批薪資試算？" confirmLabel="刪除試算" pending={deleteRun.isPending} onCancel={() => { if (!deleteRun.isPending) setDeleteRunOpen(false); }} onConfirm={removeRun}>
       <p><strong>{detail.run.runName}</strong>（{periodLabel(detail.run.periodKey)}）會連同本批次所有尚未結算的發放紀錄、試算明細與薪資加扣項一併刪除。</p>
