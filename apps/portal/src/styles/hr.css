@@ -444,6 +444,12 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 }
 .hr-system .table-scroll .data-table thead th:first-child { border-top-left-radius: 12px; }
 .hr-system .table-scroll .data-table thead th:last-child { border-top-right-radius: 12px; }
+.hr-system .hr-payroll-payslip-table-scroll .data-table thead th {
+  background: var(--color-paper);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+}
 .hr-system .panel:has(> .table-scroll) > .table-scroll { margin-inline: -22px; }
 .hr-system .panel:has(> .table-scroll) .data-table thead th:first-child { border-top-left-radius: 0; }
 .hr-system .panel:has(> .table-scroll) .data-table thead th:last-child { border-top-right-radius: 0; }

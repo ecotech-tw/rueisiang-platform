@@ -4228,7 +4228,6 @@
 .hr-payroll-payslip-table-scroll .data-table { table-layout: fixed; }
 .hr-payroll-payslip-table-scroll .data-table th,
 .hr-payroll-payslip-table-scroll .data-table td { height: auto; padding: 9px 0; border-top: 0; border-bottom: 1px solid var(--color-soft-line); text-align: left; }
-.hr-payroll-payslip-table-scroll .data-table thead th { box-shadow: none; }
 .hr-payroll-payslip-table-scroll .data-table th:first-child,
 .hr-payroll-payslip-table-scroll .data-table td:first-child { padding-left: 0; }
 .hr-payroll-payslip-table-scroll .data-table th:last-child,
@@ -4243,6 +4242,8 @@
 .hr-payroll-payslip-totals > div:last-child dd { color: var(--color-brand-dark); font-weight: 700; }
 
 @media (max-width: 760px) {
+  .hr-payroll-table-region { flex-direction: column; }
+  .hr-payroll-mobile-select-all { flex: none; }
   .hr-payroll-record-filter .search-input,
   .hr-payroll-record-filter input:not(.search-input),
   .hr-payroll-record-filter .filter-select-control { flex-basis: 100%; }

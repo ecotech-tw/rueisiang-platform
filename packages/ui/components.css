@@ -85,6 +85,28 @@
   white-space: nowrap;
 }
 
+/* 保留尚未遷移頁面的狀態 class，避免 shared primitive 抽離後整個 portal 失去色調。 */
+.status-active,
+.status-enabled {
+  background: var(--color-ok-soft);
+  color: var(--color-ok);
+}
+
+.status-development {
+  background: var(--color-warn-soft);
+  color: var(--color-warn);
+}
+
+.status-invited {
+  background: var(--color-soft-line);
+  color: var(--color-muted);
+}
+
+.status-disabled {
+  background: var(--color-brand-soft);
+  color: var(--color-brand-dark);
+}
+
 .ui-status-success {
   background: var(--color-ok-soft);
   color: var(--color-ok);
