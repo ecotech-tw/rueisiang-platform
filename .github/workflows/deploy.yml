@@ -54,21 +54,17 @@ jobs:
             echo "current=false" >> "$GITHUB_OUTPUT"
             echo "跳過過期的部署：$TARGET_SHA 已不是 main 最新 commit（目前是 $latest_sha）。"
           fi
-      - name: 下載 CI 的部署變更清單
-        if: github.event_name == 'workflow_run' && steps.current.outputs.current == 'true'
-        uses: actions/download-artifact@v4
-        with:
-          name: deploy-changed-files
-          path: .deploy-metadata
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ github.event.workflow_run.id }}
-      - name: 判斷部署範圍
+      # concurrency 可能跳過中間 Deploy，不能只看這次 CI push 的 diff。
+      - name: 計算上次成功部署後的累積變更
         id: paths
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
           CURRENT_RUN: ${{ steps.current.outputs.current }}
+          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          API_URL: ${{ github.api_url }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           if [[ "$CURRENT_RUN" != "true" ]]; then
@@ -82,7 +78,31 @@ jobs:
             migrations=true
             hr=true
           else
-            changed="$(cat .deploy-metadata/changed-files.txt)"
+            last_deployed_sha=""
+            runs_url="$API_URL/repos/$REPOSITORY/actions/workflows/deploy.yml/runs?branch=main&per_page=100"
+            if runs_json="$(curl -fsSL --retry 3 --retry-all-errors \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "$runs_url")"; then
+              if ! last_deployed_sha="$(jq -r '[.workflow_runs[] | select(.conclusion == "success")][0].head_sha // empty' <<< "$runs_json")"; then
+                echo "::warning::無法解析 Deploy run，改用完整 tree 做安全的部署範圍判斷。"
+                last_deployed_sha=""
+              fi
+            else
+              echo "::warning::無法查詢上次成功 Deploy，改用完整 tree 做安全的部署範圍判斷。"
+            fi
+
+            if [[ -n "$last_deployed_sha" ]] \
+              && git cat-file -e "$last_deployed_sha^{commit}" 2>/dev/null \
+              && git merge-base --is-ancestor "$last_deployed_sha" "$TARGET_SHA"; then
+              changed="$(git diff --name-only "$last_deployed_sha" "$TARGET_SHA")"
+              echo "累積變更基準：$last_deployed_sha"
+            else
+              changed="$(git ls-tree -r --name-only "$TARGET_SHA")"
+              echo "找不到可用的上次成功 Deploy 基準，使用完整 tree。"
+            fi
+
             platform=false
             migrations=false
             hr=false
