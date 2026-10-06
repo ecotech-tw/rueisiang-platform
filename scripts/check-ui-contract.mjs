@@ -20,6 +20,8 @@ const sharedPrimitiveSelectors = [
   ".empty-state",
   ".admin-form",
   ".admin-form.toolbar",
+  ".filter-control",
+  ".filter-select-control",
   ".segmented-control",
   ".modal-backdrop",
   ".modal-card",

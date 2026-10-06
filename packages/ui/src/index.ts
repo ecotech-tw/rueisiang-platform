@@ -14,7 +14,9 @@ export {
 export { Alert, StatusBadge } from "./Feedback.js";
 export { Field, SelectField, TextField } from "./Field.js";
 export { EmptyState } from "./EmptyState.js";
+export { FilterInput, FilterSelect, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";
 export { FilterToolbar } from "./FilterToolbar.js";
+export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
 export { PageHeader, Panel } from "./Panel.js";
 export { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";

@@ -1,8 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { ConfirmDialog } from "@rueisiang/ui";
 import { DataTable } from "./DataTable";
-import { FilterToolbar } from "./FilterToolbar";
+import { FilterInput, FilterSelect, FilterToolbar, SearchFilterInput } from "./index.js";
 
 describe("shared HRIS UI contracts", () => {
   it("keeps table modifiers on the intended wrapper and table", () => {
@@ -31,6 +32,28 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toContain('role="alertdialog"');
     expect(markup).toContain("取消");
     expect(markup).toContain("確定");
+  });
+
+  it("renders filters with shared labels and compact control wrappers", () => {
+    const inputMarkup = renderToStaticMarkup(
+      <FilterInput label="搜尋員工" type="search" placeholder="姓名或員工編號" />,
+    );
+    const searchMarkup = renderToStaticMarkup(
+      <SearchFilterInput label="搜尋" placeholder="搜尋關鍵字" value="王小明" onSearch={() => {}} />,
+    );
+    const selectMarkup = renderToStaticMarkup(
+      <MemoryRouter initialEntries={["/hr/employees"]}>
+        <FilterSelect label="狀態" options={[{ value: "all", label: "全部狀態" }]} />
+      </MemoryRouter>,
+    );
+
+    expect(inputMarkup).toContain('class="filter-control"');
+    expect(inputMarkup).toContain('aria-label="搜尋員工"');
+    expect(searchMarkup).toContain('class="filter-control"');
+    expect(searchMarkup).toContain('class="search-input"');
+    expect(selectMarkup).toContain('class="filter-control"');
+    expect(selectMarkup).toContain('class="filter-select-control"');
+    expect(selectMarkup).toContain('aria-label="狀態"');
   });
 
   it("renders filters as a form with the shared toolbar contract", () => {
