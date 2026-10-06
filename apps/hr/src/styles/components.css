@@ -2627,14 +2627,7 @@
 .toast-info { --toast-tint: var(--color-info); }
 .toast-danger { --toast-tint: var(--color-brand-dark); }
 
- 
-.confirm-card { width: min(420px, 100%); }
-.confirm-body { display: grid; gap: 8px; padding-bottom: 4px; }
-.confirm-body p { margin: 0; }
-.confirm-body strong { color: var(--color-brand-dark); }
- 
 
- 
 @media (max-width: 760px) {
    
   .table-scroll { overflow-x: visible; }

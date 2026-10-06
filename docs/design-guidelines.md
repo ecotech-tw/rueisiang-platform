@@ -27,7 +27,7 @@
 | token | `packages/ui/theme.css` | 兩個 app 的 styles 入口只 import 這份；shell／domain CSS 仍保留 app-specific layer |
 | primitive CSS | `packages/ui/components.css` | table、status、alert、empty、dialog、panel、field、button、tooltip 的 base styles 只維護一份；shell／domain modifier 留在 app |
 
-已抽出的 primitive 包含 `Button`、`Dialog`、`DropdownSelect`、`Alert`、`StatusBadge`、`Field`、`TextField`、`SelectField`、`Panel`、`PageHeader`、`Tooltip`。`Dialog` 預設 portal 到 `body`；需要保留在沉浸式全頁容器內的例外，明確使用 `portal={false}`（目前打卡確認框）。
+已抽出的 primitive 包含 `Button`、`Dialog`、`ConfirmDialog`、`DropdownSelect`、`Alert`、`StatusBadge`、`Field`、`TextField`、`SelectField`、`Panel`、`PageHeader`、`Tooltip`。`Dialog` 預設 portal 到 `body`；需要保留在沉浸式全頁容器內的例外，明確使用 `portal={false}`（目前打卡確認框）。
 
 上述已抽出的 app `ui/*.tsx` 檔案是刻意保留的相容性入口，**不要在那裡重新加入實作**。新增共用 primitive 應先放 `packages/ui`，再由兩個 app re-export。
 

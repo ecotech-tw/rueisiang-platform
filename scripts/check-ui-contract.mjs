@@ -23,6 +23,8 @@ const sharedPrimitiveSelectors = [
   ".segmented-control",
   ".modal-backdrop",
   ".modal-card",
+  ".confirm-card",
+  ".confirm-body",
   ".panel",
   ".field",
   ".primary-button",

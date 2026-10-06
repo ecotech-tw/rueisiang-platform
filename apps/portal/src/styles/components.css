@@ -2801,13 +2801,6 @@
 .toast-info { --toast-tint: var(--color-info); }
 .toast-danger { --toast-tint: var(--color-brand-dark); }
 
-/* 確認對話框：比一般對話框窄，因為裡面只有一段話跟兩顆按鈕。 */
-.confirm-card { width: min(420px, 100%); }
-.confirm-body { display: grid; gap: 8px; padding-bottom: 4px; }
-.confirm-body p { margin: 0; }
-.confirm-body strong { color: var(--color-brand-dark); }
-/* 破壞性動作的主要按鈕。primary 的紅底已經夠醒目，這裡只是換成深一階。 */
-
 /*
  * ── 手機版的資料表 ────────────────────────────────────────────────────────
  *
