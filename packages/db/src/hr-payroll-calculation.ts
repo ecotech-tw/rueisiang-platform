@@ -45,7 +45,6 @@ import {
   hrPayslips,
   hrPayrollAdjustmentItems,
   hrPayrollAdjustments,
-  hrPayrollRecordItems,
 } from "./schema/hr-payroll-runs.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
@@ -251,30 +250,11 @@ export interface HrPayrollRecordReference {
   personId: string;
 }
 
-export interface HrPayrollRecordItemInput extends HrPayrollRecordReference {
-  itemName: string;
-  direction: "earning" | "deduction";
-  amountMinor: number;
-  reason: string;
-}
-
-export interface HrPayrollRecordItemView {
-  id: string;
-  personKind: "employee" | "worker";
-  personId: string;
-  itemName: string;
-  direction: "earning" | "deduction";
-  amountMinor: number;
-  reason: string;
-  createdAt: string;
-}
-
 export interface HrPayrollRecordDetail {
   record: HrPayrollRecord;
   run: Pick<HrPayrollRunResult, "runId" | "runName" | "periodKey" | "payDate" | "engineVersion" | "warnings"> & { canDelete: boolean };
   employee: HrPayrollEmployeeResult | null;
   worker: HrPayrollRunResult["workers"][number] | null;
-  items: HrPayrollRecordItemView[];
 }
 
 export type HrBonusKind = "team_performance" | "individual_performance";
@@ -2221,9 +2201,9 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
       payroll_period.period_key AS periodKey,
       payroll_run.pay_date AS payDate,
       CASE WHEN payroll_run.status = 'closed' OR closed_employee.employment_id IS NOT NULL THEN 'closed' ELSE 'unsettled' END AS recordStatus,
-      payslip.earning_minor + coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='employee' AND item.employment_id=payslip.employment_id AND item.direction='earning'), 0) AS earningMinor,
-      payslip.deduction_minor + coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='employee' AND item.employment_id=payslip.employment_id AND item.direction='deduction'), 0) AS deductionMinor,
-      payslip.net_minor + coalesce((SELECT sum(CASE WHEN item.direction='earning' THEN item.amount_minor ELSE -item.amount_minor END) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='employee' AND item.employment_id=payslip.employment_id), 0) AS netMinor,
+      payslip.earning_minor AS earningMinor,
+      payslip.deduction_minor AS deductionMinor,
+      payslip.net_minor AS netMinor,
       payroll_run.created_at AS createdAt,
       CASE WHEN payroll_run.status = 'closed' OR closed_employee.employment_id IS NOT NULL THEN coalesce(closed_employee.closed_at, payroll_run.updated_at) ELSE NULL END AS closedAt
     FROM hr_payslips AS payslip
@@ -2245,9 +2225,9 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
       payroll_period.period_key AS periodKey,
       payroll_run.pay_date AS payDate,
       CASE WHEN payroll_run.status = 'closed' OR closed_worker.worker_id IS NOT NULL THEN 'closed' ELSE 'unsettled' END AS recordStatus,
-      worker_result.amount_minor + coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id AND item.direction='earning'), 0) AS earningMinor,
-      coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id AND item.direction='deduction'), 0) AS deductionMinor,
-      worker_result.amount_minor + coalesce((SELECT sum(CASE WHEN item.direction='earning' THEN item.amount_minor ELSE -item.amount_minor END) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id), 0) AS netMinor,
+      worker_result.amount_minor AS earningMinor,
+      0 AS deductionMinor,
+      worker_result.amount_minor AS netMinor,
       payroll_run.created_at AS createdAt,
       CASE WHEN payroll_run.status = 'closed' OR closed_worker.worker_id IS NOT NULL THEN coalesce(closed_worker.closed_at, payroll_run.updated_at) ELSE NULL END AS closedAt
     FROM hr_payroll_worker_results AS worker_result
@@ -2307,14 +2287,6 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
   };
 }
 
-function assertPayrollRecordItemInput(input: HrPayrollRecordItemInput) {
-  if (!input.runId || !input.personId || (input.personKind !== "employee" && input.personKind !== "worker")) throw new HrError(400, "薪資發放紀錄不正確。 ");
-  if (input.itemName.trim().length < 1 || Array.from(input.itemName.trim()).length > 100) throw new HrError(400, "加扣項名稱必填且不可超過 100 個字。 ");
-  if (input.direction !== "earning" && input.direction !== "deduction") throw new HrError(400, "加扣項類型不正確。 ");
-  if (!Number.isSafeInteger(input.amountMinor) || input.amountMinor <= 0) throw new HrError(400, "加扣項金額必須是正整數分。 ");
-  if (input.reason.trim().length < 1 || Array.from(input.reason.trim()).length > 1000) throw new HrError(400, "加扣項原因必填且不可超過 1000 個字。 ");
-}
-
 async function findPayrollRecordRun(db: Database, input: HrPayrollRecordReference) {
   const rows = input.personKind === "employee"
     ? await db.all<{ runId: string; periodKey: string; periodStatus: string; runStatus: string; employmentId: string }>(sql`
@@ -2356,82 +2328,6 @@ async function payrollRecordIsClosed(db: Database, input: HrPayrollRecordReferen
   return claim?.closedAt ?? null;
 }
 
-export async function listHrPayrollRecordItems(db: Database, input: HrPayrollRecordReference): Promise<HrPayrollRecordItemView[]> {
-  const rows = await db.select({
-    id: hrPayrollRecordItems.id,
-    personKind: hrPayrollRecordItems.personKind,
-    employmentId: hrPayrollRecordItems.employmentId,
-    workerId: hrPayrollRecordItems.workerId,
-    itemName: hrPayrollRecordItems.itemName,
-    direction: hrPayrollRecordItems.direction,
-    amountMinor: hrPayrollRecordItems.amountMinor,
-    reason: hrPayrollRecordItems.reason,
-    createdAt: hrPayrollRecordItems.createdAt,
-  }).from(hrPayrollRecordItems).where(and(
-    eq(hrPayrollRecordItems.payrollRunId, input.runId),
-    eq(hrPayrollRecordItems.personKind, input.personKind),
-    input.personKind === "employee" ? eq(hrPayrollRecordItems.employmentId, input.personId) : eq(hrPayrollRecordItems.workerId, input.personId),
-  )).orderBy(asc(hrPayrollRecordItems.createdAt), asc(hrPayrollRecordItems.id));
-  return rows.map((row) => ({
-    id: row.id,
-    personKind: row.personKind,
-    personId: row.personKind === "employee" ? row.employmentId! : row.workerId!,
-    itemName: row.itemName,
-    direction: row.direction,
-    amountMinor: row.amountMinor,
-    reason: row.reason,
-    createdAt: row.createdAt,
-  }));
-}
-
-export async function createHrPayrollRecordItem(db: Database, input: HrPayrollRecordItemInput, actor: HrActor) {
-  assertPayrollRecordItemInput(input);
-  const target = await findPayrollRecordRun(db, input);
-  if (target.periodStatus !== "open" || target.runStatus !== "ready") throw new HrError(409, "只有開放中的尚未結算紀錄可以新增薪資加扣項。 ");
-  if (await payrollRecordIsClosed(db, input, target.periodKey)) throw new HrError(409, "這筆薪資發放紀錄已確定發放，不能再修改。 ");
-  const id = crypto.randomUUID();
-  await writeHrMutation(db, sql`
-    INSERT INTO hr_payroll_record_items
-      (id, payroll_run_id, person_kind, employment_id, worker_id, item_name, direction, amount_minor, reason, created_by)
-    SELECT ${id}, ${input.runId}, ${input.personKind}, ${input.personKind === "employee" ? input.personId : null}, ${input.personKind === "worker" ? input.personId : null},
-      ${input.itemName.trim()}, ${input.direction}, ${input.amountMinor}, ${input.reason.trim()}, ${actor.id}
-    WHERE EXISTS (
-      SELECT 1 FROM hr_payroll_periods AS effective_period
-      INNER JOIN hr_payroll_runs AS effective_run ON effective_run.payroll_period_id=effective_period.id
-      WHERE effective_run.id=${input.runId} AND effective_period.status='open' AND effective_run.status='ready'
-    ) AND NOT EXISTS (
-        SELECT 1 FROM ${input.personKind === "employee" ? sql`hr_payroll_closed_employees` : sql`hr_payroll_closed_workers`} AS claim
-        WHERE claim.period_key=${target.periodKey} AND claim.${input.personKind === "employee" ? sql`employment_id` : sql`worker_id`}=${input.personId}
-      )
-    RETURNING id`, id, actor, "payroll_record_item_created", "薪資發放紀錄已確定發放、薪資月份已鎖定或加扣項資料不合法，不能新增加扣項。 ", {
-      activity: { entityLabel: input.itemName.trim(), summary: "薪資加扣項已新增", payload: { runId: input.runId, personKind: input.personKind, personId: input.personId, direction: input.direction, amountMinor: input.amountMinor } },
-    });
-  return { id };
-}
-
-export async function deleteHrPayrollRecordItem(db: Database, itemId: string, actor: HrActor) {
-  const [item] = await db.select({ item: hrPayrollRecordItems, periodKey: hrPayrollPeriods.periodKey, periodStatus: hrPayrollPeriods.status, runStatus: hrPayrollRuns.status })
-    .from(hrPayrollRecordItems)
-    .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayrollRecordItems.payrollRunId))
-    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
-    .where(eq(hrPayrollRecordItems.id, itemId)).limit(1);
-  if (!item) throw new HrError(404, "找不到薪資加扣項。 ");
-  if (item.periodStatus !== "open" || item.runStatus !== "ready") throw new HrError(409, "只有開放中的尚未結算紀錄可以刪除薪資加扣項。 ");
-  const reference: HrPayrollRecordReference = { runId: item.item.payrollRunId, personKind: item.item.personKind, personId: item.item.personKind === "employee" ? item.item.employmentId! : item.item.workerId! };
-  if (await payrollRecordIsClosed(db, reference, item.periodKey)) throw new HrError(409, "這筆薪資發放紀錄已確定發放，不能再修改。 ");
-  const closedClaimGuard = reference.personKind === "employee"
-    ? sql`AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees AS claim WHERE claim.period_key=payroll_period.period_key AND claim.employment_id=${reference.personId})`
-    : sql`AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers AS claim WHERE claim.period_key=payroll_period.period_key AND claim.worker_id=${reference.personId})`;
-  await writeHrMutation(db, sql`DELETE FROM hr_payroll_record_items WHERE id=${itemId} AND EXISTS (
-    SELECT 1 FROM hr_payroll_runs AS payroll_run
-    INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
-    WHERE payroll_run.id=${item.item.payrollRunId} AND payroll_run.status='ready' AND payroll_period.status='open' ${closedClaimGuard}
-  ) RETURNING id`, itemId, actor, "payroll_record_item_deleted", "薪資發放紀錄已確定發放、薪資月份已鎖定或加扣項已被其他人變更，請重新整理。 ", {
-    activity: { entityLabel: item.item.itemName, summary: "薪資加扣項已刪除", payload: { runId: item.item.payrollRunId, personKind: item.item.personKind, personId: reference.personId } },
-  });
-  return { id: itemId, deleted: true as const };
-}
-
 export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRecordReference): Promise<HrPayrollRecordDetail> {
   const result = await getPayrollRunResult(db, input.runId);
   const employee = input.personKind === "employee" ? result.employees.find((item) => item.employmentId === input.personId) ?? null : null;
@@ -2440,14 +2336,8 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
   const [run] = await db.select({ versionNumber: hrPayrollRuns.versionNumber, createdAt: hrPayrollRuns.createdAt, updatedAt: hrPayrollRuns.updatedAt, status: hrPayrollRuns.status }).from(hrPayrollRuns).where(eq(hrPayrollRuns.id, input.runId)).limit(1);
   if (!run) throw new HrError(404, "找不到薪資試算。 ");
   const canDelete = run.status !== "closed" && !(await payrollRunHasClosedClaims(db, input.runId));
-  const items = await listHrPayrollRecordItems(db, input);
-  const earningItems = items.filter((item) => item.direction === "earning").reduce((sum, item) => sum + item.amountMinor, 0);
-  const deductionItems = items.filter((item) => item.direction === "deduction").reduce((sum, item) => sum + item.amountMinor, 0);
   const closedAt = await payrollRecordIsClosed(db, input, result.periodKey);
   const status = run.status === "closed" || closedAt ? "closed" : "unsettled";
-  const baseEarning = employee?.earningMinor ?? worker?.amountMinor ?? 0;
-  const baseDeduction = employee?.deductionMinor ?? 0;
-  const baseNet = employee?.netMinor ?? worker?.amountMinor ?? 0;
   const record: HrPayrollRecord = {
     recordId: input.personId,
     personKind: input.personKind,
@@ -2461,13 +2351,13 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
     periodKey: result.periodKey,
     payDate: result.payDate,
     status,
-    earningMinor: baseEarning + earningItems,
-    deductionMinor: baseDeduction + deductionItems,
-    netMinor: baseNet + earningItems - deductionItems,
+    earningMinor: employee?.earningMinor ?? worker?.amountMinor ?? 0,
+    deductionMinor: employee?.deductionMinor ?? 0,
+    netMinor: employee?.netMinor ?? worker?.amountMinor ?? 0,
     createdAt: run.createdAt,
     closedAt: closedAt ?? (run.status === "closed" ? run.updatedAt : null),
   };
-  return { record, run: { runId: result.runId, runName: result.runName, periodKey: result.periodKey, payDate: result.payDate, engineVersion: result.engineVersion, warnings: result.warnings, canDelete }, employee, worker, items };
+  return { record, run: { runId: result.runId, runName: result.runName, periodKey: result.periodKey, payDate: result.payDate, engineVersion: result.engineVersion, warnings: result.warnings, canDelete }, employee, worker };
 }
 
 export async function listHrPayrollRecordReferences(db: Database, runId: string): Promise<HrPayrollRecordReference[]> {
@@ -2609,6 +2499,7 @@ export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrA
   if (run.status === "closed" || await payrollRunHasClosedClaims(db, runId)) throw new HrError(409, "已結帳／確定發放的薪資紀錄不可刪除，請使用薪資加扣項。 ");
 
   const mutations = [
+    // 相容舊版單筆加扣項資料；新的薪資加扣項不再寫入這張表。
     sql`DELETE FROM hr_payroll_record_items WHERE payroll_run_id=${runId} RETURNING id`,
     sql`DELETE FROM hr_payslip_lines WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING id`,
     sql`DELETE FROM hr_payslip_compensation_links WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING payslip_id`,

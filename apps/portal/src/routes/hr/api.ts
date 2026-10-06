@@ -227,22 +227,11 @@ export interface PayrollRecord {
   createdAt: string;
   closedAt: string | null;
 }
-export interface PayrollRecordItem {
-  id: string;
-  personKind: PayrollRecordPersonKind;
-  personId: string;
-  itemName: string;
-  direction: "earning" | "deduction";
-  amountMinor: number;
-  reason: string;
-  createdAt: string;
-}
 export interface PayrollRecordDetail {
   record: PayrollRecord;
   run: { runId: string; runName: string; periodKey: string; payDate: string | null; engineVersion: string; warnings: string[]; canDelete: boolean };
   employee: PayrollEmployee | null;
   worker: PayrollWorker | null;
-  items: PayrollRecordItem[];
 }
 export interface PayrollAdjustmentItem {
   id: string;
