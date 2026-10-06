@@ -4735,7 +4735,7 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 .hr-payroll-preview-dialog { width: min(900px, 100%); }
 .hr-payroll-preview-dialog > .modal-actions { margin-top: 0; }
 .modal-body.hr-payroll-payslip-preview-body { flex: 0 1 auto; align-content: start; max-height: calc(100vh - 180px); padding: 0; background: var(--color-canvas); }
-.hr-payroll-payslip-preview { display: block; width: min(794px, 100%); margin: 36px auto; padding: 42px 48px 0; background: var(--color-paper); box-shadow: 0 0 0 1px --alpha(var(--color-ink) / 6%), 0 14px 36px rgba(53, 28, 29, .12); }
+.hr-payroll-payslip-preview { display: block; width: min(794px, 100%); margin: 36px auto; padding: 42px 48px; background: var(--color-paper); box-shadow: 0 0 0 1px --alpha(var(--color-ink) / 6%), 0 14px 36px rgba(53, 28, 29, .12); }
 .hr-payroll-payslip-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 2px solid var(--color-ink); }
 .hr-payroll-payslip-head p { margin: 0 0 4px; color: var(--color-muted); font-size: 13px; font-weight: 700; letter-spacing: .08em; }
 .hr-payroll-payslip-head h1 { margin: 0; font-size: 26px; }
