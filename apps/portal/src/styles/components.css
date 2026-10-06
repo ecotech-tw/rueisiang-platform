@@ -2113,12 +2113,10 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
 /*
  * 下拉放在 .field 裡時，`.field input` 的底色、圓角與 focus 外框比上面那一條優先，會落在這個輸入框上，
  * 變成框中框（多選最明顯：chip 旁邊多一個小框）。外框與焦點都由 .combobox-group 負責，這裡把那幾樣壓回來。
+ * 停用狀態不碰：`.field input:disabled` 的灰底是那個狀態唯一的提示。
  */
-.combobox-group .combobox-input,
-.combobox-group .combobox-input:disabled { border-radius: 0; background: transparent; }
+.combobox-group .combobox-input:not(:disabled) { border-radius: 0; background: transparent; }
 .combobox-group .combobox-input:focus-visible { outline: 0; }
-/* 停用時整個控制項一起變灰；只有裡面的輸入框灰的話，清除與展開按鈕那一側還是白的。 */
-.combobox-group:has(.combobox-input:disabled) { background: var(--color-soft-line); }
 .dropdown-combobox { width: 100%; min-height: var(--size-field); }
 .dropdown-combobox .combobox-input { min-height: calc(var(--size-field) - 2px); padding: 10px 52px 10px 12px !important; color: var(--color-ink); font: inherit; }
 .dropdown-combobox-multiple { align-items: stretch; }
@@ -2460,8 +2458,8 @@ span.filter-chip { padding: 0 4px 0 0; gap: 0; }
   font-size: 12px;
   text-decoration: underline;
 }
-/* 其他按鈕 variant 都有停用的樣子，只有這個沒有：停用的連結看起來跟可以按一樣，按了卻沒反應。 */
-.link-button:disabled { opacity: .45; cursor: not-allowed; text-decoration: none; }
+/* 停用的連結要看得出來不能按，數值跟 .ghost-button、.chip-action 一致。 */
+.link-button:disabled { opacity: .45; cursor: not-allowed; }
 
 .boot { padding: 48px; color: var(--color-muted); }
 
