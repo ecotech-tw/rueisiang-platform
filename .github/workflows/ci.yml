@@ -15,8 +15,13 @@ concurrency:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    env:
+      # HR is a separate static Worker; its production bundle must call the Platform API.
+      VITE_API_BASE_URL: ${{ vars.HR_API_BASE_URL || 'https://platform.rueisiang.com/api' }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       # 版本從 package.json 的 packageManager 欄位讀，不在這裡再寫一次。
       - uses: pnpm/action-setup@v6
@@ -34,6 +39,42 @@ jobs:
       - run: pnpm test
 
       - run: pnpm build
+
+      # main 的 CI 成功後由 Deploy workflow 直接取用這些產物，不再重跑整套驗證。
+      - name: 產生部署變更清單
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+          CURRENT_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p .deploy-metadata
+          if [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            git ls-tree -r --name-only "$CURRENT_SHA" > .deploy-metadata/changed-files.txt
+          else
+            git diff --name-only "$BEFORE_SHA" "$CURRENT_SHA" > .deploy-metadata/changed-files.txt
+          fi
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: deploy-changed-files
+          path: .deploy-metadata/changed-files.txt
+          if-no-files-found: error
+          overwrite: true
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: deploy-portal-dist
+          path: apps/portal/dist
+          if-no-files-found: error
+          overwrite: true
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          name: deploy-hr-dist
+          path: apps/hr/dist
+          if-no-files-found: error
+          overwrite: true
 
       # CYBERBIZ 報表工具刻意留在 pnpm workspace 之外（pnpm-workspace.yaml 只 glob
       # apps/* 與 packages/*）：它是純 JS、用 npm 自己的 lockfile，而且相依

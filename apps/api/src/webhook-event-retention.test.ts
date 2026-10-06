@@ -1,4 +1,4 @@
-import { createDatabase, purgeSettledWebhookEvents, WEBHOOK_EVENT_RETENTION_DAYS } from "@rueisiang/db";
+import { chunks, createDatabase, purgeSettledWebhookEvents, WEBHOOK_EVENT_RETENTION_DAYS } from "@rueisiang/db";
 import { cyberbizWebhookEvents } from "@rueisiang/db/schema";
 import { asc } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -15,13 +15,15 @@ beforeEach(() => {
 });
 
 async function seed(rows: Array<{ id: string; status: string; days: number }>) {
-  await db.insert(cyberbizWebhookEvents).values(rows.map((row) => ({
+  const events = rows.map((row) => ({
     id: row.id,
     topic: "customers/update",
     status: row.status,
     payloadJson: "{}",
     receivedAt: daysAgo(row.days),
-  })));
+  }));
+  // 一句寫不完：本機的 D1 替身照 D1 的規格擋 100 個綁定參數。
+  for (const batch of chunks(events, 5)) await db.insert(cyberbizWebhookEvents).values(batch);
 }
 
 async function remaining() {
@@ -56,7 +58,7 @@ describe("webhook 事件保留期", () => {
     expect(await purgeSettledWebhookEvents(db)).toEqual({ deleted: 0 });
   });
 
-  it("超過一批（100 筆）也刪得完——D1 對單一語句的參數量有上限", async () => {
+  it("超過一百筆也刪得完——D1 對單一語句的參數量有上限", async () => {
     await seed(Array.from({ length: 250 }, (_, index) => ({
       id: `old-${String(index).padStart(3, "0")}`, status: "processed", days: 60,
     })));

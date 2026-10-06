@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
-import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceContributionComponent, type InsuranceContributionRule, type SupportWorkerPayBasis } from "./api.js";
+import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceContributionComponent, type InsuranceContributionRule, type SupportWorkerPayBasis } from "./api.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
@@ -9,7 +9,6 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
-interface EmployeeListResponse { employees: Employee[] }
 interface EmployeePageResponse { employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }
 const EMPLOYEE_PAGE_SIZES = [10, 25, 50, 100] as const;
 const PAY_BASIS_LABEL: Record<CompensationVersion["payBasis"], string> = { monthly: "月薪", daily: "日薪", hourly: "時薪" };
@@ -217,7 +216,8 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       label="員工"
       value={userId}
       required
-      options={[{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.legalName}／${employee.employeeNumber}` }))]}
+      options={[{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))]}
+      searchable
       disabled={isEditing}
       onChange={(event) => setUserId(event.target.value)}
     />
@@ -344,7 +344,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   const isHrAdministrator = user?.isHrAdministrator ?? false;
   const canRead = isHrAdministrator && permissions.has("hr:payroll:read");
   const canWrite = isHrAdministrator && permissions.has("hr:employee:write");
-  const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, !settingsOnly && canRead && permissions.has("hr:employee:read"));
+  const employees = useHrEmployeeRoster(!settingsOnly && canRead && permissions.has("hr:employee:read"));
   const [employeeFilters, setEmployeeFilters] = useState({ page: 1, pageSize: 25, search: "", status: "all", sortField: "employeeNumber", sortDirection: "asc" as "asc" | "desc" });
   const employeeTablePath = `/employees?page=${employeeFilters.page}&pageSize=${employeeFilters.pageSize}&search=${encodeURIComponent(employeeFilters.search)}&status=${employeeFilters.status}&employmentStatus=active&sortField=${employeeFilters.sortField}&sortDirection=${employeeFilters.sortDirection}`;
   const employeeTable = useHrQuery<EmployeePageResponse>(employeeTablePath, !settingsOnly && canRead && permissions.has("hr:employee:read"));
@@ -387,7 +387,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
       </form>
       {employeeTable.error ? <Alert tone="danger">{employeeTable.error.message}</Alert> : null}
       <div className="table-scroll"><table className="data-table"><thead><tr>
-        <SortableHeader label="員工" field="name" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
+        <SortableHeader label="員工" field="employeeNumber" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
         <th>目前任職</th><th>方式</th><th className="numeric">總計薪資</th><th>生效期間</th><th>操作</th>
       </tr></thead><tbody>
         {(employeeTable.data?.employees ?? []).map((employee) => <EmployeeCompensationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={(userId) => setEditing({ userId })} />)}

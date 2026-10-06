@@ -1,6 +1,6 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries } from "./schema/hr-payroll.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
@@ -146,12 +146,12 @@ export async function listHrMonthlyData(db: Database, periodKey: string, employe
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrMonthlyLeaveEntries.employmentId))
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .where(and(sql`${hrMonthlyLeaveEntries.leaveDate} >= ${range.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${range.end}`, employeeFilter))
-      .orderBy(asc(hrMonthlyLeaveEntries.leaveDate), asc(hrEmployments.employeeNumber)),
+      .orderBy(asc(hrMonthlyLeaveEntries.leaveDate), ...hrEmployeeNumberOrder()),
     db.select({ entry: hrMonthlyHourlyEntries, employeeUserId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, employeeName: displayName })
       .from(hrMonthlyHourlyEntries).innerJoin(hrEmployments, eq(hrEmployments.id, hrMonthlyHourlyEntries.employmentId))
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .where(and(sql`${hrMonthlyHourlyEntries.workDate} >= ${range.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${range.end}`, employeeFilter))
-      .orderBy(asc(hrMonthlyHourlyEntries.workDate), asc(hrEmployments.employeeNumber)),
+      .orderBy(asc(hrMonthlyHourlyEntries.workDate), ...hrEmployeeNumberOrder()),
   ]);
   const leaveSummary = new Map<string, { leaveTypeId: string; leaveTypeName: string; employeeUserId: string; employeeNumber: string; employeeName: string; entryCount: number; dateSet: Set<string>; hoursHalfUnits: number; deductionAmount: number; payRatePpmTotal: number }>();
   for (const row of leaves) {

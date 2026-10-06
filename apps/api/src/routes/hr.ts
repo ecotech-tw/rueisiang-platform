@@ -12,7 +12,8 @@ import {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
-  createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest,
+  cancelHrOvertimeRequest, createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
+  HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
   calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
@@ -191,10 +192,16 @@ function employeeUserIds(input: Record<string, unknown>): string[] | undefined {
   if (!Array.isArray(input.employeeUserIds) || input.employeeUserIds.length > 80 || input.employeeUserIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.employeeUserIds).size !== input.employeeUserIds.length) throw new HTTPException(400, { message: "指派員工格式不正確。" });
   return input.employeeUserIds as string[];
 }
-function payrollWorkerIds(input: Record<string, unknown>): string[] | undefined {
-  if (input.workerIds === undefined) return undefined;
-  if (!Array.isArray(input.workerIds) || input.workerIds.length > 100 || input.workerIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.workerIds).size !== input.workerIds.length) throw new HTTPException(400, { message: "指定支援人員格式不正確。" });
-  return input.workerIds as string[];
+/*
+ * 指定名單的上限只是擋離譜的 payload。全體模式本來就不送名單、人數不受限，
+ * 所以這裡設得比全體還緊沒有保護到任何東西，只會讓人數多的公司沒辦法「全體扣掉一兩位」。
+ */
+const MAX_PAYROLL_SELECTED_PEOPLE = 1000;
+function payrollSelectedIds(input: Record<string, unknown>, key: "employeeUserIds" | "workerIds", message: string): string[] | undefined {
+  const ids = input[key];
+  if (ids === undefined) return undefined;
+  if (!Array.isArray(ids) || ids.length > MAX_PAYROLL_SELECTED_PEOPLE || ids.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(ids).size !== ids.length) throw new HTTPException(400, { message });
+  return ids as string[];
 }
 function bonusEmployeeAssignments(input: Record<string, unknown>): Array<{ employeeUserId: string; weightUnits: number }> | undefined {
   if (input.employeeAssignments === undefined) return undefined;
@@ -363,7 +370,7 @@ function optionalDateTimeValue(input: Record<string, unknown>, key: string, labe
 function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
   const settlementKind = input.settlementKind === "pay" || input.settlementKind === "compensatory" ? input.settlementKind : null;
   if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
-  return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), reason: nullableText(input, "reason", "加班原因", 1000) ?? "" } as const;
+  return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), revision: input.revision === undefined ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER), reason: nullableText(input, "reason", "加班原因", 1000) ?? "" } as const;
 }
 function leaveDateTimeValue(input: Record<string, unknown>, key: "startsAt" | "endsAt", alias: "startAt" | "endAt", label: string) {
   const raw = input[key] ?? input[alias];
@@ -561,6 +568,8 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/me/overtime", async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), c.get("user").id) }))
   .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .patch("/me/overtime/:id", async (c) => c.json(await updateHrOvertimeRequest(c.get("db"), c.req.param("id"), overtimeInput(await body(c), c.get("user").id), c.get("user"))))
+  .post("/me/overtime/:id/cancel", async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"))))
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), undefined, true) }))
   .get("/me/leave-requests", async (c) => c.json({ requests: await listHrLeaveRequests(c.get("db"), c.get("user").id) }))
   .post("/me/leave-duration", async (c) => c.json(await calculateHrLeaveDuration(c.get("db"), leaveDurationInput(await body(c), c.get("user").id))))
@@ -610,16 +619,41 @@ export const hr = new Hono<AppEnv>()
   })
   /* 管理端申請中心是獨立入口；目前代登直接核准，但資料仍使用 pending／approved 審核狀態。 */
   .get("/requests", requirePermission("hr:request:review"), async (c) => {
-    const [leaves, overtime, formRequests] = await Promise.all([
-      listHrLeaveRequests(c.get("db")),
-      listHrOvertimeRequests(c.get("db")),
-      listHrFormRequestsForHr(c.get("db")),
-    ]);
-    return c.json({ leaves, overtime, clockCorrections: formRequests });
+    const hasPagedQuery = ["page", "pageSize", "search", "kind", "status"].some((key) => c.req.query(key) !== undefined);
+    if (!hasPagedQuery) {
+      const [leaves, overtime, formRequests] = await Promise.all([
+        listHrLeaveRequests(c.get("db")),
+        listHrOvertimeRequests(c.get("db")),
+        listHrFormRequestsForHr(c.get("db")),
+      ]);
+      return c.json({ leaves, overtime, clockCorrections: formRequests });
+    }
+    const page = calendarNumber(c.req.query("page"), 1, "頁碼", 1, 10000);
+    const rawPageSize = c.req.query("pageSize");
+    const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
+    if (!HR_REQUEST_CENTER_PAGE_SIZES.includes(pageSize as (typeof HR_REQUEST_CENTER_PAGE_SIZES)[number])) throw new HTTPException(400, { message: "每頁筆數不正確。" });
+    const search = c.req.query("search")?.trim() ?? "";
+    if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
+    const kind = c.req.query("kind") ?? "all";
+    if (!(kind === "all" || kind === "leave" || kind === "overtime" || kind === "clock_correction")) throw new HTTPException(400, { message: "申請類型不正確。" });
+    const status = c.req.query("status") ?? "all";
+    if (!(status === "all" || status === "draft" || status === "pending" || status === "approved" || status === "rejected" || status === "cancelled")) throw new HTTPException(400, { message: "申請狀態不正確。" });
+    const result = await listHrRequestCenterPage(c.get("db"), { page, pageSize, search, kind, status });
+    return c.json({
+      rows: result.rows,
+      pagination: { page: result.page, pageSize: result.pageSize, total: result.total },
+    });
   })
-  .get("/requests/employees", requirePermission("hr:request:review"), async (c) => c.json(await listHrEmployees(c.get("db"), {
-    page: 1, pageSize: 100, search: "", status: "employable", employmentStatus: "active", sortField: "name", sortDirection: "asc",
-  })))
+  .get("/requests/employees", requirePermission("hr:request:review"), async (c) => {
+    const db = c.get("db");
+    const query = (page: number) => listHrEmployees(db, {
+      page, pageSize: 100, search: "", status: "employable", employmentStatus: "active", sortField: "employeeNumber", sortDirection: "asc",
+    });
+    const first = await query(1);
+    if (!first.hasMore) return c.json(first);
+    const remaining = await Promise.all(Array.from({ length: Math.ceil(first.total / first.pageSize) - 1 }, (_, index) => query(index + 2)));
+    return c.json({ ...first, employees: [first, ...remaining].flatMap((page) => page.employees), hasMore: false });
+  })
   .get("/requests/leave-types", requirePermission("hr:request:review"), async (c) => c.json({ leaveTypes: await listHrLeaveTypes(c.get("db")) }))
   .post("/requests/leave-duration", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
@@ -634,6 +668,7 @@ export const hr = new Hono<AppEnv>()
     const employeeUserId = text(input, "employeeUserId", "員工");
     return c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(input, employeeUserId), c.get("user"), { autoApprove: true }), 201);
   })
+  .post("/requests/overtime/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
   .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
@@ -1046,17 +1081,14 @@ export const hr = new Hono<AppEnv>()
   .post("/payroll/calculate",  requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
-    const selectedUsers = input.employeeUserIds === undefined ? undefined : input.employeeUserIds;
-    if (selectedUsers !== undefined && (!Array.isArray(selectedUsers) || selectedUsers.length > 100 || selectedUsers.some((id) => typeof id !== "string" || !id))) {
-      throw new HTTPException(400, { message: "指定員工清單不正確。" });
-    }
-    const selectedWorkers = payrollWorkerIds(input);
+    const selectedUsers = payrollSelectedIds(input, "employeeUserIds", "指定員工清單不正確。");
+    const selectedWorkers = payrollSelectedIds(input, "workerIds", "指定支援人員格式不正確。");
     const mode = input.attendanceMode === undefined || input.attendanceMode === "all" || input.attendanceMode === "general" || input.attendanceMode === "scheduled" ? input.attendanceMode : null;
     if (mode === null) throw new HTTPException(400, { message: "員工出勤方式篩選不正確。" });
     const payDate = input.payDate === undefined ? undefined : date(input, "payDate");
     const runName = input.runName === undefined ? undefined : text(input, "runName", "結算名稱", 20);
     return c.json({ run: await calculateHrPayroll(c.get("db"), {
-      periodKey: periodKey(input), payDate: payDate ?? undefined, runName, employeeUserIds: selectedUsers as string[] | undefined, workerIds: selectedWorkers,
+      periodKey: periodKey(input), payDate: payDate ?? undefined, runName, employeeUserIds: selectedUsers, workerIds: selectedWorkers,
       attendanceMode: mode, requestId: input.requestId === undefined ? undefined : text(input, "requestId", "請求識別碼", 200),
       monthlyDivisorDays: optionalInteger(input, "monthlyDivisorDays", "月薪除數", 1, 366),
       standardDailyHours: input.standardDailyHours === undefined ? undefined : Number(input.standardDailyHours),

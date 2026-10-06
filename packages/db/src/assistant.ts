@@ -5,6 +5,7 @@ import type {
   AssistantUsage,
 } from "@rueisiang/assistant";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import {
   assistantPromptRevisions,
   assistantConfigs,
@@ -1568,7 +1569,7 @@ export async function setAssistantChannelTools(
   const added = wanted.filter((key) => !existing.some((row) => row.toolKey === key));
 
   if (removed.length) {
-    await db.delete(assistantChannelTools).where(inArray(assistantChannelTools.id, removed.map((row) => row.id)));
+    await db.delete(assistantChannelTools).where(inJsonArray(assistantChannelTools.id, removed.map((row) => row.id)));
   }
   if (added.length) {
     const now = new Date().toISOString();

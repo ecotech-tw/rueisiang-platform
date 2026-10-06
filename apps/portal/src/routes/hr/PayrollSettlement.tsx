@@ -4,8 +4,8 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, StatusBadge, TextField } from "../../ui/index.js";
-import { HR_ROSTER_PATH, useHrQuery, useHrWrite, type Employee, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
+import { Alert, Button, Dialog, DropdownSelect, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, StatusBadge, TextField } from "../../ui/index.js";
+import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface PayrollRecordsResponse {
@@ -16,7 +16,6 @@ interface PayrollRecordsResponse {
   hasMore: boolean;
   counts: { total: number; unsettled: number; closed: number };
 }
-interface EmployeeListResponse { employees: Employee[] }
 interface PayrollRecordFilters {
   page: number;
   pageSize: number;
@@ -29,6 +28,10 @@ interface PayrollRecordFilters {
 type PayrollEmployeeSelectionMode = "all" | "selected";
 
 const PAYROLL_RECORD_PAGE_SIZES = [10, 25, 50, 100] as const;
+// 每份名單的上限，跟 API（apps/api/src/routes/hr.ts）的同名常數一致；只是擋離譜的名單，不是業務上的人數限制。
+const MAX_PAYROLL_SELECTED_PEOPLE = 1000;
+// 載入中的空名單要是同一個參考：每次 render 都給新的 [] 會讓依賴它的 effect 每輪都重跑、再 setState，變成無限重繪。
+const NO_PAYROLL_WORKERS: PayrollWorkerCandidate[] = [];
 const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放" } as const;
 const PAYROLL_PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
@@ -74,10 +77,29 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const calculatePayroll = useHrWrite<{ run: PayrollRun }>();
   const closeRequestRef = useRef<(() => void) | null>(null);
   const supportWorkers = useHrQuery<{ workers: PayrollWorkerCandidate[] }>(periodKey ? `/payroll/workers?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/workers?periodKey=", Boolean(periodKey), { keepPreviousData: false });
-  const workerOptions = supportWorkers.data?.workers ?? [];
+  const workerOptions = supportWorkers.data?.workers ?? NO_PAYROLL_WORKERS;
   const peopleCount = employees.length + workerOptions.length;
   const selectedCount = selectionMode === "all" ? peopleCount : selectedEmployeeIds.length + selectedWorkerIds.length;
   const unselectedCount = Math.max(0, peopleCount - selectedCount);
+  const selectionLimitError = selectionMode === "selected" && (selectedEmployeeIds.length > MAX_PAYROLL_SELECTED_PEOPLE || selectedWorkerIds.length > MAX_PAYROLL_SELECTED_PEOPLE)
+    ? `正式員工與支援人員各最多指定 ${MAX_PAYROLL_SELECTED_PEOPLE} 位；若要納入全體，請按「全選」。`
+    : null;
+  /*
+   * 兩份名單的 options 與 value 都先記起來：人多的公司一份就是上千筆，
+   * 每次重繪都重新 map 一遍，下拉還得逐筆比對內容有沒有變。
+   */
+  const employeeOptions = useMemo(() => {
+    const selected = new Set(selectedEmployeeIds);
+    const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_PEOPLE;
+    return employees.map((employee) => ({ value: employee.userId, label: `${hrEmployeeLabel(employee)}・${employee.position || "未設定職位"}`, chipLabel: employee.legalName, disabled: atLimit && !selected.has(employee.userId) }));
+  }, [employees, selectionMode, selectedEmployeeIds]);
+  const employeeValue = useMemo(() => selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds, [employees, selectionMode, selectedEmployeeIds]);
+  const workerSelectOptions = useMemo(() => {
+    const selected = new Set(selectedWorkerIds);
+    const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_PEOPLE;
+    return workerOptions.map((worker) => ({ value: worker.id, label: worker.displayName, disabled: atLimit && !selected.has(worker.id) }));
+  }, [workerOptions, selectionMode, selectedWorkerIds]);
+  const workerValue = useMemo(() => selectionMode === "all" ? workerOptions.map((worker) => worker.id) : selectedWorkerIds, [workerOptions, selectionMode, selectedWorkerIds]);
 
   useEffect(() => {
     setSelectionMode("all");
@@ -89,30 +111,33 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     setSelectedWorkerIds((current) => current.filter((workerId) => availableWorkerIds.has(workerId)));
   }, [workerOptions]);
 
-  function setAllPeople(checked: boolean) {
-    setSelectionMode(checked ? "all" : "selected");
-    setSelectedEmployeeIds(checked ? employees.map((employee) => employee.userId) : []);
-    setSelectedWorkerIds(checked ? workerOptions.map((worker) => worker.id) : []);
+  /*
+   * 「全選」不能只靠把人一個一個加回去：指定名單有人數上限，超過上限的公司少選一個人之後，
+   * 剩下那位在清單裡會是停用的，加不回來。全體模式不送名單、也不受上限限制，所以要留一個入口回得去。
+   */
+  function selectAllPeople() {
+    setSelectionMode("all");
+    setSelectedEmployeeIds(employees.map((employee) => employee.userId));
+    setSelectedWorkerIds(workerOptions.map((worker) => worker.id));
   }
   function updateSelection(nextEmployeeIds: string[], nextWorkerIds: string[]) {
     setSelectedEmployeeIds(nextEmployeeIds);
     setSelectedWorkerIds(nextWorkerIds);
     setSelectionMode(nextEmployeeIds.length + nextWorkerIds.length === peopleCount && peopleCount > 0 ? "all" : "selected");
   }
-  function toggleEmployee(userId: string, checked: boolean) {
-    const currentEmployeeIds = selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds;
+  function updateEmployeeSelection(nextEmployeeIds: string[]) {
     const currentWorkerIds = selectionMode === "all" ? workerOptions.map((worker) => worker.id) : selectedWorkerIds;
-    updateSelection(checked ? [...new Set([...currentEmployeeIds, userId])] : currentEmployeeIds.filter((id) => id !== userId), currentWorkerIds);
+    updateSelection(nextEmployeeIds, currentWorkerIds);
   }
-  function toggleWorker(workerId: string, checked: boolean) {
+  function updateWorkerSelection(nextWorkerIds: string[]) {
     const currentEmployeeIds = selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds;
-    const currentWorkerIds = selectionMode === "all" ? workerOptions.map((worker) => worker.id) : selectedWorkerIds;
-    updateSelection(currentEmployeeIds, checked ? [...new Set([...currentWorkerIds, workerId])] : currentWorkerIds.filter((id) => id !== workerId));
+    updateSelection(currentEmployeeIds, nextWorkerIds);
   }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!periodKey) { setValidationError("請選擇計算月份。"); return; }
     if (selectionMode === "selected" && selectedCount === 0) { setValidationError("請至少選擇一位員工或支援人員。"); return; }
+    if (selectionLimitError) { setValidationError(selectionLimitError); return; }
     setValidationError(null);
     calculatePayroll.mutate({
       path: "/payroll/calculate",
@@ -137,40 +162,46 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     closeRequestRef={closeRequestRef}
     closeDisabled={calculatePayroll.isPending}
     formProps={{ onSubmit: submit }}
-    actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" loading={calculatePayroll.isPending} disabled={supportWorkers.isPending || Boolean(supportWorkers.error)}>開始試算</Button></>}
+    actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" loading={calculatePayroll.isPending} disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || supportWorkers.isPending || Boolean(supportWorkers.error) || Boolean(selectionLimitError)}>開始試算</Button></>}
   >
     <div className="form-grid two">
       <TextField type="month" label="計算月份" value={periodKey} required onChange={(event) => setPeriodKey(event.target.value)} />
       <TextField type="date" label="發薪日（選填）" value={payDate} onChange={(event) => setPayDate(event.target.value)} />
     </div>
     <div className="hr-payroll-employee-picker-section">
-      <div className="hr-payroll-picker-heading"><div><strong>試算人員</strong><small>每位人員會在發放紀錄建立一筆資料，可選全體或指定人員。</small></div><span className="hr-payroll-picker-count">已選 {selectedCount} 人</span></div>
-      <label className={`hr-payroll-employee-option hr-payroll-employee-option-all${selectionMode === "all" ? " selected" : ""}`}>
-        <input type="checkbox" checked={selectionMode === "all"} onChange={(event) => setAllPeople(event.target.checked)} />
-        <span><strong>全體人員</strong><small>納入全部符合資格的員工與本月有排班的支援人員</small></span>
-      </label>
+      <div className="hr-payroll-picker-heading"><div><strong>試算人員</strong><small>每位人員會在發放紀錄建立一筆資料；預設納入全部符合資格的員工與本月有排班的支援人員，可移除不試算的人。</small></div><span className="flex flex-none items-center gap-2"><Button variant="link" onClick={selectAllPeople} disabled={selectionMode === "all" || peopleCount === 0 || calculatePayroll.isPending}>全選</Button><span className="hr-payroll-picker-count">{selectionMode === "all" ? `全體 ${selectedCount} 人` : `已選 ${selectedCount} 人`}</span></span></div>
       <div className="hr-payroll-employee-picker" role="group" aria-label="選擇員工與支援人員">
         <div className="hr-payroll-picker-group">
           <strong className="hr-payroll-picker-group-title">正式員工</strong>
-          {employeesPending ? <p className="muted hr-payroll-picker-empty">正在載入符合資格的員工…</p> : employees.length ? employees.map((employee) => {
-            const checked = selectionMode === "all" || selectedEmployeeIds.includes(employee.userId);
-            return <label className={`hr-payroll-employee-option${checked ? " selected" : ""}`} key={`employee-${employee.userId}`}>
-              <input type="checkbox" checked={checked} onChange={(event) => toggleEmployee(employee.userId, event.target.checked)} />
-              <span><strong>{employee.legalName}</strong><small>{employee.employeeNumber}・{employee.position || "未設定職位"}</small></span>
-            </label>;
-          }) : <p className="muted hr-payroll-picker-empty">目前沒有符合資格的正式員工。</p>}
+          {employeesPending ? <p className="muted hr-payroll-picker-empty">正在載入符合資格的員工…</p> : employees.length ? <DropdownSelect
+            multiple
+            searchable
+            value={employeeValue}
+            options={employeeOptions}
+            placeholder="搜尋姓名或員工編號"
+            aria-label="選擇正式員工"
+            // 另一份名單還沒載完時不能動：這時從「全體」移除一個人，會把還沒出現的那一邊記成「一個都沒選」。
+            // 用 isLoading 不用 isPending：月份清空時查詢是停用的，isPending 會一直是 true，下拉就再也解不開。
+            // 載入失敗也算沒載完：重試成功之前名單一樣是空的。
+            disabled={calculatePayroll.isPending || supportWorkers.isLoading || Boolean(supportWorkers.error)}
+            onValueChange={updateEmployeeSelection}
+          /> : <p className="muted hr-payroll-picker-empty">目前沒有符合資格的正式員工。</p>}
         </div>
         <div className="hr-payroll-picker-group">
           <strong className="hr-payroll-picker-group-title">支援人員</strong>
-          {supportWorkers.isPending ? <p className="muted hr-payroll-picker-empty">正在載入本月已發布排班…</p> : workerOptions.length ? workerOptions.map((worker) => {
-            const checked = selectionMode === "all" || selectedWorkerIds.includes(worker.id);
-            return <label className={`hr-payroll-employee-option${checked ? " selected" : ""}`} key={`worker-${worker.id}`}>
-              <input type="checkbox" checked={checked} onChange={(event) => toggleWorker(worker.id, event.target.checked)} />
-              <span><strong>{worker.displayName}</strong><small>本月已發布排班</small></span>
-            </label>;
-          }) : <p className="muted hr-payroll-picker-empty">本月份沒有已發布排班的支援人員。</p>}
+          {!periodKey ? <p className="muted hr-payroll-picker-empty">選擇計算月份後會列出該月有排班的支援人員。</p> : supportWorkers.isPending ? <p className="muted hr-payroll-picker-empty">正在載入本月已發布排班…</p> : workerOptions.length ? <DropdownSelect
+            multiple
+            searchable
+            value={workerValue}
+            options={workerSelectOptions}
+            placeholder="搜尋支援人員"
+            aria-label="選擇支援人員"
+            disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError)}
+            onValueChange={updateWorkerSelection}
+          /> : <p className="muted hr-payroll-picker-empty">本月份沒有已發布排班的支援人員。</p>}
         </div>
       </div>
+      {selectionLimitError ? <Alert tone="warning">{selectionLimitError}</Alert> : null}
       {selectionMode === "selected" && unselectedCount > 0 ? <Alert tone="warning">未選的 {unselectedCount} 位人員不會納入這次試算。</Alert> : null}
     </div>
     {employeesError ? <Alert tone="danger">員工名單載入失敗：{employeesError.message}</Alert> : null}
@@ -190,7 +221,7 @@ export function HrPayrollSettlement() {
   const [showCalculationDialog, setShowCalculationDialog] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [approveOpen, setApproveOpen] = useState(false);
-  const employees = useHrQuery<EmployeeListResponse>(HR_ROSTER_PATH, canRead && permissions.has("hr:employee:read"));
+  const employees = useHrEmployeeRoster(canRead && permissions.has("hr:employee:read"));
   const records = useHrQuery<PayrollRecordsResponse>(`/payroll/records?page=${recordFilters.page}&pageSize=${recordFilters.pageSize}&search=${encodeURIComponent(recordFilters.search)}&periodKey=${encodeURIComponent(recordFilters.periodKey || "all")}&status=${recordFilters.status}&personKind=${recordFilters.personKind}&payBasis=${recordFilters.payBasis}`, canRead);
   const approvePayroll = useHrWrite<{ approved: number }>();
 

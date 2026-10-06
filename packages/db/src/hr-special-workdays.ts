@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { chunks, inJsonArray } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
@@ -103,7 +104,7 @@ export async function listHrSpecialWorkdayRules(db: Database) {
 async function currentSpecialWorkdayVersions(db: Database, ruleIds: string[]) {
   if (!ruleIds.length) return new Map<string, typeof hrSpecialWorkdayRuleVersions.$inferSelect>();
   const versions = await db.select().from(hrSpecialWorkdayRuleVersions)
-    .where(inArray(hrSpecialWorkdayRuleVersions.ruleId, ruleIds))
+    .where(inJsonArray(hrSpecialWorkdayRuleVersions.ruleId, ruleIds))
     .orderBy(desc(hrSpecialWorkdayRuleVersions.versionNumber));
   const current = new Map<string, typeof versions[number]>();
   for (const version of versions) {
@@ -123,7 +124,7 @@ export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?
     .where(and(periodStart ? sql`${hrSpecialWorkdayAssignments.workDate} >= ${periodStart}` : undefined, periodEnd ? sql`${hrSpecialWorkdayAssignments.workDate} < ${periodEnd}` : undefined)).orderBy(asc(hrSpecialWorkdayAssignments.workDate));
   const currentVersions = await currentSpecialWorkdayVersions(db, [...new Set(rows.map((row) => row.assignment.ruleId))]);
   const currentVersionIds = [...currentVersions.values()].map((version) => version.id);
-  const allowances = currentVersionIds.length ? await db.select({ ruleVersionId: hrSpecialWorkdayAllowances.ruleVersionId, itemName: hrSpecialWorkdayAllowances.itemName, unitAmountMinor: hrSpecialWorkdayAllowances.unitAmountMinor }).from(hrSpecialWorkdayAllowances).where(inArray(hrSpecialWorkdayAllowances.ruleVersionId, currentVersionIds)) : [];
+  const allowances = currentVersionIds.length ? await db.select({ ruleVersionId: hrSpecialWorkdayAllowances.ruleVersionId, itemName: hrSpecialWorkdayAllowances.itemName, unitAmountMinor: hrSpecialWorkdayAllowances.unitAmountMinor }).from(hrSpecialWorkdayAllowances).where(inJsonArray(hrSpecialWorkdayAllowances.ruleVersionId, currentVersionIds)) : [];
   return rows.map((row) => {
     const version = currentVersions.get(row.assignment.ruleId);
     const currentAllowances = allowances.filter((allowance) => allowance.ruleVersionId === version?.id);
@@ -266,6 +267,8 @@ export async function resolveHrSpecialWorkdayRuleId(db: Database, ruleVersionId:
   return version?.ruleId ?? ruleVersionId;
 }
 
+const SPECIAL_WORKDAY_ASSIGNMENT_BATCH_SIZE = 12;
+
 export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkdayAssignmentInput, actor: HrActor) {
   if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HrError(400, "請提供要套用的員工日期。 ");
   const ruleId = input.ruleId;
@@ -298,27 +301,32 @@ export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkda
   const employmentIds = [...new Set(preparedAssignments.map(({ item }) => item.employmentId).filter((id): id is string => Boolean(id)))];
   const workerIds = [...new Set(preparedAssignments.map(({ item }) => item.workerId).filter((id): id is string => Boolean(id)))];
   const [employmentRows, workerRows] = await Promise.all([
-    employmentIds.length ? db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(inArray(hrEmployments.id, employmentIds), sql`${hrEmployments.archivedAt} IS NULL`)) : Promise.resolve([]),
-    workerIds.length ? db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(inArray(hrScheduleWorkers.id, workerIds), eq(hrScheduleWorkers.active, 1))) : Promise.resolve([]),
+    employmentIds.length ? db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, employmentIds), sql`${hrEmployments.archivedAt} IS NULL`)) : Promise.resolve([]),
+    workerIds.length ? db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(inJsonArray(hrScheduleWorkers.id, workerIds), eq(hrScheduleWorkers.active, 1))) : Promise.resolve([]),
   ]);
   const activeEmploymentIds = new Set(employmentRows.map((row) => row.id));
   const activeWorkerIds = new Set(workerRows.map((row) => row.id));
   const minWorkDate = preparedAssignments.reduce((min, { item }) => item.workDate < min ? item.workDate : min, preparedAssignments[0]!.item.workDate);
   const maxWorkDate = preparedAssignments.reduce((max, { item }) => item.workDate > max ? item.workDate : max, preparedAssignments[0]!.item.workDate);
   const [existingEmploymentAssignments, existingWorkerAssignments] = await Promise.all([
-    employmentIds.length ? db.select({ employmentId: hrSpecialWorkdayAssignments.employmentId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inArray(hrSpecialWorkdayAssignments.employmentId, employmentIds), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)) : Promise.resolve([]),
-    workerIds.length ? db.select({ workerId: hrSpecialWorkdayAssignments.workerId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inArray(hrSpecialWorkdayAssignments.workerId, workerIds), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)) : Promise.resolve([]),
+    employmentIds.length ? db.select({ employmentId: hrSpecialWorkdayAssignments.employmentId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inJsonArray(hrSpecialWorkdayAssignments.employmentId, employmentIds), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)) : Promise.resolve([]),
+    workerIds.length ? db.select({ workerId: hrSpecialWorkdayAssignments.workerId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(and(inJsonArray(hrSpecialWorkdayAssignments.workerId, workerIds), sql`${hrSpecialWorkdayAssignments.workDate} >= ${minWorkDate}`, sql`${hrSpecialWorkdayAssignments.workDate} <= ${maxWorkDate}`)) : Promise.resolve([]),
   ]);
   const existingKeys = new Set([
     ...existingEmploymentAssignments.map((row) => specialWorkdayAssignmentKey(row.employmentId, null, row.workDate)),
     ...existingWorkerAssignments.map((row) => specialWorkdayAssignmentKey(null, row.workerId, row.workDate)),
   ]);
-  const statements = [];
+  const assignmentRows = [];
   for (const { item, inputKey, allowanceSnapshot } of preparedAssignments) {
     if (item.employmentId ? !activeEmploymentIds.has(item.employmentId) : !activeWorkerIds.has(item.workerId!)) throw new HrError(400, item.employmentId ? "員工目前不是有效員工。 " : "支援人員在套用日期不是啟用狀態。 ");
     if (existingKeys.has(inputKey)) throw new HrError(409, "同一人員同一天已有特殊上班日規則。 ");
-    statements.push(db.insert(hrSpecialWorkdayAssignments).values({ id: crypto.randomUUID(), ruleId, employmentId: item.employmentId ?? null, workerId: item.workerId ?? null, workDate: item.workDate, allowanceSnapshotJson: JSON.stringify(allowanceSnapshot), allowanceQuantity: item.allowanceQuantity ?? 0, appliedBy: actor.id }));
+    assignmentRows.push({ id: crypto.randomUUID(), ruleId, employmentId: item.employmentId ?? null, workerId: item.workerId ?? null, workDate: item.workDate, allowanceSnapshotJson: JSON.stringify(allowanceSnapshot), allowanceQuantity: item.allowanceQuantity ?? 0, appliedBy: actor.id });
   }
+  /*
+   * 一列一句的話，一千筆套用就是一千句，貼著 D1 每次請求的查詢數上限。改成多列寫入：
+   * 每列 8 個綁定參數，一句最多 100 個，所以一批 12 列。
+   */
+  const statements: unknown[] = chunks(assignmentRows, SPECIAL_WORKDAY_ASSIGNMENT_BATCH_SIZE).map((batch) => db.insert(hrSpecialWorkdayAssignments).values(batch));
   statements.push(db.insert(activityEvents).values(activityRow({ entityType: "hr_personnel", entityId: ruleId, source: "hr", eventType: "special_workday_assigned", summary: "特殊上班日套用", actor, payload: { count: input.assignments.length } })));
   try {
     await db.batch(statements as never);
@@ -336,8 +344,8 @@ export async function listHrSpecialWorkdaysForPayroll(
   target?: { employmentIds?: string[]; workerIds?: string[] },
 ) {
   const targetConditions = [
-    target?.employmentIds?.length ? inArray(hrSpecialWorkdayAssignments.employmentId, target.employmentIds) : undefined,
-    target?.workerIds?.length ? inArray(hrSpecialWorkdayAssignments.workerId, target.workerIds) : undefined,
+    target?.employmentIds?.length ? inJsonArray(hrSpecialWorkdayAssignments.employmentId, target.employmentIds) : undefined,
+    target?.workerIds?.length ? inJsonArray(hrSpecialWorkdayAssignments.workerId, target.workerIds) : undefined,
   ].filter((condition): condition is NonNullable<typeof condition> => Boolean(condition));
   const targetCondition = target ? targetConditions.length ? or(...targetConditions) : sql`0` : undefined;
   const assignmentRows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleId: hrSpecialWorkdayAssignments.ruleId })
@@ -352,12 +360,12 @@ export async function listHrSpecialWorkdaysForPayroll(
   const ruleIds = [...new Set(assignmentRows.map((row) => row.ruleId))];
   const [currentVersions, rules] = await Promise.all([
     currentSpecialWorkdayVersions(db, ruleIds),
-    db.select({ id: hrSpecialWorkdayRules.id, name: hrSpecialWorkdayRules.name }).from(hrSpecialWorkdayRules).where(inArray(hrSpecialWorkdayRules.id, ruleIds)),
+    db.select({ id: hrSpecialWorkdayRules.id, name: hrSpecialWorkdayRules.name }).from(hrSpecialWorkdayRules).where(inJsonArray(hrSpecialWorkdayRules.id, ruleIds)),
   ]);
   const currentVersionIds = [...currentVersions.values()].map((version) => version.id);
   const [allowances, overtimeRules] = currentVersionIds.length ? await Promise.all([
-    db.select().from(hrSpecialWorkdayAllowances).where(inArray(hrSpecialWorkdayAllowances.ruleVersionId, currentVersionIds)),
-    db.select().from(hrSpecialWorkdayOvertimeRules).where(inArray(hrSpecialWorkdayOvertimeRules.ruleVersionId, currentVersionIds)).orderBy(asc(hrSpecialWorkdayOvertimeRules.fromHalfHours)),
+    db.select().from(hrSpecialWorkdayAllowances).where(inJsonArray(hrSpecialWorkdayAllowances.ruleVersionId, currentVersionIds)),
+    db.select().from(hrSpecialWorkdayOvertimeRules).where(inJsonArray(hrSpecialWorkdayOvertimeRules.ruleVersionId, currentVersionIds)).orderBy(asc(hrSpecialWorkdayOvertimeRules.fromHalfHours)),
   ]) : [[], []];
   const allowancesByVersion = new Map<string, typeof allowances>();
   for (const allowance of allowances) allowancesByVersion.set(allowance.ruleVersionId, [...(allowancesByVersion.get(allowance.ruleVersionId) ?? []), allowance]);

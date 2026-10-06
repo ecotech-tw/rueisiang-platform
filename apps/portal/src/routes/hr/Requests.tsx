@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { useSession } from "../../auth/session.js";
+import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
-import { useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeRequest, type HrRequestCenterResponse } from "./api.js";
+import { Alert, Button, Dialog, Field, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { hrEmployeeLabel, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 type RequestKind = "leave" | "overtime" | "clock_correction";
@@ -33,9 +34,34 @@ const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
   overtime: "加班",
   clock_correction: "補打卡",
 };
+const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
+  draft: "草稿",
+  pending: "待審核",
+  approved: "已核准",
+  rejected: "已駁回",
+  cancelled: "已取消",
+};
+const REQUEST_PAGE_SIZES = [10, 25, 50, 100] as const;
+
+type RequestStatusFilter = "all" | RequestStatus;
+interface RequestFilters {
+  page: number;
+  pageSize: number;
+  search: string;
+  kind: HistoryKind;
+  status: RequestStatusFilter;
+}
+
+const DEFAULT_REQUEST_FILTERS: RequestFilters = {
+  page: 1,
+  pageSize: 25,
+  search: "",
+  kind: "all",
+  status: "all",
+};
 
 function statusLabel(status: RequestStatus) {
-  return status === "pending" ? "待審核" : status === "approved" ? "已核准" : status === "rejected" ? "已駁回" : status === "cancelled" ? "已取消" : "草稿";
+  return REQUEST_STATUS_LABEL[status];
 }
 
 function statusTone(status: RequestStatus): "success" | "warning" | "danger" | "neutral" {
@@ -68,7 +94,50 @@ function leaveDisplayValue(value: string, fallbackDate: string) {
 const LEAVE_UNIT_MINUTES = 30;
 const MAX_LEAVE_MINUTES = 31 * 24 * 60;
 
+function toRequestRow(row: HrRequestCenterRow): RequestRow {
+  if (row.kind === "leave") {
+    return {
+      id: row.id,
+      kind: row.kind,
+      employeeName: row.employeeName ?? "未命名員工",
+      employeeNumber: row.employeeNumber ?? "—",
+      period: `${leaveDisplayValue(row.startsAt ?? "", row.startsOn ?? "—")}～${leaveDisplayValue(row.endsAt ?? "", row.endsOn ?? "—")}`,
+      detail: `${row.leaveType ?? "請假"}・${((row.durationMinutes ?? 0) / 60).toFixed(1)} 小時`,
+      reason: row.reason || "—",
+      status: row.status,
+      createdAt: row.createdAt,
+    };
+  }
+  if (row.kind === "overtime") {
+    return {
+      id: row.id,
+      kind: row.kind,
+      employeeName: row.employeeName ?? "未命名員工",
+      employeeNumber: row.employeeNumber ?? "—",
+      period: `${taipeiDisplayValue(row.requestedStart ?? "")}～${taipeiDisplayValue(row.requestedEnd ?? "")}`,
+      detail: row.settlementKind === "pay" ? "付薪" : "補休",
+      reason: row.reason || "—",
+      status: row.status,
+      createdAt: row.createdAt,
+      requestedStart: row.requestedStart ?? undefined,
+      requestedEnd: row.requestedEnd ?? undefined,
+    };
+  }
+  return {
+    id: row.id,
+    kind: row.kind,
+    employeeName: row.employeeName ?? "未命名員工",
+    employeeNumber: row.employeeNumber ?? "—",
+    period: row.correctionDate ?? "—",
+    detail: row.requestedEventKind === "clock_in" ? `補上班 ${taipeiDisplayValue(row.requestedAt ?? "")}` : `補下班 ${taipeiDisplayValue(row.requestedAt ?? "")}`,
+    reason: row.reason || "—",
+    status: row.status,
+    createdAt: row.createdAt,
+  };
+}
+
 function toRequestRows(data: HrRequestCenterResponse | undefined): RequestRow[] {
+  if (data?.rows) return data.rows.map(toRequestRow);
   const leaves = (data?.leaves ?? []).map(({ request, employeeName, employeeNumber }: HrLeaveRequest) => ({
     id: request.id,
     kind: "leave" as const,
@@ -113,30 +182,33 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
   const [actualEnd, setActualEnd] = useState(() => row.kind === "overtime" ? taipeiInputValue(row.requestedEnd ?? "") : "");
   const review = useHrWrite();
   const closeRequestRef = useRef<(() => void) | null>(null);
-  const isApprovedLeave = row.kind === "leave" && row.status === "approved";
-  const canCancel = row.kind !== "clock_correction" && (row.status === "pending" || isApprovedLeave);
+  const isApprovedCancellable = (row.kind === "leave" || row.kind === "overtime") && row.status === "approved";
+  const canCancel = row.kind !== "clock_correction" && (row.status === "pending" || isApprovedCancellable);
   function decide(decision: "approved" | "rejected" | "cancelled") {
     if (decision === "rejected" && !comment.trim()) return;
-    const path = isApprovedLeave ? `/requests/leave/${row.id}/cancel` : row.kind === "leave" ? `/requests/leave/${row.id}/review` : row.kind === "overtime" ? `/overtime/${row.id}/review` : `/me/form-requests/${row.id}/review`;
-    const values: Record<string, unknown> = isApprovedLeave ? {} : { decision, comment };
+    const isCancellation = decision === "cancelled";
+    const path = isCancellation
+      ? row.kind === "leave" ? `/requests/leave/${row.id}/cancel` : `/requests/overtime/${row.id}/cancel`
+      : row.kind === "leave" ? `/requests/leave/${row.id}/review` : row.kind === "overtime" ? `/overtime/${row.id}/review` : `/me/form-requests/${row.id}/review`;
+    const values: Record<string, unknown> = isCancellation ? {} : { decision, comment };
     if (row.kind === "overtime" && decision === "approved") { values.actualStart = actualStart; values.actualEnd = actualEnd; }
     review.mutate({ path, method: "POST", values }, { onSuccess: () => { onDone(); (closeRequestRef.current ?? onClose)(); } });
   }
   return <Dialog
-    title={isApprovedLeave ? "取消已核准請假" : `審核${REQUEST_KIND_LABEL[row.kind]}申請`}
+    title={isApprovedCancellable ? `取消已核准${REQUEST_KIND_LABEL[row.kind]}` : `審核${REQUEST_KIND_LABEL[row.kind]}申請`}
     titleMeta={`${row.employeeName}・${row.employeeNumber}`}
     onClose={onClose}
     closeRequestRef={closeRequestRef}
     closeDisabled={review.isPending}
     actions={<>
       <Button variant="secondary" onClick={onClose}>關閉</Button>
-      {canCancel ? <Button variant="secondary" loading={review.isPending} onClick={() => decide("cancelled")}>{isApprovedLeave ? "取消已核准請假" : "取消申請"}</Button> : null}
+      {canCancel ? <Button variant="secondary" loading={review.isPending} onClick={() => decide("cancelled")}>{isApprovedCancellable ? `取消已核准${REQUEST_KIND_LABEL[row.kind]}` : "取消申請"}</Button> : null}
       {row.status === "pending" ? <><Button variant="danger" loading={review.isPending} onClick={() => decide("rejected")} disabled={!comment.trim()}>駁回</Button><Button loading={review.isPending} onClick={() => decide("approved")}>核准</Button></> : null}
     </>}
   >
     <dl><dt>申請期間</dt><dd>{row.period}</dd><dt>申請內容</dt><dd>{row.detail}</dd><dt>原因</dt><dd>{row.reason}</dd></dl>
-    {row.kind === "overtime" ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><input type="datetime-local" step="60" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><input type="datetime-local" step="60" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
-    <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>
+    {row.kind === "overtime" && !isApprovedCancellable ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><input type="datetime-local" step="60" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><input type="datetime-local" step="60" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
+    {isApprovedCancellable ? <p className="muted field-note">取消後這筆{REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。</p> : <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
     {review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
   </Dialog>;
 }
@@ -155,7 +227,7 @@ function LeaveForm({ employees, leaveTypes, onClose, onDone, onPendingChange }: 
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.legalName}（${employee.employeeNumber}）` }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
   const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : ""}` }))];
   const leaveDuration = useHrLeaveDuration(employeeUserId && startsAt && endsAt ? { employeeUserId, startsAt, endsAt } : null);
   const durationMinutes = leaveDuration.data?.durationMinutes ?? null;
@@ -174,7 +246,7 @@ function LeaveForm({ employees, leaveTypes, onClose, onDone, onPendingChange }: 
     });
   }
   return <form className="hr-request-form" onSubmit={submit}>
-    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
+    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} searchable disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
     <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length || write.isPending} onChange={(event) => setLeaveTypeId(event.target.value)} />
     <div className="form-grid two"><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} disabled={write.isPending} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} disabled={write.isPending} onChange={(event) => setEndsAt(event.target.value)} /></div>
     <p className="muted field-note">系統依工作日、班表與休息時間計算請假時數：{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</p>
@@ -192,7 +264,7 @@ function OvertimeForm({ employees, onClose, onDone, onPendingChange }: { employe
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: `${employee.legalName}（${employee.employeeNumber}）` }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!employeeUserId || !requestedStart || !requestedEnd) return;
@@ -207,7 +279,7 @@ function OvertimeForm({ employees, onClose, onDone, onPendingChange }: { employe
     });
   }
   return <form className="hr-request-form" onSubmit={submit}>
-    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
+    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} searchable disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
     <div className="form-grid two"><TextField label="加班開始" type="datetime-local" required value={requestedStart} disabled={write.isPending} onChange={(event) => setRequestedStart(event.target.value)} /><TextField label="加班結束" type="datetime-local" required min={requestedStart} value={requestedEnd} disabled={write.isPending} onChange={(event) => setRequestedEnd(event.target.value)} /></div>
     <SelectField label="結算方式" required value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={write.isPending} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} />
     <Field label="加班原因（選填）"><textarea rows={4} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
@@ -239,32 +311,85 @@ export function HrRequestCenter() {
   const navigate = useNavigate();
   const [createOpen, setCreateOpen] = useState(false);
   const [initialKind] = useState<"leave" | "overtime">(searchParams.get("type") === "overtime" ? "overtime" : "leave");
-  const [historyKind, setHistoryKind] = useState<HistoryKind>("all");
+  const [filters, setFilters] = useState<RequestFilters>(DEFAULT_REQUEST_FILTERS);
+  const [showFilters, setShowFilters] = useState(false);
   const [reviewing, setReviewing] = useState<RequestRow | null>(null);
   const employees = useHrQuery<EmployeePageResponse>("/requests/employees", canAccess, { keepPreviousData: false });
   const leaveTypes = useHrQuery<{ leaveTypes: LeaveType[] }>("/requests/leave-types", canAccess, { keepPreviousData: false });
-  const requests = useHrQuery<HrRequestCenterResponse>("/requests", canAccess, { keepPreviousData: false });
+  const requestPath = useMemo(() => {
+    const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize) });
+    const search = filters.search.trim();
+    if (search) params.set("search", search);
+    if (filters.kind !== "all") params.set("kind", filters.kind);
+    if (filters.status !== "all") params.set("status", filters.status);
+    return `/requests?${params.toString()}`;
+  }, [filters.kind, filters.page, filters.pageSize, filters.search, filters.status]);
+  const requests = useHrQuery<HrRequestCenterResponse>(requestPath, canAccess);
   const rows = useMemo(() => toRequestRows(requests.data), [requests.data]);
-  const filteredRows = historyKind === "all" ? rows : rows.filter((row) => row.kind === historyKind);
+  const filteredRows = useMemo(() => {
+    if (requests.data?.pagination) return rows;
+    const term = filters.search.trim().toLocaleLowerCase("zh-TW");
+    return rows.filter((row) => {
+      if (filters.kind !== "all" && row.kind !== filters.kind) return false;
+      if (filters.status !== "all" && row.status !== filters.status) return false;
+      if (!term) return true;
+      return [
+        REQUEST_KIND_LABEL[row.kind],
+        row.employeeName,
+        row.employeeNumber,
+        row.period,
+        row.detail,
+        row.reason,
+        statusLabel(row.status),
+      ].some((value) => value.toLocaleLowerCase("zh-TW").includes(term));
+    });
+  }, [filters.kind, filters.search, filters.status, requests.data?.pagination, rows]);
+  const isServerPaged = Boolean(requests.data?.pagination);
+  const total = isServerPaged ? requests.data?.pagination?.total ?? 0 : filteredRows.length;
+  const totalPages = Math.max(1, Math.ceil(total / filters.pageSize));
+  const page = requests.data?.pagination?.page ?? Math.min(filters.page, totalPages);
+  const visibleRows = isServerPaged ? rows : filteredRows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
+  const loadedPage = requests.data?.pagination?.page;
+  const activeFilterCount = [filters.kind, filters.status].filter((value) => value !== "all").length;
+
+  useEffect(() => {
+    if (!loadedPage) return;
+    setFilters((current) => current.page === loadedPage ? current : { ...current, page: loadedPage });
+  }, [loadedPage]);
 
   if (!canAccess) return <Alert tone="danger">你沒有檢視 HR 申請的權限。</Alert>;
   if (employees.isPending || leaveTypes.isPending || requests.isPending) return <HrPageSkeleton variant="table" />;
 
+  function updateFilters(patch: Partial<RequestFilters>) {
+    setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
+  }
+
   function finishCreate() {
     setCreateOpen(false);
-    setHistoryKind("all");
+    setFilters({ ...DEFAULT_REQUEST_FILTERS });
     void navigate("/hr/requests", { replace: true });
     void requests.refetch();
   }
 
-  return <div className="page hr-request-page">
+  return <div className="page fills hr-request-page">
     <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" className="add-action" onClick={() => setCreateOpen(true)}>新增申請</Button>} />
     <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登目前會保存「已核准」狀態；員工前台上線後則由主管或 HR 進行審核。</Alert>
     {employees.error || leaveTypes.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message}</Alert> : null}
-    <Panel className="hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可直接在此處理。" actions={<div className="hr-request-history-filter" role="group" aria-label="申請類型篩選">{(["all", "leave", "overtime", "clock_correction"] as const).map((value) => <button type="button" key={value} className={historyKind === value ? "selected" : ""} aria-pressed={historyKind === value} onClick={() => setHistoryKind(value)}>{value === "all" ? "全部" : REQUEST_KIND_LABEL[value]}</button>)}</div>}>
+    <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可直接在此處理。">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
-      <div className="table-scroll"><table className="data-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{filteredRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工">{row.employeeName}<small className="muted">{row.employeeNumber}</small></td><td data-label="期間">{row.period}</td><td data-label="內容">{row.detail}</td><td data-label="原因">{row.reason}</td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : row.kind === "leave" && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消請假</Button> : "—"}</td></tr>)}</tbody></table></div>
-      {!filteredRows.length ? <p className="empty-state">目前沒有符合條件的申請紀錄。</p> : null}
+      <form className="admin-form toolbar hr-request-toolbar" onSubmit={(event) => event.preventDefault()}>
+        <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
+        <Button variant="secondary" icon="filter" className={`filter-toggle${showFilters ? " active" : ""}`} aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選{activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}</Button>
+        {activeFilterCount ? <Button variant="link" onClick={() => updateFilters({ kind: "all", status: "all" })}>清除篩選</Button> : null}
+        <div className={`filter-fields${showFilters ? " open" : ""}`}>
+          <FilterSelect label="申請類型" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
+          <FilterSelect label="狀態" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
+        </div>
+      </form>
+      {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
+      <div className={`table-scroll${requests.isFetching ? " is-refreshing" : ""}`}><table className="data-table hr-request-table"><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td><td data-label="期間">{row.period}</td><td data-label="內容"><Tooltip label={row.detail} focusable={false}><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td><td data-label="原因"><Tooltip label={row.reason} focusable={false}><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" onClick={() => setReviewing(row)}>審核</Button> : (row.kind === "leave" || row.kind === "overtime") && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消{REQUEST_KIND_LABEL[row.kind]}</Button> : "—"}</td></tr>)}</tbody></table></div>
+      {requests.data && !visibleRows.length ? <p className="muted table-note">{total ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</p> : null}
+      {total ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => setFilters((current) => ({ ...current, page: nextPage }))} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
     {reviewing ? <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}

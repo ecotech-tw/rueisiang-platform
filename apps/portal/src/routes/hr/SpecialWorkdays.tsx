@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Panel, PageHeader, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Dialog, DropdownSelect, Panel, PageHeader, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useHrEmployeeRoster, useHrQuery, useHrWrite, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -202,6 +202,11 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
     ...(employees.data?.employees ?? []).flatMap((employee) => employee.employmentId ? [{ key: `employee:${employee.employmentId}`, kind: "employee" as const, employmentId: employee.employmentId, displayName: employee.legalName || employee.displayName, secondary: `${employee.employeeNumber}・${employee.position || "未設定職位"}` }] : []),
     ...(workers.data?.workers ?? []).filter((worker) => Boolean(worker.active)).map((worker) => ({ key: `worker:${worker.id}`, kind: "worker" as const, workerId: worker.id, displayName: worker.displayName, secondary: "支援人員" })),
   ], [employees.data, workers.data]);
+  const targetOptions = useMemo(() => targets.map((target) => ({
+    value: target.key,
+    label: target.kind === "employee" ? `${target.secondary}・${target.displayName}` : `${target.displayName}・${target.secondary}`,
+    chipLabel: target.displayName,
+  })), [targets]);
   const selectedTargets = useMemo(() => {
     const selected = new Set(selectedTargetKeys);
     return targets.filter((target) => selected.has(target.key));
@@ -218,7 +223,6 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
     }
     setAllowanceQuantities(Object.fromEntries(selectedVersion.allowances.map((allowance) => [allowance.id, "0"])));
   }, [selectedVersion?.id]);
-  const toggleTarget = (key: string, checked: boolean) => setSelectedTargetKeys((current) => checked ? current.includes(key) ? current : [...current, key] : current.filter((item) => item !== key));
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (!selectedRule || !selectedVersion || !ruleId) { setMessage("請先選擇可套用的有效規則。"); return; }
@@ -251,13 +255,16 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
         <span><strong>全部符合資格的人員</strong><small>包含正式員工與啟用中的支援人員</small></span>
       </label>
       <div className="hr-payroll-employee-picker special-workday-target-picker" role="group" aria-label="選擇套用人員">
-        {employees.isPending || workers.isPending ? <p className="muted hr-payroll-picker-empty">正在載入人員名單…</p> : targets.length ? targets.map((target) => {
-          const checked = selectedTargetKeys.includes(target.key);
-          return <label className={`hr-payroll-employee-option${checked ? " selected" : ""}`} key={target.key}>
-            <input type="checkbox" checked={checked} disabled={save.isPending} onChange={(event) => toggleTarget(target.key, event.target.checked)} />
-            <span><strong>{target.displayName}</strong><small>{target.secondary}{target.kind === "employee" ? "・正式員工" : ""}</small></span>
-          </label>;
-        }) : <p className="muted hr-payroll-picker-empty">目前沒有可套用的人員。</p>}
+        {employees.isPending || workers.isPending ? <p className="muted hr-payroll-picker-empty">正在載入人員名單…</p> : targets.length ? <DropdownSelect
+          multiple
+          searchable
+          value={selectedTargetKeys}
+          options={targetOptions}
+          placeholder="搜尋姓名或員工編號"
+          aria-label="選擇套用人員"
+          disabled={save.isPending}
+          onValueChange={setSelectedTargetKeys}
+        /> : <p className="muted hr-payroll-picker-empty">目前沒有可套用的人員。</p>}
       </div>
     </div>
     <div className="form-grid two"><TextField label="開始日期" type="date" required value={startDate} disabled={save.isPending} onChange={(event) => setStartDate(event.target.value)} /><TextField label="結束日期（含）" type="date" min={startDate} required value={endDate} disabled={save.isPending} onChange={(event) => setEndDate(event.target.value)} /></div>

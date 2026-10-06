@@ -1,5 +1,6 @@
-import { and, asc, count, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
 import { calculateHrLeaveWorkdayBreakdown, type HrLeaveWorkdayBreakdown } from "./hr-leave.js";
@@ -541,9 +542,9 @@ async function listHrInsuranceContributionRulesForPeriod(db: Database, period: {
 async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapshotInput) {
   const employmentIds = input.employmentIds.length ? input.employmentIds : ["__none__"];
   const workerIds = input.workerIds.length ? input.workerIds : ["__none__"];
-  const employmentFilter = inArray(hrEmployments.id, employmentIds);
-  const workerFilter = inArray(hrScheduleWorkers.id, workerIds);
-  const employmentValues = sql.join(employmentIds.map((id) => sql`${id}`), sql`, `);
+  const employmentFilter = inJsonArray(hrEmployments.id, employmentIds);
+  const workerFilter = inJsonArray(hrScheduleWorkers.id, workerIds);
+  const employmentValues = jsonArrayValues(employmentIds);
   /*
    * 已解除的版本不是薪資的來源，它的店與排班也不該進快照：那些 Scope 的出金事後變動時，
    * 會把一個跟這次薪資無關的異動當成「來源已變更」，擋住結帳並逼人重新試算。
@@ -568,10 +569,10 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
         AND latest_schedule_version.status = 'published')`;
   const selectedScheduleVersions = sql`EXISTS (SELECT 1 FROM hr_schedule_entries AS selected_entry
       WHERE selected_entry.schedule_version_id = hr_schedule_versions.id
-        AND selected_entry.employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}))
+        AND selected_entry.employment_id IN (${jsonArrayValues(employmentIds)}))
     OR EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS selected_worker_entry
       WHERE selected_worker_entry.schedule_version_id = hr_schedule_versions.id
-        AND selected_worker_entry.worker_id IN (${sql.join(workerIds.map((id) => sql`${id}`), sql`, `)}))`;
+        AND selected_worker_entry.worker_id IN (${jsonArrayValues(workerIds)}))`;
   const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({
       id: hrEmployments.id,
@@ -580,31 +581,31 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     }).from(hrEmployments).leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id)).where(employmentFilter),
     db.select({ userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, supervisorUserId: hrEmployments.supervisorUserId, revision: hrEmployments.revision, updatedAt: hrEmployments.updatedAt }).from(hrEmployments).where(sql`${hrEmployments.id} IN (${employmentValues})`),
     db.select({ id: users.id, email: users.email, googleName: users.googleName, displayName: users.displayName, status: users.status, updatedAt: users.updatedAt }).from(users).where(sql`${users.id} IN (SELECT employee_user_id FROM hr_employments WHERE id IN (${employmentValues}))`),
-    db.select().from(hrEmploymentAttendanceSettings).where(inArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
+    db.select().from(hrEmploymentAttendanceSettings).where(inJsonArray(hrEmploymentAttendanceSettings.employmentId, employmentIds)),
     db.select().from(hrCalendarDays).where(sql`${hrCalendarDays.date} >= ${input.period.start} AND ${hrCalendarDays.date} < ${input.period.end}`),
     db.select().from(hrCalendarDayScopes).where(sql`${hrCalendarDayScopes.date} >= ${input.period.start} AND ${hrCalendarDayScopes.date} < ${input.period.end}`),
-    db.select().from(hrCompensationVersions).where(and(inArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
-    db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
-    db.select().from(hrInsuranceVersions).where(and(inArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} < ${input.period.end}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} >= ${input.period.start})`)),
+    db.select().from(hrCompensationVersions).where(and(inJsonArray(hrCompensationVersions.employmentId, employmentIds), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
+    db.select().from(hrCompensationItems).where(sql`${hrCompensationItems.compensationVersionId} IN (SELECT id FROM hr_compensation_versions WHERE employment_id IN (${jsonArrayValues(employmentIds)}) AND voided_at IS NULL AND valid_from < ${input.period.end} AND (valid_to IS NULL OR valid_to > ${input.period.start}))`),
+    db.select().from(hrInsuranceVersions).where(and(inJsonArray(hrInsuranceVersions.employmentId, employmentIds), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} < ${input.period.end}`, sql`(${hrInsuranceVersions.validTo} IS NULL OR ${hrInsuranceVersions.validTo} >= ${input.period.start})`)),
     listHrInsuranceContributionRulesForPeriod(db, input.period),
-    db.select().from(hrLeaveRequests).where(and(eq(hrLeaveRequests.status, "approved"), inArray(hrLeaveRequests.employmentId, employmentIds), sql`${hrLeaveRequests.startsOn} < ${input.period.end}`, sql`${hrLeaveRequests.endsOn} > ${input.period.start}`)),
+    db.select().from(hrLeaveRequests).where(and(eq(hrLeaveRequests.status, "approved"), inJsonArray(hrLeaveRequests.employmentId, employmentIds), sql`${hrLeaveRequests.startsOn} < ${input.period.end}`, sql`${hrLeaveRequests.endsOn} > ${input.period.start}`)),
     db.select().from(hrAnnualLeaveEntitlements).where(sql`${hrAnnualLeaveEntitlements.employmentId} IN (${employmentValues})`),
     db.select().from(hrAnnualLeaveLedger).where(sql`${hrAnnualLeaveLedger.entitlementId} IN (SELECT id FROM hr_annual_leave_entitlements WHERE employment_id IN (${employmentValues}))`),
-    db.select().from(hrMonthlyLeaveEntries).where(and(inArray(hrMonthlyLeaveEntries.employmentId, employmentIds), sql`${hrMonthlyLeaveEntries.leaveDate} >= ${input.period.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${input.period.end}`)),
-    db.select().from(hrMonthlyHourlyEntries).where(and(inArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
-    db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), eq(hrOvertimeRequests.settlementKind, "pay"), inArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
-    db.select().from(hrClockEvents).where(and(inArray(hrClockEvents.employmentId, employmentIds), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
+    db.select().from(hrMonthlyLeaveEntries).where(and(inJsonArray(hrMonthlyLeaveEntries.employmentId, employmentIds), sql`${hrMonthlyLeaveEntries.leaveDate} >= ${input.period.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${input.period.end}`)),
+    db.select().from(hrMonthlyHourlyEntries).where(and(inJsonArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
+    db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), eq(hrOvertimeRequests.settlementKind, "pay"), inJsonArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
+    db.select().from(hrClockEvents).where(and(inJsonArray(hrClockEvents.employmentId, employmentIds), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
     db.select().from(hrScheduleVersions).where(and(latestPublishedSchedule, selectedScheduleVersions)),
     db.select({ entry: hrScheduleEntries }).from(hrScheduleEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
-      .where(and(latestPublishedSchedule, inArray(hrScheduleEntries.employmentId, employmentIds), sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`)),
+      .where(and(latestPublishedSchedule, inJsonArray(hrScheduleEntries.employmentId, employmentIds), sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`)),
     db.select({ entry: hrScheduleWorkerEntries }).from(hrScheduleWorkerEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
-      .where(and(latestPublishedSchedule, inArray(hrScheduleWorkerEntries.workerId, workerIds), sql`${hrScheduleWorkerEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${input.period.end}`)),
+      .where(and(latestPublishedSchedule, inJsonArray(hrScheduleWorkerEntries.workerId, workerIds), sql`${hrScheduleWorkerEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${input.period.end}`)),
     db.select().from(hrScheduleWorkers).where(workerFilter),
-    db.select().from(hrWorkerCompensationVersions).where(and(inArray(hrWorkerCompensationVersions.workerId, workerIds), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
+    db.select().from(hrWorkerCompensationVersions).where(and(inJsonArray(hrWorkerCompensationVersions.workerId, workerIds), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
     listHrSpecialWorkdaysForPayroll(db, input.period.start, input.period.end, { employmentIds: input.employmentIds, workerIds: input.workerIds }),
-    db.select().from(hrBonusPolicyMembers).where(and(inArray(hrBonusPolicyMembers.employmentId, employmentIds), sql`${hrBonusPolicyMembers.validFrom} < ${input.period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.period.start})`)),
+    db.select().from(hrBonusPolicyMembers).where(and(inJsonArray(hrBonusPolicyMembers.employmentId, employmentIds), sql`${hrBonusPolicyMembers.validFrom} < ${input.period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.period.start})`)),
     db.select().from(hrBonusPolicyVersions).where(sql`${hrBonusPolicyVersions.id} IN (${relevantBonusVersionIds})`),
     db.select().from(hrBonusPolicies).where(sql`${hrBonusPolicies.id} IN (SELECT policy_id FROM hr_bonus_policy_versions WHERE id IN (${relevantBonusVersionIds}))`),
     db.select().from(hrBonusPolicyVersionScopes).where(sql`${hrBonusPolicyVersionScopes.policyVersionId} IN (${relevantBonusVersionIds})`),
@@ -617,8 +618,8 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
       .where(and(eq(hrScheduleVersions.status, "published"), sql`${hrScheduleEntries.employmentId} IN (SELECT employment_id FROM hr_bonus_policy_members WHERE policy_version_id IN (${relevantBonusVersionIds}))`, sql`${hrScheduleEntries.workDate} >= ${sourcePeriod.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`))
       .orderBy(asc(hrScheduleEntries.employmentId), asc(hrScheduleEntries.workDate), asc(hrScheduleEntries.scopeId)),
-    db.select().from(hrPayrollAdjustments).where(and(eq(hrPayrollAdjustments.effectivePeriodKey, input.period.periodKey), inArray(hrPayrollAdjustments.employmentId, employmentIds))),
-    db.select().from(hrPayrollAdjustmentItems).where(sql`${hrPayrollAdjustmentItems.adjustmentId} IN (SELECT id FROM hr_payroll_adjustments WHERE effective_period_key=${input.period.periodKey} AND employment_id IN (${sql.join(employmentIds.map((id) => sql`${id}`), sql`, `)}))`),
+    db.select().from(hrPayrollAdjustments).where(and(eq(hrPayrollAdjustments.effectivePeriodKey, input.period.periodKey), inJsonArray(hrPayrollAdjustments.employmentId, employmentIds))),
+    db.select().from(hrPayrollAdjustmentItems).where(sql`${hrPayrollAdjustmentItems.adjustmentId} IN (SELECT id FROM hr_payroll_adjustments WHERE effective_period_key=${input.period.periodKey} AND employment_id IN (${jsonArrayValues(employmentIds)}))`),
   ]);
   return stableJson({
     periodKey: input.period.periodKey,
@@ -827,7 +828,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     LEFT JOIN hr_payroll_closed_employees AS claim ON claim.period_key=payroll_period.period_key AND claim.employment_id=payslip.employment_id
     WHERE payroll_period.period_key=${period.periodKey}
       AND (payroll_run.status='closed' OR claim.employment_id IS NOT NULL)
-      AND payslip.employment_id IN (${sql.join(employees.map((employee) => sql`${employee.employmentId}`), sql`, `)})
+      AND payslip.employment_id IN (${jsonArrayValues(employees.map((employee) => employee.employmentId))})
   `) : [];
   if (closedEmploymentIds.length) throw new HrError(409, "同一員工同一月份已有已結帳結果，請改用薪資調整。 ");
   await ensureHrAnnualLeaveEntitlements(db, { asOfDate: period.end, createdBy: actor.id });
@@ -854,7 +855,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const scheduledWorkerIdSet = new Set(scheduledWorkerRowsAll.map((row) => row.workerId));
   const missingWorkerIds = requestedWorkerIds?.filter((workerId) => !scheduledWorkerIdSet.has(workerId)) ?? [];
   if (missingWorkerIds.length) {
-    const missingWorkers = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inArray(hrScheduleWorkers.id, missingWorkerIds));
+    const missingWorkers = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inJsonArray(hrScheduleWorkers.id, missingWorkerIds));
     const namesById = new Map(missingWorkers.map((worker) => [worker.id, worker.displayName]));
     throw new HrError(400, `以下支援人員在 ${period.periodKey} 沒有已發布排班，無法計算薪資：${missingWorkerIds.map((workerId) => namesById.get(workerId) ?? workerId).join("、")}。`);
   }
@@ -870,7 +871,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     LEFT JOIN hr_payroll_closed_workers AS claim ON claim.period_key=payroll_period.period_key AND claim.worker_id=worker_result.worker_id
     WHERE payroll_period.period_key=${period.periodKey}
       AND (payroll_run.status='closed' OR claim.worker_id IS NOT NULL)
-      AND worker_result.worker_id IN (${sql.join(selectedWorkerIds.map((workerId) => sql`${workerId}`), sql`, `)})
+      AND worker_result.worker_id IN (${jsonArrayValues(selectedWorkerIds)})
   `) : [];
   if (closedWorkerRows.length) throw new HrError(409, "同一支援人員同一月份已有已結帳結果，請改用薪資調整。 ");
   const runName = requestedRunName ?? suggestedPayrollRunName(input.employeeUserIds, input.workerIds, [...selectedEmployees.map((employee) => employee.employeeName), ...new Set(scheduledWorkerRows.map((row) => row.workerName))]);
@@ -890,7 +891,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     sql`${hrCompensationVersions.validFrom} < ${period.end}`,
     sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${period.start})`,
   ));
-  const compensationItems = compensations.length ? await db.select().from(hrCompensationItems).where(inArray(hrCompensationItems.compensationVersionId, compensations.map((item) => item.id))) : [];
+  const compensationItems = compensations.length ? await db.select().from(hrCompensationItems).where(inJsonArray(hrCompensationItems.compensationVersionId, compensations.map((item) => item.id))) : [];
   const insurance = await db.select().from(hrInsuranceVersions).where(and(
     sql`${hrInsuranceVersions.voidedAt} IS NULL`,
     sql`${hrInsuranceVersions.validFrom} < ${period.end}`,
@@ -994,7 +995,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           eq(hrScheduleVersions.status, "published"),
           // 一個月可能有多個已發布版本，只認每個月份編號最大的那一版。
           sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest.version_number) FROM hr_schedule_versions AS latest WHERE latest.period_start = hr_schedule_versions.period_start AND latest.period_end = hr_schedule_versions.period_end AND latest.status = 'published')`,
-          inArray(hrScheduleEntries.employmentId, bonusMemberIds),
+          inJsonArray(hrScheduleEntries.employmentId, bonusMemberIds),
           sql`${hrScheduleEntries.workDate} >= ${previous.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
         ))
       : Promise.resolve([]),
@@ -1091,9 +1092,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const employeeAnnualLeaveSettlements = annualLeaveSettlements.filter((settlement) => settlement.employmentId === employee.employmentId);
     const lines: HrPayrollLineResult[] = [];
     let baseMinor = 0;
-    let specialMinor = 0;
+    let specialAdjustmentMinor = 0;
     let typhoonStopMinor = 0;
-    const baseCalculationParts = new Map<string, { payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; dayCount: number; hours: number; amountMinor: number; fullMonth: boolean; specialDailyBaseMinor: number }>();
+    const baseCalculationParts = new Map<string, { payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; dayCount: number; hours: number; amountMinor: number; fullMonth: boolean; removedDailyBaseMinor: number }>();
     const specialCalculationParts: PayrollCalculationPart[] = [];
     const typhoonStopCalculationParts: PayrollCalculationPart[] = [];
     const compensationItemTotals = new Map<string, number>();
@@ -1102,6 +1103,15 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const specialAssignments = specialWorkdays.filter((item) => item.employmentId === employee.employmentId && employmentDaySet.has(item.workDate));
     const scheduledDates = scheduledDatesByEmployment.get(employee.employmentId) ?? new Set<string>();
     const specialDates = new Set(specialAssignments.map((item) => item.workDate));
+    const addBaseAmount = (compensation: (typeof employeeCompensations)[number], amount: number, hours = 0) => {
+      if (amount <= 0) return;
+      baseMinor += amount;
+      const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
+      current.dayCount += 1;
+      current.hours += hours;
+      current.amountMinor += amount;
+      baseCalculationParts.set(compensation.id, current);
+    };
     // 月薪／日薪以工作日為單位，當日有任一排班落在停班範圍就把當日基薪移到明細；時薪混合據點則只把受影響排班工時自動補薪，其餘工時沿用人工紀錄。
     const typhoonStopDatesForEmployee = calendarDays.filter((day) => {
       if (!employmentDaySet.has(day) || specialDates.has(day)) return false;
@@ -1135,14 +1145,19 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const requiresHours = special.wageKindSnapshot === "fixed_hourly" || compensation.payBasis === "hourly";
         if (hours <= 0 && requiresHours) calculationWarnings.add(`${employee.employeeName} 的特殊上班日 ${day} 缺少工時資料，薪資列為異常且不自動補 0。`);
         else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) {
-          const amount = Math.round(special.fixedAmountMinorSnapshot * hours);
-          specialMinor += amount;
-          specialCalculationParts.push({ formula: `${day}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時)`, amountMinor: amount });
+          const dailyBase = compensation.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * hours);
+          const specialAmount = Math.round(special.fixedAmountMinorSnapshot * hours);
+          addBaseAmount(compensation, dailyBase, compensation.payBasis === "hourly" ? hours : 0);
+          const adjustment = specialAmount - dailyBase;
+          specialAdjustmentMinor += adjustment;
+          specialCalculationParts.push({ formula: `${day}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
         } else if (special.multiplierPpmSnapshot !== null) {
           const dailyBase = compensation.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * hours);
-          const amount = Math.floor(dailyBase * special.multiplierPpmSnapshot / PPM);
-          specialMinor += amount;
-          specialCalculationParts.push({ formula: `${day}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)})`, amountMinor: amount });
+          const specialAmount = Math.floor(dailyBase * special.multiplierPpmSnapshot / PPM);
+          addBaseAmount(compensation, dailyBase, compensation.payBasis === "hourly" ? hours : 0);
+          const adjustment = specialAmount - dailyBase;
+          specialAdjustmentMinor += adjustment;
+          specialCalculationParts.push({ formula: `${day}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)}) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
         }
       } else if (typhoonStop) {
         const hours = typhoonRowsForDay.reduce((sum, row) => sum + scheduledHours(row), 0);
@@ -1152,7 +1167,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         if (partialHourlyTyphoon && manualHours > 0) {
           const manualAmount = Math.round(compensation.baseAmountMinor * manualHours);
           baseMinor += manualAmount;
-          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
           current.dayCount += 1;
           current.hours += manualHours;
           current.amountMinor += manualAmount;
@@ -1175,13 +1190,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       } else if (compensation.payBasis === "monthly") {
         const amount = Math.floor(compensation.baseAmountMinor / monthlyDivisorDays);
         baseMinor += amount;
-        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
         current.dayCount += 1;
         current.amountMinor += amount;
         baseCalculationParts.set(compensation.id, current);
       } else if (compensation.payBasis === "daily") {
         baseMinor += compensation.baseAmountMinor;
-        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+        const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
         current.dayCount += 1;
         current.amountMinor += compensation.baseAmountMinor;
         baseCalculationParts.set(compensation.id, current);
@@ -1191,7 +1206,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           const hours = entry.hoursHalfUnits / 2;
           const amount = Math.round(compensation.baseAmountMinor * hours);
           baseMinor += amount;
-          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, specialDailyBaseMinor: 0 };
+          const current = baseCalculationParts.get(compensation.id) ?? { payBasis: compensation.payBasis, baseAmountMinor: compensation.baseAmountMinor, dayCount: 0, hours: 0, amountMinor: 0, fullMonth: false, removedDailyBaseMinor: 0 };
           current.dayCount += 1;
           current.hours += hours;
           current.amountMinor += amount;
@@ -1255,10 +1270,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     if (uniformMonthlyComp && isFullPeriodEmployment) {
       // 整月則直接給一個月，不把補足日數當成額外月份。
       baseMinor = Math.max(0, uniformMonthlyComp.baseAmountMinor -
-        specialAssignments.reduce((sum) => sum + Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), 0) -
         typhoonStopDatesForEmployee.reduce((sum) => sum + Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), 0));
       baseCalculationParts.clear();
-      baseCalculationParts.set(uniformMonthlyComp.id, { payBasis: "monthly", baseAmountMinor: uniformMonthlyComp.baseAmountMinor, dayCount: calendarDays.length, hours: 0, amountMinor: baseMinor, fullMonth: true, specialDailyBaseMinor: (specialAssignments.length + typhoonStopDatesForEmployee.length) * Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays) });
+      baseCalculationParts.set(uniformMonthlyComp.id, { payBasis: "monthly", baseAmountMinor: uniformMonthlyComp.baseAmountMinor, dayCount: calendarDays.length, hours: 0, amountMinor: baseMinor, fullMonth: true, removedDailyBaseMinor: typhoonStopDatesForEmployee.length * Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays) });
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === uniformMonthlyComp.id && candidate.amountBasis === "monthly")) {
         compensationItemTotals.set(item.id, item.amountMinor);
         itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: calendarDays.length, quantityUnit: "天", amountMinor: item.amountMinor, fullMonth: true });
@@ -1269,16 +1283,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       baseCalculationParts.clear();
       for (const { compensation } of monthlySegments) {
         const prorationDays = monthlyProrationDayCounts.get(compensation.id)!;
-        const specialDailyBase = specialAssignments
-          .filter((item) => covering(employeeCompensations, item.workDate)?.id === compensation.id)
-          .reduce((sum) => sum + Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), 0);
         const typhoonStopDailyBase = typhoonStopDatesForEmployee
           .filter((day) => covering(employeeCompensations, day)?.id === compensation.id)
           .reduce((sum) => sum + Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), 0);
         const proratedBase = Math.round(compensation.baseAmountMinor * prorationDays / monthlyDivisorDays);
-        const amount = Math.max(0, proratedBase - specialDailyBase - typhoonStopDailyBase);
+        const amount = Math.max(0, proratedBase - typhoonStopDailyBase);
         baseMinor += amount;
-        baseCalculationParts.set(compensation.id, { payBasis: "monthly", baseAmountMinor: compensation.baseAmountMinor, dayCount: prorationDays, hours: 0, amountMinor: amount, fullMonth: true, specialDailyBaseMinor: specialDailyBase + typhoonStopDailyBase });
+        baseCalculationParts.set(compensation.id, { payBasis: "monthly", baseAmountMinor: compensation.baseAmountMinor, dayCount: prorationDays, hours: 0, amountMinor: amount, fullMonth: true, removedDailyBaseMinor: typhoonStopDailyBase });
         for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === compensation.id && candidate.amountBasis === "monthly")) {
           const itemAmount = Math.round(item.amountMinor * prorationDays / monthlyDivisorDays);
           compensationItemTotals.set(item.id, itemAmount);
@@ -1322,8 +1333,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         .map((part) => ({
           formula: part.fullMonth
             ? isFullPeriodEmployment && part.dayCount === calendarDays.length
-              ? `月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × 1 個月${part.specialDailyBaseMinor ? ` − 特殊日替代基薪 ${payrollFormulaMoney(part.specialDailyBaseMinor)}` : ""}`
-              : `round(月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × ${part.dayCount} 天 ÷ ${monthlyDivisorDays} 天)${part.specialDailyBaseMinor ? ` − 特殊日替代基薪 ${payrollFormulaMoney(part.specialDailyBaseMinor)}` : ""}`
+              ? `月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × 1 個月${part.removedDailyBaseMinor ? ` − 災防停班移出基薪 ${payrollFormulaMoney(part.removedDailyBaseMinor)}` : ""}`
+              : `round(月薪 ${payrollFormulaMoney(part.baseAmountMinor)} × ${part.dayCount} 天 ÷ ${monthlyDivisorDays} 天)${part.removedDailyBaseMinor ? ` − 災防停班移出基薪 ${payrollFormulaMoney(part.removedDailyBaseMinor)}` : ""}`
             : part.payBasis === "monthly"
               ? `每日 floor(${payrollFormulaMoney(part.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天) × ${part.dayCount} 天`
               : part.payBasis === "daily"
@@ -1366,9 +1377,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       calculationParts: annualLeaveSettlementParts,
       formulaDetail: payrollFormulaTotal(annualLeaveSettlementParts, annualLeaveSettlementMinor),
     } });
-    if (specialMinor > 0) lines.push({ lineKey: "special_workday", direction: "earning", amountMinor: specialMinor, explanation: {
-      rule: "特殊上班日取代當日基本薪資", assignmentIds: specialAssignments.map((item) => item.id),
-      calculationParts: specialCalculationParts, formulaDetail: payrollFormulaTotal(specialCalculationParts, specialMinor),
+    if (specialAdjustmentMinor !== 0) lines.push({ lineKey: "special_workday", direction: specialAdjustmentMinor > 0 ? "earning" : "deduction", amountMinor: Math.abs(specialAdjustmentMinor), explanation: {
+      rule: "特殊上班日差額：特殊日應發薪資 − 原本薪資", assignmentIds: specialAssignments.map((item) => item.id),
+      calculationParts: specialCalculationParts, formulaDetail: payrollFormulaTotal(specialCalculationParts, specialAdjustmentMinor),
     } });
     for (const [index, special] of specialAssignments.entries()) {
       const allowances = parseSpecialWorkdayAllowanceSnapshot(special.allowanceSnapshotJson, special.allowanceQuantity);
@@ -1715,7 +1726,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const versionNumber = Number(latest?.value ?? 0) + 1;
   const periodInsert = db.insert(hrPayrollPeriods).values({ id: `payroll-period-${period.periodKey}`, periodKey: period.periodKey, attendanceStart: period.start, attendanceEnd: period.end, payDate, createdBy: actor.id }).onConflictDoNothing();
   const totalResults = statementRows.length + workerStatements.size;
-  const runInsert = db.insert(hrPayrollRuns).values({ id: runId, payrollPeriodId: `payroll-period-${period.periodKey}`, versionNumber, requestId, inputRevision: Math.max(1, ...employees.map((employee) => employee.employeeRevision)), payDate, calculationInputJson, sourceSnapshotJson, warningsJson: JSON.stringify([...calculationWarnings]), engineVersion: "hr-payroll-demo-v2", status: "ready", expectedCount: totalResults, completedCount: totalResults, createdBy: actor.id });
+  const runInsert = db.insert(hrPayrollRuns).values({ id: runId, payrollPeriodId: `payroll-period-${period.periodKey}`, versionNumber, requestId, inputRevision: Math.max(1, ...employees.map((employee) => employee.employeeRevision)), payDate, calculationInputJson, sourceSnapshotJson, warningsJson: JSON.stringify([...calculationWarnings]), engineVersion: "hr-payroll-demo-v3", status: "ready", expectedCount: totalResults, completedCount: totalResults, createdBy: actor.id });
   const statements = [periodInsert, runInsert, ...statementRows.flatMap(({ payslipId, employee, lines, compensationIds, insuranceIds }) => [
     db.insert(hrPayrollRunEmployees).values({ payrollRunId: runId, employmentId: employee.employmentId, inputRevision: 1, status: "succeeded" }),
     db.insert(hrPayslips).values({ id: payslipId, payrollRunId: runId, employmentId: employee.employmentId, employeeNumber: employee.employeeNumber, employeeName: employee.employeeName, earningMinor: employee.earningMinor, deductionMinor: employee.deductionMinor, netMinor: employee.netMinor }),
@@ -1724,7 +1735,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ...insuranceIds.map((id) => db.insert(hrPayslipInsuranceLinks).values({ payslipId, insuranceVersionId: id })),
   ]),
   ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
-  db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v2" } }))];
+  db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v3" } }))];
   try {
     await db.batch(batchStatements(statements));
   } catch (error) {
@@ -1840,12 +1851,12 @@ export async function listHrBonusPolicies(db: Database, input: HrBonusPolicyList
   const total = totalRow?.value ?? 0;
   const policyIds = [...new Set(rows.map((row) => row.policyId))];
   const latestRows = policyIds.length ? await db.select({ policyId: hrBonusPolicyVersions.policyId, versionId: hrBonusPolicyVersions.id }).from(hrBonusPolicyVersions)
-    .where(and(inArray(hrBonusPolicyVersions.policyId, policyIds), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)).orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber)) : [];
+    .where(and(inJsonArray(hrBonusPolicyVersions.policyId, policyIds), sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)).orderBy(desc(hrBonusPolicyVersions.validFrom), desc(hrBonusPolicyVersions.versionNumber)) : [];
   const latestByPolicy = new Map<string, string>();
   for (const row of latestRows) if (!latestByPolicy.has(row.policyId)) latestByPolicy.set(row.policyId, row.versionId);
   const versionIds = rows.map((row) => row.policyVersionId);
   const scopeRows = versionIds.length ? await db.select({ policyVersionId: hrBonusPolicyVersionScopes.policyVersionId, scopeId: hrBonusPolicyVersionScopes.scopeId, scopeName: scopes.name })
-    .from(hrBonusPolicyVersionScopes).innerJoin(scopes, eq(scopes.id, hrBonusPolicyVersionScopes.scopeId)).where(inArray(hrBonusPolicyVersionScopes.policyVersionId, versionIds)) : [];
+    .from(hrBonusPolicyVersionScopes).innerJoin(scopes, eq(scopes.id, hrBonusPolicyVersionScopes.scopeId)).where(inJsonArray(hrBonusPolicyVersionScopes.policyVersionId, versionIds)) : [];
   const scopesByVersion = new Map<string, Array<{ id: string; name: string }>>();
   for (const scope of scopeRows) scopesByVersion.set(scope.policyVersionId, [...(scopesByVersion.get(scope.policyVersionId) ?? []), { id: scope.scopeId, name: scope.scopeName }]);
   return { policies: rows.map((row) => {
@@ -1884,7 +1895,7 @@ function validateBonusPolicy(input: CreateHrBonusPolicyInput) {
 
 async function ensureBonusScopes(db: Database, scopeIds: string[]) {
   const found = await db.select({ id: scopes.id }).from(scopes).where(and(
-    inArray(scopes.id, scopeIds), eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`,
+    inJsonArray(scopes.id, scopeIds), eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`,
   ));
   if (found.length !== scopeIds.length) throw new HrError(404, "找不到一個或多個啟用中的營運 Scope。 ");
 }
@@ -1892,7 +1903,7 @@ async function ensureBonusScopes(db: Database, scopeIds: string[]) {
 async function resolveBonusPolicyEmployments(db: Database, employeeUserIds: string[] | undefined) {
   if (!employeeUserIds?.length) return [];
   const rows = await db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId }).from(hrEmployments)
-    .where(and(inArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.archivedAt} IS NULL`));
+    .where(and(inJsonArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.archivedAt} IS NULL`));
   const employmentByUser = new Map<string, { id: string; employeeUserId: string }>();
   for (const row of rows) employmentByUser.set(row.employeeUserId, row);
   const missing = employeeUserIds.filter((employeeUserId) => !employmentByUser.has(employeeUserId));
@@ -1979,7 +1990,7 @@ export async function updateHrBonusPolicy(db: Database, input: UpdateHrBonusPoli
        * 關成員時把原本的迄日與關它的版本留著，解除版本才還原得回來（見 schema 的註解）。
        * 必須排在新版本插入之後：superseded_by_version_id 指著那一列。
        */
-      ...(activeMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom, supersededValidTo: sql`valid_to`, supersededByVersionId: policyVersionId }).where(inArray(hrBonusPolicyMembers.id, activeMembers.map(({ member }) => member.id)))] : []),
+      ...(activeMembers.length ? [db.update(hrBonusPolicyMembers).set({ validTo: input.validFrom, supersededValidTo: sql`valid_to`, supersededByVersionId: policyVersionId }).where(inJsonArray(hrBonusPolicyMembers.id, activeMembers.map(({ member }) => member.id)))] : []),
       ...nextMembers.map((member) => db.insert(hrBonusPolicyMembers).values({ id: crypto.randomUUID(), policyVersionId, employmentId: member.employmentId, validFrom: input.validFrom, validTo: member.validTo, weightUnits: member.weightUnits, createdBy: actor.id })),
       db.insert(activityEvents).values(activityRow({ entityType: "hr_bonus", entityId: policyVersionId, source: "hr", eventType: "bonus_policy_version_created", summary: "獎金更新", actor, payload: { policyId: current.policyId, previousPolicyVersionId: input.policyVersionId, policyVersionId, versionNumber, validFrom: input.validFrom, scopeIds, assignmentCount: nextMembers.length } })),
     ]));
@@ -2060,17 +2071,18 @@ export async function listHrBonusAssignments(db: Database) {
     employeeUserId: sql<string>`${hrEmployments.employeeUserId}`.as("bonus_assignment_employee_user_id"),
     employeeNumber: sql<string>`${hrEmployments.employeeNumber}`.as("bonus_assignment_employee_number"),
     employeeName: displayName,
+    employmentStatus: sql<"active" | "inactive">`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 'active' ELSE 'inactive' END`.as("bonus_assignment_employment_status"),
   }).from(hrBonusPolicyMembers)
     .innerJoin(hrBonusPolicyVersions, eq(hrBonusPolicyVersions.id, hrBonusPolicyMembers.policyVersionId))
     .innerJoin(hrBonusPolicies, eq(hrBonusPolicies.id, hrBonusPolicyVersions.policyId))
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrBonusPolicyMembers.employmentId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(and(sql`${hrEmployments.archivedAt} IS NULL`, sql`${hrBonusPolicyVersions.voidedAt} IS NULL`))
+    .where(sql`${hrBonusPolicyVersions.voidedAt} IS NULL`)
     .orderBy(desc(hrBonusPolicyMembers.createdAt));
   return rows.map((row) => ({
     assignment: { id: row.assignmentId, employmentId: row.assignmentEmploymentId, validFrom: row.validFrom, validTo: row.validTo, weightUnits: row.weightUnits },
     policyVersionId: row.policyVersionId, policyName: row.policyName, bonusKind: normalizeBonusKind(row.bonusKind), performancePeriod: row.performancePeriod,
-    employeeUserId: row.employeeUserId, employeeNumber: row.employeeNumber, employeeName: row.employeeName,
+    employeeUserId: row.employeeUserId, employeeNumber: row.employeeNumber, employeeName: row.employeeName, employmentStatus: row.employmentStatus,
   }));
 }
 

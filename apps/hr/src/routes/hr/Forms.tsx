@@ -51,6 +51,35 @@ function RequestSummary({ request, reviewer = false }: { request: FormRequest; r
   </div>;
 }
 
+function OvertimeCancelDialog({ item, onClose }: { item: OvertimeRequest; onClose: () => void }) {
+  const cancel = useHrWrite();
+  const closeRequestRef = useRef<(() => void) | null>(null);
+  function submit() {
+    cancel.mutate({ path: `/me/overtime/${item.request.id}/cancel`, method: "POST", values: {} }, { onSuccess: () => (closeRequestRef.current ?? onClose)() });
+  }
+  return <Dialog title="取消加班申請" titleMeta={formatTaipei(item.request.requestedStart)} role="alertdialog" onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={cancel.isPending} actions={<>
+    <Button variant="secondary" onClick={onClose} disabled={cancel.isPending}>保留申請</Button>
+    <Button variant="danger" loading={cancel.isPending} onClick={submit}>確認取消</Button>
+  </>}>
+    <p>取消後這筆加班申請不會再納入薪資試算；已取消的申請仍會保留在申請紀錄。</p>
+    {cancel.error ? <Alert tone="danger">{cancel.error.message}</Alert> : null}
+  </Dialog>;
+}
+
+function OvertimeRequestCard({ item, onEdit, onCancel }: { item: OvertimeRequest; onEdit: (item: OvertimeRequest) => void; onCancel: (item: OvertimeRequest) => void }) {
+  const status = item.request.status;
+  const canEdit = status === "pending";
+  const canCancel = status === "pending" || status === "approved";
+  const tone = status === "approved" ? "success" : status === "rejected" ? "danger" : status === "cancelled" ? "neutral" : "info";
+  const label = status === "pending" ? "申請中" : status === "approved" ? "已核准" : status === "rejected" ? "已駁回" : status === "cancelled" ? "已取消" : "草稿";
+  return <article className="hr-form-request-card">
+    <div className="hr-form-request-title"><strong>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</strong><StatusBadge tone={tone}>{label}</StatusBadge></div>
+    <p>{item.request.settlementKind === "pay" ? "付薪" : "補休"}・倍率 {(item.request.ratePpm / 10_000).toFixed(2)}%・{item.request.reason || "—"}</p>
+    {item.request.decisionReason ? <small>審核意見：{item.request.decisionReason}</small> : null}
+    {canEdit || canCancel ? <div className="hr-form-request-actions">{canEdit ? <Button variant="secondary" onClick={() => onEdit(item)}>編輯</Button> : null}{canCancel ? <Button variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
+  </article>;
+}
+
 function ReviewDialog({ request, onClose }: { request: FormRequest; onClose: () => void }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
@@ -93,6 +122,7 @@ export function HrForms() {
   usePageTitle("表單申請");
   const navigate = useNavigate();
   const [reviewing, setReviewing] = useState<FormRequest | null>(null);
+  const [cancelling, setCancelling] = useState<OvertimeRequest | null>(null);
   const query = useHrQuery<{ requests: FormRequest[]; reviewRequests: FormRequest[] }>("/me/form-requests");
   const overtime = useHrQuery<{ requests: OvertimeRequest[] }>("/me/overtime");
   const data = query.data;
@@ -110,7 +140,7 @@ export function HrForms() {
     <Panel>
       <div className="panel-head"><div><h2>我的加班申請</h2><p className="muted">加班與特殊上班日分開；只有核准且選擇付薪的時段才會進入薪資試算。</p></div></div>
       {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
-      {overtime.data?.requests.length ? <div className="hr-form-request-list">{overtime.data.requests.map((item) => <article className="hr-form-request-card" key={item.request.id}><div className="hr-form-request-title"><strong>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</strong><StatusBadge tone={item.request.status === "approved" ? "success" : item.request.status === "rejected" ? "danger" : "info"}>{item.request.status === "pending" ? "申請中" : item.request.status === "approved" ? "已核准" : item.request.status === "rejected" ? "已駁回" : item.request.status === "cancelled" ? "已取消" : "草稿"}</StatusBadge></div><p>{item.request.settlementKind === "pay" ? "付薪" : "補休"}・倍率 {(item.request.ratePpm / 10_000).toFixed(2)}%・{item.request.reason || "—"}</p>{item.request.decisionReason ? <small>審核意見：{item.request.decisionReason}</small> : null}</article>)}</div> : <p className="muted">目前沒有加班申請紀錄。</p>}
+      {overtime.data?.requests.length ? <div className="hr-form-request-list">{overtime.data.requests.map((item) => <OvertimeRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/overtime?request=${encodeURIComponent(request.request.id)}`)} onCancel={setCancelling} />)}</div> : <p className="muted">目前沒有加班申請紀錄。</p>}
     </Panel>
     <Panel>
       <div className="panel-head"><div><h2>我的補打卡申請</h2><p className="muted">可查看草稿、申請中、已核准與已駁回的處理進度。</p></div></div>
@@ -120,11 +150,15 @@ export function HrForms() {
       </article>)}</div> : <p className="muted">目前沒有申請紀錄。</p>}
     </Panel>
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
+    {cancelling ? <OvertimeCancelDialog item={cancelling} onClose={() => setCancelling(null)} /> : null}
   </div>;
 }
 
 export function HrOvertimeForm() {
-  usePageTitle("加班申請");
+  const [params] = useSearchParams();
+  const requestId = params.get("request");
+  const editing = Boolean(requestId);
+  usePageTitle(editing ? "編輯加班申請" : "加班申請");
   const navigate = useNavigate();
   const initial = taipeiInputNow();
   const [start, setStart] = useState(`${initial.date}T18:00`);
@@ -133,6 +167,19 @@ export function HrOvertimeForm() {
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const save = useHrWrite();
+  const existing = useHrQuery<{ requests: OvertimeRequest[] }>("/me/overtime", editing);
+  const existingRequest = existing.data?.requests.find((item) => item.request.id === requestId);
+
+  useEffect(() => {
+    if (!existingRequest) return;
+    const startInput = taipeiInputFromUtc(existingRequest.request.requestedStart);
+    const endInput = taipeiInputFromUtc(existingRequest.request.requestedEnd);
+    setStart(`${startInput.date}T${startInput.time}`);
+    setEnd(`${endInput.date}T${endInput.time}`);
+    setSettlementKind(existingRequest.request.settlementKind);
+    setReason(existingRequest.request.reason);
+  }, [existingRequest?.request.id]);
+
   function stamp(value: string) {
     const normalized = `${value.replace("T", " ")}:00`;
     const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})$/.exec(normalized);
@@ -151,7 +198,19 @@ export function HrOvertimeForm() {
     }
     return new Date(timestamp).toISOString().slice(0, 19).replace("T", " ");
   }
-  return <div className="page hr-form-page"><PageHeader title="加班申請" description="填寫台北時間的申請時段；倍率由公司已確認的加班制度決定，申請人不能自行修改。核准前不會進入薪資結算。" /><Panel><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} onChange={(event) => setStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} onChange={(event) => setEnd(event.target.value)} /></div><div className="hr-form-field-row"><SelectField label="結算方式" value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} /><p className="form-hint">目前制度倍率：133.33%（由伺服器套用）</p></div><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} onChange={(event) => setReason(event.target.value)} /></Field></div>{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms")}>取消</Button><Button loading={save.isPending} onClick={() => { setError(""); save.mutate({ path: "/me/overtime", method: "POST", values: { requestedStart: stamp(start), requestedEnd: stamp(end), settlementKind, reason } }, { onSuccess: () => navigate("/forms", { replace: true }), onError: (cause) => setError(cause.message) }); }}>送出加班申請</Button></div></Panel></div>;
+
+  if (editing && existing.isPending) return <div className="page hr-form-page"><p className="muted">載入加班申請…</p></div>;
+  if (editing && existing.error) return <div className="page hr-form-page"><Alert tone="danger">{existing.error.message}</Alert><Button variant="secondary" onClick={() => navigate("/forms")}>返回表單申請</Button></div>;
+  if (editing && !existingRequest) return <div className="page hr-form-page"><Alert tone="danger">找不到這筆加班申請。</Alert><Button variant="secondary" onClick={() => navigate("/forms")}>返回表單申請</Button></div>;
+  if (existingRequest && existingRequest.request.status !== "pending") return <div className="page hr-form-page"><Alert tone="info">這筆加班申請已完成處理，無法再修改；如需變更請先取消後重新申請。</Alert><Button variant="secondary" onClick={() => navigate("/forms")}>返回表單申請</Button></div>;
+
+  const disabled = save.isPending || (editing && existing.isPending);
+  function submit() {
+    setError("");
+    save.mutate({ path: editing ? `/me/overtime/${requestId}` : "/me/overtime", method: editing ? "PATCH" : "POST", values: { requestedStart: stamp(start), requestedEnd: stamp(end), settlementKind, reason, ...(editing ? { revision: existingRequest?.request.revision } : {}) } }, { onSuccess: () => navigate("/forms", { replace: true }), onError: (cause) => setError(cause.message) });
+  }
+
+  return <div className="page hr-form-page"><PageHeader title={editing ? "編輯加班申請" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : "填寫台北時間的申請時段；倍率由公司已確認的加班制度決定，申請人不能自行修改。核准前不會進入薪資結算。"} /><Panel><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => setStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></div><div className="hr-form-field-row"><SelectField label="結算方式" value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={disabled} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} /><p className="form-hint">目前制度倍率：133.33%（由伺服器套用）</p></div><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms")} disabled={disabled}>取消</Button><Button loading={save.isPending} onClick={submit}>{editing ? "更新加班申請" : "送出加班申請"}</Button></div></Panel></div>;
 }
 
 export function HrClockCorrectionForm() {
@@ -204,7 +263,7 @@ export function HrClockCorrectionForm() {
 
   const approverOptions = [
     { label: "請選擇審核者", value: "" },
-    ...(approvers.data?.approvers ?? []).map((approver) => ({ label: approver.name, value: approver.id })),
+    ...(approvers.data?.approvers ?? []).map((approver) => ({ label: approver.employeeNumber ? `${approver.employeeNumber}・${approver.name}` : approver.name, value: approver.id })),
   ];
   return <div className="page hr-form-page">
     <PageHeader title="補打卡申請單" description="補登實際應出勤時間，送出後由指定審核者確認。" />
@@ -216,7 +275,7 @@ export function HrClockCorrectionForm() {
           <TextField label="補打卡時間" required type="time" value={requestedTime} onChange={(event) => setRequestedTime(event.target.value)} />
         </div>
         <SelectField label="補登類型" required value={requestedEventKind} onChange={(event) => setRequestedEventKind(event.target.value as "clock_in" | "clock_out")} options={[{ label: "上班打卡", value: "clock_in" }, { label: "下班打卡", value: "clock_out" }]} />
-        <SelectField label="審核者" required value={approverUserId} onChange={(event) => setApproverUserId(event.target.value)} options={approverOptions} hint={approvers.data?.defaultApproverUserId ? "預設帶入後台設定的員工主管，可依需要改選其他審核者。" : "尚未設定員工主管，請先選擇一位啟用中的員工審核。"} />
+        <SelectField label="審核者" required value={approverUserId} searchable onChange={(event) => setApproverUserId(event.target.value)} options={approverOptions} hint={approvers.data?.defaultApproverUserId ? "預設帶入後台設定的員工主管，可依需要改選其他審核者。" : "尚未設定員工主管，請先選擇一位啟用中的員工審核。"} />
         <Field label="申請原因" required hint="最多 1000 字，請說明未能正常打卡的原因。">
           <textarea required maxLength={1000} rows={5} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：手機當日故障，抵達辦公位置後無法完成打卡。" />
         </Field>

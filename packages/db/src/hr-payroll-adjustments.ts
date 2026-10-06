@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
-import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrPayrollAdjustmentItems, hrPayrollAdjustments, hrPayrollClosedEmployees, hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
@@ -60,7 +60,7 @@ export async function listHrPayrollAdjustments(db: Database, effectivePeriodKey?
   const rawRows = await db.select(adjustmentJoinSelection).from(hrPayrollAdjustments)
     .innerJoin(hrPayrollAdjustmentItems, eq(hrPayrollAdjustmentItems.adjustmentId, hrPayrollAdjustments.id))
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(effectivePeriodKey ? eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey) : undefined).orderBy(desc(hrPayrollAdjustments.effectivePeriodKey), asc(hrEmployments.employeeNumber), asc(hrPayrollAdjustments.createdAt));
+    .where(effectivePeriodKey ? eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey) : undefined).orderBy(desc(hrPayrollAdjustments.effectivePeriodKey), ...hrEmployeeNumberOrder(), asc(hrPayrollAdjustments.createdAt));
   const rows = rawRows.map((row) => joinedAdjustment(row));
   const byId = new Map<string, { adjustment: typeof rows[number]["adjustment"]; employeeNumber: string; employeeName: string; items: typeof rows[number]["item"][] }>();
   for (const row of rows) {

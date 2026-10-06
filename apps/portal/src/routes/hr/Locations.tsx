@@ -1,12 +1,13 @@
 import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
+import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, DropdownSelect, FilterInput, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type Profile } from "./api.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
-interface EmployeeListResponse { employees: Employee[] }
+interface EmployeeListResponse { employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }
 type LocationEdit = { kind: "scope"; profile: Profile };
 
 function today(): string {
@@ -80,22 +81,24 @@ export function HrAttendanceScopeManagement() {
   const { permissions } = useSession();
   const canRead = permissions.has("hr:office:read");
   const canWrite = permissions.has("hr:office:write");
-  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({ page: 1, pageSize: 25, search: "" });
   const [editing, setEditing] = useState<LocationEdit | null>(null);
-  const employees = useHrQuery<EmployeeListResponse>(`/employees?page=1&pageSize=100&status=all&employmentStatus=active&search=${encodeURIComponent(search)}&sortField=name&sortDirection=asc`, canRead);
+  const employees = useHrQuery<EmployeeListResponse>(`/employees?page=${filters.page}&pageSize=${filters.pageSize}&status=all&employmentStatus=active&search=${encodeURIComponent(filters.search)}&sortField=employeeNumber&sortDirection=asc`, canRead);
+  const updateFilters = (patch: Partial<typeof filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   const locations = useHrQuery<{ locations: AttendanceLocation[] }>("/attendance-settings/locations?active=1", canRead);
   if (!canRead) return <Alert tone="danger">你沒有檢視出勤範圍管理的權限。</Alert>;
   if (employees.isPending || locations.isPending) return <HrPageSkeleton variant="table" />;
   return <div className="page fills">
     <PageHeader title="出勤範圍管理" description="以員工為操作主體管理可打卡辦公位置與出勤方式；排班員工可在此設定每月休假天數。" />
     <Panel className="grows">
-      <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}><FilterInput label="搜尋員工" type="search" className="search-input" placeholder="姓名、員工編號或 Email" value={search} onChange={(event) => setSearch(event.target.value)} /></form>
+      <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}><FilterInput label="搜尋員工" type="search" className="search-input" placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => updateFilters({ search: event.target.value })} /></form>
       {employees.error || locations.error ? <Alert tone="danger">{employees.error?.message ?? locations.error?.message}</Alert> : null}
       {employees.isFetching || locations.isFetching ? <p className="form-hint">更新中…</p> : null}
       <div className="table-scroll"><table className="data-table hr-location-assignment-table"><thead><tr><th>員工</th><th>目前任職</th><th>出勤方式</th><th>有效辦公位置</th><th>操作</th></tr></thead><tbody>
         {(employees.data?.employees ?? []).map((employee) => <EmployeeLocationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
       </tbody></table></div>
       {!employees.data?.employees.length ? <p className="empty-state">沒有符合條件的員工。</p> : null}
+      {employees.data && employees.data.total > 0 ? <Pager page={employees.data.page} pageSize={employees.data.pageSize} pageSizes={[25, 50, 100]} totalPages={Math.max(1, Math.ceil(employees.data.total / employees.data.pageSize))} totalLabel={`共 ${employees.data.total.toLocaleString("zh-TW")} 位員工`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {editing?.kind === "scope" ? <AttendanceScopeDialog profile={editing.profile} locations={locations.data?.locations ?? []} onClose={() => setEditing(null)} /> : null}
   </div>;

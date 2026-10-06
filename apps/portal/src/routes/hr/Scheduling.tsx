@@ -126,7 +126,7 @@ function ScheduleEntryDialog({ data, day, dayType, defaultScopeId, onAdd, onClos
     (closeRequestRef.current ?? onClose)();
   } }} actions={<Button type="submit" icon="check" disabled={!selectedShift || !personId}>加入排班</Button>}>
     <SelectField label="人員類型" value={personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援人員" }]} onChange={(event) => setPersonKind(event.target.value as "employee" | "worker")} />
-    <SelectField label="人員" value={personId} options={personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber} ${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
+    <SelectField label="人員" value={personId} searchable options={personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
     <SelectField label="營運據點" value={scopeId} options={data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => setScopeId(event.target.value)} />
     {/* 一個班別一個選項，label 直接寫出那天會用到的時間，使用者不必自己推今天算哪一型。 */}
     <SelectField label="班別" value={shiftVersionId} options={templates.flatMap((versions) => {
@@ -350,7 +350,7 @@ export function HrScheduling() {
           // DropdownSelect 沒有有效值時會顯示第一個選項的 placeholder；切換類型時要同步把預設人員寫進狀態，日期才可點。
           setQuick((current) => current ? { ...current, personKind, personId: firstQuickPersonId(data, personKind) } : current);
         }} />
-        <SelectField aria-label="人員" value={quick.personId} options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.name} ${employee.employeeNumber}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick((current) => current ? { ...current, personId: event.target.value } : current)} />
+        <SelectField aria-label="人員" value={quick.personId} searchable options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick((current) => current ? { ...current, personId: event.target.value } : current)} />
         {/*
           * 選班別而不是選某一組時間：點到哪一天就用那天的日型挑。所以 label
           * 只寫平日的時間做代表，後面再註明還有哪些日型有自己的時間。

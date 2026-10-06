@@ -1,7 +1,8 @@
-import { and, asc, count, desc, eq, inArray, isNull, like, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
 import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes } from "./hr-calendar.js";
-import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
@@ -92,7 +93,7 @@ export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEv
     endUtc ? sql`${hrClockEvents.occurredAt} < ${endUtc}` : undefined,
   );
   const sortColumn = input.sortField === "employee" ? hrEmployments.employeeNumber : input.sortField === "source" ? hrClockEvents.sourceKind : hrClockEvents.occurredAt;
-  const order = input.sortDirection === "desc" ? desc(sortColumn) : asc(sortColumn);
+  const orderColumns = input.sortField === "employee" ? hrEmployeeNumberOrder(input.sortDirection) : [input.sortDirection === "desc" ? desc(sortColumn) : asc(sortColumn)];
   const [events, [totalRow]] = await Promise.all([
     db.select({
       id: hrClockEvents.id,
@@ -115,7 +116,7 @@ export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEv
       .innerJoin(users, eq(users.id, hrClockEvents.employeeUserId))
       .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
       .leftJoin(scopes, eq(scopes.id, hrClockEvents.scopeId))
-      .where(where).orderBy(order, desc(hrClockEvents.occurredAt), desc(sql`hr_clock_events.rowid`))
+      .where(where).orderBy(...orderColumns, desc(hrClockEvents.occurredAt), desc(sql`hr_clock_events.rowid`))
       .limit(input.pageSize).offset((input.page - 1) * input.pageSize),
     db.select({ value: count() }).from(hrClockEvents)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrClockEvents.employmentId))
@@ -223,8 +224,8 @@ export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUp
     sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
       WHERE employment_id=${input.employmentId} RETURNING employment_id AS id`];
   const endingAssignmentIds = input.assignmentsToEnd.map((assignment) => assignment.id);
-  const endingIdList = endingAssignmentIds.length ? sql`AND id NOT IN (${sql.join(endingAssignmentIds.map((id) => sql`${id}`), sql`, `)})` : sql``;
-  const primaryEndingCondition = endingAssignmentIds.length ? sql` OR primary_assignment_id IN (${sql.join(endingAssignmentIds.map((id) => sql`${id}`), sql`, `)})` : sql``;
+  const endingIdList = endingAssignmentIds.length ? sql`AND id NOT IN (${jsonArrayValues(endingAssignmentIds)})` : sql``;
+  const primaryEndingCondition = endingAssignmentIds.length ? sql` OR primary_assignment_id IN (${jsonArrayValues(endingAssignmentIds)})` : sql``;
   for (const assignment of input.assignmentsToEnd) mutations.push(sql`UPDATE hr_employee_attendance_locations SET valid_to=CASE WHEN valid_from < ${input.assignmentValidTo} THEN ${input.assignmentValidTo} ELSE ${input.validTo} END, revision=revision+1, updated_at=CURRENT_TIMESTAMP
     WHERE id=${assignment.id} AND employment_id=${input.employmentId} AND revision=${assignment.revision}
       AND (valid_to IS NULL OR valid_to > CASE WHEN valid_from < ${input.assignmentValidTo} THEN ${input.assignmentValidTo} ELSE ${input.validTo} END)
@@ -477,15 +478,15 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
   const queryEndUtc = taipeiMidnightUtc(calendarDate(queryEnd, 1));
   const [employments, attendanceSettings, schedules, events, leaves] = await Promise.all([
     db.select({ userId: hrEmployments.employeeUserId, employmentId: hrEmployments.id, archivedAt: hrEmployments.archivedAt }).from(hrEmployments)
-      .where(and(inArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt))),
+      .where(and(inJsonArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt))),
     db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmploymentAttendanceSettings)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmploymentAttendanceSettings.employmentId))
-      .where(and(inArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt))),
+      .where(and(inJsonArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt))),
     db.select({ employmentId: hrScheduleEntries.employmentId, scopeId: hrScheduleEntries.scopeId, workDate: hrScheduleEntries.workDate, startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt }).from(hrScheduleEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
       .where(and(
-        inArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt), eq(hrScheduleVersions.status, "published"),
+        inJsonArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt), eq(hrScheduleVersions.status, "published"),
         sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
         sql`${hrScheduleEntries.workDate} BETWEEN ${queryStart} AND ${monthEnd}`,
       )),
@@ -497,12 +498,12 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
       occurredAt: hrClockEvents.occurredAt,
       scopeId: hrClockEvents.scopeId,
     }).from(hrClockEvents)
-      .where(and(inArray(hrClockEvents.employeeUserId, userIds), sql`${hrClockEvents.occurredAt} >= ${queryStartUtc}`, sql`${hrClockEvents.occurredAt} < ${queryEndUtc}`))
+      .where(and(inJsonArray(hrClockEvents.employeeUserId, userIds), sql`${hrClockEvents.occurredAt} >= ${queryStartUtc}`, sql`${hrClockEvents.occurredAt} < ${queryEndUtc}`))
       .orderBy(asc(hrClockEvents.occurredAt), asc(sql`hr_clock_events.rowid`)),
     db.select({ userId: hrEmployments.employeeUserId, startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn }).from(hrLeaveRequests)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
       .where(and(
-        inArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt), eq(hrLeaveRequests.status, "approved"),
+        inJsonArray(hrEmployments.employeeUserId, userIds), isNull(hrEmployments.archivedAt), eq(hrLeaveRequests.status, "approved"),
         sql`${hrLeaveRequests.startsOn} <= ${monthEnd}`, sql`${hrLeaveRequests.endsOn} > ${monthStart}`,
       )),
   ]);

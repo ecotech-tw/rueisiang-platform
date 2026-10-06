@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { inJsonArray } from "./sql-lists.js";
 import { normalizeReportScopeName, scopeSourceTypeFromId } from "./report-data.js";
 import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
 import { SHOP_REQUEST_PREFIX } from "./shop-report.js";
@@ -47,7 +48,7 @@ async function asCyberbizReportRun(db: Database, run: typeof reportRuns.$inferSe
   const names = links.length
     ? await db.select({ id: scopes.id, name: scopes.name })
       .from(scopes)
-      .where(inArray(scopes.id, links.map((link) => link.scopeId)))
+      .where(inJsonArray(scopes.id, links.map((link) => link.scopeId)))
       .orderBy(asc(scopes.sortOrder), asc(scopes.name))
     : [];
   return {
@@ -104,11 +105,11 @@ export async function recordCyberbizReportRun(
   const id = crypto.randomUUID();
   const requestedScopeIds = input.scopeIds?.length === input.stores.length ? input.scopeIds : undefined;
   const existingScopeRows = requestedScopeIds?.length
-    ? await db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(inArray(scopes.id, requestedScopeIds))
+    ? await db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(inJsonArray(scopes.id, requestedScopeIds))
     : input.stores.length
       ? await db.select({ id: scopes.id, name: scopes.name })
         .from(scopes)
-        .where(inArray(scopes.normalizedName, input.stores.map(normalizeReportScopeName)))
+        .where(inJsonArray(scopes.normalizedName, input.stores.map(normalizeReportScopeName)))
       : [];
   const existingScopeIds = new Set(existingScopeRows.map((scope) => scope.id));
   const scopeIds = requestedScopeIds
