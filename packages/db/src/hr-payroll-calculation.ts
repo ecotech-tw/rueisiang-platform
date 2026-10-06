@@ -1378,15 +1378,14 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     } });
     for (const [index, special] of specialAssignments.entries()) {
       const allowances = parseSpecialWorkdayAllowanceSnapshot(special.allowanceSnapshotJson, special.allowanceQuantity);
-      const payableAllowances = allowances.filter((item) => item.quantity > 0);
-      const allowanceTotal = payableAllowances.reduce((sum, item) => sum + item.unitAmountMinor * item.quantity, 0);
-      if (allowanceTotal > 0) {
-        const unitFormula = payableAllowances.map((item) => `${item.itemName} ${payrollFormulaMoney(item.unitAmountMinor)} × ${item.quantity} 次`).join(" + ");
-        const allowancePart = { formula: `${special.workDate}・${special.ruleNameSnapshot}：${unitFormula}`, amountMinor: allowanceTotal };
-        lines.push({ lineKey: `special_allowance_${index + 1}`, direction: "earning", amountMinor: allowanceTotal, explanation: {
-          rule: special.ruleNameSnapshot, ruleName: special.ruleNameSnapshot, quantity: special.allowanceQuantity,
-          quantities: payableAllowances.map((item) => ({ itemName: item.itemName, quantity: item.quantity })), allowances: special.allowanceSnapshotJson,
-          calculationParts: [allowancePart], formulaDetail: payrollFormulaTotal([allowancePart], allowanceTotal),
+      for (const [allowanceIndex, allowance] of allowances.entries()) {
+        const allowanceAmount = allowance.unitAmountMinor * allowance.quantity;
+        if (allowanceAmount <= 0) continue;
+        const allowancePart = { formula: `${special.workDate}・${special.ruleNameSnapshot}：${allowance.itemName} ${payrollFormulaMoney(allowance.unitAmountMinor)} × ${allowance.quantity} 次`, amountMinor: allowanceAmount };
+        lines.push({ lineKey: `special_allowance_${index + 1}_${allowanceIndex + 1}`, direction: "earning", amountMinor: allowanceAmount, explanation: {
+          rule: special.ruleNameSnapshot, ruleName: special.ruleNameSnapshot, itemName: allowance.itemName, quantity: allowance.quantity,
+          quantities: [{ itemName: allowance.itemName, quantity: allowance.quantity }], allowances: special.allowanceSnapshotJson,
+          calculationParts: [allowancePart], formulaDetail: payrollFormulaTotal([allowancePart], allowanceAmount),
         } });
       }
     }
