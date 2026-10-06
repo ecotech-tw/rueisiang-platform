@@ -182,6 +182,19 @@ export interface HrPayrollRunResult {
   warnings: string[];
 }
 
+export type HrPayrollProgressPhase = "preparing" | "calculating_workers" | "calculating_employees" | "persisting";
+export interface HrPayrollProgress {
+  phase: HrPayrollProgressPhase;
+  expectedCount: number;
+  completedCount: number;
+}
+export interface HrPayrollCalculationOptions {
+  onProgress?: (progress: HrPayrollProgress) => Promise<void> | void;
+}
+
+/** D1 對薪資試算輸入快照的硬上限；背景工作與同步 fallback 必須使用同一個值。 */
+export const HR_PAYROLL_CALCULATION_INPUT_JSON_MAX_LENGTH = 10_000;
+
 export interface HrPayrollEmployeeHistory {
   runId: string;
   runName: string;
@@ -809,7 +822,10 @@ function calculateAssignedBonus(
  * 以明確輸入的示範規則試算薪資：月薪整月按月薪給付，入職／離職未滿整月才以 30 日制按在職日數比例計算；
  * 核准付薪加班、申請上凍結的給薪比例；勞健保依系統預設或公司覆核的有效負擔規則計算。
  */
-export async function calculateHrPayroll(db: Database, input: HrPayrollCalculationInput, actor: HrActor): Promise<HrPayrollRunResult> {
+export async function calculateHrPayroll(db: Database, input: HrPayrollCalculationInput, actor: HrActor, options: HrPayrollCalculationOptions = {}): Promise<HrPayrollRunResult> {
+  if (JSON.stringify(input).length > HR_PAYROLL_CALCULATION_INPUT_JSON_MAX_LENGTH) {
+    throw new HrError(400, "薪資試算輸入資料過大，請縮小試算人員範圍後再試。 ");
+  }
   const period = periodFromKey(input.periodKey);
   const requestedRunName = input.runName?.trim();
   if (input.runName !== undefined && (!requestedRunName || Array.from(requestedRunName).length > PAYROLL_RUN_NAME_MAX_LENGTH)) {
@@ -913,6 +929,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     scheduledRowsByEmploymentDate.set(key, [...(scheduledRowsByEmploymentDate.get(key) ?? []), row]);
   }
   if (!employees.length && !scheduledWorkerRows.length) throw new HrError(400, "指定月份沒有符合條件的啟用中員工或已發布支援排班。 ");
+  const expectedResultCount = employees.length + selectedWorkerIds.length;
+  await options.onProgress?.({ phase: "preparing", expectedCount: expectedResultCount, completedCount: 0 });
 
   const compensations = await db.select().from(hrCompensationVersions).where(and(
     sql`${hrCompensationVersions.voidedAt} IS NULL`,
@@ -1110,6 +1128,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       compensationVersionId: compensationIds.size === 1 ? [...compensationIds][0]! : null,
     });
   }
+  await options.onProgress?.({ phase: "calculating_workers", expectedCount: expectedResultCount, completedCount: workerStatements.size });
 
   const leaveWorkdayBreakdowns = new Map<string, Map<string, HrLeaveWorkdayBreakdown>>();
   for (const employee of employees) {
@@ -1730,8 +1749,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       compensationIds,
       insuranceIds,
     });
+    await options.onProgress?.({ phase: "calculating_employees", expectedCount: expectedResultCount, completedCount: workerStatements.size + statementRows.length });
   }
 
+  await options.onProgress?.({ phase: "persisting", expectedCount: expectedResultCount, completedCount: expectedResultCount });
   const sourceSnapshotJson = await getPayrollSourceSnapshot(db, {
     period,
     employmentIds: employees.map((employee) => employee.employmentId),

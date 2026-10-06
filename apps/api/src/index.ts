@@ -39,6 +39,8 @@ import { cyberbizReportsInternal } from "./routes/cyberbiz-reports-internal.js";
 import { cyberbizReportsMcp } from "./routes/cyberbiz-reports-mcp.js";
 import { wms } from "./routes/wms.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
+import { drainPayrollQueueOutbox, failPayrollQueueMessage, isPayrollQueueMessage, PAYROLL_QUEUE_MAX_ATTEMPTS, processPayrollQueueMessage, type PayrollQueueMessage } from "./payroll-queue.js";
+export { PayrollRunAgent } from "./payroll-run-do.js";
 export { AssistantChatAgent } from "./pi-agent-do.js";
 export { AssistantCredentialVault } from "./pi-agent-credentials.js";
 
@@ -233,7 +235,7 @@ export type AppType = typeof routes;
  * 取代舊 CRM 那個「前端每 15 秒打一次 drain」的輪詢——那要有人開著分頁才會動，
  * 關掉瀏覽器同步就停了。改成伺服器端固定跑，跟誰有沒有登入無關。
  *
- * 目前只做一件事：補跑處理失敗的 webhook。全量同步仍然是手動觸發，
+ * 定時工作只補跑處理失敗的 webhook 與背景工作 outbox。全量同步仍然是手動觸發，
  * 因為它會打很多次官網 API，不該在沒人看著的時候自己跑起來。
  */
 async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -323,6 +325,13 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
         error: assistantErrorDetails(error),
       })),
   );
+
+  ctx.waitUntil(
+    drainPayrollQueueOutbox(db, env)
+      .catch((error) => assistantLog("error", "payroll.queue.outbox_drain_failed", {
+        error: assistantErrorDetails(error),
+      })),
+  );
 }
 
 /**
@@ -364,8 +373,31 @@ async function cleanupExpiredMedia(env: Env, db: ReturnType<typeof createDatabas
   if (removed || failed) assistantLog("info", "media.expiry_cleanup", { removed, failed });
 }
 
-async function queue(batch: MessageBatch<LineAssistantQueueMessage>, env: Env): Promise<void> {
+type AppQueueMessage = LineAssistantQueueMessage | PayrollQueueMessage;
+
+export async function queue(batch: MessageBatch<AppQueueMessage>, env: Env): Promise<void> {
   for (const message of batch.messages) {
+    if (isPayrollQueueMessage(message.body)) {
+      try {
+        await processPayrollQueueMessage(message.body, env);
+        message.ack();
+      } catch (error) {
+        assistantLog("warn", "payroll.queue.consumer_retry", {
+          messageId: message.id,
+          attempts: message.attempts,
+          jobId: message.body.jobId,
+          error: assistantErrorDetails(error),
+        });
+        if (message.attempts >= PAYROLL_QUEUE_MAX_ATTEMPTS) {
+          await failPayrollQueueMessage(message.body, env, error);
+          // 保留最後一份訊息給 Cloudflare DLQ；不能 ack，否則訊息會在進 DLQ 前消失。
+          throw error instanceof Error ? error : new Error("薪資背景工作 Queue 重試失敗。");
+        }
+        message.retry();
+      }
+      continue;
+    }
+
     try {
       await processLineAssistantQueueMessage(message.body, env);
       message.ack();
@@ -385,4 +417,4 @@ async function queue(batch: MessageBatch<LineAssistantQueueMessage>, env: Env): 
   }
 }
 
-export default { fetch: app.fetch, scheduled, queue } satisfies ExportedHandler<Env, LineAssistantQueueMessage>;
+export default { fetch: app.fetch, scheduled, queue } satisfies ExportedHandler<Env, AppQueueMessage>;

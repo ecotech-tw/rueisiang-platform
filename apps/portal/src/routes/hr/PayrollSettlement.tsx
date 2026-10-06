@@ -3,9 +3,10 @@ import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
+import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, StatusBadge, TextField } from "../../ui/index.js";
-import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
+import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface PayrollRecordsResponse {
@@ -28,8 +29,8 @@ interface PayrollRecordFilters {
 type PayrollEmployeeSelectionMode = "all" | "selected";
 
 const PAYROLL_RECORD_PAGE_SIZES = [10, 25, 50, 100] as const;
-// 每份名單的上限，跟 API（apps/api/src/routes/hr.ts）的同名常數一致；只是擋離譜的名單，不是業務上的人數限制。
-const MAX_PAYROLL_SELECTED_PEOPLE = 1000;
+const MAX_PAYROLL_SELECTED_EMPLOYEES = 80;
+const MAX_PAYROLL_SELECTED_WORKERS = 100;
 // 載入中的空名單要是同一個參考：每次 render 都給新的 [] 會讓依賴它的 effect 每輪都重跑、再 setState，變成無限重繪。
 const NO_PAYROLL_WORKERS: PayrollWorkerCandidate[] = [];
 const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放" } as const;
@@ -53,6 +54,11 @@ function payrollPeriodLabel(value: string): string {
 function recordStatusTone(status: PayrollRecord["status"]): "success" | "warning" {
   return status === "closed" ? "success" : "warning";
 }
+const PAYROLL_JOB_STATUS_LABEL: Record<PayrollJob["status"], string> = { queued: "等待背景執行", calculating: "背景計算中", ready: "試算完成", failed: "試算失敗" };
+const PAYROLL_JOB_PHASE_LABEL: Record<PayrollJob["phase"], string> = { queued: "等待佇列派送", preparing: "準備來源資料", calculating_workers: "計算支援人員", calculating_employees: "計算正式員工", persisting: "保存薪資明細", completed: "可以開始覆核", failed: "需要重新試算" };
+function payrollJobTone(status: PayrollJob["status"]): "success" | "warning" | "danger" {
+  return status === "ready" ? "success" : status === "failed" ? "danger" : "warning";
+}
 function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "personId">) {
   return `${record.runId}:${record.personKind}:${record.personId}`;
 }
@@ -64,7 +70,7 @@ interface PayrollCalculationDialogProps {
   initialPeriodKey: string;
   initialPayDate: string;
   onClose: () => void;
-  onSuccess: (run: PayrollRun) => void;
+  onSuccess: (result: { job?: PayrollJob; run?: PayrollRun }) => void;
 }
 
 function PayrollCalculationDialog({ employees, employeesPending, employeesError, initialPeriodKey, initialPayDate, onClose, onSuccess }: PayrollCalculationDialogProps) {
@@ -74,15 +80,15 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
   const [selectedWorkerIds, setSelectedWorkerIds] = useState<string[]>([]);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const calculatePayroll = useHrWrite<{ run: PayrollRun }>();
+  const calculatePayroll = useHrWrite<{ job?: PayrollJob; run?: PayrollRun }>();
   const closeRequestRef = useRef<(() => void) | null>(null);
   const supportWorkers = useHrQuery<{ workers: PayrollWorkerCandidate[] }>(periodKey ? `/payroll/workers?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/workers?periodKey=", Boolean(periodKey), { keepPreviousData: false });
   const workerOptions = supportWorkers.data?.workers ?? NO_PAYROLL_WORKERS;
   const peopleCount = employees.length + workerOptions.length;
   const selectedCount = selectionMode === "all" ? peopleCount : selectedEmployeeIds.length + selectedWorkerIds.length;
   const unselectedCount = Math.max(0, peopleCount - selectedCount);
-  const selectionLimitError = selectionMode === "selected" && (selectedEmployeeIds.length > MAX_PAYROLL_SELECTED_PEOPLE || selectedWorkerIds.length > MAX_PAYROLL_SELECTED_PEOPLE)
-    ? `正式員工與支援人員各最多指定 ${MAX_PAYROLL_SELECTED_PEOPLE} 位；若要納入全體，請按「全選」。`
+  const selectionLimitError = selectionMode === "selected" && (selectedEmployeeIds.length > MAX_PAYROLL_SELECTED_EMPLOYEES || selectedWorkerIds.length > MAX_PAYROLL_SELECTED_WORKERS)
+    ? `正式員工最多選擇 ${MAX_PAYROLL_SELECTED_EMPLOYEES} 位、支援人員最多選擇 ${MAX_PAYROLL_SELECTED_WORKERS} 位；若要納入全體，請按「全選」。`
     : null;
   /*
    * 兩份名單的 options 與 value 都先記起來：人多的公司一份就是上千筆，
@@ -90,13 +96,13 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
    */
   const employeeOptions = useMemo(() => {
     const selected = new Set(selectedEmployeeIds);
-    const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_PEOPLE;
+    const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_EMPLOYEES;
     return employees.map((employee) => ({ value: employee.userId, label: `${hrEmployeeLabel(employee)}・${employee.position || "未設定職位"}`, chipLabel: employee.legalName, disabled: atLimit && !selected.has(employee.userId) }));
   }, [employees, selectionMode, selectedEmployeeIds]);
   const employeeValue = useMemo(() => selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds, [employees, selectionMode, selectedEmployeeIds]);
   const workerSelectOptions = useMemo(() => {
     const selected = new Set(selectedWorkerIds);
-    const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_PEOPLE;
+    const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_WORKERS;
     return workerOptions.map((worker) => ({ value: worker.id, label: worker.displayName, disabled: atLimit && !selected.has(worker.id) }));
   }, [workerOptions, selectionMode, selectedWorkerIds]);
   const workerValue = useMemo(() => selectionMode === "all" ? workerOptions.map((worker) => worker.id) : selectedWorkerIds, [workerOptions, selectionMode, selectedWorkerIds]);
@@ -150,8 +156,9 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
         employeeUserIds: selectionMode === "all" ? undefined : selectedEmployeeIds,
         workerIds: selectionMode === "all" ? undefined : selectedWorkerIds,
         requestId: `portal-${crypto.randomUUID()}`,
+        expectedCount: selectedCount,
       },
-    }, { onSuccess: (result) => { onSuccess(result.run); (closeRequestRef.current ?? onClose)(); } });
+    }, { onSuccess: (result) => { onSuccess(result); (closeRequestRef.current ?? onClose)(); } });
   }
 
   return <Dialog
@@ -210,10 +217,40 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   </Dialog>;
 }
 
+function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: PayrollJob[]; onOpen: (job: PayrollJob) => void; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
+  if (!jobs.length) return null;
+  return <section className="hr-payroll-job-progress" aria-label="薪資背景試算進度">
+    <div className="hr-payroll-job-progress-heading">
+      <div><strong>背景試算</strong><small>離開頁面後工作仍會繼續，這裡會自動更新狀態。</small></div>
+      <span>{jobs.length} 筆最近工作</span>
+    </div>
+    <div className="hr-payroll-job-list">
+      {jobs.slice(0, 4).map((job) => {
+        const hasProgress = job.progressPercent !== null;
+        return <article className={`hr-payroll-job-card hr-payroll-job-${job.status}`} key={job.jobId}>
+          <div className="hr-payroll-job-card-head">
+            <div><strong>{job.runName}</strong><small>{payrollPeriodLabel(job.periodKey)}・{PAYROLL_JOB_PHASE_LABEL[job.phase]}</small></div>
+            <StatusBadge tone={payrollJobTone(job.status)}>{PAYROLL_JOB_STATUS_LABEL[job.status]}</StatusBadge>
+          </div>
+          <div className={`hr-payroll-job-bar${hasProgress ? "" : " is-indeterminate"}`} role="progressbar" aria-label={`${job.runName}試算進度`} aria-valuemin={0} aria-valuemax={100} {...(hasProgress ? { "aria-valuenow": job.progressPercent! } : {})}>
+            <span style={hasProgress ? { width: `${job.progressPercent}%` } : undefined} />
+          </div>
+          <div className="hr-payroll-job-card-foot">
+            <span>{job.expectedCount > 0 ? `${job.completedCount.toLocaleString("zh-TW")} / ${job.expectedCount.toLocaleString("zh-TW")} 人` : "正在準備試算資料…"}</span>
+            {job.status === "failed" && job.error ? <span className="hr-payroll-job-error">{job.error}</span> : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : job.status === "ready" && job.runId ? <Button variant="secondary" icon="eye" onClick={() => onOpen(job)}>查看紀錄</Button> : null}
+            {job.status === "failed" && canRetry ? <Button variant="secondary" icon="sync" onClick={() => onRetry(job)}>重新試算</Button> : null}
+          </div>
+        </article>;
+      })}
+    </div>
+  </section>;
+}
+
 export function HrPayrollSettlement() {
   usePageTitle("薪資結算");
   const { permissions, user } = useSession();
   const navigate = useNavigate();
+  const toast = useToast();
   const canRead = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:read"));
   const canCalculate = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:calculate"));
   const currentMonth = taipeiMonth();
@@ -223,7 +260,11 @@ export function HrPayrollSettlement() {
   const [approveOpen, setApproveOpen] = useState(false);
   const employees = useHrEmployeeRoster(canRead && permissions.has("hr:employee:read"));
   const records = useHrQuery<PayrollRecordsResponse>(`/payroll/records?page=${recordFilters.page}&pageSize=${recordFilters.pageSize}&search=${encodeURIComponent(recordFilters.search)}&periodKey=${encodeURIComponent(recordFilters.periodKey || "all")}&status=${recordFilters.status}&personKind=${recordFilters.personKind}&payBasis=${recordFilters.payBasis}`, canRead);
+  const [pollPayrollJobs, setPollPayrollJobs] = useState(true);
+  const payrollJobs = useHrQuery<PayrollJobsResponse>("/payroll/jobs", canRead, { keepPreviousData: false, refetchInterval: pollPayrollJobs ? 3000 : false });
+  const observedJobStatuses = useRef(new Map<string, PayrollJob["status"]>());
   const approvePayroll = useHrWrite<{ approved: number }>();
+  const retryPayroll = useHrWrite<{ job: PayrollJob }>();
 
   const visibleUnsettledKeys = useMemo(() => (records.data?.records ?? []).filter((record) => record.status === "unsettled").map(referenceKey), [records.data?.records]);
   const selectedRecords = useMemo(() => (records.data?.records ?? []).filter((record) => selectedKeys.includes(referenceKey(record)) && record.status === "unsettled"), [records.data?.records, selectedKeys]);
@@ -236,6 +277,18 @@ export function HrPayrollSettlement() {
     const validKeys = new Set((records.data?.records ?? []).filter((record) => record.status === "unsettled").map(referenceKey));
     setSelectedKeys((current) => current.filter((key) => validKeys.has(key)));
   }, [records.data?.records]);
+  useEffect(() => {
+    const jobs = payrollJobs.data?.jobs ?? [];
+    setPollPayrollJobs(jobs.some((job) => job.dispatchPending || job.status === "queued" || job.status === "calculating"));
+    for (const job of jobs) {
+      const previous = observedJobStatuses.current.get(job.jobId);
+      if (previous && previous !== job.status && (job.status === "ready" || job.status === "failed")) {
+        toast.show(job.status === "ready" ? `${job.runName}試算完成，可以開始覆核。` : `${job.runName}試算失敗，請查看背景工作進度。`, job.status === "ready" ? "success" : "danger");
+        void records.refetch();
+      }
+      observedJobStatuses.current.set(job.jobId, job.status);
+    }
+  }, [payrollJobs.data?.jobs, records, toast]);
   useEffect(() => {
     const indeterminate = selectedVisibleCount > 0 && !allVisibleSelected;
     if (selectAllRef.current) selectAllRef.current.indeterminate = indeterminate;
@@ -265,10 +318,16 @@ export function HrPayrollSettlement() {
       onSuccess: () => { setSelectedKeys([]); setApproveOpen(false); void records.refetch(); },
     });
   }
+  function retryJob(job: PayrollJob) {
+    if (retryPayroll.isPending) return;
+    retryPayroll.mutate({ path: `/payroll/jobs/${encodeURIComponent(job.jobId)}/retry`, method: "POST", values: {} }, { onSuccess: ({ job: retriedJob }) => { observedJobStatuses.current.set(retriedJob.jobId, retriedJob.status); toast.show(`${retriedJob.runName}已重新加入背景試算。`, "info"); setPollPayrollJobs(true); void payrollJobs.refetch(); } });
+  }
 
   return <div className="page fills hr-payroll-page">
     <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={canCalculate ? <Button icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
+    {payrollJobs.error ? <Alert tone="danger">背景試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
+    <PayrollJobProgress jobs={payrollJobs.data?.jobs ?? []} onOpen={(job) => { if (job.periodKey) updateRecordFilters({ periodKey: job.periodKey }); }} onRetry={retryJob} canRetry={canCalculate} />
 
     <Panel className="grows hr-payroll-records-panel">
       <FilterToolbar className="hr-payroll-record-filter">
@@ -313,7 +372,7 @@ export function HrPayrollSettlement() {
       initialPeriodKey={recordFilters.periodKey || currentMonth}
       initialPayDate=""
       onClose={() => setShowCalculationDialog(false)}
-      onSuccess={(run) => { setRecordFilters((current) => ({ ...current, periodKey: run.periodKey, page: 1 })); setSelectedKeys([]); }}
+      onSuccess={({ job, run }) => { if (job) { observedJobStatuses.current.set(job.jobId, job.status); toast.show(job.status === "failed" ? `${job.runName}背景試算啟動失敗，請重新試算。` : `${job.runName}已加入背景試算，完成後會通知你。`, job.status === "failed" ? "danger" : "info"); } else if (run) toast.show("薪資試算完成，可以開始覆核。", "success"); setRecordFilters((current) => ({ ...current, periodKey: job?.periodKey ?? run?.periodKey ?? current.periodKey, page: 1 })); setSelectedKeys([]); setPollPayrollJobs(true); void payrollJobs.refetch(); }}
     /> : null}
     {approveOpen ? <ConfirmDialog title="確定發放選取紀錄？" confirmLabel="確定發放" pending={approvePayroll.isPending} onCancel={() => { if (!approvePayroll.isPending) setApproveOpen(false); }} onConfirm={approveSelected}>
       <p>即將將 <strong>{selectedRecords.length} 筆</strong>薪資紀錄標記為「已確定發放」。</p>

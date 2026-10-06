@@ -4,6 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import app from "../index.js";
+import { processPayrollQueueMessage } from "../payroll-queue.js";
+import { PayrollRunAgent } from "../payroll-run-do.js";
 import { createTargetOnlyD1 } from "../local-d1/d1.js";
 import { createLocalR2 } from "../local-d1/r2.js";
 import { AssistantCredentialVault } from "../pi-agent-credentials.js";
@@ -105,12 +107,19 @@ const localAgentObjects = new LocalDurableObjectNamespace(
 const localCredentialObjects = new LocalDurableObjectNamespace(
   (state) => new AssistantCredentialVault(state, env as never),
 );
+const localPayrollObjects = new LocalDurableObjectNamespace(
+  (state) => new PayrollRunAgent(state, env as never),
+);
 (env as Record<string, unknown>).ASSISTANT_CHAT_AGENT = localAgentObjects;
 (env as Record<string, unknown>).ASSISTANT_CREDENTIAL_VAULT = localCredentialObjects;
+(env as Record<string, unknown>).PAYROLL_RUN_AGENT = localPayrollObjects;
 
 // node:http 沒有 Cloudflare Queue runtime；本機 adapter 仍走正式 consumer 的同一個入口。
 (env as Record<string, unknown>).LINE_ASSISTANT_QUEUE = {
   send: async (message: unknown) => processLineAssistantQueueMessage(message, env as never),
+};
+(env as Record<string, unknown>).PAYROLL_QUEUE = {
+  send: async (message: unknown) => processPayrollQueueMessage(message as never, env as never),
 };
 
 function devIndex(): string {
@@ -210,6 +219,7 @@ server.on("error", (error) => {
 server.on("close", () => {
   localAgentObjects.close();
   localCredentialObjects.close();
+  localPayrollObjects.close();
 });
 
 server.listen(PORT, () => {

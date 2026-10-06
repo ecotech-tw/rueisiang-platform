@@ -6,7 +6,7 @@ import {
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
-  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, updateHrBonusPolicy, voidHrBonusPolicyVersion, getHrPayrollRun, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollEmployeeHistory, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollWorkerCandidates,
+  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
@@ -23,6 +23,7 @@ import {
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
+import { enqueuePayrollJob } from "../payroll-queue.js";
 import { GoogleMapsSearchError, searchGooglePlaces } from "../google-maps.js";
 import { DEVICE_COOKIE_PATH, clearDeviceCookie, deviceCookie, requireAnyPermission, requireAuth, requirePermission, requireSelfAuth } from "../middleware/auth.js";
 import { sessionUserPayload } from "./auth.js";
@@ -187,21 +188,18 @@ function performancePeriod(input: Record<string, unknown>): "current_month" | "p
   if (input.performancePeriod === "current_month" || input.performancePeriod === "previous_month") return input.performancePeriod;
   throw new HTTPException(400, { message: "業績期間只能是當月或前月。" });
 }
-function employeeUserIds(input: Record<string, unknown>): string[] | undefined {
+function employeeUserIds(input: Record<string, unknown>, label = "指派員工"): string[] | undefined {
   if (input.employeeUserIds === undefined) return undefined;
-  if (!Array.isArray(input.employeeUserIds) || input.employeeUserIds.length > 80 || input.employeeUserIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.employeeUserIds).size !== input.employeeUserIds.length) throw new HTTPException(400, { message: "指派員工格式不正確。" });
+  if (!Array.isArray(input.employeeUserIds) || input.employeeUserIds.length > 80 || input.employeeUserIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.employeeUserIds).size !== input.employeeUserIds.length) throw new HTTPException(400, { message: `${label}格式不正確。` });
   return input.employeeUserIds as string[];
 }
-/*
- * 指定名單的上限只是擋離譜的 payload。全體模式本來就不送名單、人數不受限，
- * 所以這裡設得比全體還緊沒有保護到任何東西，只會讓人數多的公司沒辦法「全體扣掉一兩位」。
- */
-const MAX_PAYROLL_SELECTED_PEOPLE = 1000;
-function payrollSelectedIds(input: Record<string, unknown>, key: "employeeUserIds" | "workerIds", message: string): string[] | undefined {
-  const ids = input[key];
-  if (ids === undefined) return undefined;
-  if (!Array.isArray(ids) || ids.length > MAX_PAYROLL_SELECTED_PEOPLE || ids.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(ids).size !== ids.length) throw new HTTPException(400, { message });
-  return ids as string[];
+function payrollEmployeeUserIds(input: Record<string, unknown>): string[] | undefined {
+  return employeeUserIds(input, "指定員工清單");
+}
+function payrollWorkerIds(input: Record<string, unknown>): string[] | undefined {
+  if (input.workerIds === undefined) return undefined;
+  if (!Array.isArray(input.workerIds) || input.workerIds.length > 100 || input.workerIds.some((value) => typeof value !== "string" || value.trim() === "" || value.length > 200) || new Set(input.workerIds).size !== input.workerIds.length) throw new HTTPException(400, { message: "指定支援人員格式不正確。" });
+  return input.workerIds as string[];
 }
 function bonusEmployeeAssignments(input: Record<string, unknown>): Array<{ employeeUserId: string; weightUnits: number }> | undefined {
   if (input.employeeAssignments === undefined) return undefined;
@@ -1040,6 +1038,21 @@ export const hr = new Hono<AppEnv>()
     const detail = await getHrPayrollRecordDetail(c.get("db"), { runId: c.req.param("runId"), personKind, personId: c.req.param("personId") });
     return c.json(detail);
   })
+  .get("/payroll/jobs", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ jobs: await listHrPayrollJobs(c.get("db")) });
+  })
+  .get("/payroll/jobs/:id", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ job: await getHrPayrollJob(c.get("db"), c.req.param("id")) });
+  })
+  .post("/payroll/jobs/:id/retry", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    if (!c.env.PAYROLL_QUEUE || !c.env.PAYROLL_RUN_AGENT) throw new HTTPException(503, { message: "薪資背景工作服務尚未啟用。" });
+    const retried = await retryHrPayrollJob(c.get("db"), c.req.param("id"), c.get("user"));
+    await enqueuePayrollJob(c.env, c.get("db"), retried.job.jobId);
+    return c.json({ job: await getHrPayrollJob(c.get("db"), retried.job.jobId) }, 202);
+  })
   .get("/payroll/runs", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ runs: await listHrPayrollRuns(c.get("db")) });
@@ -1065,18 +1078,27 @@ export const hr = new Hono<AppEnv>()
   .post("/payroll/calculate",  requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
-    const selectedUsers = payrollSelectedIds(input, "employeeUserIds", "指定員工清單不正確。");
-    const selectedWorkers = payrollSelectedIds(input, "workerIds", "指定支援人員格式不正確。");
+    const selectedUsers = payrollEmployeeUserIds(input);
+    const selectedWorkers = payrollWorkerIds(input);
     const mode = input.attendanceMode === undefined || input.attendanceMode === "all" || input.attendanceMode === "general" || input.attendanceMode === "scheduled" ? input.attendanceMode : null;
     if (mode === null) throw new HTTPException(400, { message: "員工出勤方式篩選不正確。" });
     const payDate = input.payDate === undefined ? undefined : date(input, "payDate");
     const runName = input.runName === undefined ? undefined : text(input, "runName", "結算名稱", 20);
-    return c.json({ run: await calculateHrPayroll(c.get("db"), {
+    const calculation = {
       periodKey: periodKey(input), payDate: payDate ?? undefined, runName, employeeUserIds: selectedUsers, workerIds: selectedWorkers,
-      attendanceMode: mode, requestId: input.requestId === undefined ? undefined : text(input, "requestId", "請求識別碼", 200),
+      attendanceMode: mode as "all" | "general" | "scheduled" | undefined, requestId: input.requestId === undefined ? undefined : text(input, "requestId", "請求識別碼", 200),
       monthlyDivisorDays: optionalInteger(input, "monthlyDivisorDays", "月薪除數", 1, 366),
       standardDailyHours: input.standardDailyHours === undefined ? undefined : Number(input.standardDailyHours),
-    }, c.get("user")) });
+    };
+    if (c.env.PAYROLL_QUEUE && c.env.PAYROLL_RUN_AGENT) {
+      const expectedCount = input.expectedCount === undefined ? 0 : integerValue(input, "expectedCount", "試算人數", 0, 1000);
+      const created = await createHrPayrollJob(c.get("db"), { calculation, expectedCount }, c.get("user"));
+      // 已存在的工作若已送進 Queue，不要因重複 requestId 再製造一筆投遞；
+      // 只有新工作或仍在 outbox pending 的工作需要補送，DO 另外負責抵抗 at-least-once 重複。
+      if (created.created || created.job.dispatchPending) await enqueuePayrollJob(c.env, c.get("db"), created.job.jobId);
+      return c.json({ job: await getHrPayrollJob(c.get("db"), created.job.jobId) }, 202);
+    }
+    return c.json({ run: await calculateHrPayroll(c.get("db"), calculation, c.get("user")) });
   })
   .get("/bonus/policies", requirePermission("hr:bonus:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

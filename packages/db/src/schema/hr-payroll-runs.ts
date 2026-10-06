@@ -91,6 +91,42 @@ export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   check("ck_hr_payroll_runs_counts", sql`${table.expectedCount} >= 0 AND ${table.completedCount} BETWEEN 0 AND ${table.expectedCount}`),
 ]);
 
+/** 背景薪資試算的投遞與進度；真正的薪資結果仍以 hr_payroll_runs 為準。 */
+export const hrPayrollJobs = sqliteTable("hr_payroll_jobs", {
+  id: text("id").primaryKey(),
+  payrollRunId: text("payroll_run_id").references(() => hrPayrollRuns.id, { onDelete: "set null" }),
+  requestId: text("request_id").notNull(),
+  calculationInputJson: text("calculation_input_json").notNull().default("{}"),
+  actorId: text("actor_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  actorEmail: text("actor_email").notNull().default(""),
+  status: text("status", { enum: ["queued", "calculating", "ready", "failed"] as const }).notNull().default("queued"),
+  phase: text("phase", { enum: ["queued", "preparing", "calculating_workers", "calculating_employees", "persisting", "completed", "failed"] as const }).notNull().default("queued"),
+  expectedCount: integer("expected_count").notNull().default(0),
+  completedCount: integer("completed_count").notNull().default(0),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  queueStatus: text("queue_status", { enum: ["pending", "enqueued"] as const }).notNull().default("pending"),
+  queueAttempts: integer("queue_attempts").notNull().default(0),
+  queueError: text("queue_error").notNull().default(""),
+  lastError: text("last_error").notNull().default(""),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  startedAt: text("started_at"),
+  completedAt: text("completed_at"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_payroll_jobs_request").on(table.requestId),
+  index("idx_hr_payroll_jobs_status_updated").on(table.status, table.updatedAt),
+  check("ck_hr_payroll_jobs_input", sql`length(${table.calculationInputJson}) <= 10000 AND json_valid(${table.calculationInputJson}) = 1 AND json_type(${table.calculationInputJson}) = 'object'`),
+  check("ck_hr_payroll_jobs_actor_email", sql`length(${table.actorEmail}) <= 320`),
+  check("ck_hr_payroll_jobs_phase", sql`${table.phase} IN ('queued', 'preparing', 'calculating_workers', 'calculating_employees', 'persisting', 'completed', 'failed')`),
+  check("ck_hr_payroll_jobs_status", sql`${table.status} IN ('queued', 'calculating', 'ready', 'failed')`),
+  check("ck_hr_payroll_jobs_queue_status", sql`${table.queueStatus} IN ('pending', 'enqueued')`),
+  check("ck_hr_payroll_jobs_counts", sql`${table.expectedCount} >= 0 AND ${table.completedCount} BETWEEN 0 AND ${table.expectedCount}`),
+  check("ck_hr_payroll_jobs_attempts", sql`${table.attemptCount} >= 0 AND ${table.queueAttempts} >= 0`),
+  check("ck_hr_payroll_jobs_errors", sql`length(${table.queueError}) <= 2000 AND length(${table.lastError}) <= 2000`),
+]);
+
+export type HrPayrollJob = typeof hrPayrollJobs.$inferSelect;
+
 /** 只保存 migration 後的新結帳 claim；既有歷史結果不重寫，但未來並行結帳由資料庫唯一鍵仲裁。 */
 export const hrPayrollClosedEmployees = sqliteTable("hr_payroll_closed_employees", {
   periodKey: text("period_key").notNull(),

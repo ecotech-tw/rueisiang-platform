@@ -31,6 +31,7 @@ export class LocalDurableObjectNamespace {
     let entry = this.entries.get(name);
     if (!entry) {
       const sqlite = new DatabaseSync(":memory:");
+      const values = new Map<string, unknown>();
       const alarm = {
         scheduled: false,
         running: false,
@@ -47,6 +48,9 @@ export class LocalDurableObjectNamespace {
             return sqlite.prepare(query).all(...bindings as never[]);
           },
         },
+        get: async <T>(key: string) => values.get(key) as T | undefined,
+        put: async (key: string, value: unknown) => { values.set(key, value); },
+        delete: async (key: string) => values.delete(key),
         getAlarm: async () => alarm.at,
         setAlarm: async (at: number) => {
           alarm.scheduled = true;
@@ -96,7 +100,7 @@ export class LocalDurableObjectNamespace {
       entry.alarm.at = null;
       entry.alarm.running = true;
       void entry.object.alarm!()
-        .catch((error) => console.error("本機 Pi Agent alarm 執行失敗", error))
+        .catch((error) => console.error("本機 Durable Object alarm 執行失敗", error))
         .finally(() => {
           entry.alarm.running = false;
           this.scheduleAlarm(entry);
