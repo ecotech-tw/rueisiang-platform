@@ -178,12 +178,12 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             searchable
             value={employeeValue}
             options={employeeOptions}
-            preventEnterSubmit
             placeholder="搜尋姓名或員工編號"
             aria-label="選擇正式員工"
             // 另一份名單還沒載完時不能動：這時從「全體」移除一個人，會把還沒出現的那一邊記成「一個都沒選」。
             // 用 isLoading 不用 isPending：月份清空時查詢是停用的，isPending 會一直是 true，下拉就再也解不開。
-            disabled={calculatePayroll.isPending || supportWorkers.isLoading}
+            // 載入失敗也算沒載完：重試成功之前名單一樣是空的。
+            disabled={calculatePayroll.isPending || supportWorkers.isLoading || Boolean(supportWorkers.error)}
             onValueChange={updateEmployeeSelection}
           /> : <p className="muted hr-payroll-picker-empty">目前沒有符合資格的正式員工。</p>}
         </div>
@@ -194,10 +194,9 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             searchable
             value={workerValue}
             options={workerSelectOptions}
-            preventEnterSubmit
             placeholder="搜尋支援人員"
             aria-label="選擇支援人員"
-            disabled={calculatePayroll.isPending || employeesPending}
+            disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError)}
             onValueChange={updateWorkerSelection}
           /> : <p className="muted hr-payroll-picker-empty">本月份沒有已發布排班的支援人員。</p>}
         </div>

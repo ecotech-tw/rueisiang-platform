@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import type {
   AssistantToolCall as RecordedToolCall,
   AssistantToolStatus,
@@ -992,7 +992,7 @@ async function linePushLocalUsage(db: Database, channelKey: string, windowKey: s
     .where(and(
       eq(assistantLinePushDeliveries.channelKey, channelKey),
       eq(assistantLinePushDeliveries.windowKey, windowKey),
-      inJsonArray(assistantLinePushDeliveries.status, ["reserved", "sent", "failed"]),
+      inArray(assistantLinePushDeliveries.status, ["reserved", "sent", "failed"]),
     ));
   return Math.max(0, Number(row?.total ?? 0));
 }
@@ -1056,7 +1056,7 @@ export async function findEarlierAssistantLineQueueJob(
       lt(assistantLineMessages.sequence, input.sequence),
       or(
         isNull(assistantLineQueueJobs.status),
-        inJsonArray(assistantLineQueueJobs.status, ["pending", "enqueued", "processing"]),
+        inArray(assistantLineQueueJobs.status, ["pending", "enqueued", "processing"]),
       ),
     ))
     .orderBy(asc(assistantLineMessages.sequence), asc(assistantLineMessages.createdAt), asc(assistantLineMessages.id))

@@ -1,8 +1,7 @@
 import type { CyberbizInventoryClient } from "@rueisiang/cyberbiz";
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
-import { inJsonArray } from "./sql-lists.js";
 import { cyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { activityEvents } from "./schema/activity.js";
 import { cyberbizSyncLocks, wmsItems } from "./schema/wms.js";
@@ -429,7 +428,7 @@ export async function retryFailedCyberbizPushes(
       eq(activityEvents.entityType, "item"),
       eq(activityEvents.source, "cyberbiz_sync"),
       eq(activityEvents.field, "quantity"),
-      inJsonArray(activityEvents.eventType, ["cyberbiz_sync_failed", "cyberbiz_pushed"]),
+      inArray(activityEvents.eventType, ["cyberbiz_sync_failed", "cyberbiz_pushed"]),
     ))
     // created_at 既有資料只有秒精度；rowid 才能判斷同秒內哪筆是後寫的。
     .orderBy(

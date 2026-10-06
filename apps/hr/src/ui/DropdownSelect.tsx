@@ -27,13 +27,6 @@ interface DropdownSelectCommonProps {
   className?: string;
   placeholder?: string;
   searchable?: boolean;
-  /**
-   * 多選的搜尋輸入框按 Enter 時不送出外層表單。
-   *
-   * 挑完一位清單會收起來，這時再按一次 Enter 就是原生的表單送出；
-   * 送出代價高的表單（例如直接開始薪資試算）要打開這個。
-   */
-  preventEnterSubmit?: boolean;
   "aria-label"?: string;
   "aria-labelledby"?: string;
   "aria-describedby"?: string;
@@ -152,7 +145,6 @@ function SelectSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps) {
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
-    preventEnterSubmit: _preventEnterSubmit,
     multiple: _multiple,
     ...ariaProps
   } = props;
@@ -209,7 +201,6 @@ function SelectMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownProps)
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
-    preventEnterSubmit: _preventEnterSubmit,
     multiple: _multiple,
     ...ariaProps
   } = props;
@@ -268,7 +259,6 @@ function SearchableSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps)
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
-    preventEnterSubmit: _preventEnterSubmit,
     "aria-label": ariaLabel,
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
@@ -335,7 +325,6 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
-    preventEnterSubmit = false,
     "aria-label": ariaLabel,
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
@@ -432,7 +421,9 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
                   id={id}
                   className="combobox-input"
                   placeholder={selected.length ? "" : placeholder}
-                  onKeyDown={preventEnterSubmit ? preventEnterDefault : undefined}
+                  // 挑完一位清單會收起來，這時再按一次 Enter 就是原生的表單送出——
+                  // 連續挑人時多按一下，薪資試算或整批套用就直接送出去了。多選一律擋掉，送出要按按鈕。
+                  onKeyDown={preventEnterDefault}
                   aria-label={ariaLabel}
                   aria-labelledby={ariaLabelledby}
                   aria-describedby={ariaDescribedby}

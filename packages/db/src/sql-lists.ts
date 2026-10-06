@@ -6,11 +6,13 @@ import { sql, type AnyColumn, type SQL } from "drizzle-orm";
  */
 
 /**
- * 給「ID 清單可能很長」的 IN 查詢用，取代 drizzle 的 `inArray`。
+ * 給「長度不受控的 ID 清單」的 IN 查詢用，取代 drizzle 的 `inArray`。
  *
- * `inArray` 每個值佔一個綁定參數，而 D1 單一語句最多 100 個；超過就整句被拒絕。
- * 本機的 node:sqlite 上限是三萬多，所以這種錯只會在正式環境出現、測試測不到。
- * 這裡把整份清單當成一個 JSON 參數交給 `json_each` 展開，清單多長都只佔一個。
+ * `inArray` 每個值佔一個綁定參數，超過上限整句被拒絕。這裡把整份清單當成一個 JSON 參數
+ * 交給 `json_each` 展開，清單多長都只佔一個。
+ *
+ * 固定幾個字面值的清單（狀態、事件種類）繼續用 `inArray`：參數數量是固定的，
+ * 而且 `inArray` 會照欄位的 enum 檢查型別，打錯字 typecheck 就會擋；這裡只收 string[]。
  */
 export function inJsonArray(column: AnyColumn, values: readonly string[]): SQL {
   return sql`${column} IN (${jsonArrayValues(values)})`;

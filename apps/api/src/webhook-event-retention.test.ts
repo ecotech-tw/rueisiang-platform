@@ -58,7 +58,7 @@ describe("webhook 事件保留期", () => {
     expect(await purgeSettledWebhookEvents(db)).toEqual({ deleted: 0 });
   });
 
-  it("超過一批（100 筆）也刪得完——D1 對單一語句的參數量有上限", async () => {
+  it("超過一百筆也刪得完——D1 對單一語句的參數量有上限", async () => {
     await seed(Array.from({ length: 250 }, (_, index) => ({
       id: `old-${String(index).padStart(3, "0")}`, status: "processed", days: 60,
     })));

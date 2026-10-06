@@ -1,6 +1,5 @@
-import { and, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, inArray, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { inJsonArray } from "./sql-lists.js";
 import { activityEvents } from "./schema/activity.js";
 
 /**
@@ -154,7 +153,7 @@ export async function listActivity(db: Database, query: ActivityQuery): Promise<
   const conditions: SQL[] = [sql`${activityEvents.source} <> 'hr'`];
   if (query.entityType) conditions.push(eq(activityEvents.entityType, query.entityType));
   if (query.entityTypes?.length) {
-    conditions.push(inJsonArray(activityEvents.entityType, [...query.entityTypes]));
+    conditions.push(inArray(activityEvents.entityType, [...query.entityTypes]));
   }
   if (query.entityId) conditions.push(eq(activityEvents.entityId, query.entityId));
   if (query.source !== "all") conditions.push(eq(activityEvents.source, query.source));
