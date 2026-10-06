@@ -1113,14 +1113,20 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
     expect(body.run.warnings.some((warning) => warning.includes("特殊上班日 2026-09-30 缺少工時資料"))).toBe(false);
     expect(body.run.warnings.some((warning) => warning.includes("沒有已發布排班"))).toBe(false);
+    const persistedLine = d1.sqlite.prepare("SELECT id, explanation_json AS explanationJson FROM hr_payslip_lines WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=?) AND line_key='special_workday'").get(body.run.runId) as { id: string; explanationJson: string };
+    const legacyExplanation = JSON.parse(persistedLine.explanationJson) as Record<string, unknown>;
+    delete legacyExplanation.ruleNames;
+    d1.sqlite.prepare("UPDATE hr_payslip_lines SET explanation_json=? WHERE id=?").run(JSON.stringify(legacyExplanation), persistedLine.id);
     const closed = await request(`/hr/payroll/runs/${body.run.runId}/close`, "POST", {});
     expect(closed.status, await closed.clone().text()).toBe(200);
     const afterCloseUpdate = await request(`/hr/special-workdays/rules/${ruleBody.id}/versions`, "POST", { name: "特殊日目前規則測試", validFrom: "2026-10-01", wageKind: "multiplier", multiplierPpm: 2_000_000, overtimeRules: [], allowances: [] });
     expect(afterCloseUpdate.status, await afterCloseUpdate.clone().text()).toBe(201);
     const settled = await request(`/hr/payroll/runs/${body.run.runId}`);
     expect(settled.status, await settled.clone().text()).toBe(200);
-    const settledBody = await settled.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
-    expect(settledBody.run.employees[0]?.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "special_workday", amountMinor: 80_000 })]));
+    const settledBody = await settled.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    expect(settledBody.run.employees[0]?.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "special_workday", amountMinor: 80_000, explanation: expect.objectContaining({ ruleNames: ["特殊日目前規則測試"] }) })]));
+    const persistedAfterRead = d1.sqlite.prepare("SELECT explanation_json AS explanationJson FROM hr_payslip_lines WHERE id=?").get(persistedLine.id) as { explanationJson: string };
+    expect((JSON.parse(persistedAfterRead.explanationJson) as Record<string, unknown>).ruleNames).toBeUndefined();
   });
 
   it("特殊上班日補貼依規則名稱與補貼項目分開列示", async () => {
