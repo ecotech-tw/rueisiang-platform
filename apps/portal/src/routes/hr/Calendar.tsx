@@ -54,7 +54,7 @@ export function CalendarScopePicker({ scopeIds, scopes, disabled, onChange }: { 
         ...scopes.map((scope) => ({ value: scope.id, label: scope.name, disabled: scopeIds.includes(scope.id) && scope.id !== scopeId })),
         ...(scopes.some((scope) => scope.id === scopeId) ? [] : [{ value: scopeId, label: scopeLabel(scopeId, scopes), disabled: true }]),
       ]} onChange={(event) => updateScope(index, event.target.value)} /><Button type="button" variant="icon" icon="trash" aria-label={`移除適用門市 ${scopeLabel(scopeId, scopes)}`} title="移除適用門市／地區" disabled={disabled} onClick={() => onChange(scopeIds.filter((_, currentIndex) => currentIndex !== index))} /></div>)}
-    <Button type="button" variant="chip-action" icon="plus" disabled={disabled || scopeIds.length >= scopes.length} onClick={addScope}>{scopeIds.length ? "新增門市／地區" : "指定門市／地區"}</Button>
+    <Button type="button" variant="chip-action" icon="plus" className="add-action" disabled={disabled || scopeIds.length >= scopes.length} onClick={addScope}>{scopeIds.length ? "新增門市／地區" : "指定門市／地區"}</Button>
   </div>;
 }
 
@@ -89,7 +89,7 @@ function AddDayDialog({ year, existing, scopes, onAdd, onClose }: { year: number
     const effectiveSpecialKind = dayType === "weekday" ? specialKind : "none";
     onAdd({ date, dayType, name: name.trim() || (effectiveSpecialKind === "typhoon_stop" ? "災防停班" : ""), specialKind: effectiveSpecialKind, specialScopeIds: effectiveSpecialKind === "typhoon_stop" ? specialScopeIds : [], overridden: true });
     (closeRequestRef.current ?? onClose)();
-  } }} closeRequestRef={closeRequestRef} actions={<Button type="submit" icon="check">加入</Button>}>
+  } }} closeRequestRef={closeRequestRef} actions={<Button type="submit" icon="check" className="add-action">加入</Button>}>
     <TextField label="日期" type="date" required min={`${year}-01-01`} max={`${year}-12-31`} value={date} onChange={(event) => setDate(event.target.value)} />
     <SelectField label="類型" value={dayType} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => setSelectedDayType(event.target.value as HrDayType)} />
     {dayType === "weekday" ? <SelectField label="災防標記" value={specialKind} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; setSpecialKind(value); if (value !== "typhoon_stop") setSpecialScopeIds([]); if (value === "typhoon_stop" && isDefaultHrCalendarSpecialName(name)) setName("災防停班"); if (value !== "typhoon_stop" && isDefaultHrCalendarSpecialName(name)) setName(""); }} /> : null}
@@ -208,9 +208,9 @@ export function HrCalendar() {
       description="設定國定假日、補班日與災防停班。災防停班只適用平日，不刪除原排班，薪資結算會依原排班保留給薪紀錄；其他未登記日子照星期幾計算。"
       /* 還在載入新年份時一律停用：這三顆的行為都依賴 saved，而 saved 還是上一年的。 */
       actions={canWrite ? <div className="button-row">
-        <Button variant="secondary" icon="cloudSync" disabled={save.isPending || loading} onClick={() => setImporting(true)}>匯入政府行事曆</Button>
-        <Button variant="secondary" icon="plus" disabled={save.isPending || loading} onClick={() => setAdding(true)}>新增日期</Button>
-        <Button loading={save.isPending} disabled={!changed || loading} onClick={() => { void submit(); }}>儲存</Button>
+        <Button variant="secondary" icon="cloudSync" className="hr-action-info" disabled={save.isPending || loading} onClick={() => setImporting(true)}>匯入政府行事曆</Button>
+        <Button variant="secondary" icon="plus" className="add-action" disabled={save.isPending || loading} onClick={() => setAdding(true)}>新增日期</Button>
+        <Button className="hr-action-update" loading={save.isPending} disabled={!changed || loading} onClick={() => { void submit(); }}>儲存</Button>
       </div> : undefined}
     />
     <Panel className="grows">

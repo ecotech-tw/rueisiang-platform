@@ -73,6 +73,7 @@
 - `secondary`：取消、返回、次要導覽或不具破壞性的輔助動作。
 - `danger`：刪除、撤回、停用等不可逆或高風險動作。
 - `icon`：表格列操作或純圖示控制；一定要有 `title` 與 `aria-label`。
+- HRIS 的新增／建立／加入動作加上 `add-action`，使用綠色成功語意；修改／更新使用 `hr-action-update`，查看／資訊使用 `hr-action-info`，兩者使用藍色資訊語意。刪除、撤回、停用仍使用 `danger`，不要用綠色或藍色取代危險語意。
 - `loading` 時由元件負責 disabled 與 `aria-busy`；不要在 route 另做一顆「處理中」按鈕。
 - filter chip 用 `selected`，不要在頁面手寫 `aria-pressed` 與 selected class 的同步邏輯。
 - 除非連續操作會被縮放干擾，保留按下 `scale: .96`；停用時才使用 `static`。
