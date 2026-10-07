@@ -116,6 +116,38 @@ describe("週年制特休額度", () => {
     expect(settlement).toEqual([{ deltaHalfHours: -48, entryKind: "settlement", sourceKey: `annual-settlement:${afterClose[0]!.id}` }]);
   });
 
+  it("撤回薪資結帳會以反向台帳恢復未休特休額度並重新開放期間", async () => {
+    const db = createDatabase(d1 as never);
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
+    const employmentId = profile.employments[0]!.id;
+    const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "撤回測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-02", employeeUserIds: ["employee"], requestId: "annual-settlement-withdrawal-first" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+    expect((await request(`/hr/payroll/runs/${runId}/close`, "POST", {})).status).toBe(200);
+    const entitlement = await db.select({ id: hrAnnualLeaveEntitlements.id, status: hrAnnualLeaveEntitlements.status, settledAt: hrAnnualLeaveEntitlements.settledAt })
+      .from(hrAnnualLeaveEntitlements).where(eq(hrAnnualLeaveEntitlements.periodStart, "2025-09-01")).limit(1);
+    expect(entitlement[0]).toMatchObject({ status: "settled" });
+
+    const withdrawn = await request(`/hr/payroll/runs/${runId}/withdraw`, "POST", { reason: "更正特休折現來源" });
+    expect(withdrawn.status, await withdrawn.clone().text()).toBe(200);
+    const reopened = await db.select({ status: hrAnnualLeaveEntitlements.status, settledAt: hrAnnualLeaveEntitlements.settledAt })
+      .from(hrAnnualLeaveEntitlements).where(eq(hrAnnualLeaveEntitlements.id, entitlement[0]!.id)).limit(1);
+    expect(reopened).toEqual([{ status: "open", settledAt: null }]);
+    const reversal = await db.select({ entryKind: hrAnnualLeaveLedger.entryKind, deltaHalfHours: hrAnnualLeaveLedger.deltaHalfHours, sourceKey: hrAnnualLeaveLedger.sourceKey })
+      .from(hrAnnualLeaveLedger).where(eq(hrAnnualLeaveLedger.sourceKey, `annual-settlement-reversal:${runId}:annual-settlement:${entitlement[0]!.id}`)).limit(1);
+    expect(reversal).toEqual([{ entryKind: "settlement_reversal", deltaHalfHours: 48, sourceKey: `annual-settlement-reversal:${runId}:annual-settlement:${entitlement[0]!.id}` }]);
+
+    const recalculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-02", employeeUserIds: ["employee"], requestId: "annual-settlement-withdrawal-second" });
+    expect(recalculated.status, await recalculated.clone().text()).toBe(200);
+    const newRunId = (await recalculated.json() as { run: { runId: string } }).run.runId;
+    const reclosed = await request(`/hr/payroll/runs/${newRunId}/close`, "POST", {});
+    expect(reclosed.status, await reclosed.clone().text()).toBe(200);
+    expect((await db.select({ status: hrAnnualLeaveEntitlements.status }).from(hrAnnualLeaveEntitlements).where(eq(hrAnnualLeaveEntitlements.id, entitlement[0]!.id)).limit(1))[0]?.status).toBe("settled");
+  });
+
   it("折現結帳後的特休取消改走薪資調整，不直接改動已結算台帳", async () => {
     const created = await request("/hr/leave-types", "POST", { name: "特休", leaveKind: "annual", defaultPayRatePpm: 1_000_000 });
     expect(created.status, await created.clone().text()).toBe(201);

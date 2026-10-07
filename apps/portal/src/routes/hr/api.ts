@@ -197,13 +197,13 @@ export interface PayrollLine { lineKey: string; direction: "earning" | "deductio
 export interface PayrollEmployee { employmentId: string; employeeUserId: string; employeeNumber: string; employeeName: string; lines: PayrollLine[]; earningMinor: number; deductionMinor: number; netMinor: number; attendanceDays: number; missingPunchDays: number }
 export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null }
 export interface PayrollWorkerCandidate { id: string; displayName: string }
-export interface PayrollRun { runId: string; runName: string; periodKey: string; payDate: string | null; status: "ready" | "closed"; engineVersion: string; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
+export interface PayrollRun { runId: string; runName: string; periodKey: string; payDate: string | null; status: "ready" | "closed" | "withdrawn"; engineVersion: string; withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
 export type BonusKind = "team_performance" | "individual_performance";
 export type PerformancePeriod = "current_month" | "previous_month";
 export interface BonusPolicy { policyVersionId: string; policyId: string; policyName: string; versionNumber: number; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; scopes?: Array<{ id: string; name: string }>; bonusKind: BonusKind; performancePeriod: PerformancePeriod; ratePpm: number; guaranteeMinor: number; validFrom: string; validTo: string | null; isLatest?: boolean }
 export interface BonusAssignment { assignment: { id: string; employmentId: string; validFrom: string; validTo: string | null; weightUnits: number }; policyVersionId: string; policyName: string; bonusKind: BonusKind; performancePeriod: PerformancePeriod; employeeUserId: string; employeeNumber: string; employeeName: string; employmentStatus: "active" | "inactive" }
 export interface BonusPerformanceSnapshot { snapshot: { id: string; employmentId: string | null; periodStart: string; periodEnd: string; amountMinor: number; sourceKind: "manual" | "report"; sourceRef: string }; scopeName: string; employeeUserId: string | null; employeeName: string | null }
-export interface PayrollRunSummary { run: { id: string; runName: string; versionNumber: number; status: string; payDate: string | null; engineVersion: string; expectedCount: number; completedCount: number; createdAt: string }; periodKey: string; periodStatus: string }
+export interface PayrollRunSummary { run: { id: string; runName: string; versionNumber: number; status: string; payDate: string | null; engineVersion: string; expectedCount: number; completedCount: number; createdAt: string; withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null }; periodKey: string; periodStatus: string }
 export type PayrollJobStatus = "queued" | "calculating" | "ready" | "failed";
 export type PayrollJobPhase = "queued" | "preparing" | "calculating_workers" | "calculating_employees" | "persisting" | "completed" | "failed";
 export interface PayrollJob {
@@ -227,7 +227,7 @@ export interface PayrollJob {
 }
 export interface PayrollJobsResponse { jobs: PayrollJob[] }
 export interface PayrollEmployeeHistoryRecord { runId: string; runName: string; periodKey: string; versionNumber: number; payDate: string | null; employmentId: string; employeeNumber: string; employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; closedAt: string }
-export type PayrollRecordStatus = "unsettled" | "closed";
+export type PayrollRecordStatus = "unsettled" | "closed" | "withdrawn";
 export type PayrollRecordPersonKind = "employee" | "worker";
 export type PayrollRecordPayBasis = "monthly" | "daily" | "hourly" | "mixed";
 export interface PayrollRecord {
@@ -261,7 +261,7 @@ export interface PayrollRecordItem {
 }
 export interface PayrollRecordDetail {
   record: PayrollRecord;
-  run: { runId: string; runName: string; periodKey: string; payDate: string | null; engineVersion: string; warnings: string[]; canDelete: boolean };
+  run: { runId: string; runName: string; periodKey: string; payDate: string | null; engineVersion: string; warnings: string[]; withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null; canDelete: boolean };
   employee: PayrollEmployee | null;
   worker: PayrollWorker | null;
   items: PayrollRecordItem[];

@@ -45,7 +45,7 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
     const messages: string[] = [];
     let cause: unknown = error;
     for (let depth = 0; depth < 5 && cause instanceof Error; depth += 1) { messages.push(cause.message); cause = cause.cause; }
-    if (messages.some((message) => /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed|attendance_monthly_rest_days_invalid|daily_leave_capacity_exceeded|monthly_leave_validation_failed|monthly_hourly_validation_failed|payroll_period_closed|payroll_period_not_ready|payroll_run_closed|payroll_run_snapshot_invalid|payroll_adjustment_amount_invalid|bonus_performance_idempotency_required|special_workday_source_server_determined|overtime_rate_server_determined/.test(message))) {
+    if (messages.some((message) => /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed|attendance_monthly_rest_days_invalid|daily_leave_capacity_exceeded|monthly_leave_validation_failed|monthly_hourly_validation_failed|payroll_period_closed|payroll_period_not_ready|payroll_run_closed|payroll_run_snapshot_invalid|payroll_adjustment_amount_invalid|bonus_performance_idempotency_required|special_workday_source_server_determined|overtime_rate_server_determined|payroll_run_withdrawal_invalid/.test(message))) {
       throw new HrError(409, conflictMessage);
     }
     throw error;

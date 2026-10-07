@@ -191,6 +191,9 @@ export function HrPayrollRecordDetail() {
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [deleteItemId, setDeleteItemId] = useState<string | null>(null);
   const [deleteRunOpen, setDeleteRunOpen] = useState(false);
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+  const [withdrawReason, setWithdrawReason] = useState("");
+  const [withdrawValidationError, setWithdrawValidationError] = useState<string | null>(null);
   const [payslipPreviewOpen, setPayslipPreviewOpen] = useState(false);
   const [payslipDownloading, setPayslipDownloading] = useState(false);
   const payslipPreviewRef = useRef<HTMLElement>(null);
@@ -199,6 +202,7 @@ export function HrPayrollRecordDetail() {
   const approve = useHrWrite<{ approved: number }>();
   const deleteItem = useHrWrite();
   const deleteRun = useHrWrite<{ id: string; deleted: true }>();
+  const withdraw = useHrWrite();
   const detail = result.data;
   const itemTotals = useMemo(() => (detail?.items ?? []).reduce((totals, item) => item.direction === "earning"
     ? { earningMinor: totals.earningMinor + item.amountMinor, deductionMinor: totals.deductionMinor }
@@ -219,6 +223,12 @@ export function HrPayrollRecordDetail() {
   function removeRun() {
     deleteRun.mutate({ path: `/payroll/runs/${encodeURIComponent(detail!.record.runId)}`, method: "DELETE", values: {} }, { onSuccess: () => { setDeleteRunOpen(false); navigate("/hr/payroll-settlement", { replace: true }); } });
   }
+  function withdrawRun() {
+    const reason = withdrawReason.trim();
+    if (!reason) { setWithdrawValidationError("請填寫撤回原因。"); return; }
+    setWithdrawValidationError(null);
+    withdraw.mutate({ path: `/payroll/runs/${encodeURIComponent(detail!.record.runId)}/withdraw`, method: "POST", values: { reason } }, { onSuccess: () => { setWithdrawOpen(false); void result.refetch(); toast.show("薪資批次已撤回，可以重新試算。", "success"); } });
+  }
   async function downloadPayslip() {
     const element = payslipPreviewRef.current;
     if (!element || payslipDownloading) return;
@@ -238,14 +248,14 @@ export function HrPayrollRecordDetail() {
     <Panel className="hr-payroll-record-detail-panel" title="發放明細" description={`${detail.record.payDate ? `發薪日 ${detail.record.payDate}` : "未設定發薪日"}・試算版本 v${detail.record.versionNumber}`}>
       <div className="hr-payroll-detail-head">
         <div><strong>{detail.record.personNumber ? `${detail.record.personNumber}・` : ""}{PERSON_KIND_LABEL[detail.record.personKind]}</strong><small>建立於 {detail.record.createdAt}</small></div>
-        <div className="hr-payroll-detail-actions"><StatusBadge tone={detail.record.status === "closed" ? "success" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : "尚未結算"}</StatusBadge>{canCalculate && detail.record.status === "unsettled" ? <><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending} onClick={approveRecord}>確定發放</Button><Button variant="secondary" icon="tune" disabled={deleteRun.isPending} onClick={() => setItemDialogOpen(true)}>薪資加扣項</Button>{detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除整批試算</Button> : null}</> : null}</div>
+        <div className="hr-payroll-detail-actions"><StatusBadge tone={detail.record.status === "closed" ? "success" : detail.record.status === "withdrawn" ? "neutral" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : detail.record.status === "withdrawn" ? "已撤回" : "尚未結算"}</StatusBadge>{canCalculate && detail.record.status === "unsettled" ? <><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={approveRecord}>確定發放</Button><Button variant="secondary" icon="tune" disabled={deleteRun.isPending || withdraw.isPending} onClick={() => setItemDialogOpen(true)}>薪資加扣項</Button>{detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除整批試算</Button> : null}</> : null}{canCalculate && detail.record.status === "closed" && !detail.run.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回整批發放</Button> : null}</div>
       </div>
       <div className="hr-payroll-overview" aria-label="薪資合計">
         <div><span>應發</span><strong>{money(detail.record.earningMinor)}</strong></div>
         <div><span>扣款</span><strong>{detail.record.deductionMinor ? deductionMoney(detail.record.deductionMinor) : "—"}</strong></div>
         <div className="hr-payroll-overview-net"><span>實領</span><strong>{money(detail.record.netMinor)}</strong></div>
       </div>
-      {detail.record.status === "closed" ? <Alert tone="info">這筆紀錄已確定發放，以下明細是不可改寫的歷史快照。</Alert> : detail.run.canDelete ? <Alert tone="warning">請確認試算公式與薪資加扣項後，再確定發放。薪資加扣項會以試算時保存的明細快照呈現；若資料有變更，請重新試算。</Alert> : <Alert tone="info">本批次已有其他人員確定發放，不能刪除整批試算；目前紀錄仍可繼續確認。</Alert>}
+      {detail.record.status === "withdrawn" ? <Alert tone="warning"><strong>這筆薪資批次已撤回。</strong> 原始薪資快照仍保留供稽核，撤回後可重新建立試算。{detail.run.withdrawal ? <p>撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p> : null}</Alert> : detail.record.status === "closed" ? <Alert tone="info">這筆紀錄已確定發放，以下明細是不可改寫的歷史快照。</Alert> : detail.run.canDelete ? <Alert tone="warning">請確認試算公式與薪資加扣項後，再確定發放。薪資加扣項會以試算時保存的明細快照呈現；若資料有變更，請重新試算。</Alert> : <Alert tone="info">本批次已有其他人員確定發放，不能刪除整批試算；目前紀錄仍可繼續確認。</Alert>}
       {detail.run.warnings.length ? <Alert tone="warning"><strong>試算提醒</strong><ul className="hr-payroll-warning-list">{detail.run.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></Alert> : null}
 
       {detail.employee ? <div className="hr-payroll-line-list">{detailLines.map((line) => <details className={`hr-payroll-line hr-payroll-line-${line.direction}`} key={line.lineKey}>
@@ -273,6 +283,12 @@ export function HrPayrollRecordDetail() {
       onClose={() => setPayslipPreviewOpen(false)}
       actions={<><Button variant="secondary" onClick={() => setPayslipPreviewOpen(false)}>關閉</Button><Button icon="download" loading={payslipDownloading} loadingLabel="產生圖片…" onClick={() => { void downloadPayslip(); }}>下載薪資條</Button></>}
     ><PayrollPayslip detail={detail} elementRef={payslipPreviewRef} /></Dialog> : null}
+    {withdrawOpen ? <ConfirmDialog title="撤回整批薪資發放？" confirmLabel="撤回發放" pending={withdraw.isPending} onCancel={() => { if (!withdraw.isPending) setWithdrawOpen(false); }} onConfirm={withdrawRun}>
+      <p><strong>{detail.run.runName}</strong>（{periodLabel(detail.run.periodKey)}）的已確定發放結果會標記為「已撤回」，原始薪資快照仍會保留。</p>
+      <p>撤回後該期間會重新開放，可重新試算；若已產生未休特休折現，系統也會一併恢復額度。</p>
+      <TextField label="撤回原因" value={withdrawReason} maxLength={1000} required placeholder="請說明撤回原因" onChange={(event) => setWithdrawReason(event.target.value)} />
+      {withdrawValidationError || withdraw.error ? <Alert tone="danger">{withdrawValidationError ?? withdraw.error?.message}</Alert> : null}
+    </ConfirmDialog> : null}
     {deleteRunOpen ? <ConfirmDialog title="刪除整批薪資試算？" confirmLabel="刪除試算" pending={deleteRun.isPending} onCancel={() => { if (!deleteRun.isPending) setDeleteRunOpen(false); }} onConfirm={removeRun}>
       <p><strong>{detail.run.runName}</strong>（{periodLabel(detail.run.periodKey)}）會連同本批次所有尚未結算的發放紀錄、試算明細與薪資加扣項一併刪除。</p>
       <p>已確定發放的歷史紀錄不受影響；刪除只適用於尚未有任何人員確定發放的批次。</p>

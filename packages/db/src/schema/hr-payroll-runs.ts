@@ -91,6 +91,20 @@ export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   check("ck_hr_payroll_runs_counts", sql`${table.expectedCount} >= 0 AND ${table.completedCount} BETWEEN 0 AND ${table.expectedCount}`),
 ]);
 
+/**
+ * 已確定發放的批次不能改寫；撤回以獨立的 append-only 標記表示，保留原薪資快照並釋放當期 claim 供重新試算。
+ * hr_payroll_runs.status 仍維持 closed，避免撤回動作本身破壞歷史批次的 immutable trigger。
+ */
+export const hrPayrollWithdrawals = sqliteTable("hr_payroll_withdrawals", {
+  payrollRunId: text("payroll_run_id").primaryKey().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
+  reason: text("reason").notNull(),
+  withdrawnBy: text("withdrawn_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  withdrawnAt: text("withdrawn_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_hr_payroll_withdrawals_withdrawn_at").on(table.withdrawnAt),
+  check("ck_hr_payroll_withdrawals_reason", sql`length(trim(${table.reason})) BETWEEN 1 AND 1000`),
+]);
+
 /** 背景薪資試算的投遞與進度；真正的薪資結果仍以 hr_payroll_runs 為準。 */
 export const hrPayrollJobs = sqliteTable("hr_payroll_jobs", {
   id: text("id").primaryKey(),
