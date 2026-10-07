@@ -225,7 +225,7 @@ export const hrSpecialWorkdayRuleVersions = sqliteTable("hr_special_workday_rule
   overtimeRule: text("overtime_rule").notNull(),
   workSource: text("work_source", { enum: ["schedule", "hourly", "manual"] as const }).notNull(),
   note: text("note").notNull().default(""),
-  /** 誤設版本以解除保留，不能物理刪除，避免歷史套用與薪資快照失去來源。 */
+  /** 只有已有薪資依據的版本解除後才留著這個標記；沒有薪資依據的解除時直接清掉。 */
   voidedAt: text("voided_at"),
   voidedBy: text("voided_by").references(() => users.id, { onDelete: "restrict" }),
   /*

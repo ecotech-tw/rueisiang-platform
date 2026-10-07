@@ -667,7 +667,7 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
     ...(line.quantitySeconds === null ? {} : { quantitySeconds: line.quantitySeconds }),
     explanation: JSON.parse(line.explanationJson) as Record<string, unknown>,
   }));
-  // 早期已結算快照只有 assignmentIds；讀取時從不可刪除的特殊上班日套用資料補回規則名稱，不改寫歷史薪資快照。
+  // 早期已結算快照只有 assignmentIds；讀取時從特殊上班日套用資料（納入薪資後不可刪除）補回規則名稱，不改寫歷史薪資快照。
   const legacySpecialWorkdayAssignmentIds = [...new Set(parsedLines
     .filter((line) => {
       if (line.lineKey !== "special_workday") return false;
