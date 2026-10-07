@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
@@ -58,26 +59,24 @@ function recordStatusTone(status: PayrollRecord["status"]): "success" | "warning
 function isPayrollJobActive(job: PayrollJob) {
   return job.status === "queued" || job.status === "calculating";
 }
-const PAYROLL_JOB_READY_VISIBLE_MS = 10 * 60 * 1000;
 // /payroll/jobs 固定回最近幾筆、不分狀態，照單全收的話面板會常駐。
-// 只從資料本身判斷，不記「這次掛載看過誰」：使用者常在試算途中點進明細頁再回來，
-// 記在元件 state 的話回來就什麼都不剩。
-export function visiblePayrollJobs(jobs: PayrollJob[], now: number): PayrollJob[] {
+// 面板只列還需要人等或處理的工作：算完的紀錄已經在表格裡，留著只是重整後還賴在畫面上。
+export function visiblePayrollJobs(jobs: PayrollJob[]): PayrollJob[] {
   return jobs.filter((job) => {
     if (isPayrollJobActive(job)) return true;
+    if (job.status === "ready") return false;
     const finishedAt = job.completedAt ?? job.updatedAt;
-    if (job.status === "ready") {
-      const finishedMs = new Date(finishedAt.includes("T") ? finishedAt : `${finishedAt.replace(" ", "T")}Z`).getTime();
-      return now - finishedMs < PAYROLL_JOB_READY_VISIBLE_MS;
-    }
     // 失敗的要留到有人處理：同一個月份之後有試算成功，就不必再提醒。
     return !jobs.some((other) => other.status === "ready" && other.periodKey === job.periodKey && (other.completedAt ?? other.updatedAt) > finishedAt);
   });
 }
 const PAYROLL_JOB_STATUS_LABEL: Record<PayrollJob["status"], string> = { queued: "等待背景執行", calculating: "背景計算中", ready: "試算完成", failed: "試算失敗" };
 const PAYROLL_JOB_PHASE_LABEL: Record<PayrollJob["phase"], string> = { queued: "等待佇列派送", preparing: "準備來源資料", calculating_workers: "計算支援人員", calculating_employees: "計算正式員工", persisting: "保存薪資明細", completed: "可以開始覆核", failed: "需要重新試算" };
-function payrollJobTone(status: PayrollJob["status"]): "success" | "warning" | "danger" {
-  return status === "ready" ? "success" : status === "failed" ? "danger" : "warning";
+// 記在模組而不是元件上：試算途中常點進明細頁再回來，記在元件上的話回來時不知道它原本在跑，
+// 完成或失敗的 toast 就不會發——而算完的工作已經不列在面板裡，那是唯一的通知。
+const observedPayrollJobStatuses = new Map<string, PayrollJob["status"]>();
+function payrollJobTone(status: PayrollJob["status"]): "warning" | "danger" {
+  return status === "failed" ? "danger" : "warning";
 }
 function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "personId">) {
   return `${record.runId}:${record.personKind}:${record.personId}`;
@@ -237,29 +236,37 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   </Dialog>;
 }
 
-function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: PayrollJob[]; onOpen: (job: PayrollJob) => void; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
-  const [expanded, setExpanded] = useState(true);
-  if (!jobs.length) return null;
-  return <section className={`hr-payroll-job-progress${expanded ? "" : " is-collapsed"}`} aria-label="薪資試算進度">
+function PayrollJobProgress({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
+  // 預設收合：展開的面板會蓋住表格右下角的選取列，進度有 toast 通知，想看細節的人再點開。
+  const [expanded, setExpanded] = useState(false);
+  // 沒有工作時元件還掛著、只是不畫：不重設的話，下一筆試算一出現面板就是展開的。
+  useEffect(() => { if (!jobs.length) setExpanded(false); }, [jobs.length]);
+  // 掛到 HRIS 最外層：頁面轉場會在自己的容器上留著 filter，那會變成 fixed 的定位基準，頁籤就不再貼著視窗右緣。
+  // 不掛 body，因為卡片裡的按鈕配色是靠 `.hr-system` 的選擇器套上的。
+  const [host, setHost] = useState<Element | null>(null);
+  useEffect(() => { setHost(document.querySelector(".hr-system")); }, []);
+  if (!jobs.length || !host) return null;
+  const failedCount = jobs.filter((job) => job.status === "failed").length;
+  return createPortal(<section className={`hr-payroll-job-progress${expanded ? "" : " is-collapsed"}${failedCount ? " has-failed" : ""}`} aria-label="薪資試算進度">
     <Button
       variant="link"
       static
       className="hr-payroll-job-progress-toggle"
       aria-expanded={expanded}
       aria-controls="hr-payroll-job-list"
-      aria-label={expanded ? "收合薪資試算" : "展開薪資試算"}
+      aria-label={`${expanded ? "收合" : "展開"}薪資試算，${jobs.length} 筆${failedCount ? `，其中 ${failedCount} 筆失敗` : ""}`}
       onClick={() => setExpanded((current) => !current)}
     >
-      <strong>薪資試算</strong>
-      <span>{jobs.length} 筆</span>
       <span className={`hr-payroll-job-progress-chevron${expanded ? " is-expanded" : ""}`} aria-hidden="true">
-        <Icon name="chevronDown" className="hr-payroll-job-progress-chevron-down" />
-        <Icon name="chevronUp" className="hr-payroll-job-progress-chevron-up" />
+        <Icon name="chevronLeft" className="hr-payroll-job-progress-chevron-open" />
+        <Icon name="chevronRight" className="hr-payroll-job-progress-chevron-close" />
       </span>
+      {/* 收合時錯誤原因與「重新試算」都看不到，頁籤自己要說得出有失敗待處理，不能只靠顏色。 */}
+      <strong>{failedCount ? "試算失敗" : "薪資試算"}</strong>
+      <span className="hr-payroll-job-progress-count">{jobs.length}</span>
     </Button>
-    <div className={`hr-payroll-job-list ${expanded ? "is-expanded" : "is-collapsed"}`} id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
-      <div className="hr-payroll-job-list-inner">
-        {jobs.map((job) => {
+    <div className="hr-payroll-job-list" id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
+      {jobs.map((job) => {
         const hasProgress = job.progressPercent !== null;
         // 準備或派送階段就失敗的工作沒有人數可算，畫 indeterminate 進度條會像還在跑。
         const failedBeforeProgress = job.status === "failed" && !hasProgress;
@@ -275,13 +282,12 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
             {job.status === "failed"
               ? <span className="hr-payroll-job-error">{job.error ?? "試算沒有完成，請重新試算。"}</span>
               : <span>{job.expectedCount > 0 ? `${job.completedCount.toLocaleString("zh-TW")} / ${job.expectedCount.toLocaleString("zh-TW")} 人` : "正在準備試算資料…"}</span>}
-            {job.status === "failed" ? (canRetry ? <Button variant="secondary" icon="sync" className="hr-action-info" onClick={() => onRetry(job)}>重新試算</Button> : null) : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : job.status === "ready" && job.runId ? <Button variant="secondary" icon="eye" className="hr-action-info" onClick={() => onOpen(job)}>查看紀錄</Button> : null}
+            {job.status === "failed" ? (canRetry ? <Button variant="secondary" icon="sync" className="hr-action-info" onClick={() => onRetry(job)}>重新試算</Button> : null) : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : null}
           </div>
         </article>;
-        })}
-      </div>
+      })}
     </div>
-  </section>;
+  </section>, host);
 }
 
 export function HrPayrollSettlement() {
@@ -300,7 +306,6 @@ export function HrPayrollSettlement() {
   const records = useHrQuery<PayrollRecordsResponse>(`/payroll/records?page=${recordFilters.page}&pageSize=${recordFilters.pageSize}&search=${encodeURIComponent(recordFilters.search)}&periodKey=${encodeURIComponent(recordFilters.periodKey || "all")}&status=${recordFilters.status}&personKind=${recordFilters.personKind}&payBasis=${recordFilters.payBasis}`, canRead);
   const [pollPayrollJobs, setPollPayrollJobs] = useState(true);
   const payrollJobs = useHrQuery<PayrollJobsResponse>("/payroll/jobs", canRead, { keepPreviousData: false, refetchInterval: pollPayrollJobs ? 3000 : false });
-  const observedJobStatuses = useRef(new Map<string, PayrollJob["status"]>());
   const approvePayroll = useHrWrite<{ approved: number }>();
   const retryPayroll = useHrWrite<{ job: PayrollJob }>();
 
@@ -319,7 +324,7 @@ export function HrPayrollSettlement() {
     const jobs = payrollJobs.data?.jobs ?? [];
     setPollPayrollJobs(jobs.some(isPayrollJobActive));
     for (const job of jobs) {
-      const previous = observedJobStatuses.current.get(job.jobId);
+      const previous = observedPayrollJobStatuses.get(job.jobId);
       if (previous && previous !== job.status && (job.status === "ready" || job.status === "failed")) {
         if (job.status === "ready") {
           toast.show(`${job.runName}試算完成，可以開始覆核。`, "success");
@@ -328,7 +333,7 @@ export function HrPayrollSettlement() {
           toast.show(`${job.runName}試算失敗。`, "danger", canCalculate ? { label: "重新試算", onClick: () => retryJob(job) } : undefined);
         }
       }
-      observedJobStatuses.current.set(job.jobId, job.status);
+      observedPayrollJobStatuses.set(job.jobId, job.status);
     }
   }, [canCalculate, payrollJobs.data?.jobs, records, toast]);
   useEffect(() => {
@@ -362,16 +367,16 @@ export function HrPayrollSettlement() {
   }
   function retryJob(job: PayrollJob) {
     if (retryPayroll.isPending) return;
-    retryPayroll.mutate({ path: `/payroll/jobs/${encodeURIComponent(job.jobId)}/retry`, method: "POST", values: {} }, { onSuccess: ({ job: retriedJob }) => { observedJobStatuses.current.set(retriedJob.jobId, retriedJob.status); toast.show(`${retriedJob.runName}已重新加入薪資試算。`, "info"); setPollPayrollJobs(true); void payrollJobs.refetch(); } });
+    retryPayroll.mutate({ path: `/payroll/jobs/${encodeURIComponent(job.jobId)}/retry`, method: "POST", values: {} }, { onSuccess: ({ job: retriedJob }) => { observedPayrollJobStatuses.set(retriedJob.jobId, retriedJob.status); toast.show(`${retriedJob.runName}已重新加入薪資試算。`, "info"); setPollPayrollJobs(true); void payrollJobs.refetch(); } });
   }
 
-  const payrollJobList = visiblePayrollJobs(payrollJobs.data?.jobs ?? [], Date.now());
+  const payrollJobList = visiblePayrollJobs(payrollJobs.data?.jobs ?? []);
 
   return <div className="page fills hr-payroll-page">
     <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={canCalculate ? <Button className="add-action" icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     {payrollJobs.error ? <Alert tone="danger">薪資試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
-    <PayrollJobProgress jobs={payrollJobList} onOpen={(job) => { if (job.periodKey) updateRecordFilters({ periodKey: job.periodKey, search: "", status: "all", personKind: "all", payBasis: "all" }); }} onRetry={retryJob} canRetry={canCalculate} />
+    <PayrollJobProgress jobs={payrollJobList} onRetry={retryJob} canRetry={canCalculate} />
 
     <Panel className="grows hr-payroll-records-panel">
       <FilterToolbar className="hr-payroll-record-filter">
@@ -416,7 +421,7 @@ export function HrPayrollSettlement() {
       initialPeriodKey={recordFilters.periodKey || currentMonth}
       initialPayDate=""
       onClose={() => setShowCalculationDialog(false)}
-      onSuccess={({ job, run }) => { if (job) { observedJobStatuses.current.set(job.jobId, job.status); toast.show(job.status === "failed" ? `${job.runName}薪資試算啟動失敗，請重新試算。` : `${job.runName}已加入薪資試算，完成後會通知你。`, job.status === "failed" ? "danger" : "info"); } else if (run) toast.show("薪資試算完成，可以開始覆核。", "success"); setRecordFilters((current) => ({ ...current, periodKey: job?.periodKey ?? run?.periodKey ?? current.periodKey, page: 1 })); setSelectedKeys([]); setPollPayrollJobs(true); void payrollJobs.refetch(); }}
+      onSuccess={({ job, run }) => { if (job) { observedPayrollJobStatuses.set(job.jobId, job.status); toast.show(job.status === "failed" ? `${job.runName}薪資試算啟動失敗，請重新試算。` : `${job.runName}已加入薪資試算，完成後會通知你。`, job.status === "failed" ? "danger" : "info"); } else if (run) toast.show("薪資試算完成，可以開始覆核。", "success"); setRecordFilters((current) => ({ ...current, periodKey: job?.periodKey ?? run?.periodKey ?? current.periodKey, page: 1 })); setSelectedKeys([]); setPollPayrollJobs(true); void payrollJobs.refetch(); }}
     /> : null}
     {approveOpen ? <ConfirmDialog title="確定發放選取紀錄？" confirmLabel="確定發放" pending={approvePayroll.isPending} onCancel={() => { if (!approvePayroll.isPending) setApproveOpen(false); }} onConfirm={approveSelected}>
       <p>即將將 <strong>{selectedRecords.length} 筆</strong>薪資紀錄標記為「已確定發放」。</p>
