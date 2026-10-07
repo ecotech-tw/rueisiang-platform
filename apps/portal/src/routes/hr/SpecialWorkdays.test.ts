@@ -30,7 +30,7 @@ describe("特殊上班日加班級距的時數邊界", () => {
       workSource: "hourly" as const, note: "", voidedAt, voidedBy: null, allowances: [], overtimeRules: [],
     });
     expect(defaultActiveRuleId([{
-      rule: { id: "rule-1", name: "特殊日", active: 1, revision: 1 },
+      rule: { id: "rule-1", name: "特殊日", active: 1, revision: 1 }, payrollReferenced: false,
       versions: [version("version-1", 1), version("version-2", 2), version("version-3", 3, "2026-03-01")],
     }])).toBe("rule-1");
   });
@@ -49,7 +49,7 @@ describe("特殊上班日加班級距的時數邊界", () => {
     });
     const first = version("version-1", 1, "2026-01-01", "2026-06-01", "allowance-1", "餐費");
     const second = version("version-2", 2, "2026-06-01", null, "allowance-2", "交通補貼");
-    const rule = { rule: { id: "rule-1", name: "特殊日", active: 1, revision: 1 }, versions: [first, second] };
+    const rule = { rule: { id: "rule-1", name: "特殊日", active: 1, revision: 1 }, payrollReferenced: false, versions: [first, second] };
     expect(effectiveSpecialWorkdayVersion(rule, "2026-05-31")?.id).toBe("version-1");
     expect(effectiveSpecialWorkdayVersion(rule, "2026-06-01")?.id).toBe("version-2");
     expect(remapAllowanceQuantities(second, first, { "allowance-2": 3 })).toEqual([{ allowanceId: "allowance-1", quantity: 0 }]);

@@ -1481,6 +1481,28 @@ describe("HR 薪資與櫃點獎金試算", () => {
         specialWorkdayRuleSnapshots: [expect.objectContaining({ workDate: "2026-09-04", ruleVersionId: versionId, overtimeRules: [expect.objectContaining({ rateKind: "fixed_hourly", fixedAmountMinor: 0 })] })],
       }),
     });
+
+    /*
+     * 刪除與清理的保護是照薪資快照、薪資明細的 JSON 形狀去找 ID 的。這一段用真正試算寫出來的資料驗，
+     * 不是手寫的快照：哪天試算改了鍵名，保護會安靜地全部失效，要有一個測試跟著紅。
+     */
+    const listedAssignments = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string; ruleId: string }; includedInPayroll: boolean }> };
+    const assignment = listedAssignments.assignments.find((item) => item.assignment.ruleId === ruleBody.id)!;
+    expect(assignment.includedInPayroll).toBe(true);
+    const deleteAssignment = await request(`/hr/special-workdays/assignments/${assignment.assignment.id}`, "DELETE", { ruleId: ruleBody.id, employmentId: "dev-employment-chen", workerId: null, workDate: "2026-09-04" });
+    expect(deleteAssignment.status, await deleteAssignment.clone().text()).toBe(409);
+    const rules = async () => (await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; revision: number }; payrollReferenced: boolean; versions: Array<{ id: string; voidedAt: string | null }> }> }).rules.find((item) => item.rule.id === ruleBody.id)!;
+    expect((await rules()).payrollReferenced).toBe(true);
+    const deleteRule = await request(`/hr/special-workdays/rules/${ruleBody.id}`, "DELETE", { revision: (await rules()).rule.revision });
+    expect(deleteRule.status, await deleteRule.clone().text()).toBe(409);
+    // 試算用的是第一版；之後才建立、涵蓋同一天的第二版沒有被任何試算用過，解除時要真的清掉。
+    const second = await request(`/hr/special-workdays/rules/${ruleBody.id}/versions`, "POST", { name: "特殊日零元加班", validFrom: "2026-09-02", wageKind: "fixed_hourly", fixedAmountMinor: 30000, overtimeRules: [], allowances: [] });
+    expect(second.status, await second.clone().text()).toBe(201);
+    const secondVersionId = (await second.json() as { versionId: string }).versionId;
+    const voided = await request(`/hr/special-workdays/rules/${ruleBody.id}/versions/${secondVersionId}/void`, "POST", {});
+    expect(voided.status, await voided.clone().text()).toBe(200);
+    expect(await voided.json()).toMatchObject({ removed: true });
+    expect((await rules()).versions).toEqual([expect.objectContaining({ id: versionId, voidedAt: null })]);
   });
 
   it("後端拒絕同一敘薪版本的重複薪資項目名稱", async () => {

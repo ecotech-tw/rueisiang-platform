@@ -623,7 +623,7 @@ describe("HR 薪資與勞健保", () => {
     expect(versions).toEqual([expect.objectContaining({ id: firstBody.versionId, versionNumber: 1, validTo: null, voidedAt: null })]);
     const [voidEvent] = await createDatabase(d1 as never).select({ summary: activityEvents.summary, entityLabel: activityEvents.entityLabel, payloadJson: activityEvents.payloadJson }).from(activityEvents).where(eq(activityEvents.eventType, "special_workday_rule_version_voided")).orderBy(desc(activityEvents.createdAt)).limit(1);
     expect(voidEvent).toMatchObject({ summary: "特殊上班日規則版本解除", entityLabel: "可解除特殊日" });
-    expect(JSON.parse(voidEvent!.payloadJson)).toMatchObject({ voidedVersion: { versionId: secondBody.versionId, versionNumber: 2, validFrom: "2026-02-01", fixedAmountMinor: 35000 }, restoredVersionId: firstBody.versionId });
+    expect(JSON.parse(voidEvent!.payloadJson)).toMatchObject({ voidedVersion: { versionId: secondBody.versionId, versionNumber: 2, validFrom: "2026-02-01", fixedAmountMinor: 35000, removed: true }, restoredVersionId: firstBody.versionId });
     expect((await request(`/hr/special-workdays/rules/${firstBody.id}/versions/${firstBody.versionId}/void`, "POST", {})).status).toBe(409);
     expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-02-21", allowanceQuantity: 0 }] })).status).toBe(201);
     const assignmentRows = await (await request("/hr/special-workdays/assignments?start=2026-02-01&end=2026-03-01")).json() as { assignments: Array<{ assignment: { ruleId: string }; currentVersionNumber: number | null; currentVersionVoidedAt: string | null }> };
@@ -683,11 +683,40 @@ describe("HR 薪資與勞健保", () => {
     expect(moved.status, await moved.clone().text()).toBe(200);
     const voided = await request(`/hr/special-workdays/rules/${firstBody.id}/versions/${secondBody.versionId}/void`, "POST", {});
     expect(voided.status, await voided.clone().text()).toBe(200);
-    const listed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; revision: number }; versions: Array<{ id: string; voidedAt: string | null }> }> };
+    const listed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; revision: number }; payrollReferenced: boolean; versions: Array<{ id: string; voidedAt: string | null }> }> };
     const rule = listed.rules.find((item) => item.rule.id === firstBody.id)!;
     expect(rule.versions).toEqual(expect.arrayContaining([expect.objectContaining({ id: secondBody.versionId, voidedAt: expect.any(String) })]));
+    expect(rule.payrollReferenced).toBe(true);
     const deletedRule = await request(`/hr/special-workdays/rules/${firstBody.id}`, "DELETE", { revision: rule.rule.revision });
     expect(deletedRule.status, await deletedRule.clone().text()).toBe(409);
+  });
+
+  it("沒記版本 ID 的舊薪資快照，依快照當時的規則與日期保護版本與規則", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const first = await request("/hr/special-workdays/rules", "POST", { name: "舊快照的規則", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [], overtimeRules: [] });
+    const firstBody = await first.json() as { id: string; versionId: string };
+    const second = await request(`/hr/special-workdays/rules/${firstBody.id}/versions`, "POST", { name: "舊快照的規則", validFrom: "2026-04-01", wageKind: "fixed_hourly", fixedAmountMinor: 35000, allowances: [], overtimeRules: [] });
+    const secondBody = await second.json() as { versionId: string };
+    const other = await request("/hr/special-workdays/rules", "POST", { name: "舊快照改過去的規則", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 20000, allowances: [], overtimeRules: [] });
+    const otherBody = await other.json() as { id: string };
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-04-03", allowanceQuantities: [] }] })).status).toBe(201);
+    const listedAssignments = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string; ruleId: string } }> };
+    const assignmentId = listedAssignments.assignments.find((item) => item.assignment.ruleId === firstBody.id)!.assignment.id;
+    const db = createDatabase(d1 as never);
+    await db.insert(hrPayrollPeriods).values({ id: "payroll-period-legacy", periodKey: "2026-04", attendanceStart: "2026-04-01", attendanceEnd: "2026-05-01", createdBy: "admin" });
+    await db.insert(hrPayrollRuns).values({ id: "payroll-run-legacy", payrollPeriodId: "payroll-period-legacy", versionNumber: 1, requestId: "payroll-request-legacy", inputRevision: 1, sourceSnapshotJson: JSON.stringify({ specialWorkdays: [{ id: assignmentId, ruleId: firstBody.id, workDate: "2026-04-03" }] }), engineVersion: "test", status: "ready", expectedCount: 0, completedCount: 0, createdBy: "admin" });
+    expect((await request(`/hr/special-workdays/assignments/${assignmentId}`, "PATCH", { ruleId: otherBody.id, employmentId, workDate: "2026-04-20", allowanceQuantities: [] })).status).toBe(200);
+
+    expect((await request(`/hr/special-workdays/rules/${firstBody.id}/versions/${secondBody.versionId}/void`, "POST", {})).status).toBe(200);
+    const listed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; revision: number }; payrollReferenced: boolean; versions: Array<{ id: string; voidedAt: string | null }> }> };
+    const rule = listed.rules.find((item) => item.rule.id === firstBody.id)!;
+    expect(rule.versions).toEqual(expect.arrayContaining([expect.objectContaining({ id: secondBody.versionId, voidedAt: expect.any(String) })]));
+    expect(rule.payrollReferenced).toBe(true);
+    expect((await request(`/hr/special-workdays/rules/${firstBody.id}`, "DELETE", { revision: rule.rule.revision })).status).toBe(409);
+    // 那筆進過薪資的套用現在掛在改過去的規則底下，所以那條規則也不能刪。
+    expect(listed.rules.find((item) => item.rule.id === otherBody.id)!.payrollReferenced).toBe(true);
   });
 
   it("建立新版本時才清掉先前留下的已解除版本，被拒絕的請求不會動到資料", async () => {
@@ -745,15 +774,26 @@ describe("HR 薪資與勞健保", () => {
     const db = createDatabase(d1 as never);
     const [deleteEvent] = await db.select({ entityLabel: activityEvents.entityLabel, summary: activityEvents.summary, payloadJson: activityEvents.payloadJson })
       .from(activityEvents).where(eq(activityEvents.eventType, "special_workday_rule_deleted")).orderBy(desc(activityEvents.createdAt)).limit(1);
-    expect(deleteEvent).toMatchObject({ entityLabel: "未套用可刪除", summary: "特殊上班日規則刪除", payloadJson: JSON.stringify({ ruleName: "未套用可刪除" }) });
+    expect(deleteEvent).toMatchObject({ entityLabel: "未套用可刪除", summary: "特殊上班日規則刪除" });
+    expect(JSON.parse(deleteEvent!.payloadJson)).toMatchObject({ ruleName: "未套用可刪除", removedVersions: [expect.objectContaining({ versionNumber: 2 }), expect.objectContaining({ versionNumber: 1, allowances: [{ itemName: "餐費", unitAmountMinor: 10000 }] })], removedAssignmentCount: 0, removedAssignments: [] });
 
     const used = await request("/hr/special-workdays/rules", "POST", { name: "已有套用不可刪除", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [], overtimeRules: [] });
     expect(used.status, await used.clone().text()).toBe(201);
     const usedBody = await used.json() as { id: string; versionId: string };
     const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: usedBody.id, assignments: [{ employmentId, workDate: "2026-01-15", allowanceQuantity: 0 }] });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
-    const deletedUsed = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", { revision: 1 });
+    // 開著頁面的人手上還是套用之前的 revision：別人剛加的套用不能被這次刪除一起帶走。
+    const beforeAssign = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", { revision: 1 });
+    expect(beforeAssign.status, await beforeAssign.clone().text()).toBe(409);
+    const stillAssigned = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { ruleId: string } }> };
+    expect(stillAssigned.assignments.some((item) => item.assignment.ruleId === usedBody.id)).toBe(true);
+    const refreshed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; revision: number }; payrollReferenced: boolean }> };
+    const usedRule = refreshed.rules.find((item) => item.rule.id === usedBody.id)!;
+    expect(usedRule.payrollReferenced).toBe(false);
+    const deletedUsed = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", { revision: usedRule.rule.revision });
     expect(deletedUsed.status, await deletedUsed.clone().text()).toBe(200);
+    const [usedDeleteEvent] = await db.select({ payloadJson: activityEvents.payloadJson }).from(activityEvents).where(eq(activityEvents.eventType, "special_workday_rule_deleted")).orderBy(desc(activityEvents.createdAt)).limit(1);
+    expect(JSON.parse(usedDeleteEvent!.payloadJson)).toMatchObject({ ruleName: "已有套用不可刪除", removedAssignmentCount: 1, removedAssignments: [{ employmentId, workerId: null, workDate: "2026-01-15" }] });
     const afterUsedDelete = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string } }> };
     expect(afterUsedDelete.rules.some((item) => item.rule.id === usedBody.id)).toBe(false);
     const afterAssignmentDelete = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { ruleId: string } }> };
