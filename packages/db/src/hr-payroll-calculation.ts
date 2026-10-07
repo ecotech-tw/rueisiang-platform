@@ -2377,20 +2377,22 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
 
 async function findPayrollRecordRun(db: Database, input: HrPayrollRecordReference) {
   const rows = input.personKind === "employee"
-    ? await db.all<{ runId: string; periodKey: string; periodStatus: string; runStatus: string; employmentId: string }>(sql`
+    ? await db.all<{ runId: string; periodKey: string; periodStatus: string; runStatus: string; withdrawnAt: string | null; employmentId: string }>(sql`
       SELECT payroll_run.id AS runId, payroll_period.period_key AS periodKey, payroll_period.status AS periodStatus,
-        payroll_run.status AS runStatus, payslip.employment_id AS employmentId
+        payroll_run.status AS runStatus, payroll_run_withdrawal.withdrawn_at AS withdrawnAt, payslip.employment_id AS employmentId
       FROM hr_payslips AS payslip
       INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=payslip.payroll_run_id
       INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
+      LEFT JOIN hr_payroll_withdrawals AS payroll_run_withdrawal ON payroll_run_withdrawal.payroll_run_id=payroll_run.id
       WHERE payroll_run.id=${input.runId} AND payslip.employment_id=${input.personId}
     `)
-    : await db.all<{ runId: string; periodKey: string; periodStatus: string; runStatus: string; workerId: string }>(sql`
+    : await db.all<{ runId: string; periodKey: string; periodStatus: string; runStatus: string; withdrawnAt: string | null; workerId: string }>(sql`
       SELECT payroll_run.id AS runId, payroll_period.period_key AS periodKey, payroll_period.status AS periodStatus,
-        payroll_run.status AS runStatus, worker_result.worker_id AS workerId
+        payroll_run.status AS runStatus, payroll_run_withdrawal.withdrawn_at AS withdrawnAt, worker_result.worker_id AS workerId
       FROM hr_payroll_worker_results AS worker_result
       INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=worker_result.payroll_run_id
       INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
+      LEFT JOIN hr_payroll_withdrawals AS payroll_run_withdrawal ON payroll_run_withdrawal.payroll_run_id=payroll_run.id
       WHERE payroll_run.id=${input.runId} AND worker_result.worker_id=${input.personId}
     `);
   const row = rows[0];
@@ -2514,6 +2516,7 @@ export async function approveHrPayrollRecords(db: Database, references: HrPayrol
   if (targets.length !== uniqueReferences.length) throw new HrError(404, "找不到薪資發放紀錄。 ");
   const grouped = new Map<string, { references: HrPayrollRecordReference[]; periodKey: string; periodStatus: string; runStatus: string }>();
   for (const [index, target] of targets.entries()) {
+    if (target.withdrawnAt) throw new HrError(409, "這個薪資批次已撤回，不能再確定發放。 ");
     if (target.periodStatus !== "open" || target.runStatus !== "ready") throw new HrError(409, "只有開放中的尚未結算紀錄可以確定發放。 ");
     if (await payrollRecordIsClosed(db, uniqueReferences[index]!, target.periodKey)) throw new HrError(409, "選取的薪資發放紀錄已有確定發放結果，請重新整理。 ");
     const reference = uniqueReferences[index]!;
@@ -2674,9 +2677,12 @@ export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrA
 }
 
 export async function closeHrPayrollRun(db: Database, runId: string, actor: HrActor) {
-  const [run] = await db.select({ id: hrPayrollRuns.id, payrollPeriodId: hrPayrollRuns.payrollPeriodId, periodKey: hrPayrollPeriods.periodKey, status: hrPayrollRuns.status, sourceSnapshotJson: hrPayrollRuns.sourceSnapshotJson, calculationInputJson: hrPayrollRuns.calculationInputJson, expectedCount: hrPayrollRuns.expectedCount, completedCount: hrPayrollRuns.completedCount, periodStatus: hrPayrollPeriods.status }).from(hrPayrollRuns)
-    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId)).where(eq(hrPayrollRuns.id, runId)).limit(1);
+  const [run] = await db.select({ id: hrPayrollRuns.id, payrollPeriodId: hrPayrollRuns.payrollPeriodId, periodKey: hrPayrollPeriods.periodKey, status: hrPayrollRuns.status, sourceSnapshotJson: hrPayrollRuns.sourceSnapshotJson, calculationInputJson: hrPayrollRuns.calculationInputJson, expectedCount: hrPayrollRuns.expectedCount, completedCount: hrPayrollRuns.completedCount, periodStatus: hrPayrollPeriods.status, withdrawnAt: hrPayrollWithdrawals.withdrawnAt }).from(hrPayrollRuns)
+    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
+    .leftJoin(hrPayrollWithdrawals, eq(hrPayrollWithdrawals.payrollRunId, hrPayrollRuns.id))
+    .where(eq(hrPayrollRuns.id, runId)).limit(1);
   if (!run) throw new HrError(404, "找不到薪資試算批次。 ");
+  if (run.withdrawnAt) throw new HrError(409, "這個薪資批次已撤回，不能重複操作。 ");
   if (run.status !== "ready") throw new HrError(409, "只有已完成試算的批次可以結帳。 ");
   if (await payrollRunHasClosedClaims(db, runId)) throw new HrError(409, "此試算已有逐筆確定發放紀錄，請從發放紀錄完成剩餘人員。 ");
   if (run.expectedCount !== run.completedCount || run.periodStatus !== "open") throw new HrError(409, "薪資批次尚未完成或薪資期間已鎖定，不能結帳。 ");
@@ -2771,6 +2777,10 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
 async function payrollRunAnnualLeaveSettlementSourceKeys(db: Database, runId: string) {
   const rows = await db.select({ explanationJson: hrPayslipLines.explanationJson }).from(hrPayslipLines)
     .innerJoin(hrPayslips, eq(hrPayslips.id, hrPayslipLines.payslipId))
+    .innerJoin(hrPayrollClosedEmployees, and(
+      eq(hrPayrollClosedEmployees.payrollRunId, runId),
+      eq(hrPayrollClosedEmployees.employmentId, hrPayslips.employmentId),
+    ))
     .where(and(eq(hrPayslips.payrollRunId, runId), eq(hrPayslipLines.lineKey, "annual_leave_settlement")));
   const sourceKeys = new Set<string>();
   for (const row of rows) {

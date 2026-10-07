@@ -54,6 +54,32 @@ describe("HR 薪資與出勤設定 migration", () => {
     } finally { sqlite.close(); }
   });
 
+  it("0203 薪資撤回 marker 只能新增且只允許已確定發放的批次", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    try {
+      sqlite.exec("PRAGMA foreign_keys=ON");
+      for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file < "0203").sort()) apply(sqlite, file);
+      sqlite.exec(`
+        INSERT INTO users(id,email,status) VALUES ('u','u@example.test','active');
+        INSERT INTO hr_employments(id,employee_user_id,employee_number,position) VALUES ('j','u','E1','一般職員');
+        INSERT INTO hr_payroll_periods(id,period_key,attendance_start,attendance_end,status,created_by) VALUES ('p','2026-08','2026-08-01','2026-09-01','open','u');
+        INSERT INTO hr_payroll_runs(id,payroll_period_id,version_number,request_id,input_revision,engine_version,status,expected_count,completed_count,created_by)
+          VALUES ('r','p',1,'req',1,'test','ready',1,1,'u');
+        INSERT INTO hr_payslips(id,payroll_run_id,employment_id,employee_number,employee_name,earning_minor,deduction_minor,net_minor)
+          VALUES ('s','r','j','E1','Test',100,0,100);
+        INSERT INTO hr_payroll_closed_employees(period_key,employment_id,payroll_run_id) VALUES ('2026-08','j','r');
+        INSERT INTO hr_payroll_periods(id,period_key,attendance_start,attendance_end,status,created_by) VALUES ('p2','2026-09','2026-09-01','2026-10-01','open','u');
+        INSERT INTO hr_payroll_runs(id,payroll_period_id,version_number,request_id,input_revision,engine_version,status,expected_count,completed_count,created_by)
+          VALUES ('r2','p2',1,'req2',1,'test','ready',0,0,'u');
+      `);
+      apply(sqlite, "0203_mysterious_newton_destine.sql");
+      sqlite.exec("INSERT INTO hr_payroll_withdrawals(payroll_run_id,reason,withdrawn_by) VALUES ('r','撤回原因','u')");
+      expect(() => sqlite.exec("UPDATE hr_payroll_withdrawals SET reason='改寫原因' WHERE payroll_run_id='r'")).toThrow(/payroll_run_withdrawal_immutable/);
+      expect(() => sqlite.exec("DELETE FROM hr_payroll_withdrawals WHERE payroll_run_id='r'")).toThrow(/payroll_run_withdrawal_immutable/);
+      expect(() => sqlite.exec("INSERT INTO hr_payroll_withdrawals(payroll_run_id,reason,withdrawn_by) VALUES ('r2','無 claim','u')")).toThrow(/payroll_run_withdrawal_invalid/);
+    } finally { sqlite.close(); }
+  });
+
   it("0201 薪資加扣項移除來源月份、正規化未結帳快照並保留資料與結帳鎖", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {

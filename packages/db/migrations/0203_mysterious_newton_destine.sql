@@ -25,6 +25,16 @@ WHEN NOT EXISTS (
 BEGIN
   SELECT RAISE(ABORT, 'payroll_run_withdrawal_invalid');
 END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_withdrawal_immutable_update`
+BEFORE UPDATE ON `hr_payroll_withdrawals`
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_withdrawal_immutable');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_withdrawal_immutable_delete`
+BEFORE DELETE ON `hr_payroll_withdrawals`
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_withdrawal_immutable');
+END;--> statement-breakpoint
 -- 撤回不改寫原薪資快照；withdrawal marker 只讓受影響的人員重新取得可計算資格。
 -- 這些 trigger 不能由 drizzle schema 表達，因此和新 marker table 一起安裝。
 DROP TRIGGER IF EXISTS `trg_hr_monthly_leave_closed_insert`;--> statement-breakpoint

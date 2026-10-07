@@ -101,6 +101,23 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await closedAgain.json() as { records: Array<{ runId: string; status: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ runId: newRunId, status: "closed" })]));
   });
 
+  it("部分確定發放的批次撤回後不能再次確定發放或結帳", async () => {
+    const calculated = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-payroll-withdraw-partial-ready-first",
+    });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+    const approved = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: "dev-employment-lin" }] });
+    expect(approved.status, await approved.clone().text()).toBe(200);
+    const withdrawn = await request(`/hr/payroll/runs/${runId}/withdraw`, "POST", { reason: "部分發放批次重新試算" });
+    expect(withdrawn.status, await withdrawn.clone().text()).toBe(200);
+
+    const approveWithdrawn = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: "dev-employment-wang" }] });
+    expect(approveWithdrawn.status, await approveWithdrawn.clone().text()).toBe(409);
+    const closeWithdrawn = await request(`/hr/payroll/runs/${runId}/close`, "POST", {});
+    expect(closeWithdrawn.status, await closeWithdrawn.clone().text()).toBe(409);
+  });
+
   it("歷史薪資紀錄仍會讀取舊版薪資加扣項", async () => {
     const calculation = await request("/hr/payroll/calculate", "POST", {
       periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-legacy-payroll-record-item-2026-08",
