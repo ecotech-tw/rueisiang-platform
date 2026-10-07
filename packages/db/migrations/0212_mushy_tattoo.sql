@@ -1,0 +1,1 @@
+ALTER TABLE `hr_compensation_versions` ADD `overtime_hourly_minor` integer;
