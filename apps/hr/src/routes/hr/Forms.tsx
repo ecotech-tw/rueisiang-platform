@@ -60,7 +60,7 @@ function requestStatusLabel(status: RequestStatusFilter) {
 }
 
 function requestBadgeCount(statuses: readonly string[] | undefined) {
-  return statuses?.filter((status) => status !== "approved").length ?? 0;
+  return statuses?.filter((status) => status !== "approved" && status !== "cancelled").length ?? 0;
 }
 
 function requestBadgeLabel(count: number) {
@@ -245,7 +245,8 @@ export function HrForms() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<RequestStatusFilter>("pending");
+  // 從草稿表單回來時網址會帶 status=draft；預設的「申請中」看不到草稿，使用者會以為它不見了。
+  const [statusFilter, setStatusFilter] = useState<RequestStatusFilter>(() => REQUEST_STATUS_OPTIONS.find((option) => option.value === params.get("status"))?.value ?? "pending");
   const [visibleCount, setVisibleCount] = useState(8);
   const [reviewing, setReviewing] = useState<FormRequest | null>(null);
   const [cancelling, setCancelling] = useState<OvertimeRequest | null>(null);
@@ -563,14 +564,19 @@ export function HrClockCorrectionForm() {
   // 沒帶 request 時這個 query 是停用的，停用的 query 會一直停在 pending；只有編輯草稿才需要等它。
   if (requestId && existing.isPending) return <div className="page hr-form-page"><FormPageHeader title="補打卡申請單" description="正在載入申請內容…" returnTo="/forms?tab=clock_correction" /><p className="muted">載入申請單…</p></div>;
   if (existing.error) return <div className="page hr-form-page"><FormPageHeader title="補打卡申請單" description="無法載入這份申請。" returnTo="/forms?tab=clock_correction" /><Alert tone="danger">{existing.error.message}</Alert></div>;
-  if (existing.data?.request.status !== undefined && existing.data.request.status !== "draft") return <div className="page hr-form-page"><FormPageHeader title="補打卡申請單" description="這份申請已送出。" returnTo="/forms?tab=clock_correction" /><Alert tone="info">這份申請單已送出，無法再修改。</Alert></div>;
+  if (existing.data?.request.status !== undefined && existing.data.request.status !== "draft") {
+    const closed = existing.data.request.status === "cancelled" ? "已取消" : "已送出";
+    return <div className="page hr-form-page"><FormPageHeader title="補打卡申請單" description={`這份申請${closed}。`} returnTo="/forms?tab=clock_correction" /><Alert tone="info">這份申請單{closed}，無法再修改。</Alert></div>;
+  }
+  // 正在編輯草稿時回列表要直接看得到那張草稿。
+  const returnTo = requestId ? "/forms?tab=clock_correction&status=draft" : "/forms?tab=clock_correction";
 
   const approverOptions = [
     { label: "請選擇審核者", value: "" },
     ...(approvers.data?.approvers ?? []).map((approver) => ({ label: approver.employeeNumber ? `${approver.employeeNumber}・${approver.name}` : approver.name, value: approver.id })),
   ];
   return <div className="page hr-form-page">
-    <FormPageHeader title="補打卡申請單" description="補登實際應出勤時間，送出後由指定審核者確認。" returnTo="/forms?tab=clock_correction" />
+    <FormPageHeader title="補打卡申請單" description="補登實際應出勤時間，送出後由指定審核者確認。" returnTo={returnTo} />
     <Panel>
       <div className="hr-form-fields">
         <div className="hr-form-field-row">
@@ -586,7 +592,7 @@ export function HrClockCorrectionForm() {
       {approvers.error ? <Alert tone="danger">{approvers.error.message}</Alert> : null}
       {localError ? <Alert tone="danger">{localError}</Alert> : null}
       <div className="hr-form-actions">
-        <Button variant="secondary" disabled={saving} onClick={() => navigate("/forms?tab=clock_correction", { state: { transition: "back" } })}>取消</Button>
+        <Button variant="secondary" disabled={saving} onClick={() => navigate(returnTo, { state: { transition: "back" } })}>取消</Button>
         <Button className="add-action" loading={saving} loadingLabel="送出中…" disabled={!approverUserId} onClick={() => { void submit(); }}>送出補打卡申請</Button>
       </div>
     </Panel>

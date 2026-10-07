@@ -368,17 +368,36 @@ describe("HR 申請中心", () => {
       expect((await request(`/hr/me/form-requests/${id}`, "PATCH", { ...correction, correctionDate: "2099-01-01" }, employeeCookie)).status).toBe(400);
     });
 
-    it("同一天同一種打卡只能有一張審核中的申請，取消後才能再送", async () => {
+    it("同一個時間點的同一種打卡只能有一張審核中或已核准的申請", async () => {
       const first = await createDraft();
-      const second = await createDraft({ ...correction, requestedTime: "09:05" });
-      const otherKind = await createDraft({ ...correction, requestedTime: "18:00", requestedEventKind: "clock_out" });
-      expect((await request(`/hr/me/form-requests/${first}/submit`, "POST", {}, employeeCookie)).status).toBe(200);
-      expect((await request(`/hr/me/form-requests/${second}/submit`, "POST", {}, employeeCookie)).status).toBe(409);
-      expect((await request(`/hr/me/form-requests/${otherKind}/submit`, "POST", {}, employeeCookie)).status).toBe(200);
+      const sameTime = await createDraft();
+      const secondShift = await createDraft({ ...correction, requestedTime: "13:00" });
+      const otherKind = await createDraft({ ...correction, requestedEventKind: "clock_out" });
+      const submit = async (id: string) => (await request(`/hr/me/form-requests/${id}/submit`, "POST", {}, employeeCookie)).status;
 
+      expect(await submit(first)).toBe(200);
+      expect(await submit(sameTime)).toBe(409);
+      // 兩段班一天補兩次上班、同一時間補另一種打卡，都是合理的申請。
+      expect(await submit(secondShift)).toBe(200);
+      expect(await submit(otherKind)).toBe(200);
+
+      // 取消後那個時間點空出來；核准後則一直佔著，不然會核准出兩筆一樣的打卡事件。
       expect((await request(`/hr/me/form-requests/${first}/cancel`, "POST", {}, employeeCookie)).status).toBe(200);
       expect(await statusOf(first)).toBe("cancelled");
-      expect((await request(`/hr/me/form-requests/${second}/submit`, "POST", {}, employeeCookie)).status).toBe(200);
+      expect(await submit(sameTime)).toBe(200);
+      expect((await request(`/hr/me/form-requests/${sameTime}/review`, "POST", { decision: "approved" })).status).toBe(200);
+      expect(await submit(await createDraft())).toBe(409);
+    });
+
+    it("檢查上線前留下的未來時間申請，送出與核准都會被擋，駁回不受影響", async () => {
+      const draft = await createDraft();
+      d1.sqlite.prepare("UPDATE hr_form_requests SET correction_date='2099-01-01', requested_at='2099-01-01 01:00:00' WHERE id=?").run(draft);
+      expect((await request(`/hr/me/form-requests/${draft}/submit`, "POST", {}, employeeCookie)).status).toBe(400);
+
+      d1.sqlite.prepare("UPDATE hr_form_requests SET status='pending', submitted_at=CURRENT_TIMESTAMP WHERE id=?").run(draft);
+      expect((await request(`/hr/me/form-requests/${draft}/review`, "POST", { decision: "approved" })).status).toBe(400);
+      expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_clock_events WHERE correction_request_id=?").get(draft)).toEqual({ count: 0 });
+      expect((await request(`/hr/me/form-requests/${draft}/review`, "POST", { decision: "rejected", comment: "時間不對" })).status).toBe(200);
     });
 
     it("只有申請人能取消審核中的申請，取消後審核者不能再核准", async () => {
