@@ -86,13 +86,13 @@ export function specialWorkdayDifferenceLabel(line: PayrollLine): string {
   if (names.length > 1) return `特殊上班日（${names.join("、")}）${directionLabel}`;
   return `特殊上班日${directionLabel}`;
 }
-function lineLabel(line: PayrollLine): string {
+export function payrollLineLabel(line: PayrollLine): string {
   if (line.lineKey === "unpaid_leave") return leaveDeductionLabel(line);
   if (line.lineKey.startsWith("special_allowance_")) return specialAllowanceLabel(line);
   if (line.lineKey === "special_workday") return specialWorkdayDifferenceLabel(line);
+  if (line.lineKey.startsWith("bonus_")) return explanationString(line, "policyName") ?? "業績獎金";
   const itemName = explanationString(line, "itemName");
   if (itemName) return itemName;
-  if (line.lineKey.startsWith("bonus_")) return "業績獎金";
   if (line.lineKey.startsWith("salary_item_")) return "薪資項目";
   if (line.lineKey.startsWith("adjustment_")) return "薪資加扣項";
   return LINE_LABELS[line.lineKey] ?? line.lineKey;
@@ -170,7 +170,7 @@ function PayrollPayslipTable({ title, lines, direction }: { title: string; lines
     <h2 id={`payroll-payslip-${direction}`}>{title}</h2>
     <DataTable className="hr-payroll-payslip-table" containerClassName="hr-payroll-payslip-table-scroll">
       <thead><tr><th>薪資項目</th><th className="numeric">金額</th></tr></thead>
-      <tbody>{filteredLines.length ? filteredLines.map((line) => <tr key={line.lineKey}><td>{lineLabel(line)}</td><td className="numeric">{direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</td></tr>) : <tr><td colSpan={2}>—</td></tr>}</tbody>
+      <tbody>{filteredLines.length ? filteredLines.map((line) => <tr key={line.lineKey}><td>{payrollLineLabel(line)}</td><td className="numeric">{direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</td></tr>) : <tr><td colSpan={2}>—</td></tr>}</tbody>
     </DataTable>
   </section>;
 }
@@ -281,7 +281,7 @@ export function HrPayrollRecordDetail() {
       {detail.run.warnings.length ? <Alert tone="warning"><strong>試算提醒</strong><ul className="hr-payroll-warning-list">{detail.run.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></Alert> : null}
 
       {detail.employee ? <div className="hr-payroll-line-list">{detailLines.map((line) => <details className={`hr-payroll-line hr-payroll-line-${line.direction}`} key={line.lineKey}>
-        <summary className="hr-payroll-line-summary"><span className="hr-payroll-line-title"><strong>{lineLabel(line)}</strong><span className="hr-payroll-line-direction">{line.direction === "earning" ? "應發" : "扣款"}</span></span><strong className="hr-payroll-line-amount">{line.direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</strong></summary>
+        <summary className="hr-payroll-line-summary"><span className="hr-payroll-line-title"><strong>{payrollLineLabel(line)}</strong><span className="hr-payroll-line-direction">{line.direction === "earning" ? "應發" : "扣款"}</span></span><strong className="hr-payroll-line-amount">{line.direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</strong></summary>
         <div className="hr-payroll-line-content"><div className="hr-payroll-line-formula"><span>計算公式</span><p>{lineFormula(line)}</p></div></div>
       </details>)}</div> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班與有效敘薪計算；原始試算結果保留在這筆發放紀錄中。</p></div>}
 
