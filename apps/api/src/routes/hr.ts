@@ -778,7 +778,12 @@ export const hr = new Hono<AppEnv>()
   .get("/special-workdays/assignments", requirePermission("hr:office:read"), async (c) => { const start = c.req.query("start"); const end = c.req.query("end"); if (start) date({ date: start }, "date"); if (end) date({ date: end }, "date"); if (start && end && end <= start) throw new HTTPException(400, { message: "查詢迄日必須晚於開始日。" }); return c.json({ assignments: await listHrSpecialWorkdayAssignments(c.get("db"), start, end) }); })
   .post("/special-workdays/assignments", requirePermission("hr:office:write"), async (c) => { const input = await body(c); const ruleId = input.ruleId !== undefined ? text(input, "ruleId", "規則") : await resolveHrSpecialWorkdayRuleId(c.get("db"), text(input, "ruleVersionId", "規則版本")); return c.json(await assignHrSpecialWorkdays(c.get("db"), { ruleId, assignments: specialAssignments(input) }, c.get("user")), 201); })
   .patch("/special-workdays/assignments/:id", requirePermission("hr:office:write"), async (c) => { const input = await body(c); const ruleId = input.ruleId !== undefined ? text(input, "ruleId", "規則") : await resolveHrSpecialWorkdayRuleId(c.get("db"), text(input, "ruleVersionId", "規則版本")); return c.json(await updateHrSpecialWorkdayAssignment(c.get("db"), c.req.param("id"), { ruleId, ...specialAssignment(input, 0) }, c.get("user"))); })
-  .delete("/special-workdays/assignments/:id", requirePermission("hr:office:write"), async (c) => c.json(await deleteHrSpecialWorkdayAssignment(c.get("db"), c.req.param("id"), c.get("user"))))
+  .delete("/special-workdays/assignments/:id", requirePermission("hr:office:write"), async (c) => {
+    const input = await body(c);
+    const employmentId = input.employmentId ? text(input, "employmentId", "員工") : null;
+    const workerId = input.workerId ? text(input, "workerId", "支援人員") : null;
+    return c.json(await deleteHrSpecialWorkdayAssignment(c.get("db"), c.req.param("id"), { ruleId: text(input, "ruleId", "規則"), employmentId, workerId, workDate: text(input, "workDate", "套用日期", 10) }, c.get("user")));
+  })
   .get("/schedules", requirePermission("hr:schedule:read"), async (c) => {
     const rawPeriod = c.req.query("periodKey");
     if (!rawPeriod || !/^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod)) throw new HTTPException(400, { message: "排班月份必須是 YYYY-MM。" });

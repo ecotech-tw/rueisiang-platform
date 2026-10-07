@@ -426,7 +426,7 @@ export function HrSpecialWorkdays() {
   };
   const confirmDeleteAssignment = () => {
     if (!deletingAssignment) return;
-    deleteAssignment.mutate({ path: `/special-workdays/assignments/${deletingAssignment.assignment.id}`, method: "DELETE", values: {} }, {
+    deleteAssignment.mutate({ path: `/special-workdays/assignments/${deletingAssignment.assignment.id}`, method: "DELETE", values: { ruleId: deletingAssignment.assignment.ruleId, employmentId: deletingAssignment.assignment.employmentId, workerId: deletingAssignment.assignment.workerId, workDate: deletingAssignment.assignment.workDate } }, {
       onSuccess: () => {
         const afterDelete = () => { setDeletingAssignment(null); void assignments.refetch(); };
         if (deleteAssignmentCloseRequestRef.current) deleteAssignmentCloseRequestRef.current(afterDelete);
@@ -445,7 +445,7 @@ export function HrSpecialWorkdays() {
       return <tr key={item.rule.id}><td><strong>{item.rule.name}</strong><br /><span className="muted">{item.versions.filter((candidate) => !candidate.voidedAt).length} 個版本</span></td><td>{version ? <>v{version.versionNumber}・{version.validFrom}～{version.validTo ?? "目前"}</> : <StatusBadge tone="neutral">所有版本已解除</StatusBadge>}</td><td>{version ? version.wageKind === "fixed_hourly" ? `每小時 ${money(version.fixedAmountMinor ?? 0)}` : `總倍率 ${((version.multiplierPpm ?? 0) / 10_000).toFixed(2)}%` : "—"}</td><td>{version ? version.overtimeRules.length ? `${version.overtimeRules.length} 個級距` : "沿用一般規則" : "—"}</td><td><StatusBadge tone={item.rule.active ? "success" : "danger"}>{item.rule.active ? "啟用" : "停用"}</StatusBadge>{allVoided ? <StatusBadge tone="neutral">版本已解除</StatusBadge> : null}</td><td>{canWrite ? <div className="row-actions"><Button variant="icon" icon="edit" className="compensation-action-update" aria-label={`為${item.rule.name}建立新版本`} disabled={!item.rule.active} onClick={() => setEditor(item)} /><Tooltip label={hasPayrollAssignment ? `${item.rule.name} 已納入薪資試算版本，只能停用` : `刪除 ${item.rule.name}`} focusable={false}><Button variant="icon" icon="trash" className="danger hr-row-action-delete" aria-label={`刪除${item.rule.name}`} disabled={deleteRule.isPending || hasPayrollAssignment} onClick={() => { deleteRule.reset(); setDeletingRule(item); }} /></Tooltip><Button variant="secondary" onClick={() => toggleRule.mutate({ path: `/special-workdays/rules/${item.rule.id}/status`, method: "POST", values: { active: !item.rule.active } }, { onSuccess: () => void rules.refetch() })}>{item.rule.active ? "停用" : "啟用"}</Button></div> : <span className="muted">—</span>}</td></tr>;
     })}</tbody></DataTable>{!rows.length ? <EmptyState>尚未建立特殊上班日規則。</EmptyState> : null}</Panel>
     <Panel className="grows"><div className="panel-head"><div><h2>日期套用紀錄</h2><p className="muted">日期套用紀錄可以調整規則、人員、日期與補貼數量；納入薪資試算後仍保留來源，已結算薪資明細不會被改寫。</p></div></div>
-      <FilterToolbar className="special-workday-assignment-filter">
+      <FilterToolbar>
         <SearchFilterInput label="搜尋套用紀錄" placeholder="搜尋人員、員工編號、規則或日期" value={assignmentFilters.search} onSearch={(search) => updateAssignmentFilters({ search })} />
         <FilterInput label="開始日期" type="date" value={assignmentFilters.startDate} onChange={(event) => updateAssignmentFilters({ startDate: event.target.value })} />
         <FilterInput label="結束日期" type="date" value={assignmentFilters.endDate} onChange={(event) => updateAssignmentFilters({ endDate: event.target.value })} />
