@@ -347,8 +347,30 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const leaveLine = body.run.employees[0]!.lines.find((line) => line.lineKey === "unpaid_leave");
     expect(leaveLine).toMatchObject({
       amountMinor: 12_500,
-      explanation: expect.objectContaining({ entryCount: 1, formulaDetail: expect.stringContaining("0.5 小時 ÷ 8 小時") }),
+      explanation: expect.objectContaining({ entryCount: 1, leaveHours: [{ leaveType: "無薪假", hours: 0.5 }], formulaDetail: expect.stringContaining("0.5 小時 ÷ 8 小時") }),
     });
+  });
+
+  it("請假扣款明細會按假別列出實際扣款時數", async () => {
+    const db = createDatabase(d1 as never);
+    const actor = "dev-eli-lin@ecotech.tw";
+    await db.update(hrLeaveRequests).set({ status: "cancelled" }).where(eq(hrLeaveRequests.id, "dev-leave-lin-unpaid"));
+    await db.insert(hrLeaveTypes).values([
+      { id: "test-personal-leave-type", name: "事假", leaveKind: "other", defaultPayRatePpm: 0, createdBy: actor },
+      { id: "test-sick-leave-type", name: "病假", leaveKind: "other", defaultPayRatePpm: 500_000, createdBy: actor },
+    ]);
+    await db.insert(hrLeaveRequests).values([
+      { id: "test-personal-leave-summary", employmentId: "dev-employment-lin", leaveTypeId: "test-personal-leave-type", leaveType: "事假", status: "approved", startsAt: "2026-08-10 03:30:00", endsAt: "2026-08-10 04:00:00", startsOn: "2026-08-10", endsOn: "2026-08-11", durationMinutes: 30, payRatePpm: 0, reason: "事假時數摘要", reviewedBy: actor, reviewedAt: "2026-08-10 12:00:00", createdBy: actor },
+      { id: "test-sick-leave-summary", employmentId: "dev-employment-lin", leaveTypeId: "test-sick-leave-type", leaveType: "病假", status: "approved", startsAt: "2026-08-11 01:00:00", endsAt: "2026-08-11 03:00:00", startsOn: "2026-08-11", endsOn: "2026-08-12", durationMinutes: 120, payRatePpm: 500_000, reason: "病假時數摘要", reviewedBy: actor, reviewedAt: "2026-08-10 12:00:00", createdBy: actor },
+    ]);
+    const response = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-leave-hours-summary" });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; explanation: Record<string, unknown> }> }> } };
+    const leaveLine = body.run.employees[0]!.lines.find((line) => line.lineKey === "unpaid_leave");
+    expect(leaveLine?.explanation.leaveHours).toEqual(expect.arrayContaining([
+      { leaveType: "事假", hours: 0.5 },
+      { leaveType: "病假", hours: 2 },
+    ]));
   });
 
   it("排班變更時請假扣款不超過當日薪資", async () => {

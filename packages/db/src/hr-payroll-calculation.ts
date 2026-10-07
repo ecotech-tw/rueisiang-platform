@@ -79,6 +79,14 @@ function payrollFormulaPercent(ratePpm: number) {
 function payrollFormulaHours(hours: number) {
   return hours.toFixed(2).replace(/\.?0+$/, "");
 }
+
+function payrollLeaveHoursSummary(hoursByType: Map<string, number>) {
+  return [...hoursByType.entries()]
+    .map(([leaveType, minutes]) => ({ leaveType, hours: Math.round(minutes / 60 * 100) / 100 }))
+    .filter((item) => item.hours > 0)
+    .sort((left, right) => left.leaveType.localeCompare(right.leaveType, "zh-Hant-TW"));
+}
+
 function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number) {
   const expression = parts.map((part) => part.formula).join(" + ");
   return `${expression || "依薪資規則計算"} = ${payrollFormulaMoney(totalMinor)}`;
@@ -1563,12 +1571,19 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const deductibleLeaves = approvedLeaves.filter((row) => row.payRatePpm < PPM);
     let leaveDeduction = 0;
     const leaveCalculationParts: PayrollCalculationPart[] = [];
+    const leaveHoursByType = new Map<string, number>();
+    const addLeaveHours = (leaveType: string, minutes: number) => {
+      if (minutes > 0) leaveHoursByType.set(leaveType, (leaveHoursByType.get(leaveType) ?? 0) + minutes);
+    };
     if (hasMonthlyLeaves) {
       // 月度人工登記的扣款以整數元保存，直接轉成薪資內部的分；給薪比例只作核對資訊。
       for (const leave of monthlyLeaves) {
         const amount = leave.deductionAmount * 100;
         leaveDeduction += amount;
-        if (amount > 0) leaveCalculationParts.push({ formula: `${leave.leaveDate} 月度登記扣款`, amountMinor: amount });
+        if (amount > 0) {
+          addLeaveHours(leave.leaveTypeName, leave.hours * 60);
+          leaveCalculationParts.push({ formula: `${leave.leaveDate} 月度登記扣款`, amountMinor: amount });
+        }
       }
     } else {
       // 舊 hr_leave_requests 只作歷史相容；新月份資料存在時不與人工登記重複扣款。
@@ -1596,13 +1611,16 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
             : compensation.payBasis === "daily" ? compensation.baseAmountMinor : Math.round(compensation.baseAmountMinor * dayBreakdown.standardMinutes / 60);
           const amount = Math.floor(daily * dayBreakdown.workMinutes / dayBreakdown.standardMinutes * (PPM - leave.payRatePpm) / PPM);
           leaveDeduction += amount;
-          if (amount > 0) leaveCalculationParts.push({ formula: `floor(${leave.leaveType} ${day}：${payrollFormulaMoney(daily)} × ${payrollFormulaHours(dayBreakdown.workMinutes / 60)} 小時 ÷ ${payrollFormulaHours(dayBreakdown.standardMinutes / 60)} 小時 × ${payrollFormulaPercent(PPM - leave.payRatePpm)})`, amountMinor: amount });
+          if (amount > 0) {
+            addLeaveHours(leave.leaveType, dayBreakdown.workMinutes);
+            leaveCalculationParts.push({ formula: `floor(${leave.leaveType} ${day}：${payrollFormulaMoney(daily)} × ${payrollFormulaHours(dayBreakdown.workMinutes / 60)} 小時 ÷ ${payrollFormulaHours(dayBreakdown.standardMinutes / 60)} 小時 × ${payrollFormulaPercent(PPM - leave.payRatePpm)})`, amountMinor: amount });
+          }
         }
       }
     }
     if (leaveDeduction > 0) lines.push({ lineKey: "unpaid_leave", direction: "deduction", amountMinor: leaveDeduction, explanation: {
       rule: hasMonthlyLeaves ? "月度人工扣款（整數元）" : "依核准請假時數與提交時凍結的 payRatePpm", period: input.periodKey, entryCount: hasMonthlyLeaves ? monthlyLeaves.length : deductibleLeaves.length,
-      calculationParts: leaveCalculationParts, formulaDetail: payrollFormulaTotal(leaveCalculationParts, leaveDeduction),
+      leaveHours: payrollLeaveHoursSummary(leaveHoursByType), calculationParts: leaveCalculationParts, formulaDetail: payrollFormulaTotal(leaveCalculationParts, leaveDeduction),
     } });
 
     const employeeClocks = clocks.filter((row) => row.employmentId === employee.employmentId);

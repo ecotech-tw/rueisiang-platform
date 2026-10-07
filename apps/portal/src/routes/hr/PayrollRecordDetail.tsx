@@ -14,7 +14,7 @@ const PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } a
 const LINE_LABELS: Record<string, string> = {
   base_salary: "本薪",
   overtime: "核准付薪加班",
-  unpaid_leave: "無薪假扣款",
+  unpaid_leave: "請假扣款",
   booth_bonus: "櫃點獎金",
   labor_insurance: "勞保員工負擔",
   health_insurance: "健保員工負擔",
@@ -37,6 +37,22 @@ function periodLabel(value: string): string {
 function explanationString(line: PayrollLine, key: string): string | null {
   const value = line.explanation[key];
   return typeof value === "string" && value.trim() ? value : null;
+}
+function leaveHoursOf(line: PayrollLine): Array<{ leaveType: string; hours: number }> {
+  const values = line.explanation.leaveHours;
+  if (!Array.isArray(values)) return [];
+  return values.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const leaveType = (value as { leaveType?: unknown }).leaveType;
+    const hours = (value as { hours?: unknown }).hours;
+    return typeof leaveType === "string" && leaveType.trim() && typeof hours === "number" && Number.isFinite(hours) && hours > 0
+      ? [{ leaveType: leaveType.trim(), hours }]
+      : [];
+  });
+}
+function leaveDeductionLabel(line: PayrollLine): string {
+  const summary = leaveHoursOf(line).map(({ leaveType, hours }) => `${leaveType} ${hours.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 小時`);
+  return summary.length ? `請假扣款（${summary.join("、")}）` : "請假扣款";
 }
 function ruleNamesOf(line: PayrollLine): string[] {
   const names = Array.isArray(line.explanation.ruleNames) ? line.explanation.ruleNames.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [];
@@ -70,6 +86,7 @@ function specialWorkdayDifferenceLabel(line: PayrollLine): string {
   return "特殊上班日差額";
 }
 function lineLabel(line: PayrollLine): string {
+  if (line.lineKey === "unpaid_leave") return leaveDeductionLabel(line);
   if (line.lineKey.startsWith("special_allowance_")) return specialAllowanceLabel(line);
   if (line.lineKey === "special_workday") return specialWorkdayDifferenceLabel(line);
   const itemName = explanationString(line, "itemName");
