@@ -900,7 +900,7 @@ function revenueByScopeMinor(keys: readonly string[], payouts: ReadonlyMap<strin
  * 團體績效：政策綁的那些店在來源月份**每一天**的出金，各店分別扣保底、乘比例得到各自的池，
  * 再按權重分給成員（自己的權重 ÷ 全體權重）。**不看排班、不看出勤天數**：只要在獎金名單
  * 裡就照權重分，這是業主明確定下的規則，不要再把排班天數乘回去。
- * 個人績效：只看**這個人自己**排到的 (店, 日期)，各店分別扣保底後乘比例，不需要分配。
+ * 個人績效：只看**這個人自己**排到的 (店, 日期)，把各店的業績合計後只扣一次保底再乘比例，不需要分配。
  *
  * 以前個人績效另外走一份月結業績快照，同一個政策從兩個入口算出來的金額不一樣——
  * 那份已經整個移除。
@@ -919,15 +919,16 @@ function calculateAssignedBonus(
   const ownDays = [...(scheduledDaysByEmployment.get(assignment.member.employmentId) ?? [])]
     .filter((key) => inSourcePeriod(key) && scopeIds.includes(scopeOfKey(key)));
 
-  // 個人績效：業績就是自己站過的那些日子，不進池也不分配；每個櫃點各自套用保底。
+  // 個人績效：業績就是自己站過的那些日子，不進池也不分配；各櫃點營收合計後只套用一次保底。
   if (version.bonusKind === "individual_performance") {
     const revenueByScope = revenueByScopeMinor(ownDays, payouts);
-    const amountMinor = [...revenueByScope.values()].reduce((sum, revenueMinor) => sum + roundToDollar(Math.max(0, revenueMinor - version.guaranteeMinor) * version.ratePpm / PPM), 0);
+    const revenueMinor = [...revenueByScope.values()].reduce((sum, value) => sum + value, 0);
+    const amountMinor = roundToDollar(Math.max(0, revenueMinor - version.guaranteeMinor) * version.ratePpm / PPM);
     return {
-      amountMinor, poolAmountMinor: amountMinor, revenueMinor: [...revenueByScope.values()].reduce((sum, value) => sum + value, 0), revenueByScopeMinor: Object.fromEntries(revenueByScope), scheduledDays: ownDays.length, weightedTotal: assignment.member.weightUnits,
+      amountMinor, poolAmountMinor: amountMinor, revenueMinor, revenueByScopeMinor: Object.fromEntries(revenueByScope), scheduledDays: ownDays.length, weightedTotal: assignment.member.weightUnits,
       // 多店時同一天只要任一適用店有出金，就不應因另一店沒有資料而提醒缺業績。
       missingPayoutDates: missingPayoutDates(ownDays, payouts),
-      formula: scopeIds.length > 1 ? "Σ 各櫃點 max(0, 本人排班日出金 - 保底) × 比例" : "max(0, 本人排班日出金 - 保底) × 比例",
+      formula: scopeIds.length > 1 ? "max(0, 各櫃點本人排班日出金合計 - 保底) × 比例" : "max(0, 本人排班日出金 - 保底) × 比例",
     };
   }
 
@@ -1718,9 +1719,11 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       if (bonus.amountMinor > 0) {
         bonusLineNumber += 1;
         const scopeCount = assignment.version.scopeIds.length || 1;
-        const bonusBaseFormula = scopeCount > 1
+        const bonusBaseFormula = scopeCount > 1 && assignment.version.bonusKind === "team_performance"
           ? `Σ各櫃點 max(0, 櫃點業績 − ${payrollFormulaMoney(assignment.version.guaranteeMinor)}) × ${payrollFormulaPercent(assignment.version.ratePpm)}`
-          : `max(0, ${payrollFormulaMoney(bonus.revenueMinor)} − ${payrollFormulaMoney(assignment.version.guaranteeMinor)}) × ${payrollFormulaPercent(assignment.version.ratePpm)}`;
+          : scopeCount > 1
+            ? `max(0, 各櫃點本人排班日營收合計 − ${payrollFormulaMoney(assignment.version.guaranteeMinor)}) × ${payrollFormulaPercent(assignment.version.ratePpm)}`
+            : `max(0, ${payrollFormulaMoney(bonus.revenueMinor)} − ${payrollFormulaMoney(assignment.version.guaranteeMinor)}) × ${payrollFormulaPercent(assignment.version.ratePpm)}`;
         const bonusFormulaDetail = assignment.version.bonusKind === "individual_performance"
           ? `${bonusBaseFormula} = ${payrollFormulaMoney(bonus.amountMinor)}（四捨五入至元）`
           : `${bonusBaseFormula} × 本人權重 ${assignment.member.weightUnits} ÷ 全體權重 ${bonus.weightedTotal} = ${payrollFormulaMoney(bonus.amountMinor)}（每人最後四捨五入至元；顯示獎金池 ${payrollFormulaMoney(bonus.poolAmountMinor)}）`;

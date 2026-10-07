@@ -822,7 +822,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(warning).not.toContain("2026-08-01");
   });
 
-  it("多 Scope 的個人績效各櫃點分開套用保底", async () => {
+  it("多 Scope 的個人績效合計本人值班櫃點業績後只扣一次保底", async () => {
     const db = createDatabase(d1 as never);
     await db.insert(hrScheduleEntries).values({
       id: "test-schedule-entry-wang-xinyi-1", scheduleVersionId: "dev-schedule-2026-08-v1", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: "dev-shift-booth-day-v1", workDate: "2026-08-01", startsAt: "2026-08-01 03:00:00", endsAt: "2026-08-01 11:00:00", standardMinutes: 480, breakMinutes: 0, createdBy: "dev-wang@ecotech.tw",
@@ -842,7 +842,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ explanation: Record<string, unknown>; amountMinor: number }> }>; warnings: string[] } };
     const line = body.run.employees[0]!.lines.find((item) => item.explanation.policyName === "跨店個人績效");
-    expect(line).toMatchObject({ amountMinor: 400_000, explanation: { revenueMinor: 150_000_000, revenueByScopeMinor: { "cyberbiz:store:demo-ximen": 140_000_000, "cyberbiz:store:demo-xinyi": 10_000_000 }, scheduledDays: 15, missingPayoutDates: [] } });
+    expect(line).toMatchObject({ amountMinor: 500_000, explanation: { revenueMinor: 150_000_000, revenueByScopeMinor: { "cyberbiz:store:demo-ximen": 140_000_000, "cyberbiz:store:demo-xinyi": 10_000_000 }, scheduledDays: 15, missingPayoutDates: [], formulaDetail: expect.stringContaining("各櫃點本人排班日營收合計") } });
     expect(body.run.warnings.some((warning) => warning.includes("跨店個人績效") && warning.includes("缺少"))).toBe(false);
   });
 
