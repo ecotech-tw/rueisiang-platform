@@ -5,6 +5,7 @@ import { activityRow } from "./activity.js";
 import { HrError, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployments } from "./schema/hr-people.js";
+import { hrPayrollRuns, hrPayrollSpecialWorkdaySourceRuns, hrPayrollSpecialWorkdaySources } from "./schema/hr-payroll-runs.js";
 import { hrScheduleWorkers, hrSpecialWorkdayAllowances, hrSpecialWorkdayAssignments, hrSpecialWorkdayOvertimeRules, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 
@@ -150,6 +151,55 @@ async function currentSpecialWorkdayVersions(db: Database, keys: SpecialWorkdayV
 }
 
 /**
+ * 一個批次的索引寫入：先記「這個批次寫過了」，再照來源快照一筆套用一列。
+ * 從快照字串解析而不是拿試算途中的變數：索引要跟存進批次的那一份完全一致。
+ * 每列 6 個綁定參數，D1 一句最多 100 個，所以一批 16 列。
+ */
+export function payrollSpecialWorkdaySourceStatements(db: Database, runId: string, sourceSnapshotJson: string) {
+  let specialWorkdays: unknown;
+  try {
+    specialWorkdays = (JSON.parse(sourceSnapshotJson) as { specialWorkdays?: unknown } | null)?.specialWorkdays;
+  } catch {
+    // 快照壞掉的批次沒有東西可以索引，但仍要記成寫過，否則每次讀取都會回來重試。
+  }
+  const text = (value: unknown) => typeof value === "string" && value ? value : null;
+  const rows = (Array.isArray(specialWorkdays) ? specialWorkdays : []).flatMap((value) => {
+    if (!value || typeof value !== "object") return [];
+    const item = value as Record<string, unknown>;
+    const assignmentId = text(item.id);
+    const ruleVersionId = text(item.ruleVersionId);
+    if (!assignmentId && !ruleVersionId) return [];
+    return [{ id: crypto.randomUUID(), payrollRunId: runId, assignmentId, ruleId: text(item.ruleId), ruleVersionId, workDate: text(item.workDate) }];
+  });
+  return [
+    // 不加 ON CONFLICT：兩個請求同時補同一個批次時，後到的那個撞主鍵、整批回滾，索引列才不會寫兩份。
+    db.insert(hrPayrollSpecialWorkdaySourceRuns).values({ payrollRunId: runId }),
+    ...chunks(rows, 16).map((batch) => db.insert(hrPayrollSpecialWorkdaySources).values(batch)),
+  ];
+}
+
+/**
+ * 補寫沒有索引的批次。正常情況下一個都沒有，只是一次走主鍵的查詢。
+ *
+ * 會有的情況是部署空窗：migration 先套用、新版 Worker 後上線，中間由舊版 Worker 建立的批次不會寫索引，
+ * 而回填的 migration 已經跑過、不會再跑。不補的話，那一批用過的套用與版本會被當成沒有薪資依據而可以刪除。
+ * 所有會問「有沒有薪資依據」的入口都要先呼叫這個。
+ */
+async function indexMissingPayrollSpecialWorkdaySources(db: Database) {
+  const missing = await db.select({ id: hrPayrollRuns.id, sourceSnapshotJson: hrPayrollRuns.sourceSnapshotJson }).from(hrPayrollRuns)
+    .where(sql`${hrPayrollRuns.id} NOT IN (SELECT payroll_run_id FROM hr_payroll_special_workday_source_runs)`);
+  for (const run of missing) {
+    try {
+      await db.batch(payrollSpecialWorkdaySourceStatements(db, run.id, run.sourceSnapshotJson) as never);
+    } catch (error) {
+      // 另一個請求剛補完同一個批次。
+      if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) continue;
+      throw error;
+    }
+  }
+}
+
+/**
  * 薪資批次用過的套用與版本記在 hr_payroll_special_workday_sources（試算時照來源快照寫入）。
  * 那張表對批次沒有外鍵，批次已經不在的列一律不算數（理由見 schema 的說明）。
  */
@@ -187,6 +237,7 @@ interface SpecialWorkdayPayrollSources {
 
 /** scope 的兩個欄位各是一句選出 ID 的子查詢（`SELECT id FROM … WHERE …`）。 */
 async function loadSpecialWorkdayPayrollSources(db: Database, scope: { assignments: SQL; versions: SQL }): Promise<SpecialWorkdayPayrollSources> {
+  await indexMissingPayrollSpecialWorkdaySources(db);
   const [assignmentIds, versionRows, legacyRows] = await Promise.all([
     payrollReferencedSpecialWorkdayAssignmentIds(db, scope.assignments),
     db.all<{ id: string }>(sql`SELECT candidate.id AS id FROM (${scope.versions}) AS candidate WHERE ${specialWorkdayVersionPayrollReference(sql`candidate.id`)}`),
@@ -295,6 +346,7 @@ export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?
   const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleName: hrSpecialWorkdayRules.name, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(trim(${hrEmployments.legalName}), ''), nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName }).from(hrSpecialWorkdayAssignments)
     .innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayAssignments.ruleId)).leftJoin(hrEmployments, eq(hrEmployments.id, hrSpecialWorkdayAssignments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).leftJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrSpecialWorkdayAssignments.workerId))
     .where(and(periodStart ? sql`${hrSpecialWorkdayAssignments.workDate} >= ${periodStart}` : undefined, periodEnd ? sql`${hrSpecialWorkdayAssignments.workDate} < ${periodEnd}` : undefined)).orderBy(asc(hrSpecialWorkdayAssignments.workDate));
+  await indexMissingPayrollSpecialWorkdaySources(db);
   const [currentVersions, payrollAssignmentIds] = await Promise.all([
     currentSpecialWorkdayVersions(db, rows.map((row) => ({ ruleId: row.assignment.ruleId, workDate: row.assignment.workDate }))),
     // 跟上面列表同一個期間條件，只問這一頁會出現的套用。
@@ -607,6 +659,7 @@ export async function deleteHrSpecialWorkdayAssignment(db: Database, assignmentI
     .innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayAssignments.ruleId))
     .where(eq(hrSpecialWorkdayAssignments.id, assignmentId)).limit(1);
   if (!existing) throw new HrError(404, "找不到特殊上班日套用紀錄。 ");
+  await indexMissingPayrollSpecialWorkdaySources(db);
   const [protectedAssignment] = await db.select({ id: hrSpecialWorkdayAssignments.id }).from(hrSpecialWorkdayAssignments)
     .where(and(eq(hrSpecialWorkdayAssignments.id, assignmentId), specialWorkdayPayrollReference(hrSpecialWorkdayAssignments.id))).limit(1);
   if (protectedAssignment) throw new HrError(409, "特殊上班日套用已納入薪資試算版本，不能刪除；請改用編輯或停用規則。 ");

@@ -74,3 +74,9 @@ WHERE source.rule_version_id IS NOT NULL AND NOT EXISTS (
   SELECT 1 FROM `hr_payroll_special_workday_sources` AS existing
   WHERE existing.payroll_run_id = source.payroll_run_id AND existing.rule_version_id = source.rule_version_id
 );
+
+--> statement-breakpoint
+-- 上面處理過的批次全部記成「寫過索引」。之後不在這張表裡的批次（部署空窗時舊版 Worker 建立的）由程式在讀取前補寫。
+INSERT INTO `hr_payroll_special_workday_source_runs` (`payroll_run_id`)
+SELECT payroll_run.id FROM `hr_payroll_runs` AS payroll_run
+WHERE payroll_run.id NOT IN (SELECT `payroll_run_id` FROM `hr_payroll_special_workday_source_runs`);

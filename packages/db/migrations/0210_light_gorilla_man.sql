@@ -1,3 +1,7 @@
+CREATE TABLE `hr_payroll_special_workday_source_runs` (
+	`payroll_run_id` text PRIMARY KEY NOT NULL
+);
+--> statement-breakpoint
 CREATE TABLE `hr_payroll_special_workday_sources` (
 	`id` text PRIMARY KEY NOT NULL,
 	`payroll_run_id` text NOT NULL,

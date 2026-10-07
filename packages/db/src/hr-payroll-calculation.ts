@@ -1,6 +1,6 @@
 import { and, asc, count, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { chunks, inJsonArray, jsonArrayValues } from "./sql-lists.js";
+import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, buildHrAnnualLeaveSettlementReversalMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
 import { calculateHrLeaveWorkdayBreakdown, type HrLeaveWorkdayBreakdown } from "./hr-leave.js";
@@ -8,7 +8,7 @@ import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributionRules, listHrInsuranceContributionRules, resolveHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
-import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, specialWorkdayAllowanceTotal } from "./hr-special-workdays.js";
+import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, payrollSpecialWorkdaySourceStatements, specialWorkdayAllowanceTotal } from "./hr-special-workdays.js";
 import { HrError, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { listEffectiveDailyPayouts } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
@@ -38,7 +38,6 @@ import {
   hrPayrollRunEmployees,
   hrPayrollRuns,
   hrPayrollWithdrawals,
-  hrPayrollSpecialWorkdaySources,
   hrPayrollWorkerResults,
   hrPayslipCompensationLinks,
   hrPayslipInsuranceLinks,
@@ -508,25 +507,6 @@ function employeeSelected(employee: { employeeUserId: string; attendanceMode: st
 function ensureMoney(value: unknown, name: string, allowNegative = false): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || (!allowNegative && value < 0)) throw new HrError(400, `${name} 必須是非負整數金額（分）。`);
   return value;
-}
-
-/**
- * 把來源快照裡的特殊上班日攤成索引列（見 hrPayrollSpecialWorkdaySources 的說明）。
- * 從快照字串解析而不是拿試算途中的變數：索引要跟存進批次的那一份完全一致。
- * 每列 6 個綁定參數，D1 一句最多 100 個，所以一批 16 列。
- */
-function payrollSpecialWorkdaySourceRows(runId: string, sourceSnapshotJson: string) {
-  const snapshot = JSON.parse(sourceSnapshotJson) as { specialWorkdays?: unknown };
-  const text = (value: unknown) => typeof value === "string" && value ? value : null;
-  const rows = (Array.isArray(snapshot.specialWorkdays) ? snapshot.specialWorkdays : []).flatMap((value) => {
-    if (!value || typeof value !== "object") return [];
-    const item = value as Record<string, unknown>;
-    const assignmentId = text(item.id);
-    const ruleVersionId = text(item.ruleVersionId);
-    if (!assignmentId && !ruleVersionId) return [];
-    return [{ id: crypto.randomUUID(), payrollRunId: runId, assignmentId, ruleId: text(item.ruleId), ruleVersionId, workDate: text(item.workDate) }];
-  });
-  return chunks(rows, 16);
 }
 
 function batchStatements<T>(statements: T[]): [T, ...T[]] {
@@ -1838,7 +1818,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ...insuranceIds.map((id) => db.insert(hrPayslipInsuranceLinks).values({ payslipId, insuranceVersionId: id })),
   ]),
   ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
-  ...payrollSpecialWorkdaySourceRows(runId, sourceSnapshotJson).map((rows) => db.insert(hrPayrollSpecialWorkdaySources).values(rows)),
+  ...payrollSpecialWorkdaySourceStatements(db, runId, sourceSnapshotJson),
   db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v3" } }))];
   try {
     await db.batch(batchStatements(statements));
@@ -2726,6 +2706,8 @@ export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrA
   // 那張表對批次沒有外鍵，舊版 Worker 刪批次時留下的孤兒列也在這裡一起掃掉。
   addOptionalDelete(sql`DELETE FROM hr_payroll_special_workday_sources WHERE payroll_run_id=${runId}
     OR payroll_run_id NOT IN (SELECT id FROM hr_payroll_runs) RETURNING id`);
+  addOptionalDelete(sql`DELETE FROM hr_payroll_special_workday_source_runs WHERE payroll_run_id=${runId}
+    OR payroll_run_id NOT IN (SELECT id FROM hr_payroll_runs) RETURNING payroll_run_id`);
   mutations.push(sql`DELETE FROM hr_payroll_runs WHERE id=${runId} AND status <> 'closed'
     AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId})
     AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId})

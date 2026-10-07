@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "c80d91de-697e-4846-8376-69afe372c64c",
+  "id": "f5f65288-0a10-4637-8391-6a0060cb5633",
   "prevId": "aac8e344-448a-4059-80fb-fff755cf695d",
   "tables": {
     "auth_device_sessions": {
@@ -11977,6 +11977,23 @@
           "value": "\"hr_payroll_runs\".\"expected_count\" >= 0 AND \"hr_payroll_runs\".\"completed_count\" BETWEEN 0 AND \"hr_payroll_runs\".\"expected_count\""
         }
       }
+    },
+    "hr_payroll_special_workday_source_runs": {
+      "name": "hr_payroll_special_workday_source_runs",
+      "columns": {
+        "payroll_run_id": {
+          "name": "payroll_run_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
     },
     "hr_payroll_special_workday_sources": {
       "name": "hr_payroll_special_workday_sources",

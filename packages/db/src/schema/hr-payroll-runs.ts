@@ -125,6 +125,18 @@ export const hrPayrollSpecialWorkdaySources = sqliteTable("hr_payroll_special_wo
   check("ck_hr_payroll_special_workday_sources_target", sql`${table.assignmentId} IS NOT NULL OR ${table.ruleVersionId} IS NOT NULL`),
 ]);
 
+/**
+ * 已經寫過 hr_payroll_special_workday_sources 的批次，一個批次一列。
+ *
+ * 「這個批次沒有特殊上班日」與「這個批次還沒寫索引」在索引表裡長得一樣（都是零列），要靠這張表分辨。
+ * 會沒寫的情況：migration 已套用、但還在跑的舊版 Worker 建立的批次（每次部署都有這段空窗，回滾期間也是）。
+ * 讀索引之前先找出不在這張表裡的批次，從它的來源快照補寫——見 indexMissingPayrollSpecialWorkdaySources。
+ * 不設外鍵，理由同上一張表。
+ */
+export const hrPayrollSpecialWorkdaySourceRuns = sqliteTable("hr_payroll_special_workday_source_runs", {
+  payrollRunId: text("payroll_run_id").primaryKey(),
+});
+
 /** 撤回原因是稽核紀錄；批次退回 ready 並釋放當期 claim，供重新覆核、試算或刪除。一般不可改寫 marker，刪除整批時由受控交易一併清除。 */
 export const hrPayrollWithdrawals = sqliteTable("hr_payroll_withdrawals", {
   payrollRunId: text("payroll_run_id").primaryKey().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),

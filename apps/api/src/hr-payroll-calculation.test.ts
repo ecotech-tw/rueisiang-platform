@@ -1531,6 +1531,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const sourceRows = () => d1.sqlite.prepare("SELECT payroll_run_id, assignment_id, rule_id, rule_version_id, work_date FROM hr_payroll_special_workday_sources ORDER BY assignment_id").all();
     const written = sourceRows();
     expect(written).toEqual([expect.objectContaining({ payroll_run_id: runId, rule_id: ruleBody.id, rule_version_id: versionId, work_date: "2026-09-04" })]);
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_special_workday_source_runs WHERE payroll_run_id=?").get(runId)).toEqual({ count: 1 });
     // 回填 migration 讀的是同一份快照與明細：對真正的試算結果重跑一次，要得到跟試算當下寫的一模一樣的列。
     d1.sqlite.exec("DELETE FROM hr_payroll_special_workday_sources");
     d1.sqlite.exec(readFileSync(fileURLToPath(new URL("../../../packages/db/migrations/0211_backfill_payroll_special_workday_sources.sql", import.meta.url)), "utf8"));
@@ -1561,6 +1562,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const deletedRun = await request(`/hr/payroll/runs/${runId}`, "DELETE");
     expect(deletedRun.status, await deletedRun.clone().text()).toBe(200);
     expect(sourceRows()).toEqual([]);
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_special_workday_source_runs WHERE payroll_run_id=?").get(runId)).toEqual({ count: 0 });
     expect((await rules()).payrollReferenced).toBe(false);
     const released = await request(`/hr/special-workdays/assignments/${assignment.assignment.id}`, "DELETE", { ruleId: ruleBody.id, employmentId: "dev-employment-chen", workerId: null, workDate: "2026-09-04" });
     expect(released.status, await released.clone().text()).toBe(200);

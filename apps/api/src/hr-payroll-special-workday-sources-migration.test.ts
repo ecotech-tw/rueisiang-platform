@@ -47,7 +47,7 @@ describe("特殊上班日薪資依據索引表 migration", () => {
       line.run("l6", "s4", "special_workday", JSON.stringify({ assignmentIds: ["a4"] }));
       sqlite.exec("PRAGMA foreign_keys=ON");
 
-      apply(sqlite, "0210_fair_morlocks.sql");
+      apply(sqlite, "0210_light_gorilla_man.sql");
       apply(sqlite, "0211_backfill_payroll_special_workday_sources.sql");
 
       const rows = () => sqlite.prepare("SELECT payroll_run_id, assignment_id, rule_id, rule_version_id, work_date FROM hr_payroll_special_workday_sources ORDER BY payroll_run_id, assignment_id, rule_version_id").all();
@@ -59,9 +59,13 @@ describe("特殊上班日薪資依據索引表 migration", () => {
         { payroll_run_id: "r3", assignment_id: "a4", rule_id: "rule", rule_version_id: "v1", work_date: "2026-04-06" },
       ];
       expect(rows()).toEqual(expected);
-      // 部署空窗後要靠重跑補齊，所以重跑不能多出任何一列。
+      // 回填處理過的批次都要記成「寫過索引」，連沒有特殊上班日的也算；不然程式每次讀取都會回來重補。
+      const indexedRuns = () => sqlite.prepare("SELECT payroll_run_id FROM hr_payroll_special_workday_source_runs ORDER BY payroll_run_id").all();
+      expect(indexedRuns()).toEqual([{ payroll_run_id: "r1" }, { payroll_run_id: "r2" }, { payroll_run_id: "r3" }, { payroll_run_id: "r4" }]);
+      // 重跑不能多出任何一列。
       apply(sqlite, "0211_backfill_payroll_special_workday_sources.sql");
       expect(rows()).toEqual(expected);
+      expect(indexedRuns()).toHaveLength(4);
       // 沒有外鍵擋著：不認得這張表的舊版 Worker 照原本的順序刪批次也刪得掉。
       sqlite.exec("DELETE FROM hr_payslip_lines WHERE payslip_id='s2'; DELETE FROM hr_payslips WHERE id='s2'; DELETE FROM hr_payroll_runs WHERE id='r2'");
       expect(sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_runs WHERE id='r2'").get()).toEqual({ count: 0 });
