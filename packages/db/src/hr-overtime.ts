@@ -7,7 +7,7 @@ import { scopes } from "./schema/reports.js";
 import { users } from "./schema/auth.js";
 import { formatTaipeiDate } from "./taipei-time.js";
 
-/** 公司目前唯一已確認的加班倍率；倍率不是請款人可自由輸入的金額。 */
+/** 同一天前 2 小時的加班倍率，建立申請時凍結在申請上；超過 2 小時的級距由薪資試算套用。倍率不是請款人可自由輸入的金額。 */
 export const DEFAULT_OVERTIME_RATE_PPM = 1_333_333;
 
 export interface HrOvertimeInput {

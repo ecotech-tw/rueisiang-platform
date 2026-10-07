@@ -1461,6 +1461,56 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
   });
 
+  it("同一天加班超過 2 小時的部分改用 1⅔ 倍", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "法定加班級距測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const adminCookie = cookie;
+    cookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
+    const overtime = await request("/hr/me/overtime", "POST", { requestedStart: "2026-09-03 18:00", requestedEnd: "2026-09-03 21:00", settlementKind: "pay", reason: "法定加班級距測試" });
+    expect(overtime.status, await overtime.clone().text()).toBe(201);
+    const overtimeId = (await overtime.json() as { id: string }).id;
+    cookie = adminCookie;
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    expect(reviewed.status, await reviewed.clone().text()).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-statutory-overtime-tier" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
+    expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
+      // NT$1,800 ÷ 8 = NT$225／時：前 2 小時 × 1.333333（NT$599.99）＋第 3 小時 × 1.666667（NT$375）。
+      expect.objectContaining({ lineKey: "overtime", amountMinor: 59_999 + 37_500, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("166.6667%") }) }),
+    ]));
+  });
+
+  it("法定加班級距以同一天的累計時數判定，跨申請與特殊日級距都算在內", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "法定加班級距累計測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const ruleResponse = await request("/hr/special-workdays/rules", "POST", { name: "特殊日只涵蓋第一小時", validFrom: "2026-09-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [
+      { fromHalfHours: 1, toHalfHours: 2, rateKind: "multiplier", multiplierPpm: 1_500_000 },
+    ], allowances: [] });
+    expect(ruleResponse.status, await ruleResponse.clone().text()).toBe(201);
+    const ruleBody = await ruleResponse.json() as { id: string };
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: ruleBody.id, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-03", allowanceQuantity: 0 }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const adminCookie = cookie;
+    const employeeCookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
+    for (const [requestedStart, requestedEnd] of [["2026-09-03 18:00", "2026-09-03 19:00"], ["2026-09-03 19:00", "2026-09-03 21:00"]]) {
+      cookie = employeeCookie;
+      const overtime = await request("/hr/me/overtime", "POST", { requestedStart, requestedEnd, settlementKind: "pay", reason: "法定加班級距累計測試" });
+      expect(overtime.status, await overtime.clone().text()).toBe(201);
+      const overtimeId = (await overtime.json() as { id: string }).id;
+      cookie = adminCookie;
+      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+      expect(reviewed.status, await reviewed.clone().text()).toBe(200);
+    }
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-statutory-overtime-cumulative" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
+      // 第 1 小時走特殊日級距 × 150%（NT$337.5）；第二筆申請的第 1 小時是當天第 2 小時 × 1.333333（NT$299.99），第 2 小時是當天第 3 小時 × 1.666667（NT$375）。
+      expect.objectContaining({ lineKey: "overtime", amountMinor: 33_750 + 29_999 + 37_500 }),
+    ]));
+  });
+
   it("敘薪設了加班固定時薪就不再從本薪乘倍率", async () => {
     // 0 會讓加班費靜靜變成 0 元、帶角分的值敘薪畫面改不了，兩種都要在寫入時擋下。
     for (const overtimeHourlyMinor of [-100, 0, 25_050]) {

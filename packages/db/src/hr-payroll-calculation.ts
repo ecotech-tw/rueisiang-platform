@@ -435,6 +435,20 @@ function splitOvertimeBySpecialRules(seconds: number, rules: readonly SpecialWor
   }
   return chunks;
 }
+/*
+ * 勞基法第 24 條：延長工時前 2 小時加給 1/3，再延長的時數加給 2/3。
+ * 第一級用申請上凍結的倍率；第二級的 1⅔ 無條件進位到 ppm，不讓四捨五入後的金額低於法定下限。
+ */
+const STATUTORY_OVERTIME_FIRST_TIER_SECONDS = 2 * 3600;
+const STATUTORY_OVERTIME_SECOND_TIER_RATE_PPM = 1_666_667;
+/** positionSeconds 是這段時數在同一工作日累計加班裡的起點，前面被特殊日級距或固定時薪吃掉的時數也算在內。 */
+function splitOvertimeByStatutoryTier(seconds: number, positionSeconds: number, firstTierRatePpm: number): Array<{ seconds: number; ratePpm: number }> {
+  const firstTierSeconds = Math.min(seconds, Math.max(0, STATUTORY_OVERTIME_FIRST_TIER_SECONDS - positionSeconds));
+  return [
+    { seconds: firstTierSeconds, ratePpm: firstTierRatePpm },
+    { seconds: seconds - firstTierSeconds, ratePpm: STATUTORY_OVERTIME_SECOND_TIER_RATE_PPM },
+  ].filter((part) => part.seconds > 0);
+}
 function splitOvertimeByTaipeiDate(start: string, end: string): Array<{ date: string; seconds: number }> {
   const startMilliseconds = utcWallClockMilliseconds(start);
   const endMilliseconds = utcWallClockMilliseconds(end);
@@ -1547,29 +1561,37 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const elapsedSeconds = overtimeElapsedByDate.get(segment.date) ?? 0;
         const chunks = splitOvertimeBySpecialRules(segment.seconds, special?.overtimeRules ?? [], elapsedSeconds);
         overtimeElapsedByDate.set(segment.date, elapsedSeconds + segment.seconds);
+        let positionSeconds = elapsedSeconds;
         for (const chunk of chunks) {
           const compensation = covering(employeeCompensations, segment.date) ?? fullMonthComp;
           // 特殊日的級距是針對那一天另外談的條件，比個人平時約定的固定時薪更具體，所以級距涵蓋到的時數以級距為準。
           const personalFixedMinor = chunk.rule ? null : compensation?.overtimeHourlyMinor ?? null;
           const fixedHourlyMinor = chunk.rule?.rateKind === "fixed_hourly" ? chunk.rule.fixedAmountMinor! : personalFixedMinor;
-          let overtimeAmount: number;
-          let formula: string;
+          const parts: PayrollCalculationPart[] = [];
           if (fixedHourlyMinor !== null) {
-            overtimeAmount = Math.floor(fixedHourlyMinor * chunk.seconds / 3600);
-            formula = `${segment.date}：${chunk.rule ? "特殊日固定時薪" : "約定加班固定時薪"} ${payrollFormulaMoney(fixedHourlyMinor)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`;
+            parts.push({
+              formula: `${segment.date}：${chunk.rule ? "特殊日固定時薪" : "約定加班固定時薪"} ${payrollFormulaMoney(fixedHourlyMinor)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`,
+              amountMinor: Math.floor(fixedHourlyMinor * chunk.seconds / 3600),
+            });
             if (!chunk.rule && compensation) fixedOvertimeSnapshots.set(compensation.id, { compensationVersionId: compensation.id, overtimeHourlyMinor: fixedHourlyMinor });
           } else {
             const hourly = compensation?.payBasis === "monthly"
               ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
               : compensation?.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation?.baseAmountMinor ?? 0;
             const itemHourly = compensation ? compensationItems.filter((item) => item.compensationVersionId === compensation.id && item.includeOvertime).reduce((sum, item) => sum + (item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays / standardDailyHours) : item.amountBasis === "daily" ? Math.floor(item.amountMinor / standardDailyHours) : item.amountMinor), 0) : 0;
-            const ratePpm = chunk.rule?.rateKind === "multiplier" ? chunk.rule.multiplierPpm! : row.ratePpm;
-            overtimeAmount = Math.floor((hourly + itemHourly) * chunk.seconds / 3600 * ratePpm / PPM);
-            formula = `${segment.date}：floor((${payrollFormulaMoney(hourly)}${itemHourly ? ` + ${payrollFormulaMoney(itemHourly)}` : ""}) × ${payrollFormulaHours(chunk.seconds / 3600)} 小時 × ${payrollFormulaPercent(ratePpm)})`;
+            // 特殊日的倍率級距是整段照它給；只有沒被任何規則涵蓋的時數才走法定的兩級。
+            const tiers = chunk.rule ? [{ seconds: chunk.seconds, ratePpm: chunk.rule.multiplierPpm! }] : splitOvertimeByStatutoryTier(chunk.seconds, positionSeconds, row.ratePpm);
+            for (const tier of tiers) parts.push({
+              formula: `${segment.date}：floor((${payrollFormulaMoney(hourly)}${itemHourly ? ` + ${payrollFormulaMoney(itemHourly)}` : ""}) × ${payrollFormulaHours(tier.seconds / 3600)} 小時 × ${payrollFormulaPercent(tier.ratePpm)})`,
+              amountMinor: Math.floor((hourly + itemHourly) * tier.seconds / 3600 * tier.ratePpm / PPM),
+            });
           }
-          overtimeMinor += overtimeAmount;
+          positionSeconds += chunk.seconds;
           overtimeSeconds += chunk.seconds;
-          if (overtimeAmount > 0) overtimeCalculationParts.push({ formula, amountMinor: overtimeAmount });
+          for (const part of parts) {
+            overtimeMinor += part.amountMinor;
+            if (part.amountMinor > 0) overtimeCalculationParts.push(part);
+          }
         }
       }
     }
