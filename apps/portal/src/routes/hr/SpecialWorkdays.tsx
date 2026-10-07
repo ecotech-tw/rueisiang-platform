@@ -69,6 +69,13 @@ export function nextOvertimeRule(rules: OvertimeRuleDraft[]): OvertimeRuleDraft 
 function latestActiveVersion(rule?: SpecialWorkdayRule): SpecialWorkdayRuleVersion | undefined {
   return rule?.versions.filter((version) => !version.voidedAt).slice().sort((left, right) => right.versionNumber - left.versionNumber)[0];
 }
+export function effectiveSpecialWorkdayVersion(rule: SpecialWorkdayRule | undefined, workDate: string) {
+  return rule?.versions.filter((version) => !version.voidedAt && version.validFrom <= workDate && (version.validTo === null || workDate < version.validTo)).slice().sort((left, right) => right.versionNumber - left.versionNumber)[0];
+}
+export function remapAllowanceQuantities(sourceVersion: SpecialWorkdayRuleVersion | undefined, targetVersion: SpecialWorkdayRuleVersion, quantities: Record<string, number>) {
+  const quantitiesByName = new Map((sourceVersion?.allowances ?? []).map((allowance) => [allowance.itemName, quantities[allowance.id] ?? 0]));
+  return targetVersion.allowances.map((allowance) => ({ allowanceId: allowance.id, quantity: quantitiesByName.get(allowance.itemName) ?? 0 }));
+}
 function activeRuleOptions(rules: SpecialWorkdayRule[]) {
   return rules.flatMap((item) => item.rule.active && latestActiveVersion(item) ? [{ value: item.rule.id, label: item.rule.name }] : []);
 }
@@ -250,6 +257,8 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
     return targets.filter((target) => selected.has(target.key));
   }, [selectedTargetKeys, targets]);
   const dateRange = useMemo(() => datesInRange(startDate, endDate), [endDate, startDate]);
+  const dateVersions = useMemo(() => dateRange.map((workDate) => ({ workDate, version: effectiveSpecialWorkdayVersion(selectedRule, workDate) })), [dateRange, selectedRule]);
+  const missingVersionDates = dateVersions.filter((item) => !item.version).map((item) => item.workDate);
   const assignmentCount = selectedTargets.length * dateRange.length;
   const allTargetsSelected = targets.length > 0 && selectedTargets.length === targets.length;
   const dateError = endDate < startDate ? "結束日期必須晚於或等於開始日期。" : "";
@@ -267,17 +276,18 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
     if (!selectedTargets.length) { setMessage("請至少選擇一位套用人員。"); return; }
     if (dateError) { setMessage(dateError); return; }
     if (tooManyAssignments) { setMessage(`這次會建立 ${assignmentCount} 筆日期套用，超過單次最多 ${MAX_SPECIAL_WORKDAY_ASSIGNMENTS} 筆的限制；請縮短日期或分批套用。`); return; }
-    const parsedAllowanceQuantities = [] as Array<{ allowanceId: string; quantity: number }>;
+    if (missingVersionDates.length) { setMessage(`以下日期沒有有效的特殊上班日規則版本：${missingVersionDates.join("、")}。請調整日期區間或先建立對應版本。`); return; }
+    const parsedAllowanceQuantities: Record<string, number> = {};
     for (const allowance of selectedVersion.allowances) {
       const quantity = Number(allowanceQuantities[allowance.id] ?? "0");
       if (!Number.isSafeInteger(quantity) || quantity < 0) { setMessage(`「${allowance.itemName}」的補貼數量請填非負整數。`); return; }
-      parsedAllowanceQuantities.push({ allowanceId: allowance.id, quantity });
+      parsedAllowanceQuantities[allowance.id] = quantity;
     }
     const targetByKey = new Map(targets.map((target) => [target.key, target]));
-    const assignments = dateRange.flatMap((workDate) => selectedTargetKeys.flatMap((key) => {
+    const assignments = dateVersions.flatMap(({ workDate, version }) => selectedTargetKeys.flatMap((key) => {
       const target = targetByKey.get(key);
-      if (!target) return [];
-      return [{ ...(target.employmentId ? { employmentId: target.employmentId } : { workerId: target.workerId }), workDate, allowanceQuantities: parsedAllowanceQuantities }];
+      if (!target || !version) return [];
+      return [{ ...(target.employmentId ? { employmentId: target.employmentId } : { workerId: target.workerId }), workDate, allowanceQuantities: remapAllowanceQuantities(selectedVersion, version, parsedAllowanceQuantities) }];
     }));
     if (!assignments.length) { setMessage("目前沒有可套用的員工或支援人員。"); return; }
     setMessage(null);
@@ -301,8 +311,8 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
     </div>
     <div className="form-grid two"><TextField label="開始日期" type="date" required value={startDate} disabled={save.isPending} onChange={(event) => setStartDate(event.target.value)} /><TextField label="結束日期（含）" type="date" min={startDate} required value={endDate} disabled={save.isPending} onChange={(event) => setEndDate(event.target.value)} /></div>
     <AllowanceQuantities version={selectedVersion} quantities={allowanceQuantities} disabled={save.isPending} onChange={(allowanceId, value) => setAllowanceQuantities((current) => ({ ...current, [allowanceId]: value }))} />
-    <p className="form-hint">同一人員同一天只能套用一個規則；日期區間含首尾，預計建立 {assignmentCount} 筆日期紀錄。套用只保存規則、人員、日期與補貼數量，重新試算時會讀取目前規則。</p>
-    {dateError || tooManyAssignments ? <Alert tone="warning">{dateError || `這次會建立 ${assignmentCount} 筆日期套用，超過單次最多 ${MAX_SPECIAL_WORKDAY_ASSIGNMENTS} 筆的限制。`}</Alert> : null}
+    <p className="form-hint">同一人員同一天只能套用一個規則；日期區間含首尾，預計建立 {assignmentCount} 筆日期紀錄。跨規則版本日期會依各日期的有效版本送出補貼數量。</p>
+    {dateError || tooManyAssignments || missingVersionDates.length ? <Alert tone="warning">{dateError || tooManyAssignments ? (dateError || `這次會建立 ${assignmentCount} 筆日期套用，超過單次最多 ${MAX_SPECIAL_WORKDAY_ASSIGNMENTS} 筆的限制。`) : `以下日期沒有有效版本：${missingVersionDates.join("、")}`}</Alert> : null}
     {employees.error || workers.error ? <Alert tone="danger">人員名單載入失敗：{employees.error?.message ?? workers.error?.message}</Alert> : null}
     {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
   </Dialog>;
@@ -319,12 +329,7 @@ function EditAssignmentDialog({ assignment, rules, onClose }: { assignment: Spec
   const save = useHrWrite();
   const closeRequestRef = useRef<(() => void) | null>(null);
   const selectedRule = useMemo(() => rules.find((rule) => rule.rule.id === ruleId), [rules, ruleId]);
-  const selectedVersion = useMemo(() => {
-    if (ruleId === assignment.assignment.ruleId && assignment.currentVersionNumber !== null) {
-      return selectedRule?.versions.find((version) => !version.voidedAt && version.versionNumber === assignment.currentVersionNumber) ?? latestActiveVersion(selectedRule);
-    }
-    return latestActiveVersion(selectedRule);
-  }, [assignment.assignment.ruleId, assignment.currentVersionNumber, ruleId, selectedRule]);
+  const selectedVersion = useMemo(() => effectiveSpecialWorkdayVersion(selectedRule, workDate), [selectedRule, workDate]);
   const targets = useMemo(() => {
     if (!currentTargetKey || availableTargets.some((target) => target.key === currentTargetKey)) return availableTargets;
     const currentTarget = assignment.assignment.employmentId
