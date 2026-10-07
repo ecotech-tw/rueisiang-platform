@@ -46,7 +46,10 @@ jobs:
 
       - run: pnpm test
 
-      - run: pnpm build
+      # 不跑 pnpm build：三個 app 的 build 都會先再跑一次 tsc --noEmit，而上面的
+      # typecheck 已經檢查過同一份原始碼。這裡只產 Deploy 要取用的兩份 dist。
+      - name: 打包 portal 與 HR
+        run: pnpm --filter @rueisiang/portal --filter @rueisiang/hr exec vite build
 
       # main 的 CI 成功後由 Deploy workflow 直接取用這些產物，不再重跑整套驗證。
       - uses: actions/upload-artifact@v4
