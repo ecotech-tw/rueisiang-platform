@@ -238,8 +238,9 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
       <span>{jobs.length} 筆</span>
       <span aria-hidden="true"><Icon name={expanded ? "chevronUp" : "chevronDown"} /></span>
     </Button>
-    <div className="hr-payroll-job-list" id="hr-payroll-job-list" hidden={!expanded}>
-      {jobs.slice(0, 4).map((job) => {
+    <div className={`hr-payroll-job-list ${expanded ? "is-expanded" : "is-collapsed"}`} id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
+      <div className="hr-payroll-job-list-inner">
+        {jobs.slice(0, 4).map((job) => {
         const hasProgress = job.progressPercent !== null;
         return <article className={`hr-payroll-job-card hr-payroll-job-${job.status}`} key={job.jobId}>
           <div className="hr-payroll-job-card-head">
@@ -254,7 +255,8 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
             {job.status === "failed" && canRetry ? <Button variant="secondary" icon="sync" onClick={() => onRetry(job)}>重新試算</Button> : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : job.status === "ready" && job.runId ? <Button variant="secondary" icon="eye" onClick={() => onOpen(job)}>查看紀錄</Button> : null}
           </div>
         </article>;
-      })}
+        })}
+      </div>
     </div>
   </section>;
 }
