@@ -94,6 +94,7 @@ function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const PAYROLL_RUN_NAME_MAX_LENGTH = 20;
 const PAYROLL_RUN_NAME_ELLIPSIS = "...";
+const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v4";
 const displayName = hrEmployeeName;
 
 function shortenPayrollRunName(value: string): string {
@@ -562,6 +563,33 @@ function employeeSelected(employee: { employeeUserId: string; attendanceMode: st
   return true;
 }
 
+type MonthlyRestWorkdayAdjustment = {
+  monthlyRestDays: number;
+  expectedWorkDays: number;
+  actualWorkDays: number;
+  deltaDays: number;
+};
+
+/**
+ * 月休是約定的基準，不是排班儲存時的硬限制：多排一天要補一天薪，少排一天要扣一天薪。
+ * 未滿整月時本薪已走 30 日制按在職日數比例，月休基準也只看該期在職日，避免漏算或重複折算。
+ */
+function resolveMonthlyRestWorkdayAdjustment(
+  employee: { attendanceMode: string; monthlyRestDays: number | null },
+  employmentDaySet: ReadonlySet<string>,
+  scheduledDates: ReadonlySet<string>,
+  specialDates: ReadonlySet<string>,
+): MonthlyRestWorkdayAdjustment | null {
+  if (employee.attendanceMode !== "scheduled" || employee.monthlyRestDays === null || employmentDaySet.size === 0) return null;
+  const workDates = new Set<string>();
+  for (const date of scheduledDates) if (employmentDaySet.has(date)) workDates.add(date);
+  for (const date of specialDates) if (employmentDaySet.has(date)) workDates.add(date);
+  const monthlyRestDays = Math.min(Math.max(0, employee.monthlyRestDays), employmentDaySet.size);
+  const expectedWorkDays = employmentDaySet.size - monthlyRestDays;
+  const actualWorkDays = workDates.size;
+  return { monthlyRestDays, expectedWorkDays, actualWorkDays, deltaDays: actualWorkDays - expectedWorkDays };
+}
+
 function ensureMoney(value: unknown, name: string, allowNegative = false): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || (!allowNegative && value < 0)) throw new HrError(400, `${name} 必須是非負整數金額（分）。`);
   return value;
@@ -960,8 +988,9 @@ function calculateAssignedBonus(
 }
 
 /**
- * 以明確輸入的示範規則試算薪資：月薪整月按月薪給付，入職／離職未滿整月才以 30 日制按在職日數比例計算；
- * 核准付薪加班、申請上凍結的給薪比例；勞健保依系統預設或公司覆核的有效負擔規則計算。
+ * 以明確輸入的示範規則試算薪資：月薪整月按月薪給付，排班制且有月休設定時再依實際排班日數調整；
+ * 入職／離職未滿整月才以 30 日制按在職日數比例計算；核准付薪加班、申請上凍結的給薪比例；
+ * 勞健保依系統預設或公司覆核的有效負擔規則計算。
  */
 export async function calculateHrPayroll(db: Database, input: HrPayrollCalculationInput, actor: HrActor, options: HrPayrollCalculationOptions = {}): Promise<HrPayrollRunResult> {
   if (JSON.stringify(input).length > HR_PAYROLL_CALCULATION_INPUT_JSON_MAX_LENGTH) {
@@ -993,6 +1022,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     employeeName: displayName,
     serviceStartOn: hrEmploymentServicePeriods.serviceStartOn,
     attendanceMode: sql<string>`coalesce((SELECT attendance_mode FROM hr_employment_attendance_settings WHERE employment_id = ${hrEmployments.id}), 'general')`,
+    monthlyRestDays: sql<number | null>`(SELECT monthly_rest_days FROM hr_employment_attendance_settings WHERE employment_id = ${hrEmployments.id})`,
     employeeRevision: hrEmployments.revision,
     archivedAt: hrEmployments.archivedAt,
   }).from(hrEmployments)
@@ -1602,6 +1632,18 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         }
       }
     }
+    const monthlyRestAdjustment = allEmploymentDaysMonthly
+      ? resolveMonthlyRestWorkdayAdjustment(employee, employmentDaySet, scheduledDates, specialDates)
+      : null;
+    const monthlyRestDailyAmount = monthlyRestAdjustment
+      ? Math.floor(employmentDays.reduce((sum, day) => {
+        const compensation = covering(employeeCompensations, day);
+        return sum + (compensation?.payBasis === "monthly" ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays) : 0);
+      }, 0) / employmentDays.length)
+      : 0;
+    const monthlyRestAdjustmentMinor = monthlyRestAdjustment
+      ? monthlyRestAdjustment.deltaDays * monthlyRestDailyAmount
+      : 0;
     let compensationItemLineNumber = 0;
     for (const [itemId, amount] of compensationItemTotals) {
       const item = compensationItems.find((candidate) => candidate.id === itemId);
@@ -1653,6 +1695,24 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         allocationRule: fullMonthComp?.payBasis === "daily" ? "每個據點／日期／班別固定 1 單位，由有效出勤人員平均分配；同一人同日多班依日薪上限 1 單位" : undefined,
         scheduleAllocationDetails: employeeAllocationDetails.get(employee.employmentId) ?? [],
         calculationParts: baseParts, formulaDetail: payrollFormulaTotal(baseParts, baseMinor),
+      } });
+    }
+    if (monthlyRestAdjustment && monthlyRestAdjustmentMinor !== 0) {
+      const dailyAmount = monthlyRestDailyAmount;
+      const deltaLabel = monthlyRestAdjustment.deltaDays > 0 ? `+${monthlyRestAdjustment.deltaDays}` : String(monthlyRestAdjustment.deltaDays);
+      const adjustmentPart = {
+        formula: `實際上班 ${monthlyRestAdjustment.actualWorkDays} 天 − 約定應排 ${monthlyRestAdjustment.expectedWorkDays} 天 = ${deltaLabel} 天 × ${payrollFormulaMoney(dailyAmount)}`,
+        amountMinor: monthlyRestAdjustmentMinor,
+      };
+      lines.push({ lineKey: "monthly_rest_adjustment", direction: monthlyRestAdjustmentMinor > 0 ? "earning" : "deduction", amountMinor: Math.abs(monthlyRestAdjustmentMinor), explanation: {
+        rule: "排班制月薪依月休約定與實際上班日數調整",
+        monthlyRestDays: monthlyRestAdjustment.monthlyRestDays,
+        expectedWorkDays: monthlyRestAdjustment.expectedWorkDays,
+        actualWorkDays: monthlyRestAdjustment.actualWorkDays,
+        deltaDays: monthlyRestAdjustment.deltaDays,
+        dailyAmountMinor: dailyAmount,
+        calculationParts: [adjustmentPart],
+        formulaDetail: `${adjustmentPart.formula} = ${payrollFormulaMoney(monthlyRestAdjustmentMinor)}`,
       } });
     }
     if (typhoonStopDatesForEmployee.length > 0) lines.push({ lineKey: "typhoon_stop_pay", direction: "earning", amountMinor: typhoonStopMinor, explanation: {
@@ -2067,7 +2127,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const versionNumber = Number(latest?.value ?? 0) + 1;
   const periodInsert = db.insert(hrPayrollPeriods).values({ id: `payroll-period-${period.periodKey}`, periodKey: period.periodKey, attendanceStart: period.start, attendanceEnd: period.end, payDate, createdBy: actor.id }).onConflictDoNothing();
   const totalResults = statementRows.length + workerStatements.size;
-  const runInsert = db.insert(hrPayrollRuns).values({ id: runId, payrollPeriodId: `payroll-period-${period.periodKey}`, versionNumber, requestId, inputRevision: Math.max(1, ...employees.map((employee) => employee.employeeRevision)), payDate, calculationInputJson, sourceSnapshotJson, warningsJson: JSON.stringify([...calculationWarnings]), engineVersion: "hr-payroll-demo-v3", status: "ready", expectedCount: totalResults, completedCount: totalResults, createdBy: actor.id });
+  const runInsert = db.insert(hrPayrollRuns).values({ id: runId, payrollPeriodId: `payroll-period-${period.periodKey}`, versionNumber, requestId, inputRevision: Math.max(1, ...employees.map((employee) => employee.employeeRevision)), payDate, calculationInputJson, sourceSnapshotJson, warningsJson: JSON.stringify([...calculationWarnings]), engineVersion: PAYROLL_ENGINE_VERSION, status: "ready", expectedCount: totalResults, completedCount: totalResults, createdBy: actor.id });
   const statements = [periodInsert, runInsert, ...statementRows.flatMap(({ payslipId, employee, lines, compensationIds, insuranceIds }) => [
     db.insert(hrPayrollRunEmployees).values({ payrollRunId: runId, employmentId: employee.employmentId, inputRevision: 1, status: "succeeded" }),
     db.insert(hrPayslips).values({ id: payslipId, payrollRunId: runId, employmentId: employee.employmentId, employeeNumber: employee.employeeNumber, employeeName: employee.employeeName, earningMinor: employee.earningMinor, deductionMinor: employee.deductionMinor, netMinor: employee.netMinor }),
@@ -2077,7 +2137,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   ]),
   ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, scheduleAllocationJson: JSON.stringify(worker.scheduleAllocationDetails), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
   ...payrollSpecialWorkdaySourceStatements(db, runId, sourceSnapshotJson),
-  db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v3" } }))];
+  db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: PAYROLL_ENGINE_VERSION } }))];
   try {
     await db.batch(batchStatements(statements));
   } catch (error) {

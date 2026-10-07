@@ -1324,7 +1324,7 @@ export const hr = new Hono<AppEnv>()
   .patch("/employments/:id/attendance-mode", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);
     const selectedMode = attendanceMode(input);
-    // 沒帶 monthlyRestDays 的舊呼叫只改出勤方式，保留原本的休假天數；清成 NULL 會讓排班發布的休假檢查整個跳過。
+    // 沒帶 monthlyRestDays 的舊呼叫只改出勤方式，保留原本的月休設定，避免意外改變薪資結算基準。
     const monthlyRestDays = selectedMode === "general" ? null : input.monthlyRestDays === undefined ? undefined : integerValue(input, "monthlyRestDays", "每月休假天數", 0, 31);
     return c.json(await updateHrEmploymentAttendanceMode(c.get("db"), c.req.param("id"), { attendanceMode: selectedMode, monthlyRestDays, revision: revision(input) }, c.get("user")));
   })

@@ -210,12 +210,10 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
     .where(eq(hrShiftTemplates.active, 1));
   const shiftMap = new Map(latestShiftVersions(shiftRows).map((shift) => [`${shift.versionId}:${shift.scopeId}`, shift]));
-  const employmentRows = await db.select({ id: hrEmployments.id, employeeName: hrEmployeeName }).from(hrEmployments)
+  const employmentRows = await db.select({ id: hrEmployments.id }).from(hrEmployments)
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(sql`${hrEmployments.archivedAt} IS NULL`);
   const employmentMap = new Map(employmentRows.map((employment) => [employment.id, employment]));
-  const attendanceSettings = await db.select({ employmentId: hrEmploymentAttendanceSettings.employmentId, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmploymentAttendanceSettings);
-  const attendanceSettingMap = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting]));
   const workers = await db.select({ id: hrScheduleWorkers.id, active: hrScheduleWorkers.active }).from(hrScheduleWorkers);
   const workerMap = new Map(workers.map((worker) => [worker.id, worker]));
   const enriched: EnrichedScheduleEntry[] = [];
@@ -248,23 +246,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     occupied.set(personId, personIntervals);
     enriched.push({ ...entry, startsAt, endsAt, standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes, shiftTemplateId: shift.templateId, requiredHeadcount: shift.requiredHeadcount, attendanceStatus });
   }
-  const workDatesByEmployment = new Map<string, Set<string>>();
-  for (const entry of enriched) if (entry.personKind === "employee" && entry.employmentId) {
-    const dates = workDatesByEmployment.get(entry.employmentId) ?? new Set<string>();
-    dates.add(entry.workDate);
-    workDatesByEmployment.set(entry.employmentId, dates);
-  }
-  for (const employment of employmentRows) {
-    const setting = attendanceSettingMap.get(employment.id);
-    if (setting?.attendanceMode !== "scheduled" || setting.monthlyRestDays === null) continue;
-    const activeStart = period.start;
-    const activeEnd = period.end;
-    let activeDays = 0;
-    for (let day = activeStart; day < activeEnd; day = addDays(day, 1)) activeDays += 1;
-    const expectedRestDays = Math.min(setting.monthlyRestDays, activeDays);
-    const scheduledDays = workDatesByEmployment.get(employment.id)?.size ?? 0;
-    if (activeDays - scheduledDays !== expectedRestDays) throw new HrError(400, `排班人員 ${employment.employeeName} 本月應休 ${setting.monthlyRestDays} 天，目前排班無法符合月休設定。 `);
-  }
+  // 月休是薪資結算的基準，允許實際排班日數與約定不同，差額由薪資引擎補發或扣回。
   return enriched;
 }
 
