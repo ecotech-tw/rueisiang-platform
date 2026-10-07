@@ -18,6 +18,7 @@ export { FilterInput, FilterSelect, type FilterInputProps, type FilterSelectOpti
 export { FilterToolbar } from "./FilterToolbar.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
 export { Pager, type PagerProps } from "./Pager.js";
+export { SortableHeader, type SortableHeaderProps } from "./SortableHeader.js";
 export { PageHeader, Panel } from "./Panel.js";
 export { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";

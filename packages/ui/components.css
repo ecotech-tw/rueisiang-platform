@@ -67,6 +67,46 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 可排序表頭的箭頭只在 hover 或 active 時顯示，避免每欄都有灰箭頭而看不出目前欄位。 */
+.sort-header {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+
+.sort-header svg {
+  width: 16px;
+  height: 16px;
+  opacity: 0;
+  transition-property: opacity;
+  transition-duration: 120ms;
+  transition-timing-function: ease-out;
+}
+
+.sort-header:hover svg {
+  opacity: .35;
+}
+
+.sort-header.active {
+  color: var(--color-brand-dark);
+}
+
+.sort-header.active svg {
+  opacity: 1;
+  color: var(--color-brand);
+}
+
+.sort-header:focus-visible {
+  outline: 2px solid var(--color-secondary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .cell-strong {
   font-weight: 700;
 }

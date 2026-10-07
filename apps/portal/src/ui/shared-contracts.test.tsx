@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { ConfirmDialog } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
+import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
 import { FilterInput, FilterSelect, FilterToolbar, SearchFilterInput } from "./index.js";
 
@@ -53,6 +54,24 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toContain('aria-label="分頁"');
     expect(markup).toContain('class="pager-page active"');
     expect(markup).toContain('aria-current="page"');
+  });
+
+  it("renders sortable headers with shared sort contracts", () => {
+    const markup = renderToStaticMarkup(
+      <table>
+        <thead>
+          <tr>
+            <SortableHeader label="姓名" field="name" active="name" direction="asc" onSort={() => {}} />
+            <SortableHeader label="狀態" field="status" active="name" direction="asc" onSort={() => {}} />
+          </tr>
+        </thead>
+      </table>,
+    );
+
+    expect(markup).toContain('aria-sort="ascending"');
+    expect(markup).toContain('class="sort-header active"');
+    expect(markup).toContain('aria-sort="none"');
+    expect(markup).toContain('class="sort-header"');
   });
 
   it("renders filters with shared labels and compact control wrappers", () => {
