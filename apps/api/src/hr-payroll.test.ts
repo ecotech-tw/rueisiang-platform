@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { desc, eq } from "drizzle-orm";
 import { createDatabase, parseSpecialWorkdayAllowanceSnapshot, specialWorkdayAllowanceTotal, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, hrInsuranceVersions, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { activityEvents, hrInsuranceVersions, hrPayrollPeriods, hrPayrollRuns, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -634,7 +634,7 @@ describe("HR 薪資與勞健保", () => {
     expect(await rebuilt.json()).toMatchObject({ versionNumber: 3 });
   });
 
-  it("未套用的特殊上班日規則可以刪除，已有套用紀錄的規則只能停用", async () => {
+  it("未納入薪資試算的特殊上班日規則與套用可以刪除", async () => {
     await assign();
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
     const employmentId = profile.employments[0]!.id;
@@ -673,10 +673,55 @@ describe("HR 薪資與勞健保", () => {
     const usedBody = await used.json() as { id: string; versionId: string };
     const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: usedBody.id, assignments: [{ employmentId, workDate: "2026-01-15", allowanceQuantity: 0 }] });
     expect(assigned.status, await assigned.clone().text()).toBe(201);
-    const rejected = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", { revision: 1 });
-    expect(rejected.status, await rejected.clone().text()).toBe(409);
-    const stillListed = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string; active: number } }> };
-    expect(stillListed.rules).toEqual(expect.arrayContaining([expect.objectContaining({ rule: expect.objectContaining({ id: usedBody.id, active: 1 }) })]));
+    const deletedUsed = await request(`/hr/special-workdays/rules/${usedBody.id}`, "DELETE", { revision: 1 });
+    expect(deletedUsed.status, await deletedUsed.clone().text()).toBe(200);
+    const afterUsedDelete = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string } }> };
+    expect(afterUsedDelete.rules.some((item) => item.rule.id === usedBody.id)).toBe(false);
+    const afterAssignmentDelete = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { ruleId: string } }> };
+    expect(afterAssignmentDelete.assignments.some((item) => item.assignment.ruleId === usedBody.id)).toBe(false);
+  });
+
+  it("尚未納入薪資試算的特殊上班日套用可以單筆刪除", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const created = await request("/hr/special-workdays/rules", "POST", { name: "可刪除特殊日套用", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [], overtimeRules: [] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id: ruleId } = await created.json() as { id: string };
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId: profile.employments[0]!.id, workDate: "2026-04-01", allowanceQuantities: [] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const listed = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string; ruleId: string }; includedInPayroll: boolean }> };
+    const assignment = listed.assignments.find((item) => item.assignment.ruleId === ruleId)!;
+    expect(assignment.includedInPayroll).toBe(false);
+
+    const deleted = await request(`/hr/special-workdays/assignments/${assignment.assignment.id}`, "DELETE", {});
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    const afterDelete = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string } }> };
+    expect(afterDelete.assignments.some((item) => item.assignment.id === assignment.assignment.id)).toBe(false);
+    const db = createDatabase(d1 as never);
+    const [event] = await db.select({ summary: activityEvents.summary, payloadJson: activityEvents.payloadJson }).from(activityEvents).where(eq(activityEvents.eventType, "special_workday_assignment_deleted")).orderBy(desc(activityEvents.createdAt)).limit(1);
+    expect(event).toMatchObject({ summary: "特殊上班日套用刪除", payloadJson: expect.stringContaining("2026-04-01") });
+  });
+
+  it("已納入薪資試算版本的特殊上班日套用與規則不能刪除", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const created = await request("/hr/special-workdays/rules", "POST", { name: "薪資版本保留特殊日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, allowances: [], overtimeRules: [] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id: ruleId } = await created.json() as { id: string };
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId: profile.employments[0]!.id, workDate: "2026-04-02", allowanceQuantities: [] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const listed = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string; ruleId: string } }> };
+    const assignmentId = listed.assignments.find((item) => item.assignment.ruleId === ruleId)!.assignment.id;
+    const db = createDatabase(d1 as never);
+    await db.insert(hrPayrollPeriods).values({ id: "payroll-period-2026-04", periodKey: "2026-04", attendanceStart: "2026-04-01", attendanceEnd: "2026-05-01", createdBy: "admin" });
+    await db.insert(hrPayrollRuns).values({ id: "payroll-run-special-reference", payrollPeriodId: "payroll-period-2026-04", versionNumber: 1, requestId: "payroll-request-special-reference", inputRevision: 1, sourceSnapshotJson: JSON.stringify({ specialWorkdays: [{ id: assignmentId }] }), engineVersion: "test", status: "ready", expectedCount: 0, completedCount: 0, createdBy: "admin" });
+
+    const protectedAssignment = await request(`/hr/special-workdays/assignments/${assignmentId}`, "DELETE", {});
+    expect(protectedAssignment.status, await protectedAssignment.clone().text()).toBe(409);
+    const listedProtected = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string }; includedInPayroll: boolean }> };
+    expect(listedProtected.assignments.find((item) => item.assignment.id === assignmentId)?.includedInPayroll).toBe(true);
+    const protectedRule = await request(`/hr/special-workdays/rules/${ruleId}`, "DELETE", { revision: 1 });
+    expect(protectedRule.status, await protectedRule.clone().text()).toBe(409);
   });
 
   it("公司負擔規則會進入薪資扣款，薪資加扣項可直接指定生效月份", async () => {

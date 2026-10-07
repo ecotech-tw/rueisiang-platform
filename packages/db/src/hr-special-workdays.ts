@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { chunks, inJsonArray } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
@@ -145,6 +145,34 @@ async function currentSpecialWorkdayVersions(db: Database, keys: SpecialWorkdayV
   return resolveSpecialWorkdayVersions(versions, keys);
 }
 
+/** 薪資來源快照與薪資明細都可能保存套用 ID；任一處留有 ID 就不能物理刪除。 */
+function specialWorkdayPayrollReference(assignmentId: AnyColumn | SQL | string) {
+  return sql`(
+    EXISTS (
+      SELECT 1
+      FROM hr_payroll_runs AS payroll_run
+      CROSS JOIN json_each(
+        CASE WHEN json_valid(payroll_run.source_snapshot_json)
+          THEN coalesce(json_extract(payroll_run.source_snapshot_json, '$.specialWorkdays'), '[]')
+          ELSE '[]'
+        END
+      ) AS special_workday
+      WHERE json_extract(special_workday.value, '$.id') = ${assignmentId}
+    )
+    OR EXISTS (
+      SELECT 1
+      FROM hr_payslip_lines AS payslip_line
+      CROSS JOIN json_each(
+        CASE WHEN json_valid(payslip_line.explanation_json)
+          THEN coalesce(json_extract(payslip_line.explanation_json, '$.assignmentIds'), '[]')
+          ELSE '[]'
+        END
+      ) AS assignment_reference
+      WHERE assignment_reference.value = ${assignmentId}
+    )
+  )`;
+}
+
 function resolvedAllowanceSnapshot(assignment: { allowanceSnapshotJson: string; allowanceQuantity: number }, allowances: Array<{ itemName: string; unitAmountMinor: number }>) {
   const quantitiesByName = new Map(parseSpecialWorkdayAllowanceSnapshot(assignment.allowanceSnapshotJson, assignment.allowanceQuantity).map((item) => [item.itemName, item.quantity]));
   return JSON.stringify(allowances.map((allowance) => ({ itemName: allowance.itemName, unitAmountMinor: allowance.unitAmountMinor, quantity: quantitiesByName.get(allowance.itemName) ?? assignment.allowanceQuantity })));
@@ -172,7 +200,7 @@ function allowanceSnapshotForAssignment(
 }
 
 export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?: string, periodEnd?: string) {
-  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleName: hrSpecialWorkdayRules.name, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(trim(${hrEmployments.legalName}), ''), nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName }).from(hrSpecialWorkdayAssignments)
+  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleName: hrSpecialWorkdayRules.name, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(trim(${hrEmployments.legalName}), ''), nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName, payrollReferenced: sql<number>`CASE WHEN ${specialWorkdayPayrollReference(hrSpecialWorkdayAssignments.id)} THEN 1 ELSE 0 END`.as("special_workday_payroll_referenced") }).from(hrSpecialWorkdayAssignments)
     .innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayAssignments.ruleId)).leftJoin(hrEmployments, eq(hrEmployments.id, hrSpecialWorkdayAssignments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).leftJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrSpecialWorkdayAssignments.workerId))
     .where(and(periodStart ? sql`${hrSpecialWorkdayAssignments.workDate} >= ${periodStart}` : undefined, periodEnd ? sql`${hrSpecialWorkdayAssignments.workDate} < ${periodEnd}` : undefined)).orderBy(asc(hrSpecialWorkdayAssignments.workDate));
   const currentVersions = await currentSpecialWorkdayVersions(db, rows.map((row) => ({ ruleId: row.assignment.ruleId, workDate: row.assignment.workDate })));
@@ -187,6 +215,7 @@ export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?
         ...row.assignment,
         allowanceSnapshotJson: version ? resolvedAllowanceSnapshot(row.assignment, currentAllowances) : row.assignment.allowanceSnapshotJson,
       },
+      includedInPayroll: row.payrollReferenced === 1,
       currentVersionNumber: version?.versionNumber ?? null,
       currentVersionVoidedAt: version?.voidedAt ?? null,
       currentWageKind: version?.wageKind ?? null,
@@ -201,10 +230,10 @@ export async function createHrSpecialWorkdayRule(db: Database, input: SpecialWor
 }
 
 /**
- * 刪除整條規則。只有從沒被任何日期套用過的規則能刪——已有套用紀錄時必須保留來源與快照，
- * 那些是薪資算過的依據。
+ * 刪除整條規則與尚未進入薪資試算的日期套用。已進入任何薪資版本的套用必須保留，
+ * 否則來源快照與舊薪資明細會失去可以追溯的 ID。
  *
- * revision 是必填的：刪除是「連同底下所有版本一起消失」，沒有樂觀鎖的話
+ * revision 是必填的：刪除會連同底下版本一起消失，沒有樂觀鎖的話
  * A 開著頁面看到 v1、B 剛加了 v2 修正費率、A 按下刪除——v1 與 B 那版一起沒了，
  * 而且回 200，沒有任何地方提示衝突。其他破壞性的 HR 端點都帶（班別帶 revision、
  * 勞健保費率帶 contentHash），這裡不該是例外。
@@ -212,18 +241,21 @@ export async function createHrSpecialWorkdayRule(db: Database, input: SpecialWor
 export async function deleteHrSpecialWorkdayRule(db: Database, ruleId: string, revision: number, actor: HrActor) {
   const [rule] = await db.select({ id: hrSpecialWorkdayRules.id, name: hrSpecialWorkdayRules.name }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
   if (!rule) throw new HrError(404, "找不到特殊上班日規則。 ");
-  const [assignment] = await db.select({ id: hrSpecialWorkdayAssignments.id }).from(hrSpecialWorkdayAssignments)
-    .where(eq(hrSpecialWorkdayAssignments.ruleId, ruleId)).limit(1);
-  if (assignment) throw new HrError(409, "特殊上班日規則已有日期套用紀錄，不能刪除；請改用停用。 ");
+  const [protectedAssignment] = await db.select({ id: hrSpecialWorkdayAssignments.id }).from(hrSpecialWorkdayAssignments)
+    .where(and(eq(hrSpecialWorkdayAssignments.ruleId, ruleId), specialWorkdayPayrollReference(hrSpecialWorkdayAssignments.id))).limit(1);
+  if (protectedAssignment) throw new HrError(409, "特殊上班日規則已有日期套用納入薪資試算版本，不能刪除；請改用停用。 ");
   await writeHrMutation(db, [
+    // 尚未進入薪資版本的日期套用沒有歷史薪資依據，可以和規則一起清掉；已引用的列則留下來讓外鍵擋住刪除。
+    sql`DELETE FROM hr_special_workday_assignments WHERE rule_id=${ruleId} AND NOT ${specialWorkdayPayrollReference(sql`hr_special_workday_assignments.id`)} RETURNING id`,
     // 版本彼此有自我外鍵；刪除前先清掉 superseded_by_version_id，才不會被 ON DELETE RESTRICT 擋住。
     sql`UPDATE hr_special_workday_rule_versions SET superseded_by_version_id=NULL WHERE rule_id=${ruleId} RETURNING id`,
     sql`DELETE FROM hr_special_workday_overtime_rules WHERE rule_version_id IN (SELECT id FROM hr_special_workday_rule_versions WHERE rule_id=${ruleId}) RETURNING id`,
     sql`DELETE FROM hr_special_workday_allowances WHERE rule_version_id IN (SELECT id FROM hr_special_workday_rule_versions WHERE rule_id=${ruleId}) RETURNING id`,
     sql`DELETE FROM hr_special_workday_rule_versions WHERE rule_id=${ruleId} RETURNING id`,
-    sql`DELETE FROM hr_special_workday_rules WHERE id=${ruleId} AND revision=${revision} RETURNING id`,
-  ], ruleId, actor, "special_workday_rule_deleted", "特殊上班日規則已被套用或已變更，不能刪除；請重新整理後再試。 ", {
-    allowEmptyMutationIndexes: new Set([0, 1, 2]),
+    sql`DELETE FROM hr_special_workday_rules WHERE id=${ruleId} AND revision=${revision}
+      AND NOT EXISTS (SELECT 1 FROM hr_special_workday_assignments WHERE rule_id=${ruleId}) RETURNING id`,
+  ], ruleId, actor, "special_workday_rule_deleted", "特殊上班日規則已納入薪資試算版本或已變更，不能刪除；請重新整理後再試。 ", {
+    allowEmptyMutationIndexes: new Set([0, 1, 2, 3, 4]),
     activity: { entityLabel: rule.name, summary: "特殊上班日規則刪除", payload: { ruleName: rule.name } },
   });
   return { id: ruleId, deleted: true };
@@ -435,6 +467,25 @@ export async function updateHrSpecialWorkdayAssignment(db: Database, assignmentI
     activity: { summary: "特殊上班日套用調整", payload: { ruleId: input.ruleId, employmentId: input.employmentId ?? null, workerId: input.workerId ?? null, workDate: input.workDate } },
   });
   return { id: assignmentId, ruleId: input.ruleId };
+}
+
+export async function deleteHrSpecialWorkdayAssignment(db: Database, assignmentId: string, actor: HrActor) {
+  const [existing] = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleName: hrSpecialWorkdayRules.name }).from(hrSpecialWorkdayAssignments)
+    .innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayAssignments.ruleId))
+    .where(eq(hrSpecialWorkdayAssignments.id, assignmentId)).limit(1);
+  if (!existing) throw new HrError(404, "找不到特殊上班日套用紀錄。 ");
+  const [protectedAssignment] = await db.select({ id: hrSpecialWorkdayAssignments.id }).from(hrSpecialWorkdayAssignments)
+    .where(and(eq(hrSpecialWorkdayAssignments.id, assignmentId), specialWorkdayPayrollReference(hrSpecialWorkdayAssignments.id))).limit(1);
+  if (protectedAssignment) throw new HrError(409, "特殊上班日套用已納入薪資試算版本，不能刪除；請改用編輯或停用規則。 ");
+  await writeHrMutation(db, sql`DELETE FROM hr_special_workday_assignments
+    WHERE id=${assignmentId} AND NOT ${specialWorkdayPayrollReference(assignmentId)} RETURNING id`, assignmentId, actor, "special_workday_assignment_deleted", "特殊上班日套用已納入薪資試算版本或已被其他人變更，不能刪除；請重新整理後再試。 ", {
+    activity: {
+      entityLabel: existing.ruleName,
+      summary: "特殊上班日套用刪除",
+      payload: { ruleId: existing.assignment.ruleId, employmentId: existing.assignment.employmentId, workerId: existing.assignment.workerId, workDate: existing.assignment.workDate },
+    },
+  });
+  return { id: assignmentId, deleted: true as const };
 }
 
 export async function listHrSpecialWorkdaysForPayroll(

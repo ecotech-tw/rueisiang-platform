@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { datesInRange, defaultActiveRuleId, effectiveSpecialWorkdayVersion, fromHoursText, nextOvertimeRule, parseFromHours, parseToHours, remapAllowanceQuantities, toHoursText, type OvertimeRuleDraft } from "./SpecialWorkdays.js";
+import { datesInRange, defaultActiveRuleId, effectiveSpecialWorkdayVersion, filterSpecialWorkdayAssignments, fromHoursText, nextOvertimeRule, parseFromHours, parseToHours, remapAllowanceQuantities, toHoursText, type OvertimeRuleDraft } from "./SpecialWorkdays.js";
 
 describe("特殊上班日加班級距的時數邊界", () => {
   it("把資料庫的第一個半小時索引顯示為 0.0 小時起算", () => {
@@ -54,5 +54,15 @@ describe("特殊上班日加班級距的時數邊界", () => {
     expect(effectiveSpecialWorkdayVersion(rule, "2026-06-01")?.id).toBe("version-2");
     expect(remapAllowanceQuantities(second, first, { "allowance-2": 3 })).toEqual([{ allowanceId: "allowance-1", quantity: 0 }]);
     expect(remapAllowanceQuantities(first, second, { "allowance-1": 2 })).toEqual([{ allowanceId: "allowance-2", quantity: 0 }]);
+  });
+
+  it("日期套用紀錄可以依搜尋、日期與薪資狀態篩選", () => {
+    const rows = [
+      { assignment: { id: "assignment-1", ruleId: "rule-1", employmentId: "employment-1", workerId: null, workDate: "2026-04-01", allowanceSnapshotJson: "[]", allowanceQuantity: 0, appliedAt: "2026-03-01" }, ruleName: "清明特殊日", includedInPayroll: false, currentVersionNumber: 1, currentVersionVoidedAt: null, currentWageKind: "multiplier" as const, employeeNumber: "E-001", employeeName: "王小明", workerName: null },
+      { assignment: { id: "assignment-2", ruleId: "rule-2", employmentId: "employment-2", workerId: null, workDate: "2026-04-02", allowanceSnapshotJson: "[]", allowanceQuantity: 0, appliedAt: "2026-03-01" }, ruleName: "勞動節特殊日", includedInPayroll: true, currentVersionNumber: 1, currentVersionVoidedAt: null, currentWageKind: "fixed_hourly" as const, employeeNumber: "E-002", employeeName: "李小華", workerName: null },
+    ];
+    expect(filterSpecialWorkdayAssignments(rows, { search: "王小明", startDate: "", endDate: "", payrollStatus: "all" }).map((row) => row.assignment.id)).toEqual(["assignment-1"]);
+    expect(filterSpecialWorkdayAssignments(rows, { search: "", startDate: "2026-04-02", endDate: "2026-04-02", payrollStatus: "all" }).map((row) => row.assignment.id)).toEqual(["assignment-2"]);
+    expect(filterSpecialWorkdayAssignments(rows, { search: "", startDate: "", endDate: "", payrollStatus: "not_included" }).map((row) => row.assignment.id)).toEqual(["assignment-1"]);
   });
 });
