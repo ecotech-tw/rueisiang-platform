@@ -25,6 +25,9 @@ const DAY_SECONDS = 86_400;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const PERIOD_KEY = /^\d{4}-(0[1-9]|1[0-2])$/;
 
+export const HR_SCHEDULE_ATTENDANCE_STATUSES = ["scheduled", "present", "absent"] as const;
+export type HrScheduleAttendanceStatus = (typeof HR_SCHEDULE_ATTENDANCE_STATUSES)[number];
+
 export interface ScheduleEntryInput {
   personKind: "employee" | "worker";
   employmentId?: string;
@@ -32,7 +35,19 @@ export interface ScheduleEntryInput {
   scopeId: string;
   shiftVersionId: string;
   workDate: string;
+  /** scheduled=尚未確認；present=有效出勤；absent=未出勤，不取得班別薪資單位。 */
+  attendanceStatus?: HrScheduleAttendanceStatus;
 }
+
+type EnrichedScheduleEntry = ScheduleEntryInput & {
+  startsAt: string;
+  endsAt: string;
+  standardMinutes: number;
+  breakMinutes: number;
+  shiftTemplateId: string;
+  requiredHeadcount: number;
+  attendanceStatus: HrScheduleAttendanceStatus;
+};
 
 export interface SaveHrScheduleInput {
   periodKey: string;
@@ -132,9 +147,20 @@ function compileStatements(statements: SQL[]) {
   return statements.map((statement) => dialect.sqlToQuery(statement));
 }
 
-async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: Array<ScheduleEntryInput & { startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number }>, actor: HrActor) {
+async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor) {
   const nextRevision = version.revision + 1;
   const guard = sql`EXISTS (SELECT 1 FROM hr_schedule_versions WHERE id=${version.id} AND revision=${nextRevision} AND locked_at IS NULL)`;
+  // 同一據點／日期／班別是一個薪資單位；多人只是在這個群組底下增加指派人員。
+  // group id 不直接暴露給輸入端，由發布動作一次建立，避免前端偽造跨月或跨班別的群組。
+  const groupIds = new Map<string, string>();
+  const groupIdFor = (entry: EnrichedScheduleEntry) => {
+    const key = `${entry.scopeId}:${entry.shiftVersionId}:${entry.workDate}`;
+    const existing = groupIds.get(key);
+    if (existing) return existing;
+    const id = crypto.randomUUID();
+    groupIds.set(key, id);
+    return id;
+  };
   const statements = [
     sql`UPDATE hr_schedule_versions SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${version.id} AND revision=${version.revision} AND locked_at IS NULL RETURNING id`,
     // 已封存員工的排班是歷史快照；只替換仍可編輯的活動員工，避免儲存其他人時連帶刪除歷史。
@@ -143,11 +169,14 @@ async function saveEntriesAtomically(db: Database, version: { id: string; revisi
         AND EXISTS (SELECT 1 FROM hr_employments AS employment WHERE employment.id=hr_schedule_entries.employment_id AND employment.archived_at IS NULL)
         AND ${guard}`,
     sql`DELETE FROM hr_schedule_worker_entries WHERE schedule_version_id=${version.id} AND ${guard}`,
-    ...entries.map((entry) => entry.personKind === "employee"
-      ? sql`INSERT INTO hr_schedule_entries (id, schedule_version_id, employment_id, scope_id, shift_version_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, created_by)
-          SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.employmentId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${entry.standardMinutes}, ${entry.breakMinutes}, ${actor.id} WHERE ${guard}`
-      : sql`INSERT INTO hr_schedule_worker_entries (id, schedule_version_id, worker_id, scope_id, shift_version_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, created_by)
-          SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.workerId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${entry.standardMinutes}, ${entry.breakMinutes}, ${actor.id} WHERE ${guard}`),
+    ...entries.map((entry) => {
+      const shiftGroupId = groupIdFor(entry);
+      return entry.personKind === "employee"
+        ? sql`INSERT INTO hr_schedule_entries (id, schedule_version_id, employment_id, scope_id, shift_version_id, shift_group_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, required_headcount, attendance_status, created_by)
+            SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.employmentId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${shiftGroupId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${entry.standardMinutes}, ${entry.breakMinutes}, ${entry.requiredHeadcount}, ${entry.attendanceStatus}, ${actor.id} WHERE ${guard}`
+        : sql`INSERT INTO hr_schedule_worker_entries (id, schedule_version_id, worker_id, scope_id, shift_version_id, shift_group_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, required_headcount, attendance_status, created_by)
+            SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.workerId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${shiftGroupId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${entry.standardMinutes}, ${entry.breakMinutes}, ${entry.requiredHeadcount}, ${entry.attendanceStatus}, ${actor.id} WHERE ${guard}`;
+    }),
     (() => {
       const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: "schedule_saved", summary: "排班已發布", actor });
       return sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
@@ -175,6 +204,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     endDayOffset: hrShiftVersions.endDayOffset,
     standardMinutes: hrShiftVersions.standardMinutes,
     breakMinutes: hrShiftVersions.breakMinutes,
+    requiredHeadcount: hrShiftTemplates.requiredHeadcount,
   }).from(hrScopeShiftAssignments)
     .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrScopeShiftAssignments.shiftTemplateId))
     .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
@@ -188,10 +218,12 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
   const attendanceSettingMap = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting]));
   const workers = await db.select({ id: hrScheduleWorkers.id, active: hrScheduleWorkers.active }).from(hrScheduleWorkers);
   const workerMap = new Map(workers.map((worker) => [worker.id, worker]));
-  const enriched: Array<ScheduleEntryInput & { startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number }> = [];
+  const enriched: EnrichedScheduleEntry[] = [];
   const occupied = new Map<string, Array<{ start: number; end: number }>>();
   for (const entry of entries) {
     if (!datePeriodContains(entry.workDate, period)) throw new HrError(400, "排班日期必須位於指定月份。 ");
+    const attendanceStatus = entry.attendanceStatus ?? "scheduled";
+    if (!HR_SCHEDULE_ATTENDANCE_STATUSES.includes(attendanceStatus)) throw new HrError(400, "排班出勤狀態不正確。 ");
     if (!scopeIds.has(entry.scopeId)) throw new HrError(404, "找不到有效的營運據點。 ");
     const shift = shiftMap.get(`${entry.shiftVersionId}:${entry.scopeId}`);
     if (!shift || shift.scopeId !== entry.scopeId) throw new HrError(400, "班別未設定在這個營運據點。 ");
@@ -214,7 +246,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     if (personIntervals.some((current) => interval.start < current.end && current.start < interval.end)) throw new HrError(409, "同一人員的排班時段重疊。 ");
     personIntervals.push(interval);
     occupied.set(personId, personIntervals);
-    enriched.push({ ...entry, startsAt, endsAt, standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes });
+    enriched.push({ ...entry, startsAt, endsAt, standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes, shiftTemplateId: shift.templateId, requiredHeadcount: shift.requiredHeadcount, attendanceStatus });
   }
   const workDatesByEmployment = new Map<string, Set<string>>();
   for (const entry of enriched) if (entry.personKind === "employee" && entry.employmentId) {
@@ -257,6 +289,7 @@ function listHrScopeShiftRows(db: Database) {
       endDayOffset: hrShiftVersions.endDayOffset,
       standardMinutes: hrShiftVersions.standardMinutes,
       breakMinutes: hrShiftVersions.breakMinutes,
+      requiredHeadcount: hrShiftTemplates.requiredHeadcount,
     }).from(hrScopeShiftAssignments)
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrScopeShiftAssignments.shiftTemplateId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
@@ -356,6 +389,8 @@ export interface HrShiftInput {
   scopeId: string;
   name: string;
   times: HrShiftTime[];
+  /** 只作排班人力提示；每個班別的薪資基準單位固定為 1。 */
+  requiredHeadcount?: number;
 }
 
 function assertSameDayShift(input: { startSecond: number; endSecond: number; standardMinutes: number; breakMinutes: number }) {
@@ -381,6 +416,12 @@ function assertShiftTimes(times: HrShiftTime[]) {
   if (!seen.has("weekday")) throw new HrError(400, "班別一定要有平日時間，其他日型沒設定時會沿用它。 ");
 }
 
+function assertRequiredHeadcount(value: number | undefined) {
+  const requiredHeadcount = value ?? 1;
+  if (!Number.isSafeInteger(requiredHeadcount) || requiredHeadcount < 1 || requiredHeadcount > 100) throw new HrError(400, "班別需求人力必須是 1～100 的整數。 ");
+  return requiredHeadcount;
+}
+
 function insertShiftVersion(versionId: string, templateId: string, time: HrShiftTime, versionNumber: number, actorId: string) {
   return sql`INSERT INTO hr_shift_versions (id, shift_template_id, day_type, version_number, start_second, end_second, end_day_offset, standard_minutes, break_minutes, pay_factor_ppm, created_by)
     VALUES (${versionId}, ${templateId}, ${time.dayType}, ${versionNumber}, ${time.startSecond}, ${time.endSecond}, 0, ${time.standardMinutes}, ${time.breakMinutes}, 1000000, ${actorId})`;
@@ -388,15 +429,16 @@ function insertShiftVersion(versionId: string, templateId: string, time: HrShift
 
 export async function createHrShift(db: Database, input: HrShiftInput, actor: HrActor) {
   assertShiftTimes(input.times);
+  const requiredHeadcount = assertRequiredHeadcount(input.requiredHeadcount);
   const [scope] = await db.select({ id: scopes.id }).from(scopes).where(and(eq(scopes.id, input.scopeId), eq(scopes.scopeKind, "store"), eq(scopes.active, 1))).limit(1);
   if (!scope) throw new HrError(404, "找不到有效的營運據點。 ");
   const templateId = crypto.randomUUID();
   const versionIds = new Map(input.times.map((time) => [time.dayType, crypto.randomUUID()]));
   const assignmentId = `${input.scopeId}:${templateId}`;
   const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
-  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_created", summary: "班別已建立", actor, payload: { name: input.name.trim(), dayTypes: input.times.map((time) => time.dayType) } });
+  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_created", summary: "班別已建立", actor, payload: { name: input.name.trim(), requiredHeadcount, dayTypes: input.times.map((time) => time.dayType) } });
   const statements = [
-    sql`INSERT INTO hr_shift_templates (id, code, name, active, created_by) VALUES (${templateId}, ${templateId}, ${input.name.trim()}, 1, ${actor.id}) RETURNING id`,
+    sql`INSERT INTO hr_shift_templates (id, code, name, active, required_headcount, created_by) VALUES (${templateId}, ${templateId}, ${input.name.trim()}, 1, ${requiredHeadcount}, ${actor.id}) RETURNING id`,
     ...input.times.map((time) => insertShiftVersion(versionIds.get(time.dayType)!, templateId, time, 1, actor.id)),
     sql`INSERT INTO hr_scope_shift_assignments (scope_id, shift_template_id, is_default, created_by) VALUES (${input.scopeId}, ${templateId}, 0, ${actor.id}) RETURNING scope_id AS id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson})`,
@@ -428,6 +470,8 @@ async function assertShiftOwnedByScope(db: Database, templateId: string, scopeId
 export async function updateHrShift(db: Database, templateId: string, input: HrShiftInput & { revision: number }, actor: HrActor) {
   assertShiftTimes(input.times);
   await assertShiftOwnedByScope(db, templateId, input.scopeId, "修改");
+  const [template] = await db.select({ requiredHeadcount: hrShiftTemplates.requiredHeadcount }).from(hrShiftTemplates).where(eq(hrShiftTemplates.id, templateId)).limit(1);
+  const requiredHeadcount = assertRequiredHeadcount(input.requiredHeadcount ?? template?.requiredHeadcount);
   const existing = await db.select({ id: hrShiftVersions.id, dayType: hrShiftVersions.dayType, versionNumber: hrShiftVersions.versionNumber })
     .from(hrShiftVersions).where(eq(hrShiftVersions.shiftTemplateId, templateId)).orderBy(desc(hrShiftVersions.versionNumber));
   if (!existing.length) throw new HrError(404, "找不到班別的時間設定。 ");
@@ -435,7 +479,7 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
   for (const version of existing) if (!latestByDayType.has(version.dayType)) latestByDayType.set(version.dayType, version);
   const wanted = new Set(input.times.map((time) => time.dayType));
   const removed = [...latestByDayType.entries()].filter(([dayType]) => !wanted.has(dayType));
-  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), times: input.times } });
+  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), requiredHeadcount, times: input.times } });
   /*
    * 只有第一句真的改到一列，後面才動時間與寫紀錄；用 changes() 而不是再查一次 revision。
    * 用「revision = 舊值 + 1」判斷會被併發騙過：別人先改成 2 之後，拿著舊值 1 的請求
@@ -446,7 +490,7 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
    * 否則從那一句之後的守衛全部失效。
    */
   const statements = [
-    sql`UPDATE hr_shift_templates SET name=${input.name.trim()}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${templateId} AND revision=${input.revision} RETURNING id`,
+    sql`UPDATE hr_shift_templates SET name=${input.name.trim()}, required_headcount=${requiredHeadcount}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${templateId} AND revision=${input.revision} RETURNING id`,
     ...input.times.map((time) => {
       const current = latestByDayType.get(time.dayType);
       return current

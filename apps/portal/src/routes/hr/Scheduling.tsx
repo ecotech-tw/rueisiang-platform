@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
-import { groupShiftsByTemplate, isDefaultHrCalendarSpecialName, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
+import { groupShiftsByTemplate, isDefaultHrCalendarSpecialName, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, SCHEDULE_ATTENDANCE_STATUS_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleAttendanceStatus, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { GuardedNavLink, useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 import { CalendarScopePicker } from "./Calendar.js";
@@ -50,7 +50,7 @@ function makeEntry(data: HrScheduleResponse, pick: QuickPick, workDate: string, 
   return {
     id: `local-${crypto.randomUUID()}`, scheduleVersionId: data.version?.id ?? "", personKind: pick.personKind,
     employmentId: pick.personKind === "employee" ? pick.personId : null, workerId: pick.personKind === "worker" ? pick.personId : null,
-    scopeId: pick.scopeId, shiftVersionId: shift.versionId, workDate, startsAt: "", endsAt: "", standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes,
+    scopeId: pick.scopeId, shiftVersionId: shift.versionId, shiftGroupId: null, workDate, startsAt: "", endsAt: "", standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes, requiredHeadcount: shift.requiredHeadcount, attendanceStatus: "scheduled",
     employeeNumber: pick.personKind === "employee" ? employee?.employeeNumber ?? null : null,
     personName: pick.personKind === "employee" ? employee?.name ?? "" : worker?.name ?? "",
     archivedAt: null,
@@ -79,7 +79,12 @@ function samePick(entry: ScheduleEntry, pick: QuickPick, templateOf: (versionId:
  * 永遠不相等，那樣「有沒有變更」會一直是 true，儲存鈕永遠亮著。
  */
 function entrySignature(entry: ScheduleEntry) {
-  return [entry.personKind, entry.employmentId ?? "", entry.workerId ?? "", entry.scopeId, entry.shiftVersionId, entry.workDate].join("|");
+  return [entry.personKind, entry.employmentId ?? "", entry.workerId ?? "", entry.scopeId, entry.shiftVersionId, entry.workDate, entry.attendanceStatus].join("|");
+}
+
+/** 舊排班沒有群組快照時，以同一據點／班別／日期回退，讓歷史多人排班也能正確分配。 */
+function scheduleGroupKey(entry: Pick<ScheduleEntry, "shiftGroupId" | "scopeId" | "shiftVersionId" | "workDate">) {
+  return entry.shiftGroupId ? `${entry.shiftGroupId}:${entry.workDate}` : `${entry.scopeId}:${entry.shiftVersionId}:${entry.workDate}`;
 }
 /**
  * 草稿跟已發布差在哪。狀態列要講「按下儲存會發生什麼事」，只說「有變更」等於沒說。
@@ -234,6 +239,18 @@ export function HrScheduling() {
   const templateOf = (versionId: string) => templateByVersion.get(versionId);
   const dates = Array.from({ length: daysInMonth(month) }, (_, index) => dateAt(month, index + 1));
   const entriesOn = (day: string) => visibleEntries.filter((entry) => entry.workDate === day);
+  const groupStats = useMemo(() => {
+    const stats = new Map<string, { assigned: number; required: number }>();
+    for (const entry of visibleEntries) {
+      if (entry.archivedAt) continue;
+      const key = scheduleGroupKey(entry);
+      const current = stats.get(key) ?? { assigned: 0, required: entry.requiredHeadcount };
+      current.assigned += 1;
+      current.required = entry.requiredHeadcount;
+      stats.set(key, current);
+    }
+    return stats;
+  }, [visibleEntries]);
   /*
    * 差異與「未儲存」的註冊都要在下面那幾個 early return 之前算完。
    *
@@ -325,7 +342,7 @@ export function HrScheduling() {
   const today = taipeiToday();
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="正式員工依排班出勤；支援人員依敘薪方式按排班日期或計薪時數計薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.filter((entry) => !entry.archivedAt).map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人，共用固定 1 個薪資單位；請標記出勤狀態。正式員工依排班出勤；支援人員依敘薪方式按排班日期或計薪時數計薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.filter((entry) => !entry.archivedAt).map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate, attendanceStatus: entry.attendanceStatus })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
     {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
     <Panel className="grows hr-calendar-panel">
@@ -394,7 +411,16 @@ export function HrScheduling() {
             : <><strong>{index + 1}</strong>{canEdit ? <button type="button" className="hr-calendar-add-button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
           {typhoonForScope ? <span className="hr-calendar-holiday hr-calendar-typhoon">災防停班</span> : null}
           {calendarDay?.name && !(typhoonForScope && isDefaultHrCalendarSpecialName(calendarDay.name)) ? <span className="hr-calendar-holiday">{calendarDay.name}</span> : null}
-          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${entry.archivedAt ? " archived" : ""}${quick && !entry.archivedAt && samePick(entry, quick, templateOf) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit && !entry.archivedAt ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
+          <div className="hr-calendar-entries">{entriesOn(day).map((entry) => {
+            const group = groupStats.get(scheduleGroupKey(entry));
+            const statusLabel = SCHEDULE_ATTENDANCE_STATUS_LABELS[entry.attendanceStatus];
+            return <div className={`hr-calendar-entry ${entry.personKind}${entry.attendanceStatus === "absent" ? " absent" : ""}${entry.archivedAt ? " archived" : ""}${quick && !entry.archivedAt && samePick(entry, quick, templateOf) ? " current" : ""}`} key={entry.id}>
+              <span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span>
+              <small>{entry.shiftName} · {entry.scopeName} · 人力 {group?.assigned ?? 1}/{entry.requiredHeadcount}</small>
+              {canEdit && !entry.archivedAt ? <select className="hr-calendar-attendance-status" aria-label={`${entry.personName} ${entry.workDate} 出勤狀態`} value={entry.attendanceStatus} onClick={(event) => event.stopPropagation()} onChange={(event) => setDraftEntries((current) => current.map((candidate) => candidate.id === entry.id ? { ...candidate, attendanceStatus: event.target.value as ScheduleAttendanceStatus } : candidate))}>{Object.entries(SCHEDULE_ATTENDANCE_STATUS_LABELS).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select> : <small className="hr-calendar-attendance-readonly">{statusLabel}</small>}
+              {canEdit && !entry.archivedAt ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}
+            </div>;
+          })}</div>
         </div>;
         })}
       </div>

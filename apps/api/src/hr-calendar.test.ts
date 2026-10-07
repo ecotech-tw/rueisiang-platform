@@ -26,7 +26,7 @@ async function createShift(name: string, times: Array<{ dayType: string; startTi
 }
 
 async function listShifts() {
-  return (await (await request("/hr/shift-templates")).json() as { shifts: Array<{ templateId: string; versionId: string; name: string; dayType: string; startSecond: number; revision: number }> }).shifts;
+  return (await (await request("/hr/shift-templates")).json() as { shifts: Array<{ templateId: string; versionId: string; name: string; dayType: string; startSecond: number; revision: number; requiredHeadcount: number }> }).shifts;
 }
 
 beforeEach(async () => {
@@ -118,6 +118,18 @@ describe("HR 行事曆與班別日型", () => {
     // 三組時間是三個版本，但同屬一個班別：名稱只有一份。
     expect(new Set(shifts.map((shift) => shift.templateId)).size).toBe(1);
     expect(new Set(shifts.map((shift) => shift.name))).toEqual(new Set(["早班"]));
+  });
+
+  it("班別需求人力只作排班提示，限制 1～100 且修改時保留既有值", async () => {
+    const created = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "多人班", requiredHeadcount: 3, times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const createdBody = await created.json() as { id: string };
+    expect((await listShifts()).find((shift) => shift.templateId === createdBody.id)).toMatchObject({ requiredHeadcount: 3 });
+    const invalid = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "錯誤人力", requiredHeadcount: 101, times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
+    expect(invalid.status).toBe(400);
+    const updated = await request(`/hr/shift-templates/${createdBody.id}`, "PATCH", { scopeId: "scope", name: "多人班更新", revision: 1, times: [{ dayType: "weekday", startTime: "10:00", endTime: "19:00" }] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect((await listShifts()).find((shift) => shift.templateId === createdBody.id)).toMatchObject({ name: "多人班更新", requiredHeadcount: 3 });
   });
 
   it("平日那組是必填的，因為其他日型沒設定時要沿用它", async () => {

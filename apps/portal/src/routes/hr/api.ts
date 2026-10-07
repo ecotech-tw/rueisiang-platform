@@ -196,7 +196,20 @@ export interface FormApproversResponse { approvers: FormApprover[]; defaultAppro
 export interface PayrollLineCalculationPart { formula: string; amountMinor: number }
 export interface PayrollLine { lineKey: string; direction: "earning" | "deduction"; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }
 export interface PayrollEmployee { employmentId: string; employeeUserId: string; employeeNumber: string; employeeName: string; lines: PayrollLine[]; earningMinor: number; deductionMinor: number; netMinor: number; attendanceDays: number; missingPunchDays: number }
-export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null }
+export interface PayrollScheduleAllocationDetail {
+  date: string;
+  shiftGroupId: string | null;
+  scopeId: string;
+  shiftVersionId: string;
+  requiredHeadcount: number;
+  assignedCount: number;
+  effectiveCount: number;
+  attendanceStatus: "scheduled" | "present" | "absent";
+  allocatedUnits: number;
+  unitNumerator: number;
+  unitDenominator: number;
+}
+export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails?: PayrollScheduleAllocationDetail[] }
 export interface PayrollWorkerCandidate { id: string; displayName: string }
 export interface PayrollRun { runId: string; runName: string; periodKey: string; payDate: string | null; status: "ready" | "closed"; engineVersion: string; withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
 export type BonusKind = "team_performance" | "individual_performance";
@@ -305,7 +318,7 @@ export function isDefaultHrCalendarSpecialName(name: string) {
   return normalized === "災防停班" || normalized === "颱風停班";
 }
 
-export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; dayType: HrDayType; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number }
+export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; dayType: HrDayType; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number; requiredHeadcount: number }
 export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShift[] }
 export interface HrCalendarDay { date: string; dayType: HrDayType; name: string; specialKind: HrCalendarSpecialKind; specialScopeIds: string[]; overridden: boolean }
 export interface HrCalendarResponse { days: HrCalendarDay[]; scopes: ScheduleScope[] }
@@ -336,7 +349,9 @@ export function shiftTimeRange(shift: Pick<ScheduleShift, "startSecond" | "endSe
 }
 export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null }
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
-export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; workDate: string; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; employeeNumber: string | null; personName: string; archivedAt: string | null; scopeName: string; shiftName: string }
+export type ScheduleAttendanceStatus = "scheduled" | "present" | "absent";
+export const SCHEDULE_ATTENDANCE_STATUS_LABELS: Record<ScheduleAttendanceStatus, string> = { scheduled: "待確認", present: "已出勤", absent: "未出勤" };
+export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; shiftGroupId: string | null; workDate: string; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; requiredHeadcount: number; attendanceStatus: ScheduleAttendanceStatus; employeeNumber: string | null; personName: string; archivedAt: string | null; scopeName: string; shiftName: string }
 export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; calendar: HrCalendarDay[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
 export type SupportWorkerPayBasis = "daily" | "hourly";
 export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | SupportWorkerPayBasis; baseAmountMinor: number; note: string }

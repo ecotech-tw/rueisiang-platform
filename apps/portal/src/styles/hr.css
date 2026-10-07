@@ -945,8 +945,21 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   box-shadow: 0 1px 0 --alpha(var(--color-paper) / 44%) inset;
 }
 .hr-system .hr-calendar-entry.worker { background: --alpha(var(--color-brand) / 13%); }
+.hr-system .hr-calendar-entry.absent { opacity: .62; }
 .hr-system .hr-calendar-entry span { color: var(--color-ink); font-weight: 800; }
 .hr-system .hr-calendar-entry small { color: var(--color-muted); }
+.hr-system .hr-calendar-attendance-status {
+  width: 100%;
+  margin-top: 5px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: --alpha(var(--color-paper) / 38%);
+  color: var(--color-muted);
+  font-size: 11px;
+}
+.hr-system .hr-calendar-attendance-status:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
+.hr-system .hr-calendar-attendance-readonly { display: block; margin-top: 3px; font-size: 11px; }
 .hr-system .hr-calendar-entry button {
   top: 5px;
   right: 5px;
