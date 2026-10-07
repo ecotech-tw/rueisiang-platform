@@ -58,18 +58,13 @@ function recordStatusTone(status: PayrollRecord["status"]): "success" | "warning
 function isPayrollJobActive(job: PayrollJob) {
   return job.status === "queued" || job.status === "calculating";
 }
-const PAYROLL_JOB_READY_VISIBLE_MS = 10 * 60 * 1000;
 // /payroll/jobs 固定回最近幾筆、不分狀態，照單全收的話面板會常駐。
-// 只從資料本身判斷，不記「這次掛載看過誰」：使用者常在試算途中點進明細頁再回來，
-// 記在元件 state 的話回來就什麼都不剩。
-export function visiblePayrollJobs(jobs: PayrollJob[], now: number): PayrollJob[] {
+// 面板只列還需要人等或處理的工作：算完的已經有 toast 通知、紀錄也在表格裡，留著只是重整後還賴在畫面上。
+export function visiblePayrollJobs(jobs: PayrollJob[]): PayrollJob[] {
   return jobs.filter((job) => {
     if (isPayrollJobActive(job)) return true;
+    if (job.status === "ready") return false;
     const finishedAt = job.completedAt ?? job.updatedAt;
-    if (job.status === "ready") {
-      const finishedMs = new Date(finishedAt.includes("T") ? finishedAt : `${finishedAt.replace(" ", "T")}Z`).getTime();
-      return now - finishedMs < PAYROLL_JOB_READY_VISIBLE_MS;
-    }
     // 失敗的要留到有人處理：同一個月份之後有試算成功，就不必再提醒。
     return !jobs.some((other) => other.status === "ready" && other.periodKey === job.periodKey && (other.completedAt ?? other.updatedAt) > finishedAt);
   });
@@ -237,8 +232,9 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   </Dialog>;
 }
 
-function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: PayrollJob[]; onOpen: (job: PayrollJob) => void; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
-  const [expanded, setExpanded] = useState(true);
+function PayrollJobProgress({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
+  // 預設收合：展開的面板會蓋住表格右下角的選取列，進度有 toast 通知，想看細節的人再點開。
+  const [expanded, setExpanded] = useState(false);
   if (!jobs.length) return null;
   return <section className={`hr-payroll-job-progress${expanded ? "" : " is-collapsed"}`} aria-label="薪資試算進度">
     <Button
@@ -247,19 +243,18 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
       className="hr-payroll-job-progress-toggle"
       aria-expanded={expanded}
       aria-controls="hr-payroll-job-list"
-      aria-label={expanded ? "收合薪資試算" : "展開薪資試算"}
+      aria-label={`${expanded ? "收合" : "展開"}薪資試算，${jobs.length} 筆`}
       onClick={() => setExpanded((current) => !current)}
     >
-      <strong>薪資試算</strong>
-      <span>{jobs.length} 筆</span>
       <span className={`hr-payroll-job-progress-chevron${expanded ? " is-expanded" : ""}`} aria-hidden="true">
-        <Icon name="chevronDown" className="hr-payroll-job-progress-chevron-down" />
-        <Icon name="chevronUp" className="hr-payroll-job-progress-chevron-up" />
+        <Icon name="chevronLeft" className="hr-payroll-job-progress-chevron-open" />
+        <Icon name="chevronRight" className="hr-payroll-job-progress-chevron-close" />
       </span>
+      <strong>薪資試算</strong>
+      <span className="hr-payroll-job-progress-count">{jobs.length}</span>
     </Button>
-    <div className={`hr-payroll-job-list ${expanded ? "is-expanded" : "is-collapsed"}`} id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
-      <div className="hr-payroll-job-list-inner">
-        {jobs.map((job) => {
+    <div className="hr-payroll-job-list" id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
+      {jobs.map((job) => {
         const hasProgress = job.progressPercent !== null;
         // 準備或派送階段就失敗的工作沒有人數可算，畫 indeterminate 進度條會像還在跑。
         const failedBeforeProgress = job.status === "failed" && !hasProgress;
@@ -275,11 +270,10 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
             {job.status === "failed"
               ? <span className="hr-payroll-job-error">{job.error ?? "試算沒有完成，請重新試算。"}</span>
               : <span>{job.expectedCount > 0 ? `${job.completedCount.toLocaleString("zh-TW")} / ${job.expectedCount.toLocaleString("zh-TW")} 人` : "正在準備試算資料…"}</span>}
-            {job.status === "failed" ? (canRetry ? <Button variant="secondary" icon="sync" className="hr-action-info" onClick={() => onRetry(job)}>重新試算</Button> : null) : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : job.status === "ready" && job.runId ? <Button variant="secondary" icon="eye" className="hr-action-info" onClick={() => onOpen(job)}>查看紀錄</Button> : null}
+            {job.status === "failed" ? (canRetry ? <Button variant="secondary" icon="sync" className="hr-action-info" onClick={() => onRetry(job)}>重新試算</Button> : null) : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : null}
           </div>
         </article>;
-        })}
-      </div>
+      })}
     </div>
   </section>;
 }
@@ -365,13 +359,13 @@ export function HrPayrollSettlement() {
     retryPayroll.mutate({ path: `/payroll/jobs/${encodeURIComponent(job.jobId)}/retry`, method: "POST", values: {} }, { onSuccess: ({ job: retriedJob }) => { observedJobStatuses.current.set(retriedJob.jobId, retriedJob.status); toast.show(`${retriedJob.runName}已重新加入薪資試算。`, "info"); setPollPayrollJobs(true); void payrollJobs.refetch(); } });
   }
 
-  const payrollJobList = visiblePayrollJobs(payrollJobs.data?.jobs ?? [], Date.now());
+  const payrollJobList = visiblePayrollJobs(payrollJobs.data?.jobs ?? []);
 
   return <div className="page fills hr-payroll-page">
     <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={canCalculate ? <Button className="add-action" icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     {payrollJobs.error ? <Alert tone="danger">薪資試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
-    <PayrollJobProgress jobs={payrollJobList} onOpen={(job) => { if (job.periodKey) updateRecordFilters({ periodKey: job.periodKey, search: "", status: "all", personKind: "all", payBasis: "all" }); }} onRetry={retryJob} canRetry={canCalculate} />
+    <PayrollJobProgress jobs={payrollJobList} onRetry={retryJob} canRetry={canCalculate} />
 
     <Panel className="grows hr-payroll-records-panel">
       <FilterToolbar className="hr-payroll-record-filter">
