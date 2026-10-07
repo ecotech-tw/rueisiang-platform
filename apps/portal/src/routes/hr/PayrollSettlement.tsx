@@ -227,6 +227,25 @@ function PayrollJobProgress({ jobs }: { jobs: PayrollJob[] }) {
   </div>;
 }
 
+function PayrollJobRecovery({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
+  const failedJobs = jobs.filter((job) => job.status === "failed");
+  if (!failedJobs.length) return null;
+  return <Alert tone="danger" className="hr-payroll-job-recovery">
+    <div className="hr-payroll-job-recovery-content">
+      <strong>薪資試算失敗，請重新試算。</strong>
+      <div className="hr-payroll-job-recovery-list">
+        {failedJobs.map((job) => <div className="hr-payroll-job-recovery-item" key={job.jobId}>
+          <div className="hr-payroll-job-recovery-copy">
+            <strong>{job.runName}</strong>
+            <small>{payrollPeriodLabel(job.periodKey)}{job.error ? `・${job.error}` : ""}</small>
+          </div>
+          {canRetry ? <Button variant="secondary" icon="sync" onClick={() => onRetry(job)}>重新試算</Button> : null}
+        </div>)}
+      </div>
+    </div>
+  </Alert>;
+}
+
 export function HrPayrollSettlement() {
   usePageTitle("薪資結算");
   const { permissions, user } = useSession();
@@ -319,6 +338,7 @@ export function HrPayrollSettlement() {
     <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={payrollPageActions} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     {payrollJobs.error ? <Alert tone="danger">背景試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
+    <PayrollJobRecovery jobs={payrollJobList} onRetry={retryJob} canRetry={canCalculate} />
 
     <Panel className="grows hr-payroll-records-panel">
       <FilterToolbar className="hr-payroll-record-filter">
