@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { datesInRange, defaultActiveRuleId, fromHoursText, nextOvertimeRule, parseFromHours, parseToHours, toHoursText, type OvertimeRuleDraft } from "./SpecialWorkdays.js";
+import { datesInRange, defaultActiveRuleId, effectiveSpecialWorkdayVersion, fromHoursText, nextOvertimeRule, parseFromHours, parseToHours, remapAllowanceQuantities, toHoursText, type OvertimeRuleDraft } from "./SpecialWorkdays.js";
 
 describe("特殊上班日加班級距的時數邊界", () => {
   it("把資料庫的第一個半小時索引顯示為 0.0 小時起算", () => {
@@ -38,5 +38,21 @@ describe("特殊上班日加班級距的時數邊界", () => {
   it("日期區間包含開始日與結束日", () => {
     expect(datesInRange("2026-02-27", "2026-03-01")).toEqual(["2026-02-27", "2026-02-28", "2026-03-01"]);
     expect(datesInRange("2026-03-01", "2026-02-27")).toEqual([]);
+  });
+
+  it("跨規則版本的套用日期各自使用有效版本與補貼 ID", () => {
+    const version = (id: string, versionNumber: number, validFrom: string, validTo: string | null, allowanceId: string, itemName: string) => ({
+      id, ruleId: "rule-1", versionNumber, validFrom, validTo,
+      wageKind: "fixed_hourly" as const, fixedAmountMinor: 100, multiplierPpm: null,
+      workSource: "hourly" as const, note: "", voidedAt: null, voidedBy: null,
+      allowances: [{ id: allowanceId, ruleVersionId: id, itemName, unitAmountMinor: 100 }], overtimeRules: [],
+    });
+    const first = version("version-1", 1, "2026-01-01", "2026-06-01", "allowance-1", "餐費");
+    const second = version("version-2", 2, "2026-06-01", null, "allowance-2", "交通補貼");
+    const rule = { rule: { id: "rule-1", name: "特殊日", active: 1, revision: 1 }, versions: [first, second] };
+    expect(effectiveSpecialWorkdayVersion(rule, "2026-05-31")?.id).toBe("version-1");
+    expect(effectiveSpecialWorkdayVersion(rule, "2026-06-01")?.id).toBe("version-2");
+    expect(remapAllowanceQuantities(second, first, { "allowance-2": 3 })).toEqual([{ allowanceId: "allowance-1", quantity: 0 }]);
+    expect(remapAllowanceQuantities(first, second, { "allowance-1": 2 })).toEqual([{ allowanceId: "allowance-2", quantity: 0 }]);
   });
 });

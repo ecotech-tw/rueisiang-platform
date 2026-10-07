@@ -1010,6 +1010,23 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await records.json() as { records: Array<{ personKind: string; personId: string; personName: string; payBasis: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ personKind: "worker", personId: workerId, personName: "測試支援人員", payBasis: "daily" })]));
   });
 
+  it("支援人員沒有排班時，特殊上班日月／日薪仍可計入薪資", async () => {
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "無排班特殊日支援人員" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const workerId = (await worker.json() as { id: string }).id;
+    const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 320_000, note: "無排班特殊日測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const rule = await request("/hr/special-workdays/rules", "POST", { name: "無排班特殊日倍率", validFrom: "2026-09-01", wageKind: "multiplier", multiplierPpm: 1_500_000, overtimeRules: [], allowances: [] });
+    expect(rule.status, await rule.clone().text()).toBe(201);
+    const ruleId = (await rule.json() as { id: string }).id;
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ workerId, workDate: "2026-09-03", allowanceQuantities: [] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-special-no-schedule-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; workerName: string; payBasis: string; scheduledDays: number; amountMinor: number }> } };
+    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "無排班特殊日支援人員", payBasis: "daily", scheduledDays: 1, amountMinor: 480_000 })]));
+  });
+
   it("薪資結算可只選指定的支援人員，並保存支援人員選取範圍", async () => {
     const firstWorkerResponse = await request("/hr/schedule-workers", "POST", { displayName: "指定支援人員甲" });
     const secondWorkerResponse = await request("/hr/schedule-workers", "POST", { displayName: "未指定支援人員乙" });
@@ -1162,6 +1179,30 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect.objectContaining({ lineKey: "salary_item_1", amountMinor: 300_000, explanation: expect.objectContaining({ itemName: "職務津貼", amountBasis: "monthly" }) }),
     ]));
     expect(body.run.warnings.some((warning) => warning.includes("日薪制但本期沒有已發布排班"))).toBe(false);
+  });
+
+  it("特殊上班日薪資依套用日期選擇有效版本", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "特殊日依日期選版測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+    const rule = await request("/hr/special-workdays/rules", "POST", { name: "特殊日依日期選版", validFrom: "2026-09-01", wageKind: "multiplier", multiplierPpm: 1_000_000, overtimeRules: [], allowances: [] });
+    expect(rule.status, await rule.clone().text()).toBe(201);
+    const ruleBody = await rule.json() as { id: string };
+    const beforeVersion = await request("/hr/special-workdays/assignments", "POST", { ruleId: ruleBody.id, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-10", allowanceQuantities: [] }] });
+    expect(beforeVersion.status, await beforeVersion.clone().text()).toBe(201);
+    const updated = await request(`/hr/special-workdays/rules/${ruleBody.id}/versions`, "POST", { name: "特殊日依日期選版", validFrom: "2026-09-15", wageKind: "multiplier", multiplierPpm: 2_000_000, overtimeRules: [], allowances: [] });
+    expect(updated.status, await updated.clone().text()).toBe(201);
+    const afterVersion = await request("/hr/special-workdays/assignments", "POST", { ruleId: ruleBody.id, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-20", allowanceQuantities: [] }] });
+    expect(afterVersion.status, await afterVersion.clone().text()).toBe(201);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-date-version-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: { calculationParts?: Array<{ formula: string }> } }> }> } };
+    const employee = body.run.employees[0]!;
+    expect(employee.earningMinor).toBe(3_100_000);
+    expect(employee.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "special_workday", amountMinor: 100_000, explanation: expect.objectContaining({ calculationParts: expect.arrayContaining([expect.objectContaining({ formula: expect.stringContaining("2026-09-10") }), expect.objectContaining({ formula: expect.stringContaining("2026-09-20") })]) }) }),
+    ]));
   });
 
   it("特殊上班日月薪／日薪倍率不要求月度工時，且結算使用目前規則", async () => {
