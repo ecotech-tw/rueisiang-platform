@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { DateRangePicker } from "../shell/DateRangePicker.js";
 import { Switch } from "../shell/Switch.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
@@ -50,6 +50,84 @@ const DROPDOWN_OPTIONS = [
   { label: "出金表", value: "payout" },
   { label: "庫存清單", value: "inventory" },
 ];
+
+const LIQUID_GLASS_NAV: ReadonlyArray<{ label: string; icon: IconName }> = [
+  { label: "儀表板", icon: "analytics" },
+  { label: "出勤", icon: "calendar" },
+  { label: "薪資", icon: "payments" },
+];
+
+function LiquidGlassPreview() {
+  const [activeNav, setActiveNav] = useState("出勤");
+  const activeIndex = Math.max(0, LIQUID_GLASS_NAV.findIndex((item) => item.label === activeNav));
+  const navStyle = {
+    "--hr-thumb-x": `${6 + activeIndex * 96}px`,
+    "--hr-thumb-w": "84px",
+  } as CSSProperties;
+
+  return (
+    <div className="style-guide-liquid-preview">
+      <div className="hr-module hr-system style-guide-liquid-system">
+        <svg className="hr-liquid-defs" aria-hidden="true" focusable="false">
+          <filter id="hr-liquid-glass-soft" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="2" seed="7" result="noise" />
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+          <filter id="hr-liquid-glass-menu" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
+            <feTurbulence type="fractalNoise" baseFrequency="0.014 0.02" numOctaves="2" seed="11" result="noise" />
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="7" xChannelSelector="R" yChannelSelector="G" />
+          </filter>
+        </svg>
+        <header className="hr-system-header">
+          <div className="hr-system-brand">
+            <img src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={150} height={38} />
+            <span>HRIS</span>
+            <strong>元件展示</strong>
+          </div>
+          <nav className="hr-system-nav style-guide-liquid-nav" aria-label="Liquid Glass 範例導覽" style={navStyle}>
+            <span className="hr-system-nav-thumb" aria-hidden="true" />
+            {LIQUID_GLASS_NAV.map((item) => {
+              const active = item.label === activeNav;
+              return (
+                <div className={`hr-system-nav-item${active ? " active" : ""}`} key={item.label}>
+                  <button type="button" className="hr-system-nav-link" aria-current={active ? "page" : undefined} onClick={() => setActiveNav(item.label)}>
+                    <Icon name={item.icon} />
+                    <span>{item.label}</span>
+                  </button>
+                </div>
+              );
+            })}
+          </nav>
+          <div className="hr-user-menu">
+            <button type="button" className="hr-user-trigger" aria-label="Liquid Glass 帳號選單範例">
+              <span className="account-avatar"><span className="account-avatar-initial">R</span></span>
+            </button>
+          </div>
+        </header>
+        <div className="hr-system-main style-guide-liquid-main">
+          <div className="style-guide-liquid-content">
+            <div className="style-guide-liquid-copy">
+              <span className="style-guide-eyebrow">HRIS SHELL / LIQUID GLASS</span>
+              <h3>透明、分層，但不犧牲可讀性</h3>
+              <p className="muted">這裡直接重用 HRIS shell 的玻璃導覽、滑動 thumb 與 panel surface；按導覽項目可查看膠囊位置變化。</p>
+            </div>
+            <Panel title="共用元件放在玻璃表面上" description="Liquid Glass 是 HRIS shell 的 surface treatment；元件本身仍維持 packages/ui 的語意 API。">
+              <div className="style-guide-liquid-metrics">
+                <div><span>玻璃層級</span><strong>3 層</strong></div>
+                <div><span>背景模糊</span><strong>7px</strong></div>
+                <div><span>選取狀態</span><strong>{activeNav}</strong></div>
+              </div>
+              <div className="style-guide-row">
+                <Button icon="check">共用按鈕</Button>
+                <StatusBadge tone="info">Glass surface</StatusBadge>
+              </div>
+            </Panel>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function StyleGuide() {
   usePageTitle("UI 元件樣式指南");
@@ -121,6 +199,10 @@ export function StyleGuide() {
             </div>
           ))}
         </div>
+      </Panel>
+
+      <Panel title="HRIS Liquid Glass shell" description="沿用 /hr 的透明表面、模糊、柔和高光與滑動選取膠囊；這是 shell/domain modifier，不會改寫 packages/ui primitive。">
+        <LiquidGlassPreview />
       </Panel>
 
       <Panel title="字體與表面">

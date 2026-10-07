@@ -13,6 +13,8 @@ describe("StyleGuide", () => {
 
     for (const contract of [
       "HRIS 共用元件索引",
+      "HRIS Liquid Glass shell",
+      "style-guide-liquid-preview",
       "預覽 ConfirmDialog",
       "搜尋與篩選",
       "資料表、排序、分頁與空狀態",
