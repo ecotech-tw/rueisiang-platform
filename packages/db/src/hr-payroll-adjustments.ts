@@ -27,9 +27,9 @@ async function ensureEditable(db: Database, employmentId: string, effectivePerio
   const [closed] = await db.select({ id: hrPayslips.id }).from(hrPayslips)
     .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId))
     .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
-    .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, effectivePeriodKey), eq(hrPayrollRuns.status, "closed"), sql`NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=${hrPayrollRuns.id})`)).limit(1);
+    .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, effectivePeriodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
   const [closedClaim] = await db.select({ employmentId: hrPayrollClosedEmployees.employmentId }).from(hrPayrollClosedEmployees)
-    .where(and(eq(hrPayrollClosedEmployees.periodKey, effectivePeriodKey), eq(hrPayrollClosedEmployees.employmentId, employmentId), sql`NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=${hrPayrollClosedEmployees.payrollRunId})`)).limit(1);
+    .where(and(eq(hrPayrollClosedEmployees.periodKey, effectivePeriodKey), eq(hrPayrollClosedEmployees.employmentId, employmentId))).limit(1);
   if (periodRow?.status === "closed" || closed || closedClaim) throw new HrError(409, "加扣項生效月份已結帳，請建立下一個月份的新加扣項。 ");
 }
 async function ensureEmployment(db: Database, employmentId: string) {

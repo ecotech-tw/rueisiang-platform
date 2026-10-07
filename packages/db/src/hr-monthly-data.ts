@@ -56,7 +56,7 @@ async function ensureOpenPeriod(db: Database, date: string, employmentId?: strin
   if (employmentId) {
     const [closed] = await db.select({ id: hrPayslips.id }).from(hrPayslips)
       .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId)).innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
-      .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, periodKey), eq(hrPayrollRuns.status, "closed"), sql`NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=${hrPayrollRuns.id})`)).limit(1);
+      .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, periodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
     if (closed) throw new HrError(409, "該員工本月份已結帳，不能直接修改月度資料，請使用薪資調整。 ");
   }
 }

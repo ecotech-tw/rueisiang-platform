@@ -183,7 +183,7 @@ export interface HrPayrollRunResult {
   runName: string;
   periodKey: string;
   payDate: string | null;
-  status: "ready" | "closed" | "withdrawn";
+  status: "ready" | "closed";
   engineVersion: string;
   withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null;
   employees: HrPayrollEmployeeResult[];
@@ -220,7 +220,7 @@ export interface HrPayrollEmployeeHistory {
 }
 
 export const HR_PAYROLL_RECORD_PAGE_SIZES = [10, 25, 50, 100] as const;
-export type HrPayrollRecordStatus = "all" | "unsettled" | "closed" | "withdrawn";
+export type HrPayrollRecordStatus = "all" | "unsettled" | "closed";
 export type HrPayrollRecordPersonKind = "all" | "employee" | "worker";
 export type HrPayrollRecordPayBasis = "all" | "monthly" | "daily" | "hourly" | "mixed";
 
@@ -246,7 +246,7 @@ export interface HrPayrollRecord {
   versionNumber: number;
   periodKey: string;
   payDate: string | null;
-  status: "unsettled" | "closed" | "withdrawn";
+  status: "unsettled" | "closed";
   earningMinor: number;
   deductionMinor: number;
   netMinor: number;
@@ -258,13 +258,12 @@ export interface HrPayrollRecordCounts {
   total: number;
   unsettled: number;
   closed: number;
-  withdrawn: number;
 }
 
 export type HrPayrollRecordRow = Omit<HrPayrollRecord, "runName" | "payBasis" | "status" | "closedAt"> & {
   runNameInput: string;
   payBasis: string | null;
-  recordStatus: "unsettled" | "closed" | "withdrawn";
+  recordStatus: "unsettled" | "closed";
   closedAt: string | null;
 };
 
@@ -729,7 +728,7 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
     runName: payrollRunNameFromInput(run.run.calculationInputJson, [...employees.map((employee) => employee.employeeName), ...workerResults.map((worker) => worker.workerName)]),
     periodKey: run.periodKey,
     payDate: run.run.payDate,
-    status: withdrawal ? "withdrawn" : run.run.status === "closed" ? "closed" : "ready",
+    status: run.run.status === "closed" ? "closed" : "ready",
     engineVersion: run.run.engineVersion,
     withdrawal: withdrawal ?? null,
     employees,
@@ -882,9 +881,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=payslip.payroll_run_id
     INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
     LEFT JOIN hr_payroll_closed_employees AS claim ON claim.period_key=payroll_period.period_key AND claim.employment_id=payslip.employment_id
-      AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS claim_withdrawal WHERE claim_withdrawal.payroll_run_id=claim.payroll_run_id)
     WHERE payroll_period.period_key=${period.periodKey}
-      AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS run_withdrawal WHERE run_withdrawal.payroll_run_id=payroll_run.id)
       AND (payroll_run.status='closed' OR claim.employment_id IS NOT NULL)
       AND payslip.employment_id IN (${jsonArrayValues(employees.map((employee) => employee.employmentId))})
   `) : [];
@@ -927,9 +924,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=worker_result.payroll_run_id
     INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
     LEFT JOIN hr_payroll_closed_workers AS claim ON claim.period_key=payroll_period.period_key AND claim.worker_id=worker_result.worker_id
-      AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS claim_withdrawal WHERE claim_withdrawal.payroll_run_id=claim.payroll_run_id)
     WHERE payroll_period.period_key=${period.periodKey}
-      AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS run_withdrawal WHERE run_withdrawal.payroll_run_id=payroll_run.id)
       AND (payroll_run.status='closed' OR claim.worker_id IS NOT NULL)
       AND worker_result.worker_id IN (${jsonArrayValues(selectedWorkerIds)})
   `) : [];
@@ -2260,7 +2255,7 @@ export async function listHrPayrollRuns(db: Database) {
         inputRevision: row.inputRevision,
         payDate: row.payDate,
         engineVersion: row.engineVersion,
-        status: row.withdrawalAt ? "withdrawn" : row.runStatus,
+        status: row.runStatus,
         expectedCount: row.expectedCount,
         completedCount: row.completedCount,
         approvedBy: row.approvedBy,
@@ -2300,19 +2295,17 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
       payroll_run.version_number AS versionNumber,
       payroll_period.period_key AS periodKey,
       payroll_run.pay_date AS payDate,
-      CASE WHEN withdrawal.payroll_run_id IS NOT NULL THEN 'withdrawn' WHEN payroll_run.status = 'closed' OR closed_employee.employment_id IS NOT NULL THEN 'closed' ELSE 'unsettled' END AS recordStatus,
+      CASE WHEN payroll_run.status = 'closed' OR closed_employee.employment_id IS NOT NULL THEN 'closed' ELSE 'unsettled' END AS recordStatus,
       payslip.earning_minor + coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='employee' AND item.employment_id=payslip.employment_id AND item.direction='earning'), 0) AS earningMinor,
       payslip.deduction_minor + coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='employee' AND item.employment_id=payslip.employment_id AND item.direction='deduction'), 0) AS deductionMinor,
       payslip.net_minor + coalesce((SELECT sum(CASE WHEN item.direction='earning' THEN item.amount_minor ELSE -item.amount_minor END) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='employee' AND item.employment_id=payslip.employment_id), 0) AS netMinor,
       payroll_run.created_at AS createdAt,
-      CASE WHEN withdrawal.payroll_run_id IS NOT NULL THEN withdrawal.withdrawn_at WHEN payroll_run.status = 'closed' OR closed_employee.employment_id IS NOT NULL THEN coalesce(closed_employee.closed_at, payroll_run.updated_at) ELSE NULL END AS closedAt
+      CASE WHEN payroll_run.status = 'closed' OR closed_employee.employment_id IS NOT NULL THEN coalesce(closed_employee.closed_at, payroll_run.updated_at) ELSE NULL END AS closedAt
     FROM hr_payslips AS payslip
     INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id = payslip.payroll_run_id
     INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id = payroll_run.payroll_period_id
-    LEFT JOIN hr_payroll_withdrawals AS withdrawal ON withdrawal.payroll_run_id = payroll_run.id
     LEFT JOIN hr_payslip_lines AS base_line ON base_line.payslip_id = payslip.id AND base_line.line_key = 'base_salary'
     LEFT JOIN hr_payroll_closed_employees AS closed_employee ON closed_employee.period_key = payroll_period.period_key AND closed_employee.employment_id = payslip.employment_id
-      AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS claim_withdrawal WHERE claim_withdrawal.payroll_run_id = closed_employee.payroll_run_id)
     UNION ALL
     SELECT
       'worker' AS personKind,
@@ -2326,18 +2319,16 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
       payroll_run.version_number AS versionNumber,
       payroll_period.period_key AS periodKey,
       payroll_run.pay_date AS payDate,
-      CASE WHEN withdrawal.payroll_run_id IS NOT NULL THEN 'withdrawn' WHEN payroll_run.status = 'closed' OR closed_worker.worker_id IS NOT NULL THEN 'closed' ELSE 'unsettled' END AS recordStatus,
+      CASE WHEN payroll_run.status = 'closed' OR closed_worker.worker_id IS NOT NULL THEN 'closed' ELSE 'unsettled' END AS recordStatus,
       worker_result.amount_minor + coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id AND item.direction='earning'), 0) AS earningMinor,
       coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id AND item.direction='deduction'), 0) AS deductionMinor,
       worker_result.amount_minor + coalesce((SELECT sum(CASE WHEN item.direction='earning' THEN item.amount_minor ELSE -item.amount_minor END) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id), 0) AS netMinor,
       payroll_run.created_at AS createdAt,
-      CASE WHEN withdrawal.payroll_run_id IS NOT NULL THEN withdrawal.withdrawn_at WHEN payroll_run.status = 'closed' OR closed_worker.worker_id IS NOT NULL THEN coalesce(closed_worker.closed_at, payroll_run.updated_at) ELSE NULL END AS closedAt
+      CASE WHEN payroll_run.status = 'closed' OR closed_worker.worker_id IS NOT NULL THEN coalesce(closed_worker.closed_at, payroll_run.updated_at) ELSE NULL END AS closedAt
     FROM hr_payroll_worker_results AS worker_result
     INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id = worker_result.payroll_run_id
     INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id = payroll_run.payroll_period_id
-    LEFT JOIN hr_payroll_withdrawals AS withdrawal ON withdrawal.payroll_run_id = payroll_run.id
     LEFT JOIN hr_payroll_closed_workers AS closed_worker ON closed_worker.period_key = payroll_period.period_key AND closed_worker.worker_id = worker_result.worker_id
-      AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS claim_withdrawal WHERE claim_withdrawal.payroll_run_id = closed_worker.payroll_run_id)
   `;
   const from = sql`FROM (${source}) AS payroll_records`;
   const [rows, [countRow]] = await Promise.all([
@@ -2349,11 +2340,10 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
       ORDER BY periodKey DESC, createdAt DESC, personName ASC, recordId ASC
       LIMIT ${input.pageSize} OFFSET ${(input.page - 1) * input.pageSize}
     `),
-    db.all<{ total: number; unsettled: number; closed: number; withdrawn: number }>(sql`
+    db.all<{ total: number; unsettled: number; closed: number }>(sql`
       SELECT count(*) AS total,
         sum(CASE WHEN recordStatus = 'unsettled' THEN 1 ELSE 0 END) AS unsettled,
-        sum(CASE WHEN recordStatus = 'closed' THEN 1 ELSE 0 END) AS closed,
-        sum(CASE WHEN recordStatus = 'withdrawn' THEN 1 ELSE 0 END) AS withdrawn
+        sum(CASE WHEN recordStatus = 'closed' THEN 1 ELSE 0 END) AS closed
       ${from}
       ${filter}
     `),
@@ -2363,7 +2353,6 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
     total,
     unsettled: Number(countRow?.unsettled ?? 0),
     closed: Number(countRow?.closed ?? 0),
-    withdrawn: Number(countRow?.withdrawn ?? 0),
   };
   return {
     records: rows.map((row) => ({
@@ -2395,22 +2384,20 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
 
 async function findPayrollRecordRun(db: Database, input: HrPayrollRecordReference) {
   const rows = input.personKind === "employee"
-    ? await db.all<{ runId: string; periodKey: string; periodStatus: string; runStatus: string; withdrawnAt: string | null; employmentId: string }>(sql`
+    ? await db.all<{ runId: string; periodKey: string; periodStatus: string; runStatus: string; employmentId: string }>(sql`
       SELECT payroll_run.id AS runId, payroll_period.period_key AS periodKey, payroll_period.status AS periodStatus,
-        payroll_run.status AS runStatus, payroll_run_withdrawal.withdrawn_at AS withdrawnAt, payslip.employment_id AS employmentId
+        payroll_run.status AS runStatus, payslip.employment_id AS employmentId
       FROM hr_payslips AS payslip
       INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=payslip.payroll_run_id
       INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
-      LEFT JOIN hr_payroll_withdrawals AS payroll_run_withdrawal ON payroll_run_withdrawal.payroll_run_id=payroll_run.id
       WHERE payroll_run.id=${input.runId} AND payslip.employment_id=${input.personId}
     `)
-    : await db.all<{ runId: string; periodKey: string; periodStatus: string; runStatus: string; withdrawnAt: string | null; workerId: string }>(sql`
+    : await db.all<{ runId: string; periodKey: string; periodStatus: string; runStatus: string; workerId: string }>(sql`
       SELECT payroll_run.id AS runId, payroll_period.period_key AS periodKey, payroll_period.status AS periodStatus,
-        payroll_run.status AS runStatus, payroll_run_withdrawal.withdrawn_at AS withdrawnAt, worker_result.worker_id AS workerId
+        payroll_run.status AS runStatus, worker_result.worker_id AS workerId
       FROM hr_payroll_worker_results AS worker_result
       INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=worker_result.payroll_run_id
       INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
-      LEFT JOIN hr_payroll_withdrawals AS payroll_run_withdrawal ON payroll_run_withdrawal.payroll_run_id=payroll_run.id
       WHERE payroll_run.id=${input.runId} AND worker_result.worker_id=${input.personId}
     `);
   const row = rows[0];
@@ -2420,12 +2407,8 @@ async function findPayrollRecordRun(db: Database, input: HrPayrollRecordReferenc
 
 async function payrollRunHasClosedClaims(db: Database, runId: string) {
   const [claims] = await db.all<{ count: number }>(sql`SELECT
-    (SELECT count(*) FROM hr_payroll_closed_employees AS claim
-      WHERE claim.payroll_run_id=${runId}
-        AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=claim.payroll_run_id)) +
-    (SELECT count(*) FROM hr_payroll_closed_workers AS claim
-      WHERE claim.payroll_run_id=${runId}
-        AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=claim.payroll_run_id)) AS count`);
+    (SELECT count(*) FROM hr_payroll_closed_employees AS claim WHERE claim.payroll_run_id=${runId}) +
+    (SELECT count(*) FROM hr_payroll_closed_workers AS claim WHERE claim.payroll_run_id=${runId}) AS count`);
   return Number(claims?.count ?? 0) > 0;
 }
 
@@ -2441,14 +2424,12 @@ async function payrollRecordIsClosed(db: Database, input: HrPayrollRecordReferen
     const [claim] = await db.all<{ closedAt: string }>(sql`SELECT claim.closed_at AS closedAt
       FROM hr_payroll_closed_employees AS claim
       WHERE claim.period_key=${periodKey} AND claim.employment_id=${input.personId}
-        AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=claim.payroll_run_id)
       LIMIT 1`);
     return claim?.closedAt ?? null;
   }
   const [claim] = await db.all<{ closedAt: string }>(sql`SELECT claim.closed_at AS closedAt
     FROM hr_payroll_closed_workers AS claim
     WHERE claim.period_key=${periodKey} AND claim.worker_id=${input.personId}
-      AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=claim.payroll_run_id)
     LIMIT 1`);
   return claim?.closedAt ?? null;
 }
@@ -2496,7 +2477,7 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
   const earningItems = items.filter((item) => item.direction === "earning").reduce((sum, item) => sum + item.amountMinor, 0);
   const deductionItems = items.filter((item) => item.direction === "deduction").reduce((sum, item) => sum + item.amountMinor, 0);
   const closedAt = await payrollRecordIsClosed(db, input, result.periodKey);
-  const status = result.withdrawal ? "withdrawn" : run.status === "closed" || closedAt ? "closed" : "unsettled";
+  const status = run.status === "closed" || closedAt ? "closed" : "unsettled";
   const record: HrPayrollRecord = {
     recordId: input.personId,
     personKind: input.personKind,
@@ -2514,7 +2495,7 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
     deductionMinor: (employee?.deductionMinor ?? 0) + deductionItems,
     netMinor: (employee?.netMinor ?? worker?.amountMinor ?? 0) + earningItems - deductionItems,
     createdAt: run.createdAt,
-    closedAt: result.withdrawal?.withdrawnAt ?? closedAt ?? (run.status === "closed" ? run.updatedAt : null),
+    closedAt: closedAt ?? (run.status === "closed" ? run.updatedAt : null),
   };
   return { record, run: { runId: result.runId, runName: result.runName, periodKey: result.periodKey, payDate: result.payDate, engineVersion: result.engineVersion, warnings: result.warnings, withdrawal: result.withdrawal, canDelete }, employee, worker, items };
 }
@@ -2534,7 +2515,6 @@ export async function approveHrPayrollRecords(db: Database, references: HrPayrol
   if (targets.length !== uniqueReferences.length) throw new HrError(404, "找不到薪資發放紀錄。 ");
   const grouped = new Map<string, { references: HrPayrollRecordReference[]; periodKey: string; periodStatus: string; runStatus: string }>();
   for (const [index, target] of targets.entries()) {
-    if (target.withdrawnAt) throw new HrError(409, "這個薪資批次已撤回，不能再確定發放。 ");
     if (target.periodStatus !== "open" || target.runStatus !== "ready") throw new HrError(409, "只有開放中的尚未結算紀錄可以確定發放。 ");
     if (await payrollRecordIsClosed(db, uniqueReferences[index]!, target.periodKey)) throw new HrError(409, "選取的薪資發放紀錄已有確定發放結果，請重新整理。 ");
     const reference = uniqueReferences[index]!;
@@ -2574,11 +2554,9 @@ export async function approveHrPayrollRecords(db: Database, references: HrPayrol
     mutations.push(sql`UPDATE hr_payroll_runs SET status='closed', approved_by=${actor.id}, updated_at=CURRENT_TIMESTAMP
       WHERE id=${runId} AND status='ready' AND expected_count=completed_count
         AND NOT EXISTS (SELECT 1 FROM hr_payslips AS pending WHERE pending.payroll_run_id=${runId}
-          AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees AS claim WHERE claim.period_key=${group.periodKey} AND claim.employment_id=pending.employment_id
-            AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=claim.payroll_run_id)))
+          AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees AS claim WHERE claim.period_key=${group.periodKey} AND claim.employment_id=pending.employment_id))
         AND NOT EXISTS (SELECT 1 FROM hr_payroll_worker_results AS pending WHERE pending.payroll_run_id=${runId}
-          AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers AS claim WHERE claim.period_key=${group.periodKey} AND claim.worker_id=pending.worker_id
-            AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=claim.payroll_run_id)))
+          AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers AS claim WHERE claim.period_key=${group.periodKey} AND claim.worker_id=pending.worker_id))
       RETURNING id`);
     if (group.references.length < allReferences.length) allowEmptyMutationIndexes.add(closeRunIndex);
   }
@@ -2598,8 +2576,7 @@ export async function approveHrPayrollRecords(db: Database, references: HrPayrol
           INNER JOIN users AS account ON account.id=employment.employee_user_id
           WHERE account.status IN ('active', 'invited') AND employment.archived_at IS NULL
             AND coalesce((SELECT service_start_on FROM hr_employment_service_periods WHERE employment_id=employment.id), ${period.start}) < ${period.end}
-            AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees AS claim WHERE claim.period_key=${periodKey} AND claim.employment_id=employment.id
-              AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=claim.payroll_run_id))
+            AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees AS claim WHERE claim.period_key=${periodKey} AND claim.employment_id=employment.id)
         )
         AND NOT EXISTS (
           SELECT 1 FROM hr_schedule_worker_entries AS worker_entry
@@ -2607,8 +2584,7 @@ export async function approveHrPayrollRecords(db: Database, references: HrPayrol
           WHERE worker_schedule.status='published' AND worker_schedule.period_start=${period.start} AND worker_schedule.period_end=${period.end}
             AND worker_schedule.version_number=(SELECT max(latest_worker_schedule.version_number) FROM hr_schedule_versions AS latest_worker_schedule WHERE latest_worker_schedule.period_start=${period.start} AND latest_worker_schedule.period_end=${period.end} AND latest_worker_schedule.status='published')
             AND worker_entry.work_date >= ${period.start} AND worker_entry.work_date < ${period.end}
-            AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers AS claim WHERE claim.period_key=${periodKey} AND claim.worker_id=worker_entry.worker_id
-              AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=claim.payroll_run_id))
+            AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers AS claim WHERE claim.period_key=${periodKey} AND claim.worker_id=worker_entry.worker_id)
         ) RETURNING id`);
     allowEmptyMutationIndexes.add(index);
   }
@@ -2641,7 +2617,6 @@ export async function listHrPayrollEmployeeHistory(db: Database, employeeUserId:
     .where(and(
       eq(hrEmployments.employeeUserId, employeeUserId),
       eq(hrPayrollRuns.status, "closed"),
-      sql`NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=${hrPayrollRuns.id})`,
     ))
     .orderBy(desc(hrPayrollPeriods.periodKey), desc(hrPayrollRuns.versionNumber), desc(hrPayrollRuns.createdAt));
   return rows.map((row) => ({
@@ -2695,12 +2670,10 @@ export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrA
 }
 
 export async function closeHrPayrollRun(db: Database, runId: string, actor: HrActor) {
-  const [run] = await db.select({ id: hrPayrollRuns.id, payrollPeriodId: hrPayrollRuns.payrollPeriodId, periodKey: hrPayrollPeriods.periodKey, status: hrPayrollRuns.status, sourceSnapshotJson: hrPayrollRuns.sourceSnapshotJson, calculationInputJson: hrPayrollRuns.calculationInputJson, expectedCount: hrPayrollRuns.expectedCount, completedCount: hrPayrollRuns.completedCount, periodStatus: hrPayrollPeriods.status, withdrawnAt: hrPayrollWithdrawals.withdrawnAt }).from(hrPayrollRuns)
+  const [run] = await db.select({ id: hrPayrollRuns.id, payrollPeriodId: hrPayrollRuns.payrollPeriodId, periodKey: hrPayrollPeriods.periodKey, status: hrPayrollRuns.status, sourceSnapshotJson: hrPayrollRuns.sourceSnapshotJson, calculationInputJson: hrPayrollRuns.calculationInputJson, expectedCount: hrPayrollRuns.expectedCount, completedCount: hrPayrollRuns.completedCount, periodStatus: hrPayrollPeriods.status }).from(hrPayrollRuns)
     .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
-    .leftJoin(hrPayrollWithdrawals, eq(hrPayrollWithdrawals.payrollRunId, hrPayrollRuns.id))
     .where(eq(hrPayrollRuns.id, runId)).limit(1);
   if (!run) throw new HrError(404, "找不到薪資試算批次。 ");
-  if (run.withdrawnAt) throw new HrError(409, "這個薪資批次已撤回，不能重複操作。 ");
   if (run.status !== "ready") throw new HrError(409, "只有已完成試算的批次可以結帳。 ");
   if (await payrollRunHasClosedClaims(db, runId)) throw new HrError(409, "此試算已有逐筆確定發放紀錄，請從發放紀錄完成剩餘人員。 ");
   if (run.expectedCount !== run.completedCount || run.periodStatus !== "open") throw new HrError(409, "薪資批次尚未完成或薪資期間已鎖定，不能結帳。 ");
@@ -2748,7 +2721,6 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
           INNER JOIN hr_payroll_periods AS closed_period ON closed_period.id=closed_run.payroll_period_id
           WHERE selected_worker.payroll_run_id=${runId}
             AND closed_run.status='closed'
-            AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=closed_run.id)
             AND closed_period.period_key=${run.periodKey}
             AND closed_worker.payroll_run_id <> ${runId}
         )
@@ -2764,7 +2736,6 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
             AND NOT EXISTS (
               SELECT 1 FROM hr_payroll_closed_employees AS claim
               WHERE claim.period_key=${run.periodKey} AND claim.employment_id=employment.id
-                AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=claim.payroll_run_id)
             )
         )
         AND NOT EXISTS (
@@ -2782,7 +2753,6 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
               INNER JOIN hr_payroll_periods AS worker_period ON worker_period.id=worker_run.payroll_period_id
               WHERE worker_period.period_key=${run.periodKey}
                 AND worker_run.status='closed'
-                AND NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=worker_run.id)
                 AND worker_result.worker_id=worker_entry.worker_id
             )
         )
@@ -2818,8 +2788,8 @@ async function payrollRunAnnualLeaveSettlementSourceKeys(db: Database, runId: st
 }
 
 /**
- * 撤回已確定發放的批次：保留 closed run、薪資單與 claims 原始快照，另寫 withdrawal marker，
- * 讓該批次不再被視為有效結帳結果，並把期間重新開放供下一張試算使用。
+ * 撤回已確定發放的批次：保留薪資單與撤回原因供稽核，將批次退回 ready、清除結帳 claim，
+ * 並把期間重新開放，讓這筆結果可以重新覆核或重新試算。
  */
 export async function withdrawHrPayrollRun(db: Database, runId: string, reason: string, actor: HrActor) {
   const normalizedReason = reason.trim();
@@ -2844,6 +2814,13 @@ export async function withdrawHrPayrollRun(db: Database, runId: string, reason: 
     VALUES (${runId}, ${normalizedReason}, ${actor.id})
     RETURNING payroll_run_id`];
   const allowEmptyMutationIndexes = new Set<number>();
+  const resetRunIndex = mutations.length;
+  mutations.push(sql`UPDATE hr_payroll_runs
+    SET status='ready', approved_by=NULL, updated_at=CURRENT_TIMESTAMP
+    WHERE id=${runId} AND status='closed'
+      AND EXISTS (SELECT 1 FROM hr_payroll_withdrawals WHERE payroll_run_id=${runId})
+    RETURNING id`);
+  allowEmptyMutationIndexes.add(resetRunIndex);
   for (const mutation of reversalMutations) {
     allowEmptyMutationIndexes.add(mutations.length);
     mutations.push(mutation);
@@ -2859,11 +2836,17 @@ export async function withdrawHrPayrollRun(db: Database, runId: string, reason: 
       )
     RETURNING id`);
   allowEmptyMutationIndexes.add(reopenPeriodIndex);
+  const deleteEmployeeClaimsIndex = mutations.length;
+  mutations.push(sql`DELETE FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId} RETURNING employment_id`);
+  allowEmptyMutationIndexes.add(deleteEmployeeClaimsIndex);
+  const deleteWorkerClaimsIndex = mutations.length;
+  mutations.push(sql`DELETE FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId} RETURNING worker_id`);
+  allowEmptyMutationIndexes.add(deleteWorkerClaimsIndex);
   await writeHrMutation(db, mutations, runId, actor, "payroll_run_withdrawn", "薪資批次撤回失敗，請重新整理後再試。", {
     allowEmptyMutationIndexes,
     activity: {
       entityLabel: payrollRunNameFromInput(run.calculationInputJson),
-      summary: "薪資批次已撤回",
+      summary: "薪資批次已撤回並退回尚未結算",
       payload: { periodKey: run.periodKey, reason: normalizedReason, annualLeaveSettlementCount: settlementSourceKeys.length },
     },
   });

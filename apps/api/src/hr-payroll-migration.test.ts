@@ -54,7 +54,7 @@ describe("HR 薪資與出勤設定 migration", () => {
     } finally { sqlite.close(); }
   });
 
-  it("0203 薪資撤回 marker 只能新增且只允許已確定發放的批次", () => {
+  it("薪資撤回 marker append-only，撤回後批次退回 ready 並清除 claim", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {
       sqlite.exec("PRAGMA foreign_keys=ON");
@@ -73,10 +73,16 @@ describe("HR 薪資與出勤設定 migration", () => {
           VALUES ('r2','p2',1,'req2',1,'test','ready',0,0,'u');
       `);
       apply(sqlite, "0203_mysterious_newton_destine.sql");
-      sqlite.exec("INSERT INTO hr_payroll_withdrawals(payroll_run_id,reason,withdrawn_by) VALUES ('r','撤回原因','u')");
+      sqlite.exec("UPDATE hr_payroll_runs SET status='closed' WHERE id='r'; UPDATE hr_payroll_periods SET status='closed' WHERE id='p'; INSERT INTO hr_payroll_withdrawals(payroll_run_id,reason,withdrawn_by) VALUES ('r','撤回原因','u')");
+      apply(sqlite, "0204_payroll_withdrawal_rollback.sql");
+      expect(sqlite.prepare("SELECT status FROM hr_payroll_runs WHERE id='r'").get()).toEqual({ status: "ready" });
+      expect(sqlite.prepare("SELECT status FROM hr_payroll_periods WHERE id='p'").get()).toEqual({ status: "open" });
+      expect(sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_closed_employees WHERE payroll_run_id='r'").get()).toEqual({ count: 0 });
       expect(() => sqlite.exec("UPDATE hr_payroll_withdrawals SET reason='改寫原因' WHERE payroll_run_id='r'")).toThrow(/payroll_run_withdrawal_immutable/);
       expect(() => sqlite.exec("DELETE FROM hr_payroll_withdrawals WHERE payroll_run_id='r'")).toThrow(/payroll_run_withdrawal_immutable/);
       expect(() => sqlite.exec("INSERT INTO hr_payroll_withdrawals(payroll_run_id,reason,withdrawn_by) VALUES ('r2','無 claim','u')")).toThrow(/payroll_run_withdrawal_invalid/);
+      sqlite.exec("UPDATE hr_payroll_runs SET status='closed' WHERE id='r2'");
+      expect(() => sqlite.exec("UPDATE hr_payroll_runs SET status='ready' WHERE id='r2'")).toThrow(/payroll_run_closed/);
     } finally { sqlite.close(); }
   });
 

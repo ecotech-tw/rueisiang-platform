@@ -76,14 +76,15 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const withdrawn = await request(`/hr/payroll/runs/${runId}/withdraw`, "POST", { reason: "來源資料需要更正，重新試算" });
     expect(withdrawn.status, await withdrawn.clone().text()).toBe(200);
     const withdrawnBody = await withdrawn.json() as { run: { runId: string; status: string; withdrawal: { reason: string } | null } };
-    expect(withdrawnBody.run).toMatchObject({ runId, status: "withdrawn", withdrawal: { reason: "來源資料需要更正，重新試算" } });
+    expect(withdrawnBody.run).toMatchObject({ runId, status: "ready", withdrawal: { reason: "來源資料需要更正，重新試算" } });
 
-    const withdrawnRecords = await request("/hr/payroll/records?periodKey=2026-08&status=withdrawn&pageSize=100");
-    expect(withdrawnRecords.status, await withdrawnRecords.clone().text()).toBe(200);
-    expect((await withdrawnRecords.json() as { records: Array<{ runId: string; status: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ runId, status: "withdrawn" })]));
+    const unsettledAgain = await request("/hr/payroll/records?periodKey=2026-08&status=unsettled&pageSize=100");
+    expect(unsettledAgain.status, await unsettledAgain.clone().text()).toBe(200);
+    expect((await unsettledAgain.json() as { records: Array<{ runId: string; status: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ runId, status: "unsettled" })]));
+    expect((await request("/hr/payroll/records?periodKey=2026-08&status=withdrawn&pageSize=100")).status).toBe(400);
     const historicalDetail = await request(`/hr/payroll/records/${runId}/employee/dev-employment-lin`);
     expect(historicalDetail.status, await historicalDetail.clone().text()).toBe(200);
-    expect((await historicalDetail.json() as { record: { status: string }; run: { canDelete: boolean } })).toMatchObject({ record: { status: "withdrawn" }, run: { canDelete: false } });
+    expect((await historicalDetail.json() as { record: { status: string }; run: { canDelete: boolean } })).toMatchObject({ record: { status: "unsettled" }, run: { canDelete: false } });
     const adjustment = await request("/hr/payroll/adjustments", "POST", {
       employmentId: "dev-employment-lin", effectivePeriodKey: "2026-08", reason: "撤回後重新試算前修正", items: [{ itemName: "撤回後修正", amountMinor: 100 }],
     });
@@ -101,7 +102,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await closedAgain.json() as { records: Array<{ runId: string; status: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ runId: newRunId, status: "closed" })]));
   });
 
-  it("部分確定發放的批次撤回後不能再次確定發放或結帳", async () => {
+  it("部分確定發放的批次撤回後會回到尚未結算並可重新結帳", async () => {
     const calculated = await request("/hr/payroll/calculate", "POST", {
       periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-payroll-withdraw-partial-ready-first",
     });
@@ -113,9 +114,11 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(withdrawn.status, await withdrawn.clone().text()).toBe(200);
 
     const approveWithdrawn = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: "dev-employment-wang" }] });
-    expect(approveWithdrawn.status, await approveWithdrawn.clone().text()).toBe(409);
-    const closeWithdrawn = await request(`/hr/payroll/runs/${runId}/close`, "POST", {});
-    expect(closeWithdrawn.status, await closeWithdrawn.clone().text()).toBe(409);
+    expect(approveWithdrawn.status, await approveWithdrawn.clone().text()).toBe(200);
+    const approveRemaining = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: "dev-employment-lin" }] });
+    expect(approveRemaining.status, await approveRemaining.clone().text()).toBe(200);
+    const settledAgain = await request(`/hr/payroll/records/${runId}/employee/dev-employment-lin`);
+    expect((await settledAgain.json() as { record: { status: string } }).record.status).toBe("closed");
   });
 
   it("歷史薪資紀錄仍會讀取舊版薪資加扣項", async () => {
