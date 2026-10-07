@@ -417,9 +417,10 @@ function nextDateOnly(date: string): string {
   return next.toISOString().slice(0, 10);
 }
 type SpecialWorkdayOvertimeRule = { fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null };
-type OvertimeRuleChunk = { seconds: number; rule: SpecialWorkdayOvertimeRule | null };
-function splitOvertimeBySpecialRules(seconds: number, rules: readonly SpecialWorkdayOvertimeRule[], elapsedSeconds = 0): OvertimeRuleChunk[] {
-  if (!rules.length) return [{ seconds, rule: null }];
+/** positionSeconds 是這一段在同一工作日累計加班裡的起點；沒被規則涵蓋的段落要靠它接著往下一順位的級距找。 */
+type OvertimeRuleChunk = { seconds: number; positionSeconds: number; rule: SpecialWorkdayOvertimeRule | null };
+function splitOvertimeByRules(seconds: number, rules: readonly SpecialWorkdayOvertimeRule[], elapsedSeconds = 0): OvertimeRuleChunk[] {
+  if (!rules.length) return [{ seconds, positionSeconds: elapsedSeconds, rule: null }];
   const chunks: OvertimeRuleChunk[] = [];
   let consumedSeconds = 0;
   while (consumedSeconds < seconds) {
@@ -430,10 +431,22 @@ function splitOvertimeBySpecialRules(seconds: number, rules: readonly SpecialWor
     const boundaryHalfHours = rule?.toHalfHours ?? (nextRule ? nextRule.fromHalfHours - 1 : null);
     const boundarySeconds = boundaryHalfHours === null ? Number.POSITIVE_INFINITY : boundaryHalfHours * 30 * 60;
     const chunkSeconds = Math.min(seconds - consumedSeconds, Math.max(1, boundarySeconds - positionSeconds));
-    chunks.push({ seconds: chunkSeconds, rule });
+    chunks.push({ seconds: chunkSeconds, positionSeconds, rule });
     consumedSeconds += chunkSeconds;
   }
   return chunks;
+}
+/*
+ * 勞基法第 24 條：延長工時前 2 小時加給 1/3，再延長的時數加給 2/3。
+ * 寫成跟特殊日同一種級距，才不會有兩套各自追蹤累計時數的切法。
+ * 第一級用申請上凍結的倍率；第二級的 1⅔ 無條件進位到 ppm，不讓四捨五入後的金額低於法定下限。
+ */
+const STATUTORY_OVERTIME_SECOND_TIER_RATE_PPM = 1_666_667;
+function statutoryOvertimeRules(firstTierRatePpm: number): SpecialWorkdayOvertimeRule[] {
+  return [
+    { fromHalfHours: 1, toHalfHours: 4, rateKind: "multiplier", fixedAmountMinor: null, multiplierPpm: firstTierRatePpm },
+    { fromHalfHours: 5, toHalfHours: null, rateKind: "multiplier", fixedAmountMinor: null, multiplierPpm: STATUTORY_OVERTIME_SECOND_TIER_RATE_PPM },
+  ];
 }
 function splitOvertimeByTaipeiDate(start: string, end: string): Array<{ date: string; seconds: number }> {
   const startMilliseconds = utcWallClockMilliseconds(start);
@@ -609,7 +622,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrAnnualLeaveLedger).where(sql`${hrAnnualLeaveLedger.entitlementId} IN (SELECT id FROM hr_annual_leave_entitlements WHERE employment_id IN (${employmentValues}))`),
     db.select().from(hrMonthlyLeaveEntries).where(and(inJsonArray(hrMonthlyLeaveEntries.employmentId, employmentIds), sql`${hrMonthlyLeaveEntries.leaveDate} >= ${input.period.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${input.period.end}`)),
     db.select().from(hrMonthlyHourlyEntries).where(and(inJsonArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
-    db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), eq(hrOvertimeRequests.settlementKind, "pay"), inJsonArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
+    db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), inJsonArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
     db.select().from(hrClockEvents).where(and(inJsonArray(hrClockEvents.employmentId, employmentIds), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
     db.select().from(hrScheduleVersions).where(and(latestPublishedSchedule, selectedScheduleVersions)),
     db.select({ entry: hrScheduleEntries }).from(hrScheduleEntries)
@@ -1003,9 +1016,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const payrollAdjustments = await listHrPayrollAdjustmentsForPeriod(db, period.periodKey);
   const periodStartUtc = taipeiMidnightUtc(period.start);
   const periodEndUtc = taipeiMidnightUtc(period.end);
+  // 補休加班不發錢，但會佔掉當天的累計時數、影響後面付薪加班的級距，所以也要讀進來。
   const overtime = await db.select().from(hrOvertimeRequests).where(and(
     eq(hrOvertimeRequests.status, "approved"),
-    eq(hrOvertimeRequests.settlementKind, "pay"),
     sql`(${hrOvertimeRequests.requestedEnd} > ${periodStartUtc} AND ${hrOvertimeRequests.requestedStart} < ${periodEndUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc} AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc})`,
   ));
   const clocks = await db.select().from(hrClockEvents).where(and(
@@ -1537,44 +1550,54 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       if (!secondsBetween(clippedStart, clippedEnd)) continue;
       for (const segment of splitOvertimeByTaipeiDate(clippedStart, clippedEnd)) {
         if (!employmentDaySet.has(segment.date)) continue;
+        // 級距以同一台北工作日的累計核准加班時數套用，不能每筆申請都重新從第一級開始。
+        const elapsedSeconds = overtimeElapsedByDate.get(segment.date) ?? 0;
+        overtimeElapsedByDate.set(segment.date, elapsedSeconds + segment.seconds);
+        // 補休的時數不發加班費，但一樣是當天的延長工時；不算進累計的話，接在後面的付薪加班會被當成前 2 小時。
+        if (row.settlementKind !== "pay") continue;
         const special = specialAssignments.find((item) => item.workDate === segment.date);
         if (special?.ruleVersionId) specialWorkdayRuleSnapshots.set(`${segment.date}:${special.ruleVersionId}`, {
           workDate: segment.date,
           ruleVersionId: special.ruleVersionId,
           overtimeRules: special.overtimeRules.map((rule) => ({ fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.fixedAmountMinor, multiplierPpm: rule.multiplierPpm })),
         });
-        // 級距以同一台北工作日的累計核准加班時數套用，不能每筆申請都重新從第一級開始。
-        const elapsedSeconds = overtimeElapsedByDate.get(segment.date) ?? 0;
-        const chunks = splitOvertimeBySpecialRules(segment.seconds, special?.overtimeRules ?? [], elapsedSeconds);
-        overtimeElapsedByDate.set(segment.date, elapsedSeconds + segment.seconds);
-        for (const chunk of chunks) {
+        for (const chunk of splitOvertimeByRules(segment.seconds, special?.overtimeRules ?? [], elapsedSeconds)) {
           const compensation = covering(employeeCompensations, segment.date) ?? fullMonthComp;
           // 特殊日的級距是針對那一天另外談的條件，比個人平時約定的固定時薪更具體，所以級距涵蓋到的時數以級距為準。
           const personalFixedMinor = chunk.rule ? null : compensation?.overtimeHourlyMinor ?? null;
           const fixedHourlyMinor = chunk.rule?.rateKind === "fixed_hourly" ? chunk.rule.fixedAmountMinor! : personalFixedMinor;
-          let overtimeAmount: number;
-          let formula: string;
+          const parts: PayrollCalculationPart[] = [];
           if (fixedHourlyMinor !== null) {
-            overtimeAmount = Math.floor(fixedHourlyMinor * chunk.seconds / 3600);
-            formula = `${segment.date}：${chunk.rule ? "特殊日固定時薪" : "約定加班固定時薪"} ${payrollFormulaMoney(fixedHourlyMinor)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`;
+            parts.push({
+              formula: `${segment.date}：${chunk.rule ? "特殊日固定時薪" : "約定加班固定時薪"} ${payrollFormulaMoney(fixedHourlyMinor)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`,
+              amountMinor: Math.floor(fixedHourlyMinor * chunk.seconds / 3600),
+            });
             if (!chunk.rule && compensation) fixedOvertimeSnapshots.set(compensation.id, { compensationVersionId: compensation.id, overtimeHourlyMinor: fixedHourlyMinor });
           } else {
             const hourly = compensation?.payBasis === "monthly"
               ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
               : compensation?.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation?.baseAmountMinor ?? 0;
             const itemHourly = compensation ? compensationItems.filter((item) => item.compensationVersionId === compensation.id && item.includeOvertime).reduce((sum, item) => sum + (item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays / standardDailyHours) : item.amountBasis === "daily" ? Math.floor(item.amountMinor / standardDailyHours) : item.amountMinor), 0) : 0;
-            const ratePpm = chunk.rule?.rateKind === "multiplier" ? chunk.rule.multiplierPpm! : row.ratePpm;
-            overtimeAmount = Math.floor((hourly + itemHourly) * chunk.seconds / 3600 * ratePpm / PPM);
-            formula = `${segment.date}：floor((${payrollFormulaMoney(hourly)}${itemHourly ? ` + ${payrollFormulaMoney(itemHourly)}` : ""}) × ${payrollFormulaHours(chunk.seconds / 3600)} 小時 × ${payrollFormulaPercent(ratePpm)})`;
+            // 特殊日的倍率級距是整段照它給；只有沒被任何規則涵蓋的時數才走法定的兩級。
+            const tiers = chunk.rule ? [chunk] : splitOvertimeByRules(chunk.seconds, statutoryOvertimeRules(row.ratePpm), chunk.positionSeconds);
+            for (const tier of tiers) {
+              const ratePpm = tier.rule!.multiplierPpm!;
+              parts.push({
+                formula: `${segment.date}：floor((${payrollFormulaMoney(hourly)}${itemHourly ? ` + ${payrollFormulaMoney(itemHourly)}` : ""}) × ${payrollFormulaHours(tier.seconds / 3600)} 小時 × ${payrollFormulaPercent(ratePpm)})`,
+                amountMinor: Math.floor((hourly + itemHourly) * tier.seconds / 3600 * ratePpm / PPM),
+              });
+            }
           }
-          overtimeMinor += overtimeAmount;
           overtimeSeconds += chunk.seconds;
-          if (overtimeAmount > 0) overtimeCalculationParts.push({ formula, amountMinor: overtimeAmount });
+          for (const part of parts) {
+            overtimeMinor += part.amountMinor;
+            if (part.amountMinor > 0) overtimeCalculationParts.push(part);
+          }
         }
       }
     }
     if (overtimeSeconds > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, quantitySeconds: overtimeSeconds, explanation: {
-      approvedRequests: employeeOvertime.length, monthlyDivisorDays, standardDailyHours,
+      approvedRequests: employeeOvertime.filter((row) => row.settlementKind === "pay").length, monthlyDivisorDays, standardDailyHours,
       specialWorkdayRuleSnapshots: [...specialWorkdayRuleSnapshots.values()],
       fixedOvertimeSnapshots: [...fixedOvertimeSnapshots.values()],
       calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
