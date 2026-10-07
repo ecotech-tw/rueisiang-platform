@@ -1,11 +1,12 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrOvertimeRequests } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
 import { users } from "./schema/auth.js";
-import { formatTaipeiDate } from "./taipei-time.js";
+import { datesBetween, listHrWorkdayEnds } from "./hr-leave.js";
+import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 
 /** 公司目前唯一已確認的加班倍率；倍率不是請款人可自由輸入的金額。 */
 export const DEFAULT_OVERTIME_RATE_PPM = 1_333_333;
@@ -23,6 +24,25 @@ export interface HrOvertimeInput {
   revision?: number;
   reason: string;
 }
+
+export interface HrOvertimeBatchInput {
+  employeeUserId: string;
+  settlementKind: "pay" | "compensatory";
+  reason: string;
+  entries: Array<{ requestedStart: string; requestedEnd: string }>;
+}
+
+export interface HrOvertimeDay {
+  /** 台北日期。 */
+  date: string;
+  /** 當天班表的下班時間（canonical UTC）；沒有班次時為 null，前端不可替使用者猜一個起算點。 */
+  shiftEnd: string | null;
+  existing: Array<{ requestedStart: string; requestedEnd: string; status: string }>;
+}
+
+/** 一次最多一個月；每筆申請在 D1 batch 裡要兩句，再多就接近單次 batch 的上限。 */
+export const MAX_OVERTIME_BATCH_ENTRIES = 31;
+const MAX_OVERTIME_DAY_RANGE = 62;
 
 export interface HrOvertimeActualInterval { start: string; end: string }
 
@@ -47,15 +67,23 @@ function taipeiDate(timestamp: number) {
   return formatTaipeiDate(timestamp);
 }
 
-async function employmentForInterval(db: Database, userId: string, start: string, end: string, expectedEmploymentId?: string) {
-  stamp(start);
-  stamp(end);
+function utcStamp(timestamp: number) {
+  return new Date(timestamp).toISOString().slice(0, 19).replace("T", " ");
+}
+
+async function employmentIdFor(db: Database, userId: string, expectedEmploymentId?: string) {
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(
     eq(hrEmployments.employeeUserId, userId),
     expectedEmploymentId ? eq(hrEmployments.id, expectedEmploymentId) : sql`${hrEmployments.archivedAt} IS NULL`,
   )).limit(1);
   if (!row) throw new HrError(400, "員工沒有活動的 hr_employments，暫時無法建立加班申請。 ");
   return row.id;
+}
+
+async function employmentForInterval(db: Database, userId: string, start: string, end: string, expectedEmploymentId?: string) {
+  stamp(start);
+  stamp(end);
+  return employmentIdFor(db, userId, expectedEmploymentId);
 }
 
 async function ensureScope(db: Database, employmentId: string, scopeId: string | null, start: string, end: string) {
@@ -93,44 +121,123 @@ export async function listHrOvertimeRequests(db: Database, employeeUserId?: stri
   )).orderBy(desc(hrOvertimeRequests.requestedStart));
 }
 
+const ACTIVE_OVERTIME_STATUSES = ["draft", "pending", "approved"] as const;
+const CREATE_CONFLICT_MESSAGE = "相同或重疊的加班時段、活動員工或資料不合法。 ";
+
+/**
+ * overlap guard 放在 INSERT ... SELECT 內，和唯一鍵一起由同一個 D1 batch 仲裁，
+ * 不讓兩個同時送出的申請都通過先查後寫的 race。後台代登雖直接核准，仍保留
+ * approved／reviewed 欄位，讓未來本人入口切回 pending 時不必換資料模型。
+ */
+function insertOvertimeRequest(id: string, employmentId: string, input: Pick<HrOvertimeInput, "employeeUserId" | "scopeId" | "requestedStart" | "requestedEnd" | "settlementKind" | "reason">, actor: HrActor, autoApprove: boolean) {
+  const status = autoApprove ? "approved" : "pending";
+  const actualStart = autoApprove ? input.requestedStart : null;
+  const actualEnd = autoApprove ? input.requestedEnd : null;
+  const reviewedBy = autoApprove ? actor.id : null;
+  const decisionReason = autoApprove ? "HR 後台建立後直接核准" : "";
+  return sql`INSERT INTO hr_overtime_requests
+    (id, employment_id, scope_id, requested_start, requested_end, actual_start, actual_end, settlement_kind, status, rate_ppm, reason, reviewed_by, reviewed_at, decision_reason, created_by)
+    SELECT ${id}, ${employmentId}, ${input.scopeId ?? null}, ${input.requestedStart}, ${input.requestedEnd}, ${actualStart}, ${actualEnd}, ${input.settlementKind}, ${status}, ${DEFAULT_OVERTIME_RATE_PPM}, ${input.reason.trim()}, ${reviewedBy}, ${autoApprove ? sql`CURRENT_TIMESTAMP` : sql`NULL`}, ${decisionReason}, ${actor.id}
+    WHERE EXISTS (
+      SELECT 1 FROM hr_employments AS current_employment
+      WHERE current_employment.id=${employmentId}
+        AND current_employment.employee_user_id=${input.employeeUserId}
+        AND current_employment.archived_at IS NULL
+    )
+      AND NOT EXISTS (
+      SELECT 1 FROM hr_overtime_requests AS existing_request
+      WHERE existing_request.employment_id=${employmentId}
+        AND existing_request.status IN ('draft', 'pending', 'approved')
+        AND existing_request.requested_start < ${input.requestedEnd}
+        AND existing_request.requested_end > ${input.requestedStart}
+    ) RETURNING id`;
+}
+
+function rethrowCreateConflict(error: unknown): never {
+  if (error instanceof HrError) throw error;
+  if (error instanceof Error && /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed/.test(error.message)) throw new HrError(409, CREATE_CONFLICT_MESSAGE);
+  throw error;
+}
+
+function assertNotSelfApproved(employeeUserId: string, actor: HrActor, autoApprove: boolean) {
+  if (autoApprove && employeeUserId === actor.id) throw new HrError(409, "申請人不可透過後台直接核准自己的加班申請。 ");
+}
+
 export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInput, actor: HrActor, options: HrOvertimeRequestCreateOptions = {}) {
   validateOvertimeInput(input);
   const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd);
   await ensureScope(db, employmentId, input.scopeId ?? null, input.requestedStart, input.requestedEnd);
   const id = crypto.randomUUID();
   const autoApprove = options.autoApprove === true;
-  if (autoApprove && input.employeeUserId === actor.id) throw new HrError(409, "申請人不可透過後台直接核准自己的加班申請。 ");
-  const status = autoApprove ? "approved" : "pending";
-  const actualStart = autoApprove ? input.requestedStart : null;
-  const actualEnd = autoApprove ? input.requestedEnd : null;
-  const reviewedBy = autoApprove ? actor.id : null;
-  const decisionReason = autoApprove ? "HR 後台建立後直接核准" : "";
+  assertNotSelfApproved(input.employeeUserId, actor, autoApprove);
   try {
-    // overlap guard 放在 INSERT ... SELECT 內，和唯一鍵一起由同一個 D1 batch 仲裁，
-    // 不讓兩個同時送出的申請都通過先查後寫的 race。後台代登雖直接核准，仍保留
-    // approved／reviewed 欄位，讓未來本人入口切回 pending 時不必換資料模型。
-    await writeHrMutation(db, sql`INSERT INTO hr_overtime_requests
-      (id, employment_id, scope_id, requested_start, requested_end, actual_start, actual_end, settlement_kind, status, rate_ppm, reason, reviewed_by, reviewed_at, decision_reason, created_by)
-      SELECT ${id}, ${employmentId}, ${input.scopeId ?? null}, ${input.requestedStart}, ${input.requestedEnd}, ${actualStart}, ${actualEnd}, ${input.settlementKind}, ${status}, ${DEFAULT_OVERTIME_RATE_PPM}, ${input.reason.trim()}, ${reviewedBy}, ${autoApprove ? sql`CURRENT_TIMESTAMP` : sql`NULL`}, ${decisionReason}, ${actor.id}
-      WHERE EXISTS (
-        SELECT 1 FROM hr_employments AS current_employment
-        WHERE current_employment.id=${employmentId}
-          AND current_employment.employee_user_id=${input.employeeUserId}
-          AND current_employment.archived_at IS NULL
-      )
-        AND NOT EXISTS (
-        SELECT 1 FROM hr_overtime_requests AS existing_request
-        WHERE existing_request.employment_id=${employmentId}
-          AND existing_request.status IN ('draft', 'pending', 'approved')
-          AND existing_request.requested_start < ${input.requestedEnd}
-          AND existing_request.requested_end > ${input.requestedStart}
-      ) RETURNING id`, id, actor, "overtime_request_created", "相同或重疊的加班時段、活動員工或資料不合法。 ");
+    await writeHrMutation(db, insertOvertimeRequest(id, employmentId, input, actor, autoApprove), id, actor, "overtime_request_created", CREATE_CONFLICT_MESSAGE);
   } catch (error) {
-    if (error instanceof HrError) throw error;
-    if (error instanceof Error && /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed/.test(error.message)) throw new HrError(409, "相同或重疊的加班時段、活動員工或資料不合法。 ");
-    throw error;
+    rethrowCreateConflict(error);
   }
   return { id };
+}
+
+async function listActiveOvertimeBetween(db: Database, employmentId: string, start: string, end: string) {
+  return db.select({ requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd, status: hrOvertimeRequests.status })
+    .from(hrOvertimeRequests)
+    .where(and(
+      eq(hrOvertimeRequests.employmentId, employmentId),
+      inArray(hrOvertimeRequests.status, ACTIVE_OVERTIME_STATUSES),
+      sql`${hrOvertimeRequests.requestedStart} < ${end}`,
+      sql`${hrOvertimeRequests.requestedEnd} > ${start}`,
+    ))
+    .orderBy(asc(hrOvertimeRequests.requestedStart));
+}
+
+/**
+ * 整批全有或全無：一個月的加班是一起對帳的，只建一半的話 HR 得自己找出哪幾天漏了。
+ * 先查一次是為了能說出是哪幾天撞到；真正擋 race 的仍是每一句 INSERT 自己的 guard。
+ */
+export async function createHrOvertimeRequests(db: Database, input: HrOvertimeBatchInput, actor: HrActor, options: HrOvertimeRequestCreateOptions = {}) {
+  if (!input.entries.length) throw new HrError(400, "請至少選擇一天加班。 ");
+  if (input.entries.length > MAX_OVERTIME_BATCH_ENTRIES) throw new HrError(400, `一次最多建立 ${MAX_OVERTIME_BATCH_ENTRIES} 筆加班申請。 `);
+  const autoApprove = options.autoApprove === true;
+  assertNotSelfApproved(input.employeeUserId, actor, autoApprove);
+  const entries = input.entries
+    .map((entry) => ({ requestedStart: entry.requestedStart, requestedEnd: entry.requestedEnd, employeeUserId: input.employeeUserId, settlementKind: input.settlementKind, reason: input.reason }))
+    .sort((a, b) => a.requestedStart.localeCompare(b.requestedStart));
+  for (const entry of entries) validateOvertimeInput(entry);
+  const dateOf = (entry: { requestedStart: string }) => taipeiDate(stamp(entry.requestedStart));
+  const selfOverlap = entries.find((entry, index) => index > 0 && entries[index - 1]!.requestedEnd > entry.requestedStart);
+  if (selfOverlap) throw new HrError(400, `${dateOf(selfOverlap)} 的加班時段彼此重疊。 `);
+
+  const employmentId = await employmentIdFor(db, input.employeeUserId);
+  const lastEnd = entries.reduce((latest, entry) => entry.requestedEnd > latest ? entry.requestedEnd : latest, "");
+  const existing = await listActiveOvertimeBetween(db, employmentId, entries[0]!.requestedStart, lastEnd);
+  const blocked = entries.filter((entry) => existing.some((row) => row.requestedStart < entry.requestedEnd && row.requestedEnd > entry.requestedStart));
+  if (blocked.length) throw new HrError(409, `${blocked.map(dateOf).join("、")} 已有重疊的加班申請，整批都沒有建立。 `);
+
+  const ids = entries.map(() => crypto.randomUUID());
+  try {
+    await writeHrMutation(db, entries.map((entry, index) => insertOvertimeRequest(ids[index]!, employmentId, entry, actor, autoApprove)), ids[0]!, actor, "overtime_requests_created", CREATE_CONFLICT_MESSAGE, { activity: { payload: { requestIds: ids } } });
+  } catch (error) {
+    rethrowCreateConflict(error);
+  }
+  return { ids };
+}
+
+export async function listHrOvertimeDays(db: Database, input: { employeeUserId: string; startsOn: string; endsOn: string }): Promise<HrOvertimeDay[]> {
+  const spanDays = (Date.parse(`${input.endsOn}T00:00:00Z`) - Date.parse(`${input.startsOn}T00:00:00Z`)) / 86_400_000;
+  if (!(spanDays >= 1 && spanDays <= MAX_OVERTIME_DAY_RANGE)) throw new HrError(400, `查詢期間必須是 1～${MAX_OVERTIME_DAY_RANGE} 天。 `);
+  const employmentId = await employmentIdFor(db, input.employeeUserId);
+  const [workdayEnds, existing] = await Promise.all([
+    listHrWorkdayEnds(db, employmentId, input.startsOn, input.endsOn),
+    listActiveOvertimeBetween(db, employmentId, taipeiMidnightUtc(input.startsOn), taipeiMidnightUtc(input.endsOn)),
+  ]);
+  return datesBetween(input.startsOn, input.endsOn).map((date) => {
+    const shiftEnd = workdayEnds.get(date);
+    return {
+      date,
+      shiftEnd: shiftEnd === undefined ? null : utcStamp(shiftEnd),
+      existing: existing.filter((row) => taipeiDate(stamp(row.requestedStart)) === date),
+    };
+  });
 }
 
 export async function updateHrOvertimeRequest(db: Database, id: string, input: HrOvertimeInput, actor: HrActor) {

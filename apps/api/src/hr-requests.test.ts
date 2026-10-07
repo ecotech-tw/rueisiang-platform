@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -192,6 +192,80 @@ describe("HR 申請中心", () => {
     expect(leave.status).toBe(409);
     const overtime = await request("/hr/requests/overtime", "POST", { employeeUserId: "admin", requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T20:00", settlementKind: "pay", reason: "自審測試" });
     expect(overtime.status).toBe(409);
+  });
+
+  it("批次代登加班整批全有或全無，並指出是哪一天撞到既有申請", async () => {
+    await assignEmployee();
+    const entries = [
+      { requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T18:30" },
+      { requestedStart: "2026-01-07T18:00", requestedEnd: "2026-01-07T19:00" },
+    ];
+    const created = await request("/hr/requests/overtime/batch", "POST", { employeeUserId: "employee", settlementKind: "pay", reason: "", entries });
+    expect(created.status, await created.clone().text()).toBe(201);
+    expect((await created.json() as { ids: string[] }).ids).toHaveLength(2);
+    const afterCreate = await (await request("/hr/requests")).json() as { overtime: Array<{ request: { status: string; actualStart: string | null } }> };
+    expect(afterCreate.overtime).toHaveLength(2);
+    expect(afterCreate.overtime.every((item) => item.request.status === "approved" && item.request.actualStart)).toBe(true);
+
+    const blocked = await request("/hr/requests/overtime/batch", "POST", { employeeUserId: "employee", settlementKind: "pay", reason: "", entries: [
+      { requestedStart: "2026-01-08T18:00", requestedEnd: "2026-01-08T19:00" },
+      { requestedStart: "2026-01-07T18:30", requestedEnd: "2026-01-07T19:30" },
+    ] });
+    expect(blocked.status).toBe(409);
+    expect(await blocked.text()).toContain("2026-01-07");
+    const afterBlocked = await (await request("/hr/requests")).json() as { overtime: unknown[] };
+    expect(afterBlocked.overtime).toHaveLength(2);
+
+    const batch = (payload: Record<string, unknown>) => request("/hr/requests/overtime/batch", "POST", { employeeUserId: "employee", settlementKind: "pay", reason: "", ...payload });
+    expect((await batch({ entries: [] })).status).toBe(400);
+    expect((await batch({ entries: [{ requestedStart: "2026-01-09T18:00", requestedEnd: "2026-01-09T18:20" }] })).status).toBe(400);
+    expect((await batch({ entries: [
+      { requestedStart: "2026-01-09T18:00", requestedEnd: "2026-01-09T19:00" },
+      { requestedStart: "2026-01-09T18:30", requestedEnd: "2026-01-09T19:30" },
+    ] })).status).toBe(400);
+    expect((await batch({ entries: Array.from({ length: 32 }, (_, index) => ({ requestedStart: `2026-03-${String(index % 28 + 1).padStart(2, "0")}T18:00`, requestedEnd: `2026-03-${String(index % 28 + 1).padStart(2, "0")}T19:00` })) })).status).toBe(400);
+    expect((await batch({ entries }, )).status).toBe(409);
+    expect((await request("/hr/requests/overtime/batch", "POST", { employeeUserId: "employee", settlementKind: "pay", reason: "", entries: [{ requestedStart: "2026-01-12T18:00", requestedEnd: "2026-01-12T19:00" }] }, employeeCookie)).status).toBe(403);
+    const afterInvalid = await (await request("/hr/requests")).json() as { overtime: unknown[] };
+    expect(afterInvalid.overtime).toHaveLength(2);
+  });
+
+  it("加班日曆帶出每天的下班時間與已存在的申請", async () => {
+    await assignEmployee();
+    const days = async () => {
+      const response = await request("/hr/requests/overtime-days?employeeUserId=employee&startsOn=2026-01-05&endsOn=2026-01-08");
+      expect(response.status, await response.clone().text()).toBe(200);
+      return (await response.json() as { days: Array<{ date: string; shiftEnd: string | null; existing: Array<{ requestedStart: string; status: string }> }> }).days;
+    };
+
+    // 一般辦公沒有逐日班表：每天都是公司標準下班時間（台北 18:00）。
+    expect(await days()).toEqual([
+      { date: "2026-01-05", shiftEnd: "2026-01-05 10:00:00", existing: [] },
+      { date: "2026-01-06", shiftEnd: "2026-01-06 10:00:00", existing: [] },
+      { date: "2026-01-07", shiftEnd: "2026-01-07 10:00:00", existing: [] },
+    ]);
+
+    const db = createDatabase(d1 as never);
+    const employment = d1.sqlite.prepare("SELECT id FROM hr_employments WHERE employee_user_id=? AND archived_at IS NULL").get("employee") as { id: string };
+    await db.insert(scopes).values({ id: "scope-counter", sourceType: "manual", scopeKind: "store", name: "測試櫃點", normalizedName: "測試櫃點" });
+    await db.insert(hrShiftTemplates).values({ id: "overtime-shift", code: "overtime-shift", name: "加班測試班", createdBy: "admin" });
+    await db.insert(hrShiftVersions).values({ id: "overtime-shift-v1", shiftTemplateId: "overtime-shift", dayType: "weekday", versionNumber: 1, startSecond: 11 * 3600, endSecond: 20 * 3600, standardMinutes: 480, breakMinutes: 60, createdBy: "admin" });
+    await db.insert(hrScheduleVersions).values({ id: "overtime-schedule-2026-01", periodStart: "2026-01-01", periodEnd: "2026-02-01", versionNumber: 1, status: "published", submittedBy: "admin", approvedBy: "admin" });
+    await db.insert(hrScheduleEntries).values([
+      { id: "overtime-entry-06", scheduleVersionId: "overtime-schedule-2026-01", employmentId: employment.id, scopeId: "scope-counter", shiftVersionId: "overtime-shift-v1", workDate: "2026-01-06", startsAt: "2026-01-06 11:00:00", endsAt: "2026-01-06 20:00:00", standardMinutes: 480, breakMinutes: 60, createdBy: "admin" },
+    ]);
+    const overtime = await request("/hr/requests/overtime", "POST", { employeeUserId: "employee", requestedStart: "2026-01-06T20:00", requestedEnd: "2026-01-06T21:00", settlementKind: "pay", reason: "" });
+    expect(overtime.status, await overtime.clone().text()).toBe(201);
+
+    // 有已發布班表後只認班表：沒排班的日子沒有可帶入的下班時間。
+    expect(await days()).toEqual([
+      { date: "2026-01-05", shiftEnd: null, existing: [] },
+      { date: "2026-01-06", shiftEnd: "2026-01-06 12:00:00", existing: [expect.objectContaining({ requestedStart: "2026-01-06 12:00:00", status: "approved" })] },
+      { date: "2026-01-07", shiftEnd: null, existing: [] },
+    ]);
+
+    expect((await request("/hr/requests/overtime-days?employeeUserId=employee&startsOn=2026-01-05&endsOn=2026-01-05")).status).toBe(400);
+    expect((await request("/hr/requests/overtime-days?employeeUserId=employee&startsOn=2026-01-05&endsOn=2026-01-08", "GET", undefined, employeeCookie)).status).toBe(403);
   });
 
   it("已被月度人工假勤使用的假別不可重新分類為特休", async () => {

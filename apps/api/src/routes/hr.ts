@@ -12,7 +12,7 @@ import {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
-  cancelHrOvertimeRequest, createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
+  cancelHrOvertimeRequest, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
   calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
@@ -366,9 +366,22 @@ function optionalDateTimeValue(input: Record<string, unknown>, key: string, labe
   if (input[key] === undefined || input[key] === null || input[key] === "") return undefined;
   return dateTimeValue(input, key, label);
 }
-function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
+function overtimeSettlementKind(input: Record<string, unknown>) {
   const settlementKind = input.settlementKind === "pay" || input.settlementKind === "compensatory" ? input.settlementKind : null;
   if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
+  return settlementKind;
+}
+function overtimeBatchInput(input: Record<string, unknown>, employeeUserId: string) {
+  if (!Array.isArray(input.entries)) throw new HTTPException(400, { message: "請至少選擇一天加班。" });
+  const entries = input.entries.map((entry: unknown) => {
+    if (!entry || typeof entry !== "object") throw new HTTPException(400, { message: "加班時段格式不正確。" });
+    const values = entry as Record<string, unknown>;
+    return { requestedStart: dateTimeValue(values, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(values, "requestedEnd", "加班結束") };
+  });
+  return { employeeUserId, settlementKind: overtimeSettlementKind(input), reason: nullableText(input, "reason", "加班原因", 1000) ?? "", entries } as const;
+}
+function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
+  const settlementKind = overtimeSettlementKind(input);
   return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), revision: input.revision === undefined ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER), reason: nullableText(input, "reason", "加班原因", 1000) ?? "" } as const;
 }
 function leaveDateTimeValue(input: Record<string, unknown>, key: "startsAt" | "endsAt", alias: "startAt" | "endAt", label: string) {
@@ -671,6 +684,14 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     const employeeUserId = text(input, "employeeUserId", "員工");
     return c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(input, employeeUserId), c.get("user"), { autoApprove: true }), 201);
+  })
+  .post("/requests/overtime/batch", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    return c.json(await createHrOvertimeRequests(c.get("db"), overtimeBatchInput(input, text(input, "employeeUserId", "員工")), c.get("user"), { autoApprove: true }), 201);
+  })
+  .get("/requests/overtime-days", requirePermission("hr:request:review"), async (c) => {
+    const query = { employeeUserId: c.req.query("employeeUserId"), startsOn: c.req.query("startsOn"), endsOn: c.req.query("endsOn") };
+    return c.json({ days: await listHrOvertimeDays(c.get("db"), { employeeUserId: text(query, "employeeUserId", "員工"), startsOn: date(query, "startsOn")!, endsOn: date(query, "endsOn")! }) });
   })
   .post("/requests/overtime/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
   .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {

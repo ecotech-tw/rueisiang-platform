@@ -83,7 +83,7 @@ function nextTaipeiDate(value: string) {
   return shiftTaipeiDate(value, 1);
 }
 
-function datesBetween(startsOn: string, endsOn: string) {
+export function datesBetween(startsOn: string, endsOn: string) {
   const dates: string[] = [];
   for (let date = startsOn; date < endsOn; date = nextTaipeiDate(date)) dates.push(date);
   return dates;
@@ -206,14 +206,37 @@ function calculateScheduledWorkdayBreakdown(rows: LeaveScheduleRow[], startsAt: 
   return breakdown;
 }
 
-async function calculateLeaveWorkdayBreakdown(db: Database, employmentId: string, startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
+async function loadWorkdaySchedules(db: Database, employmentId: string, startsOn: string, endsOn: string) {
   const [setting] = await db.select({ attendanceMode: hrEmploymentAttendanceSettings.attendanceMode })
     .from(hrEmploymentAttendanceSettings)
     .where(eq(hrEmploymentAttendanceSettings.employmentId, employmentId))
     .limit(1);
   const schedules = await listPublishedLeaveSchedules(db, employmentId, startsOn, endsOn);
-  if (schedules.length || setting?.attendanceMode === "scheduled") return calculateScheduledWorkdayBreakdown(schedules, startsAt, endsAt);
+  return { schedules, scheduled: schedules.length > 0 || setting?.attendanceMode === "scheduled" };
+}
+
+async function calculateLeaveWorkdayBreakdown(db: Database, employmentId: string, startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
+  const { schedules, scheduled } = await loadWorkdaySchedules(db, employmentId, startsOn, endsOn);
+  if (scheduled) return calculateScheduledWorkdayBreakdown(schedules, startsAt, endsAt);
   return calculateStandardWorkdayBreakdown(startsAt, endsAt, startsOn, endsOn);
+}
+
+/**
+ * 加班的預設起算點與請假時數讀同一份「當天排到幾點」，兩邊對班表的解讀才不會漂移。
+ * 排班制沒有班次的日子不會出現在結果裡；一般辦公沒有逐日班表時沿用公司標準下班時間。
+ */
+export async function listHrWorkdayEnds(db: Database, employmentId: string, startsOn: string, endsOn: string) {
+  const { schedules, scheduled } = await loadWorkdaySchedules(db, employmentId, startsOn, endsOn);
+  const ends = new Map<string, number>();
+  if (!scheduled) {
+    for (const date of datesBetween(startsOn, endsOn)) ends.set(date, canonicalTaipeiTime(date, STANDARD_WORKDAY_END, "一般辦公結束時間"));
+    return ends;
+  }
+  for (const row of schedules) {
+    if (row.workDate < startsOn || row.workDate >= endsOn) continue;
+    ends.set(row.workDate, Math.max(ends.get(row.workDate) ?? 0, scheduleWindow(row).scheduleEnd));
+  }
+  return ends;
 }
 
 export async function calculateHrLeaveWorkdayBreakdown(db: Database, input: { employmentId: string; startsAt: string; endsAt: string; startsOn: string; endsOn: string }) {
