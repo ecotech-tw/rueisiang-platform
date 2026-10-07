@@ -3460,6 +3460,60 @@
 .manual-sales-step .admin-form.toolbar select { max-width: none; }
 .manual-sales-sku-input { min-width: 150px; max-width: 220px; }
 
+/* HR employee actions use the same semantic colors as the management station. */
+.hr-module-self .primary-button.add-action {
+  background: var(--color-ok);
+  color: var(--color-paper);
+}
+.hr-module-self .primary-button.add-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ok) 86%, var(--color-ink));
+}
+.hr-module-self .ghost-button.add-action,
+.hr-module-self .chip-action.add-action {
+  border-color: var(--color-ok);
+  background: var(--color-ok-soft);
+  color: var(--color-ok);
+}
+.hr-module-self .ghost-button.add-action:hover:not(:disabled),
+.hr-module-self .chip-action.add-action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-ok-soft) 86%, var(--color-ok));
+}
+.hr-module-self .primary-button.hr-action-info,
+.hr-module-self .primary-button.hr-action-update {
+  background: var(--color-info);
+  color: var(--color-paper);
+}
+.hr-module-self .primary-button.hr-action-info:hover:not(:disabled),
+.hr-module-self .primary-button.hr-action-update:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-info) 86%, var(--color-ink));
+}
+.hr-module-self .ghost-button.hr-action-info,
+.hr-module-self .ghost-button.hr-action-update {
+  border-color: var(--color-info);
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+.hr-module-self .ghost-button.hr-action-info:hover:not(:disabled),
+.hr-module-self .ghost-button.hr-action-update:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-info-soft) 86%, var(--color-info));
+}
+.hr-module-self .icon-button.hr-action-info,
+.hr-module-self .icon-button.hr-action-update {
+  color: var(--color-info);
+}
+.hr-module-self .icon-button.hr-action-info:hover:not(:disabled),
+.hr-module-self .icon-button.hr-action-update:hover:not(:disabled) {
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
+.hr-module-self .icon-button.add-action {
+  color: var(--color-ok);
+}
+.hr-module-self .icon-button.add-action:hover:not(:disabled) {
+  background: var(--color-ok-soft);
+  color: var(--color-ok);
+}
+
 @media (max-width: 760px) {
   .hr-module-self { padding-bottom: 84px; }
   .shell:has(.hr-clock-full-page) .mobile-topbar { background: transparent; border-bottom-color: transparent; }
