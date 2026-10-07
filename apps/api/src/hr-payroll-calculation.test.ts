@@ -976,6 +976,23 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await records.json() as { records: Array<{ personKind: string; personId: string; personName: string; payBasis: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ personKind: "worker", personId: workerId, personName: "測試支援人員", payBasis: "daily" })]));
   });
 
+  it("支援人員沒有排班時，特殊上班日月／日薪仍可計入薪資", async () => {
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "無排班特殊日支援人員" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const workerId = (await worker.json() as { id: string }).id;
+    const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 320_000, note: "無排班特殊日測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const rule = await request("/hr/special-workdays/rules", "POST", { name: "無排班特殊日倍率", validFrom: "2026-09-01", wageKind: "multiplier", multiplierPpm: 1_500_000, overtimeRules: [], allowances: [] });
+    expect(rule.status, await rule.clone().text()).toBe(201);
+    const ruleId = (await rule.json() as { id: string }).id;
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ workerId, workDate: "2026-09-03", allowanceQuantities: [] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-special-no-schedule-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; workerName: string; payBasis: string; scheduledDays: number; amountMinor: number }> } };
+    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "無排班特殊日支援人員", payBasis: "daily", scheduledDays: 1, amountMinor: 480_000 })]));
+  });
+
   it("薪資結算可只選指定的支援人員，並保存支援人員選取範圍", async () => {
     const firstWorkerResponse = await request("/hr/schedule-workers", "POST", { displayName: "指定支援人員甲" });
     const secondWorkerResponse = await request("/hr/schedule-workers", "POST", { displayName: "未指定支援人員乙" });

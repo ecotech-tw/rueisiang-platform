@@ -902,16 +902,33 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`,
     ));
   const requestedWorkerIds = input.workerIds;
-  const scheduledWorkerIdSet = new Set(scheduledWorkerRowsAll.map((row) => row.workerId));
-  const missingWorkerIds = requestedWorkerIds?.filter((workerId) => !scheduledWorkerIdSet.has(workerId)) ?? [];
+  // 特殊上班日不要求先有排班；沒有班表的支援人員用零工時列進來，月／日薪仍可依日期計算，固定時薪則由下方異常提示處理。
+  const specialWorkdays = await listHrSpecialWorkdaysForPayroll(db, period.start, period.end, requestedWorkerIds === undefined ? undefined : { employmentIds: employees.map((employee) => employee.employmentId), workerIds: requestedWorkerIds });
+  const specialWorkerIds = [...new Set(specialWorkdays.flatMap((item) => item.workerId ? [item.workerId] : []))];
+  const specialWorkerNames = specialWorkerIds.length
+    ? await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inJsonArray(hrScheduleWorkers.id, specialWorkerIds))
+    : [];
+  const specialWorkerNameById = new Map(specialWorkerNames.map((worker) => [worker.id, worker.displayName]));
+  type WorkerScheduleRow = typeof scheduledWorkerRowsAll[number];
+  const scheduledWorkerDates = new Set(scheduledWorkerRowsAll.map((row) => `${row.workerId}:${row.workDate}`));
+  const specialWorkerRows: WorkerScheduleRow[] = specialWorkdays.flatMap((item) => {
+    if (!item.workerId || scheduledWorkerDates.has(`${item.workerId}:${item.workDate}`)) return [];
+    const workerName = specialWorkerNameById.get(item.workerId);
+    if (!workerName) return [];
+    const midnight = `${item.workDate}T00:00:00Z`;
+    return [{ workerId: item.workerId, workerName, scopeId: "special-workday", workDate: item.workDate, startsAt: midnight, endsAt: midnight, standardMinutes: 0, breakMinutes: 0 }];
+  });
+  const workerRowsAll: WorkerScheduleRow[] = [...scheduledWorkerRowsAll, ...specialWorkerRows];
+  const eligibleWorkerIdSet = new Set(workerRowsAll.map((row) => row.workerId));
+  const missingWorkerIds = requestedWorkerIds?.filter((workerId) => !eligibleWorkerIdSet.has(workerId)) ?? [];
   if (missingWorkerIds.length) {
     const missingWorkers = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inJsonArray(hrScheduleWorkers.id, missingWorkerIds));
     const namesById = new Map(missingWorkers.map((worker) => [worker.id, worker.displayName]));
-    throw new HrError(400, `以下支援人員在 ${period.periodKey} 沒有已發布排班，無法計算薪資：${missingWorkerIds.map((workerId) => namesById.get(workerId) ?? workerId).join("、")}。`);
+    throw new HrError(400, `以下支援人員在 ${period.periodKey} 沒有已發布排班或特殊上班日套用，無法計算薪資：${missingWorkerIds.map((workerId) => namesById.get(workerId) ?? workerId).join("、")}。`);
   }
   const scheduledWorkerRows = requestedWorkerIds === undefined
-    ? scheduledWorkerRowsAll
-    : scheduledWorkerRowsAll.filter((row) => requestedWorkerIds.includes(row.workerId));
+    ? workerRowsAll
+    : workerRowsAll.filter((row) => requestedWorkerIds.includes(row.workerId));
   const selectedWorkerIds = [...new Set(scheduledWorkerRows.map((row) => row.workerId))];
   const closedWorkerRows = selectedWorkerIds.length ? await db.all<{ workerId: string }>(sql`
     SELECT DISTINCT worker_result.worker_id AS workerId
@@ -981,10 +998,6 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const missingWorkerCompensation = scheduledWorkerRows.flatMap((row) => !covering(workerCompensations.filter((item) => item.workerId === row.workerId), row.workDate) ? [`${row.workerName}（${row.workDate}）`] : []);
   if (missingWorkerCompensation.length) throw new HrError(400, `以下支援排班日期沒有有效薪資基準：${missingWorkerCompensation.slice(0, 10).join("、")}${missingWorkerCompensation.length > 10 ? "…" : ""}。`);
   const payrollAdjustments = await listHrPayrollAdjustmentsForPeriod(db, period.periodKey);
-  const specialWorkdays = await listHrSpecialWorkdaysForPayroll(db, period.start, period.end, {
-    employmentIds: employees.map((employee) => employee.employmentId),
-    workerIds: [...new Set(scheduledWorkerRows.map((row) => row.workerId))],
-  });
   const periodStartUtc = taipeiMidnightUtc(period.start);
   const periodEndUtc = taipeiMidnightUtc(period.end);
   const overtime = await db.select().from(hrOvertimeRequests).where(and(

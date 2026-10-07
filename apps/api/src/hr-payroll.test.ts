@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { desc, eq } from "drizzle-orm";
 import { createDatabase, parseSpecialWorkdayAllowanceSnapshot, specialWorkdayAllowanceTotal, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, hrInsuranceVersions, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { activityEvents, hrInsuranceVersions, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -408,6 +408,8 @@ describe("HR 薪資與勞健保", () => {
     const adminEmploymentId = adminProfile.employments[0]!.id;
     const invalid = await request("/hr/special-workdays/rules", "POST", { name: "不連續特殊日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [{ fromHalfHours: 2, toHalfHours: null, rateKind: "multiplier", multiplierPpm: 1_500_000 }], allowances: [] });
     expect(invalid.status, await invalid.clone().text()).toBe(400);
+    const duplicateAllowance = await request("/hr/special-workdays/rules", "POST", { name: "重複補貼名稱", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [], allowances: [{ itemName: "餐費", unitAmountMinor: 0 }, { itemName: " 餐費 ", unitAmountMinor: 100 }] });
+    expect(duplicateAllowance.status, await duplicateAllowance.clone().text()).toBe(400);
     const created = await request("/hr/special-workdays/rules", "POST", { name: "測試國定日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [{ fromHalfHours: 1, toHalfHours: 4, rateKind: "multiplier", multiplierPpm: 1_500_000 }, { fromHalfHours: 5, toHalfHours: null, rateKind: "fixed_hourly", fixedAmountMinor: 35000 }], allowances: [{ itemName: "餐費", unitAmountMinor: 0 }, { itemName: "交通補貼", unitAmountMinor: 12000 }] });
     expect(created.status, await created.clone().text()).toBe(201);
     const createdBody = await created.json() as { id: string; versionId: string };
@@ -466,6 +468,42 @@ describe("HR 薪資與勞健保", () => {
     const secondId = secondRows.assignments.find((item) => item.assignment.employmentId === employmentId)!.assignment.id;
     const duplicate = await request(`/hr/special-workdays/assignments/${secondId}`, "PATCH", { ruleId: replacementRuleId, employmentId: adminEmploymentId, workDate: "2026-04-02", allowanceQuantities: [{ allowanceId: replacementAllowanceId, quantity: 0 }] });
     expect(duplicate.status, await duplicate.clone().text()).toBe(409);
+  });
+
+  it("特殊上班日不能套用或編輯到停用帳號", async () => {
+    await assign();
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values({ id: "disabled-employee", email: "disabled-employee@example.test", displayName: "停用員工", status: "active" });
+    await assignUser("disabled-employee", "E-DISABLED");
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, "disabled-employee"));
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const disabledProfile = await (await request("/hr/employees/disabled-employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const disabledEmploymentId = disabledProfile.employments[0]!.id;
+    const created = await request("/hr/special-workdays/rules", "POST", { name: "停用帳號特殊日", validFrom: "2026-01-01", wageKind: "multiplier", multiplierPpm: 1_500_000, overtimeRules: [], allowances: [] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id: ruleId } = await created.json() as { id: string };
+    const rejectedCreate = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId: disabledEmploymentId, workDate: "2026-04-01", allowanceQuantities: [] }] });
+    expect(rejectedCreate.status, await rejectedCreate.clone().text()).toBe(400);
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId, workDate: "2026-04-01", allowanceQuantities: [] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const rows = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string } }> };
+    const rejectedUpdate = await request(`/hr/special-workdays/assignments/${rows.assignments[0]!.assignment.id}`, "PATCH", { ruleId, employmentId: disabledEmploymentId, workDate: "2026-04-02", allowanceQuantities: [] });
+    expect(rejectedUpdate.status, await rejectedUpdate.clone().text()).toBe(400);
+  });
+
+  it("出勤設定讀取權限可以取得支援人員名單", async () => {
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "特殊日支援名單" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const adminCookie = cookies.admin!;
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values({ id: "office-reader", email: "office-reader@example.test", displayName: "出勤設定讀取者", status: "active" });
+    await db.insert(userPermissionGrants).values({ userId: "office-reader", permission: "hr:office:read" });
+    cookies = { admin: `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "office-reader", email: "office-reader@example.test", name: "出勤設定讀取者", pictureUrl: "" }), SECRET))}` };
+    const listed = await request("/hr/schedule-workers");
+    expect(listed.status, await listed.clone().text()).toBe(200);
+    expect((await listed.json() as { workers: Array<{ displayName: string }> }).workers).toEqual(expect.arrayContaining([expect.objectContaining({ displayName: "特殊日支援名單" })]));
+    cookies = { admin: adminCookie };
   });
 
   it("特殊上班日可以一次套用超過一百人，不會超過 D1 的綁定參數上限", async () => {
