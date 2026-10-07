@@ -414,7 +414,11 @@ describe("HR 申請中心", () => {
     expect((await request(`/hr/me/overtime/${approvedForEmployeeId}/cancel`, "POST", {}, employeeCookie)).status).toBe(404);
     const audit = d1.sqlite.prepare("SELECT entity_label, payload_json FROM activity_events WHERE event_type='overtime_request_cancelled' AND entity_id=?").get(approvedForAdminId) as { entity_label: string; payload_json: string };
     expect(audit.entity_label).toBe("申請員工");
-    expect(JSON.parse(audit.payload_json)).toMatchObject({ status: "approved", requestedStart: "2026-02-08 10:00:00", requestedEnd: "2026-02-08 12:00:00", settlementKind: "pay", reason: "管理端取消測試" });
+    expect(JSON.parse(audit.payload_json)).toMatchObject({
+      id: approvedForAdminId, employeeUserId: "employee", status: "approved", requestedStart: "2026-02-08 10:00:00", requestedEnd: "2026-02-08 12:00:00",
+      actualStart: "2026-02-08 10:00:00", actualEnd: "2026-02-08 12:00:00", settlementKind: "pay", ratePpm: 1_333_333, reason: "管理端取消測試",
+      reviewedBy: "admin", reviewedAt: expect.any(String), decisionReason: "HR 後台建立後直接核准", createdBy: "admin", createdAt: expect.any(String),
+    });
 
     // 刪掉之後同一個時段可以重新申請，單筆與批次都一樣。
     const again = await request("/hr/requests/overtime", "POST", { employeeUserId: "employee", requestedStart: "2026-02-08T18:00", requestedEnd: "2026-02-08T20:00", settlementKind: "pay", reason: "" });

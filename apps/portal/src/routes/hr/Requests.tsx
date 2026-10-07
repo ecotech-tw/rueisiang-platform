@@ -218,6 +218,7 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
     <dl><dt>申請期間</dt><dd>{row.period}</dd><dt>申請內容</dt><dd>{row.detail}</dd><dt>原因</dt><dd>{row.reason}</dd></dl>
     {row.kind === "overtime" && !isApprovedCancellable ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><input type="datetime-local" step="60" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><input type="datetime-local" step="60" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
     {isApprovedCancellable ? <p className="muted field-note">{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</p> : <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
+    {row.kind === "overtime" && row.status === "pending" ? <p className="muted field-note">按「取消申請」會直接刪除這筆加班，不會留在申請紀錄。</p> : null}
     {review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
   </Dialog>;
 }
