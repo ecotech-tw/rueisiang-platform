@@ -80,7 +80,7 @@ describe("HR 薪資與出勤設定 migration", () => {
       `);
       apply(sqlite, "0203_mysterious_newton_destine.sql");
       sqlite.exec("UPDATE hr_payroll_runs SET status='closed' WHERE id='r'; UPDATE hr_payroll_periods SET status='closed' WHERE id='p'; INSERT INTO hr_payroll_withdrawals(payroll_run_id,reason,withdrawn_by) VALUES ('r','撤回原因','u')");
-      apply(sqlite, "0204_payroll_withdrawal_rollback.sql");
+      apply(sqlite, "0207_payroll_withdrawal_rollback.sql");
       expect(sqlite.prepare("SELECT status FROM hr_payroll_runs WHERE id='r'").get()).toEqual({ status: "ready" });
       expect(sqlite.prepare("SELECT status FROM hr_payroll_periods WHERE id='p'").get()).toEqual({ status: "open" });
       expect(sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_closed_employees WHERE payroll_run_id='r'").get()).toEqual({ count: 0 });
