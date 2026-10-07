@@ -370,7 +370,8 @@ export async function updateHrSpecialWorkdayAssignment(db: Database, assignmentI
   }
   const allowanceSnapshot = allowanceRows.map(({ id: allowanceId, itemName }) => ({ itemName, quantity: quantityByAllowanceId.get(allowanceId) ?? legacyAllowanceQuantity ?? 0 }));
   const targetChanged = existing.employmentId !== (input.employmentId ?? null) || existing.workerId !== (input.workerId ?? null);
-  if (targetChanged) {
+  const targetNeedsCurrentValidity = targetChanged || existing.workDate !== input.workDate;
+  if (targetNeedsCurrentValidity) {
     if (input.employmentId) {
       const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(and(eq(hrEmployments.id, input.employmentId), sql`${hrEmployments.archivedAt} IS NULL`, hrEmployableUser)).limit(1);
       if (!employment) throw new HrError(400, "員工目前不是有效員工。 ");

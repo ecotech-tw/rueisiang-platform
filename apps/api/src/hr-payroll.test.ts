@@ -490,6 +490,9 @@ describe("HR 薪資與勞健保", () => {
     const rows = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string } }> };
     const rejectedUpdate = await request(`/hr/special-workdays/assignments/${rows.assignments[0]!.assignment.id}`, "PATCH", { ruleId, employmentId: disabledEmploymentId, workDate: "2026-04-02", allowanceQuantities: [] });
     expect(rejectedUpdate.status, await rejectedUpdate.clone().text()).toBe(400);
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, "employee"));
+    const rejectedDateUpdate = await request(`/hr/special-workdays/assignments/${rows.assignments[0]!.assignment.id}`, "PATCH", { ruleId, employmentId, workDate: "2026-04-03", allowanceQuantities: [] });
+    expect(rejectedDateUpdate.status, await rejectedDateUpdate.clone().text()).toBe(400);
   });
 
   it("出勤設定讀取權限可以取得支援人員名單", async () => {
