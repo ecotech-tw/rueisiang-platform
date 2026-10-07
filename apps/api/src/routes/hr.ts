@@ -1226,7 +1226,9 @@ export const hr = new Hono<AppEnv>()
     period(validFrom, validTo);
     return c.json(await createHrCompensationVersion(c.get("db"), {
       employmentId: c.req.param("id"), validFrom, validTo, payBasis: payBasis(input),
-      baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input), items: compensationItems(input),
+      baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER),
+      overtimeHourlyMinor: input.overtimeHourlyMinor === null || input.overtimeHourlyMinor === undefined || input.overtimeHourlyMinor === "" ? null : integerValue(input, "overtimeHourlyMinor", "加班固定時薪（分）", 0, Number.MAX_SAFE_INTEGER),
+      note: noteValue(input), items: compensationItems(input),
     }, c.get("user")), 201);
   })
   .post("/employments/:id/compensation/:versionId/void", requirePermission("hr:employee:write"), async (c) => {

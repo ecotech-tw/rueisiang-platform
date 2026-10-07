@@ -19,6 +19,12 @@ export const hrCompensationVersions = sqliteTable("hr_compensation_versions", {
   validTo: text("valid_to"),
   payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly"] as const }).notNull(),
   baseAmountMinor: integer("base_amount_minor").notNull(),
+  /*
+   * 約定的加班每小時固定金額；NULL 表示照制度倍率從本薪換算。跟著敘薪版本走，
+   * 調整金額就是開新版本，舊月份的加班才不會被回頭改掉。
+   * 沒有 CHECK 的理由同 hr_compensation_items.amount_basis：加 CHECK 會變成重建表。
+   */
+  overtimeHourlyMinor: integer("overtime_hourly_minor"),
   note: text("note").notNull().default(""),
   voidedAt: text("voided_at"),
   voidedBy: text("voided_by").references(() => users.id, { onDelete: "restrict" }),

@@ -119,6 +119,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const [payBasis, setPayBasis] = useState<CompensationVersion["payBasis"]>("monthly");
   const [baseAmount, setBaseAmount] = useState("");
   const [items, setItems] = useState<SalaryItemDraft[]>([]);
+  const [overtimeHourly, setOvertimeHourly] = useState("");
   const [note, setNote] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [voidConfirmation, setVoidConfirmation] = useState(false);
@@ -138,6 +139,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     setPayBasis(templateVersion?.payBasis ?? "monthly");
     setBaseAmount(templateVersion ? String(templateVersion.baseAmountMinor / 100) : "");
     setItems((templateVersion?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
+    setOvertimeHourly(templateVersion?.overtimeHourlyMinor != null ? String(templateVersion.overtimeHourlyMinor / 100) : "");
     setNote("");
     setMessage(null);
   }, [employment, employmentVersions, suggestedValidFrom, templateVersion]);
@@ -195,9 +197,11 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
         if (seenNames.has(name)) { setMessage(`「${name}」重複了，請合併成一列或改成不同名稱。`); return; }
         seenNames.add(name);
       }
+      if (overtimeHourly.trim() && draftAmountMinor(overtimeHourly) === null) { setMessage("加班固定時薪請填非負整數的金額（元），不適用就留空。"); return; }
       setMessage(null);
       save.mutate({ path: `/employments/${employment.id}/compensation`, method: "POST", values: {
         validFrom, validTo: validTo || null, payBasis, baseAmountMinor: draftAmountMinor(baseAmount), note,
+        overtimeHourlyMinor: overtimeHourly.trim() ? draftAmountMinor(overtimeHourly) : null,
         // 型態與三個納入與否不再讓人逐項設定：一律是固定項目，並納入加班基礎、勞保／健保級距與應稅所得。
         items: items.map((item) => ({ itemName: item.name.trim(), amountMinor: draftAmountMinor(item.amount), itemKind: "fixed", amountBasis: item.basis, includeOvertime: true, includeInsurance: true, includeTax: true })),
       } }, { onSuccess: () => { toast.show(latestVersion ? "敘薪已更新。" : "敘薪已新增。"); (closeRequestRef.current ?? onClose)(); } });
@@ -220,7 +224,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     {isEditing ? <p className="form-hint">更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</p> : null}
     {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
-    {employment ? <p className="form-hint">目前職位「{employment.position}」；實際服務年資起算日 {employment.serviceStartOn ?? "未設定"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
+    {employment ? <p className="form-hint">目前職位「{employment.position}」；實際服務年資起算日 {employment.serviceStartOn ?? "未設定"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}${effectiveVersion.overtimeHourlyMinor != null ? `，加班固定 ${money(effectiveVersion.overtimeHourlyMinor)}／時` : ""}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
     {employment?.serviceStartOn && validFrom < employment.serviceStartOn ? <Alert tone="warning">這筆敘薪自 {validFrom} 生效，但服務年資起算日是 {employment.serviceStartOn}；該日期前不會被薪資試算視為在職日。若 {employment.serviceStartOn} 填錯，請先到員工管理修正。</Alert> : null}
     <div className="field-grid">
       <TextField label="生效日" type="date" value={validFrom} required hint="日薪轉月薪時，請填實際轉為月薪的第一天；若早於服務年資起算日，特休會以後者為準。" onChange={(event) => setValidFrom(event.target.value)} />
@@ -260,6 +264,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       </div>
     </div>
 
+    <TextField label="加班固定時薪（元／小時，可留空）" type="number" min="0" step="1" value={overtimeHourly} hint="留空就照制度倍率從薪資換算；有填的話，加班每小時固定給這個金額。特殊上班日設了加班級距的那一天，仍以級距為準。" onChange={(event) => setOvertimeHourly(event.target.value)} />
     <TextField label="備註" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
     {message || save.error || voidCompensation.error || profile.error ? <Alert tone="danger">{message || save.error?.message || voidCompensation.error?.message || profile.error?.message}</Alert> : null}
     </Dialog>

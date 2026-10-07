@@ -150,6 +150,8 @@ export interface HrCompensationInput {
   validTo: string | null;
   payBasis: "monthly" | "daily" | "hourly";
   baseAmountMinor: number;
+  /** 加班每小時固定金額；省略或 null 表示照制度倍率計算。 */
+  overtimeHourlyMinor?: number | null;
   note: string;
   items?: Array<{ itemName: string; amountMinor: number; itemKind: "fixed" | "variable"; amountBasis: "monthly" | "daily" | "hourly"; includeOvertime: boolean; includeInsurance: boolean; includeTax: boolean }>;
 }
@@ -157,6 +159,7 @@ export interface HrCompensationInput {
 function validateCompensationInput(input: HrCompensationInput) {
   if (!isDateOnly(input.validFrom) || (input.validTo !== null && (!isDateOnly(input.validTo) || input.validTo <= input.validFrom))) throw new HrError(400, "敘薪生效／迄日不正確。 ");
   if (!Number.isSafeInteger(input.baseAmountMinor) || input.baseAmountMinor < 0 || input.note.length > 1000) throw new HrError(400, "敘薪資料不正確。 ");
+  if (input.overtimeHourlyMinor !== undefined && input.overtimeHourlyMinor !== null && (!Number.isSafeInteger(input.overtimeHourlyMinor) || input.overtimeHourlyMinor < 0)) throw new HrError(400, "加班固定時薪不正確。 ");
   if (input.items && (input.items.length > 50 || input.items.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor) || item.amountMinor < 0 || (item.itemKind !== "fixed" && item.itemKind !== "variable") || !["monthly", "daily", "hourly"].includes(item.amountBasis) || typeof item.includeOvertime !== "boolean" || typeof item.includeInsurance !== "boolean" || typeof item.includeTax !== "boolean"))) throw new HrError(400, "薪資項目不正確。 ");
   if (input.items) {
     const itemNames = input.items.map((item) => item.itemName.trim());
@@ -185,9 +188,9 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
       WHERE id=${current.id} AND valid_to IS NULL AND voided_at IS NULL AND valid_from < ${input.validFrom} RETURNING id`]
     : [];
   const insert = sql`INSERT INTO hr_compensation_versions
-    (id, employment_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, note, created_by)
+    (id, employment_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, overtime_hourly_minor, note, created_by)
     SELECT ${id}, ${input.employmentId}, coalesce((SELECT max(version_number) + 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId}), 1),
-      ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${input.note}, ${actor.id}
+      ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${input.overtimeHourlyMinor ?? null}, ${input.note}, ${actor.id}
     WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
       AND NOT EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId} AND voided_at IS NULL
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
