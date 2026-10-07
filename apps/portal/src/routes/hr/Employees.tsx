@@ -99,8 +99,8 @@ function BasicSection({ profile }: { profile: Profile }) {
 function CompensationTable({ rows, heading = true }: { rows: CompensationVersion[]; heading?: boolean }) {
   return <>
     {heading ? <h3>職務／薪資歷史</h3> : null}
-    <DataTable><thead><tr><th>生效期間</th><th>計算方式</th><th className="numeric">金額</th><th>備註</th></tr></thead><tbody>
-      {rows.map((row) => <tr key={row.id}><td>{row.validFrom}～{row.validTo ?? "目前"}</td><td>{PAY_BASIS_LABEL[row.payBasis]}</td><td className="numeric">{money(row.baseAmountMinor)}</td><td>{row.note || "—"}</td></tr>)}
+    <DataTable><thead><tr><th>生效期間</th><th>計算方式</th><th className="numeric">金額</th><th className="numeric">加班固定時薪</th><th>備註</th></tr></thead><tbody>
+      {rows.map((row) => <tr key={row.id}><td>{row.validFrom}～{row.validTo ?? "目前"}</td><td>{PAY_BASIS_LABEL[row.payBasis]}</td><td className="numeric">{money(row.baseAmountMinor)}</td><td className="numeric">{row.overtimeHourlyMinor != null ? money(row.overtimeHourlyMinor) : "—"}</td><td>{row.note || "—"}</td></tr>)}
     </tbody></DataTable>
     {!rows.length ? <p>尚無薪資版本資料。</p> : null}
   </>;

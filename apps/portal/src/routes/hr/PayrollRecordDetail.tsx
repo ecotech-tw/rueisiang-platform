@@ -206,6 +206,7 @@ export function HrPayrollRecordDetail() {
   const { permissions, user } = useSession();
   const canRead = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:read"));
   const canCalculate = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:calculate"));
+  const [approveOpen, setApproveOpen] = useState(false);
   const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [deleteItemId, setDeleteItemId] = useState<string | null>(null);
   const [deleteRunOpen, setDeleteRunOpen] = useState(false);
@@ -232,7 +233,7 @@ export function HrPayrollRecordDetail() {
   const detailLines = payrollLinesOf(detail);
 
   function approveRecord() {
-    approve.mutate({ path: "/payroll/records/approve", method: "POST", values: { records: [{ runId: detail!.record.runId, personKind: detail!.record.personKind, personId: detail!.record.personId }] } }, { onSuccess: () => { void result.refetch(); toast.show("已確定發放。", "success"); } });
+    approve.mutate({ path: "/payroll/records/approve", method: "POST", values: { records: [{ runId: detail!.record.runId, personKind: detail!.record.personKind, personId: detail!.record.personId }] } }, { onSuccess: () => { setApproveOpen(false); void result.refetch(); toast.show("已確定發放。", "success"); } });
   }
   function removeItem() {
     if (!deleteItemId) return;
@@ -262,11 +263,14 @@ export function HrPayrollRecordDetail() {
   }
 
   return <div className="page hr-payroll-page hr-payroll-detail-page">
-    <PageHeader title={detail.record.personName} description={`${periodLabel(detail.record.periodKey)}・${PERSON_KIND_LABEL[detail.record.personKind]}・${payBasisOf(detail)}`} actions={<div className="hr-payroll-detail-page-actions"><Button variant="secondary" icon="eye" className="hr-action-info" onClick={() => setPayslipPreviewOpen(true)}>預覽薪資條</Button><Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/hr/payroll-settlement")}>返回發放紀錄</Button></div>} />
+    <PageHeader title={detail.record.personName} description={`${periodLabel(detail.record.periodKey)}・${PERSON_KIND_LABEL[detail.record.personKind]}・${payBasisOf(detail)}`} actions={<div className="hr-payroll-detail-page-actions"><Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/hr/payroll-settlement")}>返回發放紀錄</Button></div>} />
     <Panel className="hr-payroll-record-detail-panel" title="發放明細" description={`${detail.record.payDate ? `發薪日 ${detail.record.payDate}` : "未設定發薪日"}・試算版本 v${detail.record.versionNumber}`}>
       <div className="hr-payroll-detail-head">
-        <div><strong>{detail.record.personNumber ? `${detail.record.personNumber}・` : ""}{PERSON_KIND_LABEL[detail.record.personKind]}</strong><small>建立於 {detail.record.createdAt}</small></div>
-        <div className="hr-payroll-detail-actions"><StatusBadge tone={detail.record.status === "closed" ? "success" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : "尚未結算"}</StatusBadge>{canCalculate && detail.record.status === "unsettled" ? <><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={approveRecord}>確定發放</Button><Button variant="secondary" icon="tune" className="hr-action-update" disabled={deleteRun.isPending || withdraw.isPending} onClick={() => setItemDialogOpen(true)}>薪資加扣項</Button>{detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除整批試算</Button> : null}</> : null}{canCalculate && detail.record.status === "closed" && !detail.run.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回整批發放</Button> : null}</div>
+        <div className="hr-payroll-detail-status"><span className="hr-payroll-detail-status-label">發放狀態</span><StatusBadge tone={detail.record.status === "closed" ? "success" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : "尚未結算"}</StatusBadge><small>{detail.record.personNumber ? `${detail.record.personNumber}・` : ""}{PERSON_KIND_LABEL[detail.record.personKind]}・建立於 {detail.record.createdAt}</small></div>
+        <div className="hr-payroll-detail-actions" role="group" aria-label="薪資發放操作">
+          {canCalculate && detail.record.status === "unsettled" ? <div className="hr-payroll-detail-action-group" role="group" aria-label="未結算操作"><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={() => { approve.reset(); setApproveOpen(true); }}>確定發放此筆</Button><Button variant="secondary" icon="plus" className="add-action" disabled={deleteRun.isPending || withdraw.isPending} onClick={() => setItemDialogOpen(true)}>新增薪資加扣項</Button></div> : null}
+          <div className="hr-payroll-detail-action-group" role="group" aria-label="其他操作"><Button variant="secondary" icon="eye" className="hr-action-info" onClick={() => setPayslipPreviewOpen(true)}>預覽薪資條</Button>{canCalculate && detail.record.status === "unsettled" && detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除整批試算</Button> : null}{canCalculate && detail.record.status === "closed" && !detail.run.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回整批發放</Button> : null}</div>
+        </div>
       </div>
       <div className="hr-payroll-overview" aria-label="薪資合計">
         <div><span>應發</span><strong>{money(detail.record.earningMinor)}</strong></div>
@@ -282,12 +286,15 @@ export function HrPayrollRecordDetail() {
       </details>)}</div> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班與有效敘薪計算；原始試算結果保留在這筆發放紀錄中。</p></div>}
 
       <section className="hr-payroll-record-items" aria-labelledby="payroll-items-title">
-        <div className="hr-payroll-section-head"><div><h3 id="payroll-items-title">薪資加扣項</h3><p>附加在這筆紀錄的補發與扣款。</p></div>{canCalculate && detail.record.status === "unsettled" ? <Button variant="secondary" icon="plus" className="add-action" onClick={() => setItemDialogOpen(true)}>新增加扣項</Button> : null}</div>
+        <div className="hr-payroll-section-head"><div><h3 id="payroll-items-title">薪資加扣項</h3><p>附加在這筆紀錄的補發與扣款。{canCalculate && detail.record.status === "unsettled" ? "請從上方「新增薪資加扣項」開始。" : ""}</p></div></div>
         {detail.items.length ? <DataTable className="compact"><thead><tr><th>項目</th><th>原因</th><th className="numeric">金額</th><th>操作</th></tr></thead><tbody>{detail.items.map((item) => <tr key={item.id}><td><strong>{item.itemName}</strong><small className="cell-sub">{item.direction === "earning" ? "補發" : "扣款"}</small></td><td>{item.reason}</td><td className="numeric">{item.direction === "earning" ? money(item.amountMinor) : deductionMoney(item.amountMinor)}</td><td>{canCalculate && detail.record.status === "unsettled" ? <Button variant="danger" onClick={() => setDeleteItemId(item.id)}>刪除</Button> : null}</td></tr>)}</tbody></DataTable> : <EmptyState>尚未加入薪資加扣項。</EmptyState>}
         {detail.items.length ? <p className="form-hint">加扣項合計：補發 {money(itemTotals.earningMinor)}・扣款 {itemTotals.deductionMinor ? deductionMoney(itemTotals.deductionMinor) : "—"}</p> : null}
       </section>
-      {approve.error ? <Alert tone="danger">{approve.error.message}</Alert> : null}
     </Panel>
+    {approveOpen ? <ConfirmDialog title="確定發放這筆薪資？" confirmLabel="確定發放" pending={approve.isPending} onCancel={() => { if (!approve.isPending) setApproveOpen(false); }} onConfirm={approveRecord}>
+      <p><strong>{detail.record.personName}</strong>（{periodLabel(detail.record.periodKey)}）的這筆薪資紀錄會標記為「已確定發放」，之後明細將以歷史快照保存。</p>
+      {approve.error ? <Alert tone="danger">{approve.error.message}</Alert> : null}
+    </ConfirmDialog> : null}
     {itemDialogOpen ? <PayrollRecordItemDialog detail={detail} onClose={() => setItemDialogOpen(false)} onSuccess={() => { setItemDialogOpen(false); void result.refetch(); toast.show("薪資加扣項已新增。", "success"); }} /> : null}
     {deleteItemId ? <ConfirmDialog title="刪除這筆薪資加扣項？" confirmLabel="刪除" pending={deleteItem.isPending} onCancel={() => { if (!deleteItem.isPending) setDeleteItemId(null); }} onConfirm={removeItem}>
       <p>刪除後會立即從這筆尚未結算的發放紀錄移除。</p>
