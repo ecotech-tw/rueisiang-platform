@@ -276,7 +276,7 @@ export async function calculateHrLeaveDuration(db: Database, input: HrLeaveDurat
   };
 }
 
-export async function listHrSelfLeaveTypeOptions(db: Database, employeeUserId: string): Promise<HrSelfLeaveTypeOption[]> {
+export async function listHrSelfLeaveTypeOptions(db: Database, employeeUserId: string, asOfDate?: string): Promise<HrSelfLeaveTypeOption[]> {
   const leaveTypes = await db.select({
     id: hrLeaveTypes.id,
     name: hrLeaveTypes.name,
@@ -289,7 +289,7 @@ export async function listHrSelfLeaveTypeOptions(db: Database, employeeUserId: s
     return leaveTypes.map((leaveType) => ({ ...leaveType, credits: [] }));
   }
 
-  const entitlements = await listHrAnnualLeaveEntitlements(db, { employeeUserId });
+  const entitlements = await listHrAnnualLeaveEntitlements(db, { employeeUserId, asOfDate });
   const credits = entitlements
     .filter((entitlement) => entitlement.status === "open")
     .map((entitlement) => ({

@@ -109,12 +109,10 @@ describe("週年制特休額度", () => {
   it("本人假別選單只顯示啟用假別，且特休附帶目前可用額度", async () => {
     const compensation = await request(`/hr/employments/${await currentEmploymentId()}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "本人選單特休月薪" });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
-    await ensureHrAnnualLeaveEntitlements(createDatabase(d1 as never), { asOfDate: "2027-03-01" });
-
     const created = await request("/hr/leave-types", "POST", { name: "本人選單特休", leaveKind: "annual", defaultPayRatePpm: 1_000_000 });
     expect(created.status, await created.clone().text()).toBe(201);
     const leaveTypeId = (await created.json() as { id: string }).id;
-    const response = await request("/hr/me/leave-types", "GET", undefined, employeeCookie);
+    const response = await request("/hr/me/leave-types?asOfDate=2027-03-01", "GET", undefined, employeeCookie);
     expect(response.status, await response.clone().text()).toBe(200);
     const body = await response.json() as { leaveTypes: Array<{ id: string; leaveKind: string; credits: Array<{ balanceHalfHours: number }> }> };
     const option = body.leaveTypes.find((item) => item.id === leaveTypeId);

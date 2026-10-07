@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
 
 const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "info" | "success" | "danger" }> = {
@@ -303,7 +303,7 @@ export function HrForms() {
   });
 
   return <div className={`page hr-forms-page hr-forms-index-page${isBackNavigation ? " hr-page-transition-back" : ""}`}>
-    <PageHeader className="hr-forms-index-head" title="表單申請" actions={<Button variant="icon" icon="plus" className="hr-form-add-button" title="新增申請" aria-label="新增申請" onClick={openNewForm} />} />
+    <PageHeader className="hr-forms-index-head" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><Button variant="icon" icon="plus" className="hr-form-add-button" aria-label="新增申請" onClick={openNewForm} /></Tooltip>} />
     {isLoading ? <p className="muted">載入申請紀錄…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
@@ -405,7 +405,9 @@ export function HrLeaveForm() {
   const [leaveTypeId, setLeaveTypeId] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
-  const leaveTypes = useHrQuery<LeaveTypesResponse>("/me/leave-types");
+  const leaveTypesAsOfDate = end.length >= 10 ? end.slice(0, 10) : "";
+  const leaveTypesPath = leaveTypesAsOfDate ? `/me/leave-types?asOfDate=${encodeURIComponent(leaveTypesAsOfDate)}` : "/me/leave-types";
+  const leaveTypes = useHrQuery<LeaveTypesResponse>(leaveTypesPath);
   const duration = useHrLeaveDuration(start && end ? { startsAt: start, endsAt: end } : null);
   const save = useHrWrite();
   const options = leaveTypes.data?.leaveTypes ?? [];
