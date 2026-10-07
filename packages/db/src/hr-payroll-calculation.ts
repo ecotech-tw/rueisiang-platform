@@ -2723,7 +2723,9 @@ export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrA
   addOptionalDelete(sql`DELETE FROM hr_payroll_run_employees WHERE payroll_run_id=${runId} RETURNING payroll_run_id`);
   addOptionalDelete(sql`DELETE FROM hr_payroll_worker_results WHERE payroll_run_id=${runId} RETURNING id`);
   // 批次刪掉之後，它用過的特殊上班日套用與規則版本就不再有薪資依據，可以刪除或解除。
-  addOptionalDelete(sql`DELETE FROM hr_payroll_special_workday_sources WHERE payroll_run_id=${runId} RETURNING id`);
+  // 那張表對批次沒有外鍵，舊版 Worker 刪批次時留下的孤兒列也在這裡一起掃掉。
+  addOptionalDelete(sql`DELETE FROM hr_payroll_special_workday_sources WHERE payroll_run_id=${runId}
+    OR payroll_run_id NOT IN (SELECT id FROM hr_payroll_runs) RETURNING id`);
   mutations.push(sql`DELETE FROM hr_payroll_runs WHERE id=${runId} AND status <> 'closed'
     AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId})
     AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId})

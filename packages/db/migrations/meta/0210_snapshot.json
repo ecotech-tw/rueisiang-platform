@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "93f530a2-ba20-485b-83dd-4334de6871da",
+  "id": "c80d91de-697e-4846-8376-69afe372c64c",
   "prevId": "aac8e344-448a-4059-80fb-fff755cf695d",
   "tables": {
     "auth_device_sessions": {
@@ -12047,21 +12047,7 @@
           "isUnique": false
         }
       },
-      "foreignKeys": {
-        "hr_payroll_special_workday_sources_payroll_run_id_hr_payroll_runs_id_fk": {
-          "name": "hr_payroll_special_workday_sources_payroll_run_id_hr_payroll_runs_id_fk",
-          "tableFrom": "hr_payroll_special_workday_sources",
-          "tableTo": "hr_payroll_runs",
-          "columnsFrom": [
-            "payroll_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "checkConstraints": {

@@ -94,17 +94,26 @@ export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
 /**
  * 薪資批次用過哪些特殊上班日套用與規則版本，一列一筆。
  *
- * 這是 hr_payroll_runs.source_snapshot_json 裡 specialWorkdays 的索引，不是第二份來源：批次建立時照快照寫入，
- * 批次刪除時一起刪。存在的理由只有一個——「這筆套用／這一版還能不能刪」每次開頁面、每次刪除都要問，
- * 從 JSON 找就得把所有批次的快照重新解析一遍，批次越多越慢。
+ * 存在的理由只有一個——「這筆套用／這一版還能不能刪」每次開頁面、每次刪除都要問，從批次的
+ * source_snapshot_json 找就得把所有批次的快照重新解析一遍，批次越多越慢。批次建立時照快照寫入，
+ * 批次刪除時一起刪。
  *
- * assignment_id／rule_id／rule_version_id 不設外鍵：歷史批次回填進來的 ID 可能指向早就不在的列，
- * 設了外鍵回填就會失敗。能不能刪由 hr-special-workdays.ts 判斷。
- * rule_version_id 是 NULL 的列來自沒記版本的舊快照，只知道當時的規則與日期（連這兩個都沒有時是 NULL）。
+ * **不能當成「隨時可以從快照重建」的快取**：0211 回填的早期批次，有些列來自薪資明細
+ * （assignmentIds、specialWorkdayRuleSnapshots），那些批次的快照裡根本沒有 specialWorkdays。
+ * 清空重建會漏掉那一半，早期批次用過的套用與版本就變成可以刪。
+ *
+ * 四個 ID 欄位都不設外鍵：
+ * - payroll_run_id：設 RESTRICT 的話，不知道這張表的舊版 Worker（部署空窗、回滾）刪批次會直接失敗；
+ *   設 CASCADE 則是 CLAUDE.md 明說不要的那種（父表哪天被重建，整張表會被連坐刪光）。
+ *   所以批次不在了的列一律當作不存在：讀的時候過濾，刪批次時順手掃掉。
+ * - assignment_id／rule_id／rule_version_id：回填進來的歷史 ID 可能指向早就不在的列。
+ *   能不能刪由 hr-special-workdays.ts 判斷。
+ *
+ * rule_version_id 是 NULL 的列來自沒記版本的舊紀錄，只知道當時的規則與日期（連這兩個都沒有時是 NULL）。
  */
 export const hrPayrollSpecialWorkdaySources = sqliteTable("hr_payroll_special_workday_sources", {
   id: text("id").primaryKey(),
-  payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
+  payrollRunId: text("payroll_run_id").notNull(),
   assignmentId: text("assignment_id"),
   ruleId: text("rule_id"),
   ruleVersionId: text("rule_version_id"),
