@@ -226,7 +226,7 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
   if (!jobs.length) return null;
   return <section className={`hr-payroll-job-progress${expanded ? "" : " is-collapsed"}`} aria-label="薪資試算進度">
     <Button
-      variant="secondary"
+      variant="link"
       static
       className="hr-payroll-job-progress-toggle"
       aria-expanded={expanded}
@@ -236,7 +236,10 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
     >
       <strong>薪資試算</strong>
       <span>{jobs.length} 筆</span>
-      <span aria-hidden="true"><Icon name={expanded ? "chevronUp" : "chevronDown"} /></span>
+      <span className={`hr-payroll-job-progress-chevron${expanded ? " is-expanded" : ""}`} aria-hidden="true">
+        <Icon name="chevronDown" className="hr-payroll-job-progress-chevron-down" />
+        <Icon name="chevronUp" className="hr-payroll-job-progress-chevron-up" />
+      </span>
     </Button>
     <div className={`hr-payroll-job-list ${expanded ? "is-expanded" : "is-collapsed"}`} id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
       <div className="hr-payroll-job-list-inner">

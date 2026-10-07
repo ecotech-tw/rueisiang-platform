@@ -3910,6 +3910,9 @@
     0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
   -webkit-backdrop-filter: blur(16px) saturate(150%);
   backdrop-filter: blur(16px) saturate(150%);
+  transition-property: gap, padding;
+  transition-duration: 220ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 .hr-payroll-job-progress-toggle {
   display: flex;
@@ -3920,30 +3923,40 @@
   padding: 0;
   border: 0;
   border-radius: 10px;
+  appearance: none;
+  -webkit-appearance: none;
   background: transparent;
+  box-shadow: none;
   color: var(--color-ink);
   font-size: inherit;
   text-align: left;
+  text-decoration: none;
   white-space: normal;
 }
 .hr-payroll-job-progress-toggle strong { color: var(--color-ink); font-size: 14px; }
 .hr-payroll-job-progress-toggle > span:nth-child(2) { margin-inline-start: auto; color: var(--color-muted); font-size: 12px; white-space: nowrap; }
 .hr-payroll-job-progress-toggle > span:last-child { display: grid; flex: none; place-items: center; color: var(--color-muted); }
-.hr-payroll-job-progress-toggle > span:last-child svg { width: 20px; height: 20px; }
-.hr-payroll-job-progress-toggle:hover:not(:disabled) { border-color: transparent; background: transparent; color: var(--color-brand-dark); }
+.hr-payroll-job-progress-toggle:hover:not(:disabled),
+.hr-payroll-job-progress-toggle:active:not(:disabled) { border-color: transparent; background: transparent; box-shadow: none; color: var(--color-brand-dark); }
 .hr-payroll-job-progress-toggle:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 3px; }
 .hr-payroll-job-progress-toggle:active:not(:disabled) { scale: none; }
-.hr-payroll-job-progress.is-collapsed { gap: 0; padding: 6px 18px; }
+.hr-payroll-job-progress-chevron { position: relative; display: grid; flex: none; width: 20px; height: 20px; place-items: center; color: var(--color-muted); }
+.hr-payroll-job-progress-chevron svg { position: absolute; inset: 0; width: 20px; height: 20px; opacity: 0; scale: .25; filter: blur(4px); transition-property: opacity, scale, filter; transition-duration: 220ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+.hr-payroll-job-progress-chevron-down { opacity: 1; scale: 1; filter: blur(0); }
+.hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-down { opacity: 0; scale: .25; filter: blur(4px); }
+.hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-up { opacity: 1; scale: 1; filter: blur(0); }
+.hr-payroll-job-progress.is-collapsed { gap: 0; padding: 6px 20px; }
 .hr-payroll-job-list {
   display: grid;
   grid-template-rows: minmax(0, 1fr);
   min-height: 0;
   opacity: 1;
-  transition-property: grid-template-rows, opacity;
+  translate: 0 0;
+  transition-property: grid-template-rows, opacity, translate;
   transition-duration: 220ms;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
-.hr-payroll-job-list.is-collapsed { grid-template-rows: 0fr; opacity: 0; pointer-events: none; }
+.hr-payroll-job-list.is-collapsed { grid-template-rows: 0fr; opacity: 0; translate: 0 -4px; pointer-events: none; }
 .hr-payroll-job-list-inner { display: grid; min-height: 0; gap: 8px; overflow: hidden; }
 .hr-payroll-job-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--color-soft-line); border-radius: 12px; background: var(--color-canvas); }
 .hr-payroll-job-card-head,
@@ -4316,6 +4329,8 @@
   .hr-payroll-disclosure-marker,
   .hr-payroll-disclosure-marker svg,
   .hr-payroll-job-list,
+  .hr-payroll-job-progress,
+  .hr-payroll-job-progress-chevron svg,
   .hr-payroll-job-bar span,
   .hr-payroll-employee > summary,
   .hr-payroll-line-summary,
