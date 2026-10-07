@@ -328,14 +328,10 @@ export function HrPayrollSettlement() {
   }
 
   const payrollJobList = payrollJobs.data?.jobs ?? [];
-  const hasActivePayrollJob = payrollJobList.some(isPayrollJobActive);
-  const payrollPageActions = hasActivePayrollJob || canCalculate ? <div className="hr-payroll-page-actions">
-    <PayrollJobProgress jobs={payrollJobList} />
-    {canCalculate ? <Button className="add-action" icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null}
-  </div> : null;
 
   return <div className="page fills hr-payroll-page">
-    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={payrollPageActions} />
+    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={canCalculate ? <Button className="add-action" icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
+    <PayrollJobProgress jobs={payrollJobList} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     {payrollJobs.error ? <Alert tone="danger">背景試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
     <PayrollJobRecovery jobs={payrollJobList} onRetry={retryJob} canRetry={canCalculate} />
