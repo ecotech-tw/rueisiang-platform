@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
+import { Icon } from "../../shell/icons.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
@@ -224,21 +225,20 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
   const [expanded, setExpanded] = useState(true);
   if (!jobs.length) return null;
   return <section className={`hr-payroll-job-progress${expanded ? "" : " is-collapsed"}`} aria-label="薪資試算進度">
-    <div className="hr-payroll-job-progress-heading">
+    <Button
+      variant="secondary"
+      static
+      className="hr-payroll-job-progress-toggle"
+      aria-expanded={expanded}
+      aria-controls="hr-payroll-job-list"
+      aria-label={expanded ? "收合薪資試算" : "展開薪資試算"}
+      onClick={() => setExpanded((current) => !current)}
+    >
       <strong>薪資試算</strong>
-      <div className="hr-payroll-job-progress-actions">
-        <span>{jobs.length} 筆</span>
-        <Button
-          variant="icon"
-          icon={expanded ? "chevronUp" : "chevronDown"}
-          aria-expanded={expanded}
-          aria-controls="hr-payroll-job-list"
-          aria-label={expanded ? "收合薪資試算" : "展開薪資試算"}
-          onClick={() => setExpanded((current) => !current)}
-        />
-      </div>
-    </div>
-    {expanded ? <div className="hr-payroll-job-list" id="hr-payroll-job-list">
+      <span>{jobs.length} 筆</span>
+      <span aria-hidden="true"><Icon name={expanded ? "chevronUp" : "chevronDown"} /></span>
+    </Button>
+    <div className="hr-payroll-job-list" id="hr-payroll-job-list" hidden={!expanded}>
       {jobs.slice(0, 4).map((job) => {
         const hasProgress = job.progressPercent !== null;
         return <article className={`hr-payroll-job-card hr-payroll-job-${job.status}`} key={job.jobId}>
@@ -255,7 +255,7 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
           </div>
         </article>;
       })}
-    </div> : null}
+    </div>
   </section>;
 }
 
