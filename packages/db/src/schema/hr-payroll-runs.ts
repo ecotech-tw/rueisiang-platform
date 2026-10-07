@@ -273,6 +273,8 @@ export const hrPayrollWorkerResults = sqliteTable("hr_payroll_worker_results", {
   payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly", "mixed"] as const }).notNull(),
   scheduledDays: integer("scheduled_days").notNull(),
   amountMinor: integer("amount_minor").notNull(),
+  /** 支援人員的班別薪資分配快照，供結帳後稽核；舊結果為空陣列。 */
+  scheduleAllocationJson: text("schedule_allocation_json").notNull().default("[]"),
   typhoonStopDays: integer("typhoon_stop_days").notNull().default(0),
   typhoonStopPayMinor: integer("typhoon_stop_pay_minor").notNull().default(0),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),

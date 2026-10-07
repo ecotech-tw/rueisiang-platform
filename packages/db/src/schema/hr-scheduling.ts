@@ -56,6 +56,8 @@ export const hrShiftTemplates = sqliteTable("hr_shift_templates", {
   code: text("code").notNull(),
   name: text("name").notNull(),
   active: integer("active").notNull().default(1),
+  /** 排班提示用的需求人力；薪資單位不隨需求人力增加，固定由每個班別分配 1 單位。 */
+  requiredHeadcount: integer("required_headcount").notNull().default(1),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   ...timestamps(),
 }, (table) => [
@@ -63,6 +65,7 @@ export const hrShiftTemplates = sqliteTable("hr_shift_templates", {
   check("ck_hr_shift_templates_code", sql`length(trim(${table.code})) BETWEEN 1 AND 40`),
   check("ck_hr_shift_templates_name", sql`length(trim(${table.name})) BETWEEN 1 AND 100`),
   check("ck_hr_shift_templates_active", sql`${table.active} IN (0, 1)`),
+  check("ck_hr_shift_templates_headcount", sql`${table.requiredHeadcount} BETWEEN 1 AND 100`),
   check("ck_hr_shift_templates_revision", sql`${table.revision} > 0`),
 ]);
 
@@ -157,16 +160,23 @@ export const hrScheduleEntries = sqliteTable("hr_schedule_entries", {
   employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
   shiftVersionId: text("shift_version_id").notNull().references(() => hrShiftVersions.id, { onDelete: "restrict" }),
+  /** 同一班別的多人指派共用這個識別；舊排班為 NULL，薪資計算會以據點／班別／日期回退分組。 */
+  shiftGroupId: text("shift_group_id"),
   workDate: text("work_date").notNull(),
   startsAt: text("starts_at").notNull(),
   endsAt: text("ends_at").notNull(),
   standardMinutes: integer("standard_minutes").notNull().default(480),
   breakMinutes: integer("break_minutes").notNull().default(60),
+  /** 發布時凍結的需求人力，只作排班提示與薪資稽核快照。 */
+  requiredHeadcount: integer("required_headcount").notNull().default(1),
+  /** scheduled=尚未確認；present=有效出勤；absent=未出勤，不取得該班薪資單位。 */
+  attendanceStatus: text("attendance_status", { enum: ["scheduled", "present", "absent"] as const }).notNull().default("scheduled"),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_hr_schedule_entries_unique").on(table.scheduleVersionId, table.employmentId, table.workDate, table.startsAt),
   index("idx_hr_schedule_entries_employment_date").on(table.employmentId, table.workDate),
+  index("idx_hr_schedule_entries_group").on(table.scheduleVersionId, table.shiftGroupId),
   index("idx_hr_schedule_entries_scope_date").on(table.scopeId, table.workDate),
   check("ck_hr_schedule_entries_date", sql`length(${table.workDate}) = 10`),
   check("ck_hr_schedule_entries_period", sql`${table.endsAt} > ${table.startsAt}`),
@@ -181,16 +191,23 @@ export const hrScheduleWorkerEntries = sqliteTable("hr_schedule_worker_entries",
   workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
   shiftVersionId: text("shift_version_id").notNull().references(() => hrShiftVersions.id, { onDelete: "restrict" }),
+  /** 同一班別的多人指派共用這個識別；舊排班為 NULL，薪資計算會以據點／班別／日期回退分組。 */
+  shiftGroupId: text("shift_group_id"),
   workDate: text("work_date").notNull(),
   startsAt: text("starts_at").notNull(),
   endsAt: text("ends_at").notNull(),
   standardMinutes: integer("standard_minutes").notNull().default(480),
   breakMinutes: integer("break_minutes").notNull().default(60),
+  /** 發布時凍結的需求人力，只作排班提示與薪資稽核快照。 */
+  requiredHeadcount: integer("required_headcount").notNull().default(1),
+  /** scheduled=尚未確認；present=有效出勤；absent=未出勤，不取得該班薪資單位。 */
+  attendanceStatus: text("attendance_status", { enum: ["scheduled", "present", "absent"] as const }).notNull().default("scheduled"),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_hr_schedule_worker_entries_unique").on(table.scheduleVersionId, table.workerId, table.workDate, table.startsAt),
   index("idx_hr_schedule_worker_entries_worker_date").on(table.workerId, table.workDate),
+  index("idx_hr_schedule_worker_entries_group").on(table.scheduleVersionId, table.shiftGroupId),
   index("idx_hr_schedule_worker_entries_scope_date").on(table.scopeId, table.workDate),
   check("ck_hr_schedule_worker_entries_date", sql`length(${table.workDate}) = 10`),
   check("ck_hr_schedule_worker_entries_period", sql`${table.endsAt} > ${table.startsAt}`),

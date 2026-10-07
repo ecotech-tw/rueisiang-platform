@@ -6,7 +6,7 @@ import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { downloadPayslipImage } from "./exportPayslip.js";
-import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail } from "./api.js";
+import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail, type PayrollScheduleAllocationDetail, type PayrollWorker } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
@@ -101,6 +101,39 @@ function lineFormula(line: PayrollLine): string {
   const explanation = line.explanation;
   const detail = explanation.formulaDetail ?? explanation.formula;
   return typeof detail === "string" && detail ? detail : "依保存的薪資規則計算";
+}
+function isScheduleAllocationDetail(value: unknown): value is PayrollScheduleAllocationDetail {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const detail = value as Partial<PayrollScheduleAllocationDetail>;
+  return typeof detail.date === "string" && typeof detail.scopeId === "string" && typeof detail.shiftVersionId === "string"
+    && (detail.shiftGroupId === null || typeof detail.shiftGroupId === "string")
+    && (detail.attendanceStatus === "scheduled" || detail.attendanceStatus === "present" || detail.attendanceStatus === "absent")
+    && [detail.requiredHeadcount, detail.assignedCount, detail.effectiveCount, detail.allocatedUnits, detail.unitNumerator, detail.unitDenominator].every((item) => typeof item === "number" && Number.isFinite(item));
+}
+function scheduleAllocationDetailsOf(value: PayrollLine | PayrollWorker | null | undefined): PayrollScheduleAllocationDetail[] {
+  if (!value) return [];
+  const raw = "explanation" in value ? value.explanation.scheduleAllocationDetails : value.scheduleAllocationDetails;
+  return Array.isArray(raw) ? raw.filter(isScheduleAllocationDetail) : [];
+}
+const ATTENDANCE_STATUS_LABEL: Record<PayrollScheduleAllocationDetail["attendanceStatus"], string> = { scheduled: "待確認", present: "已出勤", absent: "未出勤" };
+function allocationUnitLabel(detail: PayrollScheduleAllocationDetail): string {
+  if (detail.unitNumerator <= 0) return "0 個本薪單位";
+  return `${detail.unitNumerator}/${detail.unitDenominator} 個本薪單位`;
+}
+function PayrollAllocationDetails({ details }: { details: PayrollScheduleAllocationDetail[] }) {
+  if (!details.length) return null;
+  const totalUnits = details.reduce((sum, detail) => sum + detail.allocatedUnits, 0);
+  return <div className="hr-payroll-allocation-details">
+    <dl className="hr-payroll-line-details">
+      <div><dt>分配班別</dt><dd>{details.length} 班</dd></div>
+      <div><dt>固定薪資單位</dt><dd>每班 1 單位</dd></div>
+      <div><dt>本次分得</dt><dd>{totalUnits.toLocaleString("zh-TW", { maximumFractionDigits: 3 })} 單位</dd></div>
+    </dl>
+    <details className="hr-payroll-line-steps">
+      <summary><span>查看每日分配</span><span>{details.length} 筆</span></summary>
+      <ol>{details.map((detail, index) => <li key={`${detail.date}:${detail.shiftGroupId ?? detail.shiftVersionId}:${index}`}><span>{detail.date}・{ATTENDANCE_STATUS_LABEL[detail.attendanceStatus]}・有效 {detail.effectiveCount}/{detail.assignedCount} 人</span><strong>{allocationUnitLabel(detail)}</strong></li>)}</ol>
+    </details>
+  </div>;
 }
 function payBasisOf(detail: PayrollRecordDetail) {
   return detail.record.payBasis ? PAY_BASIS_LABEL[detail.record.payBasis] ?? detail.record.payBasis : "—";
@@ -231,6 +264,7 @@ export function HrPayrollRecordDetail() {
   if (result.isPending) return <HrPageSkeleton variant="detail" />;
   if (result.error || !detail) return <Alert tone="danger">{result.error?.message ?? "找不到這筆薪資發放紀錄。"}</Alert>;
   const detailLines = payrollLinesOf(detail);
+  const workerAllocationDetails = scheduleAllocationDetailsOf(detail.worker);
 
   function approveRecord() {
     approve.mutate({ path: "/payroll/records/approve", method: "POST", values: { records: [{ runId: detail!.record.runId, personKind: detail!.record.personKind, personId: detail!.record.personId }] } }, { onSuccess: () => { setApproveOpen(false); void result.refetch(); toast.show("已確定發放。", "success"); } });
@@ -280,10 +314,13 @@ export function HrPayrollRecordDetail() {
       {detail.record.status === "closed" ? <Alert tone="info">這筆紀錄已確定發放，以下明細是不可改寫的歷史快照。{detail.run.withdrawal ? <p>本批次曾撤回後重新確定發放；原撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p> : null}</Alert> : detail.run.withdrawal ? <Alert tone="warning"><strong>這筆薪資批次已退回尚未結算。</strong> 原始薪資快照與撤回原因仍保留供稽核，現在可以重新確認發放、重新試算{detail.run.canDelete ? "，或刪除整批試算" : ""}。<p>撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p></Alert> : detail.run.canDelete ? <Alert tone="warning">請確認試算公式與薪資加扣項後，再確定發放。薪資加扣項會以試算時保存的明細快照呈現；若資料有變更，請重新試算。</Alert> : <Alert tone="info">本批次已有其他人員確定發放，不能刪除整批試算；目前紀錄仍可繼續確認。</Alert>}
       {detail.run.warnings.length ? <Alert tone="warning"><strong>試算提醒</strong><ul className="hr-payroll-warning-list">{detail.run.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></Alert> : null}
 
-      {detail.employee ? <div className="hr-payroll-line-list">{detailLines.map((line) => <details className={`hr-payroll-line hr-payroll-line-${line.direction}`} key={line.lineKey}>
-        <summary className="hr-payroll-line-summary"><span className="hr-payroll-line-title"><strong>{payrollLineLabel(line)}</strong><span className="hr-payroll-line-direction">{line.direction === "earning" ? "應發" : "扣款"}</span></span><strong className="hr-payroll-line-amount">{line.direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</strong></summary>
-        <div className="hr-payroll-line-content"><div className="hr-payroll-line-formula"><span>計算公式</span><p>{lineFormula(line)}</p></div></div>
-      </details>)}</div> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班與有效敘薪計算；原始試算結果保留在這筆發放紀錄中。</p></div>}
+      {detail.employee ? <div className="hr-payroll-line-list">{detailLines.map((line) => {
+        const allocationDetails = scheduleAllocationDetailsOf(line);
+        return <details className={`hr-payroll-line hr-payroll-line-${line.direction}`} key={line.lineKey}>
+          <summary className="hr-payroll-line-summary"><span className="hr-payroll-line-title"><strong>{payrollLineLabel(line)}</strong><span className="hr-payroll-line-direction">{line.direction === "earning" ? "應發" : "扣款"}</span></span><strong className="hr-payroll-line-amount">{line.direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</strong></summary>
+          <div className="hr-payroll-line-content"><div className="hr-payroll-line-formula"><span>計算公式</span><p>{lineFormula(line)}</p></div><PayrollAllocationDetails details={allocationDetails} /></div>
+        </details>;
+      })}</div> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班與有效敘薪計算；原始試算結果保留在這筆發放紀錄中。</p><PayrollAllocationDetails details={workerAllocationDetails} /></div>}
 
       <section className="hr-payroll-record-items" aria-labelledby="payroll-items-title">
         <div className="hr-payroll-section-head"><div><h3 id="payroll-items-title">薪資加扣項</h3><p>附加在這筆紀錄的補發與扣款。{canCalculate && detail.record.status === "unsettled" ? "請從上方「新增薪資加扣項」開始。" : ""}</p></div></div>

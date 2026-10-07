@@ -9,7 +9,7 @@ import {
   approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
-  createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
+  createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_ATTENDANCE_STATUSES, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis, type HrScheduleAttendanceStatus,
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
   cancelHrOvertimeRequest, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
@@ -288,7 +288,9 @@ function scheduleEntries(input: Record<string, unknown>) {
     const workDate = date(value, "workDate")!;
     const employmentId = personKind === "employee" ? text(value, "employmentId", "員工任職") : undefined;
     const workerId = personKind === "worker" ? text(value, "workerId", "支援人員") : undefined;
-    return { personKind, employmentId, workerId, scopeId: text(value, "scopeId", "營運據點"), shiftVersionId: text(value, "shiftVersionId", "班別版本"), workDate } as const;
+    const attendanceStatus = value.attendanceStatus === undefined ? undefined : value.attendanceStatus;
+    if (attendanceStatus !== undefined && !HR_SCHEDULE_ATTENDANCE_STATUSES.includes(attendanceStatus as HrScheduleAttendanceStatus)) throw new HTTPException(400, { message: `第 ${index + 1} 筆排班出勤狀態不正確。` });
+    return { personKind, employmentId, workerId, scopeId: text(value, "scopeId", "營運據點"), shiftVersionId: text(value, "shiftVersionId", "班別版本"), workDate, attendanceStatus: attendanceStatus as HrScheduleAttendanceStatus | undefined } as const;
   });
 }
 function specialWorkdayOvertimeRules(input: Record<string, unknown>) {
@@ -877,7 +879,8 @@ export const hr = new Hono<AppEnv>()
   .get("/shift-templates", requirePermission("hr:schedule:read"), async (c) => c.json(await listHrShifts(c.get("db"))))
   .patch("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), times: shiftTimes(input), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
+    const requiredHeadcount = input.requiredHeadcount === undefined ? undefined : integerValue(input, "requiredHeadcount", "需求人力", 1, 100);
+    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), requiredHeadcount, times: shiftTimes(input), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
   })
   .delete("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
@@ -885,7 +888,8 @@ export const hr = new Hono<AppEnv>()
   })
   .post("/shift-templates", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
-    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), times: shiftTimes(input) }, c.get("user")), 201);
+    const requiredHeadcount = input.requiredHeadcount === undefined ? 1 : integerValue(input, "requiredHeadcount", "需求人力", 1, 100);
+    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), requiredHeadcount, times: shiftTimes(input) }, c.get("user")), 201);
   })
   .patch("/employments/:id/attendance-scope", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);

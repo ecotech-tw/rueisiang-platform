@@ -7,8 +7,8 @@ export {
 export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } from "./hr-overview.js";
 export {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
-  monthPeriodFromKey,
-  type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type HrWorkerPayBasis, type SaveHrScheduleInput, type ScheduleEntryInput,
+  monthPeriodFromKey, HR_SCHEDULE_ATTENDANCE_STATUSES,
+  type HrScheduleAttendanceStatus, type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type HrWorkerPayBasis, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
 export {
   calendarSpecialAppliesToScope, defaultDayType, importHrCalendarYear, isHrCalendarSpecialKind, isHrDayType, listHrCalendarMonth, listHrCalendarYear, overridesFromGovCalendar,
@@ -43,7 +43,7 @@ export {
   approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollRecordDetail, listHrPayrollEmployeeHistory, listHrPayrollRecordItems, listHrPayrollRecordReferences, listHrPayrollRecords, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
   getHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_CALCULATION_INPUT_JSON_MAX_LENGTH, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   type AssignHrBonusPolicyInput, type CreateHrBonusPolicyInput, type HrBonusKind, type HrBonusPerformancePeriod, type HrPayrollCalculationInput, type HrPayrollCalculationOptions, type HrPayrollEmployeeResult, type HrPayrollProgress, type UpdateHrBonusPolicyInput,
-  type HrPayrollEmployeeHistory, type HrPayrollRecordCounts, type HrPayrollRecordDetail, type HrPayrollRecordItemView, type HrPayrollRecordListQuery, type HrPayrollRecordPayBasis, type HrPayrollRecordPersonKind, type HrPayrollRecordReference, type HrPayrollRecordStatus, type HrPayrollRecord, type HrPayrollRunResult,
+  type HrPayrollEmployeeHistory, type HrPayrollRecordCounts, type HrPayrollRecordDetail, type HrPayrollRecordItemView, type HrPayrollRecordListQuery, type HrPayrollRecordPayBasis, type HrPayrollRecordPersonKind, type HrPayrollRecordReference, type HrPayrollRecordStatus, type HrPayrollRecord, type HrPayrollRunResult, type ScheduleAllocationDetail,
 } from "./hr-payroll-calculation.js";
 export {
   beginHrPayrollJob, completeHrPayrollJob, createHrPayrollJob, failHrPayrollJob, failHrPayrollQueueJob, getHrPayrollJob, getHrPayrollJobInput, getHrPayrollJobRecord, HR_PAYROLL_MAX_QUEUE_DISPATCH_ATTEMPTS, listHrPayrollJobs, listPendingHrPayrollJobs, markHrPayrollJobDispatchFailed, markHrPayrollJobEnqueued, reportHrPayrollJobProgress, retryHrPayrollJob, retryHrPayrollJobLater,
