@@ -110,6 +110,49 @@ WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`peri
 BEGIN
   SELECT RAISE(ABORT, 'payroll_period_closed');
 END;--> statement-breakpoint
+-- 既有 withdrawal marker 可能已保留薪資快照，但升級前的撤回流程未必已完成特休反向台帳；
+-- 依薪資單保存的 settlementItems 補寫同一組冪等 reversal source key，原 settlement 永不覆寫。
+INSERT OR IGNORE INTO `hr_annual_leave_ledger` (
+  `id`, `entitlement_id`, `entry_kind`, `delta_half_hours`, `source_key`,
+  `leave_request_id`, `note`, `created_by`
+)
+SELECT
+  'annual-settlement-reversal:' || withdrawal.`payroll_run_id` || ':' || settlement.`source_key`,
+  settlement.`entitlement_id`,
+  'settlement_reversal',
+  -settlement.`delta_half_hours`,
+  'annual-settlement-reversal:' || withdrawal.`payroll_run_id` || ':' || settlement.`source_key`,
+  NULL,
+  '薪資批次撤回（' || withdrawal.`payroll_run_id` || '）恢復未休特休折現額度',
+  withdrawal.`withdrawn_by`
+FROM `hr_payroll_withdrawals` AS withdrawal
+INNER JOIN `hr_payslips` AS payslip ON payslip.`payroll_run_id` = withdrawal.`payroll_run_id`
+INNER JOIN `hr_payslip_lines` AS line ON line.`payslip_id` = payslip.`id` AND line.`line_key` = 'annual_leave_settlement'
+CROSS JOIN json_each(CASE WHEN json_valid(line.`explanation_json`) THEN line.`explanation_json` ELSE '{}' END, '$.settlementItems') AS item
+INNER JOIN `hr_annual_leave_ledger` AS settlement
+  ON settlement.`source_key` = json_extract(item.`value`, '$.sourceKey')
+  AND settlement.`entry_kind` = 'settlement'
+INNER JOIN `hr_annual_leave_entitlements` AS entitlement ON entitlement.`id` = settlement.`entitlement_id`
+WHERE entitlement.`status` = 'settled'
+  AND entitlement.`settled_at` IS NOT NULL;--> statement-breakpoint
+UPDATE `hr_annual_leave_entitlements` AS entitlement
+SET `status` = 'open', `settled_at` = NULL
+WHERE entitlement.`status` = 'settled'
+  AND entitlement.`settled_at` IS NOT NULL
+  AND EXISTS (
+    SELECT 1
+    FROM `hr_payroll_withdrawals` AS withdrawal
+    INNER JOIN `hr_payslips` AS payslip ON payslip.`payroll_run_id` = withdrawal.`payroll_run_id`
+    INNER JOIN `hr_payslip_lines` AS line ON line.`payslip_id` = payslip.`id` AND line.`line_key` = 'annual_leave_settlement'
+    CROSS JOIN json_each(CASE WHEN json_valid(line.`explanation_json`) THEN line.`explanation_json` ELSE '{}' END, '$.settlementItems') AS item
+    INNER JOIN `hr_annual_leave_ledger` AS settlement
+      ON settlement.`source_key` = json_extract(item.`value`, '$.sourceKey')
+      AND settlement.`entry_kind` = 'settlement'
+    INNER JOIN `hr_annual_leave_ledger` AS reversal
+      ON reversal.`source_key` = 'annual-settlement-reversal:' || withdrawal.`payroll_run_id` || ':' || settlement.`source_key`
+      AND reversal.`entry_kind` = 'settlement_reversal'
+    WHERE settlement.`entitlement_id` = entitlement.`id`
+  );--> statement-breakpoint
 -- 舊版已寫入 withdrawal marker 但仍停在 closed 的資料，升級時一併退回未結算。
 UPDATE `hr_payroll_runs`
 SET `status` = 'ready', `approved_by` = NULL, `updated_at` = CURRENT_TIMESTAMP

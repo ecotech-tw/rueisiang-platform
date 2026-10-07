@@ -79,11 +79,12 @@ function specialAllowanceLabel(line: PayrollLine): string {
   if (itemNames.length) return itemNames.join("、");
   return ruleName ? `特殊上班日補貼（${ruleName}）` : "特殊上班日補貼";
 }
-function specialWorkdayDifferenceLabel(line: PayrollLine): string {
+export function specialWorkdayDifferenceLabel(line: PayrollLine): string {
   const names = ruleNamesOf(line);
-  if (names.length === 1) return `${names[0]}：薪資加給`;
-  if (names.length > 1) return `特殊上班日（${names.join("、")}）薪資加給`;
-  return "特殊上班日薪資加給";
+  const directionLabel = line.direction === "deduction" ? "薪資扣回" : "薪資加給";
+  if (names.length === 1) return `${names[0]}：${directionLabel}`;
+  if (names.length > 1) return `特殊上班日（${names.join("、")}）${directionLabel}`;
+  return `特殊上班日${directionLabel}`;
 }
 function lineLabel(line: PayrollLine): string {
   if (line.lineKey === "unpaid_leave") return leaveDeductionLabel(line);

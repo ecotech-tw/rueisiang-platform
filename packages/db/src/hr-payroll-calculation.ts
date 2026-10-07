@@ -2305,7 +2305,7 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
     INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id = payslip.payroll_run_id
     INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id = payroll_run.payroll_period_id
     LEFT JOIN hr_payslip_lines AS base_line ON base_line.payslip_id = payslip.id AND base_line.line_key = 'base_salary'
-    LEFT JOIN hr_payroll_closed_employees AS closed_employee ON closed_employee.period_key = payroll_period.period_key AND closed_employee.employment_id = payslip.employment_id
+    LEFT JOIN hr_payroll_closed_employees AS closed_employee ON closed_employee.period_key = payroll_period.period_key AND closed_employee.employment_id = payslip.employment_id AND closed_employee.payroll_run_id = payroll_run.id
     UNION ALL
     SELECT
       'worker' AS personKind,
@@ -2328,7 +2328,7 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
     FROM hr_payroll_worker_results AS worker_result
     INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id = worker_result.payroll_run_id
     INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id = payroll_run.payroll_period_id
-    LEFT JOIN hr_payroll_closed_workers AS closed_worker ON closed_worker.period_key = payroll_period.period_key AND closed_worker.worker_id = worker_result.worker_id
+    LEFT JOIN hr_payroll_closed_workers AS closed_worker ON closed_worker.period_key = payroll_period.period_key AND closed_worker.worker_id = worker_result.worker_id AND closed_worker.payroll_run_id = payroll_run.id
   `;
   const from = sql`FROM (${source}) AS payroll_records`;
   const [rows, [countRow]] = await Promise.all([
@@ -2412,6 +2412,26 @@ async function payrollRunHasClosedClaims(db: Database, runId: string) {
   return Number(claims?.count ?? 0) > 0;
 }
 
+/** 同一期別同一人若已由其他批次確定發放，舊批次不能靠空 conflict mutation 被關閉。 */
+async function payrollRunHasClosedClaimsInOtherRuns(db: Database, runId: string) {
+  const [claims] = await db.all<{ count: number }>(sql`SELECT
+    (SELECT count(*)
+       FROM hr_payslips AS payslip
+       INNER JOIN hr_payroll_runs AS run ON run.id=payslip.payroll_run_id
+       INNER JOIN hr_payroll_periods AS period ON period.id=run.payroll_period_id
+       INNER JOIN hr_payroll_closed_employees AS claim
+         ON claim.period_key=period.period_key AND claim.employment_id=payslip.employment_id
+      WHERE payslip.payroll_run_id=${runId} AND claim.payroll_run_id <> ${runId}) +
+    (SELECT count(*)
+       FROM hr_payroll_worker_results AS worker_result
+       INNER JOIN hr_payroll_runs AS run ON run.id=worker_result.payroll_run_id
+       INNER JOIN hr_payroll_periods AS period ON period.id=run.payroll_period_id
+       INNER JOIN hr_payroll_closed_workers AS claim
+         ON claim.period_key=period.period_key AND claim.worker_id=worker_result.worker_id
+      WHERE worker_result.payroll_run_id=${runId} AND claim.payroll_run_id <> ${runId}) AS count`);
+  return Number(claims?.count ?? 0) > 0;
+}
+
 async function payrollRunHasAnyClaims(db: Database, runId: string) {
   const [claims] = await db.all<{ count: number }>(sql`SELECT
     (SELECT count(*) FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId}) +
@@ -2423,13 +2443,13 @@ async function payrollRecordIsClosed(db: Database, input: HrPayrollRecordReferen
   if (input.personKind === "employee") {
     const [claim] = await db.all<{ closedAt: string }>(sql`SELECT claim.closed_at AS closedAt
       FROM hr_payroll_closed_employees AS claim
-      WHERE claim.period_key=${periodKey} AND claim.employment_id=${input.personId}
+      WHERE claim.period_key=${periodKey} AND claim.employment_id=${input.personId} AND claim.payroll_run_id=${input.runId}
       LIMIT 1`);
     return claim?.closedAt ?? null;
   }
   const [claim] = await db.all<{ closedAt: string }>(sql`SELECT claim.closed_at AS closedAt
     FROM hr_payroll_closed_workers AS claim
-    WHERE claim.period_key=${periodKey} AND claim.worker_id=${input.personId}
+    WHERE claim.period_key=${periodKey} AND claim.worker_id=${input.personId} AND claim.payroll_run_id=${input.runId}
     LIMIT 1`);
   return claim?.closedAt ?? null;
 }
@@ -2676,6 +2696,7 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
   if (!run) throw new HrError(404, "找不到薪資試算批次。 ");
   if (run.status !== "ready") throw new HrError(409, "只有已完成試算的批次可以結帳。 ");
   if (await payrollRunHasClosedClaims(db, runId)) throw new HrError(409, "此試算已有逐筆確定發放紀錄，請從發放紀錄完成剩餘人員。 ");
+  if (await payrollRunHasClosedClaimsInOtherRuns(db, runId)) throw new HrError(409, "同一員工／支援人員同一月份已有其他批次確定發放結果，不能重複結帳。 ");
   if (run.expectedCount !== run.completedCount || run.periodStatus !== "open") throw new HrError(409, "薪資批次尚未完成或薪資期間已鎖定，不能結帳。 ");
   const payslipRows = await db.select({ employmentId: hrPayslips.employmentId }).from(hrPayslips).where(eq(hrPayslips.payrollRunId, runId));
   const employmentIds = payslipRows.map((row) => row.employmentId);
@@ -2687,6 +2708,9 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
   const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds });
   const annualLeaveSettlementMutations = buildHrAnnualLeaveSettlementMutations(annualLeaveSettlements, actor);
   const settlementMutationCount = annualLeaveSettlementMutations.length;
+  const allowEmptyMutationIndexes = new Set<number>([settlementMutationCount + 3]);
+  if (employmentIds.length === 0) allowEmptyMutationIndexes.add(settlementMutationCount);
+  if (workerRows.length === 0) allowEmptyMutationIndexes.add(settlementMutationCount + 1);
 
   // 部分結算保持期間 open，讓尚未結算的員工與支援人員仍可建立另一張試算；每次 claim 都在同一
   // D1 batch 內完成，並以「所有當期可計薪的人員都已 claim」決定是否關閉期間，避免
@@ -2758,7 +2782,7 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
         )
       RETURNING id`,
   ];
-  await writeHrMutation(db, mutations, runId, actor, "payroll_run_closed", "薪資批次已結帳、來源已變更或同一員工／支援人員同一月份已有結帳結果，請重新整理。 ", { allowEmptyMutationIndexes: new Set([settlementMutationCount, settlementMutationCount + 1, settlementMutationCount + 3]) });
+  await writeHrMutation(db, mutations, runId, actor, "payroll_run_closed", "薪資批次已結帳、來源已變更或同一員工／支援人員同一月份已有結帳結果，請重新整理。 ", { allowEmptyMutationIndexes });
   return getPayrollRunResult(db, runId);
 }
 

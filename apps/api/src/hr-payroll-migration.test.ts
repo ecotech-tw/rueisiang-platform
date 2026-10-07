@@ -67,6 +67,12 @@ describe("HR 薪資與出勤設定 migration", () => {
           VALUES ('r','p',1,'req',1,'test','ready',1,1,'u');
         INSERT INTO hr_payslips(id,payroll_run_id,employment_id,employee_number,employee_name,earning_minor,deduction_minor,net_minor)
           VALUES ('s','r','j','E1','Test',100,0,100);
+        INSERT INTO hr_annual_leave_entitlements(id,employment_id,policy_version_id,bracket_id,service_months,period_start,period_end,entitled_half_hours,status,settled_at,created_by)
+          VALUES ('annual-entitlement','j','annual-leave-policy-2017-v1','annual-leave-bracket-6m',6,'2025-09-01','2026-09-01',48,'settled','2026-08-31','u');
+        INSERT INTO hr_annual_leave_ledger(id,entitlement_id,entry_kind,delta_half_hours,source_key,note,created_by)
+          VALUES ('annual-settlement','annual-entitlement','settlement',-48,'annual-settlement:annual-entitlement','舊版特休折現','u');
+        INSERT INTO hr_payslip_lines(id,payslip_id,line_key,direction,amount_minor,explanation_json)
+          VALUES ('annual-settlement-line','s','annual_leave_settlement','earning',300000,'{"settlementItems":[{"sourceKey":"annual-settlement:annual-entitlement"}]}');
         INSERT INTO hr_payroll_closed_employees(period_key,employment_id,payroll_run_id) VALUES ('2026-08','j','r');
         INSERT INTO hr_payroll_periods(id,period_key,attendance_start,attendance_end,status,created_by) VALUES ('p2','2026-09','2026-09-01','2026-10-01','open','u');
         INSERT INTO hr_payroll_runs(id,payroll_period_id,version_number,request_id,input_revision,engine_version,status,expected_count,completed_count,created_by)
@@ -78,6 +84,8 @@ describe("HR 薪資與出勤設定 migration", () => {
       expect(sqlite.prepare("SELECT status FROM hr_payroll_runs WHERE id='r'").get()).toEqual({ status: "ready" });
       expect(sqlite.prepare("SELECT status FROM hr_payroll_periods WHERE id='p'").get()).toEqual({ status: "open" });
       expect(sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_closed_employees WHERE payroll_run_id='r'").get()).toEqual({ count: 0 });
+      expect(sqlite.prepare("SELECT status, settled_at FROM hr_annual_leave_entitlements WHERE id='annual-entitlement'").get()).toEqual({ status: "open", settled_at: null });
+      expect(sqlite.prepare("SELECT entry_kind, delta_half_hours, source_key FROM hr_annual_leave_ledger WHERE source_key='annual-settlement-reversal:r:annual-settlement:annual-entitlement'").get()).toEqual({ entry_kind: "settlement_reversal", delta_half_hours: 48, source_key: "annual-settlement-reversal:r:annual-settlement:annual-entitlement" });
       expect(() => sqlite.exec("UPDATE hr_payroll_withdrawals SET reason='改寫原因' WHERE payroll_run_id='r'")).toThrow(/payroll_run_withdrawal_immutable/);
       expect(() => sqlite.exec("DELETE FROM hr_payroll_withdrawals WHERE payroll_run_id='r'")).toThrow(/payroll_run_withdrawal_immutable/);
       expect(() => sqlite.exec("INSERT INTO hr_payroll_withdrawals(payroll_run_id,reason,withdrawn_by) VALUES ('r2','無 claim','u')")).toThrow(/payroll_run_withdrawal_invalid/);

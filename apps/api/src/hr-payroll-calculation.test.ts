@@ -97,6 +97,15 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const newRunId = (await recalculated.json() as { run: { runId: string } }).run.runId;
     expect(newRunId).not.toBe(runId);
     expect((await request(`/hr/payroll/runs/${newRunId}/close`, "POST", {})).status).toBe(200);
+    const recordsAfterReplacement = await request("/hr/payroll/records?periodKey=2026-08&status=all&pageSize=100");
+    const recordsAfterReplacementBody = await recordsAfterReplacement.json() as { records: Array<{ runId: string; personId: string; status: string }> };
+    expect(recordsAfterReplacementBody.records).toEqual(expect.arrayContaining([
+      expect.objectContaining({ runId, personId: "dev-employment-lin", status: "unsettled" }),
+      expect.objectContaining({ runId: newRunId, personId: "dev-employment-lin", status: "closed" }),
+    ]));
+    const historicalAfterReplacement = await request(`/hr/payroll/records/${runId}/employee/dev-employment-lin`);
+    expect((await historicalAfterReplacement.json() as { record: { status: string } }).record.status).toBe("unsettled");
+    expect((await request(`/hr/payroll/runs/${runId}/close`, "POST", {})).status).toBe(409);
     expect((await request(`/hr/payroll/runs/${runId}/withdraw`, "POST", { reason: "不可重複撤回" })).status).toBe(409);
     const closedAgain = await request("/hr/payroll/records?periodKey=2026-08&status=closed&pageSize=100");
     expect((await closedAgain.json() as { records: Array<{ runId: string; status: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ runId: newRunId, status: "closed" })]));
