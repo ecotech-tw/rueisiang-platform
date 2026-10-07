@@ -14,11 +14,11 @@ const PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } a
 const LINE_LABELS: Record<string, string> = {
   base_salary: "本薪",
   overtime: "核准付薪加班",
-  unpaid_leave: "無薪假扣款",
+  unpaid_leave: "請假扣款",
   booth_bonus: "櫃點獎金",
   labor_insurance: "勞保員工負擔",
   health_insurance: "健保員工負擔",
-  special_workday: "特殊上班日差額",
+  special_workday: "特殊上班日薪資加給",
   annual_leave_settlement: "未休特休折現",
   typhoon_stop_pay: "災防停班給薪",
   worker_pay: "排班薪資",
@@ -37,6 +37,22 @@ function periodLabel(value: string): string {
 function explanationString(line: PayrollLine, key: string): string | null {
   const value = line.explanation[key];
   return typeof value === "string" && value.trim() ? value : null;
+}
+function leaveHoursOf(line: PayrollLine): Array<{ leaveType: string; hours: number }> {
+  const values = line.explanation.leaveHours;
+  if (!Array.isArray(values)) return [];
+  return values.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const leaveType = (value as { leaveType?: unknown }).leaveType;
+    const hours = (value as { hours?: unknown }).hours;
+    return typeof leaveType === "string" && leaveType.trim() && typeof hours === "number" && Number.isFinite(hours) && hours > 0
+      ? [{ leaveType: leaveType.trim(), hours }]
+      : [];
+  });
+}
+function leaveDeductionLabel(line: PayrollLine): string {
+  const summary = leaveHoursOf(line).map(({ leaveType, hours }) => `${leaveType} ${hours.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 小時`);
+  return summary.length ? `請假扣款（${summary.join("、")}）` : "請假扣款";
 }
 function ruleNamesOf(line: PayrollLine): string[] {
   const names = Array.isArray(line.explanation.ruleNames) ? line.explanation.ruleNames.filter((name): name is string => typeof name === "string" && Boolean(name.trim())) : [];
@@ -63,13 +79,15 @@ function specialAllowanceLabel(line: PayrollLine): string {
   if (itemNames.length) return itemNames.join("、");
   return ruleName ? `特殊上班日補貼（${ruleName}）` : "特殊上班日補貼";
 }
-function specialWorkdayDifferenceLabel(line: PayrollLine): string {
+export function specialWorkdayDifferenceLabel(line: PayrollLine): string {
   const names = ruleNamesOf(line);
-  if (names.length === 1) return `${names[0]}：補貼差額`;
-  if (names.length > 1) return `特殊上班日（${names.join("、")}）補貼差額`;
-  return "特殊上班日差額";
+  const directionLabel = line.direction === "deduction" ? "薪資扣回" : "薪資加給";
+  if (names.length === 1) return `${names[0]}：${directionLabel}`;
+  if (names.length > 1) return `特殊上班日（${names.join("、")}）${directionLabel}`;
+  return `特殊上班日${directionLabel}`;
 }
 function lineLabel(line: PayrollLine): string {
+  if (line.lineKey === "unpaid_leave") return leaveDeductionLabel(line);
   if (line.lineKey.startsWith("special_allowance_")) return specialAllowanceLabel(line);
   if (line.lineKey === "special_workday") return specialWorkdayDifferenceLabel(line);
   const itemName = explanationString(line, "itemName");
@@ -227,7 +245,7 @@ export function HrPayrollRecordDetail() {
     const reason = withdrawReason.trim();
     if (!reason) { setWithdrawValidationError("請填寫撤回原因。"); return; }
     setWithdrawValidationError(null);
-    withdraw.mutate({ path: `/payroll/runs/${encodeURIComponent(detail!.record.runId)}/withdraw`, method: "POST", values: { reason } }, { onSuccess: () => { setWithdrawOpen(false); void result.refetch(); toast.show("薪資批次已撤回，可以重新試算。", "success"); } });
+    withdraw.mutate({ path: `/payroll/runs/${encodeURIComponent(detail!.record.runId)}/withdraw`, method: "POST", values: { reason } }, { onSuccess: () => { setWithdrawOpen(false); void result.refetch(); toast.show("薪資批次已退回尚未結算，可以重新試算。", "success"); } });
   }
   async function downloadPayslip() {
     const element = payslipPreviewRef.current;
@@ -248,14 +266,14 @@ export function HrPayrollRecordDetail() {
     <Panel className="hr-payroll-record-detail-panel" title="發放明細" description={`${detail.record.payDate ? `發薪日 ${detail.record.payDate}` : "未設定發薪日"}・試算版本 v${detail.record.versionNumber}`}>
       <div className="hr-payroll-detail-head">
         <div><strong>{detail.record.personNumber ? `${detail.record.personNumber}・` : ""}{PERSON_KIND_LABEL[detail.record.personKind]}</strong><small>建立於 {detail.record.createdAt}</small></div>
-        <div className="hr-payroll-detail-actions"><StatusBadge tone={detail.record.status === "closed" ? "success" : detail.record.status === "withdrawn" ? "neutral" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : detail.record.status === "withdrawn" ? "已撤回" : "尚未結算"}</StatusBadge>{canCalculate && detail.record.status === "unsettled" ? <><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={approveRecord}>確定發放</Button><Button variant="secondary" icon="tune" className="hr-action-update" disabled={deleteRun.isPending || withdraw.isPending} onClick={() => setItemDialogOpen(true)}>薪資加扣項</Button>{detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除整批試算</Button> : null}</> : null}{canCalculate && detail.record.status === "closed" && !detail.run.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回整批發放</Button> : null}</div>
+        <div className="hr-payroll-detail-actions"><StatusBadge tone={detail.record.status === "closed" ? "success" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : "尚未結算"}</StatusBadge>{canCalculate && detail.record.status === "unsettled" ? <><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={approveRecord}>確定發放</Button><Button variant="secondary" icon="tune" className="hr-action-update" disabled={deleteRun.isPending || withdraw.isPending} onClick={() => setItemDialogOpen(true)}>薪資加扣項</Button>{detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除整批試算</Button> : null}</> : null}{canCalculate && detail.record.status === "closed" && !detail.run.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回整批發放</Button> : null}</div>
       </div>
       <div className="hr-payroll-overview" aria-label="薪資合計">
         <div><span>應發</span><strong>{money(detail.record.earningMinor)}</strong></div>
         <div><span>扣款</span><strong>{detail.record.deductionMinor ? deductionMoney(detail.record.deductionMinor) : "—"}</strong></div>
         <div className="hr-payroll-overview-net"><span>實領</span><strong>{money(detail.record.netMinor)}</strong></div>
       </div>
-      {detail.record.status === "withdrawn" ? <Alert tone="warning"><strong>這筆薪資批次已撤回。</strong> 原始薪資快照仍保留供稽核，撤回後可重新建立試算。{detail.run.withdrawal ? <p>撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p> : null}</Alert> : detail.record.status === "closed" ? <Alert tone="info">這筆紀錄已確定發放，以下明細是不可改寫的歷史快照。</Alert> : detail.run.canDelete ? <Alert tone="warning">請確認試算公式與薪資加扣項後，再確定發放。薪資加扣項會以試算時保存的明細快照呈現；若資料有變更，請重新試算。</Alert> : <Alert tone="info">本批次已有其他人員確定發放，不能刪除整批試算；目前紀錄仍可繼續確認。</Alert>}
+      {detail.record.status === "closed" ? <Alert tone="info">這筆紀錄已確定發放，以下明細是不可改寫的歷史快照。{detail.run.withdrawal ? <p>本批次曾撤回後重新確定發放；原撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p> : null}</Alert> : detail.run.withdrawal ? <Alert tone="warning"><strong>這筆薪資批次已退回尚未結算。</strong> 原始薪資快照與撤回原因仍保留供稽核，現在可以重新確認發放或重新試算。<p>撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p></Alert> : detail.run.canDelete ? <Alert tone="warning">請確認試算公式與薪資加扣項後，再確定發放。薪資加扣項會以試算時保存的明細快照呈現；若資料有變更，請重新試算。</Alert> : <Alert tone="info">本批次已有其他人員確定發放，不能刪除整批試算；目前紀錄仍可繼續確認。</Alert>}
       {detail.run.warnings.length ? <Alert tone="warning"><strong>試算提醒</strong><ul className="hr-payroll-warning-list">{detail.run.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></Alert> : null}
 
       {detail.employee ? <div className="hr-payroll-line-list">{detailLines.map((line) => <details className={`hr-payroll-line hr-payroll-line-${line.direction}`} key={line.lineKey}>
@@ -284,8 +302,8 @@ export function HrPayrollRecordDetail() {
       actions={<><Button variant="secondary" onClick={() => setPayslipPreviewOpen(false)}>關閉</Button><Button icon="download" loading={payslipDownloading} loadingLabel="產生圖片…" onClick={() => { void downloadPayslip(); }}>下載薪資條</Button></>}
     ><PayrollPayslip detail={detail} elementRef={payslipPreviewRef} /></Dialog> : null}
     {withdrawOpen ? <ConfirmDialog title="撤回整批薪資發放？" confirmLabel="撤回發放" pending={withdraw.isPending} onCancel={() => { if (!withdraw.isPending) setWithdrawOpen(false); }} onConfirm={withdrawRun}>
-      <p><strong>{detail.run.runName}</strong>（{periodLabel(detail.run.periodKey)}）的已確定發放結果會標記為「已撤回」，原始薪資快照仍會保留。</p>
-      <p>撤回後該期間會重新開放，可重新試算；若已產生未休特休折現，系統也會一併恢復額度。</p>
+      <p><strong>{detail.run.runName}</strong>（{periodLabel(detail.run.periodKey)}）的已確定發放結果會退回「尚未結算」，原始薪資快照與撤回原因仍會保留。</p>
+      <p>撤回後該期間會重新開放，可重新確認發放或重新試算；若已產生未休特休折現，系統也會一併恢復額度。</p>
       <TextField label="撤回原因" value={withdrawReason} maxLength={1000} required placeholder="請說明撤回原因" onChange={(event) => setWithdrawReason(event.target.value)} />
       {withdrawValidationError || withdraw.error ? <Alert tone="danger">{withdrawValidationError ?? withdraw.error?.message}</Alert> : null}
     </ConfirmDialog> : null}

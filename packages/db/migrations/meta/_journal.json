@@ -1282,6 +1282,13 @@
       "when": 1791346217068,
       "tag": "0206_reconcile_annual_leave_period_collisions",
       "breakpoints": true
+    },
+    {
+      "idx": 207,
+      "version": "6",
+      "when": 1791349549620,
+      "tag": "0207_payroll_withdrawal_rollback",
+      "breakpoints": true
     }
   ]
 }

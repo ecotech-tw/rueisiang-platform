@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { desc, eq } from "drizzle-orm";
 import { createDatabase, parseSpecialWorkdayAllowanceSnapshot, specialWorkdayAllowanceTotal, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, hrInsuranceVersions, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { activityEvents, hrInsuranceVersions, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -9,6 +9,14 @@ import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
 const SECRET = "hr-payroll-test-secret-test-secret";
 let d1: LocalD1;
 let cookies: Record<string, string>;
+
+function healthDatasetMetadataResponse(distribution = [{
+  resourceID: "A21030000I-B1000A-00G",
+  resourceDescription: "115年1月全民健康保險投保金額分級表",
+  format: "CSV",
+}]) {
+  return new Response(JSON.stringify({ distribution }));
+}
 
 async function request(path: string, method = "GET", payload?: Record<string, unknown>) {
   return app.fetch(new Request(`https://test.local/api${path}`, {
@@ -42,9 +50,11 @@ afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); });
 describe("HR 薪資與勞健保", () => {
   it("從兩個官方開放資料來源解析勞保與健保級距", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      if (String(input).includes("mol.gov.tw")) return new Response(JSON.stringify([
-        { 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" },
-        { 身分別: "一般勞工", 投保薪資等級: "2", 月薪資總額: "29501元至30300元", 月投保薪資: "30300" },
+      const url = String(input);
+      if (url.includes("iode0010")) return healthDatasetMetadataResponse();
+      if (url.includes("mol.gov.tw")) return new Response(JSON.stringify([
+        { 適用起日: "1150101", 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" },
+        { 適用起日: "1150101", 身分別: "一般勞工", 投保薪資等級: "2", 月薪資總額: "29501元至30300元", 月投保薪資: "30300" },
       ]));
       return new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,29500,29500元以下\n第二組,2,30300,29501-30300\n");
     });
@@ -54,7 +64,8 @@ describe("HR 薪資與勞健保", () => {
     expect(body.tables).toHaveLength(2);
     expect(body.tables.find((table) => table.scheme === "labor")?.brackets[1]).toMatchObject({ insuredAmount: 30300, lowerSalary: 29501 });
     expect(body.tables.find((table) => table.scheme === "health")?.brackets[0]).toMatchObject({ insuredAmount: 29500, lowerSalary: 0 });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain("https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-B1000A-00G");
     expect((await request("/hr/insurance-rates/sync", "POST", { year: 2026 })).status).toBe(201);
     expect((await request("/hr/insurance-rates/sync", "POST", { year: 2026 })).status).toBe(201);
     const synced = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: { id: string; scheme: string; status: string }[] };
@@ -74,10 +85,35 @@ describe("HR 薪資與勞健保", () => {
     expect(synced.tables.filter((table) => table.status === "archived")).toHaveLength(0);
   });
 
+  it("指定下一年度時使用官方資料的年度欄位與對應 resource", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("iode0010")) return healthDatasetMetadataResponse([
+        { resourceID: "A21030000I-B1000A-00F", resourceDescription: "114年1月全民健康保險投保金額分級表", format: "CSV" },
+        { resourceID: "A21030000I-B1000A-00G", resourceDescription: "115年1月全民健康保險投保金額分級表", format: "CSV" },
+        { resourceID: "A21030000I-B1000A-00H", resourceDescription: "116年1月全民健康保險投保金額分級表", format: "CSV" },
+      ]);
+      if (url.includes("mol.gov.tw")) return new Response(JSON.stringify([
+        { 適用起日: "1160101", 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "31300元以下", 月投保薪資: "31300" },
+      ]));
+      return new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,31300,31300元以下\n");
+    });
+    const response = await request("/hr/insurance-brackets?year=2027");
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { tables: { scheme: string; brackets: { insuredAmount: number }[] }[] };
+    expect(body.tables.find((table) => table.scheme === "labor")?.brackets[0]?.insuredAmount).toBe(31300);
+    expect(body.tables.find((table) => table.scheme === "health")?.brackets[0]?.insuredAmount).toBe(31300);
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain("https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-B1000A-00H");
+  });
+
   it("並行同步同一份官方級距只保留一份待審閱版本", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("mol.gov.tw")
-      ? new Response(JSON.stringify([{ 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" }]))
-      : new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,29500,29500元以下\n"));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("iode0010")) return healthDatasetMetadataResponse();
+      return url.includes("mol.gov.tw")
+        ? new Response(JSON.stringify([{ 適用起日: "1150101", 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" }]))
+        : new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,29500,29500元以下\n");
+    });
     const responses = await Promise.all([
       request("/hr/insurance-rates/sync", "POST", { year: 2026 }),
       request("/hr/insurance-rates/sync", "POST", { year: 2026 }),
@@ -408,6 +444,8 @@ describe("HR 薪資與勞健保", () => {
     const adminEmploymentId = adminProfile.employments[0]!.id;
     const invalid = await request("/hr/special-workdays/rules", "POST", { name: "不連續特殊日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [{ fromHalfHours: 2, toHalfHours: null, rateKind: "multiplier", multiplierPpm: 1_500_000 }], allowances: [] });
     expect(invalid.status, await invalid.clone().text()).toBe(400);
+    const duplicateAllowance = await request("/hr/special-workdays/rules", "POST", { name: "重複補貼名稱", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [], allowances: [{ itemName: "餐費", unitAmountMinor: 0 }, { itemName: " 餐費 ", unitAmountMinor: 100 }] });
+    expect(duplicateAllowance.status, await duplicateAllowance.clone().text()).toBe(400);
     const created = await request("/hr/special-workdays/rules", "POST", { name: "測試國定日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [{ fromHalfHours: 1, toHalfHours: 4, rateKind: "multiplier", multiplierPpm: 1_500_000 }, { fromHalfHours: 5, toHalfHours: null, rateKind: "fixed_hourly", fixedAmountMinor: 35000 }], allowances: [{ itemName: "餐費", unitAmountMinor: 0 }, { itemName: "交通補貼", unitAmountMinor: 12000 }] });
     expect(created.status, await created.clone().text()).toBe(201);
     const createdBody = await created.json() as { id: string; versionId: string };
@@ -431,6 +469,102 @@ describe("HR 薪資與勞健保", () => {
     ]));
     expect((await request("/hr/special-workdays/assignments?start=2026-02-01&end=2026-03-01")).status).toBe(200);
     expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: createdBody.id, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] })).status).toBe(409);
+  });
+
+  it("特殊上班日套用依日期使用有效版本，沒有有效期間時拒絕", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const first = await request("/hr/special-workdays/rules", "POST", { name: "依日期選版特殊日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [], allowances: [] });
+    expect(first.status, await first.clone().text()).toBe(201);
+    const firstBody = await first.json() as { id: string; versionId: string };
+    const second = await request(`/hr/special-workdays/rules/${firstBody.id}/versions`, "POST", { name: "依日期選版特殊日", validFrom: "2026-06-01", validTo: "2026-07-01", wageKind: "fixed_hourly", fixedAmountMinor: 35000, overtimeRules: [], allowances: [] });
+    expect(second.status, await second.clone().text()).toBe(201);
+    const secondBody = await second.json() as { versionId: string };
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-05-31", allowanceQuantity: 0 }] })).status).toBe(201);
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-06-01", allowanceQuantity: 0 }] })).status).toBe(201);
+    const listed = await (await request("/hr/special-workdays/assignments?start=2026-05-31&end=2026-06-02")).json() as { assignments: Array<{ assignment: { workDate: string }; currentVersionNumber: number | null }> };
+    expect(listed.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ assignment: expect.objectContaining({ workDate: "2026-05-31" }), currentVersionNumber: 1 }),
+      expect.objectContaining({ assignment: expect.objectContaining({ workDate: "2026-06-01" }), currentVersionNumber: 2 }),
+    ]));
+    const expired = await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-07-01", allowanceQuantity: 0 }] });
+    expect(expired.status, await expired.clone().text()).toBe(409);
+    expect(secondBody.versionId).not.toBe(firstBody.versionId);
+  });
+
+  it("已套用的特殊上班日可以調整人員、日期與補貼數量", async () => {
+    await assign();
+    await assignUser("admin", "E-ADMIN");
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const adminProfile = await (await request("/hr/employees/admin")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const adminEmploymentId = adminProfile.employments[0]!.id;
+    const created = await request("/hr/special-workdays/rules", "POST", { name: "可調整特殊日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [], allowances: [{ itemName: "餐費", unitAmountMinor: 10000 }] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id: ruleId } = await created.json() as { id: string };
+    const replacement = await request("/hr/special-workdays/rules", "POST", { name: "可調整另一規則", validFrom: "2026-01-01", wageKind: "multiplier", multiplierPpm: 1_500_000, overtimeRules: [], allowances: [{ itemName: "餐費", unitAmountMinor: 12000 }] });
+    expect(replacement.status, await replacement.clone().text()).toBe(201);
+    const { id: replacementRuleId } = await replacement.json() as { id: string };
+    const listedRules = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string }; versions: Array<{ allowances: Array<{ id: string }> }> }> };
+    const allowanceId = listedRules.rules.find((item) => item.rule.id === ruleId)!.versions[0]!.allowances[0]!.id;
+    const replacementAllowanceId = listedRules.rules.find((item) => item.rule.id === replacementRuleId)!.versions[0]!.allowances[0]!.id;
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId, workDate: "2026-04-01", allowanceQuantities: [{ allowanceId, quantity: 1 }] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const before = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string } }> };
+    const assignmentId = before.assignments[0]!.assignment.id;
+
+    const updated = await request(`/hr/special-workdays/assignments/${assignmentId}`, "PATCH", { ruleId: replacementRuleId, employmentId: adminEmploymentId, workDate: "2026-04-02", allowanceQuantities: [{ allowanceId: replacementAllowanceId, quantity: 3 }] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect(await updated.json()).toMatchObject({ id: assignmentId, ruleId: replacementRuleId });
+    const after = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string; ruleId: string; employmentId: string | null; workDate: string; allowanceSnapshotJson: string } }> };
+    expect(after.assignments).toEqual([expect.objectContaining({ assignment: expect.objectContaining({ id: assignmentId, ruleId: replacementRuleId, employmentId: adminEmploymentId, workDate: "2026-04-02", allowanceSnapshotJson: JSON.stringify([{ itemName: "餐費", unitAmountMinor: 12000, quantity: 3 }]) }) })]);
+
+    const second = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId, workDate: "2026-04-03", allowanceQuantities: [{ allowanceId, quantity: 0 }] }] });
+    expect(second.status, await second.clone().text()).toBe(201);
+    const secondRows = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string; employmentId: string | null } }> };
+    const secondId = secondRows.assignments.find((item) => item.assignment.employmentId === employmentId)!.assignment.id;
+    const duplicate = await request(`/hr/special-workdays/assignments/${secondId}`, "PATCH", { ruleId: replacementRuleId, employmentId: adminEmploymentId, workDate: "2026-04-02", allowanceQuantities: [{ allowanceId: replacementAllowanceId, quantity: 0 }] });
+    expect(duplicate.status, await duplicate.clone().text()).toBe(409);
+  });
+
+  it("特殊上班日不能套用或編輯到停用帳號", async () => {
+    await assign();
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values({ id: "disabled-employee", email: "disabled-employee@example.test", displayName: "停用員工", status: "active" });
+    await assignUser("disabled-employee", "E-DISABLED");
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, "disabled-employee"));
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const disabledProfile = await (await request("/hr/employees/disabled-employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const disabledEmploymentId = disabledProfile.employments[0]!.id;
+    const created = await request("/hr/special-workdays/rules", "POST", { name: "停用帳號特殊日", validFrom: "2026-01-01", wageKind: "multiplier", multiplierPpm: 1_500_000, overtimeRules: [], allowances: [] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id: ruleId } = await created.json() as { id: string };
+    const rejectedCreate = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId: disabledEmploymentId, workDate: "2026-04-01", allowanceQuantities: [] }] });
+    expect(rejectedCreate.status, await rejectedCreate.clone().text()).toBe(400);
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId, workDate: "2026-04-01", allowanceQuantities: [] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const rows = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string } }> };
+    const rejectedUpdate = await request(`/hr/special-workdays/assignments/${rows.assignments[0]!.assignment.id}`, "PATCH", { ruleId, employmentId: disabledEmploymentId, workDate: "2026-04-02", allowanceQuantities: [] });
+    expect(rejectedUpdate.status, await rejectedUpdate.clone().text()).toBe(400);
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, "employee"));
+    const rejectedDateUpdate = await request(`/hr/special-workdays/assignments/${rows.assignments[0]!.assignment.id}`, "PATCH", { ruleId, employmentId, workDate: "2026-04-03", allowanceQuantities: [] });
+    expect(rejectedDateUpdate.status, await rejectedDateUpdate.clone().text()).toBe(400);
+  });
+
+  it("出勤設定讀取權限可以取得支援人員名單", async () => {
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "特殊日支援名單" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const adminCookie = cookies.admin!;
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values({ id: "office-reader", email: "office-reader@example.test", displayName: "出勤設定讀取者", status: "active" });
+    await db.insert(userPermissionGrants).values({ userId: "office-reader", permission: "hr:office:read" });
+    cookies = { admin: `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "office-reader", email: "office-reader@example.test", name: "出勤設定讀取者", pictureUrl: "" }), SECRET))}` };
+    const listed = await request("/hr/schedule-workers");
+    expect(listed.status, await listed.clone().text()).toBe(200);
+    expect((await listed.json() as { workers: Array<{ displayName: string }> }).workers).toEqual(expect.arrayContaining([expect.objectContaining({ displayName: "特殊日支援名單" })]));
+    cookies = { admin: adminCookie };
   });
 
   it("特殊上班日可以一次套用超過一百人，不會超過 D1 的綁定參數上限", async () => {

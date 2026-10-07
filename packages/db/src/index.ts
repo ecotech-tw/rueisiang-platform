@@ -18,8 +18,8 @@ export {
 export { HR_CALENDAR_SPECIAL_KINDS } from "./schema/hr-scheduling.js";
 export type { HrCalendarSpecialKind, HrDayType } from "./schema/hr-scheduling.js";
 export {
-  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, parseSpecialWorkdayAllowanceSnapshot, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, specialWorkdayAllowanceTotal, voidHrSpecialWorkdayRuleVersion,
-  type SpecialWorkdayAllowanceInput, type SpecialWorkdayAllowanceQuantityInput, type SpecialWorkdayAllowanceSnapshot, type SpecialWorkdayAssignmentInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
+  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, parseSpecialWorkdayAllowanceSnapshot, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, specialWorkdayAllowanceTotal, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
+  type SpecialWorkdayAllowanceInput, type SpecialWorkdayAllowanceQuantityInput, type SpecialWorkdayAllowanceSnapshot, type SpecialWorkdayAssignmentInput, type SpecialWorkdayAssignmentItem, type SpecialWorkdayAssignmentUpdateInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
 } from "./hr-special-workdays.js";
 export { cancelHrOvertimeRequest, createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest, type HrOvertimeCancellationOptions, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
 export { HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage, type HrRequestCenterKind, type HrRequestCenterListQuery, type HrRequestCenterPage, type HrRequestCenterRow, type HrRequestCenterStatus } from "./hr-request-center.js";
