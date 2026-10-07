@@ -265,7 +265,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const body = await response.json() as { run: { runId: string; status: string; warnings: string[]; employees: Array<{ employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
     expect(body.run.status).toBe("ready");
     expect(body.run.warnings).not.toContain("本版未計算勞健保扣款：員工尚未建立有效的加保版本。");
-    expect(body.run.warnings.some((warning) => warning.includes("林瑞翔") && warning.includes("31 天缺少當月出金資料"))).toBe(true);
+    expect(body.run.warnings.some((warning) => warning.includes("林瑞翔") && warning.includes("31 天所有適用櫃點都缺少當月出金資料"))).toBe(true);
     expect(body.run.warnings.some((warning) => warning.includes("沒有涵蓋通路的已發布排班"))).toBe(false);
     expect(body.run.employees[0]).toMatchObject({ employeeUserId: "dev-eli-lin@ecotech.tw", employeeName: "林瑞翔", earningMinor: 6_116_665, deductionMinor: 385_500, netMinor: 5_731_165 });
     expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
@@ -775,7 +775,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.warnings.some((warning) => warning.includes("權重分配") && warning.includes("沒有涵蓋通路的已發布排班"))).toBe(false);
   });
 
-  it("多 Scope 的團體獎金先合併兩店出金再只扣一次保底", async () => {
+  it("多 Scope 的團體獎金各店獨立扣保底後再按權重分配", async () => {
     const created = await request("/hr/bonus/policies", "POST", {
       name: "跨店團體績效", scopeIds: ["cyberbiz:store:demo-ximen", "cyberbiz:store:demo-xinyi"], bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 50_000, guaranteeMinor: 15_000_000, employeeUserIds: ["dev-wang@ecotech.tw"], assignmentValidFrom: "2026-01-01",
     });
@@ -792,11 +792,58 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ amountMinor: number; explanation: Record<string, unknown> }> }> } };
     const crossStore = body.run.employees[0]!.lines.find((line) => line.explanation.policyName === "跨店團體績效");
     /*
-     * 西門 388,500,000 加信義 10,000,000 是 398,500,000，保底只扣一次。兩店各自扣一次的話
-     * 會少扣 15,000,000 ——多 Scope 的政策最容易錯在這裡，所以要有一條測試盯著。
+     * 西門 388,500,000 分先扣 150,000,000 分後乘 5%，信義 10,000,000 分低於自己的保底，
+     * 所以只有西門產生 18,675 元獎金；不能用兩店合計後只扣一次保底。
      */
-    expect(crossStore?.explanation).toMatchObject({ revenueMinor: 398_500_000, scheduledDays: null });
-    expect(crossStore?.amountMinor).toBe(19_175_000);
+    expect(crossStore?.explanation).toMatchObject({ revenueMinor: 398_500_000, revenueByScopeMinor: { "cyberbiz:store:demo-ximen": 388_500_000, "cyberbiz:store:demo-xinyi": 10_000_000 }, poolAmountMinor: 18_675_000, scheduledDays: null });
+    expect(crossStore?.amountMinor).toBe(18_675_000);
+  });
+
+  it("多 Scope 同一天任一櫃點有出金時，不把另一櫃點的空缺誤報成缺業績", async () => {
+    const created = await request("/hr/bonus/policies", "POST", {
+      name: "跨店缺資料提醒", scopeIds: ["cyberbiz:store:demo-ximen", "cyberbiz:store:demo-xinyi"], bonusKind: "team_performance", performancePeriod: "current_month", ratePpm: 50_000, guaranteeMinor: 0, employeeUserIds: ["dev-wang@ecotech.tw"], assignmentValidFrom: "2026-01-01",
+    });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const db = createDatabase(d1 as never);
+    await db.delete(reportPayoutDaily);
+    // 1～30 日只有西門有資料，信義整月沒有列；只有兩站都沒有資料的 31 日才應提醒。
+    for (let index = 0; index < 30; index += 1) {
+      await db.insert(reportPayoutDaily).values({
+        scopeId: "cyberbiz:store:demo-ximen", businessDate: `2026-08-${String(index + 1).padStart(2, "0")}`, recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 100_000, updatedByEmail: "eli-lin@ecotech.tw",
+      });
+    }
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-payroll-multiscope-partial-payout" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ explanation: Record<string, unknown> }> }>; warnings: string[] } };
+    const line = body.run.employees[0]!.lines.find((item) => item.explanation.policyName === "跨店缺資料提醒");
+    expect(line?.explanation).toMatchObject({ revenueMinor: 300_000_000, revenueByScopeMinor: { "cyberbiz:store:demo-ximen": 300_000_000, "cyberbiz:store:demo-xinyi": 0 }, missingPayoutDates: ["2026-08-31"] });
+    const warning = body.run.warnings.find((item) => item.includes("跨店缺資料提醒"));
+    expect(warning).toContain("2026-08-31");
+    expect(warning).not.toContain("2026-08-01");
+  });
+
+  it("多 Scope 的個人績效各櫃點分開套用保底", async () => {
+    const db = createDatabase(d1 as never);
+    await db.insert(hrScheduleEntries).values({
+      id: "test-schedule-entry-wang-xinyi-1", scheduleVersionId: "dev-schedule-2026-08-v1", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-xinyi", shiftVersionId: "dev-shift-booth-day-v1", workDate: "2026-08-01", startsAt: "2026-08-01 03:00:00", endsAt: "2026-08-01 11:00:00", standardMinutes: 480, breakMinutes: 0, createdBy: "dev-wang@ecotech.tw",
+    });
+    await db.delete(reportPayoutDaily);
+    await db.insert(reportPayoutDaily).values([
+      ...[1, 3, 5, 8, 10, 12, 15, 17, 19, 22, 24, 26, 29, 31].map((day) => ({
+        scopeId: "cyberbiz:store:demo-ximen", businessDate: `2026-08-${String(day).padStart(2, "0")}`, recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 100_000, updatedByEmail: "eli-lin@ecotech.tw",
+      })),
+      { scopeId: "cyberbiz:store:demo-xinyi", businessDate: "2026-08-01", recordOrigin: "manual" as const, reportRunId: null, payoutAmount: 100_000, updatedByEmail: "eli-lin@ecotech.tw" },
+    ]);
+    const created = await request("/hr/bonus/policies", "POST", {
+      name: "跨店個人績效", scopeIds: ["cyberbiz:store:demo-ximen", "cyberbiz:store:demo-xinyi"], bonusKind: "individual_performance", performancePeriod: "current_month", ratePpm: 10_000, guaranteeMinor: 100_000_000, employeeUserIds: ["dev-wang@ecotech.tw"], assignmentValidFrom: "2026-01-01",
+    });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-payroll-multiscope-individual-partial-payout" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ explanation: Record<string, unknown>; amountMinor: number }> }>; warnings: string[] } };
+    const line = body.run.employees[0]!.lines.find((item) => item.explanation.policyName === "跨店個人績效");
+    expect(line).toMatchObject({ amountMinor: 400_000, explanation: { revenueMinor: 150_000_000, revenueByScopeMinor: { "cyberbiz:store:demo-ximen": 140_000_000, "cyberbiz:store:demo-xinyi": 10_000_000 }, scheduledDays: 15, missingPayoutDates: [] } });
+    expect(body.run.warnings.some((warning) => warning.includes("跨店個人績效") && warning.includes("缺少"))).toBe(false);
   });
 
   it("同一員工可套用多筆 policy，計薪時合併自動獎金", async () => {
@@ -1753,7 +1800,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-payroll-2026-08-wang-missing-payout" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { warnings: string[] } };
-    expect(body.run.warnings.some((warning) => warning.includes("29 天缺少當月出金資料"))).toBe(true);
+    expect(body.run.warnings.some((warning) => warning.includes("29 天所有適用櫃點都缺少當月出金資料"))).toBe(true);
     expect(body.run.warnings.some((warning) => warning.includes("請先完成出金表匯入"))).toBe(true);
   });
 });
