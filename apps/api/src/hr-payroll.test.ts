@@ -10,6 +10,14 @@ const SECRET = "hr-payroll-test-secret-test-secret";
 let d1: LocalD1;
 let cookies: Record<string, string>;
 
+function healthDatasetMetadataResponse() {
+  return new Response(JSON.stringify({ distribution: [{
+    resourceID: "A21030000I-B1000A-00G",
+    resourceDescription: "115年1月全民健康保險投保金額分級表",
+    format: "CSV",
+  }] }));
+}
+
 async function request(path: string, method = "GET", payload?: Record<string, unknown>) {
   return app.fetch(new Request(`https://test.local/api${path}`, {
     method,
@@ -42,7 +50,9 @@ afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); });
 describe("HR 薪資與勞健保", () => {
   it("從兩個官方開放資料來源解析勞保與健保級距", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      if (String(input).includes("mol.gov.tw")) return new Response(JSON.stringify([
+      const url = String(input);
+      if (url.includes("iode0010")) return healthDatasetMetadataResponse();
+      if (url.includes("mol.gov.tw")) return new Response(JSON.stringify([
         { 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" },
         { 身分別: "一般勞工", 投保薪資等級: "2", 月薪資總額: "29501元至30300元", 月投保薪資: "30300" },
       ]));
@@ -54,7 +64,8 @@ describe("HR 薪資與勞健保", () => {
     expect(body.tables).toHaveLength(2);
     expect(body.tables.find((table) => table.scheme === "labor")?.brackets[1]).toMatchObject({ insuredAmount: 30300, lowerSalary: 29501 });
     expect(body.tables.find((table) => table.scheme === "health")?.brackets[0]).toMatchObject({ insuredAmount: 29500, lowerSalary: 0 });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain("https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-B1000A-00G");
     expect((await request("/hr/insurance-rates/sync", "POST", { year: 2026 })).status).toBe(201);
     expect((await request("/hr/insurance-rates/sync", "POST", { year: 2026 })).status).toBe(201);
     const synced = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: { id: string; scheme: string; status: string }[] };
@@ -75,9 +86,13 @@ describe("HR 薪資與勞健保", () => {
   });
 
   it("並行同步同一份官方級距只保留一份待審閱版本", async () => {
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("mol.gov.tw")
-      ? new Response(JSON.stringify([{ 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" }]))
-      : new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,29500,29500元以下\n"));
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("iode0010")) return healthDatasetMetadataResponse();
+      return url.includes("mol.gov.tw")
+        ? new Response(JSON.stringify([{ 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" }]))
+        : new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,29500,29500元以下\n");
+    });
     const responses = await Promise.all([
       request("/hr/insurance-rates/sync", "POST", { year: 2026 }),
       request("/hr/insurance-rates/sync", "POST", { year: 2026 }),

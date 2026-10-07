@@ -24,12 +24,13 @@ export interface HrInsuranceBracketTable {
 
 export class HrInsuranceRateError extends Error {}
 
-const OFFICIAL_SOURCES: Record<number, Record<HrInsuranceScheme, string>> = {
-  // 115 年資料資源由勞動部與健保署的政府資料開放 API 提供；下一年度發布後只需更新
-  // 這個資源索引，不把法定級距複製成另一份容易過期的前端常數。
+const NHI_DATASET_METADATA_URL = "https://info.nhi.gov.tw/api/iode0010/v1/rest/dataset/A21030000I-B1000A";
+const NHI_DATASET_URL = "https://info.nhi.gov.tw/api/iode0000s01/Dataset";
+const OFFICIAL_SOURCES: Record<number, { labor: string }> = {
+  // 勞動部目前以固定 resource 提供最新資料；若 resource 變更，只需在這裡更新該年度來源。
+  // 健保署的 resource ID 每年遞增，不能把某一年的尾碼當成下一年的規則，改由官方資料集索引查找。
   2026: {
     labor: "https://apiservice.mol.gov.tw/OdService/download/A17000000J-020014-rpF",
-    health: "https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-B1000A-00B",
   },
 };
 
@@ -99,11 +100,40 @@ function parseHealthCsv(value: string, sourceUrl: string, year: number): HrInsur
   return { scheme: "health", year, sourceUrl, fetchedAt: new Date().toISOString(), brackets };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object";
+}
+
+function healthSourceUrl(value: unknown, year: number): string {
+  if (!isRecord(value) || !Array.isArray(value.distribution)) throw new HrInsuranceRateError("健保署級距資料索引格式不正確。");
+  const description = `${year - 1911}年1月全民健康保險投保金額分級表`;
+  const resource = value.distribution.find((item): item is Record<string, unknown> => isRecord(item)
+    && item.resourceDescription === description && typeof item.resourceID === "string");
+  if (!resource) throw new HrInsuranceRateError(`健保署尚未發布民國 ${year - 1911} 年的級距資料。`);
+  return `${NHI_DATASET_URL}?rId=${encodeURIComponent(resource.resourceID as string)}`;
+}
+
+async function resolveHealthSourceUrl(year: number, fetcher: typeof fetch): Promise<string> {
+  const response = await fetcher(NHI_DATASET_METADATA_URL, { headers: { Accept: "application/json" } });
+  if (!response.ok) throw new HrInsuranceRateError(`健保署級距資料索引服務回應 ${response.status}。`);
+  try {
+    const parsed = JSON.parse(await response.text()) as unknown;
+    return healthSourceUrl(typeof parsed === "string" ? JSON.parse(parsed) as unknown : parsed, year);
+  } catch (error) {
+    if (error instanceof HrInsuranceRateError) throw error;
+    throw new HrInsuranceRateError("健保署級距資料索引無法解析。");
+  }
+}
+
 /** 從官方開放資料即時取得級距；資料失敗時不自行猜測法定金額。 */
 export async function fetchHrInsuranceBrackets(year: number, fetcher: typeof fetch = fetch): Promise<HrInsuranceBracketTable[]> {
-  const sources = OFFICIAL_SOURCES[year];
-  if (!sources) throw new HrInsuranceRateError(`尚未設定民國 ${year - 1911} 年的官方級距資料來源。`);
-  const results = await Promise.all((Object.entries(sources) as [HrInsuranceScheme, string][]).map(async ([scheme, url]) => {
+  const laborUrl = OFFICIAL_SOURCES[year]?.labor;
+  if (!laborUrl) throw new HrInsuranceRateError(`尚未設定民國 ${year - 1911} 年的官方級距資料來源。`);
+  const sources: Array<[HrInsuranceScheme, string]> = [
+    ["labor", laborUrl],
+    ["health", await resolveHealthSourceUrl(year, fetcher)],
+  ];
+  const results = await Promise.all(sources.map(async ([scheme, url]) => {
     const response = await fetcher(url, { headers: { Accept: "application/json, text/csv" } });
     if (!response.ok) throw new HrInsuranceRateError(`官方${scheme === "labor" ? "勞保" : "健保"}級距服務回應 ${response.status}。`);
     const text = await response.text();
