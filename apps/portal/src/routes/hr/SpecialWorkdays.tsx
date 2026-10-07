@@ -144,7 +144,7 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
     <Dialog title={rule ? `建立「${rule.rule.name}」新版本` : "新增特殊上班日規則"} titleMeta={rule ? (current ? `目前有效版本 v${current.versionNumber}` : "目前沒有有效版本") : undefined} onClose={close} closeRequestRef={closeRequestRef} closeDisabled={save.isPending || voidVersion.isPending} formProps={{ onSubmit: submit }} actions={<>
       <Button type="button" variant="secondary" onClick={close} disabled={save.isPending || voidVersion.isPending}>取消</Button>
       {canVoid ? <Button type="button" variant="danger" icon="history" disabled={save.isPending || voidVersion.isPending} onClick={() => setVoidConfirmation(true)}>解除最新版本</Button> : null}
-      <Button type="submit" loading={save.isPending} disabled={voidVersion.isPending}>{rule ? "建立新版本" : "建立規則"}</Button>
+      <Button type="submit" className="add-action" loading={save.isPending} disabled={voidVersion.isPending}>{rule ? "建立新版本" : "建立規則"}</Button>
     </>}>
       {!rule ? <TextField label="規則名稱" required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /> : <p>規則名稱：<strong>{rule.rule.name}</strong>（歷史版本不覆寫）</p>}
       {rule ? <p className="form-hint">新版本會從指定生效日起成為目前設定；日期套用不固定綁定版本，重新試算會讀取目前規則，已結算薪資明細不會被改寫。</p> : null}
@@ -161,7 +161,7 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
           <Button type="button" variant="icon" icon="trash" aria-label={`刪除第 ${index + 1} 筆特殊日加班規則`} onClick={() => setOvertimeRules((items) => items.filter((_, itemIndex) => itemIndex !== index))} />
         </div>)}
         {!overtimeRules.length ? <p className="muted special-overtime-items-empty">尚未設定特殊日加班費，會沿用一般加班規則。</p> : null}
-        <div className="salary-items-foot"><Button type="button" variant="secondary" icon="plus" disabled={overtimeRules.length >= 50 || overtimeRules.some((item) => !item.toHours.trim())} onClick={() => setOvertimeRules((items) => [...items, nextOvertimeRule(items)])}>新增規則</Button></div>
+        <div className="salary-items-foot"><Button type="button" variant="secondary" icon="plus" className="add-action" disabled={overtimeRules.length >= 50 || overtimeRules.some((item) => !item.toHours.trim())} onClick={() => setOvertimeRules((items) => [...items, nextOvertimeRule(items)])}>新增規則</Button></div>
       </div>
       <div className="salary-items special-allowance-items">
         <span className="salary-items-label">補貼項目</span>
@@ -172,7 +172,7 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
           <Button type="button" variant="icon" icon="trash" aria-label={`刪除${allowance.itemName.trim() || `第 ${index + 1} 筆補貼`}`} onClick={() => setAllowances((items) => items.filter((_, itemIndex) => itemIndex !== index))} />
         </div>)}
         {!allowances.length ? <p className="muted special-allowance-items-empty">尚未設定補貼。</p> : null}
-        <div className="salary-items-foot"><Button type="button" variant="secondary" icon="plus" disabled={allowances.length >= 50} onClick={() => setAllowances((items) => [...items, { itemName: "", amount: "" }])}>新增補貼</Button></div>
+        <div className="salary-items-foot"><Button type="button" variant="secondary" icon="plus" className="add-action" disabled={allowances.length >= 50} onClick={() => setAllowances((items) => [...items, { itemName: "", amount: "" }])}>新增補貼</Button></div>
       </div>
       <TextField label="備註（選填）" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
       {message || save.error || voidVersion.error ? <Alert tone="danger">{message ?? save.error?.message ?? voidVersion.error?.message}</Alert> : null}
@@ -305,7 +305,7 @@ export function HrSpecialWorkdays() {
   };
   if (!canRead) return <Alert tone="danger">你沒有檢視特殊上班日規則的權限。</Alert>;
   if (rules.isPending || assignments.isPending) return <HrPageSkeleton variant="table" />;
-  return <div className="page fills"><PageHeader title="特殊上班日" description="先建立可重複使用的規則，再一次套用到多位人員的日期區間；套用不等於打卡，也不等於加班核准。" actions={canWrite ? <div className="button-row"><Button variant="secondary" onClick={() => setEditor("assign")} disabled={!assignableRules.length}>套用到人員日期</Button><Button icon="plus" onClick={() => setEditor("new")}>新增規則</Button></div> : undefined} />
+  return <div className="page fills"><PageHeader title="特殊上班日" description="先建立可重複使用的規則，再一次套用到多位人員的日期區間；套用不等於打卡，也不等於加班核准。" actions={canWrite ? <div className="button-row"><Button variant="secondary" className="hr-action-info" onClick={() => setEditor("assign")} disabled={!assignableRules.length}>套用到人員日期</Button><Button icon="plus" className="add-action" onClick={() => setEditor("new")}>新增規則</Button></div> : undefined} />
     {rules.error || assignments.error || toggleRule.error ? <Alert tone="danger">{rules.error?.message ?? assignments.error?.message ?? toggleRule.error?.message}</Alert> : null}<Alert tone="info">月薪／日薪的特殊日倍率依套用日期計薪，不要求月度工時；固定特殊薪資與時薪制倍率才需要工時資料。重新試算會使用目前規則設定，已結算薪資明細不會被改寫。加班仍須另行申請與核准。</Alert>
     <Panel><div className="panel-head"><div><h2>規則主檔</h2><p className="muted">建立新版本不覆寫歷史；解除最新版本會回到上一版；未套用過的規則可刪除，已有歷史套用時請停用。</p></div></div><DataTable><thead><tr><th>規則</th><th>版本／期間</th><th>薪資方式</th><th>特殊日加班</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map((item) => {
       const version = latestActiveVersion(item);

@@ -76,7 +76,7 @@ function OvertimeRequestCard({ item, onEdit, onCancel }: { item: OvertimeRequest
     <div className="hr-form-request-title"><strong>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</strong><StatusBadge tone={tone}>{label}</StatusBadge></div>
     <p>{item.request.settlementKind === "pay" ? "付薪" : "補休"}・倍率 {(item.request.ratePpm / 10_000).toFixed(2)}%・{item.request.reason || "—"}</p>
     {item.request.decisionReason ? <small>審核意見：{item.request.decisionReason}</small> : null}
-    {canEdit || canCancel ? <div className="hr-form-request-actions">{canEdit ? <Button variant="secondary" onClick={() => onEdit(item)}>編輯</Button> : null}{canCancel ? <Button variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
+    {canEdit || canCancel ? <div className="hr-form-request-actions">{canEdit ? <Button variant="secondary" className="hr-action-update" onClick={() => onEdit(item)}>編輯</Button> : null}{canCancel ? <Button variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
   </article>;
 }
 
@@ -108,7 +108,7 @@ function ReviewDialog({ request, onClose }: { request: FormRequest; onClose: () 
   return <Dialog title="審核補打卡申請" titleMeta={request.requesterName ?? request.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={review.isPending} actions={<>
     <Button variant="secondary" disabled={review.isPending} onClick={onClose}>取消</Button>
     <Button variant="danger" disabled={review.isPending} onClick={() => { void submitAndClose("rejected"); }}>駁回</Button>
-    <Button loading={review.isPending} loadingLabel="核准中…" onClick={() => { void submitAndClose("approved"); }}>核准</Button>
+    <Button className="hr-action-update" loading={review.isPending} loadingLabel="核准中…" onClick={() => { void submitAndClose("approved"); }}>核准</Button>
   </>}>
     <RequestSummary request={request} reviewer />
     <Field label="審核意見" hint="駁回時必填；核准時可留空。">
@@ -127,14 +127,14 @@ export function HrForms() {
   const overtime = useHrQuery<{ requests: OvertimeRequest[] }>("/me/overtime");
   const data = query.data;
   return <div className="page hr-forms-page">
-    <PageHeader title="表單申請" description="補打卡與加班申請送出後，會保留申請紀錄並交由管理流程審核。" actions={<div className="button-row"><Button variant="secondary" icon="plus" onClick={() => navigate("/forms/overtime")}>新增加班</Button><Button icon="plus" onClick={() => navigate("/forms/new")}>新增補打卡</Button></div>} />
+    <PageHeader title="表單申請" description="補打卡與加班申請送出後，會保留申請紀錄並交由管理流程審核。" actions={<div className="button-row"><Button variant="secondary" icon="plus" className="add-action" onClick={() => navigate("/forms/overtime")}>新增加班</Button><Button icon="plus" className="add-action" onClick={() => navigate("/forms/new")}>新增補打卡</Button></div>} />
     {query.isPending ? <p className="muted">載入申請單…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {data?.reviewRequests.length ? <Panel className="hr-form-review-panel">
       <div className="panel-head"><div><h2>待我審核</h2><p className="muted">只顯示指定你為審核者、且尚未完成處理的申請。</p></div></div>
       <div className="hr-form-request-list">{data.reviewRequests.map((request) => <article className="hr-form-request-card review" key={request.id}>
         <RequestSummary request={request} reviewer />
-        <div className="hr-form-review-actions"><Button onClick={() => setReviewing(request)}>審核</Button></div>
+        <div className="hr-form-review-actions"><Button className="hr-action-info" onClick={() => setReviewing(request)}>審核</Button></div>
       </article>)}</div>
     </Panel> : null}
     <Panel>
@@ -146,7 +146,7 @@ export function HrForms() {
       <div className="panel-head"><div><h2>我的補打卡申請</h2><p className="muted">可查看草稿、申請中、已核准與已駁回的處理進度。</p></div></div>
       {data?.requests.length ? <div className="hr-form-request-list">{data.requests.map((request) => <article className="hr-form-request-card" key={request.id}>
         <RequestSummary request={request} />
-        {request.status === "draft" ? <Button variant="secondary" onClick={() => navigate(`/forms/new?request=${encodeURIComponent(request.id)}`)}>繼續編輯</Button> : null}
+        {request.status === "draft" ? <Button variant="secondary" className="hr-action-update" onClick={() => navigate(`/forms/new?request=${encodeURIComponent(request.id)}`)}>繼續編輯</Button> : null}
       </article>)}</div> : <p className="muted">目前沒有申請紀錄。</p>}
     </Panel>
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
@@ -210,7 +210,7 @@ export function HrOvertimeForm() {
     save.mutate({ path: editing ? `/me/overtime/${requestId}` : "/me/overtime", method: editing ? "PATCH" : "POST", values: { requestedStart: stamp(start), requestedEnd: stamp(end), settlementKind, reason, ...(editing ? { revision: existingRequest?.request.revision } : {}) } }, { onSuccess: () => navigate("/forms", { replace: true }), onError: (cause) => setError(cause.message) });
   }
 
-  return <div className="page hr-form-page"><PageHeader title={editing ? "編輯加班申請" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : "填寫台北時間的申請時段；倍率由公司已確認的加班制度決定，申請人不能自行修改。核准前不會進入薪資結算。"} /><Panel><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => setStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></div><div className="hr-form-field-row"><SelectField label="結算方式" value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={disabled} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} /><p className="form-hint">目前制度倍率：133.33%（由伺服器套用）</p></div><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms")} disabled={disabled}>取消</Button><Button loading={save.isPending} onClick={submit}>{editing ? "更新加班申請" : "送出加班申請"}</Button></div></Panel></div>;
+  return <div className="page hr-form-page"><PageHeader title={editing ? "編輯加班申請" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : "填寫台北時間的申請時段；倍率由公司已確認的加班制度決定，申請人不能自行修改。核准前不會進入薪資結算。"} /><Panel><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => setStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></div><div className="hr-form-field-row"><SelectField label="結算方式" value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={disabled} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} /><p className="form-hint">目前制度倍率：133.33%（由伺服器套用）</p></div><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms")} disabled={disabled}>取消</Button><Button className={editing ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit}>{editing ? "更新加班申請" : "送出加班申請"}</Button></div></Panel></div>;
 }
 
 export function HrClockCorrectionForm() {
@@ -285,8 +285,8 @@ export function HrClockCorrectionForm() {
       {save.isPending ? <p className="form-hint">正在儲存申請單…</p> : null}
       <div className="hr-form-actions">
         <Button variant="secondary" disabled={save.isPending} onClick={() => navigate("/forms")}>取消</Button>
-        <Button variant="secondary" disabled={save.isPending} onClick={() => { void submit(false); }}>儲存草稿</Button>
-        <Button disabled={save.isPending || !approverUserId} onClick={() => { void submit(true); }}>送出申請</Button>
+        <Button variant="secondary" className={requestId ? "hr-action-update" : "add-action"} disabled={save.isPending} onClick={() => { void submit(false); }}>儲存草稿</Button>
+        <Button className="add-action" disabled={save.isPending || !approverUserId} onClick={() => { void submit(true); }}>送出申請</Button>
       </div>
     </Panel>
   </div>;

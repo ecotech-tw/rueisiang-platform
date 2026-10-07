@@ -122,7 +122,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       closeDisabled={save.isPending}
       bodyClassName="hr-location-dialog-body"
       formProps={{ onSubmit: submit }}
-      actions={<Button type="submit" loading={save.isPending}>儲存</Button>}
+      actions={<Button type="submit" className={editing ? "hr-action-update" : "add-action"} loading={save.isPending}>儲存</Button>}
     >
       <section className="hr-location-section">
         <div className="hr-location-section-heading"><h3>基本資料</h3></div>
@@ -244,7 +244,7 @@ export function HrAttendanceSettings() {
       <PageHeader
         title={pageTitle}
         description="管理營運據點對應的辦公位置與定位範圍；員工可打卡地點請到出勤範圍管理設定。"
-        actions={(canWrite || canReviewOvertime) ? <div className="button-row">{canReviewOvertime ? <Button variant="secondary" onClick={() => navigate("/hr/requests?type=overtime")}>申請與審核</Button> : null}{canWrite ? <Button icon="plus" onClick={() => setEditor("new")}>新增辦公位置</Button> : null}</div> : undefined}
+        actions={(canWrite || canReviewOvertime) ? <div className="button-row">{canReviewOvertime ? <Button variant="secondary" className="hr-action-info" onClick={() => navigate("/hr/requests?type=overtime")}>申請與審核</Button> : null}{canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditor("new")}>新增辦公位置</Button> : null}</div> : undefined}
       />
       <Panel className="grows">
         <FilterToolbar>
@@ -261,7 +261,7 @@ export function HrAttendanceSettings() {
                   <td>{office.scopeName ?? "尚未對應"}</td>
                   <td>{office.geolocationRequired ? "需要" : "不檢查"}</td>
                   <td>{office.geolocationRequired ? `${office.radiusMeters} 公尺` : "—"}</td>
-                  {canWrite ? <td><Button variant="icon" icon="edit" title={`編輯 ${office.name}`} aria-label={`編輯 ${office.name}`} onClick={() => setEditor(office)} /></td> : null}
+                  {canWrite ? <td><Button variant="icon" icon="edit" className="hr-action-update" title={`編輯 ${office.name}`} aria-label={`編輯 ${office.name}`} onClick={() => setEditor(office)} /></td> : null}
                 </tr>
               ))}
             </tbody>

@@ -185,7 +185,7 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
     save.mutate({ path: `/employments/${employment.id}/insurance`, method: "POST", values: { versions: SCHEMES.map(valuesFor) } }, { onSuccess: () => { toast.show(existing ? "勞健保新版本已建立" : "加保資料已建立"); (closeRequestRef.current ?? onClose)(); } });
   } }} actions={<>
     {voidableVersions.length ? <Button variant="danger" icon="history" disabled={save.isPending || voidInsurance.isPending} onClick={() => setVoidConfirmation(true)}>撤回最新版本</Button> : null}
-    <Button type="submit" loading={save.isPending} disabled={voidInsurance.isPending}>儲存</Button>
+    <Button type="submit" className="add-action" loading={save.isPending} disabled={voidInsurance.isPending}>儲存</Button>
   </>}>
     <p>{allVoided ? "所有勞健保版本已撤回；請重新填寫要建立的版本，生效日已帶入最初版本日期。" : existing ? "這裡會建立新的勞健保版本，不會覆寫既有紀錄；若上一筆輸入錯誤，可先撤回最新版本，再以原生效日建立修正版。" : "系統會用目前啟用的官方級距依實際月薪自動帶入勞保與健保投保金額；每年級距調整後，再由系統整理需要調整的人員提醒管理者。"}</p>
     <Field label="狀態"><SegmentedControl

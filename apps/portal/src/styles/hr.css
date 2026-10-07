@@ -493,6 +493,19 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
     0 -8px 18px --alpha(var(--color-ink) / 12%) inset,
     0 10px 24px --alpha(var(--color-ok) / 18%);
 }
+.hr-system .ghost-button.add-action,
+.hr-system .chip-action.add-action {
+  border-color: transparent;
+  background: --alpha(var(--color-ok) / 12%);
+  color: var(--color-ok);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
+    0 0 0 1px --alpha(var(--color-ok) / 16%) inset;
+}
+.hr-system .icon-button.add-action,
+.hr-system .compensation-action-add {
+  color: var(--color-ok);
+}
 .hr-system .primary-button.danger {
   background: --alpha(var(--color-brand-dark) / 86%);
   box-shadow:
@@ -504,6 +517,10 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .icon-button:hover:not(:disabled) { background: --alpha(var(--color-brand) / 10%); }
 .hr-system .primary-button:hover:not(:disabled) { background: --alpha(var(--color-info) / 92%); }
 .hr-system .primary-button.add-action:hover:not(:disabled) { background: --alpha(var(--color-ok) / 92%); }
+.hr-system .ghost-button.add-action:hover:not(:disabled),
+.hr-system .chip-action.add-action:hover:not(:disabled) { background: var(--color-ok-soft); color: var(--color-ok); }
+.hr-system .icon-button.add-action:hover:not(:disabled),
+.hr-system .compensation-action-add:hover:not(:disabled) { background: var(--color-ok-soft); color: var(--color-ok); }
 .hr-system .primary-button.danger:hover:not(:disabled) { background: var(--color-brand-dark); }
 .hr-system .hr-row-action-delete {
   background: --alpha(var(--color-brand) / 12%);
@@ -515,10 +532,25 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 }
 .hr-system .hr-row-action-delete:hover:not(:disabled) { background: --alpha(var(--color-brand) / 20%); color: var(--color-brand-dark); }
 /* 敘薪列表的列操作用圖示呈現；顏色只表達動作類型，不取代 title／aria-label。 */
+.hr-system .ghost-button.hr-action-info,
+.hr-system .ghost-button.hr-action-update {
+  background: --alpha(var(--color-info) / 12%);
+  color: var(--color-info);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
+    0 0 0 1px --alpha(var(--color-info) / 16%) inset;
+}
+.hr-system .icon-button.hr-action-info,
+.hr-system .icon-button.hr-action-update,
 .hr-system .compensation-action-update { color: var(--color-info); }
-.hr-system .compensation-action-update:hover:not(:disabled) { background: var(--color-info-soft); color: var(--color-info); }
-.hr-system .compensation-action-add { color: var(--color-ok); }
-.hr-system .compensation-action-add:hover:not(:disabled) { background: var(--color-ok-soft); color: var(--color-ok); }
+.hr-system .ghost-button.hr-action-info:hover:not(:disabled),
+.hr-system .ghost-button.hr-action-update:hover:not(:disabled),
+.hr-system .icon-button.hr-action-info:hover:not(:disabled),
+.hr-system .icon-button.hr-action-update:hover:not(:disabled),
+.hr-system .compensation-action-update:hover:not(:disabled) {
+  background: var(--color-info-soft);
+  color: var(--color-info);
+}
 .hr-system .compensation-action-correction { color: var(--color-brand-dark); }
 .hr-system .compensation-action-correction:hover:not(:disabled) { background: var(--color-brand-soft); color: var(--color-brand-dark); }
 .hr-system .dropdown-control,
@@ -894,6 +926,14 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   transition-timing-function: ease-out;
 }
 .hr-system .hr-calendar-date button:hover { background: --alpha(var(--color-brand) / 14%); color: var(--color-brand-dark); }
+.hr-system .hr-calendar-date button.hr-calendar-add-button {
+  background: var(--color-ok-soft);
+  color: var(--color-ok);
+}
+.hr-system .hr-calendar-date button.hr-calendar-add-button:hover {
+  background: --alpha(var(--color-ok) / 20%);
+  color: var(--color-ok);
+}
 .hr-system .hr-calendar-date button:active { scale: .96; }
 .hr-system .hr-calendar-entries { gap: 6px; margin-top: 8px; }
 .hr-system .hr-calendar-entry {
