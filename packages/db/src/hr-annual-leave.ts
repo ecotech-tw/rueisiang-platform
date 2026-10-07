@@ -80,6 +80,38 @@ function previousDate(value: string) {
   return date.toISOString().slice(0, 10);
 }
 
+function serviceStartOnExpression() {
+  return sql<string>`coalesce(
+    (SELECT service.service_start_on FROM hr_employment_service_periods AS service WHERE service.employment_id=${hrEmployments.id} LIMIT 1),
+    substr(${hrEmployments.createdAt}, 1, 10)
+  )`;
+}
+
+function monthlyCompensationStartOnExpression() {
+  return sql<string | null>`(
+    SELECT min(compensation.valid_from)
+    FROM hr_compensation_versions AS compensation
+    WHERE compensation.employment_id=${hrEmployments.id}
+      AND compensation.pay_basis='monthly'
+      AND compensation.voided_at IS NULL
+  )`;
+}
+
+function annualLeaveStartOnExpression() {
+  const serviceStartOn = serviceStartOnExpression();
+  const monthlyStartOn = monthlyCompensationStartOnExpression();
+  return sql<string | null>`CASE
+    WHEN ${monthlyStartOn} IS NULL THEN NULL
+    WHEN ${monthlyStartOn} > ${serviceStartOn} THEN ${monthlyStartOn}
+    ELSE ${serviceStartOn}
+  END`;
+}
+
+/** 舊版 migration 可能曾只用 serviceStartOn 產生額度；不符合月薪起算序列的舊列保留稽核資料，但不再提供使用。 */
+function isAnnualLeavePeriod(row: { annualLeaveStartOn: string | null; periodStart: string; serviceMonths: number }) {
+  return row.annualLeaveStartOn !== null && addCalendarMonths(row.annualLeaveStartOn, row.serviceMonths) === row.periodStart;
+}
+
 /** 日期加月數時保留週年日；2 月 29 日在非閏年落在 2 月最後一天。 */
 export function addCalendarMonths(value: string, months: number) {
   const { year, month, day } = dateParts(value);
@@ -129,16 +161,18 @@ function findBracket(brackets: Array<typeof hrAnnualLeaveBrackets.$inferSelect>,
 }
 
 /**
- * 依每筆 employment 的服務年資起算日補建已取得的週年額度；起算日獨立保存，不放回任職主檔。
+ * 依第一筆有效月薪敘薪的生效日補建週年額度；實際服務起算日只作為薪資在職日的下限。
  * INSERT 與 grant ledger 都使用可重跑的唯一鍵，因此可在部署後、查詢前或排程重複執行。
  */
 export async function ensureHrAnnualLeaveEntitlements(db: Database, options: HrAnnualLeaveBackfillOptions = {}) {
   const asOfDate = options.asOfDate ?? todayUtc();
   assertDateOnly(asOfDate, "回填基準日");
-  const serviceStartOn = sql<string>`coalesce(${hrEmploymentServicePeriods.serviceStartOn}, substr(${hrEmployments.createdAt}, 1, 10))`;
+  const serviceStartOn = serviceStartOnExpression();
+  const monthlyStartOn = monthlyCompensationStartOnExpression();
   const employments = await db.select({
     id: hrEmployments.id,
     serviceStartOn,
+    monthlyStartOn,
     archivedAt: hrEmployments.archivedAt,
   }).from(hrEmployments)
     .leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
@@ -146,13 +180,17 @@ export async function ensureHrAnnualLeaveEntitlements(db: Database, options: HrA
 
   let created = 0;
   let grants = 0;
+  let eligibleEmploymentCount = 0;
   for (const employment of employments) {
+    if (!employment.monthlyStartOn) continue;
+    eligibleEmploymentCount += 1;
+    const annualLeaveStartOn = employment.monthlyStartOn > employment.serviceStartOn ? employment.monthlyStartOn : employment.serviceStartOn;
     let serviceMonths = 6;
-    let periodStart = addCalendarMonths(employment.serviceStartOn, serviceMonths);
+    let periodStart = addCalendarMonths(annualLeaveStartOn, serviceMonths);
     const employmentEnd = employment.archivedAt?.slice(0, 10) ?? null;
     while (isBeforeOrEqual(periodStart, asOfDate) && (!employmentEnd || periodStart < employmentEnd)) {
       const nextMonths = nextServiceMonths(serviceMonths);
-      const periodEnd = addCalendarMonths(employment.serviceStartOn, nextMonths);
+      const periodEnd = addCalendarMonths(annualLeaveStartOn, nextMonths);
       // 政策版本開始日前的歷史週期沒有可套用的法定資料；保留日期序列並跳過，讓
       // 年資很久的既有員工仍能從第一個可追溯政策版本開始正確回填目前週期。
       const policy = await findPolicyAt(db, periodStart);
@@ -209,7 +247,7 @@ export async function ensureHrAnnualLeaveEntitlements(db: Database, options: HrA
       periodStart = periodEnd;
     }
   }
-  return { employmentCount: employments.length, created, grants, asOfDate };
+  return { employmentCount: employments.length, eligibleEmploymentCount, created, grants, asOfDate };
 }
 
 export async function getHrAnnualLeavePolicy(db: Database, asOfDate = todayUtc()) {
@@ -235,16 +273,22 @@ export async function allocateHrAnnualLeave(db: Database, input: HrAnnualLeaveAl
     throw new HrError(400, "特休時數必須是 0.5 小時的倍數。");
   }
   await ensureHrAnnualLeaveEntitlements(db, { asOfDate: input.endsOn });
-  const [entitlement] = await db.select({
+  const annualLeaveStartOn = annualLeaveStartOnExpression();
+  const entitlementCandidates = await db.select({
     id: hrAnnualLeaveEntitlements.id,
     periodStart: hrAnnualLeaveEntitlements.periodStart,
     periodEnd: hrAnnualLeaveEntitlements.periodEnd,
-  }).from(hrAnnualLeaveEntitlements).where(and(
-    eq(hrAnnualLeaveEntitlements.employmentId, input.employmentId),
-    eq(hrAnnualLeaveEntitlements.status, "open"),
-    lte(hrAnnualLeaveEntitlements.periodStart, input.startsOn),
-    gte(hrAnnualLeaveEntitlements.periodEnd, input.endsOn),
-  )).orderBy(desc(hrAnnualLeaveEntitlements.periodStart)).limit(1);
+    serviceMonths: hrAnnualLeaveEntitlements.serviceMonths,
+    annualLeaveStartOn,
+  }).from(hrAnnualLeaveEntitlements)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
+    .where(and(
+      eq(hrAnnualLeaveEntitlements.employmentId, input.employmentId),
+      eq(hrAnnualLeaveEntitlements.status, "open"),
+      lte(hrAnnualLeaveEntitlements.periodStart, input.startsOn),
+      gte(hrAnnualLeaveEntitlements.periodEnd, input.endsOn),
+    )).orderBy(desc(hrAnnualLeaveEntitlements.periodStart));
+  const entitlement = entitlementCandidates.find(isAnnualLeavePeriod);
   if (!entitlement) throw new HrError(409, "特休申請必須完整落在同一個特休週期內，或目前尚未取得可用額度。");
   const durationHalfHours = input.durationMinutes / ANNUAL_LEAVE_HALF_HOUR_MINUTES;
   const balanceHalfHours = await balanceForEntitlement(db, entitlement.id);
@@ -255,12 +299,14 @@ export async function allocateHrAnnualLeave(db: Database, input: HrAnnualLeaveAl
 export async function listHrAnnualLeaveEntitlements(db: Database, options: { employeeUserId?: string; asOfDate?: string } = {}) {
   const asOfDate = options.asOfDate ?? todayUtc();
   await ensureHrAnnualLeaveEntitlements(db, { asOfDate });
+  const annualLeaveStartOn = annualLeaveStartOnExpression();
   const rows = await db.select({
     id: hrAnnualLeaveEntitlements.id,
     employmentId: hrAnnualLeaveEntitlements.employmentId,
     employeeUserId: hrEmployments.employeeUserId,
     employeeNumber: hrEmployments.employeeNumber,
     employeeName,
+    annualLeaveStartOn,
     serviceMonths: hrAnnualLeaveEntitlements.serviceMonths,
     periodStart: hrAnnualLeaveEntitlements.periodStart,
     periodEnd: hrAnnualLeaveEntitlements.periodEnd,
@@ -275,23 +321,25 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
       options.employeeUserId ? eq(hrEmployments.employeeUserId, options.employeeUserId) : undefined,
     ))
     .orderBy(...hrEmployeeNumberOrder(), asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
-  if (!rows.length) return [];
+  const eligibleRows = rows.filter(isAnnualLeavePeriod);
+  if (!eligibleRows.length) return [];
 
   const balances = await db.select({
     entitlementId: hrAnnualLeaveLedger.entitlementId,
     balanceHalfHours: sql<number>`coalesce(sum(${hrAnnualLeaveLedger.deltaHalfHours}), 0)`,
     debitHalfHours: sql<number>`coalesce(sum(case when ${hrAnnualLeaveLedger.deltaHalfHours} < 0 then -${hrAnnualLeaveLedger.deltaHalfHours} else 0 end), 0)`,
   }).from(hrAnnualLeaveLedger)
-    .where(inJsonArray(hrAnnualLeaveLedger.entitlementId, rows.map((row) => row.id)))
+    .where(inJsonArray(hrAnnualLeaveLedger.entitlementId, eligibleRows.map((row) => row.id)))
     .groupBy(hrAnnualLeaveLedger.entitlementId);
   const balanceById = new Map(balances.map((row) => [row.entitlementId, {
     balanceHalfHours: Number(row.balanceHalfHours ?? 0),
     debitHalfHours: Number(row.debitHalfHours ?? 0),
   }]));
-  return rows.map((row) => {
+  return eligibleRows.map((row) => {
     const balance = balanceById.get(row.id) ?? { balanceHalfHours: 0, debitHalfHours: 0 };
     return {
       ...row,
+      annualLeaveStartOn: row.annualLeaveStartOn!,
       balanceHalfHours: balance.balanceHalfHours,
       usedHalfHours: Math.max(0, row.entitledHalfHours - balance.balanceHalfHours),
       debitHalfHours: balance.debitHalfHours,
@@ -307,7 +355,8 @@ export async function getHrAnnualLeaveEntitlementDetail(db: Database, entitlemen
     employeeUserId: hrEmployments.employeeUserId,
     employeeNumber: hrEmployments.employeeNumber,
     employeeName,
-    serviceStartOn: sql<string>`coalesce(${hrEmploymentServicePeriods.serviceStartOn}, substr(${hrEmployments.createdAt}, 1, 10))`,
+    serviceStartOn: serviceStartOnExpression(),
+    annualLeaveStartOn: annualLeaveStartOnExpression(),
     serviceMonths: hrAnnualLeaveEntitlements.serviceMonths,
     periodStart: hrAnnualLeaveEntitlements.periodStart,
     periodEnd: hrAnnualLeaveEntitlements.periodEnd,
@@ -336,7 +385,7 @@ export async function getHrAnnualLeaveEntitlementDetail(db: Database, entitlemen
       eq(hrAnnualLeaveEntitlements.id, entitlementId),
       isNull(hrEmployments.archivedAt),
     )).limit(1);
-  if (!row) throw new HrError(404, "找不到特休額度週期。");
+  if (!row || !isAnnualLeavePeriod(row)) throw new HrError(404, "找不到特休額度週期。");
 
   const ledger = await db.select({
     id: hrAnnualLeaveLedger.id,
@@ -389,6 +438,8 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
     entitlementId: hrAnnualLeaveEntitlements.id,
     employmentId: hrAnnualLeaveEntitlements.employmentId,
     employeeName,
+    annualLeaveStartOn: annualLeaveStartOnExpression(),
+    serviceMonths: hrAnnualLeaveEntitlements.serviceMonths,
     periodStart: hrAnnualLeaveEntitlements.periodStart,
     periodEnd: hrAnnualLeaveEntitlements.periodEnd,
     archivedAt: hrEmployments.archivedAt,
@@ -411,9 +462,10 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
       options.employmentIds ? inJsonArray(hrAnnualLeaveEntitlements.employmentId, options.employmentIds) : undefined,
     ))
     .orderBy(...hrEmployeeNumberOrder(), asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
-  if (!rows.length) return [];
+  const eligibleRows = rows.filter(isAnnualLeavePeriod);
+  if (!eligibleRows.length) return [];
 
-  const entitlementIds = rows.map((row) => row.entitlementId);
+  const entitlementIds = eligibleRows.map((row) => row.entitlementId);
   const [balances, settlementCounts] = await Promise.all([
     db.select({
       entitlementId: hrAnnualLeaveLedger.entitlementId,
@@ -429,7 +481,7 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
   const balanceById = new Map(balances.map((row) => [row.entitlementId, Number(row.balanceHalfHours ?? 0)]));
   const settlementCountById = new Map(settlementCounts.map((row) => [row.entitlementId, Number(row.settlementCount ?? 0)]));
 
-  return Promise.all(rows.map(async (row): Promise<HrAnnualLeaveSettlementCandidate> => {
+  return Promise.all(eligibleRows.map(async (row): Promise<HrAnnualLeaveSettlementCandidate> => {
     const unusedHalfHours = balanceById.get(row.entitlementId) ?? 0;
     if (unusedHalfHours < 0) throw new HrError(409, `${row.employeeName} 的特休台帳餘額低於 0，無法進行未休折現。`);
     const archiveDate = row.archivedAt?.slice(0, 10) ?? null;
@@ -515,9 +567,15 @@ export function buildHrAnnualLeaveSettlementReversalMutations(sourceKeys: readon
 export async function createHrAnnualLeaveAdjustment(db: Database, input: HrAnnualLeaveAdjustmentInput, actor: HrActor) {
   if (!Number.isSafeInteger(input.deltaHalfHours) || input.deltaHalfHours === 0) throw new HrError(400, "額度調整必須是非零的 0.5 小時單位整數。");
   if (input.reason.trim().length < 1 || input.reason.length > 1000) throw new HrError(400, "人工調整原因必填且不可超過 1000 字。");
-  const [entitlement] = await db.select({ id: hrAnnualLeaveEntitlements.id }).from(hrAnnualLeaveEntitlements)
+  const [entitlement] = await db.select({
+    id: hrAnnualLeaveEntitlements.id,
+    annualLeaveStartOn: annualLeaveStartOnExpression(),
+    periodStart: hrAnnualLeaveEntitlements.periodStart,
+    serviceMonths: hrAnnualLeaveEntitlements.serviceMonths,
+  }).from(hrAnnualLeaveEntitlements)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
     .where(and(eq(hrAnnualLeaveEntitlements.id, input.entitlementId), eq(hrAnnualLeaveEntitlements.status, "open"))).limit(1);
-  if (!entitlement) throw new HrError(404, "找不到可調整的特休額度。");
+  if (!entitlement || !isAnnualLeavePeriod(entitlement)) throw new HrError(404, "找不到可調整的特休額度。");
   const id = crypto.randomUUID();
   const sourceKey = `annual-adjustment:${id}`;
   return writeHrMutation(db, sql`INSERT INTO hr_annual_leave_ledger

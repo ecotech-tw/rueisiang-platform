@@ -126,9 +126,10 @@ function EntitlementDetailDialog({ row, onClose }: { row: HrAnnualLeaveEntitleme
     onClose={onClose}
     className="hr-annual-detail-dialog"
   >
-    <Alert tone="info">這一期的額度不是人工輸入：系統以服務年資起算日、取得時的政策版本與年資級距建立額度；後續核准請假、人工調整與折現都只追加台帳紀錄。</Alert>
+    <Alert tone="info">這一期的額度不是人工輸入：只有月薪制員工會取得特休，系統以實際服務起算日與第一筆有效月薪敘薪生效日的較晚者作為特休起算日，再套用取得時的政策版本與年資級距；後續核准請假、人工調整與折現都只追加台帳紀錄。</Alert>
     <div className="hr-annual-detail-overview">
-      <div><span>服務年資起算日</span><strong>{entitlement.serviceStartOn}</strong></div>
+      <div><span>實際服務起算日</span><strong>{entitlement.serviceStartOn}</strong></div>
+      <div><span>特休起算日</span><strong>{entitlement.annualLeaveStartOn}</strong></div>
       <div><span>本期額度</span><strong>{hours(entitlement.entitledHalfHours)}</strong></div>
       <div><span>目前可用</span><strong>{hours(entitlement.balanceHalfHours)}</strong></div>
     </div>
@@ -172,7 +173,7 @@ function EntitlementTable({ rows, canWrite, onAdjust, onDetail }: { rows: HrAnnu
       <td data-label="狀態"><StatusBadge tone={row.status === "open" ? "success" : "neutral"}>{row.status === "open" ? "可使用" : "已結算"}</StatusBadge></td>
       <td data-label="操作"><div className="hr-annual-row-actions"><Button variant="secondary" icon="info" onClick={() => onDetail(row)}>查看明細</Button>{canWrite && row.status === "open" ? <Button variant="secondary" icon="edit" onClick={() => onAdjust(row)}>人工調整</Button> : null}</div></td>
     </tr>)}
-    {!rows.length ? <tr><td colSpan={7}><EmptyState>目前沒有可建立的特休週期；請確認員工已設定服務年資起算日，或執行回溯／補建額度。</EmptyState></td></tr> : null}
+    {!rows.length ? <tr><td colSpan={7}><EmptyState>目前沒有可建立的特休週期；請確認員工已設定月薪敘薪版本，或執行回溯／補建額度。</EmptyState></td></tr> : null}
   </tbody></DataTable>;
 }
 

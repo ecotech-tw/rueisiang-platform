@@ -60,6 +60,32 @@ describe("既有特休資料回填 migration", () => {
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_ledger WHERE source_key=?").get("annual-grant:legacy-employment:2025-02-28")).toEqual({ count: 1 });
   });
 
+  it("沒有月薪且尚未使用的舊額度會被校正移除", async () => {
+    d1 = createTargetOnlyD1();
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values([
+      { id: "daily-user", email: "daily@example.test", displayName: "日薪員工", status: "active" },
+      { id: "history-user", email: "history@example.test", displayName: "有歷史日薪員工", status: "active" },
+    ]);
+    d1.sqlite.prepare("INSERT INTO hr_employments(id, employee_user_id, employee_number, position) VALUES (?, ?, ?, ?), (?, ?, ?, ?)").run("daily-employment", "daily-user", "DAILY-1", "一般職員", "history-employment", "history-user", "DAILY-2", "一般職員");
+    d1.sqlite.prepare("INSERT INTO hr_employment_service_periods(employment_id, service_start_on) VALUES (?, ?), (?, ?)").run("daily-employment", "2024-02-29", "history-employment", "2024-02-29");
+    d1.sqlite.prepare(`INSERT INTO hr_compensation_versions
+      (id, employment_id, version_number, valid_from, pay_basis, base_amount_minor, note, created_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?)`).run("daily-compensation", "daily-employment", 1, "2024-02-29", "daily", 180_000, "日薪起薪", "daily-user", "history-compensation", "history-employment", 1, "2024-02-29", "daily", 180_000, "日薪起薪", "history-user");
+
+    applyMigration("0185_seed_annual_leave_policy.sql");
+    applyMigration("0186_backfill_annual_leave_entitlements.sql");
+    expect(Number((d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_entitlements WHERE employment_id=?").get("daily-employment") as { count: number }).count)).toBeGreaterThan(0);
+    const historyEntitlement = (d1.sqlite.prepare("SELECT id FROM hr_annual_leave_entitlements WHERE employment_id=? ORDER BY period_start LIMIT 1").get("history-employment") as { id: string }).id;
+    d1.sqlite.prepare("INSERT INTO hr_annual_leave_ledger(id, entitlement_id, entry_kind, delta_half_hours, source_key, note, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)").run("history-adjustment", historyEntitlement, "manual_adjustment", -2, "annual-adjustment:history", "既有人工調整", "history-user");
+
+    applyMigration("0204_reconcile_annual_leave_pay_basis.sql");
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_entitlements WHERE employment_id=?").get("daily-employment")).toEqual({ count: 0 });
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_ledger WHERE entitlement_id LIKE 'annual-entitlement:daily-employment:%'").get()).toEqual({ count: 0 });
+    expect(Number((d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_entitlements WHERE employment_id=?").get("history-employment") as { count: number }).count)).toBeGreaterThan(0);
+    expect(d1.sqlite.prepare("SELECT entry_kind, source_key FROM hr_annual_leave_ledger WHERE entitlement_id=? AND entry_kind='manual_adjustment'").get(historyEntitlement)).toEqual({ entry_kind: "manual_adjustment", source_key: "annual-adjustment:history" });
+  });
+
   it("同一期別同批多筆使用會累計檢查，避免回填後餘額變成負數", async () => {
     d1 = createTargetOnlyD1();
     const db = createDatabase(d1 as never);

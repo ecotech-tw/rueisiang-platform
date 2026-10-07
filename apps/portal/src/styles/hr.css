@@ -1166,7 +1166,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-annual-row-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 190px; }
 .hr-annual-detail-dialog { width: min(760px, calc(100vw - 32px)); }
 .hr-annual-detail-dialog .modal-body { display: grid; gap: 18px; }
-.hr-annual-detail-overview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.hr-annual-detail-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .hr-annual-detail-overview > div { display: grid; gap: 4px; padding: 13px 14px; border-radius: 14px; background: --alpha(var(--color-brand) / 7%); }
 .hr-annual-detail-overview span { color: var(--color-muted); font-size: 12px; }
 .hr-annual-detail-overview strong { font-size: 15px; font-variant-numeric: tabular-nums; }

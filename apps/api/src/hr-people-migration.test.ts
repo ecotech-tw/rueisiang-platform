@@ -98,7 +98,7 @@ describe("HR 新增式 migration", () => {
       // 讓 entitlement 與 ledger 都有資料，避免空表掩蓋 DROP parent 的 FK 問題。
       apply(sqlite, "0184_kind_hydra.sql");
       apply(sqlite, "0185_seed_annual_leave_policy.sql");
-      sqlite.exec("INSERT INTO hr_annual_leave_entitlements(id,employment_id,policy_version_id,bracket_id,service_months,period_start,period_end,entitled_half_hours,status) VALUES ('entitlement-1','employment-1','annual-leave-policy-2017-v1','annual-leave-bracket-6m',6,'2026-01-01','2027-01-01',24,'open'); INSERT INTO hr_annual_leave_ledger(id,entitlement_id,entry_kind,delta_half_hours,source_key) VALUES ('ledger-1','entitlement-1','grant',24,'migration-test');");
+      sqlite.exec("INSERT INTO hr_compensation_versions(id,employment_id,version_number,valid_from,pay_basis,base_amount_minor,note,created_by) VALUES ('compensation-1','employment-1',1,'2020-01-01','monthly',100000,'migration-test','u'); INSERT INTO hr_annual_leave_entitlements(id,employment_id,policy_version_id,bracket_id,service_months,period_start,period_end,entitled_half_hours,status) VALUES ('entitlement-1','employment-1','annual-leave-policy-2017-v1','annual-leave-bracket-6m',6,'2026-01-01','2027-01-01',24,'open'); INSERT INTO hr_annual_leave_ledger(id,entitlement_id,entry_kind,delta_half_hours,source_key) VALUES ('ledger-1','entitlement-1','grant',24,'migration-test');");
 
       apply(sqlite, "0179_swap_hr_employments.sql");
       for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file >= "0180_" && file !== "0184_kind_hydra.sql" && file !== "0185_seed_annual_leave_policy.sql").sort()) apply(sqlite, file);

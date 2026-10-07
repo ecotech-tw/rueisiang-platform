@@ -110,7 +110,9 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   const allVoided = employmentVersions.length > 0 && !latestVersion;
   const templateVersion = latestVersion ?? current;
   const isEditing = Boolean(initialUserId) || Boolean(latestVersion);
-  const expectedValidFrom = latestVersion ? nextDay(latestVersion.validFrom) : null;
+  const suggestedValidFrom = latestVersion
+    ? latestVersion.validTo ?? (taipeiToday() > latestVersion.validFrom ? taipeiToday() : nextDay(latestVersion.validFrom))
+    : null;
 
   const [validFrom, setValidFrom] = useState(taipeiToday());
   const [validTo, setValidTo] = useState("");
@@ -130,18 +132,15 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   useEffect(() => {
     const today = taipeiToday();
     const start = today;
-    /*
-     * 敘薪版本依序銜接：一般更新是上一版生效日的次日；若要修正較早版本，
-     * 先依序解除較新的版本，直到第一版也能被修正。
-     */
-    setValidFrom(expectedValidFrom ?? start);
+    /* 新版本可從實際異動日開始；若上一版尚未結束，後端會以這一天收尾上一版。 */
+    setValidFrom(suggestedValidFrom ?? start);
     setValidTo("");
     setPayBasis(templateVersion?.payBasis ?? "monthly");
     setBaseAmount(templateVersion ? String(templateVersion.baseAmountMinor / 100) : "");
     setItems((templateVersion?.items ?? []).map((item, index) => ({ key: `${item.id}-${index}`, name: item.itemName, amount: String(item.amountMinor / 100), custom: !ITEM_PRESETS.includes(item.itemName), basis: item.amountBasis ?? "monthly" })));
     setNote("");
     setMessage(null);
-  }, [employment, employmentVersions, expectedValidFrom, templateVersion]);
+  }, [employment, employmentVersions, suggestedValidFrom, templateVersion]);
 
   const selected = employees.find((employee) => employee.userId === userId);
   const baseMinor = draftAmountMinor(baseAmount) ?? 0;
@@ -170,10 +169,6 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     formProps={{ onSubmit: (event) => {
       event.preventDefault();
       if (!employment) { setMessage(userId ? "這位員工沒有任職紀錄，請先在員工列表建立任職。" : "請先選擇員工。"); return; }
-      if (expectedValidFrom !== null && validFrom !== expectedValidFrom) {
-        setMessage(`更新敘薪的生效日只能是 ${expectedValidFrom}（上一筆生效日的次日）；若要修正上一筆，請先解除最新敘薪。`);
-        return;
-      }
       if (validTo && validTo <= validFrom) { setMessage("迄日必須晚於生效日。"); return; }
       /*
        * 後端會自動把「還沒結束、而且比新版本早開始」的那一版收尾，所以只有這兩種情況才是真的撞期。
@@ -212,7 +207,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       <Button type="submit" loading={save.isPending} disabled={!employment || voidCompensation.isPending}>儲存敘薪</Button>
     </>}
   >
-    <p>{allVoided ? "所有敘薪版本已撤回；請重新填寫要建立的敘薪版本，生效日可自行指定。" : isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；若要修正前一筆，請先解除最新敘薪，直到撤回第一版。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與勞保／健保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
+    <p>{allVoided ? "所有敘薪版本已撤回；請重新填寫要建立的敘薪版本，生效日可自行指定。" : isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；生效日請填實際薪資異動日，系統會自動收尾前一個尚未結束的版本。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與勞保／健保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
     <SelectField
       label="員工"
       value={userId}
@@ -225,10 +220,10 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     {isEditing ? <p className="form-hint">更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</p> : null}
     {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
-    {employment ? <p className="form-hint">目前職位「{employment.position}」；服務年資起算日 {employment.serviceStartOn ?? "未設定"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
+    {employment ? <p className="form-hint">目前職位「{employment.position}」；實際服務年資起算日 {employment.serviceStartOn ?? "未設定"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
     {employment?.serviceStartOn && validFrom < employment.serviceStartOn ? <Alert tone="warning">這筆敘薪自 {validFrom} 生效，但服務年資起算日是 {employment.serviceStartOn}；該日期前不會被薪資試算視為在職日。若 {employment.serviceStartOn} 填錯，請先到員工管理修正。</Alert> : null}
     <div className="field-grid">
-      <TextField label="生效日" type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} />
+      <TextField label="生效日" type="date" value={validFrom} required hint="日薪轉月薪時，請填實際轉為月薪的第一天；若早於服務年資起算日，特休會以後者為準。" onChange={(event) => setValidFrom(event.target.value)} />
       <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
     </div>
     <div className="salary-items">
