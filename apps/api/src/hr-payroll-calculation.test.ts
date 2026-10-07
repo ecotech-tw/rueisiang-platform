@@ -1481,6 +1481,29 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
   });
 
+  it("補休加班不發加班費，但會佔掉當天的累計時數", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "補休與付薪加班同日測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const adminCookie = cookie;
+    const employeeCookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
+    for (const [requestedStart, requestedEnd, settlementKind] of [["2026-09-03 18:00", "2026-09-03 20:00", "compensatory"], ["2026-09-03 20:00", "2026-09-03 21:00", "pay"]]) {
+      cookie = employeeCookie;
+      const overtime = await request("/hr/me/overtime", "POST", { requestedStart, requestedEnd, settlementKind, reason: "補休與付薪加班同日測試" });
+      expect(overtime.status, await overtime.clone().text()).toBe(201);
+      const overtimeId = (await overtime.json() as { id: string }).id;
+      cookie = adminCookie;
+      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+      expect(reviewed.status, await reviewed.clone().text()).toBe(200);
+    }
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-statutory-overtime-compensatory" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }> }> } };
+    expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
+      // 付薪的那 1 小時是當天第 3 小時：NT$225 × 1.666667；補休的 2 小時不計金額也不計時數。
+      expect.objectContaining({ lineKey: "overtime", amountMinor: 37_500, quantitySeconds: 3600, explanation: expect.objectContaining({ approvedRequests: 1 }) }),
+    ]));
+  });
+
   it("法定加班級距以同一天的累計時數判定，跨申請與特殊日級距都算在內", async () => {
     const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "法定加班級距累計測試" });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
