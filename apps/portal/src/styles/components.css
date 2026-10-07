@@ -3912,8 +3912,9 @@
 }
 .hr-payroll-job-progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hr-payroll-job-progress-heading > :first-child { min-width: 0; }
+.hr-payroll-job-progress.is-collapsed { gap: 0; padding: 6px 10px; }
 .hr-payroll-job-progress-heading strong { color: var(--color-ink); font-size: 14px; }
-.hr-payroll-job-progress-actions { display: flex; align-items: center; flex: none; gap: 4px; }
+.hr-payroll-job-progress-actions { display: flex; align-items: center; flex: none; gap: 10px; }
 .hr-payroll-job-progress-actions > span { color: var(--color-muted); font-size: 12px; white-space: nowrap; }
 .hr-payroll-job-progress-actions .icon-button { flex: none; }
 .hr-payroll-job-list { display: grid; gap: 8px; }

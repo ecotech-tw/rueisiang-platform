@@ -223,9 +223,9 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
 function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: PayrollJob[]; onOpen: (job: PayrollJob) => void; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
   const [expanded, setExpanded] = useState(true);
   if (!jobs.length) return null;
-  return <section className="hr-payroll-job-progress" aria-label="薪資背景試算進度">
+  return <section className={`hr-payroll-job-progress${expanded ? "" : " is-collapsed"}`} aria-label="薪資試算進度">
     <div className="hr-payroll-job-progress-heading">
-      <strong>背景試算</strong>
+      <strong>薪資試算</strong>
       <div className="hr-payroll-job-progress-actions">
         <span>{jobs.length} 筆</span>
         <Button
@@ -233,7 +233,7 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
           icon={expanded ? "chevronUp" : "chevronDown"}
           aria-expanded={expanded}
           aria-controls="hr-payroll-job-list"
-          aria-label={expanded ? "收合背景試算" : "展開背景試算"}
+          aria-label={expanded ? "收合薪資試算" : "展開薪資試算"}
           onClick={() => setExpanded((current) => !current)}
         />
       </div>
@@ -337,7 +337,7 @@ export function HrPayrollSettlement() {
   }
   function retryJob(job: PayrollJob) {
     if (retryPayroll.isPending) return;
-    retryPayroll.mutate({ path: `/payroll/jobs/${encodeURIComponent(job.jobId)}/retry`, method: "POST", values: {} }, { onSuccess: ({ job: retriedJob }) => { observedJobStatuses.current.set(retriedJob.jobId, retriedJob.status); toast.show(`${retriedJob.runName}已重新加入背景試算。`, "info"); setPollPayrollJobs(true); void payrollJobs.refetch(); } });
+    retryPayroll.mutate({ path: `/payroll/jobs/${encodeURIComponent(job.jobId)}/retry`, method: "POST", values: {} }, { onSuccess: ({ job: retriedJob }) => { observedJobStatuses.current.set(retriedJob.jobId, retriedJob.status); toast.show(`${retriedJob.runName}已重新加入薪資試算。`, "info"); setPollPayrollJobs(true); void payrollJobs.refetch(); } });
   }
 
   const payrollJobList = payrollJobs.data?.jobs ?? [];
@@ -345,7 +345,7 @@ export function HrPayrollSettlement() {
   return <div className="page fills hr-payroll-page">
     <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={canCalculate ? <Button className="add-action" icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
-    {payrollJobs.error ? <Alert tone="danger">背景試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
+    {payrollJobs.error ? <Alert tone="danger">薪資試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
     <PayrollJobProgress jobs={payrollJobList} onOpen={(job) => { if (job.periodKey) updateRecordFilters({ periodKey: job.periodKey }); }} onRetry={retryJob} canRetry={canCalculate} />
 
     <Panel className="grows hr-payroll-records-panel">
@@ -391,7 +391,7 @@ export function HrPayrollSettlement() {
       initialPeriodKey={recordFilters.periodKey || currentMonth}
       initialPayDate=""
       onClose={() => setShowCalculationDialog(false)}
-      onSuccess={({ job, run }) => { if (job) { observedJobStatuses.current.set(job.jobId, job.status); toast.show(job.status === "failed" ? `${job.runName}背景試算啟動失敗，請重新試算。` : `${job.runName}已加入背景試算，完成後會通知你。`, job.status === "failed" ? "danger" : "info"); } else if (run) toast.show("薪資試算完成，可以開始覆核。", "success"); setRecordFilters((current) => ({ ...current, periodKey: job?.periodKey ?? run?.periodKey ?? current.periodKey, page: 1 })); setSelectedKeys([]); setPollPayrollJobs(true); void payrollJobs.refetch(); }}
+      onSuccess={({ job, run }) => { if (job) { observedJobStatuses.current.set(job.jobId, job.status); toast.show(job.status === "failed" ? `${job.runName}薪資試算啟動失敗，請重新試算。` : `${job.runName}已加入薪資試算，完成後會通知你。`, job.status === "failed" ? "danger" : "info"); } else if (run) toast.show("薪資試算完成，可以開始覆核。", "success"); setRecordFilters((current) => ({ ...current, periodKey: job?.periodKey ?? run?.periodKey ?? current.periodKey, page: 1 })); setSelectedKeys([]); setPollPayrollJobs(true); void payrollJobs.refetch(); }}
     /> : null}
     {approveOpen ? <ConfirmDialog title="確定發放選取紀錄？" confirmLabel="確定發放" pending={approvePayroll.isPending} onCancel={() => { if (!approvePayroll.isPending) setApproveOpen(false); }} onConfirm={approveSelected}>
       <p>即將將 <strong>{selectedRecords.length} 筆</strong>薪資紀錄標記為「已確定發放」。</p>
