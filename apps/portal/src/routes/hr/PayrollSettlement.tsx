@@ -56,7 +56,7 @@ function recordStatusTone(status: PayrollRecord["status"]): "success" | "warning
   return status === "closed" ? "success" : "warning";
 }
 function isPayrollJobActive(job: PayrollJob) {
-  return job.dispatchPending || job.status === "queued" || job.status === "calculating";
+  return job.status === "queued" || job.status === "calculating";
 }
 function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "personId">) {
   return `${record.runId}:${record.personKind}:${record.personId}`;
