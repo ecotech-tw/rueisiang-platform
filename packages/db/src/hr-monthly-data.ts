@@ -56,7 +56,7 @@ async function ensureOpenPeriod(db: Database, date: string, employmentId?: strin
   if (employmentId) {
     const [closed] = await db.select({ id: hrPayslips.id }).from(hrPayslips)
       .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId)).innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
-      .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, periodKey), eq(hrPayrollRuns.status, "closed"), sql`NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=${hrPayrollRuns.id})`)).limit(1);
+      .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, periodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
     if (closed) throw new HrError(409, "該員工本月份已結帳，不能直接修改月度資料，請使用薪資調整。 ");
   }
 }
@@ -242,8 +242,14 @@ export async function updateHrMonthlyHourly(db: Database, id: string, input: Mon
 /** 薪資引擎專用：讀取指定期間的月度人工資料，避免前端直接拼計算。 */
 export async function listHrMonthlyEntriesForPayroll(db: Database, start: string, end: string) {
   const [leaves, hourly] = await Promise.all([
-    db.select().from(hrMonthlyLeaveEntries).where(and(sql`${hrMonthlyLeaveEntries.leaveDate} >= ${start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${end}`)),
-    db.select().from(hrMonthlyHourlyEntries).where(and(sql`${hrMonthlyHourlyEntries.workDate} >= ${start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${end}`)),
+    db.select({ entry: hrMonthlyLeaveEntries, leaveTypeName: hrLeaveTypes.name }).from(hrMonthlyLeaveEntries)
+      .innerJoin(hrLeaveTypes, eq(hrLeaveTypes.id, hrMonthlyLeaveEntries.leaveTypeId))
+      .where(and(sql`${hrMonthlyLeaveEntries.leaveDate} >= ${start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${end}`)),
+    db.select({ entry: hrMonthlyHourlyEntries }).from(hrMonthlyHourlyEntries)
+      .where(and(sql`${hrMonthlyHourlyEntries.workDate} >= ${start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${end}`)),
   ]);
-  return { leaves, hourly };
+  return {
+    leaves: leaves.map(({ entry, leaveTypeName }) => ({ ...entry, leaveTypeName, hours: entry.hoursHalfUnits / 2 })),
+    hourly: hourly.map(({ entry }) => ({ ...entry, hours: entry.hoursHalfUnits / 2 })),
+  };
 }

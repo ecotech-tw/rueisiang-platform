@@ -16,14 +16,14 @@ interface PayrollRecordsResponse {
   page: number;
   pageSize: number;
   hasMore: boolean;
-  counts: { total: number; unsettled: number; closed: number; withdrawn: number };
+  counts: { total: number; unsettled: number; closed: number };
 }
 interface PayrollRecordFilters {
   page: number;
   pageSize: number;
   search: string;
   periodKey: string;
-  status: "all" | "unsettled" | "closed" | "withdrawn";
+  status: "all" | "unsettled" | "closed";
   personKind: "all" | "employee" | "worker";
   payBasis: "all" | "monthly" | "daily" | "hourly" | "mixed";
 }
@@ -34,7 +34,7 @@ const MAX_PAYROLL_SELECTED_EMPLOYEES = 80;
 const MAX_PAYROLL_SELECTED_WORKERS = 100;
 // 載入中的空名單要是同一個參考：每次 render 都給新的 [] 會讓依賴它的 effect 每輪都重跑、再 setState，變成無限重繪。
 const NO_PAYROLL_WORKERS: PayrollWorkerCandidate[] = [];
-const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放", withdrawn: "已撤回" } as const;
+const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放" } as const;
 const PAYROLL_PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
 
@@ -52,8 +52,8 @@ function payrollPeriodLabel(value: string): string {
   const match = /^(\d{4})-(\d{2})$/.exec(value);
   return match ? `${match[1]} 年 ${Number(match[2])} 月` : value;
 }
-function recordStatusTone(status: PayrollRecord["status"]): "success" | "warning" | "neutral" {
-  return status === "closed" ? "success" : status === "withdrawn" ? "neutral" : "warning";
+function recordStatusTone(status: PayrollRecord["status"]): "success" | "warning" {
+  return status === "closed" ? "success" : "warning";
 }
 function isPayrollJobActive(job: PayrollJob) {
   return job.status === "queued" || job.status === "calculating";
@@ -344,7 +344,7 @@ export function HrPayrollSettlement() {
       <FilterToolbar className="hr-payroll-record-filter">
         <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} />
         <FilterInput label="薪資月份" type="month" value={recordFilters.periodKey} onChange={(event) => updateRecordFilters({ periodKey: event.target.value })} />
-        <FilterSelect label="狀態" value={recordFilters.status} options={[{ value: "all", label: "全部狀態" }, { value: "unsettled", label: "尚未結算" }, { value: "closed", label: "已確定發放" }, { value: "withdrawn", label: "已撤回" }]} onChange={(event) => updateRecordFilters({ status: event.target.value as PayrollRecordFilters["status"] })} />
+        <FilterSelect label="狀態" value={recordFilters.status} options={[{ value: "all", label: "全部狀態" }, { value: "unsettled", label: "尚未結算" }, { value: "closed", label: "已確定發放" }]} onChange={(event) => updateRecordFilters({ status: event.target.value as PayrollRecordFilters["status"] })} />
         <FilterSelect label="人員類型" value={recordFilters.personKind} options={[{ value: "all", label: "全部人員" }, { value: "employee", label: "正式員工" }, { value: "worker", label: "支援人員" }]} onChange={(event) => updateRecordFilters({ personKind: event.target.value as PayrollRecordFilters["personKind"] })} />
         <FilterSelect label="計薪方式" value={recordFilters.payBasis} options={[{ value: "all", label: "全部計薪方式" }, { value: "monthly", label: "月薪" }, { value: "daily", label: "日薪" }, { value: "hourly", label: "時薪" }, { value: "mixed", label: "混合" }]} onChange={(event) => updateRecordFilters({ payBasis: event.target.value as PayrollRecordFilters["payBasis"] })} />
       </FilterToolbar>

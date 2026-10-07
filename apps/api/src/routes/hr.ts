@@ -1019,7 +1019,7 @@ export const hr = new Hono<AppEnv>()
     const periodKeyFilter = c.req.query("periodKey")?.trim() || "all";
     if (periodKeyFilter !== "all" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKeyFilter)) throw new HTTPException(400, { message: "薪資月份不正確。" });
     const rawStatus = c.req.query("status") ?? "all";
-    if (rawStatus !== "all" && rawStatus !== "unsettled" && rawStatus !== "closed" && rawStatus !== "withdrawn") throw new HTTPException(400, { message: "薪資狀態不正確。" });
+    if (rawStatus !== "all" && rawStatus !== "unsettled" && rawStatus !== "closed") throw new HTTPException(400, { message: "薪資狀態不正確。" });
     const rawPersonKind = c.req.query("personKind") ?? "all";
     if (rawPersonKind !== "all" && rawPersonKind !== "employee" && rawPersonKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
     const rawPayBasis = c.req.query("payBasis") ?? "all";
