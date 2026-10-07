@@ -8,7 +8,7 @@ import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributionRules, listHrInsuranceContributionRules, resolveHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
-import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, specialWorkdayAllowanceTotal } from "./hr-special-workdays.js";
+import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, payrollSpecialWorkdaySourceStatements, specialWorkdayAllowanceTotal } from "./hr-special-workdays.js";
 import { HrError, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { listEffectiveDailyPayouts } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
@@ -1818,6 +1818,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ...insuranceIds.map((id) => db.insert(hrPayslipInsuranceLinks).values({ payslipId, insuranceVersionId: id })),
   ]),
   ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
+  ...payrollSpecialWorkdaySourceStatements(db, runId, sourceSnapshotJson),
   db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: "hr-payroll-demo-v3" } }))];
   try {
     await db.batch(batchStatements(statements));
@@ -2701,6 +2702,12 @@ export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrA
   addOptionalDelete(sql`DELETE FROM hr_payslips WHERE payroll_run_id=${runId} RETURNING id`);
   addOptionalDelete(sql`DELETE FROM hr_payroll_run_employees WHERE payroll_run_id=${runId} RETURNING payroll_run_id`);
   addOptionalDelete(sql`DELETE FROM hr_payroll_worker_results WHERE payroll_run_id=${runId} RETURNING id`);
+  // 批次刪掉之後，它用過的特殊上班日套用與規則版本就不再有薪資依據，可以刪除或解除。
+  // 那張表對批次沒有外鍵，舊版 Worker 刪批次時留下的孤兒列也在這裡一起掃掉。
+  addOptionalDelete(sql`DELETE FROM hr_payroll_special_workday_sources WHERE payroll_run_id=${runId}
+    OR payroll_run_id NOT IN (SELECT id FROM hr_payroll_runs) RETURNING id`);
+  addOptionalDelete(sql`DELETE FROM hr_payroll_special_workday_source_runs WHERE payroll_run_id=${runId}
+    OR payroll_run_id NOT IN (SELECT id FROM hr_payroll_runs) RETURNING payroll_run_id`);
   mutations.push(sql`DELETE FROM hr_payroll_runs WHERE id=${runId} AND status <> 'closed'
     AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId})
     AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId})

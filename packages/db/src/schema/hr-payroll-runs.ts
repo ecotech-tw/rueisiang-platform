@@ -91,6 +91,52 @@ export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   check("ck_hr_payroll_runs_counts", sql`${table.expectedCount} >= 0 AND ${table.completedCount} BETWEEN 0 AND ${table.expectedCount}`),
 ]);
 
+/**
+ * 薪資批次用過哪些特殊上班日套用與規則版本，一列一筆。
+ *
+ * 存在的理由只有一個——「這筆套用／這一版還能不能刪」每次開頁面、每次刪除都要問，從批次的
+ * source_snapshot_json 找就得把所有批次的快照重新解析一遍，批次越多越慢。批次建立時照快照寫入，
+ * 批次刪除時一起刪。
+ *
+ * **不能當成「隨時可以從快照重建」的快取**：0211 回填的早期批次，有些列來自薪資明細
+ * （assignmentIds、specialWorkdayRuleSnapshots），那些批次的快照裡根本沒有 specialWorkdays。
+ * 清空重建會漏掉那一半，早期批次用過的套用與版本就變成可以刪。
+ *
+ * 四個 ID 欄位都不設外鍵：
+ * - payroll_run_id：設 RESTRICT 的話，不知道這張表的舊版 Worker（部署空窗、回滾）刪批次會直接失敗；
+ *   設 CASCADE 則是 CLAUDE.md 明說不要的那種（父表哪天被重建，整張表會被連坐刪光）。
+ *   所以批次不在了的列一律當作不存在：讀的時候過濾，刪批次時順手掃掉。
+ * - assignment_id／rule_id／rule_version_id：回填進來的歷史 ID 可能指向早就不在的列。
+ *   能不能刪由 hr-special-workdays.ts 判斷。
+ *
+ * rule_version_id 是 NULL 的列來自沒記版本的舊紀錄，只知道當時的規則與日期（連這兩個都沒有時是 NULL）。
+ */
+export const hrPayrollSpecialWorkdaySources = sqliteTable("hr_payroll_special_workday_sources", {
+  id: text("id").primaryKey(),
+  payrollRunId: text("payroll_run_id").notNull(),
+  assignmentId: text("assignment_id"),
+  ruleId: text("rule_id"),
+  ruleVersionId: text("rule_version_id"),
+  workDate: text("work_date"),
+}, (table) => [
+  index("idx_hr_payroll_special_workday_sources_run").on(table.payrollRunId),
+  index("idx_hr_payroll_special_workday_sources_assignment").on(table.assignmentId),
+  index("idx_hr_payroll_special_workday_sources_version").on(table.ruleVersionId),
+  check("ck_hr_payroll_special_workday_sources_target", sql`${table.assignmentId} IS NOT NULL OR ${table.ruleVersionId} IS NOT NULL`),
+]);
+
+/**
+ * 已經寫過 hr_payroll_special_workday_sources 的批次，一個批次一列。
+ *
+ * 「這個批次沒有特殊上班日」與「這個批次還沒寫索引」在索引表裡長得一樣（都是零列），要靠這張表分辨。
+ * 會沒寫的情況：migration 已套用、但還在跑的舊版 Worker 建立的批次（每次部署都有這段空窗，回滾期間也是）。
+ * 讀索引之前先找出不在這張表裡的批次，從它的來源快照補寫——見 indexMissingPayrollSpecialWorkdaySources。
+ * 不設外鍵，理由同上一張表。
+ */
+export const hrPayrollSpecialWorkdaySourceRuns = sqliteTable("hr_payroll_special_workday_source_runs", {
+  payrollRunId: text("payroll_run_id").primaryKey(),
+});
+
 /** 撤回原因是稽核紀錄；批次退回 ready 並釋放當期 claim，供重新覆核、試算或刪除。一般不可改寫 marker，刪除整批時由受控交易一併清除。 */
 export const hrPayrollWithdrawals = sqliteTable("hr_payroll_withdrawals", {
   payrollRunId: text("payroll_run_id").primaryKey().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
