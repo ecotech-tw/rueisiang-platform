@@ -38,7 +38,7 @@ describe("補打卡申請新增 cancelled 狀態的 migration", () => {
     `);
     const before = d1.sqlite.prepare("SELECT * FROM hr_form_requests WHERE id='form-approved'").get();
 
-    applyMigration("0208_brainy_morlun.sql");
+    applyMigration("0209_wealthy_kinsey_walden.sql");
 
     expect(d1.sqlite.prepare("SELECT * FROM hr_form_requests WHERE id='form-approved'").get()).toEqual(before);
     expect(d1.sqlite.prepare("SELECT correction_request_id FROM hr_clock_events WHERE id='form-event'").get()).toEqual({ correction_request_id: "form-approved" });
