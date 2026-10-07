@@ -3937,7 +3937,8 @@
 .hr-payroll-job-progress-toggle > span:nth-child(2) { margin-inline-start: auto; color: var(--color-muted); font-size: 12px; white-space: nowrap; }
 .hr-payroll-job-progress-toggle > span:last-child { display: grid; flex: none; place-items: center; color: var(--color-muted); }
 .hr-payroll-job-progress-toggle:hover:not(:disabled),
-.hr-payroll-job-progress-toggle:active:not(:disabled) { border-color: transparent; background: transparent; box-shadow: none; color: var(--color-brand-dark); }
+.hr-payroll-job-progress-toggle:active:not(:disabled) { border-color: transparent; background: --alpha(var(--color-brand) / 4%); box-shadow: none; color: var(--color-brand-dark); }
+.hr-payroll-job-progress-toggle:active:not(:disabled) { background: --alpha(var(--color-brand) / 7%); }
 .hr-payroll-job-progress-toggle:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 3px; }
 .hr-payroll-job-progress-toggle:active:not(:disabled) { scale: none; }
 .hr-payroll-job-progress-chevron { position: relative; display: grid; flex: none; width: 20px; height: 20px; place-items: center; color: var(--color-muted); }
@@ -3963,15 +3964,14 @@
 .hr-payroll-job-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
 .hr-payroll-job-card-head > div { display: grid; gap: 2px; min-width: 0; }
 .hr-payroll-job-card-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hr-payroll-job-card-head small,
-.hr-payroll-job-card-foot > span:first-child { color: var(--color-muted); font-size: 12px; }
+.hr-payroll-job-card-head small { color: var(--color-muted); font-size: 12px; }
 .hr-payroll-job-bar { height: 7px; overflow: hidden; border-radius: 999px; background: --alpha(var(--color-ink) / 10%); }
 .hr-payroll-job-bar span { display: block; height: 100%; min-width: 0; border-radius: inherit; background: var(--color-brand); transition-property: width, background-color; transition-duration: 220ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }
 .hr-payroll-job-ready .hr-payroll-job-bar span { background: var(--color-ok); }
-.hr-payroll-job-failed .hr-payroll-job-bar span { background: var(--color-danger, var(--color-warn)); }
+.hr-payroll-job-failed .hr-payroll-job-bar span { background: var(--color-brand-dark); }
 .hr-payroll-job-bar.is-indeterminate span { width: 32%; opacity: .7; }
 .hr-payroll-job-card-foot { align-items: flex-start; color: var(--color-muted); font-size: 12px; }
-.hr-payroll-job-error { min-width: 0; color: var(--color-danger, var(--color-warn)); overflow-wrap: anywhere; text-align: right; }
+.hr-payroll-job-error { min-width: 0; color: var(--color-brand-dark); overflow-wrap: anywhere; }
 .hr-payroll-record-filter { align-items: flex-end; }
 /* 原生 month input 會被日曆圖示的內距撐高；固定工具列控制項高度，避免月份欄比其他篩選器高。 */
 .hr-payroll-record-filter .filter-control > input {
@@ -4287,7 +4287,6 @@
   .hr-payroll-job-card-head,
   .hr-payroll-job-card-foot { align-items: flex-start; flex-direction: column; }
   .hr-payroll-job-card-foot .ghost-button { align-self: stretch; justify-content: center; }
-  .hr-payroll-job-error { text-align: left; }
   .hr-payroll-record-filter .search-input,
   .hr-payroll-record-filter input:not(.search-input),
   .hr-payroll-record-filter .filter-select-control { flex-basis: 100%; }
