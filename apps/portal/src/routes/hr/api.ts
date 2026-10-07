@@ -204,6 +204,28 @@ export interface BonusPolicy { policyVersionId: string; policyId: string; policy
 export interface BonusAssignment { assignment: { id: string; employmentId: string; validFrom: string; validTo: string | null; weightUnits: number }; policyVersionId: string; policyName: string; bonusKind: BonusKind; performancePeriod: PerformancePeriod; employeeUserId: string; employeeNumber: string; employeeName: string; employmentStatus: "active" | "inactive" }
 export interface BonusPerformanceSnapshot { snapshot: { id: string; employmentId: string | null; periodStart: string; periodEnd: string; amountMinor: number; sourceKind: "manual" | "report"; sourceRef: string }; scopeName: string; employeeUserId: string | null; employeeName: string | null }
 export interface PayrollRunSummary { run: { id: string; runName: string; versionNumber: number; status: string; payDate: string | null; engineVersion: string; expectedCount: number; completedCount: number; createdAt: string }; periodKey: string; periodStatus: string }
+export type PayrollJobStatus = "queued" | "calculating" | "ready" | "failed";
+export type PayrollJobPhase = "queued" | "preparing" | "calculating_workers" | "calculating_employees" | "persisting" | "completed" | "failed";
+export interface PayrollJob {
+  jobId: string;
+  runId: string | null;
+  requestId: string;
+  runName: string;
+  periodKey: string;
+  payDate: string | null;
+  status: PayrollJobStatus;
+  phase: PayrollJobPhase;
+  expectedCount: number;
+  completedCount: number;
+  progressPercent: number | null;
+  error: string | null;
+  dispatchPending: boolean;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}
+export interface PayrollJobsResponse { jobs: PayrollJob[] }
 export interface PayrollEmployeeHistoryRecord { runId: string; runName: string; periodKey: string; versionNumber: number; payDate: string | null; employmentId: string; employeeNumber: string; employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; closedAt: string }
 export type PayrollRecordStatus = "unsettled" | "closed";
 export type PayrollRecordPersonKind = "employee" | "worker";
@@ -367,8 +389,8 @@ export function useHrEmployeeRoster(enabled = true) {
  * 查的是「某一筆紀錄」（某個人、某個批次）時要傳 keepPreviousData: false：
  * 那種查詢的舊資料是另一個人的，會被填進表單或顯示在新名字底下。
  */
-export function useHrQuery<T>(path: string, enabled = true, options: { keepPreviousData?: boolean } = {}) {
-  return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false, placeholderData: options.keepPreviousData === false ? undefined : keepPreviousData });
+export function useHrQuery<T>(path: string, enabled = true, options: { keepPreviousData?: boolean; refetchInterval?: number | false } = {}) {
+  return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false, refetchInterval: options.refetchInterval, placeholderData: options.keepPreviousData === false ? undefined : keepPreviousData });
 }
 export function useHrInsuranceEstimate(employmentId: string, input: InsuranceEstimateRequest | null) {
   const signature = input ? JSON.stringify(input) : "disabled";

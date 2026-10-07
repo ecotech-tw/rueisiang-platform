@@ -1,6 +1,7 @@
 import type { AuthUser } from "@rueisiang/auth";
 import type { Database } from "@rueisiang/db";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
+import type { PayrollQueueMessage } from "./payroll-queue.js";
 
 /** Worker 的綁定與 secret。wrangler.toml 與 `wrangler secret put` 決定實際內容。 */
 export interface Env {
@@ -8,6 +9,10 @@ export interface Env {
   ASSETS: Fetcher;
   /** LINE webhook 只負責落地與入列，Pi agent 與 Reply API 在 queue consumer 執行。 */
   LINE_ASSISTANT_QUEUE: Queue<LineAssistantQueueMessage>;
+  /** 薪資試算只把 job id 放進 Queue；本機 Node server 與既有同步測試可以省略。 */
+  PAYROLL_QUEUE?: Queue<PayrollQueueMessage>;
+  /** 每批薪資一個 DO；沒有 binding 時 API 保留既有同步相容路徑。 */
+  PAYROLL_RUN_AGENT?: DurableObjectNamespace;
   /** 正式環境一定會綁定；本機 Node server 與不碰 LINE 的測試可以省略。 */
   ASSISTANT_CHAT_AGENT?: DurableObjectNamespace;
   /** 全平台共用一個 credential vault，避免多個 chat 同時旋轉同一支 refresh token。 */
