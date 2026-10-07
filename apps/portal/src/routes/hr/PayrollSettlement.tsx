@@ -221,13 +221,24 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
 }
 
 function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: PayrollJob[]; onOpen: (job: PayrollJob) => void; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
+  const [expanded, setExpanded] = useState(true);
   if (!jobs.length) return null;
   return <section className="hr-payroll-job-progress" aria-label="薪資背景試算進度">
     <div className="hr-payroll-job-progress-heading">
       <div><strong>背景試算</strong><small>離開頁面後工作仍會繼續，這裡會自動更新狀態。</small></div>
-      <span>{jobs.length} 筆最近工作</span>
+      <div className="hr-payroll-job-progress-actions">
+        <span>{jobs.length} 筆最近工作</span>
+        <Button
+          variant="icon"
+          icon={expanded ? "chevronUp" : "chevronDown"}
+          aria-expanded={expanded}
+          aria-controls="hr-payroll-job-list"
+          aria-label={expanded ? "收合背景試算" : "展開背景試算"}
+          onClick={() => setExpanded((current) => !current)}
+        />
+      </div>
     </div>
-    <div className="hr-payroll-job-list">
+    {expanded ? <div className="hr-payroll-job-list" id="hr-payroll-job-list">
       {jobs.slice(0, 4).map((job) => {
         const hasProgress = job.progressPercent !== null;
         return <article className={`hr-payroll-job-card hr-payroll-job-${job.status}`} key={job.jobId}>
@@ -240,12 +251,11 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
           </div>
           <div className="hr-payroll-job-card-foot">
             <span>{job.expectedCount > 0 ? `${job.completedCount.toLocaleString("zh-TW")} / ${job.expectedCount.toLocaleString("zh-TW")} 人` : "正在準備試算資料…"}</span>
-            {job.status === "failed" && job.error ? <span className="hr-payroll-job-error">{job.error}</span> : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : job.status === "ready" && job.runId ? <Button variant="secondary" icon="eye" onClick={() => onOpen(job)}>查看紀錄</Button> : null}
-            {job.status === "failed" && canRetry ? <Button variant="secondary" icon="sync" onClick={() => onRetry(job)}>重新試算</Button> : null}
+            {job.status === "failed" && canRetry ? <Button variant="secondary" icon="sync" onClick={() => onRetry(job)}>重新試算</Button> : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : job.status === "ready" && job.runId ? <Button variant="secondary" icon="eye" onClick={() => onOpen(job)}>查看紀錄</Button> : null}
           </div>
         </article>;
       })}
-    </div>
+    </div> : null}
   </section>;
 }
 

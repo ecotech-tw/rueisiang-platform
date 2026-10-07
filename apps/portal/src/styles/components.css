@@ -3887,12 +3887,36 @@
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
 .hr-payroll-records-panel { display: grid; gap: 14px; }
-.hr-payroll-job-progress { display: grid; gap: 12px; padding: 14px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-paper); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 72%) inset, 0 8px 20px --alpha(var(--color-ink) / 4%); }
+.hr-payroll-job-progress {
+  position: fixed;
+  top: 96px;
+  right: 24px;
+  z-index: 24;
+  display: grid;
+  box-sizing: border-box;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(560px, calc(100vh - 120px));
+  gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-card);
+  background: --alpha(var(--color-paper) / 96%);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 72%) inset,
+    0 14px 36px --alpha(var(--color-ink) / 16%),
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+}
 .hr-payroll-job-progress-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .hr-payroll-job-progress-heading > div { display: grid; gap: 2px; min-width: 0; }
 .hr-payroll-job-progress-heading strong { color: var(--color-ink); font-size: 14px; }
 .hr-payroll-job-progress-heading small,
-.hr-payroll-job-progress-heading > span { color: var(--color-muted); font-size: 12px; }
+.hr-payroll-job-progress-actions > span { color: var(--color-muted); font-size: 12px; }
+.hr-payroll-job-progress-actions { display: flex; align-items: center; flex: none; gap: 4px; }
+.hr-payroll-job-progress-actions .icon-button { flex: none; }
 .hr-payroll-job-list { display: grid; gap: 8px; }
 .hr-payroll-job-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--color-soft-line); border-radius: 12px; background: var(--color-canvas); }
 .hr-payroll-job-card-head,
@@ -4207,6 +4231,14 @@
 .hr-payroll-payslip-totals dd { margin: 0; font-size: 17px; font-variant-numeric: tabular-nums; }
 .hr-payroll-payslip-totals > div:last-child dt,
 .hr-payroll-payslip-totals > div:last-child dd { color: var(--color-brand-dark); font-weight: 700; }
+
+@media (max-width: 900px) {
+  .hr-payroll-job-progress {
+    top: 148px;
+    right: 16px;
+    max-height: calc(100vh - 172px);
+  }
+}
 
 @media (max-width: 760px) {
   .hr-payroll-table-region { flex-direction: column; }
