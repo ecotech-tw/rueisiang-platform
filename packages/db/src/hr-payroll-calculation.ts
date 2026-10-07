@@ -597,6 +597,28 @@ function comparablePayrollSnapshot(value: string): string {
   }
 }
 
+/**
+ * 新版快照會加入多人班分母需要的員工狀態與打卡；舊批次沒有這兩個欄位，
+ * 不能因為部署計薪引擎就讓已經試算完成的舊批次全部無法結帳。
+ */
+function payrollSnapshotsMatch(currentValue: string, savedValue: string) {
+  try {
+    const current = JSON.parse(currentValue) as Record<string, unknown>;
+    const saved = JSON.parse(savedValue) as Record<string, unknown>;
+    const currentHasAllocationSnapshot = Object.hasOwn(current, "allocationEmploymentStates") && Object.hasOwn(current, "allocationClocks");
+    const savedHasAllocationSnapshot = Object.hasOwn(saved, "allocationEmploymentStates") && Object.hasOwn(saved, "allocationClocks");
+    if (currentHasAllocationSnapshot !== savedHasAllocationSnapshot) {
+      delete current.allocationEmploymentStates;
+      delete current.allocationClocks;
+      delete saved.allocationEmploymentStates;
+      delete saved.allocationClocks;
+    }
+    return comparablePayrollSnapshot(JSON.stringify(current)) === comparablePayrollSnapshot(JSON.stringify(saved));
+  } catch {
+    return comparablePayrollSnapshot(currentValue) === comparablePayrollSnapshot(savedValue);
+  }
+}
+
 interface PayrollSourceSnapshotInput {
   period: { start: string; end: string; periodKey: string };
   employmentIds: string[];
@@ -647,7 +669,17 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     OR EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS selected_worker_entry
       WHERE selected_worker_entry.schedule_version_id = hr_schedule_versions.id
         AND selected_worker_entry.worker_id IN (${jsonArrayValues(workerIds)}))`;
-  const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
+  /*
+   * 部分結算只產生其中一人的結果，但分配分母仍會讀同一發布版本的全部正式員工排班。
+   * 先找出這些班表列的員工，後面只快照他們的在職狀態與打卡，避免未相關員工的異動
+   * 阻擋結帳，也避免未選取員工的打卡／封存狀態漏出快照。
+   */
+  const allocationEmploymentRows = await db.select({ employmentId: hrScheduleEntries.employmentId })
+    .from(hrScheduleEntries)
+    .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
+    .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`));
+  const allocationEmploymentIds = [...new Set(allocationEmploymentRows.map((row) => row.employmentId))];
+  const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({
       id: hrEmployments.id,
       employeeUserId: hrEmployments.employeeUserId,
@@ -669,6 +701,9 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrMonthlyHourlyEntries).where(and(inJsonArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
     db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), inJsonArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
     db.select().from(hrClockEvents).where(and(inJsonArray(hrClockEvents.employmentId, employmentIds), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
+    db.select({ employmentId: hrEmployments.id, archivedAt: hrEmployments.archivedAt, userStatus: users.status }).from(hrEmployments)
+      .innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(inJsonArray(hrEmployments.id, allocationEmploymentIds.length ? allocationEmploymentIds : ["__none__"])),
+    db.select().from(hrClockEvents).where(and(inJsonArray(hrClockEvents.employmentId, allocationEmploymentIds.length ? allocationEmploymentIds : ["__none__"]), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
     db.select().from(hrScheduleVersions).where(and(latestPublishedSchedule, selectedScheduleVersions)),
     // 分配分母可能包含未被本次部分結算選取的人員；來源快照因此要保存同一發布班表的全部列，避免未選人員異動後結帳仍沿用舊分母。
     db.select({ entry: hrScheduleEntries }).from(hrScheduleEntries)
@@ -699,7 +734,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   return stableJson({
     periodKey: input.period.periodKey,
     employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves,
-    annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, scheduleVersions, calendarDays, calendarDayScopes,
+    annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, calendarDays, calendarDayScopes,
     scheduleEntries: scheduleEntries.map(({ entry }) => entry),
     workerScheduleEntries: workerScheduleEntries.map(({ entry }) => entry),
     workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes,
@@ -1333,6 +1368,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       return affectedRows.some((row) => allocations.find((allocation) => allocation.row.id === row.id)?.detail.allocatedUnits ? true : false);
     });
     const typhoonStopDateSet = new Set(typhoonStopDatesForEmployee);
+    const allocatedRowsAmount = (amount: number, rowsForDate: typeof scheduledEmployeeRows, allocations: SchedulePayAllocation[]) => allocations.length
+      ? Math.min(amount, rowsForDate.reduce((sum, row) => {
+        const allocation = allocations.find((candidate) => candidate.row.id === row.id);
+        return sum + (allocation ? roundScheduleAllocationAmount(amount, allocation.detail.unitNumerator, allocation.detail.unitDenominator) : 0);
+      }, 0))
+      : 0;
     if (employeeCompensations.some((item) => item.payBasis === "daily") && scheduledDates.size === 0 && !specialDates.size) {
       calculationWarnings.add(`${employee.employeeName} 為日薪制但本期沒有已發布排班，薪資為 0。`);
     }
@@ -1347,10 +1388,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const scheduleUnits = scheduleUnitsForDate(day);
       const payableDailyUnits = Math.min(1, scheduleAllocations.length ? scheduleUnits : special && compensation.payBasis === "daily" ? 1 : 0);
       const allocateRowsAmount = (amount: number, rowsForDate: typeof scheduledRowsForDay) => scheduleAllocations.length
-        ? Math.min(amount, rowsForDate.reduce((sum, row) => {
-          const allocation = scheduleAllocations.find((candidate) => candidate.row.id === row.id);
-          return sum + (allocation ? roundScheduleAllocationAmount(amount, allocation.detail.unitNumerator, allocation.detail.unitDenominator) : 0);
-        }, 0))
+        ? allocatedRowsAmount(amount, rowsForDate, scheduleAllocations)
         : payableDailyUnits > 0 ? Math.round(amount * payableDailyUnits) : 0;
       const allocateDailyAmount = (amount: number) => allocateRowsAmount(amount, scheduledRowsForDay);
       const typhoonRowsForDay = typhoonRowsForDate(day, scheduledRowsForDay);
@@ -1500,11 +1538,15 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       ? allocateMonthlyProrationDays(monthlySegments, calendarDays.length, monthlyDivisorDays)
       : null;
     if (uniformMonthlyComp && isFullPeriodEmployment) {
-      // 整月則直接給一個月，不把補足日數當成額外月份。
-      baseMinor = Math.max(0, uniformMonthlyComp.baseAmountMinor -
-        typhoonStopDatesForEmployee.reduce((sum) => sum + Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), 0));
+      // 整月則直接給一個月，不把補足日數當成額外月份；停班移出的基薪也要沿用同一個班別分配比例。
+      const removedDailyBaseMinor = typhoonStopDatesForEmployee.reduce((sum, day) => {
+        const rows = scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? [];
+        const allocations = employeeScheduleAllocations.get(`${employee.employmentId}:${day}`) ?? [];
+        return sum + allocatedRowsAmount(Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays), typhoonRowsForDate(day, rows), allocations);
+      }, 0);
+      baseMinor = Math.max(0, uniformMonthlyComp.baseAmountMinor - removedDailyBaseMinor);
       baseCalculationParts.clear();
-      baseCalculationParts.set(uniformMonthlyComp.id, { payBasis: "monthly", baseAmountMinor: uniformMonthlyComp.baseAmountMinor, dayCount: calendarDays.length, hours: 0, amountMinor: baseMinor, fullMonth: true, removedDailyBaseMinor: typhoonStopDatesForEmployee.length * Math.floor(uniformMonthlyComp.baseAmountMinor / monthlyDivisorDays) });
+      baseCalculationParts.set(uniformMonthlyComp.id, { payBasis: "monthly", baseAmountMinor: uniformMonthlyComp.baseAmountMinor, dayCount: calendarDays.length, hours: 0, amountMinor: baseMinor, fullMonth: true, removedDailyBaseMinor });
       for (const item of compensationItems.filter((candidate) => candidate.compensationVersionId === uniformMonthlyComp.id && candidate.amountBasis === "monthly")) {
         compensationItemTotals.set(item.id, item.amountMinor);
         itemCalculationParts.set(item.id, { amountBasis: item.amountBasis, baseAmountMinor: item.amountMinor, quantity: calendarDays.length, quantityUnit: "天", amountMinor: item.amountMinor, fullMonth: true });
@@ -1517,7 +1559,11 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const prorationDays = monthlyProrationDayCounts.get(compensation.id)!;
         const typhoonStopDailyBase = typhoonStopDatesForEmployee
           .filter((day) => covering(employeeCompensations, day)?.id === compensation.id)
-          .reduce((sum) => sum + Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), 0);
+          .reduce((sum, day) => {
+            const rows = scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? [];
+            const allocations = employeeScheduleAllocations.get(`${employee.employmentId}:${day}`) ?? [];
+            return sum + allocatedRowsAmount(Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), typhoonRowsForDate(day, rows), allocations);
+          }, 0);
         const proratedBase = Math.round(compensation.baseAmountMinor * prorationDays / monthlyDivisorDays);
         const amount = Math.max(0, proratedBase - typhoonStopDailyBase);
         baseMinor += amount;
@@ -2745,7 +2791,7 @@ export async function approveHrPayrollRecords(db: Database, references: HrPayrol
     const [runRow] = await db.select({ sourceSnapshotJson: hrPayrollRuns.sourceSnapshotJson, payrollPeriodId: hrPayrollRuns.payrollPeriodId, expectedCount: hrPayrollRuns.expectedCount, completedCount: hrPayrollRuns.completedCount, calculationInputJson: hrPayrollRuns.calculationInputJson }).from(hrPayrollRuns).where(eq(hrPayrollRuns.id, runId)).limit(1);
     if (!runRow?.sourceSnapshotJson || runRow.sourceSnapshotJson === "{}") throw new HrError(409, "此薪資試算沒有來源快照，請重新試算後再確定發放。 ");
     const currentSnapshot = await getPayrollSourceSnapshot(db, { period, employmentIds: employeeIds, workerIds });
-    if (comparablePayrollSnapshot(currentSnapshot) !== comparablePayrollSnapshot(runRow.sourceSnapshotJson)) throw new HrError(409, "薪資試算來源已變更，請重新試算後再確定發放。 ");
+    if (!payrollSnapshotsMatch(currentSnapshot, runRow.sourceSnapshotJson)) throw new HrError(409, "薪資試算來源已變更，請重新試算後再確定發放。 ");
     const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds: group.references.filter((reference) => reference.personKind === "employee").map((reference) => reference.personId) });
     mutations.push(...buildHrAnnualLeaveSettlementMutations(annualLeaveSettlements, actor));
     for (const reference of group.references) {
@@ -2920,7 +2966,7 @@ export async function closeHrPayrollRun(db: Database, runId: string, actor: HrAc
   if (!run.sourceSnapshotJson || run.sourceSnapshotJson === "{}") throw new HrError(409, "此薪資批次沒有來源快照，請重新試算後再結帳。 ");
   const period = periodFromKey(run.periodKey);
   const currentSnapshot = await getPayrollSourceSnapshot(db, { period, employmentIds, workerIds: workerRows.map((row) => row.workerId) });
-  if (comparablePayrollSnapshot(currentSnapshot) !== comparablePayrollSnapshot(run.sourceSnapshotJson)) throw new HrError(409, "薪資試算來源已變更，請重新試算後再結帳。 ");
+  if (!payrollSnapshotsMatch(currentSnapshot, run.sourceSnapshotJson)) throw new HrError(409, "薪資試算來源已變更，請重新試算後再結帳。 ");
   const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds });
   const annualLeaveSettlementMutations = buildHrAnnualLeaveSettlementMutations(annualLeaveSettlements, actor);
   const settlementMutationCount = annualLeaveSettlementMutations.length;

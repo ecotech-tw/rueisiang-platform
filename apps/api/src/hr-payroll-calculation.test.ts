@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import { chunks, createDatabase } from "@rueisiang/db";
-import { hrCalendarDayScopes, hrCalendarDays, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrPayrollRecordItems, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
+import { hrCalendarDayScopes, hrCalendarDays, hrClockEvents, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrPayrollRecordItems, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -1071,6 +1071,61 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect((base?.explanation.scheduleAllocationDetails as Array<{ allocatedUnits: number }>)[0]?.allocatedUnits).toBe(0.5);
     }
     expect(body.run.warnings).toEqual(expect.arrayContaining([expect.stringContaining("已安排 2／需求 1 人")]));
+  });
+
+  it("部分結算的同班分母變更時，結帳會要求重新試算", async () => {
+    for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
+      const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "部分結算分母快照測試" });
+      expect(compensation.status, await compensation.clone().text()).toBe(201);
+    }
+    const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+      { personKind: "employee", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-partial-allocation-snapshot-2026-09" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+    const db = createDatabase(d1 as never);
+    await db.insert(hrClockEvents).values({
+      id: "shared-shift-wang-clock",
+      employeeUserId: "dev-wang@ecotech.tw",
+      employmentId: "dev-employment-wang",
+      sourceKind: "manual",
+      idempotencyKey: "shared-shift-wang-clock",
+      eventKind: "clock_in",
+      occurredAt: "2026-09-03 01:00:00",
+    });
+    const close = await request(`/hr/payroll/runs/${runId}/close`, "POST", {});
+    expect(close.status, await close.clone().text()).toBe(409);
+  });
+
+  it("多人班月薪災防停班移出基薪也按分配單位計算", async () => {
+    for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
+      const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "月薪多人班災防停班測試" });
+      expect(compensation.status, await compensation.clone().text()).toBe(201);
+    }
+    const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+      { personKind: "employee", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const db = createDatabase(d1 as never);
+    await db.insert(hrCalendarDays).values({ date: "2026-09-03", dayType: "weekday", name: "災防停班", specialKind: "typhoon_stop", updatedBy: "dev-eli-lin@ecotech.tw" });
+    await db.insert(hrCalendarDayScopes).values({ date: "2026-09-03", scopeId: "cyberbiz:store:demo-ximen" });
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-payroll-shared-monthly-typhoon-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ employmentId: string; earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number }> }> } };
+    for (const employmentId of ["dev-employment-chen", "dev-employment-wang"]) {
+      const employee = body.run.employees.find((item) => item.employmentId === employmentId)!;
+      expect(employee.earningMinor).toBe(3_000_000);
+      expect(employee.lines).toEqual(expect.arrayContaining([
+        expect.objectContaining({ lineKey: "base_salary", amountMinor: 2_950_000 }),
+        expect.objectContaining({ lineKey: "typhoon_stop_pay", amountMinor: 50_000 }),
+      ]));
+    }
   });
 
   it("明確標記已出勤／未出勤時，只把固定單位分給已出勤人員", async () => {
