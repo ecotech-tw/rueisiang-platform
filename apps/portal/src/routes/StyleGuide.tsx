@@ -90,7 +90,7 @@ function LiquidGlassPreview() {
               const active = item.label === activeNav;
               return (
                 <div className={`hr-system-nav-item${active ? " active" : ""}`} key={item.label}>
-                  <button type="button" className="hr-system-nav-link" aria-current={active ? "page" : undefined} onClick={() => setActiveNav(item.label)}>
+                  <button type="button" className="hr-system-nav-link" aria-pressed={active} onClick={() => setActiveNav(item.label)}>
                     <Icon name={item.icon} />
                     <span>{item.label}</span>
                   </button>

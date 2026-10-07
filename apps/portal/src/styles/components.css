@@ -2367,6 +2367,8 @@
   .style-guide-type-grid { grid-template-columns: 1fr; }
   .style-guide-control-row { align-items: stretch; flex-direction: column; gap: 16px; }
   .style-guide-liquid-preview .hr-system-brand strong { display: none; }
+  .style-guide-liquid-preview .hr-system-nav-item { flex: 1 1 calc(50% - 4px); min-width: 0; }
+  .style-guide-liquid-preview .hr-system-nav-link { width: 100%; }
   .style-guide-liquid-metrics { grid-template-columns: 1fr; }
 }
 
