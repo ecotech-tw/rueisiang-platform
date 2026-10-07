@@ -237,6 +237,8 @@ async function seedDevPayrollScenario(
 
   await db.insert(hrLeaveTypes).values([
     { id: "dev-leave-type-annual", name: "特休", leaveKind: "annual", defaultPayRatePpm: 1_000_000, createdBy: ids.linUserId },
+    { id: "dev-leave-type-personal", name: "事假", leaveKind: "other", defaultPayRatePpm: 0, createdBy: ids.linUserId },
+    { id: "dev-leave-type-sick", name: "病假", leaveKind: "other", defaultPayRatePpm: 500_000, createdBy: ids.linUserId },
     { id: "dev-leave-type-unpaid", name: "無薪假", leaveKind: "other", defaultPayRatePpm: 0, createdBy: ids.linUserId },
   ]).onConflictDoNothing();
   const [annualLeaveType] = await db.select({ id: hrLeaveTypes.id }).from(hrLeaveTypes).where(eq(hrLeaveTypes.name, "特休")).limit(1);

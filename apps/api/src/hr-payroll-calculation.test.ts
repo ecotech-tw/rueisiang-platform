@@ -367,13 +367,10 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const db = createDatabase(d1 as never);
     const actor = "dev-eli-lin@ecotech.tw";
     await db.update(hrLeaveRequests).set({ status: "cancelled" }).where(eq(hrLeaveRequests.id, "dev-leave-lin-unpaid"));
-    await db.insert(hrLeaveTypes).values([
-      { id: "test-personal-leave-type", name: "事假", leaveKind: "other", defaultPayRatePpm: 0, createdBy: actor },
-      { id: "test-sick-leave-type", name: "病假", leaveKind: "other", defaultPayRatePpm: 500_000, createdBy: actor },
-    ]);
+    // 事假、病假已在 dev fixtures 裡；假別名稱是 unique，這裡再建一次會撞名。
     await db.insert(hrLeaveRequests).values([
-      { id: "test-personal-leave-summary", employmentId: "dev-employment-lin", leaveTypeId: "test-personal-leave-type", leaveType: "事假", status: "approved", startsAt: "2026-08-10 03:30:00", endsAt: "2026-08-10 04:00:00", startsOn: "2026-08-10", endsOn: "2026-08-11", durationMinutes: 30, payRatePpm: 0, reason: "事假時數摘要", reviewedBy: actor, reviewedAt: "2026-08-10 12:00:00", createdBy: actor },
-      { id: "test-sick-leave-summary", employmentId: "dev-employment-lin", leaveTypeId: "test-sick-leave-type", leaveType: "病假", status: "approved", startsAt: "2026-08-11 01:00:00", endsAt: "2026-08-11 03:00:00", startsOn: "2026-08-11", endsOn: "2026-08-12", durationMinutes: 120, payRatePpm: 500_000, reason: "病假時數摘要", reviewedBy: actor, reviewedAt: "2026-08-10 12:00:00", createdBy: actor },
+      { id: "test-personal-leave-summary", employmentId: "dev-employment-lin", leaveTypeId: "dev-leave-type-personal", leaveType: "事假", status: "approved", startsAt: "2026-08-10 03:30:00", endsAt: "2026-08-10 04:00:00", startsOn: "2026-08-10", endsOn: "2026-08-11", durationMinutes: 30, payRatePpm: 0, reason: "事假時數摘要", reviewedBy: actor, reviewedAt: "2026-08-10 12:00:00", createdBy: actor },
+      { id: "test-sick-leave-summary", employmentId: "dev-employment-lin", leaveTypeId: "dev-leave-type-sick", leaveType: "病假", status: "approved", startsAt: "2026-08-11 01:00:00", endsAt: "2026-08-11 03:00:00", startsOn: "2026-08-11", endsOn: "2026-08-12", durationMinutes: 120, payRatePpm: 500_000, reason: "病假時數摘要", reviewedBy: actor, reviewedAt: "2026-08-10 12:00:00", createdBy: actor },
     ]);
     const response = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-leave-hours-summary" });
     expect(response.status, await response.clone().text()).toBe(200);

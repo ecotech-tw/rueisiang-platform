@@ -236,6 +236,33 @@ describe("HR 申請中心", () => {
     expect(after.overtime.find((item) => item.request.id === pendingOvertimeBody.id)?.request.status).toBe("approved");
   });
 
+  it("本人可取得啟用假別、預覽請假時數並查看與取消申請狀態", async () => {
+    await assignEmployee();
+    const leaveType = await request("/hr/leave-types", "POST", { name: "本人請假測試假", defaultPayRatePpm: 1_000_000 });
+    expect(leaveType.status, await leaveType.clone().text()).toBe(201);
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+
+    const types = await request("/hr/me/leave-types", "GET", undefined, employeeCookie);
+    expect(types.status, await types.clone().text()).toBe(200);
+    expect((await types.json() as { leaveTypes: Array<{ id: string; leaveKind: string; credits: unknown[] }> }).leaveTypes).toEqual(expect.arrayContaining([expect.objectContaining({ id: leaveTypeId, leaveKind: "other", credits: [] })]));
+
+    const duration = await request("/hr/me/leave-duration", "POST", { startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00" }, employeeCookie);
+    expect(duration.status, await duration.clone().text()).toBe(200);
+    expect((await duration.json() as { durationMinutes: number }).durationMinutes).toBe(180);
+
+    const created = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "本人狀態測試" }, employeeCookie);
+    expect(created.status, await created.clone().text()).toBe(201);
+    const requestId = (await created.json() as { id: string }).id;
+    const listed = await request("/hr/me/leave-requests", "GET", undefined, employeeCookie);
+    expect(listed.status, await listed.clone().text()).toBe(200);
+    expect((await listed.json() as { requests: Array<{ request: { id: string; status: string; durationMinutes: number } }> }).requests.find((item) => item.request.id === requestId)?.request).toMatchObject({ status: "pending", durationMinutes: 180 });
+
+    const cancelled = await request(`/hr/me/leave-requests/${requestId}/cancel`, "POST", {}, employeeCookie);
+    expect(cancelled.status, await cancelled.clone().text()).toBe(200);
+    const afterCancel = await request("/hr/me/leave-requests", "GET", undefined, employeeCookie);
+    expect((await afterCancel.json() as { requests: Array<{ request: { id: string; status: string } }> }).requests.find((item) => item.request.id === requestId)?.request.status).toBe("cancelled");
+  });
+
   it("本人可以更新待審加班申請，已核准申請需取消後重送", async () => {
     await assignEmployee();
 

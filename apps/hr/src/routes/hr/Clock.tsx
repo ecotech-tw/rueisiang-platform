@@ -445,7 +445,7 @@ export function HrClockCalendar() {
     navigate(`/forms/new?date=${encodeURIComponent(date)}&kind=${kind}`);
   }
   function openLeave(date: string) {
-    navigate(`/forms?type=leave&date=${encodeURIComponent(date)}`);
+    navigate(`/forms/leave?date=${encodeURIComponent(date)}`);
   }
   function closeSubpage() {
     setClosing(true);

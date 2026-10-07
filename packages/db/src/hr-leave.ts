@@ -1,7 +1,7 @@
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
-import { allocateHrAnnualLeave } from "./hr-annual-leave.js";
+import { allocateHrAnnualLeave, listHrAnnualLeaveEntitlements } from "./hr-annual-leave.js";
 import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
@@ -49,6 +49,22 @@ const requestFields = {
   employeeName: displayName,
   leaveTypeKind: hrLeaveTypes.leaveKind,
 };
+
+export interface HrLeaveCredit {
+  entitlementId: string;
+  periodStart: string;
+  periodEnd: string;
+  entitledHalfHours: number;
+  balanceHalfHours: number;
+}
+
+export interface HrSelfLeaveTypeOption {
+  id: string;
+  name: string;
+  leaveKind: "annual" | "other";
+  defaultPayRatePpm: number;
+  credits: HrLeaveCredit[];
+}
 
 function stamp(value: string, label: string) {
   if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) throw new HrError(400, `${label}格式不正確。 `);
@@ -258,6 +274,32 @@ export async function calculateHrLeaveDuration(db: Database, input: HrLeaveDurat
     endsOn: interval.endsOn,
     durationMinutes: interval.durationMinutes,
   };
+}
+
+export async function listHrSelfLeaveTypeOptions(db: Database, employeeUserId: string, asOfDate?: string): Promise<HrSelfLeaveTypeOption[]> {
+  const leaveTypes = await db.select({
+    id: hrLeaveTypes.id,
+    name: hrLeaveTypes.name,
+    leaveKind: hrLeaveTypes.leaveKind,
+    defaultPayRatePpm: hrLeaveTypes.defaultPayRatePpm,
+  }).from(hrLeaveTypes)
+    .where(eq(hrLeaveTypes.active, 1))
+    .orderBy(asc(hrLeaveTypes.name));
+  if (!leaveTypes.some((leaveType) => leaveType.leaveKind === "annual")) {
+    return leaveTypes.map((leaveType) => ({ ...leaveType, credits: [] }));
+  }
+
+  const entitlements = await listHrAnnualLeaveEntitlements(db, { employeeUserId, asOfDate });
+  const credits = entitlements
+    .filter((entitlement) => entitlement.status === "open")
+    .map((entitlement) => ({
+      entitlementId: entitlement.id,
+      periodStart: entitlement.periodStart,
+      periodEnd: entitlement.periodEnd,
+      entitledHalfHours: entitlement.entitledHalfHours,
+      balanceHalfHours: entitlement.balanceHalfHours,
+    }));
+  return leaveTypes.map((leaveType) => ({ ...leaveType, credits: leaveType.leaveKind === "annual" ? credits : [] }));
 }
 
 export async function listHrLeaveRequests(db: Database, employeeUserId?: string) {

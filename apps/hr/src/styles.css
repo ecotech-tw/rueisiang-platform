@@ -20,6 +20,23 @@
     line-height: 1.5;
   }
 
+  /* HR 使用中性 Material 3 surface，品牌紅只保留給主要動作與狀態。 */
+  body:has(.hr-app-shell) {
+    --color-brand: #c9363b;
+    --color-brand-dark: #9f2930;
+    --color-brand-soft: #f1f3f6;
+    --color-secondary: #62748a;
+    --color-ink: #202938;
+    --color-muted: #667085;
+    --color-line: #d8dee8;
+    --color-soft-line: #edf0f4;
+    --color-paper: #ffffff;
+    --color-canvas: #f6f7f9;
+    --shadow-panel: 0 18px 45px rgba(15, 23, 42, .08);
+    background: var(--color-canvas);
+    color: var(--color-ink);
+  }
+
   button { cursor: pointer; }
   code { font-size: 12px; }
   h1, h2, h3 { font-weight: 700; }

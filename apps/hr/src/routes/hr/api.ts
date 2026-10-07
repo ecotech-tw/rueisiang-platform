@@ -119,6 +119,52 @@ export interface ClockCalendar {
   days: ClockCalendarDay[];
 }
 export type FormRequestStatus = "draft" | "pending" | "approved" | "rejected";
+export interface LeaveCredit {
+  entitlementId: string;
+  periodStart: string;
+  periodEnd: string;
+  entitledHalfHours: number;
+  balanceHalfHours: number;
+}
+export interface LeaveTypeOption {
+  id: string;
+  name: string;
+  leaveKind: "annual" | "other";
+  defaultPayRatePpm: number;
+  credits: LeaveCredit[];
+}
+export interface LeaveTypesResponse { leaveTypes: LeaveTypeOption[] }
+export interface HrLeaveDurationResponse {
+  startsAt: string;
+  endsAt: string;
+  startsOn: string;
+  endsOn: string;
+  durationMinutes: number;
+}
+export interface LeaveRequest {
+  request: {
+    id: string;
+    employmentId: string;
+    leaveTypeId: string | null;
+    leaveType: string;
+    status: "draft" | "pending" | "approved" | "rejected" | "cancelled";
+    startsAt: string;
+    endsAt: string;
+    startsOn: string;
+    endsOn: string;
+    durationMinutes: number;
+    payRatePpm: number;
+    reason: string;
+    reviewedBy: string | null;
+    reviewedAt: string | null;
+    reviewComment: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  employeeUserId: string;
+  employeeNumber: string;
+  employeeName: string | null;
+}
 export interface FormRequest {
   id: string;
   employeeUserId: string;
@@ -152,6 +198,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 export function useHrQuery<T>(path: string, enabled = true) {
   return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false });
+}
+export function useHrLeaveDuration(input: { startsAt: string; endsAt: string } | null) {
+  const signature = input ? JSON.stringify(input) : "disabled";
+  return useQuery({
+    queryKey: ["hr", "leave-duration", signature],
+    queryFn: () => request<HrLeaveDurationResponse>("/me/leave-duration", { method: "POST", body: JSON.stringify(input) }),
+    enabled: input !== null,
+    retry: false,
+  });
 }
 export function useHrWrite<T = { id: string }>() {
   const client = useQueryClient();
