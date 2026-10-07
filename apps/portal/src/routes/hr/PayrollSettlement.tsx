@@ -16,14 +16,14 @@ interface PayrollRecordsResponse {
   page: number;
   pageSize: number;
   hasMore: boolean;
-  counts: { total: number; unsettled: number; closed: number; withdrawn: number };
+  counts: { total: number; unsettled: number; closed: number };
 }
 interface PayrollRecordFilters {
   page: number;
   pageSize: number;
   search: string;
   periodKey: string;
-  status: "all" | "unsettled" | "closed" | "withdrawn";
+  status: "all" | "unsettled" | "closed";
   personKind: "all" | "employee" | "worker";
   payBasis: "all" | "monthly" | "daily" | "hourly" | "mixed";
 }
@@ -34,7 +34,7 @@ const MAX_PAYROLL_SELECTED_EMPLOYEES = 80;
 const MAX_PAYROLL_SELECTED_WORKERS = 100;
 // 載入中的空名單要是同一個參考：每次 render 都給新的 [] 會讓依賴它的 effect 每輪都重跑、再 setState，變成無限重繪。
 const NO_PAYROLL_WORKERS: PayrollWorkerCandidate[] = [];
-const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放", withdrawn: "已撤回" } as const;
+const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放" } as const;
 const PAYROLL_PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
 
@@ -52,8 +52,8 @@ function payrollPeriodLabel(value: string): string {
   const match = /^(\d{4})-(\d{2})$/.exec(value);
   return match ? `${match[1]} 年 ${Number(match[2])} 月` : value;
 }
-function recordStatusTone(status: PayrollRecord["status"]): "success" | "warning" | "neutral" {
-  return status === "closed" ? "success" : status === "withdrawn" ? "neutral" : "warning";
+function recordStatusTone(status: PayrollRecord["status"]): "success" | "warning" {
+  return status === "closed" ? "success" : "warning";
 }
 function isPayrollJobActive(job: PayrollJob) {
   return job.status === "queued" || job.status === "calculating";
@@ -173,7 +173,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     closeRequestRef={closeRequestRef}
     closeDisabled={calculatePayroll.isPending}
     formProps={{ onSubmit: submit }}
-    actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" loading={calculatePayroll.isPending} disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || supportWorkers.isPending || Boolean(supportWorkers.error) || Boolean(selectionLimitError)}>開始試算</Button></>}
+    actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" className="add-action" loading={calculatePayroll.isPending} disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || supportWorkers.isPending || Boolean(supportWorkers.error) || Boolean(selectionLimitError)}>開始試算</Button></>}
   >
     <div className="form-grid two">
       <TextField type="month" label="計算月份" value={periodKey} required onChange={(event) => setPeriodKey(event.target.value)} />
@@ -357,7 +357,7 @@ export function HrPayrollSettlement() {
       <FilterToolbar className="hr-payroll-record-filter">
         <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} />
         <FilterInput label="薪資月份" type="month" value={recordFilters.periodKey} onChange={(event) => updateRecordFilters({ periodKey: event.target.value })} />
-        <FilterSelect label="狀態" value={recordFilters.status} options={[{ value: "all", label: "全部狀態" }, { value: "unsettled", label: "尚未結算" }, { value: "closed", label: "已確定發放" }, { value: "withdrawn", label: "已撤回" }]} onChange={(event) => updateRecordFilters({ status: event.target.value as PayrollRecordFilters["status"] })} />
+        <FilterSelect label="狀態" value={recordFilters.status} options={[{ value: "all", label: "全部狀態" }, { value: "unsettled", label: "尚未結算" }, { value: "closed", label: "已確定發放" }]} onChange={(event) => updateRecordFilters({ status: event.target.value as PayrollRecordFilters["status"] })} />
         <FilterSelect label="人員類型" value={recordFilters.personKind} options={[{ value: "all", label: "全部人員" }, { value: "employee", label: "正式員工" }, { value: "worker", label: "支援人員" }]} onChange={(event) => updateRecordFilters({ personKind: event.target.value as PayrollRecordFilters["personKind"] })} />
         <FilterSelect label="計薪方式" value={recordFilters.payBasis} options={[{ value: "all", label: "全部計薪方式" }, { value: "monthly", label: "月薪" }, { value: "daily", label: "日薪" }, { value: "hourly", label: "時薪" }, { value: "mixed", label: "混合" }]} onChange={(event) => updateRecordFilters({ payBasis: event.target.value as PayrollRecordFilters["payBasis"] })} />
       </FilterToolbar>
@@ -380,7 +380,7 @@ export function HrPayrollSettlement() {
               <td data-label="扣款" className="numeric">{record.deductionMinor ? deductionMoney(record.deductionMinor) : "—"}</td>
               <td data-label="實領" className="numeric"><strong>{money(record.netMinor)}</strong></td>
               <td data-label="狀態"><StatusBadge tone={recordStatusTone(record.status)}>{PAYROLL_RECORD_STATUS_LABEL[record.status]}</StatusBadge></td>
-              <td data-label="操作"><Button variant="secondary" icon="eye" onClick={() => openRecord(record)}>查看明細</Button></td>
+              <td data-label="操作"><Button variant="secondary" icon="eye" className="hr-action-info" onClick={() => openRecord(record)}>查看明細</Button></td>
             </tr>)}</tbody>
         </DataTable>
         {selectedRecords.length ? <div className="hr-payroll-selection-actions" role="status"><span className="hr-payroll-selection-count" aria-live="polite">已選取 {selectedRecords.length} 筆</span>{canCalculate ? <Button icon="check" loading={approvePayroll.isPending} onClick={() => setApproveOpen(true)}>確定發放</Button> : null}</div> : null}

@@ -195,7 +195,7 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
             if (!draft) return <div className="shift-day-row shift-day-row-empty" key={dayType}>
               <span className="shift-day-label">{label}</span>
               <span className="muted">同平日</span>
-              {canWrite ? <Button variant="secondary" icon="plus" disabled={disabled} onClick={() => updateTime(row.key, dayType, {})}>設定{label}時間</Button> : null}
+              {canWrite ? <Button variant="secondary" icon="plus" className="add-action" disabled={disabled} onClick={() => updateTime(row.key, dayType, {})}>設定{label}時間</Button> : null}
             </div>;
             return <div className="shift-day-row" key={dayType}>
               <span className="shift-day-label">{label}</span>
@@ -214,7 +214,7 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
       {!rows.length ? <p className="muted shift-items-empty">尚未設定班別，按下「新增班別」後會直接出現可編輯的列。</p> : null}
       {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
       <div className="shift-items-foot">
-        {canWrite ? <Button variant="secondary" icon="plus" disabled={save.isPending} onClick={addNewRow}>新增班別</Button> : <span />}
+        {canWrite ? <Button variant="secondary" icon="plus" className="add-action" disabled={save.isPending} onClick={addNewRow}>新增班別</Button> : <span />}
         <p className="shift-items-total">共 <strong>{rows.length}</strong> 個班別</p>
       </div>
     </div>

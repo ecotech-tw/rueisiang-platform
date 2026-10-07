@@ -56,7 +56,7 @@ export async function getHrOverview(db: Database): Promise<HrOverviewResult> {
     db.select({ employmentId: hrInsuranceVersions.employmentId, scheme: hrInsuranceVersions.scheme, status: hrInsuranceVersions.status, validFrom: hrInsuranceVersions.validFrom, validTo: hrInsuranceVersions.validTo }).from(hrInsuranceVersions).where(and(inJsonArray(hrInsuranceVersions.employmentId, [...activeEmploymentIds]), sql`${hrInsuranceVersions.voidedAt} IS NULL`, sql`${hrInsuranceVersions.validFrom} <= ${today} AND (${hrInsuranceVersions.validTo} IS NULL OR ${today} < ${hrInsuranceVersions.validTo})`)),
     db.select({ runId: hrPayrollRuns.id, runStatus: hrPayrollRuns.status, versionNumber: hrPayrollRuns.versionNumber, completedCount: hrPayrollRuns.completedCount, expectedCount: hrPayrollRuns.expectedCount }).from(hrPayrollRuns)
       .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
-      .where(and(eq(hrPayrollPeriods.periodKey, periodKey), sql`NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals AS withdrawal WHERE withdrawal.payroll_run_id=${hrPayrollRuns.id})`)).orderBy(desc(hrPayrollRuns.versionNumber), desc(hrPayrollRuns.createdAt)).limit(1),
+      .where(eq(hrPayrollPeriods.periodKey, periodKey)).orderBy(desc(hrPayrollRuns.versionNumber), desc(hrPayrollRuns.createdAt)).limit(1),
   ]);
 
   const scheduledEmploymentIds = new Set(attendanceSettings.filter((setting) => setting.attendanceMode === "scheduled" && activeEmploymentIds.has(setting.employmentId)).map((setting) => setting.employmentId));

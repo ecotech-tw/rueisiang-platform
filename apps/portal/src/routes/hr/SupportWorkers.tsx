@@ -41,7 +41,7 @@ function WorkerDialog({ worker, onClose }: { worker: ScheduleWorkerRecord | null
       method: worker ? "PATCH" : "POST",
       values: worker ? { displayName, active, revision: worker.revision } : { displayName },
     }, { onSuccess: () => { (closeRequestRef.current ?? onClose)(); } });
-  } }} actions={<Button type="submit" loading={save.isPending}>儲存</Button>}>
+  } }} actions={<Button type="submit" className={isEditing ? "hr-action-update" : "add-action"} loading={save.isPending}>儲存</Button>}>
     <TextField label="姓名" value={displayName} maxLength={100} required onChange={(event) => setDisplayName(event.target.value)} />
     {isEditing ? <SelectField label="狀態" value={active ? "active" : "inactive"} options={[{ value: "active", label: "啟用中" }, { value: "inactive", label: "已停用" }]} onChange={(event) => setActive(event.target.value === "active")} /> : null}
     <p className="form-hint">支援人員不是平台使用者，不建立帳號或員工任職關聯；停用只會停止後續排班，歷史資料仍會保留。</p>
@@ -83,7 +83,7 @@ export function HrSupportWorkers() {
             <td data-label="狀態"><StatusBadge tone={isActive(worker) ? "success" : "danger"}>{isActive(worker) ? "啟用中" : "已停用"}</StatusBadge></td>
             <td data-label="目前薪資" className="numeric">{compensation ? `${PAY_BASIS_LABEL[compensation.payBasis]} · ${money(compensation.baseAmountMinor)}` : <span className="muted">尚未設定</span>}</td>
             <td data-label="生效日">{compensation?.validFrom ?? "—"}</td>
-            {canWrite ? <td data-label="操作"><Button variant="secondary" onClick={() => setEditing(worker)}>管理</Button></td> : null}
+            {canWrite ? <td data-label="操作"><Button variant="secondary" className="hr-action-update" onClick={() => setEditing(worker)}>管理</Button></td> : null}
           </tr>;
         })}
       </tbody></DataTable>

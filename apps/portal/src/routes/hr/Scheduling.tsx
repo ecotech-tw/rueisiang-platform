@@ -124,7 +124,7 @@ function ScheduleEntryDialog({ data, day, dayType, defaultScopeId, onAdd, onClos
     if (!entry) return;
     onAdd(entry);
     (closeRequestRef.current ?? onClose)();
-  } }} actions={<Button type="submit" icon="check" disabled={!selectedShift || !personId}>加入排班</Button>}>
+  } }} actions={<Button type="submit" icon="check" className="add-action" disabled={!selectedShift || !personId}>加入排班</Button>}>
     <SelectField label="人員類型" value={personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援人員" }]} onChange={(event) => setPersonKind(event.target.value as "employee" | "worker")} />
     <SelectField label="人員" value={personId} searchable options={personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
     <SelectField label="營運據點" value={scopeId} options={data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => setScopeId(event.target.value)} />
@@ -391,7 +391,7 @@ export function HrScheduling() {
             */}
           <div className="hr-calendar-date" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
             ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
-            : <><strong>{index + 1}</strong>{canEdit ? <button type="button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
+            : <><strong>{index + 1}</strong>{canEdit ? <button type="button" className="hr-calendar-add-button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
           {typhoonForScope ? <span className="hr-calendar-holiday hr-calendar-typhoon">災防停班</span> : null}
           {calendarDay?.name && !(typhoonForScope && isDefaultHrCalendarSpecialName(calendarDay.name)) ? <span className="hr-calendar-holiday">{calendarDay.name}</span> : null}
           <div className="hr-calendar-entries">{entriesOn(day).map((entry) => <div className={`hr-calendar-entry ${entry.personKind}${entry.archivedAt ? " archived" : ""}${quick && !entry.archivedAt && samePick(entry, quick, templateOf) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName} · {entry.scopeName}</small>{canEdit && !entry.archivedAt ? <button type="button" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}</div>)}</div>
