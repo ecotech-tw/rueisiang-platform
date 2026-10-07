@@ -3887,53 +3887,105 @@
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
 .hr-payroll-records-panel { display: grid; gap: 14px; }
-.hr-payroll-page-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .hr-payroll-job-progress {
-  position: static;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  min-width: 0;
-  padding: 5px 13px 5px 6px;
-  border: 1px solid --alpha(var(--color-line) / 82%);
+  position: fixed;
+  right: 36px;
+  bottom: 96px;
+  z-index: 24;
+  display: grid;
+  box-sizing: border-box;
+  width: min(420px, calc(100vw - 72px));
+  /* 標題列固定、只有工作清單自己捲：清單再長也收合得到。內距放在兩個子元素上，標題列才能貼齊外框。 */
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(560px, calc(100vh - 120px));
+  overflow: hidden;
+  border: 1px solid --alpha(var(--color-brand-dark) / 22%);
   border-radius: var(--radius-card);
-  background: --alpha(var(--color-paper) / 78%);
+  /* state layer 疊在整張卡上：標題列是唯一可點的地方，回饋範圍要跟卡片外框一致，不是內縮的一小塊。 */
+  --hr-payroll-job-state-layer: transparent;
+  background:
+    linear-gradient(var(--hr-payroll-job-state-layer), var(--hr-payroll-job-state-layer)),
+    linear-gradient(135deg, --alpha(var(--color-brand) / 14%), --alpha(var(--color-paper) / 96%) 72%);
   box-shadow:
     0 1px 0 --alpha(var(--color-paper) / 72%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
-    0 8px 22px --alpha(var(--color-ink) / 9%);
-  -webkit-backdrop-filter: blur(12px) saturate(150%);
-  backdrop-filter: blur(12px) saturate(150%);
-  pointer-events: none;
-  animation: hr-payroll-job-progress-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
+    0 14px 36px --alpha(var(--color-ink) / 16%),
+    0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
 }
-@keyframes hr-payroll-job-progress-in {
-  from { opacity: 0; filter: blur(4px); transform: translateY(-6px) scale(.96); }
-  to { opacity: 1; filter: blur(0); transform: translateY(0) scale(1); }
+.hr-payroll-job-progress-toggle {
+  display: flex;
+  min-height: 40px;
+  box-sizing: content-box;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px 6px;
+  border: 0;
+  border-radius: calc(var(--radius-card) - 1px);
+  transition-property: padding;
+  transition-duration: 220ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--color-ink);
+  font-size: inherit;
+  text-align: left;
+  text-decoration: none;
+  white-space: normal;
 }
-.hr-payroll-job-progress-icon {
+.hr-payroll-job-progress-toggle strong { color: var(--color-ink); font-size: 14px; }
+.hr-payroll-job-progress-toggle > span:nth-child(2) { margin-inline-start: auto; color: var(--color-muted); font-size: 12px; white-space: nowrap; }
+.hr-payroll-job-progress-toggle > span:last-child { display: grid; flex: none; place-items: center; color: var(--color-muted); }
+.hr-payroll-job-progress-toggle:hover:not(:disabled),
+.hr-payroll-job-progress-toggle:active:not(:disabled) { border-color: transparent; background: transparent; box-shadow: none; color: var(--color-brand-dark); }
+/* 觸控裝置點過之後 :hover 會黏住，整張卡會一直停在染色狀態。 */
+@media (hover: hover) {
+  .hr-payroll-job-progress:has(.hr-payroll-job-progress-toggle:hover) { --hr-payroll-job-state-layer: --alpha(var(--color-brand) / 4%); }
+}
+.hr-payroll-job-progress:has(.hr-payroll-job-progress-toggle:active) { --hr-payroll-job-state-layer: --alpha(var(--color-brand) / 7%); }
+/* 按鈕貼齊卡片邊緣，外框往內畫才不會被卡片的 overflow 裁掉。 */
+.hr-payroll-job-progress-toggle:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -4px; }
+.hr-payroll-job-progress-toggle:active:not(:disabled) { scale: none; }
+.hr-payroll-job-progress-chevron { position: relative; display: grid; flex: none; width: 20px; height: 20px; place-items: center; color: var(--color-muted); }
+.hr-payroll-job-progress-chevron svg { position: absolute; inset: 0; width: 20px; height: 20px; opacity: 0; scale: .25; filter: blur(4px); transition-property: opacity, scale, filter; transition-duration: 220ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+/* 要帶上父層 class：單一 class 贏不過上面 `.…-chevron svg` 的預設隱藏，收合時箭頭會整個消失。 */
+.hr-payroll-job-progress-chevron .hr-payroll-job-progress-chevron-down { opacity: 1; scale: 1; filter: blur(0); }
+.hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-down { opacity: 0; scale: .25; filter: blur(4px); }
+.hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-up { opacity: 1; scale: 1; filter: blur(0); }
+.hr-payroll-job-progress.is-collapsed .hr-payroll-job-progress-toggle { padding: 6px 20px; }
+.hr-payroll-job-list {
   display: grid;
-  width: 34px;
-  height: 34px;
-  flex: none;
-  place-items: center;
-  border-radius: 8px;
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
+  grid-template-rows: minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+  opacity: 1;
+  translate: 0 0;
+  transition-property: grid-template-rows, opacity, translate;
+  transition-duration: 220ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
-.hr-payroll-job-progress-icon svg { width: 20px; height: 20px; }
-.hr-payroll-job-progress-copy { display: grid; gap: 1px; min-width: 0; text-align: left; }
-.hr-payroll-job-progress-copy small { color: var(--color-muted); font-size: 11px; font-weight: 700; line-height: 1.2; }
-.hr-payroll-job-progress-copy strong { color: var(--color-ink); font-size: 13px; line-height: 1.3; white-space: nowrap; }
-.hr-payroll-job-recovery { align-items: flex-start; }
-.hr-payroll-job-recovery-content { display: grid; flex: 1; gap: 8px; min-width: 0; }
-.hr-payroll-job-recovery-content > strong { color: var(--color-brand-dark); }
-.hr-payroll-job-recovery-list { display: grid; gap: 6px; }
-.hr-payroll-job-recovery-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding-top: 6px; border-top: 1px solid --alpha(var(--color-brand-dark) / 16%); }
-.hr-payroll-job-recovery-copy { display: grid; gap: 2px; min-width: 0; }
-.hr-payroll-job-recovery-copy > strong { overflow: hidden; color: var(--color-ink); text-overflow: ellipsis; white-space: nowrap; }
-.hr-payroll-job-recovery-copy > small { color: var(--color-muted); overflow-wrap: anywhere; }
-.hr-payroll-job-recovery-item .ghost-button { flex: none; }
+/* 兩端都要寫成 minmax()：跟展開時的 minmax(0, 1fr) 形式不同的話瀏覽器不會內插，高度會直接跳。 */
+.hr-payroll-job-list.is-collapsed { grid-template-rows: minmax(0, 0fr); opacity: 0; translate: 0 -4px; pointer-events: none; }
+.hr-payroll-job-list-inner { display: grid; align-content: start; min-height: 0; gap: 8px; overflow: hidden auto; overscroll-behavior: contain; padding: 0 20px; }
+/* 上下留白掛在卡片上而不是清單的 padding：padding 不會跟著 0fr 收掉，收合後面板會多出一截空白。 */
+.hr-payroll-job-list-inner > :first-child { margin-top: 6px; }
+.hr-payroll-job-list-inner > :last-child { margin-bottom: 16px; }
+.hr-payroll-job-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--color-soft-line); border-radius: 12px; background: var(--color-canvas); }
+.hr-payroll-job-card-head,
+.hr-payroll-job-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
+.hr-payroll-job-card-head > div { display: grid; gap: 2px; min-width: 0; }
+.hr-payroll-job-card-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-payroll-job-card-head small { color: var(--color-muted); font-size: 12px; }
+.hr-payroll-job-bar { height: 7px; overflow: hidden; border-radius: 999px; background: --alpha(var(--color-ink) / 10%); }
+.hr-payroll-job-bar span { display: block; height: 100%; min-width: 0; border-radius: inherit; background: var(--color-brand); transition-property: width, background-color; transition-duration: 220ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }
+.hr-payroll-job-ready .hr-payroll-job-bar span { background: var(--color-ok); }
+.hr-payroll-job-failed .hr-payroll-job-bar span { background: var(--color-brand-dark); }
+.hr-payroll-job-bar.is-indeterminate span { width: 32%; opacity: .7; }
+.hr-payroll-job-card-foot { align-items: flex-start; color: var(--color-muted); font-size: 12px; }
+/* 錯誤是後端例外的原文，最長兩千字；不截的話一張卡就把整個面板撐滿。 */
+.hr-payroll-job-error { display: -webkit-box; min-width: 0; overflow: hidden; color: var(--color-brand-dark); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
 .hr-payroll-record-filter { align-items: flex-end; }
 /* 原生 month input 會被日曆圖示的內距撐高；固定工具列控制項高度，避免月份欄比其他篩選器高。 */
 .hr-payroll-record-filter .filter-control > input {
@@ -4234,11 +4286,21 @@
 .hr-payroll-payslip-totals > div:last-child dt,
 .hr-payroll-payslip-totals > div:last-child dd { color: var(--color-brand-dark); font-weight: 700; }
 
+@media (max-width: 900px) {
+  .hr-payroll-job-progress {
+    right: 24px;
+    bottom: 88px;
+    width: min(420px, calc(100vw - 48px));
+    max-height: calc(100vh - 104px);
+  }
+}
+
 @media (max-width: 760px) {
   .hr-payroll-table-region { flex-direction: column; }
   .hr-payroll-mobile-select-all { flex: none; }
-  .hr-payroll-page-actions { align-items: center; }
-  .hr-payroll-job-recovery-item { align-items: flex-start; }
+  .hr-payroll-job-card-head,
+  .hr-payroll-job-card-foot { align-items: flex-start; flex-direction: column; }
+  .hr-payroll-job-card-foot .ghost-button { align-self: stretch; justify-content: center; }
   .hr-payroll-record-filter .search-input,
   .hr-payroll-record-filter input:not(.search-input),
   .hr-payroll-record-filter .filter-select-control { flex-basis: 100%; }
@@ -4279,30 +4341,17 @@
   .hr-payroll-disclosure-content,
   .hr-payroll-disclosure-marker,
   .hr-payroll-disclosure-marker svg,
+  .hr-payroll-job-list,
   .hr-payroll-job-progress,
+  .hr-payroll-job-progress-toggle,
+  .hr-payroll-job-progress-chevron svg,
+  .hr-payroll-job-bar span,
   .hr-payroll-employee > summary,
   .hr-payroll-line-summary,
   .hr-payroll-secondary > summary,
   .hr-payroll-line-steps-summary { transition-property: none; }
   .hr-overview-card:hover { transform: none; }
   .hr-overview-card:hover .hr-overview-action span { transform: none; }
-  .hr-payroll-job-progress { animation: none; }
-}
-
-@media (max-width: 480px) {
-  .hr-payroll-job-recovery-item { align-items: stretch; flex-direction: column; }
-  .hr-payroll-job-recovery-item .ghost-button { align-self: flex-start; }
-}
-
-@media (max-width: 420px) {
-  .hr-payroll-page > .page-head-row { flex-wrap: wrap; gap: 8px; }
-  .hr-payroll-page > .page-head-row > :first-child { flex: 1 1 100%; }
-  .hr-payroll-page > .page-head-row > :last-child { margin-left: auto; }
-}
-
-@media (max-width: 400px) {
-  .hr-payroll-job-progress { padding-right: 8px; }
-  .hr-payroll-job-progress-copy small { display: none; }
 }
 
 @media (max-width: 620px) {
