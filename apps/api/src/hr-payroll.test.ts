@@ -130,20 +130,20 @@ describe("HR 薪資與勞健保", () => {
     expect(afterDelete.tables.some((table) => table.id === nextBody.id)).toBe(false);
   });
 
-  it("薪資與保險異動以版本保存，薪資更新必須從上一版次日銜接", async () => {
+  it("薪資與保險異動以版本保存，薪資更新可從實際異動日銜接", async () => {
     await assign();
     const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
     const employmentId = profile.employments[0]!.id;
     expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 4000000, items: [{ itemName: "交通津貼", amountMinor: 300000, itemKind: "fixed", includeOvertime: true, includeInsurance: false, includeTax: true }] })).status).toBe(201);
-    expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-03", payBasis: "monthly", baseAmountMinor: 4500000 })).status).toBe(400);
-    expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-02", payBasis: "monthly", baseAmountMinor: 4500000 })).status).toBe(201);
+    expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-03", payBasis: "monthly", baseAmountMinor: 4500000 })).status).toBe(201);
+    expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-02", payBasis: "monthly", baseAmountMinor: 4600000 })).status).toBe(400);
     expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { versions: [{ scheme: "labor", status: "enrolled", validFrom: "2026-01-01", insuredAmountMinor: 4580000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", note: "測試人工覆核投保金額" }] })).status).toBe(201);
     expect((await request(`/hr/employments/${employmentId}/insurance`, "POST", { versions: [{ scheme: "labor", status: "withdrawn", validFrom: "2026-03-01", insuredAmountMinor: 0, dependentCount: 0, rateYear: 2026, sourceKind: "manual" }] })).status).toBe(201);
     const detail = await (await request("/hr/employees/employee")).json() as { compensation: { baseAmountMinor: number; items?: { itemName: string; includeOvertime: number }[] }[]; insurance: { status: string; validFrom: string; validTo: string | null }[] };
     expect(detail.compensation.find((item) => item.baseAmountMinor === 4000000)?.items).toEqual([expect.objectContaining({ itemName: "交通津貼", includeOvertime: 1 })]);
     expect(detail.compensation).toEqual(expect.arrayContaining([
-      expect.objectContaining({ baseAmountMinor: 4500000, validFrom: "2026-01-02", validTo: null }),
-      expect.objectContaining({ baseAmountMinor: 4000000, validFrom: "2026-01-01", validTo: "2026-01-02" }),
+      expect.objectContaining({ baseAmountMinor: 4500000, validFrom: "2026-01-03", validTo: null }),
+      expect.objectContaining({ baseAmountMinor: 4000000, validFrom: "2026-01-01", validTo: "2026-01-03" }),
     ]));
     expect(detail.insurance).toEqual(expect.arrayContaining([
       expect.objectContaining({ status: "enrolled", validFrom: "2026-01-01", validTo: "2026-03-01" }),

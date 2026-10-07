@@ -288,7 +288,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onSaved, onArchiv
       <TextField label="員工編號" value={values.employeeNumber} maxLength={40} required onChange={(event) => setValues({ ...values, employeeNumber: event.target.value })} />
       <TextField label="職位" value={values.position} maxLength={100} required onChange={(event) => setValues({ ...values, position: event.target.value })} />
       <SelectField label="主管" value={values.supervisorUserId} searchable options={[{ value: "", label: "未指定" }, ...currentSupervisor.map((option) => ({ value: option.id, label: option.name })), ...supervisorOptions.map((option) => ({ value: option.id, label: option.employeeNumber ? `${option.employeeNumber}・${option.name}` : option.name }))]} disabled={supervisorCandidates.isPending} onChange={(event) => setValues({ ...values, supervisorUserId: event.target.value })} />
-      <TextField label="服務年資起算日" type="date" value={values.serviceStartOn} hint="影響薪資試算與週年制特休的起算日。" onChange={(event) => setValues({ ...values, serviceStartOn: event.target.value })} />
+      <TextField label="服務年資起算日" type="date" value={values.serviceStartOn} hint="保留作為實際到職與薪資在職計算起點；特休僅從第一筆有效月薪敘薪生效日開始計算。" onChange={(event) => setValues({ ...values, serviceStartOn: event.target.value })} />
       <div className="hr-management-readonly-field"><span>出勤方式</span><strong>{activeEmployment.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</strong><small>請到出勤範圍管理調整。</small></div>
     </div> : <div className="hr-management-archived-state"><strong>目前未在職</strong><p>員工資料與歷史紀錄仍保留；恢復在職後可繼續沿用這筆資料。</p></div>}
     {supervisorCandidates.error ? <Alert tone="danger">主管清單載入失敗，請重新整理後再試。</Alert> : null}

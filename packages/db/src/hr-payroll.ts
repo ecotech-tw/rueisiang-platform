@@ -150,8 +150,7 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
   const [latest] = await db.select({ id: hrCompensationVersions.id, validFrom: hrCompensationVersions.validFrom, validTo: hrCompensationVersions.validTo, versionNumber: hrCompensationVersions.versionNumber }).from(hrCompensationVersions)
     .where(and(eq(hrCompensationVersions.employmentId, input.employmentId), sql`${hrCompensationVersions.voidedAt} IS NULL`))
     .orderBy(desc(hrCompensationVersions.validFrom), desc(hrCompensationVersions.versionNumber)).limit(1);
-  const expectedValidFrom = latest ? nextDate(latest.validFrom) : null;
-  if (expectedValidFrom !== null && input.validFrom !== expectedValidFrom) throw new HrError(400, `敘薪更新的生效日必須是 ${expectedValidFrom}；若要修正上一筆，請先解除最新敘薪。 `);
+  if (latest && input.validFrom <= latest.validFrom) throw new HrError(400, `敘薪更新的生效日必須晚於上一筆 ${latest.validFrom}；若要修正上一筆，請先解除最新敘薪。 `);
   const current = latest && latest.validTo === null ? latest : undefined;
   const id = crypto.randomUUID();
   const closePrevious = current && current.validFrom < input.validFrom
@@ -166,7 +165,7 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
       AND NOT EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId} AND voided_at IS NULL
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
     RETURNING id`;
-  return writeHrMutation(db, [...closePrevious, insert, ...compensationItemStatements(id, input.items, actor)], id, actor, "compensation_version_created", "員工主檔不存在、敘薪更新日期不連續、薪資期間重疊或資料不合法，請重新整理。 ");
+  return writeHrMutation(db, [...closePrevious, insert, ...compensationItemStatements(id, input.items, actor)], id, actor, "compensation_version_created", "員工主檔不存在、敘薪生效日順序不正確、薪資期間重疊或資料不合法，請重新整理。 ");
 }
 
 /** 解除最新敘薪但不刪除資料；重複呼叫可依序撤回到第一版，且不影響既有薪資快照。 */
@@ -546,12 +545,6 @@ function isDateOnly(value: string) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
-}
-
-function nextDate(value: string) {
-  const date = new Date(`${value}T00:00:00Z`);
-  date.setUTCDate(date.getUTCDate() + 1);
-  return date.toISOString().slice(0, 10);
 }
 
 /**

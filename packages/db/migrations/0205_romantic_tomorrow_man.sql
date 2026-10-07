@@ -1,0 +1,2 @@
+DROP INDEX `idx_hr_annual_leave_entitlement_period`;--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_hr_annual_leave_entitlement_period` ON `hr_annual_leave_entitlements` (`employment_id`,`period_start`,`service_months`,`period_end`);

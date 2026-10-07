@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveEntitlements, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates, syncSystemRoles } from "@rueisiang/db";
 import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrEmployments, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -23,6 +23,11 @@ async function request(path: string, method = "GET", payload?: Record<string, un
   }), { DB: d1, AUTH_SESSION_SECRET: SECRET, GOOGLE_OAUTH_CLIENT_ID: "test", GOOGLE_OAUTH_CLIENT_SECRET: "test" } as never);
 }
 
+async function currentEmploymentId() {
+  const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
+  return profile.employments[0]!.id;
+}
+
 beforeEach(async () => {
   d1 = createTargetOnlyD1();
   const db = createDatabase(d1 as never);
@@ -41,7 +46,9 @@ beforeEach(async () => {
 afterEach(() => d1.sqlite.close());
 
 describe("週年制特休額度", () => {
-  it("依服務年資起算日建立滿半年、週年與半小時台帳", async () => {
+  it("依月薪敘薪生效日建立滿半年、週年與半小時台帳", async () => {
+    const compensation = await request(`/hr/employments/${await currentEmploymentId()}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "特休測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
     const db = createDatabase(d1 as never);
     await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
     const rows = await listHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
@@ -54,7 +61,54 @@ describe("週年制特休額度", () => {
     expect(Number(grants[0]?.count)).toBe(3);
   });
 
+  it("日薪員工沒有特休，轉月薪後從月薪生效日開始累計", async () => {
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
+    const employmentId = profile.employments[0]!.id;
+    const daily = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "daily", baseAmountMinor: 180_000, note: "日薪起薪" });
+    expect(daily.status, await daily.clone().text()).toBe(201);
+
+    const db = createDatabase(d1 as never);
+    await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
+    expect(await listHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" })).toEqual([]);
+
+    const monthly = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-09-15", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "轉月薪" });
+    expect(monthly.status, await monthly.clone().text()).toBe(201);
+    const rows = await listHrAnnualLeaveEntitlements(db, { asOfDate: "2026-03-15" });
+    expect(rows.map((row) => ({ annualLeaveStartOn: row.annualLeaveStartOn, periodStart: row.periodStart, serviceMonths: row.serviceMonths }))).toEqual([
+      { annualLeaveStartOn: "2025-09-15", periodStart: "2026-03-15", serviceMonths: 6 },
+    ]);
+  });
+
+  it("月薪轉日薪後仍能以最後月薪完成既有特休折現", async () => {
+    const employmentId = await currentEmploymentId();
+    const monthly = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "先月薪後日薪" });
+    expect(monthly.status, await monthly.clone().text()).toBe(201);
+    const monthlyId = (await monthly.json() as { id: string }).id;
+    const daily = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-10-01", payBasis: "daily", baseAmountMinor: 180_000, note: "轉日薪" });
+    expect(daily.status, await daily.clone().text()).toBe(201);
+
+    const db = createDatabase(d1 as never);
+    await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2026-03-31" });
+    const candidates = await listHrAnnualLeaveSettlementCandidates(db, {
+      asOfDate: "2026-03-31",
+      periodStart: "2026-03-01",
+      employmentIds: [employmentId],
+    });
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        periodStart: "2025-09-01",
+        periodEnd: "2026-03-01",
+        unusedHalfHours: 48,
+        baseAmountMinor: 3_000_000,
+        compensationVersionId: monthlyId,
+        amountMinor: 300_000,
+      }),
+    ]);
+  });
+
   it("已有特休週期時不能直接修改服務年資起算日", async () => {
+    const compensation = await request(`/hr/employments/${await currentEmploymentId()}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "特休測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
     const db = createDatabase(d1 as never);
     await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2026-01-01" });
     const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number; serviceStartOn: string }> };
@@ -228,6 +282,8 @@ describe("週年制特休額度", () => {
   });
 
   it("離職日當天不會再建立新的特休週期", async () => {
+    const compensation = await request(`/hr/employments/${await currentEmploymentId()}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "特休測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
     const db = createDatabase(d1 as never);
     const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
     const employmentId = profile.employments[0]!.id;
@@ -239,6 +295,8 @@ describe("週年制特休額度", () => {
   });
 
   it("封存員工不會出現在特休額度清單，但保留既有額度台帳", async () => {
+    const compensation = await request(`/hr/employments/${await currentEmploymentId()}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "特休測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
     const db = createDatabase(d1 as never);
     const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string; revision: number }> };
     const employmentId = profile.employments[0]!.id;
@@ -285,6 +343,8 @@ describe("週年制特休額度", () => {
     const created = await request("/hr/leave-types", "POST", { name: "特休", leaveKind: "annual", defaultPayRatePpm: 1_000_000 });
     expect(created.status, await created.clone().text()).toBe(201);
     const leaveTypeId = (await created.json() as { id: string }).id;
+    const compensation = await request(`/hr/employments/${await currentEmploymentId()}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "特休測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
     const db = createDatabase(d1 as never);
     await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
 
