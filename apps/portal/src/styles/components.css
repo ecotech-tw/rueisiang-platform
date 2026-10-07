@@ -3887,91 +3887,102 @@
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
 .hr-payroll-records-panel { display: grid; gap: 14px; }
+/* 收合時只剩貼在視窗右緣的直式頁籤：它待在頁面右側的留白裡，不會蓋住表格右下角的「確定發放」。 */
 .hr-payroll-job-progress {
+  --hr-payroll-job-panel-width: min(420px, calc(100vw - 72px));
+  --hr-payroll-job-surface: linear-gradient(135deg, --alpha(var(--color-brand) / 14%), --alpha(var(--color-paper) / 96%) 72%);
   position: fixed;
-  right: 36px;
-  bottom: 96px;
+  top: 60%;
+  right: 0;
   z-index: 24;
-  display: grid;
-  box-sizing: border-box;
-  width: min(420px, calc(100vw - 72px));
-  /* 標題列固定、只有工作清單自己捲：清單再長也收合得到。內距放在兩個子元素上，標題列才能貼齊外框。 */
-  grid-template-rows: auto minmax(0, 1fr);
-  max-height: min(560px, calc(100vh - 120px));
-  overflow: hidden;
-  border: 1px solid --alpha(var(--color-brand-dark) / 22%);
-  border-radius: var(--radius-card);
-  /* state layer 疊在整張卡上：標題列是唯一可點的地方，回饋範圍要跟卡片外框一致，不是內縮的一小塊。 */
-  --hr-payroll-job-state-layer: transparent;
-  background:
-    linear-gradient(var(--hr-payroll-job-state-layer), var(--hr-payroll-job-state-layer)),
-    linear-gradient(135deg, --alpha(var(--color-brand) / 14%), --alpha(var(--color-paper) / 96%) 72%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 72%) inset,
-    0 14px 36px --alpha(var(--color-ink) / 16%),
-    0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-  backdrop-filter: blur(16px) saturate(150%);
-}
-.hr-payroll-job-progress-toggle {
   display: flex;
-  min-height: 40px;
-  box-sizing: content-box;
   align-items: center;
-  gap: 12px;
-  padding: 16px 20px 6px;
-  border: 0;
-  border-radius: calc(var(--radius-card) - 1px);
-  transition-property: padding;
+  /* 外框涵蓋頁籤上下的空白，那一塊不該攔截點擊；只有頁籤與面板自己收得到。 */
+  pointer-events: none;
+  translate: 0 -50%;
+  transition-property: translate;
   transition-duration: 220ms;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+/* 用位移把面板推出視窗而不是收寬度：卡片內容不會在過場中重新排版，陰影也不必靠 overflow 裁。 */
+.hr-payroll-job-progress.is-collapsed { translate: calc(var(--hr-payroll-job-panel-width) - 1px) -50%; }
+/* 頁籤的 hover/active 也列進來：link 按鈕自己的 hover 會把底色、外框與陰影換掉，同一份宣告直接蓋回去，不必再抄一次。 */
+.hr-payroll-job-progress-toggle,
+.hr-payroll-job-progress-toggle:hover:not(:disabled),
+.hr-payroll-job-progress-toggle:active:not(:disabled),
+.hr-payroll-job-list {
+  border: 1px solid --alpha(var(--color-brand-dark) / 22%);
+  border-right: 0;
+  background:
+    linear-gradient(var(--hr-payroll-job-state-layer, transparent), var(--hr-payroll-job-state-layer, transparent)),
+    var(--hr-payroll-job-surface);
+  box-shadow:
+    0 1px 0 --alpha(var(--color-paper) / 72%) inset,
+    0 14px 36px --alpha(var(--color-ink) / 16%);
+  -webkit-backdrop-filter: blur(16px) saturate(150%);
+  backdrop-filter: blur(16px) saturate(150%);
+  color: var(--color-ink);
+  pointer-events: auto;
+  scale: none;
+}
+.hr-payroll-job-progress-toggle {
+  /* 疊在面板上面，並把自己右側的陰影裁掉：否則不是面板的陰影壓暗頁籤的字，就是頁籤的陰影畫到面板上。 */
+  position: relative;
+  z-index: 1;
+  clip-path: inset(-48px 0 -64px -48px);
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  width: 32px;
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  padding: 10px 0 12px;
+  border-radius: 12px 0 0 12px;
   appearance: none;
   -webkit-appearance: none;
-  background: transparent;
-  box-shadow: none;
-  color: var(--color-ink);
   font-size: inherit;
-  text-align: left;
   text-decoration: none;
-  white-space: normal;
 }
-.hr-payroll-job-progress-toggle strong { color: var(--color-ink); font-size: 14px; }
-.hr-payroll-job-progress-toggle > span:nth-child(2) { margin-inline-start: auto; color: var(--color-muted); font-size: 12px; white-space: nowrap; }
-.hr-payroll-job-progress-toggle > span:last-child { display: grid; flex: none; place-items: center; color: var(--color-muted); }
-.hr-payroll-job-progress-toggle:hover:not(:disabled),
-.hr-payroll-job-progress-toggle:active:not(:disabled) { border-color: transparent; background: transparent; box-shadow: none; color: var(--color-brand-dark); }
-/* 觸控裝置點過之後 :hover 會黏住，整張卡會一直停在染色狀態。 */
+.hr-payroll-job-progress-toggle strong { color: var(--color-ink); font-size: 13px; font-weight: 400; letter-spacing: .08em; writing-mode: vertical-rl; }
+.hr-payroll-job-progress-count { display: grid; min-width: 20px; height: 20px; box-sizing: border-box; padding: 0 4px; place-items: center; border-radius: 999px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 500; }
+.hr-payroll-job-progress.has-failed .hr-payroll-job-progress-count { background: var(--color-brand-dark); color: var(--color-paper); }
+/* 觸控裝置點過之後 :hover 會黏住，頁籤會一直停在染色狀態。 */
 @media (hover: hover) {
-  .hr-payroll-job-progress:has(.hr-payroll-job-progress-toggle:hover) { --hr-payroll-job-state-layer: --alpha(var(--color-brand) / 4%); }
+  .hr-payroll-job-progress-toggle:hover { --hr-payroll-job-state-layer: --alpha(var(--color-brand) / 4%); }
 }
-.hr-payroll-job-progress:has(.hr-payroll-job-progress-toggle:active) { --hr-payroll-job-state-layer: --alpha(var(--color-brand) / 7%); }
-/* 按鈕貼齊卡片邊緣，外框往內畫才不會被卡片的 overflow 裁掉。 */
+.hr-payroll-job-progress-toggle:active { --hr-payroll-job-state-layer: --alpha(var(--color-brand) / 7%); }
+/* 頁籤貼齊視窗右緣，外框往內畫才不會有一邊跑到畫面外。 */
 .hr-payroll-job-progress-toggle:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -4px; }
-.hr-payroll-job-progress-toggle:active:not(:disabled) { scale: none; }
 .hr-payroll-job-progress-chevron { position: relative; display: grid; flex: none; width: 20px; height: 20px; place-items: center; color: var(--color-muted); }
 .hr-payroll-job-progress-chevron svg { position: absolute; inset: 0; width: 20px; height: 20px; opacity: 0; scale: .25; filter: blur(4px); transition-property: opacity, scale, filter; transition-duration: 220ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }
 /* 要帶上父層 class：單一 class 贏不過上面 `.…-chevron svg` 的預設隱藏，收合時箭頭會整個消失。 */
-.hr-payroll-job-progress-chevron .hr-payroll-job-progress-chevron-down { opacity: 1; scale: 1; filter: blur(0); }
-.hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-down { opacity: 0; scale: .25; filter: blur(4px); }
-.hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-up { opacity: 1; scale: 1; filter: blur(0); }
-.hr-payroll-job-progress.is-collapsed .hr-payroll-job-progress-toggle { padding: 6px 20px; }
+.hr-payroll-job-progress-chevron .hr-payroll-job-progress-chevron-open { opacity: 1; scale: 1; filter: blur(0); }
+.hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-open { opacity: 0; scale: .25; filter: blur(4px); }
+.hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-close { opacity: 1; scale: 1; filter: blur(0); }
 .hr-payroll-job-list {
   display: grid;
-  grid-template-rows: minmax(0, 1fr);
-  min-height: 0;
-  overflow: hidden;
-  opacity: 1;
-  translate: 0 0;
-  transition-property: grid-template-rows, opacity, translate;
-  transition-duration: 220ms;
-  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  flex: none;
+  align-content: start;
+  gap: 8px;
+  box-sizing: border-box;
+  width: var(--hr-payroll-job-panel-width);
+  /* 面板以 60% 為中心，往下只剩 40% 的視窗高：上限照這一半算，底部才不會跑出畫面。 */
+  max-height: min(560px, calc(80vh - 48px));
+  /* 往左退一格疊住頁籤的右緣，兩塊才會連成一片而不是中間夾一條線。 */
+  margin-left: -1px;
+  overflow: hidden auto;
+  overscroll-behavior: contain;
+  padding: 16px;
+  border-radius: var(--radius-card) 0 0 var(--radius-card);
+  transition-property: visibility;
+  transition-duration: 0s;
 }
-/* 兩端都要寫成 minmax()：跟展開時的 minmax(0, 1fr) 形式不同的話瀏覽器不會內插，高度會直接跳。 */
-.hr-payroll-job-list.is-collapsed { grid-template-rows: minmax(0, 0fr); opacity: 0; translate: 0 -4px; pointer-events: none; }
-.hr-payroll-job-list-inner { display: grid; align-content: start; min-height: 0; gap: 8px; overflow: hidden auto; overscroll-behavior: contain; padding: 0 20px; }
-/* 上下留白掛在卡片上而不是清單的 padding：padding 不會跟著 0fr 收掉，收合後面板會多出一截空白。 */
-.hr-payroll-job-list-inner > :first-child { margin-top: 6px; }
-.hr-payroll-job-list-inner > :last-child { margin-bottom: 16px; }
+/* 收合只是把面板移到視窗外，36px 的陰影還是會滲回右緣；等它滑出去再整個藏掉。 */
+.hr-payroll-job-progress.is-collapsed .hr-payroll-job-list { visibility: hidden; transition-delay: 220ms; }
 .hr-payroll-job-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--color-soft-line); border-radius: 12px; background: var(--color-canvas); }
 .hr-payroll-job-card-head,
 .hr-payroll-job-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
@@ -3980,7 +3991,6 @@
 .hr-payroll-job-card-head small { color: var(--color-muted); font-size: 12px; }
 .hr-payroll-job-bar { height: 7px; overflow: hidden; border-radius: 999px; background: --alpha(var(--color-ink) / 10%); }
 .hr-payroll-job-bar span { display: block; height: 100%; min-width: 0; border-radius: inherit; background: var(--color-brand); transition-property: width, background-color; transition-duration: 220ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }
-.hr-payroll-job-ready .hr-payroll-job-bar span { background: var(--color-ok); }
 .hr-payroll-job-failed .hr-payroll-job-bar span { background: var(--color-brand-dark); }
 .hr-payroll-job-bar.is-indeterminate span { width: 32%; opacity: .7; }
 .hr-payroll-job-card-foot { align-items: flex-start; color: var(--color-muted); font-size: 12px; }
@@ -4287,12 +4297,8 @@
 .hr-payroll-payslip-totals > div:last-child dd { color: var(--color-brand-dark); font-weight: 700; }
 
 @media (max-width: 900px) {
-  .hr-payroll-job-progress {
-    right: 24px;
-    bottom: 88px;
-    width: min(420px, calc(100vw - 48px));
-    max-height: calc(100vh - 104px);
-  }
+  /* 這個寬度以下頁面右側的留白只剩 24px，頁籤跟著縮才不會壓到表格的捲軸。 */
+  .hr-payroll-job-progress-toggle { width: 24px; }
 }
 
 @media (max-width: 760px) {
@@ -4343,7 +4349,6 @@
   .hr-payroll-disclosure-marker svg,
   .hr-payroll-job-list,
   .hr-payroll-job-progress,
-  .hr-payroll-job-progress-toggle,
   .hr-payroll-job-progress-chevron svg,
   .hr-payroll-job-bar span,
   .hr-payroll-employee > summary,

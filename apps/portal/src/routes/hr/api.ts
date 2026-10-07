@@ -132,7 +132,7 @@ export interface ClockCalendar {
   days: ClockCalendarDay[];
   missingDates: string[];
 }
-export type FormRequestStatus = "draft" | "pending" | "approved" | "rejected";
+export type FormRequestStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled";
 export interface FormRequest {
   id: string;
   employeeUserId: string;
