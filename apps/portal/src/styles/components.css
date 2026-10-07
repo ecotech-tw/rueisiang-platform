@@ -3967,7 +3967,10 @@
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
 .hr-payroll-job-list.is-collapsed { grid-template-rows: 0fr; opacity: 0; translate: 0 -4px; pointer-events: none; }
-.hr-payroll-job-list-inner { display: grid; align-content: start; min-height: 0; gap: 8px; overflow: hidden auto; overscroll-behavior: contain; padding: 6px 20px 16px; }
+.hr-payroll-job-list-inner { display: grid; align-content: start; min-height: 0; gap: 8px; overflow: hidden auto; overscroll-behavior: contain; padding: 0 20px; }
+/* 上下留白掛在卡片上而不是清單的 padding：padding 不會跟著 0fr 收掉，收合後面板會多出一截空白。 */
+.hr-payroll-job-list-inner > :first-child { margin-top: 6px; }
+.hr-payroll-job-list-inner > :last-child { margin-bottom: 16px; }
 .hr-payroll-job-card { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--color-soft-line); border-radius: 12px; background: var(--color-canvas); }
 .hr-payroll-job-card-head,
 .hr-payroll-job-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
