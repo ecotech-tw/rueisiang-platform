@@ -413,12 +413,21 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
     .orderBy(...hrEmployeeNumberOrder(), asc(employeeName), asc(hrAnnualLeaveEntitlements.periodStart));
   if (!rows.length) return [];
 
-  const balances = await db.select({
-    entitlementId: hrAnnualLeaveLedger.entitlementId,
-    balanceHalfHours: sql<number>`coalesce(sum(${hrAnnualLeaveLedger.deltaHalfHours}), 0)`,
-  }).from(hrAnnualLeaveLedger).where(inJsonArray(hrAnnualLeaveLedger.entitlementId, rows.map((row) => row.entitlementId)))
-    .groupBy(hrAnnualLeaveLedger.entitlementId);
+  const entitlementIds = rows.map((row) => row.entitlementId);
+  const [balances, settlementCounts] = await Promise.all([
+    db.select({
+      entitlementId: hrAnnualLeaveLedger.entitlementId,
+      balanceHalfHours: sql<number>`coalesce(sum(${hrAnnualLeaveLedger.deltaHalfHours}), 0)`,
+    }).from(hrAnnualLeaveLedger).where(inJsonArray(hrAnnualLeaveLedger.entitlementId, entitlementIds))
+      .groupBy(hrAnnualLeaveLedger.entitlementId),
+    db.select({
+      entitlementId: hrAnnualLeaveLedger.entitlementId,
+      settlementCount: sql<number>`sum(CASE WHEN ${hrAnnualLeaveLedger.entryKind} = 'settlement' THEN 1 ELSE 0 END)`,
+    }).from(hrAnnualLeaveLedger).where(inJsonArray(hrAnnualLeaveLedger.entitlementId, entitlementIds))
+      .groupBy(hrAnnualLeaveLedger.entitlementId),
+  ]);
   const balanceById = new Map(balances.map((row) => [row.entitlementId, Number(row.balanceHalfHours ?? 0)]));
+  const settlementCountById = new Map(settlementCounts.map((row) => [row.entitlementId, Number(row.settlementCount ?? 0)]));
 
   return Promise.all(rows.map(async (row): Promise<HrAnnualLeaveSettlementCandidate> => {
     const unusedHalfHours = balanceById.get(row.entitlementId) ?? 0;
@@ -442,7 +451,9 @@ export async function listHrAnnualLeaveSettlementCandidates(db: Database, option
       baseAmountMinor: compensation?.baseAmountMinor ?? null,
       compensationVersionId: compensation?.id ?? null,
       amountMinor,
-      sourceKey: `annual-settlement:${row.entitlementId}`,
+      sourceKey: settlementCountById.get(row.entitlementId)
+        ? `annual-settlement:${row.entitlementId}:${(settlementCountById.get(row.entitlementId) ?? 0) + 1}`
+        : `annual-settlement:${row.entitlementId}`,
     };
   }));
 }
@@ -468,6 +479,34 @@ export function buildHrAnnualLeaveSettlementMutations(candidates: readonly HrAnn
     statements.push(sql`UPDATE hr_annual_leave_entitlements
       SET status='settled', settled_at=CURRENT_TIMESTAMP
       WHERE id=${candidate.entitlementId} AND status='open' AND settled_at IS NULL ${balanceGuard}
+      RETURNING id`);
+  }
+  return statements;
+}
+
+/**
+ * 撤回已確定發放的批次時，特休折現不能留在台帳裡，否則重新試算會看不到同一筆未休額度。
+ * 原 settlement 永遠保留，另外 append 一筆正向 settlement_reversal，再把 entitlement 開回可結算狀態。
+ */
+export function buildHrAnnualLeaveSettlementReversalMutations(sourceKeys: readonly string[], payrollRunId: string, actor: HrActor): SQL[] {
+  const statements: SQL[] = [];
+  for (const sourceKey of sourceKeys) {
+    const reversalSourceKey = `annual-settlement-reversal:${payrollRunId}:${sourceKey}`;
+    statements.push(sql`INSERT INTO hr_annual_leave_ledger
+      (id, entitlement_id, entry_kind, delta_half_hours, source_key, leave_request_id, note, created_by)
+      SELECT ${crypto.randomUUID()}, settlement.entitlement_id, 'settlement_reversal', -settlement.delta_half_hours, ${reversalSourceKey}, NULL,
+        ${`薪資批次撤回（${payrollRunId}）恢復未休特休折現額度`}, ${actor.id}
+      FROM hr_annual_leave_ledger AS settlement
+      INNER JOIN hr_annual_leave_entitlements AS entitlement ON entitlement.id=settlement.entitlement_id
+      WHERE settlement.source_key=${sourceKey} AND settlement.entry_kind='settlement'
+        AND entitlement.status='settled' AND entitlement.settled_at IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM hr_annual_leave_ledger WHERE source_key=${reversalSourceKey})
+      RETURNING id`);
+    statements.push(sql`UPDATE hr_annual_leave_entitlements
+      SET status='open', settled_at=NULL
+      WHERE id=(SELECT entitlement_id FROM hr_annual_leave_ledger WHERE source_key=${sourceKey})
+        AND status='settled' AND settled_at IS NOT NULL
+        AND EXISTS (SELECT 1 FROM hr_annual_leave_ledger WHERE source_key=${reversalSourceKey})
       RETURNING id`);
   }
   return statements;

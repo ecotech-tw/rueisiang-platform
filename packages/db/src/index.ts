@@ -25,7 +25,7 @@ export { cancelHrOvertimeRequest, createHrOvertimeRequest, listHrOvertimeRequest
 export { HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage, type HrRequestCenterKind, type HrRequestCenterListQuery, type HrRequestCenterPage, type HrRequestCenterRow, type HrRequestCenterStatus } from "./hr-request-center.js";
 export { calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest, type HrLeaveCancellationOptions, type HrLeaveDurationInput, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput } from "./hr-leave.js";
 export {
-  addCalendarMonths, allocateHrAnnualLeave, buildHrAnnualLeaveSettlementMutations, createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements,
+  addCalendarMonths, allocateHrAnnualLeave, buildHrAnnualLeaveSettlementMutations, buildHrAnnualLeaveSettlementReversalMutations, createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements,
   getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates,
   ANNUAL_LEAVE_HALF_HOUR_MINUTES, ANNUAL_LEAVE_POLICY_KEY,
   type HrAnnualLeaveAdjustmentInput, type HrAnnualLeaveAllocation, type HrAnnualLeaveAllocationInput, type HrAnnualLeaveBackfillOptions, type HrAnnualLeaveSettlementCandidate,
@@ -40,7 +40,7 @@ export {
   type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceContributionComponent, type HrInsuranceContributionComponentEstimate, type HrInsuranceContributionEstimate, type HrInsuranceContributionInput, type HrInsuranceContributionRuleRecord, type HrInsuranceEmployeeAmountPart, type HrInsuranceEstimateVersionInput, type HrInsuranceInput, type HrInsuranceRateTableRecord, type HrInsuranceRateTableSourceKind, type HrInsuranceRateTableUpdateInput, type HrManualInsuranceRateTableInput, type HrInsuranceScheme,
 } from "./hr-payroll.js";
 export {
-  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollRecordDetail, listHrPayrollEmployeeHistory, listHrPayrollRecordItems, listHrPayrollRecordReferences, listHrPayrollRecords, updateHrBonusPolicy, voidHrBonusPolicyVersion,
+  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollRecordDetail, listHrPayrollEmployeeHistory, listHrPayrollRecordItems, listHrPayrollRecordReferences, listHrPayrollRecords, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
   getHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_CALCULATION_INPUT_JSON_MAX_LENGTH, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   type AssignHrBonusPolicyInput, type CreateHrBonusPolicyInput, type HrBonusKind, type HrBonusPerformancePeriod, type HrPayrollCalculationInput, type HrPayrollCalculationOptions, type HrPayrollEmployeeResult, type HrPayrollProgress, type UpdateHrBonusPolicyInput,
   type HrPayrollEmployeeHistory, type HrPayrollRecordCounts, type HrPayrollRecordDetail, type HrPayrollRecordItemView, type HrPayrollRecordListQuery, type HrPayrollRecordPayBasis, type HrPayrollRecordPersonKind, type HrPayrollRecordReference, type HrPayrollRecordStatus, type HrPayrollRecord, type HrPayrollRunResult,
