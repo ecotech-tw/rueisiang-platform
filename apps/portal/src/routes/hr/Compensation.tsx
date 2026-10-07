@@ -197,7 +197,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
         if (seenNames.has(name)) { setMessage(`「${name}」重複了，請合併成一列或改成不同名稱。`); return; }
         seenNames.add(name);
       }
-      if (overtimeHourly.trim() && draftAmountMinor(overtimeHourly) === null) { setMessage("加班固定時薪請填非負整數的金額（元），不適用就留空。"); return; }
+      if (overtimeHourly.trim() && !draftAmountMinor(overtimeHourly)) { setMessage("加班固定時薪請填大於 0 的整數金額（元）；不適用就留空，不要填 0。"); return; }
       setMessage(null);
       save.mutate({ path: `/employments/${employment.id}/compensation`, method: "POST", values: {
         validFrom, validTo: validTo || null, payBasis, baseAmountMinor: draftAmountMinor(baseAmount), note,
@@ -264,7 +264,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       </div>
     </div>
 
-    <TextField label="加班固定時薪（元／小時，可留空）" type="number" min="0" step="1" value={overtimeHourly} hint="留空就照制度倍率從薪資換算；有填的話，加班每小時固定給這個金額。特殊上班日設了加班級距的那一天，仍以級距為準。" onChange={(event) => setOvertimeHourly(event.target.value)} />
+    <TextField label="加班固定時薪（元／小時，可留空）" type="number" min="1" step="1" value={overtimeHourly} hint="留空就照制度倍率從薪資換算；有填的話，加班每小時固定給這個金額。特殊上班日的加班級距有涵蓋到的時數以級距為準，沒涵蓋到的時數才用這個金額。" onChange={(event) => setOvertimeHourly(event.target.value)} />
     <TextField label="備註" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
     {message || save.error || voidCompensation.error || profile.error ? <Alert tone="danger">{message || save.error?.message || voidCompensation.error?.message || profile.error?.message}</Alert> : null}
     </Dialog>
@@ -324,7 +324,7 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Emp
     <td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td>{current ? PAY_BASIS_LABEL[current.payBasis] : allVoided ? "已全部撤回" : "尚未設定"}</td>
-    <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}</td>
+    <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}{current?.overtimeHourlyMinor != null ? <><br /><span className="muted">加班固定 {money(current.overtimeHourlyMinor)}／時</span></> : null}</td>
     <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : allVoided ? "已全部撤回" : "—"}</td>
     <td>{canWrite && employment ? latest
       ? <Button variant="icon" icon="edit" className="compensation-action-update" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />

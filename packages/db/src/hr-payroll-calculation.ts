@@ -1528,6 +1528,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const overtimeCalculationParts: PayrollCalculationPart[] = [];
     const overtimeElapsedByDate = new Map<string, number>();
     const specialWorkdayRuleSnapshots = new Map<string, { workDate: string; ruleVersionId: string; overtimeRules: Array<{ fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null }> }>();
+    const fixedOvertimeSnapshots = new Map<string, { compensationVersionId: string; overtimeHourlyMinor: number }>();
     for (const row of employeeOvertime) {
       const start = row.actualStart ?? row.requestedStart;
       const end = row.actualEnd ?? row.requestedEnd;
@@ -1548,34 +1549,34 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         overtimeElapsedByDate.set(segment.date, elapsedSeconds + segment.seconds);
         for (const chunk of chunks) {
           const compensation = covering(employeeCompensations, segment.date) ?? fullMonthComp;
-          const hourly = compensation?.payBasis === "monthly"
-            ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
-            : compensation?.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation?.baseAmountMinor ?? 0;
-          const itemHourly = compensation ? compensationItems.filter((item) => item.compensationVersionId === compensation.id && item.includeOvertime).reduce((sum, item) => sum + (item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays / standardDailyHours) : item.amountBasis === "daily" ? Math.floor(item.amountMinor / standardDailyHours) : item.amountMinor), 0) : 0;
-          const ratePpm = chunk.rule?.rateKind === "multiplier" ? chunk.rule.multiplierPpm! : row.ratePpm;
-          // 特殊日的級距是針對那一天另外談的條件，比個人平時約定的固定時薪更具體，所以有級距時以級距為準。
+          // 特殊日的級距是針對那一天另外談的條件，比個人平時約定的固定時薪更具體，所以級距涵蓋到的時數以級距為準。
           const personalFixedMinor = chunk.rule ? null : compensation?.overtimeHourlyMinor ?? null;
-          const overtimeAmount = chunk.rule?.rateKind === "fixed_hourly"
-            ? Math.floor(chunk.rule.fixedAmountMinor! * chunk.seconds / 3600)
-            : personalFixedMinor !== null
-              ? Math.floor(personalFixedMinor * chunk.seconds / 3600)
-              : Math.floor((hourly + itemHourly) * chunk.seconds / 3600 * ratePpm / PPM);
+          const fixedHourlyMinor = chunk.rule?.rateKind === "fixed_hourly" ? chunk.rule.fixedAmountMinor! : personalFixedMinor;
+          let overtimeAmount: number;
+          let formula: string;
+          if (fixedHourlyMinor !== null) {
+            overtimeAmount = Math.floor(fixedHourlyMinor * chunk.seconds / 3600);
+            formula = `${segment.date}：${chunk.rule ? "特殊日固定時薪" : "約定加班固定時薪"} ${payrollFormulaMoney(fixedHourlyMinor)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`;
+            if (!chunk.rule && compensation) fixedOvertimeSnapshots.set(compensation.id, { compensationVersionId: compensation.id, overtimeHourlyMinor: fixedHourlyMinor });
+          } else {
+            const hourly = compensation?.payBasis === "monthly"
+              ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
+              : compensation?.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation?.baseAmountMinor ?? 0;
+            const itemHourly = compensation ? compensationItems.filter((item) => item.compensationVersionId === compensation.id && item.includeOvertime).reduce((sum, item) => sum + (item.amountBasis === "monthly" ? Math.floor(item.amountMinor / monthlyDivisorDays / standardDailyHours) : item.amountBasis === "daily" ? Math.floor(item.amountMinor / standardDailyHours) : item.amountMinor), 0) : 0;
+            const ratePpm = chunk.rule?.rateKind === "multiplier" ? chunk.rule.multiplierPpm! : row.ratePpm;
+            overtimeAmount = Math.floor((hourly + itemHourly) * chunk.seconds / 3600 * ratePpm / PPM);
+            formula = `${segment.date}：floor((${payrollFormulaMoney(hourly)}${itemHourly ? ` + ${payrollFormulaMoney(itemHourly)}` : ""}) × ${payrollFormulaHours(chunk.seconds / 3600)} 小時 × ${payrollFormulaPercent(ratePpm)})`;
+          }
           overtimeMinor += overtimeAmount;
           overtimeSeconds += chunk.seconds;
-          if (overtimeAmount > 0) overtimeCalculationParts.push({
-            formula: chunk.rule?.rateKind === "fixed_hourly"
-              ? `${segment.date}：特殊日固定時薪 ${payrollFormulaMoney(chunk.rule.fixedAmountMinor!)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`
-              : personalFixedMinor !== null
-                ? `${segment.date}：約定加班固定時薪 ${payrollFormulaMoney(personalFixedMinor)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`
-              : `${segment.date}：floor((${payrollFormulaMoney(hourly)}${itemHourly ? ` + ${payrollFormulaMoney(itemHourly)}` : ""}) × ${payrollFormulaHours(chunk.seconds / 3600)} 小時 × ${payrollFormulaPercent(ratePpm)})`,
-            amountMinor: overtimeAmount,
-          });
+          if (overtimeAmount > 0) overtimeCalculationParts.push({ formula, amountMinor: overtimeAmount });
         }
       }
     }
     if (overtimeSeconds > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, quantitySeconds: overtimeSeconds, explanation: {
       approvedRequests: employeeOvertime.length, monthlyDivisorDays, standardDailyHours,
       specialWorkdayRuleSnapshots: [...specialWorkdayRuleSnapshots.values()],
+      fixedOvertimeSnapshots: [...fixedOvertimeSnapshots.values()],
       calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
     } });
 

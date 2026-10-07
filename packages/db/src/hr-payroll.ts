@@ -159,7 +159,11 @@ export interface HrCompensationInput {
 function validateCompensationInput(input: HrCompensationInput) {
   if (!isDateOnly(input.validFrom) || (input.validTo !== null && (!isDateOnly(input.validTo) || input.validTo <= input.validFrom))) throw new HrError(400, "敘薪生效／迄日不正確。 ");
   if (!Number.isSafeInteger(input.baseAmountMinor) || input.baseAmountMinor < 0 || input.note.length > 1000) throw new HrError(400, "敘薪資料不正確。 ");
-  if (input.overtimeHourlyMinor !== undefined && input.overtimeHourlyMinor !== null && (!Number.isSafeInteger(input.overtimeHourlyMinor) || input.overtimeHourlyMinor < 0)) throw new HrError(400, "加班固定時薪不正確。 ");
+  /*
+   * 0 不是「不適用」而是「加班每小時給 0 元」，而且薪資明細只列金額大於 0 的算式，事後看不出原因；
+   * 不適用一律用 null 表達。限整數元是因為敘薪畫面只能輸入整數元，帶角分的值會讓下一次更新存不了。
+   */
+  if (input.overtimeHourlyMinor !== undefined && input.overtimeHourlyMinor !== null && (!Number.isSafeInteger(input.overtimeHourlyMinor) || input.overtimeHourlyMinor <= 0 || input.overtimeHourlyMinor % 100 !== 0)) throw new HrError(400, "加班固定時薪必須是大於 0 的整數元；不適用請留空。 ");
   if (input.items && (input.items.length > 50 || input.items.some((item) => !item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor) || item.amountMinor < 0 || (item.itemKind !== "fixed" && item.itemKind !== "variable") || !["monthly", "daily", "hourly"].includes(item.amountBasis) || typeof item.includeOvertime !== "boolean" || typeof item.includeInsurance !== "boolean" || typeof item.includeTax !== "boolean"))) throw new HrError(400, "薪資項目不正確。 ");
   if (input.items) {
     const itemNames = input.items.map((item) => item.itemName.trim());
