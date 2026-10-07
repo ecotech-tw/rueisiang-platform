@@ -25,9 +25,9 @@
 | icon registry | `packages/ui/src/icons.tsx` | 兩個 app 的 `shell/icons.tsx` 只 re-export；portal 原有 icon 名稱全部保留 |
 | HRIS composite | `SegmentedControl`、`FilterToolbar`、`EmptyState`、`DataTable` | HR route 直接從 app 的 `ui/index.ts` 組合，實作仍只有一份 |
 | token | `packages/ui/theme.css` | 兩個 app 的 styles 入口只 import 這份；shell／domain CSS 仍保留 app-specific layer |
-| primitive CSS | `packages/ui/components.css` | table、status、alert、empty、dialog、panel、field、button、filter、pager、tooltip 的 base styles 只維護一份；shell／domain modifier 留在 app |
+| primitive CSS | `packages/ui/components.css` | table、status、alert、empty、dialog、panel、field、button、filter、pager、sortable header、tooltip 的 base styles 只維護一份；shell／domain modifier 留在 app |
 
-已抽出的 primitive 包含 `Button`、`Dialog`、`ConfirmDialog`、`DropdownSelect`、`FilterInput`、`FilterSelect`、`SearchFilterInput`、`Pager`、`Alert`、`StatusBadge`、`Field`、`TextField`、`SelectField`、`Panel`、`PageHeader`、`Tooltip`。`Dialog` 預設 portal 到 `body`；需要保留在沉浸式全頁容器內的例外，明確使用 `portal={false}`（目前打卡確認框）。
+已抽出的 primitive 包含 `Button`、`Dialog`、`ConfirmDialog`、`DropdownSelect`、`FilterInput`、`FilterSelect`、`SearchFilterInput`、`Pager`、`SortableHeader`、`Alert`、`StatusBadge`、`Field`、`TextField`、`SelectField`、`Panel`、`PageHeader`、`Tooltip`。`Dialog` 預設 portal 到 `body`；需要保留在沉浸式全頁容器內的例外，明確使用 `portal={false}`（目前打卡確認框）。
 
 上述已抽出的 app `ui/*.tsx` 檔案是刻意保留的相容性入口，**不要在那裡重新加入實作**。新增共用 primitive 應先放 `packages/ui`，再由兩個 app re-export。
 
@@ -57,6 +57,7 @@
 | 單選、多選、搜尋選單 | `packages/ui` 的 `DropdownSelect` 或 `SelectField` |
 | 搜尋與篩選 toolbar | `FilterToolbar` 搭配 `FilterInput`、`FilterSelect`、`SearchFilterInput` |
 | 分頁導覽與每頁筆數 | `Pager`；頁碼、筆數與 query state 仍由 route 管理 |
+| 表格排序 | `SortableHeader`；排序欄位、方向與 query state 仍由 route 管理 |
 | 欄位 label、必填、hint、error | `Field`、`TextField`、`SelectField` |
 | 成功／資訊／警告／錯誤 | `StatusBadge` 或 `Alert`；狀態 badge 不用裸 `.status` |
 | 頁面標題、卡片 surface | `PageHeader`、`Panel`；不要在 `Panel` 裡重複手寫 `.panel-head`，能用 props 就用 props |

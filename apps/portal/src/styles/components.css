@@ -3026,27 +3026,6 @@
   .toast { max-width: none; }
 }
 
-/*
- * 可排序的表頭。整格可點，箭頭跟著文字走。
- * 沒在排序的欄位箭頭是透明的——每一欄都掛一個灰箭頭的話，「現在照哪一欄排」
- * 反而看不出來；hover 時才淡淡浮出來當提示。
- */
-.sort-header {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-}
-.sort-header svg { width: 16px; height: 16px; opacity: 0; transition-property: opacity; transition-duration: 120ms; transition-timing-function: ease-out; }
-.sort-header:hover svg { opacity: .35; }
-.sort-header.active { color: var(--color-brand-dark); }
-.sort-header.active svg { opacity: 1; color: var(--color-brand); }
-.sort-header:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; border-radius: 4px; }
-
 /* HR 員工列表整列是導覽入口；操作欄的按鈕會攔截列點擊，避免管理與查看互相誤觸。 */
 .data-table tr.clickable-row { cursor: pointer; }
 .data-table tr.clickable-row:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
