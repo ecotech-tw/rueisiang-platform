@@ -433,6 +433,41 @@ describe("HR 薪資與勞健保", () => {
     expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: createdBody.id, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] })).status).toBe(409);
   });
 
+  it("已套用的特殊上班日可以調整人員、日期與補貼數量", async () => {
+    await assign();
+    await assignUser("admin", "E-ADMIN");
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const adminProfile = await (await request("/hr/employees/admin")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const adminEmploymentId = adminProfile.employments[0]!.id;
+    const created = await request("/hr/special-workdays/rules", "POST", { name: "可調整特殊日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [], allowances: [{ itemName: "餐費", unitAmountMinor: 10000 }] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id: ruleId } = await created.json() as { id: string };
+    const replacement = await request("/hr/special-workdays/rules", "POST", { name: "可調整另一規則", validFrom: "2026-01-01", wageKind: "multiplier", multiplierPpm: 1_500_000, overtimeRules: [], allowances: [{ itemName: "餐費", unitAmountMinor: 12000 }] });
+    expect(replacement.status, await replacement.clone().text()).toBe(201);
+    const { id: replacementRuleId } = await replacement.json() as { id: string };
+    const listedRules = await (await request("/hr/special-workdays/rules")).json() as { rules: Array<{ rule: { id: string }; versions: Array<{ allowances: Array<{ id: string }> }> }> };
+    const allowanceId = listedRules.rules.find((item) => item.rule.id === ruleId)!.versions[0]!.allowances[0]!.id;
+    const replacementAllowanceId = listedRules.rules.find((item) => item.rule.id === replacementRuleId)!.versions[0]!.allowances[0]!.id;
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId, workDate: "2026-04-01", allowanceQuantities: [{ allowanceId, quantity: 1 }] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+    const before = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string } }> };
+    const assignmentId = before.assignments[0]!.assignment.id;
+
+    const updated = await request(`/hr/special-workdays/assignments/${assignmentId}`, "PATCH", { ruleId: replacementRuleId, employmentId: adminEmploymentId, workDate: "2026-04-02", allowanceQuantities: [{ allowanceId: replacementAllowanceId, quantity: 3 }] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect(await updated.json()).toMatchObject({ id: assignmentId, ruleId: replacementRuleId });
+    const after = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string; ruleId: string; employmentId: string | null; workDate: string; allowanceSnapshotJson: string } }> };
+    expect(after.assignments).toEqual([expect.objectContaining({ assignment: expect.objectContaining({ id: assignmentId, ruleId: replacementRuleId, employmentId: adminEmploymentId, workDate: "2026-04-02", allowanceSnapshotJson: JSON.stringify([{ itemName: "餐費", unitAmountMinor: 12000, quantity: 3 }]) }) })]);
+
+    const second = await request("/hr/special-workdays/assignments", "POST", { ruleId, assignments: [{ employmentId, workDate: "2026-04-03", allowanceQuantities: [{ allowanceId, quantity: 0 }] }] });
+    expect(second.status, await second.clone().text()).toBe(201);
+    const secondRows = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string; employmentId: string | null } }> };
+    const secondId = secondRows.assignments.find((item) => item.assignment.employmentId === employmentId)!.assignment.id;
+    const duplicate = await request(`/hr/special-workdays/assignments/${secondId}`, "PATCH", { ruleId: replacementRuleId, employmentId: adminEmploymentId, workDate: "2026-04-02", allowanceQuantities: [{ allowanceId: replacementAllowanceId, quantity: 0 }] });
+    expect(duplicate.status, await duplicate.clone().text()).toBe(409);
+  });
+
   it("特殊上班日可以一次套用超過一百人，不會超過 D1 的綁定參數上限", async () => {
     const created = await request("/hr/special-workdays/rules", "POST", { name: "大批套用", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [], allowances: [] });
     expect(created.status, await created.clone().text()).toBe(201);

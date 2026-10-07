@@ -11,7 +11,7 @@ import {
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis,
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
-  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
+  assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
   cancelHrOvertimeRequest, createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
   calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
@@ -332,24 +332,25 @@ function specialAllowanceQuantities(input: Record<string, unknown>, assignmentIn
     return { allowanceId: text(item, "allowanceId", "補貼項目", 200), quantity: integerValue(item, "quantity", "補貼數量", 0, Number.MAX_SAFE_INTEGER) };
   });
 }
+function specialAssignment(raw: unknown, index: number) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆套用資料不正確。` });
+  const item = raw as Record<string, unknown>;
+  const targetCount = [item.employmentId, item.workerId].filter((value) => typeof value === "string" && value.length > 0).length;
+  if (targetCount !== 1) throw new HTTPException(400, { message: `第 ${index + 1} 筆必須指定一位員工或支援人員。` });
+  const allowanceQuantities = specialAllowanceQuantities(item, index);
+  const hasLegacyQuantity = item.allowanceQuantity !== undefined;
+  if (allowanceQuantities === undefined && !hasLegacyQuantity || allowanceQuantities !== undefined && hasLegacyQuantity) throw new HTTPException(400, { message: `第 ${index + 1} 筆請提供各補貼數量，或使用舊版的共用補貼數量，不能同時提供。` });
+  return {
+    employmentId: typeof item.employmentId === "string" && item.employmentId.length > 0 ? item.employmentId : undefined,
+    workerId: typeof item.workerId === "string" && item.workerId.length > 0 ? item.workerId : undefined,
+    workDate: date(item, "workDate")!,
+    allowanceQuantities,
+    allowanceQuantity: hasLegacyQuantity ? integerValue(item, "allowanceQuantity", "補貼數量", 0, Number.MAX_SAFE_INTEGER) : undefined,
+  };
+}
 function specialAssignments(input: Record<string, unknown>) {
   if (!Array.isArray(input.assignments) || !input.assignments.length || input.assignments.length > 1000) throw new HTTPException(400, { message: "特殊上班日套用清單格式不正確。" });
-  return input.assignments.map((raw, index) => {
-    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new HTTPException(400, { message: `第 ${index + 1} 筆套用資料不正確。` });
-    const item = raw as Record<string, unknown>;
-    const targetCount = [item.employmentId, item.workerId].filter((value) => typeof value === "string" && value.length > 0).length;
-    if (targetCount !== 1) throw new HTTPException(400, { message: `第 ${index + 1} 筆必須指定一位員工或支援人員。` });
-    const allowanceQuantities = specialAllowanceQuantities(item, index);
-    const hasLegacyQuantity = item.allowanceQuantity !== undefined;
-    if (allowanceQuantities === undefined && !hasLegacyQuantity || allowanceQuantities !== undefined && hasLegacyQuantity) throw new HTTPException(400, { message: `第 ${index + 1} 筆請提供各補貼數量，或使用舊版的共用補貼數量，不能同時提供。` });
-    return {
-      employmentId: typeof item.employmentId === "string" ? item.employmentId : undefined,
-      workerId: typeof item.workerId === "string" ? item.workerId : undefined,
-      workDate: date(item, "workDate")!,
-      allowanceQuantities,
-      allowanceQuantity: hasLegacyQuantity ? integerValue(item, "allowanceQuantity", "補貼數量", 0, Number.MAX_SAFE_INTEGER) : undefined,
-    };
-  });
+  return input.assignments.map((raw, index) => specialAssignment(raw, index));
 }
 function dateTimeValue(input: Record<string, unknown>, key: string, label: string) {
   const value = text(input, key, label, 19);
@@ -776,6 +777,7 @@ export const hr = new Hono<AppEnv>()
   .post("/special-workdays/rules/:id/status", requirePermission("hr:office:write"), async (c) => { const input = await body(c); return c.json(await setHrSpecialWorkdayRuleActive(c.get("db"), c.req.param("id"), booleanValue(input, "active", "啟用狀態"), c.get("user"))); })
   .get("/special-workdays/assignments", requirePermission("hr:office:read"), async (c) => { const start = c.req.query("start"); const end = c.req.query("end"); if (start) date({ date: start }, "date"); if (end) date({ date: end }, "date"); if (start && end && end <= start) throw new HTTPException(400, { message: "查詢迄日必須晚於開始日。" }); return c.json({ assignments: await listHrSpecialWorkdayAssignments(c.get("db"), start, end) }); })
   .post("/special-workdays/assignments", requirePermission("hr:office:write"), async (c) => { const input = await body(c); const ruleId = input.ruleId !== undefined ? text(input, "ruleId", "規則") : await resolveHrSpecialWorkdayRuleId(c.get("db"), text(input, "ruleVersionId", "規則版本")); return c.json(await assignHrSpecialWorkdays(c.get("db"), { ruleId, assignments: specialAssignments(input) }, c.get("user")), 201); })
+  .patch("/special-workdays/assignments/:id", requirePermission("hr:office:write"), async (c) => { const input = await body(c); const ruleId = input.ruleId !== undefined ? text(input, "ruleId", "規則") : await resolveHrSpecialWorkdayRuleId(c.get("db"), text(input, "ruleVersionId", "規則版本")); return c.json(await updateHrSpecialWorkdayAssignment(c.get("db"), c.req.param("id"), { ruleId, ...specialAssignment(input, 0) }, c.get("user"))); })
   .get("/schedules", requirePermission("hr:schedule:read"), async (c) => {
     const rawPeriod = c.req.query("periodKey");
     if (!rawPeriod || !/^\d{4}-(0[1-9]|1[0-2])$/.test(rawPeriod)) throw new HTTPException(400, { message: "排班月份必須是 YYYY-MM。" });

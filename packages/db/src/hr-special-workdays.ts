@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { chunks, inJsonArray } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
@@ -19,7 +19,9 @@ export interface SpecialWorkdayAllowanceQuantityInput { allowanceId: string; qua
 export interface SpecialWorkdayAllowanceSnapshot { itemName: string; unitAmountMinor: number; quantity: number }
 export interface SpecialWorkdayOvertimeRuleInput { fromHalfHours: number; toHalfHours: number | null; rateKind: SpecialWorkdayOvertimeRateKind; fixedAmountMinor?: number | null; multiplierPpm?: number | null }
 export interface SpecialWorkdayRuleInput { name: string; validFrom: string; validTo: string | null; wageKind: SpecialWorkdayWageKind; fixedAmountMinor?: number | null; multiplierPpm?: number | null; workSource?: SpecialWorkdaySource; note?: string; allowances: SpecialWorkdayAllowanceInput[]; overtimeRules: SpecialWorkdayOvertimeRuleInput[] }
-export interface SpecialWorkdayAssignmentInput { ruleId: string; assignments: Array<{ employmentId?: string; workerId?: string; workDate: string; allowanceQuantities?: SpecialWorkdayAllowanceQuantityInput[]; allowanceQuantity?: number }> }
+export interface SpecialWorkdayAssignmentItem { employmentId?: string; workerId?: string; workDate: string; allowanceQuantities?: SpecialWorkdayAllowanceQuantityInput[]; allowanceQuantity?: number }
+export interface SpecialWorkdayAssignmentInput { ruleId: string; assignments: SpecialWorkdayAssignmentItem[] }
+export interface SpecialWorkdayAssignmentUpdateInput extends SpecialWorkdayAssignmentItem { ruleId: string }
 
 /** 套用資料保存每個補貼自己的數量；歷史資料沒有 quantity 時沿用舊欄位的共用數量。 */
 export function parseSpecialWorkdayAllowanceSnapshot(snapshotJson: string, legacyQuantity = 0): SpecialWorkdayAllowanceSnapshot[] {
@@ -335,6 +337,56 @@ export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkda
     throw error;
   }
   return { count: input.assignments.length, ruleId };
+}
+
+export async function updateHrSpecialWorkdayAssignment(db: Database, assignmentId: string, input: SpecialWorkdayAssignmentUpdateInput, actor: HrActor) {
+  const [existing] = await db.select().from(hrSpecialWorkdayAssignments).where(eq(hrSpecialWorkdayAssignments.id, assignmentId)).limit(1);
+  if (!existing) throw new HrError(404, "找不到特殊上班日套用紀錄。 ");
+  const [rule] = await db.select().from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, input.ruleId)).limit(1);
+  if (!rule) throw new HrError(404, "找不到特殊上班日規則。 ");
+  if (!rule.active && rule.id !== existing.ruleId) throw new HrError(409, "特殊上班日規則已停用，不能改套用到這個規則。 ");
+  const [source] = await db.select().from(hrSpecialWorkdayRuleVersions)
+    .where(and(eq(hrSpecialWorkdayRuleVersions.ruleId, input.ruleId), sql`${hrSpecialWorkdayRuleVersions.voidedAt} IS NULL`))
+    .orderBy(desc(hrSpecialWorkdayRuleVersions.versionNumber)).limit(1);
+  if (!source) throw new HrError(409, "特殊上班日規則目前沒有可用設定。 ");
+
+  validDate(input.workDate);
+  const hasAllowanceQuantities = input.allowanceQuantities !== undefined;
+  const legacyAllowanceQuantity = input.allowanceQuantity;
+  if ((input.employmentId ? 1 : 0) + (input.workerId ? 1 : 0) !== 1 || hasAllowanceQuantities && legacyAllowanceQuantity !== undefined || !hasAllowanceQuantities && (!Number.isSafeInteger(legacyAllowanceQuantity) || legacyAllowanceQuantity! < 0)) throw new HrError(400, "特殊上班日套用對象或補貼數量不正確。 ");
+  const allowanceRows = await db.select().from(hrSpecialWorkdayAllowances).where(eq(hrSpecialWorkdayAllowances.ruleVersionId, source.id));
+  const allowanceById = new Map(allowanceRows.map((allowance) => [allowance.id, allowance]));
+  const quantityByAllowanceId = new Map<string, number>();
+  for (const allowanceQuantity of input.allowanceQuantities ?? []) {
+    if (!allowanceById.has(allowanceQuantity.allowanceId) || quantityByAllowanceId.has(allowanceQuantity.allowanceId) || !Number.isSafeInteger(allowanceQuantity.quantity) || allowanceQuantity.quantity < 0) throw new HrError(400, "特殊上班日補貼項目或數量不正確。 ");
+    quantityByAllowanceId.set(allowanceQuantity.allowanceId, allowanceQuantity.quantity);
+  }
+  const allowanceSnapshot = allowanceRows.map(({ id: allowanceId, itemName }) => ({ itemName, quantity: quantityByAllowanceId.get(allowanceId) ?? legacyAllowanceQuantity ?? 0 }));
+  const targetChanged = existing.employmentId !== (input.employmentId ?? null) || existing.workerId !== (input.workerId ?? null);
+  if (targetChanged) {
+    if (input.employmentId) {
+      const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, input.employmentId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
+      if (!employment) throw new HrError(400, "員工目前不是有效員工。 ");
+    } else {
+      const [worker] = await db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(eq(hrScheduleWorkers.id, input.workerId!), eq(hrScheduleWorkers.active, 1))).limit(1);
+      if (!worker) throw new HrError(400, "支援人員目前不是啟用狀態。 ");
+    }
+  }
+  const duplicate = await db.select({ id: hrSpecialWorkdayAssignments.id }).from(hrSpecialWorkdayAssignments).where(and(
+    ne(hrSpecialWorkdayAssignments.id, assignmentId),
+    eq(hrSpecialWorkdayAssignments.workDate, input.workDate),
+    input.employmentId ? eq(hrSpecialWorkdayAssignments.employmentId, input.employmentId) : eq(hrSpecialWorkdayAssignments.workerId, input.workerId!),
+  )).limit(1);
+  if (duplicate.length) throw new HrError(409, "同一人員同一天已有特殊上班日規則。 ");
+
+  await writeHrMutation(db, sql`UPDATE hr_special_workday_assignments SET
+    rule_id=${input.ruleId}, employment_id=${input.employmentId ?? null}, worker_id=${input.workerId ?? null}, work_date=${input.workDate},
+    allowance_snapshot_json=${JSON.stringify(allowanceSnapshot)}, allowance_quantity=${input.allowanceQuantity ?? 0}
+    WHERE id=${assignmentId} RETURNING id`,
+  assignmentId, actor, "special_workday_assignment_updated", "特殊上班日套用已變更或重複，請重新整理後再試。 ", {
+    activity: { summary: "特殊上班日套用調整", payload: { ruleId: input.ruleId, employmentId: input.employmentId ?? null, workerId: input.workerId ?? null, workDate: input.workDate } },
+  });
+  return { id: assignmentId, ruleId: input.ruleId };
 }
 
 export async function listHrSpecialWorkdaysForPayroll(

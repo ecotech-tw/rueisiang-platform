@@ -75,6 +75,54 @@ function activeRuleOptions(rules: SpecialWorkdayRule[]) {
 export function defaultActiveRuleId(rules: SpecialWorkdayRule[]) {
   return rules.find((item) => item.rule.active && latestActiveVersion(item))?.rule.id ?? "";
 }
+function assignmentTargetKey(item: SpecialWorkdayAssignment) {
+  return item.assignment.employmentId ? `employee:${item.assignment.employmentId}` : item.assignment.workerId ? `worker:${item.assignment.workerId}` : "";
+}
+function assignmentAllowanceQuantities(item: SpecialWorkdayAssignment) {
+  try {
+    const snapshot = JSON.parse(item.assignment.allowanceSnapshotJson) as unknown;
+    if (Array.isArray(snapshot)) {
+      return new Map(snapshot.flatMap((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+        const allowance = value as { itemName?: unknown; quantity?: unknown };
+        return typeof allowance.itemName === "string" && typeof allowance.quantity === "number" && Number.isSafeInteger(allowance.quantity) && allowance.quantity >= 0 ? [[allowance.itemName, String(allowance.quantity)] as const] : [];
+      }));
+    }
+  } catch {
+    // 舊資料損壞時由表單回到 0，不阻擋使用者修正套用資料。
+  }
+  return new Map<string, string>();
+}
+function assignmentRuleOptions(rules: SpecialWorkdayRule[], currentRuleId: string) {
+  return rules.flatMap((item) => {
+    const version = latestActiveVersion(item);
+    if (item.rule.id !== currentRuleId && (!item.rule.active || !version)) return [];
+    return [{ value: item.rule.id, label: item.rule.active ? item.rule.name : `${item.rule.name}（已停用）`, disabled: !item.rule.active }];
+  });
+}
+
+function useSpecialWorkdayTargets() {
+  const employees = useHrEmployeeRoster();
+  const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers");
+  const targets = useMemo<AssignmentTarget[]>(() => [
+    ...(employees.data?.employees ?? []).flatMap((employee) => employee.employmentId ? [{ key: `employee:${employee.employmentId}`, kind: "employee" as const, employmentId: employee.employmentId, displayName: employee.legalName || employee.displayName, secondary: `${employee.employeeNumber}・${employee.position || "未設定職位"}` }] : []),
+    ...(workers.data?.workers ?? []).filter((worker) => Boolean(worker.active)).map((worker) => ({ key: `worker:${worker.id}`, kind: "worker" as const, workerId: worker.id, displayName: worker.displayName, secondary: "支援人員" })),
+  ], [employees.data, workers.data]);
+  const targetOptions = useMemo(() => targets.map((target) => ({
+    value: target.key,
+    label: target.kind === "employee" ? `${target.secondary}・${target.displayName}` : `${target.displayName}・${target.secondary}`,
+    chipLabel: target.displayName,
+  })), [targets]);
+  return { employees, workers, targets, targetOptions };
+}
+
+function AllowanceQuantities({ version, quantities, disabled, onChange }: { version?: SpecialWorkdayRuleVersion; quantities: Record<string, string>; disabled: boolean; onChange: (allowanceId: string, value: string) => void }) {
+  return <div className="special-workday-allowance-quantities">
+    <div className="salary-items-label">補貼數量（每人／每天）</div>
+    <p className="form-hint">同一個規則的每個補貼可以分別設定數量；套用或編輯時都可依需要調整。</p>
+    {version?.allowances.length ? <><div className="special-workday-allowance-head"><span>項目</span><span>補貼單價</span><span>數量</span></div>{version.allowances.map((allowance) => <div className="special-workday-allowance-row" key={allowance.id}><span className="salary-item-name">{allowance.itemName}</span><span className="special-workday-allowance-unit">{money(allowance.unitAmountMinor)}</span><TextField aria-label={`${allowance.itemName}補貼數量`} type="number" min="0" step="1" value={quantities[allowance.id] ?? "0"} disabled={disabled} onChange={(event) => onChange(allowance.id, event.target.value)} /></div>)}</> : <p className="muted special-workday-allowance-empty">此規則目前沒有補貼項目，本次只套用特殊日薪資。</p>}
+  </div>;
+}
 
 function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () => void }) {
   const current = latestActiveVersion(rule);
@@ -192,21 +240,11 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
   const [endDate, setEndDate] = useState(today());
   const [allowanceQuantities, setAllowanceQuantities] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
-  const employees = useHrEmployeeRoster();
-  const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers");
+  const { employees, workers, targets, targetOptions } = useSpecialWorkdayTargets();
   const save = useHrWrite();
   const closeRequestRef = useRef<(() => void) | null>(null);
   const selectedRule = useMemo(() => rules.find((rule) => rule.rule.id === ruleId && rule.rule.active), [rules, ruleId]);
   const selectedVersion = useMemo(() => latestActiveVersion(selectedRule), [selectedRule]);
-  const targets = useMemo<AssignmentTarget[]>(() => [
-    ...(employees.data?.employees ?? []).flatMap((employee) => employee.employmentId ? [{ key: `employee:${employee.employmentId}`, kind: "employee" as const, employmentId: employee.employmentId, displayName: employee.legalName || employee.displayName, secondary: `${employee.employeeNumber}・${employee.position || "未設定職位"}` }] : []),
-    ...(workers.data?.workers ?? []).filter((worker) => Boolean(worker.active)).map((worker) => ({ key: `worker:${worker.id}`, kind: "worker" as const, workerId: worker.id, displayName: worker.displayName, secondary: "支援人員" })),
-  ], [employees.data, workers.data]);
-  const targetOptions = useMemo(() => targets.map((target) => ({
-    value: target.key,
-    label: target.kind === "employee" ? `${target.secondary}・${target.displayName}` : `${target.displayName}・${target.secondary}`,
-    chipLabel: target.displayName,
-  })), [targets]);
   const selectedTargets = useMemo(() => {
     const selected = new Set(selectedTargetKeys);
     return targets.filter((target) => selected.has(target.key));
@@ -262,13 +300,67 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
       /> : <p className="muted hr-payroll-picker-empty">目前沒有可套用的人員。</p>}
     </div>
     <div className="form-grid two"><TextField label="開始日期" type="date" required value={startDate} disabled={save.isPending} onChange={(event) => setStartDate(event.target.value)} /><TextField label="結束日期（含）" type="date" min={startDate} required value={endDate} disabled={save.isPending} onChange={(event) => setEndDate(event.target.value)} /></div>
-    <div className="special-workday-allowance-quantities">
-      <div className="salary-items-label">補貼數量（每人／每天）</div>
-      <p className="form-hint">同一個規則的每個補貼可以分別設定數量；這組數量會套用到每位選取人員的每一天。</p>
-      {selectedVersion?.allowances.length ? <><div className="special-workday-allowance-head"><span>項目</span><span>補貼單價</span><span>數量</span></div>{selectedVersion.allowances.map((allowance) => <div className="special-workday-allowance-row" key={allowance.id}><span className="salary-item-name">{allowance.itemName}</span><span className="special-workday-allowance-unit">{money(allowance.unitAmountMinor)}</span><TextField aria-label={`${allowance.itemName}補貼數量`} type="number" min="0" step="1" value={allowanceQuantities[allowance.id] ?? "0"} disabled={save.isPending} onChange={(event) => setAllowanceQuantities((current) => ({ ...current, [allowance.id]: event.target.value }))} /></div>)}</> : <p className="muted special-workday-allowance-empty">此規則目前沒有補貼項目，本次只套用特殊日薪資。</p>}
-    </div>
+    <AllowanceQuantities version={selectedVersion} quantities={allowanceQuantities} disabled={save.isPending} onChange={(allowanceId, value) => setAllowanceQuantities((current) => ({ ...current, [allowanceId]: value }))} />
     <p className="form-hint">同一人員同一天只能套用一個規則；日期區間含首尾，預計建立 {assignmentCount} 筆日期紀錄。套用只保存規則、人員、日期與補貼數量，重新試算時會讀取目前規則。</p>
     {dateError || tooManyAssignments ? <Alert tone="warning">{dateError || `這次會建立 ${assignmentCount} 筆日期套用，超過單次最多 ${MAX_SPECIAL_WORKDAY_ASSIGNMENTS} 筆的限制。`}</Alert> : null}
+    {employees.error || workers.error ? <Alert tone="danger">人員名單載入失敗：{employees.error?.message ?? workers.error?.message}</Alert> : null}
+    {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
+  </Dialog>;
+}
+
+function EditAssignmentDialog({ assignment, rules, onClose }: { assignment: SpecialWorkdayAssignment; rules: SpecialWorkdayRule[]; onClose: () => void }) {
+  const { employees, workers, targets: availableTargets } = useSpecialWorkdayTargets();
+  const currentTargetKey = assignmentTargetKey(assignment);
+  const [ruleId, setRuleId] = useState(assignment.assignment.ruleId);
+  const [targetKey, setTargetKey] = useState(currentTargetKey);
+  const [workDate, setWorkDate] = useState(assignment.assignment.workDate);
+  const [allowanceQuantities, setAllowanceQuantities] = useState<Record<string, string>>({});
+  const [message, setMessage] = useState<string | null>(null);
+  const save = useHrWrite();
+  const closeRequestRef = useRef<(() => void) | null>(null);
+  const selectedRule = useMemo(() => rules.find((rule) => rule.rule.id === ruleId), [rules, ruleId]);
+  const selectedVersion = useMemo(() => latestActiveVersion(selectedRule), [selectedRule]);
+  const targets = useMemo(() => {
+    if (!currentTargetKey || availableTargets.some((target) => target.key === currentTargetKey)) return availableTargets;
+    const currentTarget = assignment.assignment.employmentId
+      ? { key: currentTargetKey, kind: "employee" as const, employmentId: assignment.assignment.employmentId, displayName: assignment.employeeName ?? "目前員工", secondary: `${assignment.employeeNumber ?? "員工"}・目前不在職` }
+      : { key: currentTargetKey, kind: "worker" as const, workerId: assignment.assignment.workerId!, displayName: assignment.workerName ?? "目前支援人員", secondary: "目前未啟用" };
+    return [...availableTargets, currentTarget];
+  }, [assignment, availableTargets, currentTargetKey]);
+  const targetOptions = useMemo(() => targets.map((target) => ({
+    value: target.key,
+    label: target.kind === "employee" ? `${target.secondary}・${target.displayName}` : `${target.displayName}・${target.secondary}`,
+  })), [targets]);
+  const ruleOptions = useMemo(() => assignmentRuleOptions(rules, assignment.assignment.ruleId), [assignment.assignment.ruleId, rules]);
+  useEffect(() => {
+    if (!selectedVersion) {
+      setAllowanceQuantities({});
+      return;
+    }
+    const originalQuantities = ruleId === assignment.assignment.ruleId ? assignmentAllowanceQuantities(assignment) : new Map<string, string>();
+    setAllowanceQuantities(Object.fromEntries(selectedVersion.allowances.map((allowance) => [allowance.id, originalQuantities.get(allowance.itemName) ?? "0"])));
+  }, [assignment, ruleId, selectedVersion?.id]);
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    const target = targets.find((candidate) => candidate.key === targetKey);
+    if (!ruleId || !selectedRule || !selectedVersion) { setMessage("目前規則沒有可用設定，請先啟用或建立規則版本。"); return; }
+    if (!target) { setMessage("請選擇套用人員。"); return; }
+    if (!workDate) { setMessage("請選擇套用日期。"); return; }
+    const parsedAllowanceQuantities = [] as Array<{ allowanceId: string; quantity: number }>;
+    for (const allowance of selectedVersion.allowances) {
+      const quantity = Number(allowanceQuantities[allowance.id] ?? "0");
+      if (!Number.isSafeInteger(quantity) || quantity < 0) { setMessage(`「${allowance.itemName}」的補貼數量請填非負整數。`); return; }
+      parsedAllowanceQuantities.push({ allowanceId: allowance.id, quantity });
+    }
+    setMessage(null);
+    save.mutate({ path: `/special-workdays/assignments/${assignment.assignment.id}`, method: "PATCH", values: { ruleId, ...(target.employmentId ? { employmentId: target.employmentId } : { workerId: target.workerId }), workDate, allowanceQuantities: parsedAllowanceQuantities } }, { onSuccess: () => { (closeRequestRef.current ?? onClose)(); } });
+  };
+  return <Dialog className="special-workday-assign-dialog" title="編輯特殊上班日套用" titleMeta={`${assignment.employeeName ?? assignment.workerName ?? "套用紀錄"}・${assignment.assignment.workDate}`} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: submit }} actions={<><Button type="button" variant="secondary" onClick={onClose} disabled={save.isPending}>取消</Button><Button type="submit" loading={save.isPending} disabled={!targetKey || !ruleId || !selectedVersion}>儲存調整</Button></>}>
+    {ruleOptions.length ? <SelectField label="規則" value={ruleId} options={ruleOptions} disabled={save.isPending} onChange={(event) => setRuleId(event.target.value)} hint={selectedVersion ? `目前設定 v${selectedVersion.versionNumber}；重新試算會使用目前規則` : "此規則目前沒有有效版本"} /> : <Alert tone="warning">原本的特殊上班日規則已不存在，請先重新整理資料。</Alert>}
+    <SelectField label="套用人員" value={targetKey} options={targetOptions} searchable disabled={save.isPending || employees.isPending || workers.isPending} onChange={(event) => setTargetKey(event.target.value)} hint="同一人員同一天只能有一筆特殊上班日套用。" />
+    <TextField label="套用日期" type="date" required value={workDate} disabled={save.isPending} onChange={(event) => setWorkDate(event.target.value)} />
+    <AllowanceQuantities version={selectedVersion} quantities={allowanceQuantities} disabled={save.isPending} onChange={(allowanceId, value) => setAllowanceQuantities((current) => ({ ...current, [allowanceId]: value }))} />
+    <p className="form-hint">調整後，尚未重新試算的薪資會使用新的人員、日期、規則與補貼數量；已結算薪資明細不會被改寫。</p>
     {employees.error || workers.error ? <Alert tone="danger">人員名單載入失敗：{employees.error?.message ?? workers.error?.message}</Alert> : null}
     {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
   </Dialog>;
@@ -283,6 +375,7 @@ export function HrSpecialWorkdays() {
   const toggleRule = useHrWrite();
   const deleteRule = useHrWrite<{ id: string; deleted: boolean }>();
   const [editor, setEditor] = useState<"new" | SpecialWorkdayRule | "assign" | null>(null);
+  const [editingAssignment, setEditingAssignment] = useState<SpecialWorkdayAssignment | null>(null);
   const [deletingRule, setDeletingRule] = useState<SpecialWorkdayRule | null>(null);
   const deleteCloseRequestRef = useRef<((afterClose?: () => void) => void) | null>(null);
   const rows = useMemo(() => rules.data?.rules ?? [], [rules.data]);
@@ -313,8 +406,8 @@ export function HrSpecialWorkdays() {
       const hasAssignment = assignedRuleIds.has(item.rule.id);
       return <tr key={item.rule.id}><td><strong>{item.rule.name}</strong><br /><span className="muted">{item.versions.length} 個版本</span></td><td>{version ? <>v{version.versionNumber}・{version.validFrom}～{version.validTo ?? "目前"}</> : <StatusBadge tone="neutral">所有版本已解除</StatusBadge>}</td><td>{version ? version.wageKind === "fixed_hourly" ? `每小時 ${money(version.fixedAmountMinor ?? 0)}` : `總倍率 ${((version.multiplierPpm ?? 0) / 10_000).toFixed(2)}%` : "—"}</td><td>{version ? version.overtimeRules.length ? `${version.overtimeRules.length} 個級距` : "沿用一般規則" : "—"}</td><td><StatusBadge tone={item.rule.active ? "success" : "danger"}>{item.rule.active ? "啟用" : "停用"}</StatusBadge>{allVoided ? <StatusBadge tone="neutral">版本已解除</StatusBadge> : null}</td><td>{canWrite ? <div className="row-actions"><Button variant="icon" icon="edit" className="compensation-action-update" aria-label={`為${item.rule.name}建立新版本`} disabled={!item.rule.active} onClick={() => setEditor(item)} /><Tooltip label={hasAssignment ? `${item.rule.name} 已有日期套用紀錄，只能停用` : `刪除 ${item.rule.name}`} focusable={false}><Button variant="icon" icon="trash" className="danger hr-row-action-delete" aria-label={`刪除${item.rule.name}`} disabled={deleteRule.isPending || hasAssignment} onClick={() => { deleteRule.reset(); setDeletingRule(item); }} /></Tooltip><Button variant="secondary" onClick={() => toggleRule.mutate({ path: `/special-workdays/rules/${item.rule.id}/status`, method: "POST", values: { active: !item.rule.active } }, { onSuccess: () => void rules.refetch() })}>{item.rule.active ? "停用" : "啟用"}</Button></div> : <span className="muted">—</span>}</td></tr>;
     })}</tbody></DataTable>{!rows.length ? <EmptyState>尚未建立特殊上班日規則。</EmptyState> : null}</Panel>
-    <Panel className="grows"><div className="panel-head"><div><h2>日期套用紀錄</h2><p className="muted">套用資料只保存規則、人員、日期與補貼數量；重新試算時讀取目前規則，已結算薪資仍保留當時明細。</p></div></div><DataTable><thead><tr><th>人員</th><th>日期</th><th>規則</th><th>目前薪資方式</th><th>補貼數量</th><th>套用時間</th></tr></thead><tbody>{(assignments.data?.assignments ?? []).map((item) => <tr key={item.assignment.id}><td>{item.employeeName ?? item.workerName ?? "—"}</td><td>{item.assignment.workDate}</td><td>{item.ruleName}{item.currentVersionNumber ? <><br /><span className="muted">目前設定 v{item.currentVersionNumber}{item.currentVersionVoidedAt ? "（已解除）" : ""}</span></> : null}</td><td>{item.currentWageKind === "fixed_hourly" ? "固定每小時" : item.currentWageKind === "multiplier" ? "總倍率" : "無目前設定"}</td><td>{allowanceSummary(item)}</td><td>{item.assignment.appliedAt}</td></tr>)}</tbody></DataTable>{!assignments.data?.assignments.length ? <EmptyState>尚未有日期套用紀錄。</EmptyState> : null}</Panel>
-    {editor === "new" ? <RuleDialog onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor && editor !== "new" && editor !== "assign" ? <RuleDialog rule={editor} onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor === "assign" ? <AssignDialog rules={assignableRules} onClose={() => { setEditor(null); void assignments.refetch(); }} /> : null}
+    <Panel className="grows"><div className="panel-head"><div><h2>日期套用紀錄</h2><p className="muted">日期套用紀錄可以調整規則、人員、日期與補貼數量；重新試算時使用新設定，已結算薪資仍保留當時明細。</p></div></div><DataTable><thead><tr><th>人員</th><th>日期</th><th>規則</th><th>目前薪資方式</th><th>補貼數量</th><th>套用時間</th><th>操作</th></tr></thead><tbody>{(assignments.data?.assignments ?? []).map((item) => <tr key={item.assignment.id}><td>{item.employeeName ?? item.workerName ?? "—"}</td><td>{item.assignment.workDate}</td><td>{item.ruleName}{item.currentVersionNumber ? <><br /><span className="muted">目前設定 v{item.currentVersionNumber}{item.currentVersionVoidedAt ? "（已解除）" : ""}</span></> : null}</td><td>{item.currentWageKind === "fixed_hourly" ? "固定每小時" : item.currentWageKind === "multiplier" ? "總倍率" : "無目前設定"}</td><td>{allowanceSummary(item)}</td><td>{item.assignment.appliedAt}</td><td>{canWrite ? <Tooltip label={`編輯 ${item.employeeName ?? item.workerName ?? "這筆套用"} 的特殊上班日`} focusable={false}><Button variant="icon" icon="edit" aria-label={`編輯${item.employeeName ?? item.workerName ?? "這筆套用"} ${item.assignment.workDate} 的特殊上班日`} onClick={() => setEditingAssignment(item)} /></Tooltip> : <span className="muted">—</span>}</td></tr>)}</tbody></DataTable>{!assignments.data?.assignments.length ? <EmptyState>尚未有日期套用紀錄。</EmptyState> : null}</Panel>
+    {editor === "new" ? <RuleDialog onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor && editor !== "new" && editor !== "assign" ? <RuleDialog rule={editor} onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor === "assign" ? <AssignDialog rules={assignableRules} onClose={() => { setEditor(null); void assignments.refetch(); }} /> : null}{editingAssignment ? <EditAssignmentDialog assignment={editingAssignment} rules={rows} onClose={() => { setEditingAssignment(null); void assignments.refetch(); void rules.refetch(); }} /> : null}
     {/* 跟同一頁的「解除版本」用同一個元件：兩個破壞性動作不該一個吃 Escape、一個不吃。 */}
     {deletingRule ? <ConfirmDialog title="刪除特殊上班日規則？" confirmLabel="刪除規則" pending={deleteRule.isPending} closeRequestRef={deleteCloseRequestRef} onCancel={() => { deleteRule.reset(); setDeletingRule(null); }} onConfirm={confirmDelete}>
       <p>「<strong>{deletingRule.rule.name}</strong>」及其尚未套用的規則版本會被永久刪除，這個操作無法復原。</p>
