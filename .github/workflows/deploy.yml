@@ -143,8 +143,10 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
       - run: pnpm test
         if: github.event_name == 'workflow_dispatch'
-      - run: pnpm build
+      # 與 ci.yml 同一條指令：typecheck 已經檢查過，這裡只產兩份 dist。
+      - name: 打包 portal 與 HR
         if: github.event_name == 'workflow_dispatch'
+        run: pnpm --filter @rueisiang/portal --filter @rueisiang/hr exec vite build
       - uses: actions/upload-artifact@v4
         if: github.event_name == 'workflow_dispatch'
         with:
