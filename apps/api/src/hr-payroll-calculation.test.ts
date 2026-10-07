@@ -84,7 +84,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await request("/hr/payroll/records?periodKey=2026-08&status=withdrawn&pageSize=100")).status).toBe(400);
     const historicalDetail = await request(`/hr/payroll/records/${runId}/employee/dev-employment-lin`);
     expect(historicalDetail.status, await historicalDetail.clone().text()).toBe(200);
-    expect((await historicalDetail.json() as { record: { status: string }; run: { canDelete: boolean } })).toMatchObject({ record: { status: "unsettled" }, run: { canDelete: false } });
+    expect((await historicalDetail.json() as { record: { status: string }; run: { canDelete: boolean } })).toMatchObject({ record: { status: "unsettled" }, run: { canDelete: true } });
     const adjustment = await request("/hr/payroll/adjustments", "POST", {
       employmentId: "dev-employment-lin", effectivePeriodKey: "2026-08", reason: "撤回後重新試算前修正", items: [{ itemName: "撤回後修正", amountMinor: 100 }],
     });
@@ -109,6 +109,48 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await request(`/hr/payroll/runs/${runId}/withdraw`, "POST", { reason: "不可重複撤回" })).status).toBe(409);
     const closedAgain = await request("/hr/payroll/records?periodKey=2026-08&status=closed&pageSize=100");
     expect((await closedAgain.json() as { records: Array<{ runId: string; status: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ runId: newRunId, status: "closed" })]));
+  });
+
+  it("已結帳或撤回後又有人確定發放的批次不能刪除，撤回 marker 保留", async () => {
+    const calculated = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-payroll-withdrawn-delete-2026-08",
+    });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+    expect((await request(`/hr/payroll/runs/${runId}/close`, "POST", {})).status).toBe(200);
+    expect((await request(`/hr/payroll/runs/${runId}`, "DELETE")).status).toBe(409);
+    expect((await request(`/hr/payroll/runs/${runId}/withdraw`, "POST", { reason: "整批算錯，撤回後刪除" })).status).toBe(200);
+
+    // 撤回後又有人確定發放時，這批重新成為歷史文件，不能刪除。
+    const approved = await request("/hr/payroll/records/approve", "POST", { records: [{ runId, personKind: "employee", personId: "dev-employment-lin" }] });
+    expect(approved.status, await approved.clone().text()).toBe(200);
+    expect((await request(`/hr/payroll/runs/${runId}`, "DELETE")).status).toBe(409);
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_withdrawals WHERE payroll_run_id=?").get(runId)).toEqual({ count: 1 });
+  });
+
+  it("撤回後未再確定發放的批次刪除時一併清除撤回 marker", async () => {
+    const calculated = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-withdrawn-delete-clean-2026-08",
+    });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+    expect((await request(`/hr/payroll/runs/${runId}/close`, "POST", {})).status).toBe(200);
+    expect((await request(`/hr/payroll/runs/${runId}/withdraw`, "POST", { reason: "整批算錯，撤回後刪除" })).status).toBe(200);
+
+    const deleted = await request(`/hr/payroll/runs/${runId}`, "DELETE");
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_runs WHERE id=?").get(runId)).toEqual({ count: 0 });
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_withdrawals WHERE payroll_run_id=?").get(runId)).toEqual({ count: 0 });
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payslips WHERE payroll_run_id=?").get(runId)).toEqual({ count: 0 });
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_mutation_guards").get()).toEqual({ count: 0 });
+    const activity = d1.sqlite.prepare("SELECT payload_json FROM activity_events WHERE entity_id=? AND event_type='payroll_run_deleted'").get(runId) as { payload_json: string };
+    expect(JSON.parse(activity.payload_json)).toMatchObject({ periodKey: "2026-08", withdrawal: { reason: "整批算錯，撤回後刪除" } });
+    expect((await request(`/hr/payroll/records/${runId}/employee/dev-employment-lin`)).status).toBe(404);
+
+    const recalculated = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-payroll-withdrawn-delete-clean-2026-08-again",
+    });
+    expect(recalculated.status, await recalculated.clone().text()).toBe(200);
   });
 
   it("部分確定發放的批次撤回後會回到尚未結算並可重新結帳", async () => {

@@ -2505,7 +2505,7 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
   if (!employee && !worker) throw new HrError(404, "找不到薪資發放紀錄。 ");
   const [run] = await db.select({ versionNumber: hrPayrollRuns.versionNumber, createdAt: hrPayrollRuns.createdAt, updatedAt: hrPayrollRuns.updatedAt, status: hrPayrollRuns.status }).from(hrPayrollRuns).where(eq(hrPayrollRuns.id, input.runId)).limit(1);
   if (!run) throw new HrError(404, "找不到薪資試算。 ");
-  const canDelete = !result.withdrawal && run.status !== "closed" && !(await payrollRunHasClosedClaims(db, input.runId));
+  const canDelete = run.status !== "closed" && !(await payrollRunHasClosedClaims(db, input.runId));
   const items = await listHrPayrollRecordItems(db, input);
   const earningItems = items.filter((item) => item.direction === "earning").reduce((sum, item) => sum + item.amountMinor, 0);
   const deductionItems = items.filter((item) => item.direction === "deduction").reduce((sum, item) => sum + item.amountMinor, 0);
@@ -2668,35 +2668,52 @@ export async function listHrPayrollEmployeeHistory(db: Database, employeeUserId:
   }));
 }
 
-/** 只有未結帳的試算可以刪除；已結帳薪資單與其明細是歷史文件，不提供物理刪除。 */
+/** 未結帳或撤回後尚未再次結帳的試算可以刪除；已結帳薪資單與其明細是歷史文件，不提供物理刪除。 */
 export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrActor) {
   const [run] = await db.select({ id: hrPayrollRuns.id, status: hrPayrollRuns.status, periodKey: hrPayrollPeriods.periodKey, calculationInputJson: hrPayrollRuns.calculationInputJson }).from(hrPayrollRuns)
     .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
     .where(eq(hrPayrollRuns.id, runId)).limit(1);
   if (!run) throw new HrError(404, "找不到薪資試算批次。 ");
-  const [withdrawal] = await db.select({ payrollRunId: hrPayrollWithdrawals.payrollRunId }).from(hrPayrollWithdrawals).where(eq(hrPayrollWithdrawals.payrollRunId, runId)).limit(1);
-  if (withdrawal || run.status === "closed" || await payrollRunHasClosedClaims(db, runId)) throw new HrError(409, "已結帳／確定發放的薪資紀錄不可刪除，請使用薪資加扣項。 ");
+  const [withdrawal] = await db.select({
+    payrollRunId: hrPayrollWithdrawals.payrollRunId,
+    reason: hrPayrollWithdrawals.reason,
+    withdrawnBy: hrPayrollWithdrawals.withdrawnBy,
+    withdrawnAt: hrPayrollWithdrawals.withdrawnAt,
+  }).from(hrPayrollWithdrawals).where(eq(hrPayrollWithdrawals.payrollRunId, runId)).limit(1);
+  if (run.status === "closed" || await payrollRunHasClosedClaims(db, runId)) throw new HrError(409, "已結帳／確定發放的薪資紀錄不可刪除，請使用薪資加扣項。 ");
 
-  const mutations = [
-    // 相容舊版單筆加扣項資料；新的薪資加扣項不再寫入這張表。
-    sql`DELETE FROM hr_payroll_record_items WHERE payroll_run_id=${runId} RETURNING id`,
-    sql`DELETE FROM hr_payslip_lines WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING id`,
-    sql`DELETE FROM hr_payslip_compensation_links WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING payslip_id`,
-    sql`DELETE FROM hr_payslip_insurance_links WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING payslip_id`,
-    sql`DELETE FROM hr_payslips WHERE payroll_run_id=${runId} RETURNING id`,
-    sql`DELETE FROM hr_payroll_run_employees WHERE payroll_run_id=${runId} RETURNING payroll_run_id`,
-    sql`DELETE FROM hr_payroll_worker_results WHERE payroll_run_id=${runId} RETURNING id`,
-    sql`DELETE FROM hr_payroll_runs WHERE id=${runId} AND status <> 'closed'
-      AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId})
-      AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId})
-      RETURNING id`,
-  ];
+  const mutations: SQL[] = [];
+  const allowEmptyMutationIndexes = new Set<number>();
+  const withdrawalDeleteGuardId = withdrawal ? `payroll-withdrawal-delete:${runId}` : null;
+  if (withdrawalDeleteGuardId) {
+    mutations.push(sql`INSERT INTO hr_mutation_guards (id, ok) VALUES (${withdrawalDeleteGuardId}, 1) RETURNING id`);
+    mutations.push(sql`DELETE FROM hr_payroll_withdrawals WHERE payroll_run_id=${runId} RETURNING payroll_run_id`);
+  }
+  const addOptionalDelete = (statement: SQL) => {
+    allowEmptyMutationIndexes.add(mutations.length);
+    mutations.push(statement);
+  };
+  // 相容舊版單筆加扣項資料；新的薪資加扣項不再寫入這張表。
+  addOptionalDelete(sql`DELETE FROM hr_payroll_record_items WHERE payroll_run_id=${runId} RETURNING id`);
+  addOptionalDelete(sql`DELETE FROM hr_payslip_lines WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING id`);
+  addOptionalDelete(sql`DELETE FROM hr_payslip_compensation_links WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING payslip_id`);
+  addOptionalDelete(sql`DELETE FROM hr_payslip_insurance_links WHERE payslip_id IN (SELECT id FROM hr_payslips WHERE payroll_run_id=${runId}) RETURNING payslip_id`);
+  addOptionalDelete(sql`DELETE FROM hr_payslips WHERE payroll_run_id=${runId} RETURNING id`);
+  addOptionalDelete(sql`DELETE FROM hr_payroll_run_employees WHERE payroll_run_id=${runId} RETURNING payroll_run_id`);
+  addOptionalDelete(sql`DELETE FROM hr_payroll_worker_results WHERE payroll_run_id=${runId} RETURNING id`);
+  mutations.push(sql`DELETE FROM hr_payroll_runs WHERE id=${runId} AND status <> 'closed'
+    AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId})
+    AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_workers WHERE payroll_run_id=${runId})
+    RETURNING id`);
   await writeHrMutation(db, mutations, runId, actor, "payroll_run_deleted", "薪資試算批次已結帳或已被其他人變更，請重新整理。", {
-    allowEmptyMutationIndexes: new Set([0, 1, 2, 3, 4, 5, 6]),
+    allowEmptyMutationIndexes,
     activity: {
       entityLabel: payrollRunNameFromInput(run.calculationInputJson),
       summary: "薪資試算批次已刪除",
-      payload: { periodKey: run.periodKey },
+      payload: {
+        periodKey: run.periodKey,
+        withdrawal: withdrawal ? { reason: withdrawal.reason, withdrawnBy: withdrawal.withdrawnBy, withdrawnAt: withdrawal.withdrawnAt } : null,
+      },
     },
   });
   return { id: runId, deleted: true as const };
