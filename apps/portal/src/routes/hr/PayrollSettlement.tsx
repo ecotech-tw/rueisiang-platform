@@ -225,9 +225,9 @@ function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: Payroll
   if (!jobs.length) return null;
   return <section className="hr-payroll-job-progress" aria-label="薪資背景試算進度">
     <div className="hr-payroll-job-progress-heading">
-      <div><strong>背景試算</strong><small>離開頁面後工作仍會繼續，這裡會自動更新狀態。</small></div>
+      <strong>背景試算</strong>
       <div className="hr-payroll-job-progress-actions">
-        <span>{jobs.length} 筆最近工作</span>
+        <span>{jobs.length} 筆</span>
         <Button
           variant="icon"
           icon={expanded ? "chevronUp" : "chevronDown"}
