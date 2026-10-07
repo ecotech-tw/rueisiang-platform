@@ -340,4 +340,97 @@ describe("HR 申請中心", () => {
     expect(center.overtime.find((item) => item.request.id === approvedForAdminId)?.request.status).toBe("cancelled");
     expect((await request(`/hr/me/overtime/${approvedForEmployeeId}/cancel`, "POST", {}, employeeCookie)).status).toBe(409);
   });
+
+  describe("補打卡申請", () => {
+    const correction = { correctionDate: "2026-01-07", requestedTime: "09:00", requestedEventKind: "clock_in", reason: "手機故障", approverUserId: "admin" };
+
+    async function createDraft(values: Record<string, unknown> = correction) {
+      const created = await request("/hr/me/form-requests", "POST", values, employeeCookie);
+      expect(created.status, await created.clone().text()).toBe(201);
+      return (await created.json() as { id: string }).id;
+    }
+    async function statusOf(id: string) {
+      const response = await request(`/hr/me/form-requests/${id}`, "GET", undefined, employeeCookie);
+      return response.status === 200 ? (await response.json() as { request: { status: string } }).request.status : response.status;
+    }
+
+    beforeEach(async () => {
+      await assignEmployee();
+      // 審核者必須是啟用中的員工，所以管理者也要有任職資料。
+      const approver = await request("/hr/employees", "POST", { userId: "admin", legalName: "審核主管", employeeNumber: "E-APPROVER", position: "一般職員", serviceStartOn: "2026-01-01" });
+      expect(approver.status, await approver.clone().text()).toBe(201);
+    });
+
+    it("補登時間不可晚於現在", async () => {
+      const future = await request("/hr/me/form-requests", "POST", { ...correction, correctionDate: "2099-01-01" }, employeeCookie);
+      expect(future.status).toBe(400);
+      const id = await createDraft();
+      expect((await request(`/hr/me/form-requests/${id}`, "PATCH", { ...correction, correctionDate: "2099-01-01" }, employeeCookie)).status).toBe(400);
+    });
+
+    it("同一個時間點的同一種打卡只能有一張審核中或已核准的申請", async () => {
+      const first = await createDraft();
+      const sameTime = await createDraft();
+      const secondShift = await createDraft({ ...correction, requestedTime: "13:00" });
+      const otherKind = await createDraft({ ...correction, requestedEventKind: "clock_out" });
+      const submit = async (id: string) => (await request(`/hr/me/form-requests/${id}/submit`, "POST", {}, employeeCookie)).status;
+
+      expect(await submit(first)).toBe(200);
+      expect(await submit(sameTime)).toBe(409);
+      // 兩段班一天補兩次上班、同一時間補另一種打卡，都是合理的申請。
+      expect(await submit(secondShift)).toBe(200);
+      expect(await submit(otherKind)).toBe(200);
+
+      // 取消後那個時間點空出來；核准後則一直佔著，不然會核准出兩筆一樣的打卡事件。
+      expect((await request(`/hr/me/form-requests/${first}/cancel`, "POST", {}, employeeCookie)).status).toBe(200);
+      expect(await statusOf(first)).toBe("cancelled");
+      expect(await submit(sameTime)).toBe(200);
+      expect((await request(`/hr/me/form-requests/${sameTime}/review`, "POST", { decision: "approved" })).status).toBe(200);
+      expect(await submit(await createDraft())).toBe(409);
+    });
+
+    it("檢查上線前留下的未來時間申請，送出與核准都會被擋，駁回不受影響", async () => {
+      const draft = await createDraft();
+      d1.sqlite.prepare("UPDATE hr_form_requests SET correction_date='2099-01-01', requested_at='2099-01-01 01:00:00' WHERE id=?").run(draft);
+      expect((await request(`/hr/me/form-requests/${draft}/submit`, "POST", {}, employeeCookie)).status).toBe(400);
+
+      d1.sqlite.prepare("UPDATE hr_form_requests SET status='pending', submitted_at=CURRENT_TIMESTAMP WHERE id=?").run(draft);
+      expect((await request(`/hr/me/form-requests/${draft}/review`, "POST", { decision: "approved" })).status).toBe(400);
+      expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_clock_events WHERE correction_request_id=?").get(draft)).toEqual({ count: 0 });
+      expect((await request(`/hr/me/form-requests/${draft}/review`, "POST", { decision: "rejected", comment: "時間不對" })).status).toBe(200);
+    });
+
+    it("只有申請人能取消審核中的申請，取消後審核者不能再核准", async () => {
+      const id = await createDraft();
+      expect((await request(`/hr/me/form-requests/${id}/cancel`, "POST", {}, employeeCookie)).status).toBe(409);
+      expect((await request(`/hr/me/form-requests/${id}/submit`, "POST", {}, employeeCookie)).status).toBe(200);
+      expect((await request(`/hr/me/form-requests/${id}/cancel`, "POST", {})).status).toBe(404);
+      expect((await request(`/hr/me/form-requests/${id}/cancel`, "POST", {}, employeeCookie)).status).toBe(200);
+      expect((await request(`/hr/me/form-requests/${id}/review`, "POST", { decision: "approved" })).status).toBe(409);
+      expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_clock_events WHERE correction_request_id=?").get(id)).toEqual({ count: 0 });
+
+      const center = await (await request("/hr/requests?page=1&pageSize=25&kind=clock_correction&status=cancelled")).json() as { rows: Array<{ id: string }> };
+      expect(center.rows.map((row) => row.id)).toEqual([id]);
+    });
+
+    it("已核准的申請不能取消，打卡事件保留", async () => {
+      const id = await createDraft();
+      expect((await request(`/hr/me/form-requests/${id}/submit`, "POST", {}, employeeCookie)).status).toBe(200);
+      expect((await request(`/hr/me/form-requests/${id}/review`, "POST", { decision: "approved" })).status).toBe(200);
+      expect((await request(`/hr/me/form-requests/${id}/cancel`, "POST", {}, employeeCookie)).status).toBe(409);
+      expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_clock_events WHERE correction_request_id=?").get(id)).toEqual({ count: 1 });
+    });
+
+    it("草稿可以由申請人刪除，送出後不能刪", async () => {
+      const draft = await createDraft();
+      expect((await request(`/hr/me/form-requests/${draft}`, "DELETE", {})).status).toBe(404);
+      expect((await request(`/hr/me/form-requests/${draft}`, "DELETE", {}, employeeCookie)).status).toBe(200);
+      expect(await statusOf(draft)).toBe(404);
+
+      const submitted = await createDraft();
+      expect((await request(`/hr/me/form-requests/${submitted}/submit`, "POST", {}, employeeCookie)).status).toBe(200);
+      expect((await request(`/hr/me/form-requests/${submitted}`, "DELETE", {}, employeeCookie)).status).toBe(409);
+      expect(await statusOf(submitted)).toBe("pending");
+    });
+  });
 });

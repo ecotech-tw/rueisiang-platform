@@ -9,6 +9,7 @@ const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "
   pending: { label: "申請中", tone: "info" },
   approved: { label: "已核准", tone: "success" },
   rejected: { label: "已駁回", tone: "danger" },
+  cancelled: { label: "已取消", tone: "neutral" },
 };
 
 function formatTaipei(value: string | null) {
@@ -59,7 +60,7 @@ function requestStatusLabel(status: RequestStatusFilter) {
 }
 
 function requestBadgeCount(statuses: readonly string[] | undefined) {
-  return statuses?.filter((status) => status !== "approved").length ?? 0;
+  return statuses?.filter((status) => status !== "approved" && status !== "cancelled").length ?? 0;
 }
 
 function requestBadgeLabel(count: number) {
@@ -181,6 +182,25 @@ function LeaveRequestCard({ item, onCancel }: { item: LeaveRequest; onCancel: (i
   </article>;
 }
 
+type CorrectionAction = { request: FormRequest; mode: "cancel" | "delete" };
+
+function CorrectionActionDialog({ action, onClose }: { action: CorrectionAction; onClose: () => void }) {
+  const write = useHrWrite();
+  const closeRequestRef = useRef<(() => void) | null>(null);
+  const isDelete = action.mode === "delete";
+  function submit() {
+    const path = `/me/form-requests/${action.request.id}`;
+    write.mutate(isDelete ? { path, method: "DELETE", values: {} } : { path: `${path}/cancel`, method: "POST", values: {} }, { onSuccess: () => (closeRequestRef.current ?? onClose)() });
+  }
+  return <Dialog title={isDelete ? "刪除補打卡草稿" : "取消補打卡申請"} titleMeta={formLabel(action.request)} role="alertdialog" onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={write.isPending} actions={<>
+    <Button variant="secondary" onClick={onClose} disabled={write.isPending}>{isDelete ? "保留草稿" : "保留申請"}</Button>
+    <Button variant="danger" loading={write.isPending} onClick={submit}>{isDelete ? "確認刪除" : "確認取消"}</Button>
+  </>}>
+    <p>{isDelete ? "草稿還沒送出，刪除後不會留下紀錄，也無法復原。" : "取消後審核者不會再看到這張申請；已取消的申請仍會保留在申請紀錄，需要時請重新申請。"}</p>
+    {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
+  </Dialog>;
+}
+
 function ReviewDialog({ request, onClose }: { request: FormRequest; onClose: () => void }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
@@ -225,11 +245,13 @@ export function HrForms() {
   const location = useLocation();
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<RequestStatusFilter>("pending");
+  // 從草稿表單回來時網址會帶 status=draft；預設的「申請中」看不到草稿，使用者會以為它不見了。
+  const [statusFilter, setStatusFilter] = useState<RequestStatusFilter>(() => REQUEST_STATUS_OPTIONS.find((option) => option.value === params.get("status"))?.value ?? "pending");
   const [visibleCount, setVisibleCount] = useState(8);
   const [reviewing, setReviewing] = useState<FormRequest | null>(null);
   const [cancelling, setCancelling] = useState<OvertimeRequest | null>(null);
   const [cancellingLeave, setCancellingLeave] = useState<LeaveRequest | null>(null);
+  const [correctionAction, setCorrectionAction] = useState<CorrectionAction | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
   const hasMountedTabs = useRef(false);
   const activeTab = formTab(params.get("tab"));
@@ -327,7 +349,12 @@ export function HrForms() {
     <Panel key={activeTab} className={`hr-form-section hr-form-request-panel hr-form-request-panel-${activeTab}${hasMountedTabs.current ? " hr-form-tab-transition" : ""}`}>
       {activeError ? null : activeTab === "leave" ? <div className="hr-form-request-list">{filteredLeaves.slice(0, visibleCount).map((item) => <LeaveRequestCard key={item.request.id} item={item} onCancel={setCancellingLeave} />)}</div> : activeTab === "overtime" ? <div className="hr-form-request-list">{filteredOvertime.slice(0, visibleCount).map((item) => <OvertimeRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/overtime?request=${encodeURIComponent(request.request.id)}`)} onCancel={setCancelling} />)}</div> : <div className="hr-form-request-list">{filteredCorrections.slice(0, visibleCount).map((request) => <article className="hr-form-request-card" key={request.id}>
         <RequestSummary request={request} />
-        {request.status === "draft" ? <Button variant="secondary" onClick={() => navigate(`/forms/new?request=${encodeURIComponent(request.id)}`)}>繼續編輯</Button> : null}
+        {request.status === "draft" ? <div className="hr-form-request-actions">
+          <Button variant="secondary" className="hr-action-update" onClick={() => navigate(`/forms/new?request=${encodeURIComponent(request.id)}`)}>繼續編輯</Button>
+          <Button variant="secondary" onClick={() => setCorrectionAction({ request, mode: "delete" })}>刪除草稿</Button>
+        </div> : request.status === "pending" ? <div className="hr-form-request-actions">
+          <Button variant="secondary" onClick={() => setCorrectionAction({ request, mode: "cancel" })}>取消申請</Button>
+        </div> : null}
       </article>)}</div>}
       {!isLoading && !activeError && activeCount === 0 ? <div className="hr-form-empty-state"><strong>{search || statusFilter !== "all" ? "找不到符合條件的申請" : "目前沒有申請紀錄"}</strong><p className="muted">{search || statusFilter !== "all" ? "請調整搜尋文字或狀態篩選。" : "點右上角的＋開始新增申請。"}</p></div> : null}
       {hasMore ? <div ref={sentinelRef} className="hr-form-load-sentinel" aria-live="polite">載入更多申請…</div> : activeCount > 0 ? <div className="hr-form-list-end">已顯示全部申請</div> : null}
@@ -335,6 +362,7 @@ export function HrForms() {
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
     {cancelling ? <OvertimeCancelDialog item={cancelling} onClose={() => setCancelling(null)} /> : null}
     {cancellingLeave ? <LeaveCancelDialog item={cancellingLeave} onClose={() => setCancellingLeave(null)} /> : null}
+    {correctionAction ? <CorrectionActionDialog action={correctionAction} onClose={() => setCorrectionAction(null)} /> : null}
   </div>;
 }
 
@@ -480,6 +508,7 @@ export function HrClockCorrectionForm() {
   const [reason, setReason] = useState("");
   const [approverUserId, setApproverUserId] = useState("");
   const [localError, setLocalError] = useState("");
+  const [saving, setSaving] = useState(false);
   const approvers = useHrQuery<FormApproversResponse>("/me/form-approvers");
   const existing = useHrQuery<{ request: FormRequest }>(`/me/form-requests/${encodeURIComponent(requestId ?? "")}`, Boolean(requestId));
   const save = useHrWrite();
@@ -499,48 +528,72 @@ export function HrClockCorrectionForm() {
     if (!requestId && !approverUserId && approvers.data?.defaultApproverUserId) setApproverUserId(approvers.data.defaultApproverUserId);
   }, [approverUserId, approvers.data?.defaultApproverUserId, requestId]);
 
-  async function submit(saveAndSubmit: boolean) {
+  async function submit() {
     setLocalError("");
+    if (!correctionDate || !requestedTime) {
+      setLocalError("請填寫補打卡日期與時間。");
+      return;
+    }
+    const now = taipeiInputNow();
+    if (`${correctionDate}T${requestedTime}` > `${now.date}T${now.time}`) {
+      setLocalError("補打卡時間不可晚於現在。");
+      return;
+    }
+    if (!reason.trim()) {
+      setLocalError("請填寫申請原因。");
+      return;
+    }
     const values = { correctionDate, requestedTime, requestedEventKind, reason, approverUserId: approverUserId || null };
+    setSaving(true);
+    let savedId: string | null = null;
     try {
+      // API 仍是「先存成草稿、再送出」兩步；畫面只給一顆送出鈕，草稿只會在第二步失敗時留下來。
       const saved = await save.mutateAsync({ path: requestId ? `/me/form-requests/${requestId}` : "/me/form-requests", method: requestId ? "PATCH" : "POST", values });
-      if (saveAndSubmit) await save.mutateAsync({ path: `/me/form-requests/${saved.id}/submit`, method: "POST", values: {} });
+      savedId = saved.id;
+      await save.mutateAsync({ path: `/me/form-requests/${saved.id}/submit`, method: "POST", values: {} });
       navigate("/forms?tab=clock_correction", { replace: true, state: { from: location.pathname, transition: "back" } });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : "申請單儲存失敗，請稍後再試。");
+      // 草稿已經存進去但送出失敗時，把網址換成那張草稿；不然再按一次會多建一張。
+      if (savedId && !requestId) navigate(`/forms/new?request=${encodeURIComponent(savedId)}`, { replace: true });
+    } finally {
+      setSaving(false);
     }
   }
 
-  if (existing.isPending) return <div className="page hr-form-page"><FormPageHeader title="補打卡申請單" description="正在載入申請內容…" returnTo="/forms?tab=clock_correction" /><p className="muted">載入申請單…</p></div>;
+  // 沒帶 request 時這個 query 是停用的，停用的 query 會一直停在 pending；只有編輯草稿才需要等它。
+  if (requestId && existing.isPending) return <div className="page hr-form-page"><FormPageHeader title="補打卡申請單" description="正在載入申請內容…" returnTo="/forms?tab=clock_correction" /><p className="muted">載入申請單…</p></div>;
   if (existing.error) return <div className="page hr-form-page"><FormPageHeader title="補打卡申請單" description="無法載入這份申請。" returnTo="/forms?tab=clock_correction" /><Alert tone="danger">{existing.error.message}</Alert></div>;
-  if (existing.data?.request.status !== undefined && existing.data.request.status !== "draft") return <div className="page hr-form-page"><FormPageHeader title="補打卡申請單" description="這份申請已送出。" returnTo="/forms?tab=clock_correction" /><Alert tone="info">這份申請單已送出，無法再修改。</Alert></div>;
+  if (existing.data?.request.status !== undefined && existing.data.request.status !== "draft") {
+    const closed = existing.data.request.status === "cancelled" ? "已取消" : "已送出";
+    return <div className="page hr-form-page"><FormPageHeader title="補打卡申請單" description={`這份申請${closed}。`} returnTo="/forms?tab=clock_correction" /><Alert tone="info">這份申請單{closed}，無法再修改。</Alert></div>;
+  }
+  // 正在編輯草稿時回列表要直接看得到那張草稿。
+  const returnTo = requestId ? "/forms?tab=clock_correction&status=draft" : "/forms?tab=clock_correction";
 
   const approverOptions = [
     { label: "請選擇審核者", value: "" },
     ...(approvers.data?.approvers ?? []).map((approver) => ({ label: approver.employeeNumber ? `${approver.employeeNumber}・${approver.name}` : approver.name, value: approver.id })),
   ];
   return <div className="page hr-form-page">
-    <FormPageHeader title="補打卡申請單" description="補登實際應出勤時間，送出後由指定審核者確認。" returnTo="/forms?tab=clock_correction" />
+    <FormPageHeader title="補打卡申請單" description="補登實際應出勤時間，送出後由指定審核者確認。" returnTo={returnTo} />
     <Panel>
-      <div className="hr-form-type-card"><span className="hr-form-type-icon">補</span><div><strong>補打卡</strong><small>目前開放的表單</small></div></div>
       <div className="hr-form-fields">
         <div className="hr-form-field-row">
-          <TextField label="補打卡日期" required type="date" value={correctionDate} onChange={(event) => setCorrectionDate(event.target.value)} />
-          <TextField label="補打卡時間" required type="time" value={requestedTime} onChange={(event) => setRequestedTime(event.target.value)} />
+          <TextField label="補打卡日期" required type="date" max={initial.date} value={correctionDate} disabled={saving} onChange={(event) => setCorrectionDate(event.target.value)} />
+          <TextField label="補打卡時間（台北時間）" required type="time" value={requestedTime} disabled={saving} onChange={(event) => setRequestedTime(event.target.value)} />
         </div>
-        <SelectField label="補登類型" required value={requestedEventKind} onChange={(event) => setRequestedEventKind(event.target.value as "clock_in" | "clock_out")} options={[{ label: "上班打卡", value: "clock_in" }, { label: "下班打卡", value: "clock_out" }]} />
-        <SelectField label="審核者" required value={approverUserId} searchable onChange={(event) => setApproverUserId(event.target.value)} options={approverOptions} hint={approvers.data?.defaultApproverUserId ? "預設帶入後台設定的員工主管，可依需要改選其他審核者。" : "尚未設定員工主管，請先選擇一位啟用中的員工審核。"} />
+        <SelectField label="補登類型" required value={requestedEventKind} disabled={saving} onChange={(event) => setRequestedEventKind(event.target.value as "clock_in" | "clock_out")} options={[{ label: "上班打卡", value: "clock_in" }, { label: "下班打卡", value: "clock_out" }]} />
+        <SelectField label="審核者" required value={approverUserId} searchable disabled={saving || approvers.isPending} onChange={(event) => setApproverUserId(event.target.value)} options={approverOptions} hint={approvers.data?.defaultApproverUserId ? "預設帶入後台設定的員工主管，可依需要改選其他審核者。" : "尚未設定員工主管，請先選擇一位啟用中的員工審核。"} />
         <Field label="申請原因" required hint="最多 1000 字，請說明未能正常打卡的原因。">
-          <textarea required maxLength={1000} rows={5} value={reason} onChange={(event) => setReason(event.target.value)} placeholder="例如：手機當日故障，抵達辦公位置後無法完成打卡。" />
+          <textarea required maxLength={1000} rows={5} value={reason} disabled={saving} onChange={(event) => setReason(event.target.value)} placeholder="例如：手機當日故障，抵達辦公位置後無法完成打卡。" />
         </Field>
       </div>
       {approvers.error ? <Alert tone="danger">{approvers.error.message}</Alert> : null}
       {localError ? <Alert tone="danger">{localError}</Alert> : null}
-      {save.isPending ? <p className="form-hint">正在儲存申請單…</p> : null}
       <div className="hr-form-actions">
-        <Button variant="secondary" disabled={save.isPending} onClick={() => navigate("/forms?tab=clock_correction", { state: { transition: "back" } })}>取消</Button>
-        <Button variant="secondary" className={requestId ? "hr-action-update" : "add-action"} disabled={save.isPending} onClick={() => { void submit(false); }}>儲存草稿</Button>
-        <Button className="add-action" disabled={save.isPending || !approverUserId} onClick={() => { void submit(true); }}>送出申請</Button>
+        <Button variant="secondary" disabled={saving} onClick={() => navigate(returnTo, { state: { transition: "back" } })}>取消</Button>
+        <Button className="add-action" loading={saving} loadingLabel="送出中…" disabled={!approverUserId} onClick={() => { void submit(); }}>送出補打卡申請</Button>
       </div>
     </Panel>
   </div>;

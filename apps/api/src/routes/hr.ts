@@ -1,7 +1,7 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } from "@rueisiang/auth";
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
-  createHrCompensationVersion, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
+  cancelHrFormRequest, createHrCompensationVersion, deleteHrFormRequestDraft, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
   createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
@@ -703,6 +703,8 @@ export const hr = new Hono<AppEnv>()
     return c.json(await updateHrFormRequest(c.get("db"), c.req.param("id"), c.get("user").id, input, c.get("user")));
   })
   .post("/me/form-requests/:id/submit", async (c) => c.json(await submitHrFormRequest(c.get("db"), c.req.param("id"), c.get("user").id, c.get("user"))))
+  .post("/me/form-requests/:id/cancel", async (c) => c.json(await cancelHrFormRequest(c.get("db"), c.req.param("id"), c.get("user").id, c.get("user"))))
+  .delete("/me/form-requests/:id", async (c) => c.json(await deleteHrFormRequestDraft(c.get("db"), c.req.param("id"), c.get("user").id, c.get("user"))))
   .post("/me/form-requests/:id/review", async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
