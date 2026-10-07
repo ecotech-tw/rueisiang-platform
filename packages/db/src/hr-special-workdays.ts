@@ -173,6 +173,41 @@ function specialWorkdayPayrollReference(assignmentId: AnyColumn | SQL | string) 
   )`;
 }
 
+/**
+ * 已解除、而且沒有任何薪資依據的版本。解除是「回到建立這一版之前」，所以這種版本直接清掉，
+ * 版本數與下一個版本編號才會真的退回去；稽核軌跡留在 activity_events。
+ * 薪資明細記過這一版的 ID，或這一版涵蓋的日期已有套用進過薪資試算，就保留成已解除，來源才追得回去。
+ */
+const PURGEABLE_SPECIAL_WORKDAY_VERSION = sql`voided_version.voided_at IS NOT NULL
+  AND NOT EXISTS (
+    SELECT 1 FROM hr_payslip_lines AS payslip_line
+    CROSS JOIN json_each(
+      CASE WHEN json_valid(payslip_line.explanation_json)
+        THEN coalesce(json_extract(payslip_line.explanation_json, '$.specialWorkdayRuleSnapshots'), '[]')
+        ELSE '[]'
+      END
+    ) AS rule_snapshot
+    WHERE json_extract(rule_snapshot.value, '$.ruleVersionId') = voided_version.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM hr_special_workday_assignments AS covered_assignment
+    WHERE covered_assignment.rule_id = voided_version.rule_id
+      AND covered_assignment.work_date >= voided_version.valid_from
+      AND (voided_version.valid_to IS NULL OR covered_assignment.work_date < voided_version.valid_to)
+      AND ${specialWorkdayPayrollReference(sql`covered_assignment.id`)}
+  )`;
+
+function purgeVoidedSpecialWorkdayVersions(ruleId: string) {
+  const purgeable = sql`(SELECT voided_version.id FROM hr_special_workday_rule_versions AS voided_version WHERE voided_version.rule_id=${ruleId} AND ${PURGEABLE_SPECIAL_WORKDAY_VERSION})`;
+  return [
+    // 版本彼此有自我外鍵（ON DELETE RESTRICT），先放開指向要清掉那幾版的指標。
+    sql`UPDATE hr_special_workday_rule_versions SET superseded_by_version_id=NULL WHERE rule_id=${ruleId} AND superseded_by_version_id IN ${purgeable} RETURNING id`,
+    sql`DELETE FROM hr_special_workday_overtime_rules WHERE rule_version_id IN ${purgeable} RETURNING id`,
+    sql`DELETE FROM hr_special_workday_allowances WHERE rule_version_id IN ${purgeable} RETURNING id`,
+    sql`DELETE FROM hr_special_workday_rule_versions WHERE id IN ${purgeable} RETURNING id`,
+  ];
+}
+
 function resolvedAllowanceSnapshot(assignment: { allowanceSnapshotJson: string; allowanceQuantity: number }, allowances: Array<{ itemName: string; unitAmountMinor: number }>) {
   const quantitiesByName = new Map(parseSpecialWorkdayAllowanceSnapshot(assignment.allowanceSnapshotJson, assignment.allowanceQuantity).map((item) => [item.itemName, item.quantity]));
   return JSON.stringify(allowances.map((allowance) => ({ itemName: allowance.itemName, unitAmountMinor: allowance.unitAmountMinor, quantity: quantitiesByName.get(allowance.itemName) ?? assignment.allowanceQuantity })));
@@ -267,7 +302,9 @@ export async function createHrSpecialWorkdayRuleVersion(db: Database, ruleId: st
   const [rule] = await db.select({ id: hrSpecialWorkdayRules.id, name: hrSpecialWorkdayRules.name, active: hrSpecialWorkdayRules.active }).from(hrSpecialWorkdayRules).where(eq(hrSpecialWorkdayRules.id, ruleId)).limit(1);
   if (!rule) throw new HrError(404, "找不到特殊上班日規則。 ");
   if (!rule.active) throw new HrError(409, "規則已停用，不能建立新版本。 ");
-  // 解除後要能在原生效日建立修正版，所以生效日只和仍有效的最新版本比較；編號則永遠取所有版本最大值。
+  // 這條規則在「解除即清掉」之前留下的已解除版本，先清掉再編號，新版本才會接在仍存在的版本後面。
+  for (const statement of purgeVoidedSpecialWorkdayVersions(ruleId)) await db.run(statement);
+  // 解除後要能在原生效日建立修正版，所以生效日只和仍有效的最新版本比較；編號取仍存在的版本最大值（含因薪資保留的已解除版本）。
   const [latest] = await db.select({ id: hrSpecialWorkdayRuleVersions.id, versionNumber: hrSpecialWorkdayRuleVersions.versionNumber, validFrom: hrSpecialWorkdayRuleVersions.validFrom, validTo: hrSpecialWorkdayRuleVersions.validTo }).from(hrSpecialWorkdayRuleVersions)
     .where(and(eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId), sql`${hrSpecialWorkdayRuleVersions.voidedAt} IS NULL`)).orderBy(desc(hrSpecialWorkdayRuleVersions.versionNumber)).limit(1);
   if (latest && input.validFrom <= latest.validFrom) throw new HrError(400, "新規則版本生效日必須晚於既有版本。 ");
@@ -303,7 +340,7 @@ export async function createHrSpecialWorkdayRuleVersion(db: Database, ruleId: st
   return { id: ruleId, versionId, versionNumber: number };
 }
 
-/** 解除最新版本但不刪除資料；已套用日期仍保留原本的規則與快照。 */
+/** 解除最新版本並回到上一版；沒有薪資依據的版本會一併清掉，已套用日期改跟隨上一版。 */
 export async function voidHrSpecialWorkdayRuleVersion(db: Database, ruleId: string, versionId: string, actor: HrActor) {
   const [version] = await db.select({ id: hrSpecialWorkdayRuleVersions.id, ruleId: hrSpecialWorkdayRuleVersions.ruleId, versionNumber: hrSpecialWorkdayRuleVersions.versionNumber, validFrom: hrSpecialWorkdayRuleVersions.validFrom, voidedAt: hrSpecialWorkdayRuleVersions.voidedAt, active: hrSpecialWorkdayRules.active }).from(hrSpecialWorkdayRuleVersions)
     .innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayRuleVersions.ruleId)).where(and(eq(hrSpecialWorkdayRuleVersions.id, versionId), eq(hrSpecialWorkdayRuleVersions.ruleId, ruleId))).limit(1);
@@ -326,8 +363,9 @@ export async function voidHrSpecialWorkdayRuleVersion(db: Database, ruleId: stri
     sql`UPDATE hr_special_workday_rule_versions SET valid_to=COALESCE(superseded_valid_to, CASE WHEN valid_to=${version.validFrom} THEN NULL ELSE valid_to END), superseded_valid_to=NULL, superseded_by_version_id=NULL
       WHERE id=${previous.id} AND (superseded_by_version_id=${versionId} OR (superseded_by_version_id IS NULL AND valid_to=${version.validFrom}))
       RETURNING id`,
+    ...purgeVoidedSpecialWorkdayVersions(ruleId),
     sql`UPDATE hr_special_workday_rules SET updated_at=CURRENT_TIMESTAMP, revision=revision + 1 WHERE id=${ruleId} RETURNING id`,
-  ], ruleId, actor, "special_workday_rule_version_voided", "特殊上班日規則版本已被其他人變更，請重新整理後再試。 ", { allowEmptyMutationIndexes: new Set([1]) });
+  ], ruleId, actor, "special_workday_rule_version_voided", "特殊上班日規則版本已被其他人變更，請重新整理後再試。 ", { allowEmptyMutationIndexes: new Set([1, 2, 3, 4, 5]) });
   return { ruleId, versionId, previousVersionId: previous.id, status: "voided" as const };
 }
 
