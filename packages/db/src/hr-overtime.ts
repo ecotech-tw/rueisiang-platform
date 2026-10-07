@@ -281,17 +281,31 @@ export async function updateHrOvertimeRequest(db: Database, id: string, input: H
   }
 }
 
+/**
+ * 取消就是把申請刪掉，不留一列 cancelled：留著的列只會佔住時段、讓申請紀錄多出一堆
+ * 不會再有人處理的資料。誰在什麼時候取消了哪一筆，由稽核事件的快照保存。
+ */
 export async function cancelHrOvertimeRequest(db: Database, id: string, actor: HrActor, options: HrOvertimeCancellationOptions = {}) {
-  const [current] = await db.select({ employeeUserId: hrEmployments.employeeUserId, status: hrOvertimeRequests.status })
-    .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);
+  const [current] = await db.select({
+    employeeUserId: hrEmployments.employeeUserId,
+    employeeName: hrEmployeeName,
+    status: hrOvertimeRequests.status,
+    requestedStart: hrOvertimeRequests.requestedStart,
+    requestedEnd: hrOvertimeRequests.requestedEnd,
+    settlementKind: hrOvertimeRequests.settlementKind,
+    reason: hrOvertimeRequests.reason,
+  }).from(hrOvertimeRequests)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId))
+    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .where(eq(hrOvertimeRequests.id, id)).limit(1);
   if (!current) throw new HrError(404, "找不到加班申請。 ");
   if (!options.allowAny && current.employeeUserId !== actor.id) throw new HrError(404, "找不到可取消的加班申請。 ");
   if (current.status !== "pending" && current.status !== "approved") throw new HrError(409, "加班申請不存在或已完成處理。 ");
 
-  return writeHrMutation(db, sql`UPDATE hr_overtime_requests SET
-    status='cancelled', actual_start=NULL, actual_end=NULL, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP,
-    decision_reason='申請已取消', updated_at=CURRENT_TIMESTAMP
-    WHERE id=${id} AND status=${current.status} RETURNING id`, id, actor, "overtime_request_cancelled", "加班申請已變更或完成處理，請重新整理。 ");
+  const { employeeName, ...snapshot } = current;
+  return writeHrMutation(db, sql`DELETE FROM hr_overtime_requests WHERE id=${id} AND status=${current.status} RETURNING id`, id, actor, "overtime_request_cancelled", "加班申請已變更或完成處理，請重新整理。 ", {
+    activity: { entityLabel: employeeName, payload: snapshot, summary: "加班申請已取消並刪除" },
+  });
 }
 
 export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval) {

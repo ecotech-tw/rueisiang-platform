@@ -217,7 +217,7 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
   >
     <dl><dt>申請期間</dt><dd>{row.period}</dd><dt>申請內容</dt><dd>{row.detail}</dd><dt>原因</dt><dd>{row.reason}</dd></dl>
     {row.kind === "overtime" && !isApprovedCancellable ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><input type="datetime-local" step="60" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><input type="datetime-local" step="60" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
-    {isApprovedCancellable ? <p className="muted field-note">取消後這筆{REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。</p> : <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
+    {isApprovedCancellable ? <p className="muted field-note">{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</p> : <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
     {review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
   </Dialog>;
 }
@@ -283,8 +283,8 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
   const [employeeUserId, setEmployeeUserId] = useState("");
   const [date, setDate] = useState(taipeiToday);
   const [month, setMonth] = useState(() => taipeiToday().slice(0, 7));
-  const [startTime, setStartTime] = useState("");
-  const [startEdited, setStartEdited] = useState(false);
+  /** null 代表還沒手動改過，開始時間跟著班表的下班時間走。 */
+  const [manualStart, setManualStart] = useState<string | null>(null);
   const [hours, setHours] = useState("1");
   const [assigned, setAssigned] = useState<Record<string, number>>({});
   const [settlementKind, setSettlementKind] = useState<"pay" | "compensatory">("pay");
@@ -305,9 +305,9 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
   // 跨日班的下班時間落在隔天，套進「當天日期＋時間」會早一天，所以只帶入同一天的。
   const singleDay = mode === "single" ? days.find((day) => day.date === date) : undefined;
   const suggestedStart = singleDay?.startAt?.startsWith(date) ? singleDay.startAt.slice(11) : "";
-  useEffect(() => {
-    if (!startEdited && suggestedStart) setStartTime(suggestedStart);
-  }, [startEdited, suggestedStart]);
+  // 直接衍生，不用 effect 同步：查詢命中快取時下班時間字串可能跟上一天一樣，effect 不會重跑。
+  const startEdited = manualStart !== null;
+  const startTime = manualStart ?? suggestedStart;
   const start = date && startTime ? `${date}T${startTime}` : "";
   const end = start && minutes !== null ? addMinutes(start, minutes) : "";
   const startHint = !employeeUserId ? "選了員工會自動帶入下班時間" : daysLoading ? "查詢班表中…" : suggestedStart ? (startEdited ? `班表下班時間是 ${suggestedStart}` : "已帶入班表的下班時間") : singleDay ? "這天沒有可帶入的下班時間，請自行填寫" : undefined;
@@ -322,8 +322,7 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
 
   // 換員工或換日期後，原本帶入的下班時間與選好的日子都屬於上一個班表，留著會送出錯的時段。
   function resetDayDefaults() {
-    setStartTime("");
-    setStartEdited(false);
+    setManualStart(null);
     setAssigned({});
   }
   function toggleDay(day: string) {
@@ -361,7 +360,7 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
     {mode === "single" ? <>
       <div className="form-grid two">
         <TextField label="加班日期" type="date" required value={date} disabled={write.isPending} onChange={(event) => { setDate(event.target.value); resetDayDefaults(); }} />
-        <TextField label="開始時間" type="time" step={1800} required value={startTime} disabled={write.isPending} hint={startHint} onChange={(event) => { setStartTime(event.target.value); setStartEdited(true); }} />
+        <TextField label="開始時間" type="time" step={1800} required value={startTime} disabled={write.isPending} hint={startHint} onChange={(event) => setManualStart(event.target.value)} />
       </div>
       {presets}
       <div className="form-grid two">

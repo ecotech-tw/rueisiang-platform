@@ -408,11 +408,35 @@ describe("HR 申請中心", () => {
     const approvedForAdminId = (await approvedForAdmin.json() as { id: string }).id;
     expect((await request(`/hr/requests/overtime/${approvedForAdminId}/cancel`, "POST", {})).status).toBe(200);
 
-    const center = await (await request("/hr/requests")).json() as { overtime: Array<{ request: { id: string; status: string; actualStart: string | null; actualEnd: string | null } }> };
-    expect(center.overtime.find((item) => item.request.id === pendingId)?.request.status).toBe("cancelled");
-    expect(center.overtime.find((item) => item.request.id === approvedForEmployeeId)?.request).toMatchObject({ status: "cancelled", actualStart: null, actualEnd: null });
-    expect(center.overtime.find((item) => item.request.id === approvedForAdminId)?.request.status).toBe("cancelled");
-    expect((await request(`/hr/me/overtime/${approvedForEmployeeId}/cancel`, "POST", {}, employeeCookie)).status).toBe(409);
+    // 取消就是刪除：申請紀錄不留 cancelled 列，內容改由稽核事件的快照保存。
+    const center = await (await request("/hr/requests")).json() as { overtime: Array<{ request: { id: string } }> };
+    expect(center.overtime).toEqual([]);
+    expect((await request(`/hr/me/overtime/${approvedForEmployeeId}/cancel`, "POST", {}, employeeCookie)).status).toBe(404);
+    const audit = d1.sqlite.prepare("SELECT entity_label, payload_json FROM activity_events WHERE event_type='overtime_request_cancelled' AND entity_id=?").get(approvedForAdminId) as { entity_label: string; payload_json: string };
+    expect(audit.entity_label).toBe("申請員工");
+    expect(JSON.parse(audit.payload_json)).toMatchObject({ status: "approved", requestedStart: "2026-02-08 10:00:00", requestedEnd: "2026-02-08 12:00:00", settlementKind: "pay", reason: "管理端取消測試" });
+
+    // 刪掉之後同一個時段可以重新申請，單筆與批次都一樣。
+    const again = await request("/hr/requests/overtime", "POST", { employeeUserId: "employee", requestedStart: "2026-02-08T18:00", requestedEnd: "2026-02-08T20:00", settlementKind: "pay", reason: "" });
+    expect(again.status, await again.clone().text()).toBe(201);
+    const batchAgain = await request("/hr/requests/overtime/batch", "POST", { employeeUserId: "employee", settlementKind: "pay", reason: "", entries: [{ requestedStart: "2026-02-07T18:00", requestedEnd: "2026-02-07T20:00" }] });
+    expect(batchAgain.status, await batchAgain.clone().text()).toBe(201);
+  });
+
+  it("被駁回的加班申請保留紀錄，但不佔用時段", async () => {
+    await assignEmployee();
+    const slot = { requestedStart: "2026-02-09T18:00", requestedEnd: "2026-02-09T19:00", settlementKind: "pay", reason: "" };
+    const pending = await request("/hr/me/overtime", "POST", slot, employeeCookie);
+    expect(pending.status, await pending.clone().text()).toBe(201);
+    const pendingId = (await pending.json() as { id: string }).id;
+    expect((await request(`/hr/overtime/${pendingId}/review`, "POST", { decision: "rejected", comment: "時段不符" })).status).toBe(200);
+
+    const again = await request("/hr/requests/overtime", "POST", { employeeUserId: "employee", ...slot });
+    expect(again.status, await again.clone().text()).toBe(201);
+    const center = await (await request("/hr/requests")).json() as { overtime: Array<{ request: { status: string } }> };
+    expect(center.overtime.map((item) => item.request.status).sort()).toEqual(["approved", "rejected"]);
+    // 仍然有效的申請之間，唯一鍵照舊擋住完全相同的時段。
+    expect((await request("/hr/requests/overtime", "POST", { employeeUserId: "employee", ...slot })).status).toBe(409);
   });
 
   describe("補打卡申請", () => {
