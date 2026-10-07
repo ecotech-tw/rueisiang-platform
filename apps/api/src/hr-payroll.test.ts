@@ -10,12 +10,12 @@ const SECRET = "hr-payroll-test-secret-test-secret";
 let d1: LocalD1;
 let cookies: Record<string, string>;
 
-function healthDatasetMetadataResponse() {
-  return new Response(JSON.stringify({ distribution: [{
-    resourceID: "A21030000I-B1000A-00G",
-    resourceDescription: "115年1月全民健康保險投保金額分級表",
-    format: "CSV",
-  }] }));
+function healthDatasetMetadataResponse(distribution = [{
+  resourceID: "A21030000I-B1000A-00G",
+  resourceDescription: "115年1月全民健康保險投保金額分級表",
+  format: "CSV",
+}]) {
+  return new Response(JSON.stringify({ distribution }));
 }
 
 async function request(path: string, method = "GET", payload?: Record<string, unknown>) {
@@ -53,8 +53,8 @@ describe("HR 薪資與勞健保", () => {
       const url = String(input);
       if (url.includes("iode0010")) return healthDatasetMetadataResponse();
       if (url.includes("mol.gov.tw")) return new Response(JSON.stringify([
-        { 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" },
-        { 身分別: "一般勞工", 投保薪資等級: "2", 月薪資總額: "29501元至30300元", 月投保薪資: "30300" },
+        { 適用起日: "1150101", 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" },
+        { 適用起日: "1150101", 身分別: "一般勞工", 投保薪資等級: "2", 月薪資總額: "29501元至30300元", 月投保薪資: "30300" },
       ]));
       return new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,29500,29500元以下\n第二組,2,30300,29501-30300\n");
     });
@@ -85,12 +85,33 @@ describe("HR 薪資與勞健保", () => {
     expect(synced.tables.filter((table) => table.status === "archived")).toHaveLength(0);
   });
 
+  it("指定下一年度時使用官方資料的年度欄位與對應 resource", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("iode0010")) return healthDatasetMetadataResponse([
+        { resourceID: "A21030000I-B1000A-00F", resourceDescription: "114年1月全民健康保險投保金額分級表", format: "CSV" },
+        { resourceID: "A21030000I-B1000A-00G", resourceDescription: "115年1月全民健康保險投保金額分級表", format: "CSV" },
+        { resourceID: "A21030000I-B1000A-00H", resourceDescription: "116年1月全民健康保險投保金額分級表", format: "CSV" },
+      ]);
+      if (url.includes("mol.gov.tw")) return new Response(JSON.stringify([
+        { 適用起日: "1160101", 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "31300元以下", 月投保薪資: "31300" },
+      ]));
+      return new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,31300,31300元以下\n");
+    });
+    const response = await request("/hr/insurance-brackets?year=2027");
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { tables: { scheme: string; brackets: { insuredAmount: number }[] }[] };
+    expect(body.tables.find((table) => table.scheme === "labor")?.brackets[0]?.insuredAmount).toBe(31300);
+    expect(body.tables.find((table) => table.scheme === "health")?.brackets[0]?.insuredAmount).toBe(31300);
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain("https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-B1000A-00H");
+  });
+
   it("並行同步同一份官方級距只保留一份待審閱版本", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       if (url.includes("iode0010")) return healthDatasetMetadataResponse();
       return url.includes("mol.gov.tw")
-        ? new Response(JSON.stringify([{ 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" }]))
+        ? new Response(JSON.stringify([{ 適用起日: "1150101", 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" }]))
         : new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,29500,29500元以下\n");
     });
     const responses = await Promise.all([

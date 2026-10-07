@@ -24,15 +24,11 @@ export interface HrInsuranceBracketTable {
 
 export class HrInsuranceRateError extends Error {}
 
+const LABOR_SOURCE_URL = "https://apiservice.mol.gov.tw/OdService/download/A17000000J-020014-rpF";
 const NHI_DATASET_METADATA_URL = "https://info.nhi.gov.tw/api/iode0010/v1/rest/dataset/A21030000I-B1000A";
 const NHI_DATASET_URL = "https://info.nhi.gov.tw/api/iode0000s01/Dataset";
-const OFFICIAL_SOURCES: Record<number, { labor: string }> = {
-  // 勞動部目前以固定 resource 提供最新資料；若 resource 變更，只需在這裡更新該年度來源。
-  // 健保署的 resource ID 每年遞增，不能把某一年的尾碼當成下一年的規則，改由官方資料集索引查找。
-  2026: {
-    labor: "https://apiservice.mol.gov.tw/OdService/download/A17000000J-020014-rpF",
-  },
-};
+// 勞動部 resource 會更新成最新年度，解析時用「適用起日」驗證，避免把最新資料冒充成指定年度。
+// 健保署的 resource ID 每年遞增，不能把某一年的尾碼當成下一年的規則，改由官方資料集索引查找。
 
 function numberValue(value: string): number {
   const parsed = Number(value.replaceAll(",", "").replaceAll("元", "").trim());
@@ -51,13 +47,16 @@ function salaryRange(value: string): { lowerSalary: number; upperSalary: number 
 
 function parseLaborRows(value: unknown, sourceUrl: string, year: number): HrInsuranceBracketTable {
   if (!Array.isArray(value)) throw new HrInsuranceRateError("勞動部級距資料格式不正確。");
-  const rows = value.filter((row): row is Record<string, string> => Boolean(row) && typeof row === "object" && (row as Record<string, unknown>)["身分別"] === "一般勞工");
+  const effectiveDate = `${year - 1911}0101`;
+  const rows = value.filter((row): row is Record<string, string> => Boolean(row) && typeof row === "object"
+    && (row as Record<string, unknown>)["身分別"] === "一般勞工"
+    && (row as Record<string, unknown>)["適用起日"] === effectiveDate);
   const brackets = rows.map((row) => ({
     level: numberValue(row["投保薪資等級"] ?? ""),
     ...salaryRange(row["月薪資總額"] ?? ""),
     insuredAmount: numberValue(row["月投保薪資"] ?? ""),
   }));
-  if (!brackets.length) throw new HrInsuranceRateError("勞動部級距資料沒有一般勞工級距。");
+  if (!brackets.length) throw new HrInsuranceRateError(`勞動部沒有民國 ${year - 1911} 年一般勞工級距資料。`);
   return { scheme: "labor", year, sourceUrl, fetchedAt: new Date().toISOString(), brackets };
 }
 
@@ -127,10 +126,8 @@ async function resolveHealthSourceUrl(year: number, fetcher: typeof fetch): Prom
 
 /** 從官方開放資料即時取得級距；資料失敗時不自行猜測法定金額。 */
 export async function fetchHrInsuranceBrackets(year: number, fetcher: typeof fetch = fetch): Promise<HrInsuranceBracketTable[]> {
-  const laborUrl = OFFICIAL_SOURCES[year]?.labor;
-  if (!laborUrl) throw new HrInsuranceRateError(`尚未設定民國 ${year - 1911} 年的官方級距資料來源。`);
   const sources: Array<[HrInsuranceScheme, string]> = [
-    ["labor", laborUrl],
+    ["labor", LABOR_SOURCE_URL],
     ["health", await resolveHealthSourceUrl(year, fetcher)],
   ];
   const results = await Promise.all(sources.map(async ([scheme, url]) => {
