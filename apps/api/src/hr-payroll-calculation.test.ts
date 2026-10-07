@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import { chunks, createDatabase } from "@rueisiang/db";
@@ -1511,7 +1513,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-overtime-zero" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
-    const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }> }> } };
+    const body = await payroll.json() as { run: { runId: string; employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }> }> } };
     const overtimeLine = body.run.employees[0]!.lines.find((line) => line.lineKey === "overtime");
     expect(overtimeLine).toMatchObject({
       amountMinor: 0,
@@ -1522,9 +1524,17 @@ describe("HR 薪資與櫃點獎金試算", () => {
     });
 
     /*
-     * 刪除與清理的保護是照薪資快照、薪資明細的 JSON 形狀去找 ID 的。這一段用真正試算寫出來的資料驗，
-     * 不是手寫的快照：哪天試算改了鍵名，保護會安靜地全部失效，要有一個測試跟著紅。
+     * 刪除與清理的保護靠試算寫進 hr_payroll_special_workday_sources 的索引列。這一段用真正試算寫出來的資料驗，
+     * 不是手寫的列：哪天試算改了快照的鍵名，索引會安靜地變成空的、保護全部失效，要有一個測試跟著紅。
      */
+    const runId = body.run.runId;
+    const sourceRows = () => d1.sqlite.prepare("SELECT payroll_run_id, assignment_id, rule_id, rule_version_id, work_date FROM hr_payroll_special_workday_sources ORDER BY assignment_id").all();
+    const written = sourceRows();
+    expect(written).toEqual([expect.objectContaining({ payroll_run_id: runId, rule_id: ruleBody.id, rule_version_id: versionId, work_date: "2026-09-04" })]);
+    // 回填 migration 讀的是同一份快照與明細：對真正的試算結果重跑一次，要得到跟試算當下寫的一模一樣的列。
+    d1.sqlite.exec("DELETE FROM hr_payroll_special_workday_sources");
+    d1.sqlite.exec(readFileSync(fileURLToPath(new URL("../../../packages/db/migrations/0211_backfill_payroll_special_workday_sources.sql", import.meta.url)), "utf8"));
+    expect(sourceRows()).toEqual(written);
     const listedAssignments = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string; ruleId: string }; includedInPayroll: boolean }> };
     const assignment = listedAssignments.assignments.find((item) => item.assignment.ruleId === ruleBody.id)!;
     expect(assignment.includedInPayroll).toBe(true);
@@ -1534,6 +1544,10 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await rules()).payrollReferenced).toBe(true);
     const deleteRule = await request(`/hr/special-workdays/rules/${ruleBody.id}`, "DELETE", { revision: (await rules()).rule.revision });
     expect(deleteRule.status, await deleteRule.clone().text()).toBe(409);
+    // 結帳再撤回只是把批次退回未結算，薪資依據還在，套用仍然不能刪。
+    expect((await request(`/hr/payroll/runs/${runId}/close`, "POST", {})).status).toBe(200);
+    expect((await request(`/hr/payroll/runs/${runId}/withdraw`, "POST", { reason: "特殊日設錯，撤回重算" })).status).toBe(200);
+    expect((await request(`/hr/special-workdays/assignments/${assignment.assignment.id}`, "DELETE", { ruleId: ruleBody.id, employmentId: "dev-employment-chen", workerId: null, workDate: "2026-09-04" })).status).toBe(409);
     // 試算用的是第一版；之後才建立、涵蓋同一天的第二版沒有被任何試算用過，解除時要真的清掉。
     const second = await request(`/hr/special-workdays/rules/${ruleBody.id}/versions`, "POST", { name: "特殊日零元加班", validFrom: "2026-09-02", wageKind: "fixed_hourly", fixedAmountMinor: 30000, overtimeRules: [], allowances: [] });
     expect(second.status, await second.clone().text()).toBe(201);
@@ -1542,6 +1556,16 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(voided.status, await voided.clone().text()).toBe(200);
     expect(await voided.json()).toMatchObject({ removed: true });
     expect((await rules()).versions).toEqual([expect.objectContaining({ id: versionId, voidedAt: null })]);
+
+    // 把撤回的批次刪掉之後，那筆套用與規則就不再有薪資依據，可以刪。
+    const deletedRun = await request(`/hr/payroll/runs/${runId}`, "DELETE");
+    expect(deletedRun.status, await deletedRun.clone().text()).toBe(200);
+    expect(sourceRows()).toEqual([]);
+    expect((await rules()).payrollReferenced).toBe(false);
+    const released = await request(`/hr/special-workdays/assignments/${assignment.assignment.id}`, "DELETE", { ruleId: ruleBody.id, employmentId: "dev-employment-chen", workerId: null, workDate: "2026-09-04" });
+    expect(released.status, await released.clone().text()).toBe(200);
+    const releasedRule = await request(`/hr/special-workdays/rules/${ruleBody.id}`, "DELETE", { revision: (await rules()).rule.revision });
+    expect(releasedRule.status, await releasedRule.clone().text()).toBe(200);
   });
 
   it("後端拒絕同一敘薪版本的重複薪資項目名稱", async () => {
