@@ -3846,12 +3846,9 @@
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
 .hr-payroll-records-panel { display: grid; gap: 14px; }
-.hr-payroll-page { position: relative; }
+.hr-payroll-page-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .hr-payroll-job-progress {
-  position: absolute;
-  top: 56px;
-  right: 0;
-  z-index: 5;
+  position: static;
   display: inline-flex;
   align-items: center;
   gap: 9px;
@@ -4199,6 +4196,7 @@
 @media (max-width: 760px) {
   .hr-payroll-table-region { flex-direction: column; }
   .hr-payroll-mobile-select-all { flex: none; }
+  .hr-payroll-page-actions { align-items: center; }
   .hr-payroll-job-recovery-item { align-items: flex-start; }
   .hr-payroll-record-filter .search-input,
   .hr-payroll-record-filter input:not(.search-input),
@@ -4253,6 +4251,12 @@
 @media (max-width: 480px) {
   .hr-payroll-job-recovery-item { align-items: stretch; flex-direction: column; }
   .hr-payroll-job-recovery-item .ghost-button { align-self: flex-start; }
+}
+
+@media (max-width: 420px) {
+  .hr-payroll-page > .page-head-row { flex-wrap: wrap; gap: 8px; }
+  .hr-payroll-page > .page-head-row > :first-child { flex: 1 1 100%; }
+  .hr-payroll-page > .page-head-row > :last-child { margin-left: auto; }
 }
 
 @media (max-width: 400px) {
