@@ -91,6 +91,31 @@ export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   check("ck_hr_payroll_runs_counts", sql`${table.expectedCount} >= 0 AND ${table.completedCount} BETWEEN 0 AND ${table.expectedCount}`),
 ]);
 
+/**
+ * 薪資批次用過哪些特殊上班日套用與規則版本，一列一筆。
+ *
+ * 這是 hr_payroll_runs.source_snapshot_json 裡 specialWorkdays 的索引，不是第二份來源：批次建立時照快照寫入，
+ * 批次刪除時一起刪。存在的理由只有一個——「這筆套用／這一版還能不能刪」每次開頁面、每次刪除都要問，
+ * 從 JSON 找就得把所有批次的快照重新解析一遍，批次越多越慢。
+ *
+ * assignment_id／rule_id／rule_version_id 不設外鍵：歷史批次回填進來的 ID 可能指向早就不在的列，
+ * 設了外鍵回填就會失敗。能不能刪由 hr-special-workdays.ts 判斷。
+ * rule_version_id 是 NULL 的列來自沒記版本的舊快照，只知道當時的規則與日期（連這兩個都沒有時是 NULL）。
+ */
+export const hrPayrollSpecialWorkdaySources = sqliteTable("hr_payroll_special_workday_sources", {
+  id: text("id").primaryKey(),
+  payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
+  assignmentId: text("assignment_id"),
+  ruleId: text("rule_id"),
+  ruleVersionId: text("rule_version_id"),
+  workDate: text("work_date"),
+}, (table) => [
+  index("idx_hr_payroll_special_workday_sources_run").on(table.payrollRunId),
+  index("idx_hr_payroll_special_workday_sources_assignment").on(table.assignmentId),
+  index("idx_hr_payroll_special_workday_sources_version").on(table.ruleVersionId),
+  check("ck_hr_payroll_special_workday_sources_target", sql`${table.assignmentId} IS NOT NULL OR ${table.ruleVersionId} IS NOT NULL`),
+]);
+
 /** 撤回原因是稽核紀錄；批次退回 ready 並釋放當期 claim，供重新覆核、試算或刪除。一般不可改寫 marker，刪除整批時由受控交易一併清除。 */
 export const hrPayrollWithdrawals = sqliteTable("hr_payroll_withdrawals", {
   payrollRunId: text("payroll_run_id").primaryKey().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),

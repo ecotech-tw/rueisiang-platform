@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { desc, eq } from "drizzle-orm";
 import { createDatabase, parseSpecialWorkdayAllowanceSnapshot, specialWorkdayAllowanceTotal, syncSystemRoles } from "@rueisiang/db";
-import { activityEvents, hrInsuranceVersions, hrPayrollPeriods, hrPayrollRuns, hrSpecialWorkdayRuleVersions, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { activityEvents, hrInsuranceVersions, hrPayrollPeriods, hrPayrollRuns, hrPayrollSpecialWorkdaySources, hrSpecialWorkdayRuleVersions, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -649,6 +649,8 @@ describe("HR 薪資與勞健保", () => {
     const db = createDatabase(d1 as never);
     await db.insert(hrPayrollPeriods).values({ id: "payroll-period-void-kept", periodKey: "2026-04", attendanceStart: "2026-04-01", attendanceEnd: "2026-05-01", createdBy: "admin" });
     await db.insert(hrPayrollRuns).values({ id: "payroll-run-void-kept", payrollPeriodId: "payroll-period-void-kept", versionNumber: 1, requestId: "payroll-request-void-kept", inputRevision: 1, sourceSnapshotJson: JSON.stringify({ specialWorkdays: [{ id: assignmentId }] }), engineVersion: "test", status: "ready", expectedCount: 0, completedCount: 0, createdBy: "admin" });
+    // 試算時會照來源快照寫索引列；這裡手動建批次，所以索引也要手動補。
+    await db.insert(hrPayrollSpecialWorkdaySources).values((({ id, ruleId = null, ruleVersionId = null, workDate = null }: { id: string; ruleId?: string | null; ruleVersionId?: string | null; workDate?: string | null }) => ({ id: "source-payroll-run-void-kept", payrollRunId: "payroll-run-void-kept", assignmentId: id, ruleId, ruleVersionId, workDate }))({ id: assignmentId }));
 
     const voided = await request(`/hr/special-workdays/rules/${firstBody.id}/versions/${secondBody.versionId}/void`, "POST", {});
     expect(voided.status, await voided.clone().text()).toBe(200);
@@ -678,6 +680,8 @@ describe("HR 薪資與勞健保", () => {
     const db = createDatabase(d1 as never);
     await db.insert(hrPayrollPeriods).values({ id: "payroll-period-moved", periodKey: "2026-04", attendanceStart: "2026-04-01", attendanceEnd: "2026-05-01", createdBy: "admin" });
     await db.insert(hrPayrollRuns).values({ id: "payroll-run-moved", payrollPeriodId: "payroll-period-moved", versionNumber: 1, requestId: "payroll-request-moved", inputRevision: 1, sourceSnapshotJson: JSON.stringify({ specialWorkdays: [{ id: assignmentId, ruleId: firstBody.id, ruleVersionId: secondBody.versionId }] }), engineVersion: "test", status: "ready", expectedCount: 0, completedCount: 0, createdBy: "admin" });
+    // 試算時會照來源快照寫索引列；這裡手動建批次，所以索引也要手動補。
+    await db.insert(hrPayrollSpecialWorkdaySources).values((({ id, ruleId = null, ruleVersionId = null, workDate = null }: { id: string; ruleId?: string | null; ruleVersionId?: string | null; workDate?: string | null }) => ({ id: "source-payroll-run-moved", payrollRunId: "payroll-run-moved", assignmentId: id, ruleId, ruleVersionId, workDate }))({ id: assignmentId, ruleId: firstBody.id, ruleVersionId: secondBody.versionId }));
 
     const moved = await request(`/hr/special-workdays/assignments/${assignmentId}`, "PATCH", { ruleId: otherBody.id, employmentId, workDate: "2026-04-03", allowanceQuantities: [] });
     expect(moved.status, await moved.clone().text()).toBe(200);
@@ -707,6 +711,8 @@ describe("HR 薪資與勞健保", () => {
     const db = createDatabase(d1 as never);
     await db.insert(hrPayrollPeriods).values({ id: "payroll-period-legacy", periodKey: "2026-04", attendanceStart: "2026-04-01", attendanceEnd: "2026-05-01", createdBy: "admin" });
     await db.insert(hrPayrollRuns).values({ id: "payroll-run-legacy", payrollPeriodId: "payroll-period-legacy", versionNumber: 1, requestId: "payroll-request-legacy", inputRevision: 1, sourceSnapshotJson: JSON.stringify({ specialWorkdays: [{ id: assignmentId, ruleId: firstBody.id, workDate: "2026-04-03" }] }), engineVersion: "test", status: "ready", expectedCount: 0, completedCount: 0, createdBy: "admin" });
+    // 試算時會照來源快照寫索引列；這裡手動建批次，所以索引也要手動補。
+    await db.insert(hrPayrollSpecialWorkdaySources).values((({ id, ruleId = null, ruleVersionId = null, workDate = null }: { id: string; ruleId?: string | null; ruleVersionId?: string | null; workDate?: string | null }) => ({ id: "source-payroll-run-legacy", payrollRunId: "payroll-run-legacy", assignmentId: id, ruleId, ruleVersionId, workDate }))({ id: assignmentId, ruleId: firstBody.id, workDate: "2026-04-03" }));
     expect((await request(`/hr/special-workdays/assignments/${assignmentId}`, "PATCH", { ruleId: otherBody.id, employmentId, workDate: "2026-04-20", allowanceQuantities: [] })).status).toBe(200);
 
     expect((await request(`/hr/special-workdays/rules/${firstBody.id}/versions/${secondBody.versionId}/void`, "POST", {})).status).toBe(200);
@@ -838,6 +844,8 @@ describe("HR 薪資與勞健保", () => {
     const db = createDatabase(d1 as never);
     await db.insert(hrPayrollPeriods).values({ id: "payroll-period-2026-04", periodKey: "2026-04", attendanceStart: "2026-04-01", attendanceEnd: "2026-05-01", createdBy: "admin" });
     await db.insert(hrPayrollRuns).values({ id: "payroll-run-special-reference", payrollPeriodId: "payroll-period-2026-04", versionNumber: 1, requestId: "payroll-request-special-reference", inputRevision: 1, sourceSnapshotJson: JSON.stringify({ specialWorkdays: [{ id: assignmentId }] }), engineVersion: "test", status: "ready", expectedCount: 0, completedCount: 0, createdBy: "admin" });
+    // 試算時會照來源快照寫索引列；這裡手動建批次，所以索引也要手動補。
+    await db.insert(hrPayrollSpecialWorkdaySources).values((({ id, ruleId = null, ruleVersionId = null, workDate = null }: { id: string; ruleId?: string | null; ruleVersionId?: string | null; workDate?: string | null }) => ({ id: "source-payroll-run-special-reference", payrollRunId: "payroll-run-special-reference", assignmentId: id, ruleId, ruleVersionId, workDate }))({ id: assignmentId }));
 
     const protectedAssignment = await request(`/hr/special-workdays/assignments/${assignmentId}`, "DELETE", { ruleId, employmentId: profile.employments[0]!.id, workerId: null, workDate: "2026-04-02" });
     expect(protectedAssignment.status, await protectedAssignment.clone().text()).toBe(409);

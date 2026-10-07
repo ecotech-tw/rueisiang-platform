@@ -5,6 +5,7 @@ import { activityRow } from "./activity.js";
 import { HrError, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployments } from "./schema/hr-people.js";
+import { hrPayrollSpecialWorkdaySources } from "./schema/hr-payroll-runs.js";
 import { hrScheduleWorkers, hrSpecialWorkdayAllowances, hrSpecialWorkdayAssignments, hrSpecialWorkdayOvertimeRules, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 
@@ -149,92 +150,39 @@ async function currentSpecialWorkdayVersions(db: Database, keys: SpecialWorkdayV
   return resolveSpecialWorkdayVersions(versions, keys);
 }
 
-/** 薪資來源快照裡的特殊上班日列：每列帶套用 ID（id）與試算當下解析到的版本 ID（ruleVersionId）。 */
-const PAYROLL_SNAPSHOT_SPECIAL_WORKDAYS = sql`hr_payroll_runs AS payroll_run
-  CROSS JOIN json_each(
-    CASE WHEN json_valid(payroll_run.source_snapshot_json)
-      THEN coalesce(json_extract(payroll_run.source_snapshot_json, '$.specialWorkdays'), '[]')
-      ELSE '[]'
-    END
-  ) AS special_workday`;
-
-function payslipLineExplanationList(path: string) {
-  return sql`hr_payslip_lines AS payslip_line
-  CROSS JOIN json_each(
-    CASE WHEN json_valid(payslip_line.explanation_json)
-      THEN coalesce(json_extract(payslip_line.explanation_json, ${path}), '[]')
-      ELSE '[]'
-    END
-  ) AS explanation_item`;
-}
-
 /**
- * 薪資來源快照與薪資明細都可能保存套用 ID；任一處留有 ID 就不能物理刪除。
- *
- * 寫成不相關的 IN 子查詢：SQLite 只會把所有快照攤開一次。寫成 EXISTS 的話，列表每一列
- * 都要重新解析一遍所有批次的快照。子查詢要濾掉 NULL，否則 NOT IN 會變成 NULL，
+ * 薪資批次用過的套用與版本記在 hr_payroll_special_workday_sources（試算時照來源快照寫入）。
+ * 這裡寫成不相關的 IN 子查詢，而且要濾掉 NULL：NOT IN 遇到 NULL 會變成 NULL，
  * 「沒被引用才刪」的那幾句就永遠刪不到東西。
  */
 function specialWorkdayPayrollReference(assignmentId: AnyColumn | SQL | string) {
-  return sql`(
-    ${assignmentId} IN (SELECT json_extract(special_workday.value, '$.id') FROM ${PAYROLL_SNAPSHOT_SPECIAL_WORKDAYS}
-      WHERE json_extract(special_workday.value, '$.id') IS NOT NULL)
-    OR ${assignmentId} IN (SELECT explanation_item.value FROM ${payslipLineExplanationList("$.assignmentIds")}
-      WHERE explanation_item.value IS NOT NULL)
-  )`;
+  return sql`(${assignmentId} IN (SELECT assignment_id FROM hr_payroll_special_workday_sources WHERE assignment_id IS NOT NULL))`;
 }
 
 /**
  * 版本有沒有薪資依據要看試算當下記下的版本 ID，不能只看套用現在掛在哪條規則、哪一天：
- * 納入薪資後的套用仍可以改規則、改日期，改完之後原版本底下就看不到它了，但薪資快照還指著原版本。
+ * 納入薪資後的套用仍可以改規則、改日期，改完之後原版本底下就看不到它了，但薪資批次還指著原版本。
  */
 function specialWorkdayVersionPayrollReference(versionId: AnyColumn | SQL | string) {
-  return sql`(
-    ${versionId} IN (SELECT json_extract(special_workday.value, '$.ruleVersionId') FROM ${PAYROLL_SNAPSHOT_SPECIAL_WORKDAYS}
-      WHERE json_extract(special_workday.value, '$.ruleVersionId') IS NOT NULL)
-    OR ${versionId} IN (SELECT json_extract(explanation_item.value, '$.ruleVersionId') FROM ${payslipLineExplanationList("$.specialWorkdayRuleSnapshots")}
-      WHERE json_extract(explanation_item.value, '$.ruleVersionId') IS NOT NULL)
-  )`;
+  return sql`(${versionId} IN (SELECT rule_version_id FROM hr_payroll_special_workday_sources WHERE rule_version_id IS NOT NULL))`;
 }
 
-/**
- * 薪資對特殊上班日留下的所有引用，一個請求讀一次、之後都在記憶體裡比對。
- * 每多問一次「這個有沒有被引用」就要把所有批次的快照重新解析一遍，所以不要逐列、逐句去問資料庫。
- */
+/** 薪資對特殊上班日留下的所有引用，一個請求讀一次、之後都在記憶體裡比對。 */
 interface SpecialWorkdayPayrollSources {
   assignmentIds: ReadonlySet<string>;
   versionIds: ReadonlySet<string>;
   /**
    * 沒記版本 ID 的舊紀錄只知道「哪條規則、哪一天」被算過，用當時的規則與日期去對版本期間。
-   * 快照自己有記就用快照的（套用之後可能被改走）；連這個都沒有的才退回看套用現在的樣子。
+   * 批次自己有記就用批次的（套用之後可能被改走）；連這個都沒有的才退回看套用現在的樣子。
    */
   legacyUses: ReadonlyArray<{ ruleId: string; workDate: string }>;
 }
 
 async function loadSpecialWorkdayPayrollSources(db: Database): Promise<SpecialWorkdayPayrollSources> {
-  const rows = await db.all<{ assignment_id: unknown; version_id: unknown; rule_id: unknown; work_date: unknown; from_snapshot: number }>(sql`
-    SELECT json_extract(special_workday.value, '$.id') AS assignment_id, json_extract(special_workday.value, '$.ruleVersionId') AS version_id,
-      json_extract(special_workday.value, '$.ruleId') AS rule_id, json_extract(special_workday.value, '$.workDate') AS work_date, 1 AS from_snapshot
-    FROM ${PAYROLL_SNAPSHOT_SPECIAL_WORKDAYS}
-    UNION SELECT explanation_item.value, NULL, NULL, NULL, 0 FROM ${payslipLineExplanationList("$.assignmentIds")}
-    UNION SELECT NULL, json_extract(explanation_item.value, '$.ruleVersionId'), NULL, NULL, 0 FROM ${payslipLineExplanationList("$.specialWorkdayRuleSnapshots")}`);
-  const text = (value: unknown) => typeof value === "string" && value ? value : null;
-  const assignmentIds = new Set<string>();
-  const versionIds = new Set<string>();
-  const snapshotAssignmentIds = new Set<string>();
-  for (const row of rows) {
-    const assignmentId = text(row.assignment_id);
-    const versionId = text(row.version_id);
-    if (assignmentId) assignmentIds.add(assignmentId);
-    if (versionId) versionIds.add(versionId);
-    if (assignmentId && row.from_snapshot) snapshotAssignmentIds.add(assignmentId);
-  }
-  // 薪資明細的 assignmentIds 只有在來源快照完全沒有這筆套用時才單獨算一次舊紀錄，否則同一次試算會被算兩遍。
-  const legacyRows = rows.flatMap((row) => {
-    const assignmentId = text(row.assignment_id);
-    if (!assignmentId || text(row.version_id) || !row.from_snapshot && snapshotAssignmentIds.has(assignmentId)) return [];
-    return [{ assignmentId, ruleId: text(row.rule_id), workDate: text(row.work_date) }];
-  });
+  const rows = await db.selectDistinct({ assignmentId: hrPayrollSpecialWorkdaySources.assignmentId, ruleId: hrPayrollSpecialWorkdaySources.ruleId, ruleVersionId: hrPayrollSpecialWorkdaySources.ruleVersionId, workDate: hrPayrollSpecialWorkdaySources.workDate }).from(hrPayrollSpecialWorkdaySources);
+  const assignmentIds = new Set(rows.flatMap((row) => row.assignmentId ? [row.assignmentId] : []));
+  const versionIds = new Set(rows.flatMap((row) => row.ruleVersionId ? [row.ruleVersionId] : []));
+  const legacyRows = rows.flatMap((row) => row.assignmentId && !row.ruleVersionId ? [{ assignmentId: row.assignmentId, ruleId: row.ruleId, workDate: row.workDate }] : []);
   const unresolvedIds = [...new Set(legacyRows.filter((row) => !row.ruleId || !row.workDate).map((row) => row.assignmentId))];
   const current = new Map((unresolvedIds.length ? await db.select({ id: hrSpecialWorkdayAssignments.id, ruleId: hrSpecialWorkdayAssignments.ruleId, workDate: hrSpecialWorkdayAssignments.workDate }).from(hrSpecialWorkdayAssignments).where(inJsonArray(hrSpecialWorkdayAssignments.id, unresolvedIds)) : []).map((row) => [row.id, row]));
   const legacyUses = legacyRows.flatMap((row) => {
@@ -275,7 +223,7 @@ function purgeSpecialWorkdayVersions(db: Database, versionIds: readonly string[]
 }
 
 /**
- * 算好要清的版本之後、寫入之前，若剛好有試算把其中一版寫進快照，這個條件就不成立。
+ * 算好要清的版本之後、寫入之前，若剛好有試算用了其中一版，這個條件就不成立。
  * 掛在同一批裡「一定要成立」的那一句上，整批才會回滾，而不是刪掉剛被引用的版本。
  */
 function specialWorkdayVersionsStillUnreferenced(versionIds: readonly string[]) {
