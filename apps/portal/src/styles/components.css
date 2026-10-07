@@ -3889,13 +3889,13 @@
 .hr-payroll-records-panel { display: grid; gap: 14px; }
 .hr-payroll-job-progress {
   position: fixed;
-  top: 96px;
-  right: 24px;
+  right: 36px;
+  bottom: 24px;
   z-index: 24;
   display: grid;
   box-sizing: border-box;
-  width: min(420px, calc(100vw - 32px));
-  max-height: min(560px, calc(100vh - 120px));
+  width: min(420px, calc(100vw - 72px));
+  max-height: min(560px, calc(100vh - 48px));
   gap: 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -4233,9 +4233,10 @@
 
 @media (max-width: 900px) {
   .hr-payroll-job-progress {
-    top: 148px;
-    right: 16px;
-    max-height: calc(100vh - 172px);
+    right: 24px;
+    bottom: 16px;
+    width: min(420px, calc(100vw - 48px));
+    max-height: calc(100vh - 32px);
   }
 }
 
