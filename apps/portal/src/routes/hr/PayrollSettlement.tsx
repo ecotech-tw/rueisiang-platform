@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
-import { Icon } from "../../shell/icons.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
@@ -57,6 +56,11 @@ function recordStatusTone(status: PayrollRecord["status"]): "success" | "warning
 }
 function isPayrollJobActive(job: PayrollJob) {
   return job.status === "queued" || job.status === "calculating";
+}
+const PAYROLL_JOB_STATUS_LABEL: Record<PayrollJob["status"], string> = { queued: "等待背景執行", calculating: "背景計算中", ready: "試算完成", failed: "試算失敗" };
+const PAYROLL_JOB_PHASE_LABEL: Record<PayrollJob["phase"], string> = { queued: "等待佇列派送", preparing: "準備來源資料", calculating_workers: "計算支援人員", calculating_employees: "計算正式員工", persisting: "保存薪資明細", completed: "可以開始覆核", failed: "需要重新試算" };
+function payrollJobTone(status: PayrollJob["status"]): "success" | "warning" | "danger" {
+  return status === "ready" ? "success" : status === "failed" ? "danger" : "warning";
 }
 function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "personId">) {
   return `${record.runId}:${record.personKind}:${record.personId}`;
@@ -216,34 +220,33 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   </Dialog>;
 }
 
-function PayrollJobProgress({ jobs }: { jobs: PayrollJob[] }) {
-  if (!jobs.some(isPayrollJobActive)) return null;
-  return <div className="hr-payroll-job-progress" role="status" aria-live="polite" aria-label="薪資結算正在計算中">
-    <span className="hr-payroll-job-progress-icon" aria-hidden="true"><Icon name="payments" /></span>
-    <span className="hr-payroll-job-progress-copy">
-      <small>薪資結算</small>
-      <strong>正在計算中</strong>
-    </span>
-  </div>;
-}
-
-function PayrollJobRecovery({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
-  const failedJobs = jobs.filter((job) => job.status === "failed");
-  if (!failedJobs.length) return null;
-  return <Alert tone="danger" className="hr-payroll-job-recovery">
-    <div className="hr-payroll-job-recovery-content">
-      <strong>薪資試算失敗，請重新試算。</strong>
-      <div className="hr-payroll-job-recovery-list">
-        {failedJobs.map((job) => <div className="hr-payroll-job-recovery-item" key={job.jobId}>
-          <div className="hr-payroll-job-recovery-copy">
-            <strong>{job.runName}</strong>
-            <small>{payrollPeriodLabel(job.periodKey)}{job.error ? `・${job.error}` : ""}</small>
-          </div>
-          {canRetry ? <Button variant="secondary" icon="sync" onClick={() => onRetry(job)}>重新試算</Button> : null}
-        </div>)}
-      </div>
+function PayrollJobProgress({ jobs, onOpen, onRetry, canRetry }: { jobs: PayrollJob[]; onOpen: (job: PayrollJob) => void; onRetry: (job: PayrollJob) => void; canRetry: boolean }) {
+  if (!jobs.length) return null;
+  return <section className="hr-payroll-job-progress" aria-label="薪資背景試算進度">
+    <div className="hr-payroll-job-progress-heading">
+      <div><strong>背景試算</strong><small>離開頁面後工作仍會繼續，這裡會自動更新狀態。</small></div>
+      <span>{jobs.length} 筆最近工作</span>
     </div>
-  </Alert>;
+    <div className="hr-payroll-job-list">
+      {jobs.slice(0, 4).map((job) => {
+        const hasProgress = job.progressPercent !== null;
+        return <article className={`hr-payroll-job-card hr-payroll-job-${job.status}`} key={job.jobId}>
+          <div className="hr-payroll-job-card-head">
+            <div><strong>{job.runName}</strong><small>{payrollPeriodLabel(job.periodKey)}・{PAYROLL_JOB_PHASE_LABEL[job.phase]}</small></div>
+            <StatusBadge tone={payrollJobTone(job.status)}>{PAYROLL_JOB_STATUS_LABEL[job.status]}</StatusBadge>
+          </div>
+          <div className={`hr-payroll-job-bar${hasProgress ? "" : " is-indeterminate"}`} role="progressbar" aria-label={`${job.runName}試算進度`} aria-valuemin={0} aria-valuemax={100} {...(hasProgress ? { "aria-valuenow": job.progressPercent! } : {})}>
+            <span style={hasProgress ? { width: `${job.progressPercent}%` } : undefined} />
+          </div>
+          <div className="hr-payroll-job-card-foot">
+            <span>{job.expectedCount > 0 ? `${job.completedCount.toLocaleString("zh-TW")} / ${job.expectedCount.toLocaleString("zh-TW")} 人` : "正在準備試算資料…"}</span>
+            {job.status === "failed" && job.error ? <span className="hr-payroll-job-error">{job.error}</span> : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : job.status === "ready" && job.runId ? <Button variant="secondary" icon="eye" onClick={() => onOpen(job)}>查看紀錄</Button> : null}
+            {job.status === "failed" && canRetry ? <Button variant="secondary" icon="sync" onClick={() => onRetry(job)}>重新試算</Button> : null}
+          </div>
+        </article>;
+      })}
+    </div>
+  </section>;
 }
 
 export function HrPayrollSettlement() {
@@ -328,17 +331,12 @@ export function HrPayrollSettlement() {
   }
 
   const payrollJobList = payrollJobs.data?.jobs ?? [];
-  const hasActivePayrollJob = payrollJobList.some(isPayrollJobActive);
-  const payrollPageActions = hasActivePayrollJob || canCalculate ? <div className="hr-payroll-page-actions">
-    <PayrollJobProgress jobs={payrollJobList} />
-    {canCalculate ? <Button className="add-action" icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null}
-  </div> : null;
 
   return <div className="page fills hr-payroll-page">
-    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={payrollPageActions} />
+    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={canCalculate ? <Button className="add-action" icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     {payrollJobs.error ? <Alert tone="danger">背景試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
-    <PayrollJobRecovery jobs={payrollJobList} onRetry={retryJob} canRetry={canCalculate} />
+    <PayrollJobProgress jobs={payrollJobList} onOpen={(job) => { if (job.periodKey) updateRecordFilters({ periodKey: job.periodKey }); }} onRetry={retryJob} canRetry={canCalculate} />
 
     <Panel className="grows hr-payroll-records-panel">
       <FilterToolbar className="hr-payroll-record-filter">
