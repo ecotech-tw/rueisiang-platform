@@ -1,0 +1,2 @@
+DROP INDEX `idx_hr_overtime_unique_request`;--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_hr_overtime_unique_request` ON `hr_overtime_requests` (`employment_id`,`requested_start`,`requested_end`) WHERE "hr_overtime_requests"."status" IN ('draft', 'pending', 'approved');

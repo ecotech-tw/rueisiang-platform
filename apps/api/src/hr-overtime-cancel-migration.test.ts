@@ -25,7 +25,7 @@ describe("加班取消改為刪除的 migration", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {
       sqlite.exec("PRAGMA foreign_keys = ON");
-      for (const file of readdirSync(migrationsDirectory).filter((name) => name.endsWith(".sql") && name < "0212").sort()) applyMigration(sqlite, file);
+      for (const file of readdirSync(migrationsDirectory).filter((name) => name.endsWith(".sql") && name < "0213").sort()) applyMigration(sqlite, file);
       sqlite.exec(`
         INSERT INTO users(id, email) VALUES ('migration-user', 'migration@example.test');
         INSERT INTO hr_employments(id, employee_user_id, employee_number, position) VALUES ('migration-employment', 'migration-user', 'E-MIGRATION', '櫃點人員');
@@ -37,7 +37,7 @@ describe("加班取消改為刪除的 migration", () => {
       insert.run("rejected", "2026-09-03 10:00:00", "2026-09-03 11:00:00", "rejected");
       insert.run("cancelled", "2026-09-04 10:00:00", "2026-09-04 11:00:00", "cancelled");
 
-      for (const file of ["0212_powerful_master_chief.sql", "0213_delete_cancelled_overtime.sql"]) applyMigration(sqlite, file);
+      for (const file of ["0213_ambitious_black_bolt.sql", "0214_delete_cancelled_overtime.sql"]) applyMigration(sqlite, file);
 
       expect(sqlite.prepare("SELECT id FROM hr_overtime_requests ORDER BY id").all()).toEqual([{ id: "approved" }, { id: "pending" }, { id: "rejected" }]);
       expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
