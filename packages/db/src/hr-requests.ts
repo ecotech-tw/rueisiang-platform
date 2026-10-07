@@ -5,7 +5,7 @@ import { hrFormRequests } from "./schema/hr-requests.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
 
-export type HrFormRequestStatus = "draft" | "pending" | "approved" | "rejected";
+export type HrFormRequestStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled";
 export type HrFormRequestEventKind = "clock_in" | "clock_out";
 
 export interface HrFormRequestInput {
@@ -62,7 +62,18 @@ function validateRequestedAt(correctionDate: string, requestedAt: string) {
   const timestamp = canonicalUtcStamp(requestedAt);
   const localDate = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date(timestamp));
   if (localDate !== correctionDate) throw new HrError(400, "補打卡日期與時間的台北日期不一致。 ");
+  // 補打卡是補登已經發生的出勤；未來時間核准後會變成一筆還沒發生的正式打卡事件。
+  if (timestamp > Date.now()) throw new HrError(400, "補打卡時間不可晚於現在。");
 }
+
+/** 同一天同一種打卡只留一張審核中的申請，避免兩張都被核准而產生兩筆更正事件。 */
+const noOtherPendingRequest = (id: string) => sql`NOT EXISTS (
+  SELECT 1 FROM hr_form_requests AS other
+  WHERE other.id <> ${id} AND other.status = 'pending'
+    AND other.employee_user_id = hr_form_requests.employee_user_id
+    AND other.correction_date = hr_form_requests.correction_date
+    AND other.requested_event_kind = hr_form_requests.requested_event_kind
+)`;
 
 async function employmentForActiveUser(db: Database, userId: string) {
   const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
@@ -147,19 +158,43 @@ export async function updateHrFormRequest(db: Database, id: string, employeeUser
 }
 
 export async function submitHrFormRequest(db: Database, id: string, employeeUserId: string, actor: HrActor) {
-  const [current] = await db.select({ status: hrFormRequests.status, approverUserId: hrFormRequests.approverUserId })
+  const [current] = await db.select({ status: hrFormRequests.status, approverUserId: hrFormRequests.approverUserId, correctionDate: hrFormRequests.correctionDate, requestedEventKind: hrFormRequests.requestedEventKind })
     .from(hrFormRequests).where(and(eq(hrFormRequests.id, id), eq(hrFormRequests.employeeUserId, employeeUserId))).limit(1);
   if (!current) throw new HrError(404, "找不到這份申請單。");
   if (current.status !== "draft") throw new HrError(409, "這份申請單已送出，不能重複送出。");
   const approverUserId = current.approverUserId ?? await employeeSupervisor(db, employeeUserId);
   if (!approverUserId) throw new HrError(400, "送出前請指定審核者。");
   await ensureApprover(db, employeeUserId, approverUserId);
+  const [duplicate] = await db.select({ id: hrFormRequests.id }).from(hrFormRequests)
+    .where(and(ne(hrFormRequests.id, id), eq(hrFormRequests.employeeUserId, employeeUserId), eq(hrFormRequests.status, "pending"), eq(hrFormRequests.correctionDate, current.correctionDate), eq(hrFormRequests.requestedEventKind, current.requestedEventKind))).limit(1);
+  if (duplicate) throw new HrError(409, `${current.correctionDate} 已有一張審核中的${current.requestedEventKind === "clock_in" ? "上班" : "下班"}補打卡申請，請先撤回或等待審核。`);
+  // 上面的檢查只為了給出看得懂的訊息；真正擋住同時送出兩張的是 WHERE 裡的 NOT EXISTS。
   return writeHrMutation(db, sql`UPDATE hr_form_requests SET
     status='pending', approver_user_id=${approverUserId}, submitted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
-    WHERE id=${id} AND employee_user_id=${employeeUserId} AND status='draft' RETURNING id`, id, actor, "hr_form_request_submitted", "申請單已變更，請重新整理後再送出。");
+    WHERE id=${id} AND employee_user_id=${employeeUserId} AND status='draft' AND ${noOtherPendingRequest(id)} RETURNING id`, id, actor, "hr_form_request_submitted", "申請單已變更，請重新整理後再送出。");
 }
 
-export async function reviewHrFormRequest(db: Database, id: string, reviewerUserId: string, decision: Exclude<HrFormRequestStatus, "draft" | "pending">, comment: string, allowAny: boolean, actor: HrActor) {
+/** 撤回只開放審核中的申請：已核准的已經產生 append-only 打卡事件，不能靠改狀態收回。 */
+export async function cancelHrFormRequest(db: Database, id: string, employeeUserId: string, actor: HrActor) {
+  const [current] = await db.select({ status: hrFormRequests.status }).from(hrFormRequests)
+    .where(and(eq(hrFormRequests.id, id), eq(hrFormRequests.employeeUserId, employeeUserId))).limit(1);
+  if (!current) throw new HrError(404, "找不到這份申請單。");
+  if (current.status !== "pending") throw new HrError(409, "只有審核中的申請單可以撤回。");
+  return writeHrMutation(db, sql`UPDATE hr_form_requests SET status='cancelled', updated_at=CURRENT_TIMESTAMP
+    WHERE id=${id} AND employee_user_id=${employeeUserId} AND status='pending' RETURNING id`, id, actor, "hr_form_request_cancelled", "申請單已被審核或變更，請重新整理。");
+}
+
+/** 草稿沒有送出過、審核者也沒看過，直接刪除；送出過的申請一律保留成紀錄。 */
+export async function deleteHrFormRequestDraft(db: Database, id: string, employeeUserId: string, actor: HrActor) {
+  const [current] = await db.select({ status: hrFormRequests.status }).from(hrFormRequests)
+    .where(and(eq(hrFormRequests.id, id), eq(hrFormRequests.employeeUserId, employeeUserId))).limit(1);
+  if (!current) throw new HrError(404, "找不到這份申請單。");
+  if (current.status !== "draft") throw new HrError(409, "已送出的申請單不能刪除。");
+  return writeHrMutation(db, sql`DELETE FROM hr_form_requests
+    WHERE id=${id} AND employee_user_id=${employeeUserId} AND status='draft' RETURNING id`, id, actor, "hr_form_request_deleted", "申請單已變更，請重新整理。");
+}
+
+export async function reviewHrFormRequest(db: Database, id: string, reviewerUserId: string, decision: "approved" | "rejected", comment: string, allowAny: boolean, actor: HrActor) {
   const [current] = await db.select({ employeeUserId: hrFormRequests.employeeUserId, employmentId: hrFormRequests.employmentId, status: hrFormRequests.status, approverUserId: hrFormRequests.approverUserId, requestedEventKind: hrFormRequests.requestedEventKind, requestedAt: hrFormRequests.requestedAt, reason: hrFormRequests.reason, correctedClockEventId: hrFormRequests.correctedClockEventId })
     .from(hrFormRequests).where(eq(hrFormRequests.id, id)).limit(1);
   if (!current) throw new HrError(404, "找不到這份申請單。");

@@ -118,7 +118,7 @@ export interface ClockCalendar {
   today: string;
   days: ClockCalendarDay[];
 }
-export type FormRequestStatus = "draft" | "pending" | "approved" | "rejected";
+export type FormRequestStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled";
 export interface LeaveCredit {
   entitlementId: string;
   periodStart: string;
