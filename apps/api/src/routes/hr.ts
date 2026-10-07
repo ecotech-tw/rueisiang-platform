@@ -14,7 +14,7 @@ import {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, voidHrSpecialWorkdayRuleVersion,
   cancelHrOvertimeRequest, createHrOvertimeRequest, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
-  calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, reviewHrLeaveRequest,
+  calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
@@ -569,6 +569,7 @@ export const hr = new Hono<AppEnv>()
   .patch("/me/overtime/:id", async (c) => c.json(await updateHrOvertimeRequest(c.get("db"), c.req.param("id"), overtimeInput(await body(c), c.get("user").id), c.get("user"))))
   .post("/me/overtime/:id/cancel", async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"))))
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), undefined, true) }))
+  .get("/me/leave-types", async (c) => c.json({ leaveTypes: await listHrSelfLeaveTypeOptions(c.get("db"), c.get("user").id) }))
   .get("/me/leave-requests", async (c) => c.json({ requests: await listHrLeaveRequests(c.get("db"), c.get("user").id) }))
   .post("/me/leave-duration", async (c) => c.json(await calculateHrLeaveDuration(c.get("db"), leaveDurationInput(await body(c), c.get("user").id))))
   .post("/me/leave-requests", async (c) => c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(await body(c), c.get("user").id), c.get("user")), 201))

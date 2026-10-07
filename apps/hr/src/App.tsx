@@ -3,7 +3,7 @@ import { useSession } from "./auth/session.js";
 import { Login } from "./routes/Login.js";
 import { HrProfile } from "./routes/Profile.js";
 import { HrClock, HrClockCalendar, HrClockLogs } from "./routes/hr/Clock.js";
-import { HrClockCorrectionForm, HrForms, HrOvertimeForm } from "./routes/hr/Forms.js";
+import { HrClockCorrectionForm, HrForms, HrLeaveForm, HrOvertimeForm } from "./routes/hr/Forms.js";
 import { HrLayout } from "./routes/hr/HrLayout.js";
 
 function RequireSession({ children }: { children: React.ReactNode }) {
@@ -45,6 +45,7 @@ export function App() {
         <Route path="forms" element={<HrForms />} />
         <Route path="forms/new" element={<HrClockCorrectionForm />} />
         <Route path="forms/overtime" element={<HrOvertimeForm />} />
+        <Route path="forms/leave" element={<HrLeaveForm />} />
         <Route path="profile" element={<HrProfile />} />
       </Route>
     </Route>
