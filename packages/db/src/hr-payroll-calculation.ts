@@ -1518,7 +1518,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       if (bonus.scheduledDays === 0) {
         calculationWarnings.add(`${employee.employeeName} 的「${assignment.policyName}」在${monthLabel}沒有涵蓋通路的已發布排班，獎金為 0。`);
       } else if (bonus.missingPayoutDates.length) {
-        calculationWarnings.add(`${employee.employeeName} 的「${assignment.policyName}」有 ${bonus.missingPayoutDates.length} 天缺少${monthLabel}出金資料（${bonus.missingPayoutDates.slice(0, 3).join("、")}${bonus.missingPayoutDates.length > 3 ? " 等" : ""}），這幾天按 0 計算。請先完成出金表匯入再重新試算。`);
+        calculationWarnings.add(`${employee.employeeName} 的「${assignment.policyName}」有 ${bonus.missingPayoutDates.length} 天所有適用櫃點都缺少${monthLabel}出金資料（${bonus.missingPayoutDates.slice(0, 3).join("、")}${bonus.missingPayoutDates.length > 3 ? " 等" : ""}），這幾天按 0 計算。請先完成出金表匯入再重新試算。`);
       }
       if (bonus.amountMinor > 0) {
         bonusLineNumber += 1;

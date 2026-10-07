@@ -265,7 +265,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const body = await response.json() as { run: { runId: string; status: string; warnings: string[]; employees: Array<{ employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }> } };
     expect(body.run.status).toBe("ready");
     expect(body.run.warnings).not.toContain("本版未計算勞健保扣款：員工尚未建立有效的加保版本。");
-    expect(body.run.warnings.some((warning) => warning.includes("林瑞翔") && warning.includes("31 天缺少當月出金資料"))).toBe(true);
+    expect(body.run.warnings.some((warning) => warning.includes("林瑞翔") && warning.includes("31 天所有適用櫃點都缺少當月出金資料"))).toBe(true);
     expect(body.run.warnings.some((warning) => warning.includes("沒有涵蓋通路的已發布排班"))).toBe(false);
     expect(body.run.employees[0]).toMatchObject({ employeeUserId: "dev-eli-lin@ecotech.tw", employeeName: "林瑞翔", earningMinor: 6_116_665, deductionMinor: 385_500, netMinor: 5_731_165 });
     expect(body.run.employees[0]!.lines).toEqual(expect.arrayContaining([
@@ -1800,7 +1800,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], requestId: "test-payroll-2026-08-wang-missing-payout" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { warnings: string[] } };
-    expect(body.run.warnings.some((warning) => warning.includes("29 天缺少當月出金資料"))).toBe(true);
+    expect(body.run.warnings.some((warning) => warning.includes("29 天所有適用櫃點都缺少當月出金資料"))).toBe(true);
     expect(body.run.warnings.some((warning) => warning.includes("請先完成出金表匯入"))).toBe(true);
   });
 });
