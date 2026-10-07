@@ -314,7 +314,8 @@ export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   ...timestamps(),
 }, (table) => [
   index("idx_hr_overtime_employment_start").on(table.employmentId, table.requestedStart),
-  uniqueIndex("idx_hr_overtime_unique_request").on(table.employmentId, table.requestedStart, table.requestedEnd),
+  // 只管仍然有效的申請：被駁回的那一列留著當紀錄，但不可以佔住時段讓人無法重新申請。
+  uniqueIndex("idx_hr_overtime_unique_request").on(table.employmentId, table.requestedStart, table.requestedEnd).where(sql`${table.status} IN ('draft', 'pending', 'approved')`),
   index("idx_hr_overtime_status").on(table.status, table.requestedStart),
   check("ck_hr_overtime_requested_period", sql`${table.requestedEnd} > ${table.requestedStart}`),
   check("ck_hr_overtime_actual_pair", sql`(${table.actualStart} IS NULL AND ${table.actualEnd} IS NULL) OR (${table.actualStart} IS NOT NULL AND ${table.actualEnd} IS NOT NULL AND ${table.actualEnd} > ${table.actualStart})`),

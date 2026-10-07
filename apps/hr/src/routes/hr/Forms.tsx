@@ -137,7 +137,7 @@ function OvertimeCancelDialog({ item, onClose }: { item: OvertimeRequest; onClos
     <Button variant="secondary" onClick={onClose} disabled={cancel.isPending}>保留申請</Button>
     <Button variant="danger" loading={cancel.isPending} onClick={submit}>確認取消</Button>
   </>}>
-    <p>取消後這筆加班申請不會再納入薪資試算；已取消的申請仍會保留在申請紀錄。</p>
+    <p>取消後這筆加班申請會直接刪除，不會留在申請紀錄，也不再納入薪資試算。</p>
     {cancel.error ? <Alert tone="danger">{cancel.error.message}</Alert> : null}
   </Dialog>;
 }
