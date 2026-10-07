@@ -319,7 +319,12 @@ function EditAssignmentDialog({ assignment, rules, onClose }: { assignment: Spec
   const save = useHrWrite();
   const closeRequestRef = useRef<(() => void) | null>(null);
   const selectedRule = useMemo(() => rules.find((rule) => rule.rule.id === ruleId), [rules, ruleId]);
-  const selectedVersion = useMemo(() => latestActiveVersion(selectedRule), [selectedRule]);
+  const selectedVersion = useMemo(() => {
+    if (ruleId === assignment.assignment.ruleId && assignment.currentVersionNumber !== null) {
+      return selectedRule?.versions.find((version) => !version.voidedAt && version.versionNumber === assignment.currentVersionNumber) ?? latestActiveVersion(selectedRule);
+    }
+    return latestActiveVersion(selectedRule);
+  }, [assignment.assignment.ruleId, assignment.currentVersionNumber, ruleId, selectedRule]);
   const targets = useMemo(() => {
     if (!currentTargetKey || availableTargets.some((target) => target.key === currentTargetKey)) return availableTargets;
     const currentTarget = assignment.assignment.employmentId

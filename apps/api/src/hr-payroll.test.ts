@@ -435,6 +435,28 @@ describe("HR 薪資與勞健保", () => {
     expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: createdBody.id, assignments: [{ employmentId, workDate: "2026-02-28", allowanceQuantity: 0 }] })).status).toBe(409);
   });
 
+  it("特殊上班日套用依日期使用有效版本，沒有有效期間時拒絕", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    const first = await request("/hr/special-workdays/rules", "POST", { name: "依日期選版特殊日", validFrom: "2026-01-01", wageKind: "fixed_hourly", fixedAmountMinor: 25000, overtimeRules: [], allowances: [] });
+    expect(first.status, await first.clone().text()).toBe(201);
+    const firstBody = await first.json() as { id: string; versionId: string };
+    const second = await request(`/hr/special-workdays/rules/${firstBody.id}/versions`, "POST", { name: "依日期選版特殊日", validFrom: "2026-06-01", validTo: "2026-07-01", wageKind: "fixed_hourly", fixedAmountMinor: 35000, overtimeRules: [], allowances: [] });
+    expect(second.status, await second.clone().text()).toBe(201);
+    const secondBody = await second.json() as { versionId: string };
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-05-31", allowanceQuantity: 0 }] })).status).toBe(201);
+    expect((await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-06-01", allowanceQuantity: 0 }] })).status).toBe(201);
+    const listed = await (await request("/hr/special-workdays/assignments?start=2026-05-31&end=2026-06-02")).json() as { assignments: Array<{ assignment: { workDate: string }; currentVersionNumber: number | null }> };
+    expect(listed.assignments).toEqual(expect.arrayContaining([
+      expect.objectContaining({ assignment: expect.objectContaining({ workDate: "2026-05-31" }), currentVersionNumber: 1 }),
+      expect.objectContaining({ assignment: expect.objectContaining({ workDate: "2026-06-01" }), currentVersionNumber: 2 }),
+    ]));
+    const expired = await request("/hr/special-workdays/assignments", "POST", { ruleId: firstBody.id, assignments: [{ employmentId, workDate: "2026-07-01", allowanceQuantity: 0 }] });
+    expect(expired.status, await expired.clone().text()).toBe(409);
+    expect(secondBody.versionId).not.toBe(firstBody.versionId);
+  });
+
   it("已套用的特殊上班日可以調整人員、日期與補貼數量", async () => {
     await assign();
     await assignUser("admin", "E-ADMIN");
