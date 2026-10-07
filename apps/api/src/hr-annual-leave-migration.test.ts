@@ -149,7 +149,7 @@ describe("既有特休資料回填 migration", () => {
       "collision-user",
     );
 
-    applyMigration("0205_reconcile_annual_leave_period_collisions.sql");
+    applyMigration("0206_reconcile_annual_leave_period_collisions.sql");
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_entitlements WHERE id=?").get("stale-entitlement")).toEqual({ count: 0 });
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_entitlements WHERE id=?").get("legacy-collision-entitlement")).toEqual({ count: 1 });
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_annual_leave_ledger WHERE entitlement_id=?").get("legacy-collision-entitlement")).toEqual({ count: 2 });

@@ -2,7 +2,7 @@
   "version": "6",
   "dialect": "sqlite",
   "id": "5ecc34cf-322a-4e92-8829-228110b4c06f",
-  "prevId": "112eea94-9cff-4005-922c-c79ed2a260de",
+  "prevId": "1900355c-3dbf-4190-b84f-c6ca5e84a1f2",
   "tables": {
     "auth_device_sessions": {
       "name": "auth_device_sessions",
@@ -11975,6 +11975,85 @@
         "ck_hr_payroll_runs_counts": {
           "name": "ck_hr_payroll_runs_counts",
           "value": "\"hr_payroll_runs\".\"expected_count\" >= 0 AND \"hr_payroll_runs\".\"completed_count\" BETWEEN 0 AND \"hr_payroll_runs\".\"expected_count\""
+        }
+      }
+    },
+    "hr_payroll_withdrawals": {
+      "name": "hr_payroll_withdrawals",
+      "columns": {
+        "payroll_run_id": {
+          "name": "payroll_run_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "withdrawn_by": {
+          "name": "withdrawn_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "withdrawn_at": {
+          "name": "withdrawn_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        }
+      },
+      "indexes": {
+        "idx_hr_payroll_withdrawals_withdrawn_at": {
+          "name": "idx_hr_payroll_withdrawals_withdrawn_at",
+          "columns": [
+            "withdrawn_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "hr_payroll_withdrawals_payroll_run_id_hr_payroll_runs_id_fk": {
+          "name": "hr_payroll_withdrawals_payroll_run_id_hr_payroll_runs_id_fk",
+          "tableFrom": "hr_payroll_withdrawals",
+          "tableTo": "hr_payroll_runs",
+          "columnsFrom": [
+            "payroll_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "hr_payroll_withdrawals_withdrawn_by_users_id_fk": {
+          "name": "hr_payroll_withdrawals_withdrawn_by_users_id_fk",
+          "tableFrom": "hr_payroll_withdrawals",
+          "tableTo": "users",
+          "columnsFrom": [
+            "withdrawn_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ck_hr_payroll_withdrawals_reason": {
+          "name": "ck_hr_payroll_withdrawals_reason",
+          "value": "length(trim(\"hr_payroll_withdrawals\".\"reason\")) BETWEEN 1 AND 1000"
         }
       }
     },
