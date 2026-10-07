@@ -25,6 +25,10 @@ async function request(path: string, method = "GET", payload?: Record<string, un
     ...(payload ? { body: JSON.stringify(payload) } : {}),
   }), { DB: d1, AUTH_SESSION_SECRET: SECRET, GOOGLE_OAUTH_CLIENT_ID: "test", GOOGLE_OAUTH_CLIENT_SECRET: "test" } as never);
 }
+/*
+ * 這個檔案裡手動 insert 的 hrPayrollRuns 沒有索引列，也沒有「寫過索引」的標記——跟部署空窗時
+ * 舊版 Worker 建立的批次一模一樣。保護仍然要成立，靠的是讀取前的補寫（indexMissingPayrollSpecialWorkdaySources）。
+ */
 async function assign(serviceStartOn = "2026-01-01") {
   const response = await request("/hr/employees", "POST", { userId: "employee", legalName: "薪資員工", employeeNumber: "E-PAY", position: "一般職員", serviceStartOn });
   expect(response.status, await response.clone().text()).toBe(201);
@@ -812,6 +816,10 @@ describe("HR 薪資與勞健保", () => {
     const assignment = listed.assignments.find((item) => item.assignment.ruleId === ruleId)!;
     expect(assignment.includedInPayroll).toBe(false);
 
+    // 索引表對批次沒有外鍵；批次已經不在的列（舊版 Worker 刪批次時留下的）不能把套用鎖住。
+    d1.sqlite.prepare("INSERT INTO hr_payroll_special_workday_sources(id,payroll_run_id,assignment_id) VALUES ('orphan','run-that-no-longer-exists',?)").run(assignment.assignment.id);
+    const withOrphan = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string }; includedInPayroll: boolean }> };
+    expect(withOrphan.assignments.find((item) => item.assignment.id === assignment.assignment.id)?.includedInPayroll).toBe(false);
     const shown = { ruleId, employmentId: profile.employments[0]!.id, workerId: null, workDate: "2026-04-01" };
     // 確認框上的內容跟資料庫對不上（別人剛改過日期）時不能刪。
     const stale = await request(`/hr/special-workdays/assignments/${assignment.assignment.id}`, "DELETE", { ...shown, workDate: "2026-04-09" });
@@ -841,8 +849,13 @@ describe("HR 薪資與勞健保", () => {
 
     const protectedAssignment = await request(`/hr/special-workdays/assignments/${assignmentId}`, "DELETE", { ruleId, employmentId: profile.employments[0]!.id, workerId: null, workDate: "2026-04-02" });
     expect(protectedAssignment.status, await protectedAssignment.clone().text()).toBe(409);
+    // 第一個碰到的請求就把沒有索引的批次補寫好，而且只補一次。
+    const indexed = () => d1.sqlite.prepare("SELECT payroll_run_id, assignment_id FROM hr_payroll_special_workday_sources").all();
+    expect(indexed()).toEqual([{ payroll_run_id: "payroll-run-special-reference", assignment_id: assignmentId }]);
+    expect(d1.sqlite.prepare("SELECT payroll_run_id FROM hr_payroll_special_workday_source_runs").all()).toEqual([{ payroll_run_id: "payroll-run-special-reference" }]);
     const listedProtected = await (await request("/hr/special-workdays/assignments")).json() as { assignments: Array<{ assignment: { id: string }; includedInPayroll: boolean }> };
     expect(listedProtected.assignments.find((item) => item.assignment.id === assignmentId)?.includedInPayroll).toBe(true);
+    expect(indexed()).toHaveLength(1);
     const protectedRule = await request(`/hr/special-workdays/rules/${ruleId}`, "DELETE", { revision: 1 });
     expect(protectedRule.status, await protectedRule.clone().text()).toBe(409);
   });
