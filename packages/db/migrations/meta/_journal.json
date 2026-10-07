@@ -1289,6 +1289,13 @@
       "when": 1791349549620,
       "tag": "0207_payroll_withdrawal_rollback",
       "breakpoints": true
+    },
+    {
+      "idx": 208,
+      "version": "6",
+      "when": 1791353688593,
+      "tag": "0208_allow_withdrawn_payroll_delete",
+      "breakpoints": true
     }
   ]
 }

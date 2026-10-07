@@ -91,6 +91,15 @@ describe("HR 薪資與出勤設定 migration", () => {
       expect(() => sqlite.exec("INSERT INTO hr_payroll_withdrawals(payroll_run_id,reason,withdrawn_by) VALUES ('r2','無 claim','u')")).toThrow(/payroll_run_withdrawal_invalid/);
       sqlite.exec("UPDATE hr_payroll_runs SET status='closed' WHERE id='r2'");
       expect(() => sqlite.exec("UPDATE hr_payroll_runs SET status='ready' WHERE id='r2'")).toThrow(/payroll_run_closed/);
+
+      apply(sqlite, "0208_allow_withdrawn_payroll_delete.sql");
+      expect(() => sqlite.exec("DELETE FROM hr_payroll_withdrawals WHERE payroll_run_id='r'")).toThrow(/payroll_run_withdrawal_immutable/);
+      expect(() => sqlite.exec("UPDATE hr_payroll_withdrawals SET reason='改寫原因' WHERE payroll_run_id='r'")).toThrow(/payroll_run_withdrawal_immutable/);
+      // 別的批次的 guard 不能拿來刪這一批的 marker。
+      sqlite.exec("INSERT INTO hr_mutation_guards(id,ok) VALUES ('payroll-withdrawal-delete:r2',1)");
+      expect(() => sqlite.exec("DELETE FROM hr_payroll_withdrawals WHERE payroll_run_id='r'")).toThrow(/payroll_run_withdrawal_immutable/);
+      sqlite.exec("INSERT INTO hr_mutation_guards(id,ok) VALUES ('payroll-withdrawal-delete:r',1); DELETE FROM hr_payroll_withdrawals WHERE payroll_run_id='r'; DELETE FROM hr_mutation_guards");
+      expect(sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_withdrawals").get()).toEqual({ count: 0 });
     } finally { sqlite.close(); }
   });
 

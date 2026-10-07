@@ -91,7 +91,7 @@ export const hrPayrollRuns = sqliteTable("hr_payroll_runs", {
   check("ck_hr_payroll_runs_counts", sql`${table.expectedCount} >= 0 AND ${table.completedCount} BETWEEN 0 AND ${table.expectedCount}`),
 ]);
 
-/** 撤回原因是 append-only 稽核紀錄；薪資單快照保留，但批次本身退回 ready 並釋放當期 claim，供重新覆核或試算。 */
+/** 撤回原因是稽核紀錄；批次退回 ready 並釋放當期 claim，供重新覆核、試算或刪除。一般不可改寫 marker，刪除整批時由受控交易一併清除。 */
 export const hrPayrollWithdrawals = sqliteTable("hr_payroll_withdrawals", {
   payrollRunId: text("payroll_run_id").primaryKey().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
   reason: text("reason").notNull(),
