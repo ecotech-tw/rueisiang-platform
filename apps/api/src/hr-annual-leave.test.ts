@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveEntitlements, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates, syncSystemRoles } from "@rueisiang/db";
 import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrEmployments, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -76,6 +76,33 @@ describe("週年制特休額度", () => {
     const rows = await listHrAnnualLeaveEntitlements(db, { asOfDate: "2026-03-15" });
     expect(rows.map((row) => ({ annualLeaveStartOn: row.annualLeaveStartOn, periodStart: row.periodStart, serviceMonths: row.serviceMonths }))).toEqual([
       { annualLeaveStartOn: "2025-09-15", periodStart: "2026-03-15", serviceMonths: 6 },
+    ]);
+  });
+
+  it("月薪轉日薪後仍能以最後月薪完成既有特休折現", async () => {
+    const employmentId = await currentEmploymentId();
+    const monthly = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "先月薪後日薪" });
+    expect(monthly.status, await monthly.clone().text()).toBe(201);
+    const monthlyId = (await monthly.json() as { id: string }).id;
+    const daily = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2025-10-01", payBasis: "daily", baseAmountMinor: 180_000, note: "轉日薪" });
+    expect(daily.status, await daily.clone().text()).toBe(201);
+
+    const db = createDatabase(d1 as never);
+    await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2026-03-31" });
+    const candidates = await listHrAnnualLeaveSettlementCandidates(db, {
+      asOfDate: "2026-03-31",
+      periodStart: "2026-03-01",
+      employmentIds: [employmentId],
+    });
+    expect(candidates).toEqual([
+      expect.objectContaining({
+        periodStart: "2025-09-01",
+        periodEnd: "2026-03-01",
+        unusedHalfHours: 48,
+        baseAmountMinor: 3_000_000,
+        compensationVersionId: monthlyId,
+        amountMinor: 300_000,
+      }),
     ]);
   });
 

@@ -319,7 +319,8 @@ export const hrAnnualLeaveEntitlements = sqliteTable("hr_annual_leave_entitlemen
   createdBy: text("created_by").references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
-  uniqueIndex("idx_hr_annual_leave_entitlement_period").on(table.employmentId, table.periodStart),
+  // 同一曆日可能同時保留舊版錯誤週期與校正後週期；年資與半開區間共同識別實際額度。
+  uniqueIndex("idx_hr_annual_leave_entitlement_period").on(table.employmentId, table.periodStart, table.serviceMonths, table.periodEnd),
   index("idx_hr_annual_leave_entitlement_employee").on(table.employmentId, table.periodEnd),
   check("ck_hr_annual_leave_entitlement_dates", sql`length(${table.periodStart}) = 10 AND length(${table.periodEnd}) = 10 AND ${table.periodEnd} > ${table.periodStart}`),
   check("ck_hr_annual_leave_entitlement_service", sql`${table.serviceMonths} >= 6`),

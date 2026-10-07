@@ -108,8 +108,10 @@ function annualLeaveStartOnExpression() {
 }
 
 /** 舊版 migration 可能曾只用 serviceStartOn 產生額度；不符合月薪起算序列的舊列保留稽核資料，但不再提供使用。 */
-function isAnnualLeavePeriod(row: { annualLeaveStartOn: string | null; periodStart: string; serviceMonths: number }) {
-  return row.annualLeaveStartOn !== null && addCalendarMonths(row.annualLeaveStartOn, row.serviceMonths) === row.periodStart;
+function isAnnualLeavePeriod(row: { annualLeaveStartOn: string | null; periodStart: string; periodEnd: string; serviceMonths: number }) {
+  return row.annualLeaveStartOn !== null
+    && addCalendarMonths(row.annualLeaveStartOn, row.serviceMonths) === row.periodStart
+    && addCalendarMonths(row.annualLeaveStartOn, nextServiceMonths(row.serviceMonths)) === row.periodEnd;
 }
 
 /** 日期加月數時保留週年日；2 月 29 日在非閏年落在 2 月最後一天。 */
@@ -215,7 +217,12 @@ export async function ensureHrAnnualLeaveEntitlements(db: Database, options: HrA
         entitledHalfHours,
         status: "open",
         createdBy: options.createdBy ?? null,
-      }).onConflictDoNothing({ target: [hrAnnualLeaveEntitlements.employmentId, hrAnnualLeaveEntitlements.periodStart] });
+      }).onConflictDoNothing({ target: [
+        hrAnnualLeaveEntitlements.employmentId,
+        hrAnnualLeaveEntitlements.periodStart,
+        hrAnnualLeaveEntitlements.serviceMonths,
+        hrAnnualLeaveEntitlements.periodEnd,
+      ] });
 
       const [entitlement] = await db.select({
         id: hrAnnualLeaveEntitlements.id,
@@ -223,13 +230,19 @@ export async function ensureHrAnnualLeaveEntitlements(db: Database, options: HrA
       }).from(hrAnnualLeaveEntitlements).where(and(
         eq(hrAnnualLeaveEntitlements.employmentId, employment.id),
         eq(hrAnnualLeaveEntitlements.periodStart, periodStart),
+        eq(hrAnnualLeaveEntitlements.serviceMonths, serviceMonths),
+        eq(hrAnnualLeaveEntitlements.periodEnd, periodEnd),
       )).limit(1);
       if (!entitlement) throw new HrError(409, "特休額度建立失敗，請稍後重試。");
       if (entitlement.id === entitlementId) created += 1;
 
-      const sourceKey = `annual-grant:${employment.id}:${periodStart}`;
+      // 舊版 grant key 只有 employment／periodStart；校正後可能同日並存兩個週期，改以完整週期組成新 key。
+      const sourceKey = `annual-grant:${employment.id}:${periodStart}:${periodEnd}:${serviceMonths}`;
       const [existingGrant] = await db.select({ id: hrAnnualLeaveLedger.id }).from(hrAnnualLeaveLedger)
-        .where(eq(hrAnnualLeaveLedger.sourceKey, sourceKey)).limit(1);
+        .where(and(
+          eq(hrAnnualLeaveLedger.entitlementId, entitlement.id),
+          eq(hrAnnualLeaveLedger.entryKind, "grant"),
+        )).limit(1);
       if (!existingGrant) {
         await db.insert(hrAnnualLeaveLedger).values({
           id: crypto.randomUUID(),
@@ -410,6 +423,7 @@ export async function getHrAnnualLeaveEntitlementDetail(db: Database, entitlemen
   };
 }
 
+/** 取得後轉為日／時薪的員工仍須結清已取得的月薪特休；折現採結算日前最後一筆未撤回月薪，避免整批薪資被空薪資基準阻斷。 */
 async function monthlyCompensationAt(db: Database, employmentId: string, date: string) {
   const [compensation] = await db.select({
     id: hrCompensationVersions.id,
@@ -418,7 +432,6 @@ async function monthlyCompensationAt(db: Database, employmentId: string, date: s
     eq(hrCompensationVersions.employmentId, employmentId),
     eq(hrCompensationVersions.payBasis, "monthly"),
     lte(hrCompensationVersions.validFrom, date),
-    or(isNull(hrCompensationVersions.validTo), gt(hrCompensationVersions.validTo, date)),
     isNull(hrCompensationVersions.voidedAt),
   )).orderBy(desc(hrCompensationVersions.validFrom), desc(hrCompensationVersions.versionNumber)).limit(1);
   return compensation;
@@ -571,6 +584,7 @@ export async function createHrAnnualLeaveAdjustment(db: Database, input: HrAnnua
     id: hrAnnualLeaveEntitlements.id,
     annualLeaveStartOn: annualLeaveStartOnExpression(),
     periodStart: hrAnnualLeaveEntitlements.periodStart,
+    periodEnd: hrAnnualLeaveEntitlements.periodEnd,
     serviceMonths: hrAnnualLeaveEntitlements.serviceMonths,
   }).from(hrAnnualLeaveEntitlements)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
