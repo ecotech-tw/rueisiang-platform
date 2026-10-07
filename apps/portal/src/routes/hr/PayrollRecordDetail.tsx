@@ -18,7 +18,7 @@ const LINE_LABELS: Record<string, string> = {
   booth_bonus: "櫃點獎金",
   labor_insurance: "勞保員工負擔",
   health_insurance: "健保員工負擔",
-  special_workday: "特殊上班日差額",
+  special_workday: "特殊上班日薪資加給",
   annual_leave_settlement: "未休特休折現",
   typhoon_stop_pay: "災防停班給薪",
   worker_pay: "排班薪資",
@@ -81,9 +81,9 @@ function specialAllowanceLabel(line: PayrollLine): string {
 }
 function specialWorkdayDifferenceLabel(line: PayrollLine): string {
   const names = ruleNamesOf(line);
-  if (names.length === 1) return `${names[0]}：補貼差額`;
-  if (names.length > 1) return `特殊上班日（${names.join("、")}）補貼差額`;
-  return "特殊上班日差額";
+  if (names.length === 1) return `${names[0]}：薪資加給`;
+  if (names.length > 1) return `特殊上班日（${names.join("、")}）薪資加給`;
+  return "特殊上班日薪資加給";
 }
 function lineLabel(line: PayrollLine): string {
   if (line.lineKey === "unpaid_leave") return leaveDeductionLabel(line);
