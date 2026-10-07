@@ -3966,7 +3966,8 @@
   transition-duration: 220ms;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
 }
-.hr-payroll-job-list.is-collapsed { grid-template-rows: 0fr; opacity: 0; translate: 0 -4px; pointer-events: none; }
+/* 兩端都要寫成 minmax()：跟展開時的 minmax(0, 1fr) 形式不同的話瀏覽器不會內插，高度會直接跳。 */
+.hr-payroll-job-list.is-collapsed { grid-template-rows: minmax(0, 0fr); opacity: 0; translate: 0 -4px; pointer-events: none; }
 .hr-payroll-job-list-inner { display: grid; align-content: start; min-height: 0; gap: 8px; overflow: hidden auto; overscroll-behavior: contain; padding: 0 20px; }
 /* 上下留白掛在卡片上而不是清單的 padding：padding 不會跟著 0fr 收掉，收合後面板會多出一截空白。 */
 .hr-payroll-job-list-inner > :first-child { margin-top: 6px; }
