@@ -3890,12 +3890,12 @@
 .hr-payroll-job-progress {
   position: fixed;
   right: 36px;
-  bottom: 24px;
+  bottom: 96px;
   z-index: 24;
   display: grid;
   box-sizing: border-box;
   width: min(420px, calc(100vw - 72px));
-  max-height: min(560px, calc(100vh - 48px));
+  max-height: min(560px, calc(100vh - 120px));
   gap: 12px;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -4234,9 +4234,9 @@
 @media (max-width: 900px) {
   .hr-payroll-job-progress {
     right: 24px;
-    bottom: 16px;
+    bottom: 88px;
     width: min(420px, calc(100vw - 48px));
-    max-height: calc(100vh - 32px);
+    max-height: calc(100vh - 104px);
   }
 }
 
