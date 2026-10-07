@@ -3943,7 +3943,8 @@
 .hr-payroll-job-progress-toggle:active:not(:disabled) { scale: none; }
 .hr-payroll-job-progress-chevron { position: relative; display: grid; flex: none; width: 20px; height: 20px; place-items: center; color: var(--color-muted); }
 .hr-payroll-job-progress-chevron svg { position: absolute; inset: 0; width: 20px; height: 20px; opacity: 0; scale: .25; filter: blur(4px); transition-property: opacity, scale, filter; transition-duration: 220ms; transition-timing-function: cubic-bezier(0.2, 0, 0, 1); }
-.hr-payroll-job-progress-chevron-down { opacity: 1; scale: 1; filter: blur(0); }
+/* 要帶上父層 class：單一 class 贏不過上面 `.…-chevron svg` 的預設隱藏，收合時箭頭會整個消失。 */
+.hr-payroll-job-progress-chevron .hr-payroll-job-progress-chevron-down { opacity: 1; scale: 1; filter: blur(0); }
 .hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-down { opacity: 0; scale: .25; filter: blur(4px); }
 .hr-payroll-job-progress-chevron.is-expanded .hr-payroll-job-progress-chevron-up { opacity: 1; scale: 1; filter: blur(0); }
 .hr-payroll-job-progress.is-collapsed { gap: 0; padding: 6px 20px; }
