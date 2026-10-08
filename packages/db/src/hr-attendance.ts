@@ -163,14 +163,14 @@ export async function createHrAttendanceLocationAssignment(db: Database, input: 
   const mutations = [sql`INSERT INTO hr_employee_attendance_locations
     (id, employment_id, location_id, valid_from, valid_to)
     SELECT ${id}, ${input.employmentId}, ${input.locationId}, ${input.validFrom}, ${input.validTo}
-    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
+    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND person_kind='employee' AND archived_at IS NULL)
       AND EXISTS (SELECT 1 FROM hr_attendance_locations WHERE id=${input.locationId} AND active=1)
       AND NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${input.employmentId} AND location_id=${input.locationId}
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
     RETURNING id`];
   // 每段任職至少保留一個主要位置；第一筆指派完成後才把 pointer 指過去，兩步同批提交。
   if (!setting?.primaryAssignmentId) mutations.push(sql`UPDATE hr_employment_attendance_settings SET primary_assignment_id=${id}, updated_at=CURRENT_TIMESTAMP
-    WHERE employment_id=${input.employmentId} AND EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL) RETURNING employment_id AS id`);
+    WHERE employment_id=${input.employmentId} AND EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND person_kind='employee' AND archived_at IS NULL) RETURNING employment_id AS id`);
   return writeHrMutation(db, mutations, id, actor, "attendance_location_assigned", "員工或辦公位置不存在、同一辦公位置期間重疊，請重新整理。");
 }
 
@@ -220,7 +220,7 @@ export interface HrAttendanceScopeUpdateInput {
 export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUpdateInput, actor: HrActor) {
   const monthlyRestDays = input.attendanceMode === "general" ? sql`NULL` : sql`${input.monthlyRestDays}`;
   const mutations = [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
-    WHERE id=${input.employmentId} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`,
+    WHERE id=${input.employmentId} AND person_kind='employee' AND revision=${input.revision} AND archived_at IS NULL RETURNING id`,
     sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
       WHERE employment_id=${input.employmentId} RETURNING employment_id AS id`];
   const endingAssignmentIds = input.assignmentsToEnd.map((assignment) => assignment.id);
@@ -234,7 +234,7 @@ export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUp
     const id = crypto.randomUUID();
     mutations.push(sql`INSERT INTO hr_employee_attendance_locations (id, employment_id, location_id, valid_from, valid_to)
       SELECT ${id}, ${input.employmentId}, ${locationId}, ${input.validFrom}, NULL
-      WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
+      WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND person_kind='employee' AND archived_at IS NULL)
         AND EXISTS (SELECT 1 FROM hr_attendance_locations WHERE id=${locationId} AND active=1)
         AND NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${input.employmentId} AND location_id=${locationId}
           AND (valid_to IS NULL OR valid_to > ${input.validFrom})) RETURNING id`);
@@ -250,7 +250,7 @@ export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUp
       WHERE employment_id=${input.employmentId} AND (valid_to IS NULL OR valid_to > ${input.assignmentValidTo}) ${endingIdList}
       ORDER BY valid_from, rowid LIMIT 1), updated_at=CURRENT_TIMESTAMP
     WHERE employment_id=${input.employmentId}
-      AND EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
+      AND EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND person_kind='employee' AND archived_at IS NULL)
       AND (primary_assignment_id IS NULL${primaryEndingCondition} OR NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations
         WHERE id=hr_employment_attendance_settings.primary_assignment_id AND (valid_to IS NULL OR valid_to > ${input.assignmentValidTo})))
     RETURNING employment_id AS id`);
@@ -518,7 +518,10 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
     eventDatesByUser.set(event.employeeUserId, dates);
   }
   const leavesByUser = new Map<string, typeof leaves>();
-  for (const leave of leaves) leavesByUser.set(leave.userId, [...(leavesByUser.get(leave.userId) ?? []), leave]);
+  for (const leave of leaves) {
+    if (!leave.userId) continue;
+    leavesByUser.set(leave.userId, [...(leavesByUser.get(leave.userId) ?? []), leave]);
+  }
   const today = taipeiToday();
   const monthDates = Array.from({ length: lastDay }, (_, index) => `${year}-${String(month).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}`);
   const dayTypes = await resolveDayTypes(db, monthDates);

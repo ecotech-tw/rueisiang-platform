@@ -49,7 +49,7 @@ import {
 } from "./schema/hr-payroll-runs.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
+import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments, hrSpecialWorkdayRules, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 import { scopes } from "./schema/reports.js";
@@ -188,7 +188,7 @@ export interface HrPayrollRunResult {
   engineVersion: string;
   withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null;
   employees: HrPayrollEmployeeResult[];
-  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] }>;
+  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] }>;
   warnings: string[];
 }
 
@@ -667,7 +667,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   const employmentIds = input.employmentIds.length ? input.employmentIds : ["__none__"];
   const workerIds = input.workerIds.length ? input.workerIds : ["__none__"];
   const employmentFilter = inJsonArray(hrEmployments.id, employmentIds);
-  const workerFilter = inJsonArray(hrScheduleWorkers.id, workerIds);
+  const workerFilter = inJsonArray(hrEmployments.id, workerIds);
   const employmentValues = jsonArrayValues(employmentIds);
   /*
    * 已解除的版本不是薪資的來源，它的店與排班也不該進快照：那些 Scope 的出金事後變動時，
@@ -707,7 +707,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
     .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`));
   const allocationEmploymentIds = [...new Set(allocationEmploymentRows.map((row) => row.employmentId))];
-  const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
+  const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, workerOvertime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({
       id: hrEmployments.id,
       employeeUserId: hrEmployments.employeeUserId,
@@ -728,6 +728,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrMonthlyLeaveEntries).where(and(inJsonArray(hrMonthlyLeaveEntries.employmentId, employmentIds), sql`${hrMonthlyLeaveEntries.leaveDate} >= ${input.period.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${input.period.end}`)),
     db.select().from(hrMonthlyHourlyEntries).where(and(inJsonArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
     db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), inJsonArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
+    db.select().from(hrWorkerOvertimeRequests).where(and(eq(hrWorkerOvertimeRequests.status, "approved"), inJsonArray(hrWorkerOvertimeRequests.workerId, workerIds), sql`(${hrWorkerOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrWorkerOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrWorkerOvertimeRequests.actualStart} IS NOT NULL AND ${hrWorkerOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrWorkerOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
     db.select().from(hrClockEvents).where(and(inJsonArray(hrClockEvents.employmentId, employmentIds), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
     db.select({ employmentId: hrEmployments.id, archivedAt: hrEmployments.archivedAt, userStatus: users.status }).from(hrEmployments)
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(inJsonArray(hrEmployments.id, allocationEmploymentIds.length ? allocationEmploymentIds : ["__none__"])),
@@ -740,7 +741,9 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select({ entry: hrScheduleWorkerEntries }).from(hrScheduleWorkerEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
       .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleWorkerEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${input.period.end}`)),
-    db.select().from(hrScheduleWorkers).where(workerFilter),
+    // 保留舊 snapshot 的欄位形狀，但姓名、狀態、revision 與建立時間以 canonical employment 為準。
+    db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName, active: sql<number>`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 1 ELSE 0 END`, createdBy: sql<string | null>`${hrScheduleWorkers.createdBy}`, createdAt: hrEmployments.createdAt, updatedAt: hrEmployments.updatedAt, revision: hrEmployments.revision })
+      .from(hrEmployments).leftJoin(hrScheduleWorkers, eq(hrEmployments.id, hrScheduleWorkers.employmentId)).where(and(workerFilter, eq(hrEmployments.personKind, "worker"))),
     db.select().from(hrWorkerCompensationVersions).where(and(inJsonArray(hrWorkerCompensationVersions.workerId, workerIds), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
     listHrSpecialWorkdaysForPayroll(db, input.period.start, input.period.end, { employmentIds: input.employmentIds, workerIds: input.workerIds }),
     db.select().from(hrBonusPolicyMembers).where(and(inJsonArray(hrBonusPolicyMembers.employmentId, employmentIds), sql`${hrBonusPolicyMembers.validFrom} < ${input.period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.period.start})`)),
@@ -762,7 +765,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   return stableJson({
     periodKey: input.period.periodKey,
     employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves,
-    annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, calendarDays, calendarDayScopes,
+    annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, workerOvertime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, calendarDays, calendarDayScopes,
     scheduleEntries: scheduleEntries.map(({ entry }) => entry),
     workerScheduleEntries: workerScheduleEntries.map(({ entry }) => entry),
     workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes,
@@ -826,7 +829,7 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
     const attendance = employeeLines.find((line) => line.lineKey === "attendance_summary")?.explanation ?? {};
     return {
       employmentId: payslip.employmentId,
-      employeeUserId,
+      employeeUserId: employeeUserId!,
       employeeNumber: payslip.employeeNumber,
       employeeName: payslip.employeeName,
       lines: employeeLines.filter((line) => line.lineKey !== "attendance_summary"),
@@ -862,7 +865,14 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
       } catch {
         scheduleAllocationDetails = [];
       }
-      return { workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor, compensationVersionId: worker.compensationVersionId, scheduleAllocationDetails };
+      let overtimeExplanation: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(worker.overtimeExplanationJson) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) overtimeExplanation = parsed as Record<string, unknown>;
+      } catch {
+        overtimeExplanation = {};
+      }
+      return { workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, ...(worker.overtimeMinor || worker.overtimeSeconds ? { overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanation } : {}), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor, compensationVersionId: worker.compensationVersionId, scheduleAllocationDetails };
     }),
     warnings: [...new Set([...(hasInsuranceDeduction ? [] : [PAYROLL_DEMO_WARNING]), ...persistedWarnings, ...warnings])],
   };
@@ -1017,7 +1027,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const payrollEmploymentStatus = input.employeeUserIds === undefined ? sql`${hrEmployments.archivedAt} IS NULL` : sql`1=1`;
   const employeeRows = await db.select({
     employmentId: hrEmployments.id,
-    employeeUserId: hrEmployments.employeeUserId,
+    employeeUserId: sql<string>`${hrEmployments.employeeUserId}`.as("payroll_employee_user_id"),
     employeeNumber: hrEmployments.employeeNumber,
     employeeName: displayName,
     serviceStartOn: hrEmploymentServicePeriods.serviceStartOn,
@@ -1049,7 +1059,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   if (closedEmploymentIds.length) throw new HrError(409, "同一員工同一月份已有已結帳結果，請改用薪資調整。 ");
   await ensureHrAnnualLeaveEntitlements(db, { asOfDate: period.end, createdBy: actor.id });
   const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds: employees.map((employee) => employee.employmentId) });
-  // 臨時支援人員沒有 users／hr_employments，薪資資格來自已發布班表；不套用獎金 policy。
+  // 支援人員沒有平台帳號，但仍有 canonical hr_employments；薪資資格來自已發布班表，不套用獎金 policy。
   const scheduledEmployeeRows = await db.select({ id: hrScheduleEntries.id, employmentId: hrScheduleEntries.employmentId, scopeId: hrScheduleEntries.scopeId, shiftVersionId: hrScheduleEntries.shiftVersionId, shiftGroupId: hrScheduleEntries.shiftGroupId, workDate: hrScheduleEntries.workDate, startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes, requiredHeadcount: hrScheduleEntries.requiredHeadcount, attendanceStatus: hrScheduleEntries.attendanceStatus }).from(hrScheduleEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
     .where(and(
@@ -1058,21 +1068,22 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
     ));
-  const scheduledWorkerRowsAll = await db.select({ id: hrScheduleWorkerEntries.id, workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, scopeId: hrScheduleWorkerEntries.scopeId, shiftVersionId: hrScheduleWorkerEntries.shiftVersionId, shiftGroupId: hrScheduleWorkerEntries.shiftGroupId, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes, requiredHeadcount: hrScheduleWorkerEntries.requiredHeadcount, attendanceStatus: hrScheduleWorkerEntries.attendanceStatus }).from(hrScheduleWorkerEntries)
+  const scheduledWorkerRowsAll = await db.select({ id: hrScheduleWorkerEntries.id, workerId: hrScheduleWorkerEntries.workerId, workerName: hrEmployments.legalName, scopeId: hrScheduleWorkerEntries.scopeId, shiftVersionId: hrScheduleWorkerEntries.shiftVersionId, shiftGroupId: hrScheduleWorkerEntries.shiftGroupId, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes, requiredHeadcount: hrScheduleWorkerEntries.requiredHeadcount, attendanceStatus: hrScheduleWorkerEntries.attendanceStatus }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
-    .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkerEntries.workerId))
     .where(and(
       eq(hrScheduleVersions.status, "published"),
       eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end),
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`,
+      eq(hrEmployments.personKind, "worker"),
     ));
   const requestedWorkerIds = input.workerIds;
   // 特殊上班日不要求先有排班；沒有班表的支援人員用零工時列進來，月／日薪仍可依日期計算，固定時薪則由下方異常提示處理。
   const specialWorkdays = await listHrSpecialWorkdaysForPayroll(db, period.start, period.end, requestedWorkerIds === undefined ? undefined : { employmentIds: employees.map((employee) => employee.employmentId), workerIds: requestedWorkerIds });
   const specialWorkerIds = [...new Set(specialWorkdays.flatMap((item) => item.workerId ? [item.workerId] : []))];
   const specialWorkerNames = specialWorkerIds.length
-    ? await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inJsonArray(hrScheduleWorkers.id, specialWorkerIds))
+    ? await db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, specialWorkerIds), eq(hrEmployments.personKind, "worker")))
     : [];
   const specialWorkerNameById = new Map(specialWorkerNames.map((worker) => [worker.id, worker.displayName]));
   type WorkerScheduleRow = typeof scheduledWorkerRowsAll[number];
@@ -1088,7 +1099,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const eligibleWorkerIdSet = new Set(workerRowsAll.map((row) => row.workerId));
   const missingWorkerIds = requestedWorkerIds?.filter((workerId) => !eligibleWorkerIdSet.has(workerId)) ?? [];
   if (missingWorkerIds.length) {
-    const missingWorkers = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inJsonArray(hrScheduleWorkers.id, missingWorkerIds));
+    const missingWorkers = await db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, missingWorkerIds), eq(hrEmployments.personKind, "worker")));
     const namesById = new Map(missingWorkers.map((worker) => [worker.id, worker.displayName]));
     throw new HrError(400, `以下支援人員在 ${period.periodKey} 沒有已發布排班或特殊上班日套用，無法計算薪資：${missingWorkerIds.map((workerId) => namesById.get(workerId) ?? workerId).join("、")}。`);
   }
@@ -1164,6 +1175,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const overtime = await db.select().from(hrOvertimeRequests).where(and(
     eq(hrOvertimeRequests.status, "approved"),
     sql`(${hrOvertimeRequests.requestedEnd} > ${periodStartUtc} AND ${hrOvertimeRequests.requestedStart} < ${periodEndUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc} AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc})`,
+  ));
+  const workerOvertime = await db.select().from(hrWorkerOvertimeRequests).where(and(
+    eq(hrWorkerOvertimeRequests.status, "approved"),
+    sql`(${hrWorkerOvertimeRequests.requestedEnd} > ${periodStartUtc} AND ${hrWorkerOvertimeRequests.requestedStart} < ${periodEndUtc}) OR (${hrWorkerOvertimeRequests.actualStart} IS NOT NULL AND ${hrWorkerOvertimeRequests.actualEnd} > ${periodStartUtc} AND ${hrWorkerOvertimeRequests.actualStart} < ${periodEndUtc})`,
   ));
   const clocks = await db.select().from(hrClockEvents).where(and(
     sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`,
@@ -1305,7 +1320,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       }
     }
   }
-  type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] };
+  type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; overtimeMinor: number; overtimeSeconds: number; overtimeExplanation: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] };
   const workerStatements = new Map<string, WorkerStatement>();
   const workerRowsById = new Map<string, typeof scheduledWorkerRows>();
   for (const row of scheduledWorkerRows) workerRowsById.set(row.workerId, [...(workerRowsById.get(row.workerId) ?? []), row]);
@@ -1316,6 +1331,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const compensationIds = new Set<string>();
     const payBases = new Set<"monthly" | "daily" | "hourly">();
     let amountMinor = 0;
+    let overtimeMinor = 0;
+    let overtimeSeconds = 0;
+    const overtimeCalculationParts: PayrollCalculationPart[] = [];
+    const overtimeElapsedByDate = new Map<string, number>();
+    const fixedOvertimeSnapshots: Array<{ compensationVersionId: string; overtimeRatePpm: number | null; overtimeHourlyMinor: number | null }> = [];
+    const specialWorkdayRuleSnapshots = new Map<string, { workDate: string; ruleVersionId: string; overtimeRules: Array<{ fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null }> }>();
     let typhoonStopDays = 0;
     let typhoonStopPayMinor = 0;
     let missingCompensation = false;
@@ -1371,10 +1392,82 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         if (typhoonStop && typhoonAmount > 0) { typhoonStopDays += 1; typhoonStopPayMinor += typhoonAmount; }
       }
     }
+    const workerOvertimeRows = workerOvertime.filter((row) => row.workerId === workerId).sort((left, right) => {
+      const leftStart = left.actualStart ?? left.requestedStart;
+      const rightStart = right.actualStart ?? right.requestedStart;
+      return leftStart.localeCompare(rightStart) || (left.actualEnd ?? left.requestedEnd).localeCompare(right.actualEnd ?? right.requestedEnd);
+    });
+    const scheduledDateSet = new Set(dates);
+    for (const row of workerOvertimeRows) {
+      const start = row.actualStart ?? row.requestedStart;
+      const end = row.actualEnd ?? row.requestedEnd;
+      const clippedStart = start > periodStartUtc ? start : periodStartUtc;
+      const clippedEnd = end < periodEndUtc ? end : periodEndUtc;
+      if (!secondsBetween(clippedStart, clippedEnd)) continue;
+      for (const segment of splitOvertimeByTaipeiDate(clippedStart, clippedEnd)) {
+        if (!scheduledDateSet.has(segment.date)) continue;
+        const elapsedSeconds = overtimeElapsedByDate.get(segment.date) ?? 0;
+        overtimeElapsedByDate.set(segment.date, elapsedSeconds + segment.seconds);
+        if (row.settlementKind !== "pay") continue;
+        const compensation = covering(workerCompensationsForPeriod, segment.date);
+        if (!compensation) {
+          calculationWarnings.add(`${workerName} 的加班日期 ${segment.date} 找不到有效的支援人員敘薪，該段加班費為 0。`);
+          continue;
+        }
+        const special = specialWorkdays.find((item) => item.workerId === workerId && item.workDate === segment.date);
+        if (special?.ruleVersionId) specialWorkdayRuleSnapshots.set(`${segment.date}:${special.ruleVersionId}`, {
+          workDate: segment.date,
+          ruleVersionId: special.ruleVersionId,
+          overtimeRules: special.overtimeRules.map((rule) => ({ fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.fixedAmountMinor, multiplierPpm: rule.multiplierPpm })),
+        });
+        for (const chunk of splitOvertimeByRules(segment.seconds, special?.overtimeRules ?? [], elapsedSeconds)) {
+          const fixedHourlyMinor = chunk.rule?.rateKind === "fixed_hourly" ? chunk.rule.fixedAmountMinor! : chunk.rule ? null : compensation.overtimeHourlyMinor ?? null;
+          const parts: PayrollCalculationPart[] = [];
+          if (fixedHourlyMinor !== null) {
+            parts.push({
+              formula: `${segment.date}：${chunk.rule ? "特殊日固定時薪" : "約定加班固定時薪"} ${payrollFormulaMoney(fixedHourlyMinor)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`,
+              amountMinor: Math.floor(fixedHourlyMinor * chunk.seconds / 3600),
+            });
+          } else {
+            const hourly = compensation.payBasis === "monthly"
+              ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
+              : compensation.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation.baseAmountMinor;
+            // 特殊日級距優先；級距未涵蓋的時數才回到敘薪版本固定倍率，未設定固定倍率才套用制度兩級。
+            const fallbackRules = compensation.overtimeRatePpm !== null
+              ? [{ fromHalfHours: 1, toHalfHours: null, rateKind: "multiplier" as const, fixedAmountMinor: null, multiplierPpm: compensation.overtimeRatePpm }]
+              : statutoryOvertimeRules(row.ratePpm);
+            const tiers = chunk.rule ? [chunk] : splitOvertimeByRules(chunk.seconds, fallbackRules, chunk.positionSeconds);
+            for (const tier of tiers) {
+              const ratePpm = tier.rule?.multiplierPpm ?? compensation.overtimeRatePpm ?? row.ratePpm;
+              parts.push({
+                formula: `${segment.date}：floor(${payrollFormulaMoney(hourly)} × ${payrollFormulaHours(tier.seconds / 3600)} 小時 × ${payrollFormulaPercent(ratePpm)})`,
+                amountMinor: Math.floor(hourly * tier.seconds / 3600 * ratePpm / PPM),
+              });
+            }
+          }
+          overtimeSeconds += chunk.seconds;
+          for (const part of parts) {
+            overtimeMinor += part.amountMinor;
+            if (part.amountMinor > 0) overtimeCalculationParts.push(part);
+          }
+        }
+        if (compensation.overtimeRatePpm !== null || compensation.overtimeHourlyMinor !== null) {
+          const snapshot = { compensationVersionId: compensation.id, overtimeRatePpm: compensation.overtimeRatePpm, overtimeHourlyMinor: compensation.overtimeHourlyMinor };
+          if (!fixedOvertimeSnapshots.some((item) => item.compensationVersionId === snapshot.compensationVersionId)) fixedOvertimeSnapshots.push(snapshot);
+        }
+      }
+    }
+    amountMinor += overtimeMinor;
     if (missingCompensation) calculationWarnings.add(`${workerName} 有排班日期找不到有效的支援人員敘薪，該日期薪資為 0。`);
     const payBasis = payBases.size === 1 ? [...payBases][0]! : payBases.size > 1 ? "mixed" : "daily";
     workerStatements.set(workerId, {
-      workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor, typhoonStopDays, typhoonStopPayMinor,
+      workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor, overtimeMinor, overtimeSeconds,
+      overtimeExplanation: {
+        approvedRequests: workerOvertimeRows.filter((row) => row.settlementKind === "pay").length,
+        requestSnapshots: workerOvertimeRows.map((row) => ({ id: row.id, scopeId: row.scopeId, requestedStart: row.requestedStart, requestedEnd: row.requestedEnd, actualStart: row.actualStart, actualEnd: row.actualEnd, settlementKind: row.settlementKind, ratePpm: row.ratePpm })),
+        standardDailyHours, monthlyDivisorDays, fixedOvertimeSnapshots, specialWorkdayRuleSnapshots: [...specialWorkdayRuleSnapshots.values()], calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
+      },
+      typhoonStopDays, typhoonStopPayMinor,
       compensationVersionId: compensationIds.size === 1 ? [...compensationIds][0]! : null,
       scheduleAllocationDetails: workerAllocationDetails.get(workerId) ?? [],
     });
@@ -2094,7 +2187,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const deductionMinor = lines.filter((line) => line.direction === "deduction").reduce((sum, line) => sum + line.amountMinor, 0);
     statementRows.push({
       payslipId: crypto.randomUUID(),
-      employee: { employmentId: employee.employmentId, employeeUserId: employee.employeeUserId, employeeNumber: employee.employeeNumber, employeeName: employee.employeeName, lines, earningMinor, deductionMinor, netMinor: earningMinor - deductionMinor, attendanceDays: attendanceDays.size, missingPunchDays: missingPunchDays.length },
+      employee: { employmentId: employee.employmentId, employeeUserId: employee.employeeUserId!, employeeNumber: employee.employeeNumber, employeeName: employee.employeeName, lines, earningMinor, deductionMinor, netMinor: earningMinor - deductionMinor, attendanceDays: attendanceDays.size, missingPunchDays: missingPunchDays.length },
       lines,
       compensationIds,
       insuranceIds,
@@ -2133,7 +2226,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ...compensationIds.map((id) => db.insert(hrPayslipCompensationLinks).values({ payslipId, compensationVersionId: id })),
     ...insuranceIds.map((id) => db.insert(hrPayslipInsuranceLinks).values({ payslipId, insuranceVersionId: id })),
   ]),
-  ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, scheduleAllocationJson: JSON.stringify(worker.scheduleAllocationDetails), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
+  ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanationJson: JSON.stringify(worker.overtimeExplanation), scheduleAllocationJson: JSON.stringify(worker.scheduleAllocationDetails), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
   ...payrollSpecialWorkdaySourceStatements(db, runId, sourceSnapshotJson),
   db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: PAYROLL_ENGINE_VERSION } }))];
   try {
@@ -2147,16 +2240,17 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
 
 export async function listHrPayrollWorkerCandidates(db: Database, periodKey: string) {
   const period = periodFromKey(periodKey);
-  const rows = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkerEntries)
+  const rows = await db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
-    .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkerEntries.workerId))
     .where(and(
       eq(hrScheduleVersions.status, "published"),
       eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end),
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`,
+      eq(hrEmployments.personKind, "worker"),
     ))
-    .orderBy(asc(hrScheduleWorkers.displayName), asc(hrScheduleWorkers.id));
+    .orderBy(asc(hrEmployments.legalName), asc(hrEmployments.id));
   const candidates = new Map<string, { id: string; displayName: string }>();
   for (const row of rows) candidates.set(row.id, row);
   return [...candidates.values()];
@@ -2302,8 +2396,8 @@ async function ensureBonusScopes(db: Database, scopeIds: string[]) {
 
 async function resolveBonusPolicyEmployments(db: Database, employeeUserIds: string[] | undefined) {
   if (!employeeUserIds?.length) return [];
-  const rows = await db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId }).from(hrEmployments)
-    .where(and(inJsonArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.archivedAt} IS NULL`));
+  const rows = await db.select({ id: hrEmployments.id, employeeUserId: sql<string>`${hrEmployments.employeeUserId}`.as("bonus_employee_user_id") }).from(hrEmployments)
+    .where(and(eq(hrEmployments.personKind, "employee"), inJsonArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.archivedAt} IS NULL`));
   const employmentByUser = new Map<string, { id: string; employeeUserId: string }>();
   for (const row of rows) employmentByUser.set(row.employeeUserId, row);
   const missing = employeeUserIds.filter((employeeUserId) => !employmentByUser.has(employeeUserId));
@@ -2569,7 +2663,7 @@ export async function listHrPayrollRuns(db: Database) {
     for (const row of accountNames) if (!legacyEmployeeNames.has(row.userId)) legacyEmployeeNames.set(row.userId, row.employeeName);
   }
   const legacyWorkerNames = legacyRunRows.length
-    ? new Map((await db.select({ workerId: hrScheduleWorkers.id, workerName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers)).map((row) => [row.workerId, row.workerName]))
+    ? new Map((await db.select({ workerId: hrEmployments.id, workerName: hrEmployments.legalName }).from(hrEmployments).where(eq(hrEmployments.personKind, "worker"))).map((row) => [row.workerId, row.workerName]))
     : new Map<string, string>();
   return rows.map((row) => {
     const input = parsePayrollCalculationInput(row.calculationInputJson);

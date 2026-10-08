@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
-import { hrEmployeeLabel, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
+import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OvertimeDayPicker } from "./OvertimeDayPicker.js";
 import { OVERTIME_HOUR_PRESETS, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, summarizeAssignments } from "./overtime-entry.js";
@@ -16,6 +16,7 @@ type RequestStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled"
 type HistoryKind = "all" | RequestKind;
 
 interface EmployeePageResponse { employees: Employee[] }
+interface WorkerCandidate { id: string; displayName: string }
 interface LeaveType { id: string; name: string; leaveKind: "annual" | "other" }
 
 interface RequestRow {
@@ -198,7 +199,7 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
     const isCancellation = decision === "cancelled";
     const path = isCancellation
       ? row.kind === "leave" ? `/requests/leave/${row.id}/cancel` : `/requests/overtime/${row.id}/cancel`
-      : row.kind === "leave" ? `/requests/leave/${row.id}/review` : row.kind === "overtime" ? `/overtime/${row.id}/review` : `/me/form-requests/${row.id}/review`;
+      : row.kind === "leave" ? `/requests/leave/${row.id}/review` : row.kind === "overtime" ? `/requests/overtime/${row.id}/review` : `/me/form-requests/${row.id}/review`;
     const values: Record<string, unknown> = isCancellation ? {} : { decision, comment };
     if (row.kind === "overtime" && decision === "approved") { values.actualStart = actualStart; values.actualEnd = actualEnd; }
     review.mutate({ path, method: "POST", values }, { onSuccess: () => { onDone(); (closeRequestRef.current ?? onClose)(); } });
@@ -216,7 +217,7 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
     </>}
   >
     <dl><dt>申請期間</dt><dd>{row.period}</dd><dt>申請內容</dt><dd>{row.detail}</dd><dt>原因</dt><dd>{row.reason}</dd></dl>
-    {row.kind === "overtime" && !isApprovedCancellable ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><input type="datetime-local" step="60" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><input type="datetime-local" step="60" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
+    {row.kind === "overtime" && !isApprovedCancellable ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><input type="datetime-local" step="1800" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><input type="datetime-local" step="1800" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
     {isApprovedCancellable ? <p className="muted field-note">{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</p> : <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
     {row.kind === "overtime" && row.status === "pending" ? <p className="muted field-note">按「取消申請」會直接刪除這筆加班，不會留在申請紀錄。</p> : null}
     {review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
@@ -244,7 +245,7 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees.filter(isHrFormalEmployee)).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
   const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : ""}` }))];
   const leaveDuration = useHrLeaveDuration(employeeUserId && startsAt && endsAt ? { employeeUserId, startsAt, endsAt } : null);
   const durationMinutes = leaveDuration.data?.durationMinutes ?? null;
@@ -279,9 +280,11 @@ const OVERTIME_MODE_OPTIONS = [{ value: "single", label: "單日" }, { value: "m
 const OVERTIME_PRESET_OPTIONS = OVERTIME_HOUR_PRESETS.map((hours) => ({ value: String(hours), label: `${hours} 小時` }));
 const OVERTIME_UNIT_ERROR = "時數要以 0.5 小時為單位，最多 24 小時。";
 
-function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange }: { employees: Employee[] } & RequestFormProps) {
+function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone, onPendingChange }: { employees: Employee[]; workers: WorkerCandidate[] } & RequestFormProps) {
   const [mode, setMode] = useState<OvertimeMode>("single");
+  const [targetKind, setTargetKind] = useState<"employee" | "worker">("employee");
   const [employeeUserId, setEmployeeUserId] = useState("");
+  const [workerId, setWorkerId] = useState("");
   const [date, setDate] = useState(taipeiToday);
   const [month, setMonth] = useState(() => taipeiToday().slice(0, 7));
   /** null 代表還沒手動改過，開始時間跟著班表的下班時間走。 */
@@ -292,10 +295,12 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees.filter(isHrFormalEmployee)).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
+  const workerOptions = [{ value: "", label: "請選擇支援人員" }, ...workers.map((worker) => ({ value: worker.id, label: worker.displayName }))];
+  const targetId = targetKind === "employee" ? employeeUserId : workerId;
 
   const range = mode === "single" ? (date ? { startsOn: date, endsOn: nextDate(date) } : null) : monthRange(month);
-  const daysPath = employeeUserId && range ? `/requests/overtime-days?${new URLSearchParams({ employeeUserId, ...range }).toString()}` : "";
+  const daysPath = targetId && range ? `/requests/overtime-days?${new URLSearchParams(targetKind === "employee" ? { employeeUserId, ...range } : { workerId, ...range }).toString()}` : "";
   const dayQuery = useHrQuery<{ days: HrOvertimeDay[] }>(daysPath, Boolean(daysPath), { keepPreviousData: false });
   const days = useMemo(() => (daysPath ? dayQuery.data?.days ?? [] : []).map((day) => ({ date: day.date, startAt: day.shiftEnd ? taipeiInputValue(day.shiftEnd) : null, existing: day.existing })), [dayQuery.data, daysPath]);
   const daysLoading = Boolean(daysPath) && dayQuery.isPending;
@@ -311,7 +316,7 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
   const startTime = manualStart ?? suggestedStart;
   const start = date && startTime ? `${date}T${startTime}` : "";
   const end = start && minutes !== null ? addMinutes(start, minutes) : "";
-  const startHint = !employeeUserId ? "選了員工會自動帶入下班時間" : daysLoading ? "查詢班表中…" : suggestedStart ? (startEdited ? `班表下班時間是 ${suggestedStart}` : "已帶入班表的下班時間") : singleDay ? "這天沒有可帶入的下班時間，請自行填寫" : undefined;
+  const startHint = !targetId ? "選了申請對象會自動帶入下班時間" : daysLoading ? "查詢班表中…" : suggestedStart ? (startEdited ? `班表下班時間是 ${suggestedStart}` : "已帶入班表的下班時間") : singleDay ? "這天沒有可帶入的下班時間，請自行填寫" : undefined;
 
   const pickerDays = useMemo(() => days.map((day) => ({ date: day.date, startAt: day.startAt, hasExisting: day.existing.length > 0 })), [days]);
   const entries = mode === "multiple" ? days.flatMap((day) => {
@@ -319,7 +324,7 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
     return dayMinutes !== undefined && day.startAt ? [{ requestedStart: day.startAt, requestedEnd: addMinutes(day.startAt, dayMinutes) }] : [];
   }) : [];
   const summary = summarizeAssignments(assigned);
-  const canSubmit = Boolean(employeeUserId) && (mode === "single" ? Boolean(start) && minutesValid : entries.length > 0);
+  const canSubmit = Boolean(targetId) && (mode === "single" ? Boolean(start) && minutesValid : entries.length > 0);
 
   // 換員工或換日期後，原本帶入的下班時間與選好的日子都屬於上一個班表，留著會送出錯的時段。
   function resetDayDefaults() {
@@ -339,7 +344,7 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
     event.preventDefault();
     if (!canSubmit) return;
     onPendingChange(true);
-    const shared = { employeeUserId, settlementKind, reason };
+    const shared = { ...(targetKind === "employee" ? { employeeUserId } : { workerId }), settlementKind, reason };
     write.mutate(mode === "single"
       ? { path: "/requests/overtime", method: "POST", values: { ...shared, requestedStart: start, requestedEnd: end } }
       : { path: "/requests/overtime/batch", method: "POST", values: { ...shared, entries } }, {
@@ -356,7 +361,8 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
   const presets = <SegmentedControl className="hr-overtime-presets" aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={write.isPending} onChange={setHours} />;
 
   return <form id={REQUEST_FORM_ID} className="hr-request-form" onSubmit={submit}>
-    <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} searchable disabled={write.isPending} onChange={(event) => { setEmployeeUserId(event.target.value); resetDayDefaults(); }} />
+    <SegmentedControl className="hr-request-kind-tabs" aria-label="申請對象" value={targetKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "支援人員" }]} disabled={write.isPending} onChange={(value) => { const next = value === "worker" ? "worker" : "employee"; setTargetKind(next); setEmployeeUserId(""); setWorkerId(""); resetDayDefaults(); }} />
+    <SelectField label={targetKind === "employee" ? "申請員工" : "申請支援人員"} required value={targetId} options={targetKind === "employee" ? employeeOptions : workerOptions} searchable disabled={write.isPending} onChange={(event) => { if (targetKind === "employee") setEmployeeUserId(event.target.value); else setWorkerId(event.target.value); resetDayDefaults(); }} />
     <SegmentedControl className="hr-request-kind-tabs" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={write.isPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />
     {mode === "single" ? <>
       <div className="form-grid two">
@@ -377,7 +383,7 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
       </div>
       {presets}
       <p className="muted field-note">先選時數，再點日期；再點一次同樣時數就取消。每天從班表的下班時間開始算。</p>
-      {!employeeUserId ? <p className="muted table-note">先選員工，才看得到這個月的班表。</p>
+      {!targetId ? <p className="muted table-note">先選申請對象，才看得到這個月的班表。</p>
         : dayQuery.error ? <Alert tone="danger">{dayQuery.error.message}</Alert>
         : daysLoading ? <p className="muted table-note">載入班表…</p>
         : <OvertimeDayPicker days={pickerDays} assigned={assigned} disabled={write.isPending || !minutesValid} onToggle={toggleDay} />}
@@ -390,7 +396,7 @@ function OvertimeForm({ employees, actionsSlot, onClose, onDone, onPendingChange
   </form>;
 }
 
-function CreateRequestDialog({ initialKind, employees, leaveTypes, onClose, onDone }: { initialKind: "leave" | "overtime"; employees: Employee[]; leaveTypes: LeaveType[]; onClose: () => void; onDone: () => void }) {
+function CreateRequestDialog({ initialKind, employees, workers, leaveTypes, onClose, onDone }: { initialKind: "leave" | "overtime"; employees: Employee[]; workers: WorkerCandidate[]; leaveTypes: LeaveType[]; onClose: () => void; onDone: () => void }) {
   const [kind, setKind] = useState<"leave" | "overtime">(initialKind);
   const [pending, setPending] = useState(false);
   const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
@@ -406,7 +412,7 @@ function CreateRequestDialog({ initialKind, employees, leaveTypes, onClose, onDo
         onChange={(value) => { if (value === "leave" || value === "overtime") setKind(value); }}
       />
     </div>
-    {kind === "leave" ? <LeaveForm employees={employees} leaveTypes={leaveTypes} actionsSlot={actionsSlot} onClose={onClose} onDone={onDone} onPendingChange={setPending} /> : <OvertimeForm employees={employees} actionsSlot={actionsSlot} onClose={onClose} onDone={onDone} onPendingChange={setPending} />}
+    {kind === "leave" ? <LeaveForm employees={employees} leaveTypes={leaveTypes} actionsSlot={actionsSlot} onClose={onClose} onDone={onDone} onPendingChange={setPending} /> : <OvertimeForm employees={employees} workers={workers} actionsSlot={actionsSlot} onClose={onClose} onDone={onDone} onPendingChange={setPending} />}
   </Dialog>;
 }
 
@@ -423,6 +429,7 @@ export function HrRequestCenter() {
   const [reviewing, setReviewing] = useState<RequestRow | null>(null);
   const employees = useHrQuery<EmployeePageResponse>("/requests/employees", canAccess, { keepPreviousData: false });
   const leaveTypes = useHrQuery<{ leaveTypes: LeaveType[] }>("/requests/leave-types", canAccess, { keepPreviousData: false });
+  const workers = useHrQuery<{ workers: WorkerCandidate[] }>("/requests/workers", canAccess, { keepPreviousData: false });
   const requestPath = useMemo(() => {
     const params = new URLSearchParams({ page: String(filters.page), pageSize: String(filters.pageSize) });
     const search = filters.search.trim();
@@ -465,7 +472,7 @@ export function HrRequestCenter() {
   }, [loadedPage]);
 
   if (!canAccess) return <Alert tone="danger">你沒有檢視 HR 申請的權限。</Alert>;
-  if (employees.isPending || leaveTypes.isPending || requests.isPending) return <HrPageSkeleton variant="table" />;
+  if (employees.isPending || leaveTypes.isPending || workers.isPending || requests.isPending) return <HrPageSkeleton variant="table" />;
 
   function updateFilters(patch: Partial<RequestFilters>) {
     setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
@@ -480,9 +487,9 @@ export function HrRequestCenter() {
 
   return <div className="page fills hr-request-page">
     <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" className="add-action" onClick={() => setCreateOpen(true)}>新增申請</Button>} />
-    <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登目前會保存「已核准」狀態；員工前台上線後則由主管或 HR 進行審核。</Alert>
-    {employees.error || leaveTypes.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message}</Alert> : null}
-    <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登與未來員工前台產生的申請；待審核資料可直接在此處理。">
+    <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登（含沒有平台帳號的支援人員）會保存「已核准」狀態；正式員工前台申請則由主管或 HR 進行審核。</Alert>
+    {employees.error || leaveTypes.error || workers.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message ?? workers.error?.message}</Alert> : null}
+    <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登（正式員工與支援人員）及正式員工前台產生的申請；待審核資料可直接在此處理。">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <FilterToolbar className="hr-request-toolbar">
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
@@ -498,7 +505,7 @@ export function HrRequestCenter() {
       {requests.data && !visibleRows.length ? <p className="muted table-note">{total ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</p> : null}
       {total ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => setFilters((current) => ({ ...current, page: nextPage }))} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
-    {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
+    {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} workers={workers.data?.workers ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
     {reviewing ? <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}
   </div>;
 }

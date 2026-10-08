@@ -2,8 +2,10 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tansta
 import { useToast } from "../../shell/Toast.js";
 
 export interface Employee {
+  /** 支援人員沒有平台 User，因此 userId 為 null；業務流程請使用 employmentId。 */
+  personKind?: "employee" | "worker";
   employmentId?: string;
-  userId: string;
+  userId: string | null;
   employeeNumber: string;
   legalName: string;
   /** Google／帳號顯示名稱；HR 流程應使用 legalName。 */
@@ -18,7 +20,11 @@ export interface Employee {
   employmentStatus: "active" | "inactive";
   revision: number;
 }
-export interface Employment { id: string; employeeUserId: string; employeeNumber: string; position: string; supervisorUserId: string | null; supervisorName?: string | null; serviceStartOn?: string | null; archivedAt: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
+export type HrFormalEmployee = Employee & { userId: string };
+export function isHrFormalEmployee(employee: Employee): employee is HrFormalEmployee {
+  return employee.personKind !== "worker" && employee.userId !== null;
+}
+export interface Employment { id: string; employeeUserId: string | null; employeeNumber: string; position: string; supervisorUserId: string | null; supervisorName?: string | null; serviceStartOn?: string | null; archivedAt: string | null; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null; revision: number }
 export interface Assignment { id: string; employmentId: string; scopeName: string; validFrom: string; validTo: string | null; revision: number }
 export interface AttendanceAssignment {
   id: string;
@@ -31,7 +37,7 @@ export interface AttendanceAssignment {
   revision: number;
 }
 export interface CompensationItem { id: string; compensationVersionId: string; itemName: string; amountMinor: number; itemKind: "fixed" | "variable"; amountBasis: "monthly" | "daily" | "hourly"; includeOvertime: number; includeInsurance: number; includeTax: number }
-export interface CompensationVersion { id: string; employmentId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; overtimeHourlyMinor?: number | null; note: string; voidedAt?: string | null; voidedBy?: string | null; items?: CompensationItem[]; createdAt: string; createdBy: string }
+export interface CompensationVersion { id: string; employmentId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; overtimeRatePpm?: number | null; overtimeHourlyMinor?: number | null; note: string; voidedAt?: string | null; voidedBy?: string | null; items?: CompensationItem[]; createdAt: string; createdBy: string }
 export interface InsuranceVersion { id: string; employmentId: string; scheme: "labor" | "health"; versionNumber: number; status: "enrolled" | "withdrawn"; validFrom: string; validTo: string | null; insuredAmountMinor: number; dependentCount: number; rateYear: number; sourceKind: "official" | "manual"; sourceUrl: string; note: string; voidedAt?: string | null; voidedBy?: string | null; createdAt: string; createdBy: string }
 export interface LeaveRequest { id: string; employmentId: string; leaveType: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number; payRatePpm?: number; reason: string; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string | null; createdAt: string; createdBy: string }
 export interface AttendanceEvent { id: string; eventKind: "clock_in" | "clock_out"; occurredAt: string; locationName: string | null; scopeName?: string | null; distanceMeters: number | null; sourceKind?: string; manualReason?: string; recordedBy?: string | null }
@@ -154,7 +160,7 @@ export interface FormRequest {
   updatedAt: string;
 }
 export interface FormApprover { id: string; name: string; employeeNumber?: string }
-export interface HrOvertimeRequest { request: { id: string; employmentId: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; reviewedBy?: string | null; reviewedAt?: string | null; decisionReason: string; createdBy?: string; createdAt: string }; employeeUserId?: string; employeeName: string | null; employeeNumber: string | null }
+export interface HrOvertimeRequest { request: { id: string; employmentId?: string; scopeId?: string | null; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; reviewedBy?: string | null; reviewedAt?: string | null; decisionReason: string; createdBy?: string; createdAt: string }; employeeUserId?: string; workerId?: string; employeeName: string | null; employeeNumber: string | null }
 export interface HrLeaveType { id: string; name: string; leaveKind: "annual" | "other"; defaultPayRatePpm: number; active: number; createdBy: string; createdAt: string; updatedAt: string }
 export interface HrOvertimeDay { date: string; shiftEnd: string | null; existing: Array<{ requestedStart: string; requestedEnd: string; status: string }> }
 export interface HrLeaveDurationResponse { startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number }
@@ -210,7 +216,7 @@ export interface PayrollScheduleAllocationDetail {
   unitNumerator: number;
   unitDenominator: number;
 }
-export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails?: PayrollScheduleAllocationDetail[] }
+export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails?: PayrollScheduleAllocationDetail[] }
 export interface PayrollWorkerCandidate { id: string; displayName: string }
 export interface PayrollRun { runId: string; runName: string; periodKey: string; payDate: string | null; status: "ready" | "closed"; engineVersion: string; withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
 export type BonusKind = "team_performance" | "individual_performance";
@@ -355,8 +361,8 @@ export const SCHEDULE_ATTENDANCE_STATUS_LABELS: Record<ScheduleAttendanceStatus,
 export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; shiftGroupId: string | null; workDate: string; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; requiredHeadcount: number; attendanceStatus: ScheduleAttendanceStatus; employeeNumber: string | null; personName: string; archivedAt: string | null; scopeName: string; shiftName: string }
 export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; calendar: HrCalendarDay[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
 export type SupportWorkerPayBasis = "daily" | "hourly";
-export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | SupportWorkerPayBasis; baseAmountMinor: number; note: string }
-export interface ScheduleWorkerRecord { id: string; displayName: string; active: boolean | number; revision: number; compensation: WorkerCompensation[] }
+export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | SupportWorkerPayBasis; baseAmountMinor: number; overtimeRatePpm?: number | null; overtimeHourlyMinor?: number | null; note: string }
+export interface ScheduleWorkerRecord { id: string; employmentId?: string; displayName: string; active: boolean | number; revision: number; compensation: WorkerCompensation[] }
 export interface ScheduleWorkerPageResponse { workers: ScheduleWorkerRecord[]; total: number; page: number; pageSize: number; hasMore: boolean }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -372,8 +378,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 function hrRosterPagePath(page: number) {
   return `/employees?page=${page}&pageSize=100&status=employable&employmentStatus=active&sortField=employeeNumber&sortDirection=asc`;
 }
+function hrPersonnelRosterPagePath(page: number) {
+  return `/employees?page=${page}&pageSize=100&status=all&employmentStatus=active&personKind=all&sortField=employeeNumber&sortDirection=asc`;
+}
 export const HR_ROSTER_PATH = hrRosterPagePath(1);
-interface HrAssignableEmployee extends Employee { employmentId: string }
+interface HrAssignableEmployee extends HrFormalEmployee { employmentId: string }
 interface HrEmployeeRosterResponse {
   employees: HrAssignableEmployee[];
   total: number;
@@ -381,6 +390,9 @@ interface HrEmployeeRosterResponse {
   pageSize: number;
   hasMore: boolean;
   counts: { active: number; inactive: number };
+}
+interface HrPersonnelRosterResponse extends Omit<HrEmployeeRosterResponse, "employees"> {
+  employees: Employee[];
 }
 async function requestAllHrAssignableEmployees(signal?: AbortSignal): Promise<HrEmployeeRosterResponse> {
   const first = await request<HrEmployeeRosterResponse>(HR_ROSTER_PATH, { signal });
@@ -394,6 +406,21 @@ export function useHrEmployeeRoster(enabled = true) {
   return useQuery({
     queryKey: ["hr", "employees", "assignable-roster"],
     queryFn: ({ signal }) => requestAllHrAssignableEmployees(signal),
+    enabled,
+    retry: false,
+  });
+}
+
+export function useHrPersonnelRoster(enabled = true) {
+  return useQuery({
+    queryKey: ["hr", "employees", "personnel-roster"],
+    queryFn: async ({ signal }) => {
+      const first = await request<HrPersonnelRosterResponse>(hrPersonnelRosterPagePath(1), { signal });
+      if (!first.hasMore) return { ...first, employees: sortHrEmployees(first.employees) };
+      const pageCount = Math.ceil(first.total / first.pageSize);
+      const remaining = await Promise.all(Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => request<HrPersonnelRosterResponse>(hrPersonnelRosterPagePath(index + 2), { signal })));
+      return { ...first, employees: sortHrEmployees([first, ...remaining].flatMap((page) => page.employees)), hasMore: false };
+    },
     enabled,
     retry: false,
   });

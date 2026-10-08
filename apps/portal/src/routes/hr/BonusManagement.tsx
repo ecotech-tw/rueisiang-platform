@@ -6,7 +6,7 @@ import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { hrEmployeeLabel, sortHrEmployees, useHrEmployeeRoster, useHrQuery, useHrWrite, type BonusAssignment, type BonusPolicy, type NamedOption } from "./api.js";
+import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrEmployeeRoster, useHrQuery, useHrWrite, type BonusAssignment, type BonusPolicy, type NamedOption } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface PolicyResponse { policies: BonusPolicy[]; total: number; page: number; pageSize: number; hasMore: boolean }
@@ -70,9 +70,10 @@ export function HrBonusManagement() {
 
   const assignmentsByVersion = new Map<string, BonusAssignment[]>();
   for (const item of assignments.data?.assignments ?? []) assignmentsByVersion.set(item.policyVersionId, [...(assignmentsByVersion.get(item.policyVersionId) ?? []), item]);
-  const activeEmployeeIds = new Set((employees.data?.employees ?? []).map((employee) => employee.userId));
+  const assignableEmployees = (employees.data?.employees ?? []).filter(isHrFormalEmployee);
+  const activeEmployeeIds = new Set(assignableEmployees.map((employee) => employee.userId));
   const baseEmployeeOptions = sortHrEmployees([
-    ...(employees.data?.employees ?? []).map((employee) => ({
+    ...assignableEmployees.map((employee) => ({
       employeeNumber: employee.employeeNumber,
       legalName: employee.legalName,
       option: { label: hrEmployeeLabel(employee), chipLabel: employee.legalName, value: employee.userId, disabled: false },

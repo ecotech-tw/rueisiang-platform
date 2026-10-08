@@ -45,7 +45,7 @@ export async function getHrOverview(db: Database): Promise<HrOverviewResult> {
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(and(hrEmployableUser, sql`${hrEmployments.archivedAt} IS NULL`));
   const activeRows = employeeRows;
-  const activeUserIds = [...new Set(activeRows.map((row) => row.userId))];
+  const activeUserIds = [...new Set(activeRows.map((row) => row.userId).filter((id): id is string => Boolean(id)))];
   const activeEmploymentIds = new Set(activeRows.map((row) => row.employmentId));
 
   const anomalyCount = await countHrClockCalendarAnomalies(db, activeUserIds, year, month);

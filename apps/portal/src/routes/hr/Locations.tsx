@@ -4,7 +4,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
-import { useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type Profile } from "./api.js";
+import { isHrFormalEmployee, useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type HrFormalEmployee, type Profile } from "./api.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }
@@ -60,7 +60,7 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
   </Dialog>;
 }
 
-function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (edit: LocationEdit) => void }) {
+function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: HrFormalEmployee; canWrite: boolean; onEdit: (edit: LocationEdit) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   if (profile.isPending) return <HrSkeletonTableRow columns={5} />;
   if (profile.error || !profile.data) return <tr><td>{employee.legalName}</td><td colSpan={5}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
@@ -95,7 +95,7 @@ export function HrAttendanceScopeManagement() {
       {employees.error || locations.error ? <Alert tone="danger">{employees.error?.message ?? locations.error?.message}</Alert> : null}
       {employees.isFetching || locations.isFetching ? <p className="form-hint">更新中…</p> : null}
       <DataTable className="hr-location-assignment-table"><thead><tr><th>員工</th><th>目前任職</th><th>出勤方式</th><th>有效辦公位置</th><th>操作</th></tr></thead><tbody>
-        {(employees.data?.employees ?? []).map((employee) => <EmployeeLocationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
+        {(employees.data?.employees ?? []).filter(isHrFormalEmployee).map((employee) => <EmployeeLocationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
       </tbody></DataTable>
       {!employees.data?.employees.length ? <EmptyState>沒有符合條件的員工。</EmptyState> : null}
       {employees.data && employees.data.total > 0 ? <Pager page={employees.data.page} pageSize={employees.data.pageSize} pageSizes={[25, 50, 100]} totalPages={Math.max(1, Math.ceil(employees.data.total / employees.data.pageSize))} totalLabel={`共 ${employees.data.total.toLocaleString("zh-TW")} 位員工`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}

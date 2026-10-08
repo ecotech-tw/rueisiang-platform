@@ -264,6 +264,13 @@ describe("HR 申請中心", () => {
       { date: "2026-01-07", shiftEnd: null, existing: [] },
     ]);
 
+    const overnight = await request("/hr/requests/overtime", "POST", { employeeUserId: "employee", requestedStart: "2026-01-06T23:00", requestedEnd: "2026-01-07T01:00", settlementKind: "pay", reason: "跨午夜申請" });
+    expect(overnight.status, await overnight.clone().text()).toBe(201);
+    const overnightStartUtc = "2026-01-06 15:00:00";
+    const afterOvernight = await days();
+    expect(afterOvernight.find((day) => day.date === "2026-01-06")?.existing).toEqual(expect.arrayContaining([expect.objectContaining({ requestedStart: overnightStartUtc, status: "approved" })]));
+    expect(afterOvernight.find((day) => day.date === "2026-01-07")?.existing).toEqual(expect.arrayContaining([expect.objectContaining({ requestedStart: overnightStartUtc, status: "approved" })]));
+
     expect((await request("/hr/requests/overtime-days?employeeUserId=employee&startsOn=2026-01-05&endsOn=2026-01-05")).status).toBe(400);
     expect((await request("/hr/requests/overtime-days?employeeUserId=employee&startsOn=2026-01-05&endsOn=2026-01-08", "GET", undefined, employeeCookie)).status).toBe(403);
   });

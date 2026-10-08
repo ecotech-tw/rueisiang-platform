@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, like, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNull, like, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
@@ -168,7 +168,11 @@ async function saveEntriesAtomically(db: Database, version: { id: string; revisi
       WHERE schedule_version_id=${version.id}
         AND EXISTS (SELECT 1 FROM hr_employments AS employment WHERE employment.id=hr_schedule_entries.employment_id AND employment.archived_at IS NULL)
         AND ${guard}`,
-    sql`DELETE FROM hr_schedule_worker_entries WHERE schedule_version_id=${version.id} AND ${guard}`,
+    // 封存支援人員的班表同樣是歷史薪資來源；保留其既有列，只替換活動支援人員的排班。
+    sql`DELETE FROM hr_schedule_worker_entries
+      WHERE schedule_version_id=${version.id}
+        AND EXISTS (SELECT 1 FROM hr_employments AS worker WHERE worker.id=hr_schedule_worker_entries.worker_id AND worker.archived_at IS NULL)
+        AND ${guard}`,
     ...entries.map((entry) => {
       const shiftGroupId = groupIdFor(entry);
       return entry.personKind === "employee"
@@ -214,7 +218,8 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(sql`${hrEmployments.archivedAt} IS NULL`);
   const employmentMap = new Map(employmentRows.map((employment) => [employment.id, employment]));
-  const workers = await db.select({ id: hrScheduleWorkers.id, active: hrScheduleWorkers.active }).from(hrScheduleWorkers);
+  const workers = await db.select({ id: hrEmployments.id, active: sql<number>`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 1 ELSE 0 END` }).from(hrEmployments)
+    .where(eq(hrEmployments.personKind, "worker"));
   const workerMap = new Map(workers.map((worker) => [worker.id, worker]));
   const enriched: EnrichedScheduleEntry[] = [];
   const occupied = new Map<string, Array<{ start: number; end: number }>>();
@@ -290,7 +295,8 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
   const version = await latestScheduleVersion(db, period);
   const [scopeRows, workerRows, shiftRows, calendar] = await Promise.all([
     listHrScheduleScopes(db),
-    db.select({ id: hrScheduleWorkers.id, name: hrScheduleWorkers.displayName, active: hrScheduleWorkers.active }).from(hrScheduleWorkers).where(eq(hrScheduleWorkers.active, 1)).orderBy(asc(hrScheduleWorkers.displayName)),
+    db.select({ id: hrEmployments.id, name: hrEmployments.legalName, active: sql<number>`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 1 ELSE 0 END` }).from(hrEmployments)
+      .where(and(eq(hrEmployments.personKind, "worker"), isNull(hrEmployments.archivedAt))).orderBy(asc(hrEmployments.legalName)),
     listHrScopeShiftRows(db),
     listHrCalendarMonth(db, period),
   ]);
@@ -303,12 +309,12 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleEntries.shiftVersionId))
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
       .where(and(eq(hrScheduleEntries.scheduleVersionId, version.id), selectedScopeId ? eq(hrScheduleEntries.scopeId, selectedScopeId) : undefined)),
-    db.select({ entry: hrScheduleWorkerEntries, workerName: hrScheduleWorkers.displayName, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleWorkerEntries)
-      .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
+    db.select({ entry: hrScheduleWorkerEntries, workerName: hrEmployments.legalName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleWorkerEntries)
+      .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkerEntries.workerId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleWorkerEntries.scopeId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleWorkerEntries.shiftVersionId))
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
-      .where(and(eq(hrScheduleWorkerEntries.scheduleVersionId, version.id), selectedScopeId ? eq(hrScheduleWorkerEntries.scopeId, selectedScopeId) : undefined)),
+      .where(and(eq(hrScheduleWorkerEntries.scheduleVersionId, version.id), eq(hrEmployments.personKind, "worker"), selectedScopeId ? eq(hrScheduleWorkerEntries.scopeId, selectedScopeId) : undefined)),
   ]) : [[], []];
   const employees = await db.select({ employmentId: hrEmployments.id, userId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, name: hrEmployeeName, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmployments)
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
@@ -326,7 +332,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
     workers: workerRows,
     entries: [
       ...employeeEntries.map(({ entry, employeeNumber, employeeName, archivedAt, scopeName, shiftName }) => ({ ...entry, personKind: "employee" as const, employeeNumber, personName: employeeName, archivedAt, scopeName, shiftName })),
-      ...workerEntries.map(({ entry, workerName, scopeName, shiftName }) => ({ ...entry, personKind: "worker" as const, employeeNumber: null, personName: workerName, archivedAt: null, scopeName, shiftName })),
+      ...workerEntries.map(({ entry, workerName, archivedAt, scopeName, shiftName }) => ({ ...entry, personKind: "worker" as const, employeeNumber: null, personName: workerName, archivedAt, scopeName, shiftName })),
     ],
   };
 }
@@ -541,8 +547,7 @@ export async function deleteHrShift(db: Database, templateId: string, input: { s
 }
 
 export const HR_SCHEDULE_WORKER_PAGE_SIZES = [10, 25, 50, 100] as const;
-const SCHEDULE_WORKER_SORT_COLUMNS = { name: hrScheduleWorkers.displayName, status: hrScheduleWorkers.active } as const;
-export type HrScheduleWorkerSortField = keyof typeof SCHEDULE_WORKER_SORT_COLUMNS;
+export type HrScheduleWorkerSortField = "name" | "status";
 export interface HrScheduleWorkerListQuery {
   page: number;
   pageSize: number;
@@ -561,26 +566,40 @@ async function withWorkerCompensation(db: Database, workers: Array<typeof hrSche
   return workers.map((worker) => ({ ...worker, compensation: compensation.filter((version) => version.workerId === worker.id) }));
 }
 
+/** 舊排班鏡像只保存相容欄位；讀取時以 canonical employment 的姓名、狀態與 revision 為準。 */
+function canonicalWorkerRow(row: { worker: typeof hrScheduleWorkers.$inferSelect; employment: typeof hrEmployments.$inferSelect }) {
+  return {
+    ...row.worker,
+    displayName: row.employment.legalName,
+    active: row.employment.archivedAt === null ? 1 : 0,
+    revision: row.employment.revision,
+  };
+}
+
 export async function listHrScheduleWorkers(db: Database) {
-  const workers = await db.select().from(hrScheduleWorkers).orderBy(asc(hrScheduleWorkers.active), asc(hrScheduleWorkers.displayName));
-  return withWorkerCompensation(db, workers);
+  const rows = await db.select({ worker: hrScheduleWorkers, employment: hrEmployments })
+    .from(hrScheduleWorkers).innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkers.employmentId))
+    .orderBy(asc(hrScheduleWorkers.active), asc(hrScheduleWorkers.displayName));
+  return withWorkerCompensation(db, rows.map(canonicalWorkerRow));
 }
 
 export async function listHrScheduleWorkersPage(db: Database, query: HrScheduleWorkerListQuery) {
+  const statusCondition = query.status === "all" ? undefined : query.status === "active" ? isNull(hrEmployments.archivedAt) : sql`${hrEmployments.archivedAt} IS NOT NULL`;
   const where = and(
-    query.status === "all" ? undefined : eq(hrScheduleWorkers.active, query.status === "active" ? 1 : 0),
-    query.search ? like(hrScheduleWorkers.displayName, `%${query.search}%`) : undefined,
+    eq(hrEmployments.personKind, "worker"),
+    statusCondition,
+    query.search ? like(hrEmployments.legalName, `%${query.search}%`) : undefined,
   );
-  const sortColumn = SCHEDULE_WORKER_SORT_COLUMNS[query.sortField];
-  const orderColumn = query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn);
-  const [rows, [totalRow]] = await Promise.all([
-    db.select().from(hrScheduleWorkers).where(where)
-      .orderBy(orderColumn, asc(hrScheduleWorkers.displayName), asc(hrScheduleWorkers.id))
+  const sortColumn = query.sortField === "name" ? hrEmployments.legalName : hrEmployments.archivedAt;
+  const sortDirection = query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn);
+  const [joinedRows, [totalRow]] = await Promise.all([
+    db.select({ worker: hrScheduleWorkers, employment: hrEmployments }).from(hrScheduleWorkers).innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkers.employmentId)).where(where)
+      .orderBy(sortDirection, asc(hrEmployments.legalName), asc(hrScheduleWorkers.id))
       .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
-    db.select({ value: count() }).from(hrScheduleWorkers).where(where),
+    db.select({ value: count() }).from(hrScheduleWorkers).innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkers.employmentId)).where(where),
   ]);
   const total = totalRow?.value ?? 0;
-  return { workers: await withWorkerCompensation(db, rows), total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total };
+  return { workers: await withWorkerCompensation(db, joinedRows.map(canonicalWorkerRow)), total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total };
 }
 
 export async function createHrScheduleWorker(db: Database, input: { displayName: string }, actor: HrActor) {
@@ -589,7 +608,8 @@ export async function createHrScheduleWorker(db: Database, input: { displayName:
   if (!name) throw new HrError(400, "請輸入支援人員姓名。 ");
   const row = activityRow({ entityType: "hr_schedule", entityId: id, source: "hr", eventType: "schedule_worker_created", summary: "支援人員已建立", actor });
   await runRawBatch(db, compileStatements([
-    sql`INSERT INTO hr_schedule_workers (id, display_name, active, created_by) VALUES (${id}, ${name}, 1, ${actor.id}) RETURNING id`,
+    sql`INSERT INTO hr_employments (id, person_kind, employee_number, legal_name, position) VALUES (${id}, 'worker', 'W-' || replace(${id}, '-', ''), ${name}, '支援人員') RETURNING id`,
+    sql`INSERT INTO hr_schedule_workers (id, employment_id, display_name, active, created_by) VALUES (${id}, ${id}, ${name}, 1, ${actor.id}) RETURNING id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
   ]), false);
   return { id };
@@ -600,7 +620,8 @@ export async function updateHrScheduleWorker(db: Database, id: string, input: { 
   if (!name) throw new HrError(400, "請輸入支援人員姓名。 ");
   const row = activityRow({ entityType: "hr_schedule", entityId: id, source: "hr", eventType: "schedule_worker_updated", summary: "支援人員已更新", actor });
   const results = await runRawBatch(db, compileStatements([
-    sql`UPDATE hr_schedule_workers SET display_name=${name}, active=${input.active ? 1 : 0}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} RETURNING id`,
+    sql`UPDATE hr_employments SET legal_name=${name}, archived_at=${input.active ? null : sql`CURRENT_TIMESTAMP`}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND person_kind='worker' AND revision=${input.revision} AND EXISTS (SELECT 1 FROM hr_schedule_workers WHERE id=${id} AND revision=${input.revision}) RETURNING id`,
+    sql`UPDATE hr_schedule_workers SET display_name=${name}, active=${input.active ? 1 : 0}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND changes() = 1 RETURNING id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail} WHERE changes() = 1`,
   ]), true);
@@ -609,11 +630,34 @@ export async function updateHrScheduleWorker(db: Database, id: string, input: { 
 
 export type HrWorkerPayBasis = "daily" | "hourly";
 
-export async function createHrWorkerCompensation(db: Database, input: { workerId: string; validFrom: string; validTo: string | null; payBasis: HrWorkerPayBasis; baseAmountMinor: number; note: string }, actor: HrActor) {
+export interface HrWorkerCompensationInput {
+  workerId: string;
+  validFrom: string;
+  validTo: string | null;
+  payBasis: HrWorkerPayBasis;
+  baseAmountMinor: number;
+  /** 兩者擇一；都留空時沿用加班申請凍結的制度倍率。 */
+  overtimeRatePpm?: number | null;
+  overtimeHourlyMinor?: number | null;
+  note: string;
+}
+
+export async function createHrWorkerCompensation(db: Database, input: HrWorkerCompensationInput, actor: HrActor) {
   if (input.payBasis !== "daily" && input.payBasis !== "hourly") throw new HrError(400, "支援人員敘薪方式只能是日薪或時薪。 ");
   if (!LOCAL_DATE.test(input.validFrom) || (input.validTo !== null && !LOCAL_DATE.test(input.validTo)) || (input.validTo !== null && input.validTo <= input.validFrom) || !Number.isSafeInteger(input.baseAmountMinor) || input.baseAmountMinor < 0) throw new HrError(400, "支援人員敘薪資料不正確。 ");
-  const [worker] = await db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(eq(hrScheduleWorkers.id, input.workerId)).limit(1);
-  if (!worker) throw new HrError(404, "找不到支援人員。 ");
+  const overtimeRatePpm = input.overtimeRatePpm ?? null;
+  const overtimeHourlyMinor = input.overtimeHourlyMinor ?? null;
+  if (overtimeHourlyMinor !== null && (!Number.isSafeInteger(overtimeHourlyMinor) || overtimeHourlyMinor <= 0 || overtimeHourlyMinor % 100 !== 0)) {
+    throw new HrError(400, "加班固定時薪必須是大於 0 的整數元；不適用請留空。 ");
+  }
+  if (overtimeRatePpm !== null && (!Number.isSafeInteger(overtimeRatePpm) || overtimeRatePpm <= 0 || overtimeRatePpm > 10_000_000)
+    || overtimeRatePpm !== null && overtimeHourlyMinor !== null) {
+    throw new HrError(400, "支援人員加班設定必須是固定倍率、固定金額二擇一；不適用請留空。 ");
+  }
+  if (input.note.length > 1000) throw new HrError(400, "支援人員敘薪備註不可超過 1000 字。 ");
+  const [worker] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
+    .where(and(eq(hrEmployments.id, input.workerId), eq(hrEmployments.personKind, "worker"), isNull(hrEmployments.archivedAt))).limit(1);
+  if (!worker) throw new HrError(404, "找不到目前有效的支援人員。 ");
   const [[latest], [latestVersionNumber]] = await Promise.all([
     db.select({ id: hrWorkerCompensationVersions.id, validFrom: hrWorkerCompensationVersions.validFrom, validTo: hrWorkerCompensationVersions.validTo, versionNumber: hrWorkerCompensationVersions.versionNumber }).from(hrWorkerCompensationVersions)
       .where(eq(hrWorkerCompensationVersions.workerId, input.workerId))
@@ -632,7 +676,7 @@ export async function createHrWorkerCompensation(db: Database, input: { workerId
   const row = activityRow({ entityType: "hr_schedule", entityId: input.workerId, source: "hr", eventType: "worker_compensation_created", summary: "支援人員敘薪已建立", actor });
   await runRawBatch(db, compileStatements([
     ...(closePrevious ? [sql`UPDATE hr_worker_compensation_versions SET valid_to=${input.validFrom} WHERE id=${closePrevious.id} AND valid_to IS NULL AND valid_from < ${input.validFrom} RETURNING id`] : []),
-    sql`INSERT INTO hr_worker_compensation_versions (id, worker_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, note, created_by) VALUES (${id}, ${input.workerId}, ${versionNumber}, ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${input.note}, ${actor.id}) RETURNING id`,
+    sql`INSERT INTO hr_worker_compensation_versions (id, worker_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, overtime_rate_ppm, overtime_hourly_minor, note, created_by) VALUES (${id}, ${input.workerId}, ${versionNumber}, ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${overtimeRatePpm}, ${overtimeHourlyMinor}, ${input.note}, ${actor.id}) RETURNING id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
   ]), false);
   return { id, versionNumber };

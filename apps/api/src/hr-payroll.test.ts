@@ -610,10 +610,13 @@ describe("HR 薪資與勞健保", () => {
     expect(firstWorker.status, await firstWorker.clone().text()).toBe(201);
     const workerIds = [(await firstWorker.json() as { id: string }).id];
     // 其餘的直接寫進資料庫：走 API 建一百多位會把測試時間花在跟這個案例無關的地方。
-    const insertWorker = d1.sqlite.prepare("INSERT INTO hr_schedule_workers (id, display_name, created_by) SELECT ?, ?, created_by FROM hr_schedule_workers WHERE id = ?");
+    const insertEmployment = d1.sqlite.prepare("INSERT INTO hr_employments (id, person_kind, employee_number, legal_name, position) VALUES (?, 'worker', ?, ?, '支援人員')");
+    const insertWorker = d1.sqlite.prepare("INSERT INTO hr_schedule_workers (id, employment_id, display_name, created_by) SELECT ?, ?, ?, created_by FROM hr_schedule_workers WHERE id = ?");
     for (let index = 1; index < 120; index += 1) {
       const id = `bulk-worker-${index}`;
-      insertWorker.run(id, `支援 ${index}`, workerIds[0]!);
+      const name = `支援 ${index}`;
+      insertEmployment.run(id, `W-${id}`, name);
+      insertWorker.run(id, id, name, workerIds[0]!);
       workerIds.push(id);
     }
     const assignments = workerIds.map((workerId) => ({ workerId, workDate: "2026-03-01", allowanceQuantities: [] }));

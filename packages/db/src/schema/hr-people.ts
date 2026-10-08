@@ -14,7 +14,8 @@ const timestamps = () => ({
 
 export const hrEmployments = sqliteTable("hr_employments", {
   id: text("id").primaryKey(),
-  employeeUserId: text("employee_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  personKind: text("person_kind", { enum: ["employee", "worker"] as const }).notNull().default("employee"),
+  employeeUserId: text("employee_user_id").references(() => users.id, { onDelete: "restrict" }),
   employeeNumber: text("employee_number").notNull(),
   legalName: text("legal_name").notNull().default(""),
   position: text("position").notNull().default("一般職員"),
@@ -23,9 +24,12 @@ export const hrEmployments = sqliteTable("hr_employments", {
   revision: integer("revision").notNull().default(1),
   ...timestamps(),
 }, (t) => [
-  uniqueIndex("idx_hr_employments_active_user").on(t.employeeUserId).where(sql`${t.archivedAt} IS NULL`),
+  uniqueIndex("idx_hr_employments_active_user").on(t.employeeUserId).where(sql`${t.archivedAt} IS NULL AND ${t.employeeUserId} IS NOT NULL AND ${t.personKind} = 'employee'`),
   uniqueIndex("idx_hr_employments_active_number").on(t.employeeNumber).where(sql`${t.archivedAt} IS NULL`),
   index("idx_hr_employments_archived").on(t.archivedAt),
+  index("idx_hr_employments_person_kind_status").on(t.personKind, t.archivedAt),
+  check("ck_hr_employments_person_kind", sql`${t.personKind} IN ('employee', 'worker')`),
+  check("ck_hr_employments_employee_user", sql`(${t.personKind} = 'employee' AND ${t.employeeUserId} IS NOT NULL) OR (${t.personKind} = 'worker' AND ${t.employeeUserId} IS NULL)`),
   check("ck_hr_employments_number", sql`length(trim(${t.employeeNumber})) BETWEEN 1 AND 40`),
   check("ck_hr_employments_position", sql`length(trim(${t.position})) BETWEEN 1 AND 100`),
   check("ck_hr_employments_revision", sql`${t.revision} > 0`),

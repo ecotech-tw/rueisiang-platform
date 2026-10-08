@@ -12,6 +12,7 @@ import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface FieldDefinition { key: string; label: string; type?: "date" | "email"; optional?: boolean; options?: NamedOption[]; maxLength?: number }
 interface Editor { title: string; path: string; method: string; fields: FieldDefinition[]; initial?: Record<string, unknown>; description?: string; undoable?: boolean; successMessage?: string; submitLabel?: string; submitVariant?: "primary" | "secondary" | "danger" }
+type FormalEmployee = Employee & { personKind: "employee"; userId: string };
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 const PAY_BASIS_LABEL: Record<CompensationVersion["payBasis"], string> = { monthly: "月薪", daily: "日薪", hourly: "時薪" };
@@ -74,9 +75,10 @@ function EmploymentHistoryTable({ employments }: { employments: Employment[] }) 
 function BasicSection({ profile }: { profile: Profile }) {
   const currentEmployment = profile.employments.find((job) => !job.archivedAt) ?? profile.employments[0];
   const isActive = Boolean(currentEmployment && !currentEmployment.archivedAt);
+  const isWorker = profile.employee.personKind === "worker";
   return <>
     <div className="hr-profile-basic-grid">
-      <p><span className="muted">正式姓名</span><strong>{profile.employee.legalName}</strong></p>
+      <p><span className="muted">{isWorker ? "姓名" : "正式姓名"}</span><strong>{profile.employee.legalName}</strong></p>
       <p><span className="muted">員工編號</span><strong>{currentEmployment?.employeeNumber ?? profile.employee.employeeNumber}</strong></p>
       <p><span className="muted">{isActive ? "目前職位" : "最後職位"}</span><strong>{currentEmployment?.position ?? profile.employee.position}</strong></p>
       <p><span className="muted">主管</span><strong>{currentEmployment?.supervisorName ?? currentEmployment?.supervisorUserId ?? profile.employee.supervisorName ?? "尚未設定"}</strong></p>
@@ -86,9 +88,10 @@ function BasicSection({ profile }: { profile: Profile }) {
         <p><span className="muted">員工狀態</span><strong>{currentEmployment.archivedAt ? `未在職（${dateTime(currentEmployment.archivedAt)}）` : "在職"}</strong></p>
       </> : null}
     </div>
-    <p className="muted">Google 帳號名稱：{profile.employee.accountName}；帳號：{profile.employee.email}；登入狀態：{statusLabel(profile.employee.userStatus)}</p>
-    <p className="muted">正式姓名、員工編號、職位與主管都是員工基本資料；員工不在職後仍保留資料，供薪資、出勤與稽核歷史追溯。</p>
-    {currentEmployment ? null : <p>尚未建立員工資料。</p>}
+    {isWorker
+      ? <p className="muted">支援人員沒有平台帳號；姓名、啟用狀態與排班資料請從支援人員／排班管理維護。</p>
+      : <><p className="muted">Google 帳號名稱：{profile.employee.accountName}；帳號：{profile.employee.email}；登入狀態：{statusLabel(profile.employee.userStatus)}</p><p className="muted">正式姓名、員工編號、職位與主管都是員工基本資料；員工不在職後仍保留資料，供薪資、出勤與稽核歷史追溯。</p></>}
+    {currentEmployment ? null : <p>{isWorker ? "尚未建立人員資料。" : "尚未建立員工資料。"}</p>}
     {profile.employments.length > 1 ? <>
       <h3>歷史資料</h3>
       <EmploymentHistoryTable employments={profile.employments} />
@@ -99,8 +102,8 @@ function BasicSection({ profile }: { profile: Profile }) {
 function CompensationTable({ rows, heading = true }: { rows: CompensationVersion[]; heading?: boolean }) {
   return <>
     {heading ? <h3>職務／薪資歷史</h3> : null}
-    <DataTable><thead><tr><th>生效期間</th><th>計算方式</th><th className="numeric">金額</th><th className="numeric">加班固定時薪</th><th>備註</th></tr></thead><tbody>
-      {rows.map((row) => <tr key={row.id}><td>{row.validFrom}～{row.validTo ?? "目前"}</td><td>{PAY_BASIS_LABEL[row.payBasis]}</td><td className="numeric">{money(row.baseAmountMinor)}</td><td className="numeric">{row.overtimeHourlyMinor != null ? money(row.overtimeHourlyMinor) : "—"}</td><td>{row.note || "—"}</td></tr>)}
+    <DataTable><thead><tr><th>生效期間</th><th>計算方式</th><th className="numeric">金額</th><th className="numeric">加班設定</th><th>備註</th></tr></thead><tbody>
+      {rows.map((row) => <tr key={row.id}><td>{row.validFrom}～{row.validTo ?? "目前"}</td><td>{PAY_BASIS_LABEL[row.payBasis]}</td><td className="numeric">{money(row.baseAmountMinor)}</td><td className="numeric">{row.overtimeRatePpm != null ? `固定 ${(row.overtimeRatePpm / 1_000_000).toFixed(6).replace(/0+$/, "").replace(/\.$/, "")} 倍` : row.overtimeHourlyMinor != null ? `固定 ${money(row.overtimeHourlyMinor)}／時` : "制度倍率"}</td><td>{row.note || "—"}</td></tr>)}
     </tbody></DataTable>
     {!rows.length ? <p>尚無薪資版本資料。</p> : null}
   </>;
@@ -147,24 +150,27 @@ function LeaveTable({ rows }: { rows: LeaveRequest[] }) {
   </>;
 }
 
-/** 員工內頁只呈現單一員工的完整脈絡；所有資料異動從各自的管理頁進入。 */
+/** 人員內頁只呈現單一人員的完整脈絡；所有資料異動從各自的管理頁進入。 */
 export function HrProfileDetails({ profile, collapsible = false }: { profile: Profile; collapsible?: boolean }) {
   const [open, setOpen] = useState("basic");
   const toggle = (name: string) => () => setOpen((current) => current === name ? "" : name);
+  const isWorker = profile.employee.personKind === "worker";
   if (collapsible) return <>
     <h2>{profile.employee.employeeNumber} · {profile.employee.legalName}</h2>
     <Section title="基本資料" open={open === "basic"} onToggle={toggle("basic")}><BasicSection profile={profile} /></Section>
     <Section title="薪資" open={open === "compensation"} onToggle={toggle("compensation")}>
       {profile.compensation ? <CompensationTable rows={profile.compensation} heading={false} /> : <p className="muted">薪資明細僅限全平台 HR 管理者查看。</p>}
     </Section>
-    <Section title="勞健保" open={open === "insurance"} onToggle={toggle("insurance")}>
-      {profile.insurance ? <InsuranceTable rows={profile.insurance} heading={false} /> : <p className="muted">勞健保明細僅限全平台 HR 管理者查看。</p>}
-    </Section>
-    <Section title="辦公位置摘要" open={open === "locations"} onToggle={toggle("locations")}><AssignmentTable assignments={profile.attendanceAssignments ?? []} heading={false} /></Section>
-    <Section title="打卡紀錄" open={open === "events"} onToggle={toggle("events")}><AttendanceEventsTable profile={profile} /></Section>
-    <Section title="請假" open={open === "leave"} onToggle={toggle("leave")}>
-      {profile.leave ? <LeaveTable rows={profile.leave} /> : <p className="muted">請假明細僅限全平台 HR 管理者查看。</p>}
-    </Section>
+    {!isWorker ? <>
+      <Section title="勞健保" open={open === "insurance"} onToggle={toggle("insurance")}>
+        {profile.insurance ? <InsuranceTable rows={profile.insurance} heading={false} /> : <p className="muted">勞健保明細僅限全平台 HR 管理者查看。</p>}
+      </Section>
+      <Section title="辦公位置摘要" open={open === "locations"} onToggle={toggle("locations")}><AssignmentTable assignments={profile.attendanceAssignments ?? []} heading={false} /></Section>
+      <Section title="打卡紀錄" open={open === "events"} onToggle={toggle("events")}><AttendanceEventsTable profile={profile} /></Section>
+      <Section title="請假" open={open === "leave"} onToggle={toggle("leave")}>
+        {profile.leave ? <LeaveTable rows={profile.leave} /> : <p className="muted">請假明細僅限全平台 HR 管理者查看。</p>}
+      </Section>
+    </> : null}
   </>;
   return <>
     <h2>{profile.employee.employeeNumber} · {profile.employee.legalName}</h2>
@@ -191,13 +197,13 @@ export function HrEmployeeDetail() {
   const { permissions } = useSession();
   const canRead = permissions.has("hr:employee:read");
   const detail = useHrQuery<Profile>(`/employees/${encodeURIComponent(id)}`, canRead && Boolean(id), { keepPreviousData: false });
-  usePageTitle(detail.data ? `${detail.data.employee.employeeNumber} ${detail.data.employee.legalName}` : "員工內頁");
+  usePageTitle(detail.data ? `${detail.data.employee.employeeNumber} ${detail.data.employee.legalName}` : "人員內頁");
   if (!canRead) return <Alert tone="danger">你沒有檢視員工資料的權限。</Alert>;
   if (detail.isPending) return <HrPageSkeleton variant="detail" />;
   if (detail.error || !detail.data) return <div className="page"><Alert tone="danger">{detail.error?.message ?? "找不到員工資料。"}</Alert><Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回員工列表</Button></div>;
   const profile = detail.data;
   return <div className="page">
-    <PageHeader title={`${profile.employee.employeeNumber} · ${profile.employee.legalName}`} description="員工內頁只供查看單一員工的完整人事脈絡；資料異動請從各 HRIS 管理頁進入。" actions={<Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回列表</Button>} />
+    <PageHeader title={`${profile.employee.employeeNumber} · ${profile.employee.legalName}`} description={profile.employee.personKind === "worker" ? "支援人員內頁只供查看人員與敘薪脈絡；排班與人員異動請從支援人員管理進入。" : "員工內頁只供查看單一員工的完整人事脈絡；資料異動請從各 HRIS 管理頁進入。"} actions={<Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回列表</Button>} />
     <Panel><HrProfileDetails profile={profile} collapsible /></Panel>
   </div>;
 }
@@ -221,7 +227,7 @@ function formValuesFor(profile: Profile): EmployeeBasicForm {
   };
 }
 
-function EmployeeManagementDialog({ employee, onClose, onEdit, onSaved, onArchived }: { employee: Employee; onClose: () => void; onEdit: (editor: Editor) => void; onSaved: () => void; onArchived: () => void }) {
+function EmployeeManagementDialog({ employee, onClose, onEdit, onSaved, onArchived }: { employee: FormalEmployee; onClose: () => void; onEdit: (editor: Editor) => void; onSaved: () => void; onArchived: () => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   const supervisorCandidates = useHrQuery<{ users: NamedOption[] }>(`/supervisor-candidates?exclude=${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   const [archiveTarget, setArchiveTarget] = useState<Employment | null>(null);
@@ -309,7 +315,7 @@ function EmployeeManagementDialog({ employee, onClose, onEdit, onSaved, onArchiv
 }
 
 export function HrEmployees() {
-  usePageTitle("員工列表");
+  usePageTitle("人員列表");
   const navigate = useNavigate();
   const toast = useToast();
   const { permissions } = useSession();
@@ -317,8 +323,8 @@ export function HrEmployees() {
   const canWrite = permissions.has("hr:employee:write");
   const [filters, setFilters] = useState({ page: 1, pageSize: 25, search: "", status: "all", employmentStatus: "active" as "active" | "inactive", sortField: "employeeNumber", sortDirection: "asc" });
   const [editor, setEditor] = useState<Editor | null>(null);
-  const [manageEmployee, setManageEmployee] = useState<Employee | null>(null);
-  const employees = useHrQuery<{ employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean; counts: { active: number; inactive: number } }>(`/employees?page=${filters.page}&pageSize=${filters.pageSize}&search=${encodeURIComponent(filters.search)}&status=${filters.status}&employmentStatus=${filters.employmentStatus}&sortField=${filters.sortField}&sortDirection=${filters.sortDirection}`, canRead);
+  const [manageEmployee, setManageEmployee] = useState<FormalEmployee | null>(null);
+  const employees = useHrQuery<{ employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean; counts: { active: number; inactive: number } }>(`/employees?page=${filters.page}&pageSize=${filters.pageSize}&search=${encodeURIComponent(filters.search)}&status=${filters.status}&employmentStatus=${filters.employmentStatus}&personKind=all&sortField=${filters.sortField}&sortDirection=${filters.sortDirection}`, canRead);
   const candidates = useHrQuery<{ users: Candidate[] }>("/candidates", canWrite);
   if (!canRead) return <Alert tone="danger">你沒有檢視員工資料的權限。</Alert>;
   if (employees.isPending) return <HrPageSkeleton variant="table" />;
@@ -327,14 +333,14 @@ export function HrEmployees() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   const candidateOptions: NamedOption[] = (candidates.data?.users ?? []).map((candidate) => ({ id: candidate.userId, name: `${candidate.displayName}（${candidate.email}）` }));
   return <div className="page fills">
-    <PageHeader title="員工列表" description="搜尋、篩選與排序員工；員工資料包含正式姓名、員工編號、職位、主管與服務年資起算日，辦公位置請到出勤範圍管理維護。" actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditor({ title: "指派新員工", path: "/employees", method: "POST", successMessage: "已指派新員工", description: "員工必須先存在於平台使用者名單；正式姓名請依身分證件填寫，服務年資起算日會決定薪資計算在職日的下限。出勤方式與辦公位置由出勤範圍管理維護。", fields: [{ key: "userId", label: "使用者", options: candidateOptions }, { key: "legalName", label: "正式姓名（身分證）", maxLength: 100 }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }, { key: "serviceStartOn", label: "服務年資起算日", type: "date" }] })}>新增員工</Button> : null} />
+    <PageHeader title="人員列表" description="正式員工與排班支援人員共用同一份人員主檔；正式員工的辦公位置與支援人員的排班資料仍由各自管理頁維護。" actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditor({ title: "指派新員工", path: "/employees", method: "POST", successMessage: "已指派新員工", description: "員工必須先存在於平台使用者名單；正式姓名請依身分證件填寫，服務年資起算日會決定薪資計算在職日的下限。出勤方式與辦公位置由出勤範圍管理維護。", fields: [{ key: "userId", label: "使用者", options: candidateOptions }, { key: "legalName", label: "正式姓名（身分證）", maxLength: 100 }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }, { key: "serviceStartOn", label: "服務年資起算日", type: "date" }] })}>新增員工</Button> : null} />
     <Panel className="grows">
-      <div className="hr-employee-status-tabs" role="tablist" aria-label="員工狀態">
+      <div className="hr-employee-status-tabs" role="tablist" aria-label="人員狀態">
         <button type="button" role="tab" aria-selected={filters.employmentStatus === "active"} className={filters.employmentStatus === "active" ? "active" : ""} onClick={() => update({ employmentStatus: "active" })}>在職 <span>{data?.counts.active ?? "—"}</span></button>
         <button type="button" role="tab" aria-selected={filters.employmentStatus === "inactive"} className={filters.employmentStatus === "inactive" ? "active" : ""} onClick={() => update({ employmentStatus: "inactive" })}>未在職 <span>{data?.counts.inactive ?? "—"}</span></button>
       </div>
       <FilterToolbar>
-        <SearchFilterInput label="搜尋" placeholder="搜尋員工編號、姓名或 Email" value={filters.search} onSearch={(search) => update({ search })} />
+        <SearchFilterInput label="搜尋" placeholder="搜尋人員編號、姓名或 Email" value={filters.search} onSearch={(search) => update({ search })} />
         <FilterSelect label="帳號狀態" value={filters.status} onChange={(event) => update({ status: event.target.value })} options={[{ value: "all", label: "全部帳號" }, { value: "active", label: "啟用中" }, { value: "invited", label: "待啟用" }, { value: "disabled", label: "已停用" }]} />
       </FilterToolbar>
       {employees.error ? <Alert tone="danger">{employees.error.message}</Alert> : null}
@@ -347,10 +353,14 @@ export function HrEmployees() {
         <th>職位</th><th>主管</th><th>員工狀態</th>
         {canWrite ? <th>操作</th> : null}
       </tr></thead><tbody>
-        {data?.employees.map((employee) => <tr key={employee.userId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(`/hr/employees/${encodeURIComponent(employee.userId)}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(`/hr/employees/${encodeURIComponent(employee.userId)}`); } }}><td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}</td><td data-label="帳號" className="cell-sub">{employee.email}</td><td data-label="帳號狀態"><StatusBadge tone={employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? employee.supervisorUserId ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>{canWrite ? <td data-label="操作"><Button variant="secondary" icon="edit" className="hr-action-update" onClick={(event) => { event.stopPropagation(); setManageEmployee(employee); }}>員工資料</Button></td> : null}</tr>)}
+        {data?.employees.map((employee) => {
+          const detailId = employee.employmentId ?? employee.userId ?? "";
+          const formalEmployee = employee.personKind === "employee" && employee.userId ? employee as FormalEmployee : null;
+          return <tr key={employee.employmentId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(`/hr/employees/${encodeURIComponent(detailId)}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(`/hr/employees/${encodeURIComponent(detailId)}`); } }}><td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}<br /><span className="muted">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? employee.supervisorUserId ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>{formalEmployee && canWrite ? <td data-label="操作"><Button variant="secondary" icon="edit" className="hr-action-update" onClick={(event) => { event.stopPropagation(); setManageEmployee(formalEmployee); }}>員工資料</Button></td> : canWrite ? <td data-label="操作"><span className="muted">由支援人員管理</span></td> : null}</tr>;
+        })}
       </tbody></DataTable>
       {employees.isPlaceholderData ? <p className="muted table-note">載入中…</p> : null}
-      {data && !data.employees.length ? <p className="muted table-note">{data.total ? "沒有符合條件的員工，調整一下搜尋或篩選看看。" : filters.employmentStatus === "active" ? "目前沒有在職員工。" : "目前沒有未在職員工。"}</p> : null}
+      {data && !data.employees.length ? <p className="muted table-note">{data.total ? "沒有符合條件的人員，調整一下搜尋或篩選看看。" : filters.employmentStatus === "active" ? "目前沒有在職人員。" : "目前沒有未在職人員。"}</p> : null}
       {data && data.total > 0 ? <Pager page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}
     </Panel>
     {manageEmployee ? <EmployeeManagementDialog employee={manageEmployee} onClose={() => setManageEmployee(null)} onEdit={(nextEditor) => { setManageEmployee(null); setEditor(nextEditor); }} onSaved={() => { toast.show("員工資料已更新。", "success"); void employees.refetch(); }} onArchived={() => { setManageEmployee(null); toast.show("員工已設為未在職。", "success"); void employees.refetch(); }} /> : null}

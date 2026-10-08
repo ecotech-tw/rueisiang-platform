@@ -3,7 +3,6 @@ import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-o
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
 import { hrEmployments } from "./hr-people.js";
-import { hrScheduleWorkers } from "./hr-scheduling.js";
 
 const historyTimestamps = () => ({
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -71,12 +70,16 @@ export const hrCompensationItems = sqliteTable("hr_compensation_items", {
 /** 沒有平台帳號的排班支援人員也需要薪資版本；新版本可選日薪或時薪，monthly 僅保留給既有歷史資料。 */
 export const hrWorkerCompensationVersions = sqliteTable("hr_worker_compensation_versions", {
   id: text("id").primaryKey(),
-  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  /** 舊欄位名保留歷史相容；值是 canonical hr_employments.id。 */
+  workerId: text("worker_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   versionNumber: integer("version_number").notNull(),
   validFrom: text("valid_from").notNull(),
   validTo: text("valid_to"),
   payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly"] as const }).notNull(),
   baseAmountMinor: integer("base_amount_minor").notNull(),
+  /** 日薪／時薪支援人員可在敘薪版本固定加班倍率或固定時薪；兩者皆空時沿用申請上的制度倍率。 */
+  overtimeRatePpm: integer("overtime_rate_ppm"),
+  overtimeHourlyMinor: integer("overtime_hourly_minor"),
   note: text("note").notNull().default(""),
   ...historyTimestamps(),
 }, (table) => [
@@ -86,6 +89,10 @@ export const hrWorkerCompensationVersions = sqliteTable("hr_worker_compensation_
   check("ck_hr_worker_compensation_versions_dates", sql`length(${table.validFrom}) = 10 AND (${table.validTo} IS NULL OR (length(${table.validTo}) = 10 AND ${table.validTo} > ${table.validFrom}))`),
   check("ck_hr_worker_compensation_versions_basis", sql`${table.payBasis} IN ('monthly', 'daily', 'hourly')`),
   check("ck_hr_worker_compensation_versions_amount", sql`${table.baseAmountMinor} >= 0`),
+  /*
+   * SQLite 不能在既有表上直接追加 CHECK；0217 以 trigger 保護新增欄位，API service
+   * 同時做安全整數與訊息驗證，避免為了欄位約束重建既有外鍵鏈。
+   */
   check("ck_hr_worker_compensation_versions_note", sql`length(${table.note}) <= 1000`),
 ]);
 

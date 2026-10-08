@@ -8,7 +8,7 @@ export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } fr
 export {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
   monthPeriodFromKey, HR_SCHEDULE_ATTENDANCE_STATUSES,
-  type HrScheduleAttendanceStatus, type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type HrWorkerPayBasis, type SaveHrScheduleInput, type ScheduleEntryInput,
+  type HrScheduleAttendanceStatus, type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type HrWorkerCompensationInput, type HrWorkerPayBasis, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
 export {
   calendarSpecialAppliesToScope, defaultDayType, importHrCalendarYear, isHrCalendarSpecialKind, isHrDayType, listHrCalendarMonth, listHrCalendarYear, overridesFromGovCalendar,
@@ -60,10 +60,10 @@ export {
 } from "./hr-payroll-adjustments.js";
 export {
   HrError, archiveHrEmployment, assignHrEmployee, createHrAssignment,
-  endHrAssignment, getHrEmployee, getHrSelf, isHrAdministrator, isHrEmployee, updateHrEmploymentPosition, updateHrEmploymentServicePeriod,
+  endHrAssignment, getHrEmployee, getHrPerson, getHrSelf, isHrAdministrator, isHrEmployee, updateHrEmploymentPosition, updateHrEmploymentServicePeriod,
   updateHrEmploymentAttendanceMode,
-  listHrCandidates, listHrEmployees, listHrScopes, listHrSupervisorCandidates, updateHrEmployee, updateHrEmployeeSupervisor,
-  HR_EMPLOYEE_PAGE_SIZES, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField, type HrEmploymentStatus,
+  listHrCandidates, listHrEmployees, listHrPersonnel, listHrScopes, listHrSupervisorCandidates, updateHrEmployee, updateHrEmployeeSupervisor,
+  HR_EMPLOYEE_PAGE_SIZES, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField, type HrEmploymentStatus, type HrPersonnelListQuery, type HrPersonKind,
 } from "./hr-people.js";
 export {
   createAssistantPromptRevision,
