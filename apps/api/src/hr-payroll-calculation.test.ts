@@ -842,7 +842,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ explanation: Record<string, unknown>; amountMinor: number }> }>; warnings: string[] } };
     const line = body.run.employees[0]!.lines.find((item) => item.explanation.policyName === "跨店個人績效");
-    expect(line).toMatchObject({ amountMinor: 500_000, explanation: { revenueMinor: 150_000_000, revenueByScopeMinor: { "cyberbiz:store:demo-ximen": 140_000_000, "cyberbiz:store:demo-xinyi": 10_000_000 }, scheduledDays: 15, missingPayoutDates: [], formulaDetail: expect.stringContaining("各櫃點本人排班日營收合計") } });
+    expect(line).toMatchObject({ amountMinor: 500_000, explanation: { revenueMinor: 150_000_000, revenueByScopeMinor: { "cyberbiz:store:demo-ximen": 140_000_000, "cyberbiz:store:demo-xinyi": 10_000_000 }, scheduledDays: 15, missingPayoutDates: [], formulaDetail: "max(0, NT$ 1,500,000 − NT$ 1,000,000) × 1% = NT$ 5,000（四捨五入至元）" } });
     expect(body.run.warnings.some((warning) => warning.includes("跨店個人績效") && warning.includes("缺少"))).toBe(false);
   });
 
