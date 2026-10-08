@@ -211,7 +211,7 @@ export async function createHrCompensationVersion(db: Database, input: HrCompens
     (id, employment_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, overtime_hourly_minor, note, created_by)
     SELECT ${id}, ${input.employmentId}, coalesce((SELECT max(version_number) + 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId}), 1),
       ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${input.overtimeHourlyMinor ?? null}, ${input.note}, ${actor.id}
-    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
+    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND person_kind='employee' AND archived_at IS NULL)
       AND NOT EXISTS (SELECT 1 FROM hr_compensation_versions WHERE employment_id=${input.employmentId} AND voided_at IS NULL
         AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom}))
     RETURNING id`;
@@ -717,7 +717,7 @@ async function insuranceVersionStatements(db: Database, input: HrInsuranceInput,
     (id, employment_id, scheme, version_number, status, valid_from, valid_to, insured_amount_minor, dependent_count, rate_year, source_kind, source_url, note, created_by)
     SELECT ${id}, ${input.employmentId}, ${input.scheme}, coalesce((SELECT max(version_number) + 1 FROM hr_insurance_versions WHERE employment_id=${input.employmentId} AND scheme=${input.scheme}), 1),
       ${input.status}, ${input.validFrom}, ${input.validTo}, ${input.insuredAmountMinor}, ${input.dependentCount}, ${input.rateYear}, ${input.sourceKind}, ${input.sourceUrl}, ${input.note}, ${actor.id}
-    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
+    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND person_kind='employee' AND archived_at IS NULL)
       -- 跟上面的 JS 檢查一致：只有加保要對得上官方級距。退保金額固定是 0，永遠對不上任何一級。
       AND (${input.sourceKind} <> 'official' OR ${input.status} = 'withdrawn' OR EXISTS (
         SELECT 1 FROM hr_insurance_rate_tables AS official_table

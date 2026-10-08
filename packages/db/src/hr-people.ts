@@ -514,7 +514,7 @@ export function updateHrEmployeeSupervisor(db: Database, userId: string, input: 
 }
 
 export function updateHrEmploymentPosition(db: Database, id: string, input: { position: string; revision: number }, actor: HrActor) {
-  return write(db, sql`UPDATE hr_employments SET position=${input.position}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_position_updated", "員工不存在、已是未在職或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id, position: input.position }, summary: "職位已更新" } });
+  return write(db, sql`UPDATE hr_employments SET position=${input.position}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND person_kind='employee' AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_position_updated", "員工不存在、已是未在職或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id, position: input.position }, summary: "職位已更新" } });
 }
 
 export async function updateHrEmploymentServicePeriod(db: Database, id: string, input: { serviceStartOn: string; revision: number }, actor: HrActor) {
@@ -525,7 +525,7 @@ export async function updateHrEmploymentServicePeriod(db: Database, id: string, 
   if (existingEntitlement) throw new HrError(409, "員工已有特休週期，不能直接修改服務年資起算日；請先依特休／薪資調整流程處理。");
   return write(db, [
     sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
-      WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL
+      WHERE id=${id} AND person_kind='employee' AND revision=${input.revision} AND archived_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM hr_annual_leave_entitlements WHERE employment_id=${id}) RETURNING id`,
     sql`INSERT INTO hr_employment_service_periods (employment_id, service_start_on)
       VALUES (${id}, ${input.serviceStartOn})
@@ -538,19 +538,19 @@ export async function updateHrEmploymentServicePeriod(db: Database, id: string, 
 
 export function archiveHrEmployment(db: Database, id: string, revision: number, actor: HrActor) {
   // 設為未在職不改寫業務資料，但 updated_at 要跟著前進，讓多筆未在職歷史能按最近一次狀態穩定選取。
-  return write(db, sql`UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_archived", "員工不存在、已是未在職或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id }, summary: "員工已設為未在職" } });
+  return write(db, sql`UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND person_kind='employee' AND revision=${revision} AND archived_at IS NULL RETURNING id`, id, actor, "employment_archived", "員工不存在、已是未在職或資料已變更，請重新整理後再試。", { activity: { payload: { employmentId: id }, summary: "員工已設為未在職" } });
 }
 
 export function updateHrEmploymentAttendanceMode(db: Database, id: string, input: { attendanceMode: "general" | "scheduled"; monthlyRestDays: number | null | undefined; revision: number }, actor: HrActor) {
   const monthlyRestDays = input.attendanceMode === "general" ? sql`NULL` : input.monthlyRestDays === undefined ? sql`monthly_rest_days` : sql`${input.monthlyRestDays}`;
-  return write(db, [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP WHERE employment_id=${id} RETURNING employment_id AS id`], id, actor, "employment_attendance_mode_updated", "員工不存在、已是未在職、版本已過期或出勤設定不存在，請重新整理後再試。");
+  return write(db, [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND person_kind='employee' AND revision=${input.revision} AND archived_at IS NULL RETURNING id`, sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP WHERE employment_id=${id} RETURNING employment_id AS id`], id, actor, "employment_attendance_mode_updated", "員工不存在、已是未在職、版本已過期或出勤設定不存在，請重新整理後再試。");
 }
 
 export function createHrAssignment(db: Database, input: { employmentId: string; scopeId: string; validFrom: string; validTo: string | null }, actor: HrActor) {
   const id = crypto.randomUUID();
   return write(db, sql`INSERT INTO hr_employee_scopes (id, employment_id, scope_id, valid_from, valid_to)
     SELECT ${id}, ${input.employmentId}, ${input.scopeId}, ${input.validFrom}, ${input.validTo}
-    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
+    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND person_kind='employee' AND archived_at IS NULL)
     AND EXISTS (SELECT 1 FROM scopes WHERE id=${input.scopeId} AND active=1 AND scope_kind='store' AND source_type <> 'shopee')
     AND NOT EXISTS (SELECT 1 FROM hr_employee_scopes WHERE employment_id=${input.employmentId} AND scope_id=${input.scopeId}
       AND (${input.validTo} IS NULL OR valid_from < ${input.validTo}) AND (valid_to IS NULL OR valid_to > ${input.validFrom})) RETURNING id`, id, actor, "assignment_created");

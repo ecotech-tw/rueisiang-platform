@@ -681,7 +681,9 @@ CREATE TABLE `hr_schedule_worker_entries` (
 	FOREIGN KEY (`shift_version_id`) REFERENCES `hr_shift_versions`(`id`) ON UPDATE no action ON DELETE restrict,
 	FOREIGN KEY (`created_by`) REFERENCES `users`(`id`) ON UPDATE no action ON DELETE restrict,
 	CONSTRAINT "ck_hr_schedule_worker_entries_date" CHECK(length("hr_schedule_worker_entries"."work_date") = 10),
-	CONSTRAINT "ck_hr_schedule_worker_entries_period" CHECK("hr_schedule_worker_entries"."ends_at" > "hr_schedule_worker_entries"."starts_at")
+	CONSTRAINT "ck_hr_schedule_worker_entries_period" CHECK("hr_schedule_worker_entries"."ends_at" > "hr_schedule_worker_entries"."starts_at"),
+	CONSTRAINT "ck_hr_schedule_worker_entries_standard" CHECK("hr_schedule_worker_entries"."standard_minutes" BETWEEN 0 AND 1440),
+	CONSTRAINT "ck_hr_schedule_worker_entries_break" CHECK("hr_schedule_worker_entries"."break_minutes" BETWEEN 0 AND 1440)
 );
 --> statement-breakpoint
 CREATE TABLE "hr_special_workday_assignments" (
@@ -830,6 +832,7 @@ CREATE TABLE "hr_payroll_worker_results" (
 	CONSTRAINT "ck_hr_payroll_worker_results_name" CHECK(length(trim("hr_payroll_worker_results"."worker_name")) BETWEEN 1 AND 100),
 	CONSTRAINT "ck_hr_payroll_worker_results_days" CHECK("hr_payroll_worker_results"."scheduled_days" >= 0),
 	CONSTRAINT "ck_hr_payroll_worker_results_amount" CHECK("hr_payroll_worker_results"."amount_minor" >= 0),
+	CONSTRAINT "ck_hr_payroll_worker_results_overtime" CHECK("hr_payroll_worker_results"."overtime_minor" >= 0 AND "hr_payroll_worker_results"."overtime_seconds" >= 0 AND length("hr_payroll_worker_results"."overtime_explanation_json") <= 50000),
 	CONSTRAINT "ck_hr_payroll_worker_results_typhoon_days" CHECK("hr_payroll_worker_results"."typhoon_stop_days" >= 0 AND "hr_payroll_worker_results"."typhoon_stop_days" <= "hr_payroll_worker_results"."scheduled_days"),
 	CONSTRAINT "ck_hr_payroll_worker_results_typhoon_amount" CHECK("hr_payroll_worker_results"."typhoon_stop_pay_minor" >= 0)
 );
@@ -1123,3 +1126,365 @@ DROP TRIGGER "__hr_unify_0220_employment_id_collision";
 DROP TABLE "__hr_unify_0220_employment_ids";
 --> statement-breakpoint
 -- 支援人員的舊主檔繼續保留穩定 ID；canonical row 才是排班、敘薪、特殊日、加班與薪資結果的外鍵 parent。
+--> statement-breakpoint
+-- DROP TABLE 會刪除附著在舊表上的 trigger；這些保護必須在新表與資料回填後恢復。
+CREATE TRIGGER `trg_hr_overtime_rate_insert`
+BEFORE INSERT ON `hr_overtime_requests`
+WHEN NEW.`rate_ppm` <> 1333333
+BEGIN
+  SELECT RAISE(ABORT, 'overtime_rate_server_determined');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_overtime_rate_update`
+BEFORE UPDATE OF `rate_ppm` ON `hr_overtime_requests`
+WHEN NEW.`rate_ppm` <> 1333333
+BEGIN
+  SELECT RAISE(ABORT, 'overtime_rate_server_determined');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_leave_validation_insert`
+BEFORE INSERT ON `hr_monthly_leave_entries`
+WHEN date(NEW.`leave_date`) IS NULL OR date(NEW.`leave_date`) <> NEW.`leave_date`
+  OR typeof(NEW.`hours_half_units`) <> 'integer' OR NEW.`hours_half_units` NOT BETWEEN 1 AND 48
+  OR typeof(NEW.`pay_rate_ppm`) <> 'integer' OR NEW.`pay_rate_ppm` NOT BETWEEN 0 AND 1000000
+  OR typeof(NEW.`deduction_amount`) <> 'integer' OR NEW.`deduction_amount` < 0
+  OR NOT EXISTS (SELECT 1 FROM `hr_leave_types` WHERE `id` = NEW.`leave_type_id` AND `active` = 1)
+BEGIN
+  SELECT RAISE(ABORT, 'monthly_leave_validation_failed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_leave_validation_update`
+BEFORE UPDATE OF `leave_type_id`, `leave_date`, `hours_half_units`, `pay_rate_ppm`, `deduction_amount` ON `hr_monthly_leave_entries`
+WHEN date(NEW.`leave_date`) IS NULL OR date(NEW.`leave_date`) <> NEW.`leave_date`
+  OR typeof(NEW.`hours_half_units`) <> 'integer' OR NEW.`hours_half_units` NOT BETWEEN 1 AND 48
+  OR typeof(NEW.`pay_rate_ppm`) <> 'integer' OR NEW.`pay_rate_ppm` NOT BETWEEN 0 AND 1000000
+  OR typeof(NEW.`deduction_amount`) <> 'integer' OR NEW.`deduction_amount` < 0
+  OR NOT EXISTS (SELECT 1 FROM `hr_leave_types` WHERE `id` = NEW.`leave_type_id` AND `active` = 1)
+BEGIN
+  SELECT RAISE(ABORT, 'monthly_leave_validation_failed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_leave_capacity_insert`
+BEFORE INSERT ON `hr_monthly_leave_entries`
+WHEN coalesce((SELECT sum(`hours_half_units`) FROM `hr_monthly_leave_entries` WHERE `employment_id` = NEW.`employment_id` AND `leave_date` = NEW.`leave_date`), 0) + NEW.`hours_half_units` > 48
+BEGIN
+  SELECT RAISE(ABORT, 'daily_leave_capacity_exceeded');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_leave_capacity_update`
+BEFORE UPDATE OF `employment_id`, `leave_date`, `hours_half_units` ON `hr_monthly_leave_entries`
+WHEN coalesce((SELECT sum(`hours_half_units`) FROM `hr_monthly_leave_entries` WHERE `id` <> OLD.`id` AND `employment_id` = NEW.`employment_id` AND `leave_date` = NEW.`leave_date`), 0) + NEW.`hours_half_units` > 48
+BEGIN
+  SELECT RAISE(ABORT, 'daily_leave_capacity_exceeded');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_hourly_validation_insert`
+BEFORE INSERT ON `hr_monthly_hourly_entries`
+WHEN date(NEW.`work_date`) IS NULL OR date(NEW.`work_date`) <> NEW.`work_date`
+  OR typeof(NEW.`hours_half_units`) <> 'integer' OR NEW.`hours_half_units` NOT BETWEEN 0 AND 48
+  OR typeof(NEW.`no_work`) <> 'integer' OR NEW.`no_work` NOT IN (0, 1)
+  OR (NEW.`no_work` = 0 AND NEW.`hours_half_units` = 0)
+BEGIN
+  SELECT RAISE(ABORT, 'monthly_hourly_validation_failed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_hourly_validation_update`
+BEFORE UPDATE OF `work_date`, `hours_half_units`, `no_work` ON `hr_monthly_hourly_entries`
+WHEN date(NEW.`work_date`) IS NULL OR date(NEW.`work_date`) <> NEW.`work_date`
+  OR typeof(NEW.`hours_half_units`) <> 'integer' OR NEW.`hours_half_units` NOT BETWEEN 0 AND 48
+  OR typeof(NEW.`no_work`) <> 'integer' OR NEW.`no_work` NOT IN (0, 1)
+  OR (NEW.`no_work` = 0 AND NEW.`hours_half_units` = 0)
+BEGIN
+  SELECT RAISE(ABORT, 'monthly_hourly_validation_failed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_closed_employee_insert`
+BEFORE INSERT ON `hr_payroll_closed_employees`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`period_key` = NEW.`period_key` AND `period`.`status` = 'closed')
+  OR EXISTS (SELECT 1 FROM `hr_payroll_runs` AS `run` WHERE `run`.`id` = NEW.`payroll_run_id` AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslips_closed_insert`
+BEFORE INSERT ON `hr_payslips`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_runs` WHERE `id` = NEW.`payroll_run_id` AND `status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslips_closed_update`
+BEFORE UPDATE ON `hr_payslips`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_runs` WHERE `id` IN (OLD.`payroll_run_id`, NEW.`payroll_run_id`) AND `status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslips_closed_delete`
+BEFORE DELETE ON `hr_payslips`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_runs` WHERE `id` = OLD.`payroll_run_id` AND `status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslip_lines_closed_insert`
+BEFORE INSERT ON `hr_payslip_lines`
+WHEN EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` WHERE `payslip`.`id` = NEW.`payslip_id` AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslip_lines_closed_update`
+BEFORE UPDATE ON `hr_payslip_lines`
+WHEN EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` WHERE `payslip`.`id` IN (OLD.`payslip_id`, NEW.`payslip_id`) AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslip_lines_closed_delete`
+BEFORE DELETE ON `hr_payslip_lines`
+WHEN EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` WHERE `payslip`.`id` = OLD.`payslip_id` AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_run_employees_closed_insert`
+BEFORE INSERT ON `hr_payroll_run_employees`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_runs` WHERE `id` = NEW.`payroll_run_id` AND `status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_run_employees_closed_update`
+BEFORE UPDATE ON `hr_payroll_run_employees`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_runs` WHERE `id` IN (OLD.`payroll_run_id`, NEW.`payroll_run_id`) AND `status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_run_employees_closed_delete`
+BEFORE DELETE ON `hr_payroll_run_employees`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_runs` WHERE `id` = OLD.`payroll_run_id` AND `status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslip_compensation_links_closed_insert`
+BEFORE INSERT ON `hr_payslip_compensation_links`
+WHEN EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` WHERE `payslip`.`id` = NEW.`payslip_id` AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslip_compensation_links_closed_update`
+BEFORE UPDATE ON `hr_payslip_compensation_links`
+WHEN EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` WHERE `payslip`.`id` IN (OLD.`payslip_id`, NEW.`payslip_id`) AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslip_compensation_links_closed_delete`
+BEFORE DELETE ON `hr_payslip_compensation_links`
+WHEN EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` WHERE `payslip`.`id` = OLD.`payslip_id` AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslip_insurance_links_closed_insert`
+BEFORE INSERT ON `hr_payslip_insurance_links`
+WHEN EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` WHERE `payslip`.`id` = NEW.`payslip_id` AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslip_insurance_links_closed_update`
+BEFORE UPDATE ON `hr_payslip_insurance_links`
+WHEN EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` WHERE `payslip`.`id` IN (OLD.`payslip_id`, NEW.`payslip_id`) AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payslip_insurance_links_closed_delete`
+BEFORE DELETE ON `hr_payslip_insurance_links`
+WHEN EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` WHERE `payslip`.`id` = OLD.`payslip_id` AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_attendance_rest_days_validation_insert`
+BEFORE INSERT ON `hr_employment_attendance_settings`
+WHEN (NEW.`monthly_rest_days` IS NOT NULL AND (typeof(NEW.`monthly_rest_days`) <> 'integer' OR NEW.`monthly_rest_days` NOT BETWEEN 0 AND 31))
+  OR (NEW.`attendance_mode` = 'general' AND NEW.`monthly_rest_days` IS NOT NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'attendance_monthly_rest_days_invalid');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_attendance_rest_days_validation_update`
+BEFORE UPDATE OF `attendance_mode`, `monthly_rest_days` ON `hr_employment_attendance_settings`
+WHEN (NEW.`monthly_rest_days` IS NOT NULL AND (typeof(NEW.`monthly_rest_days`) <> 'integer' OR NEW.`monthly_rest_days` NOT BETWEEN 0 AND 31))
+  OR (NEW.`attendance_mode` = 'general' AND NEW.`monthly_rest_days` IS NOT NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'attendance_monthly_rest_days_invalid');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_schedule_entry_minutes_validation_insert`
+BEFORE INSERT ON `hr_schedule_entries`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `hr_shift_versions`
+  WHERE `id` = NEW.`shift_version_id`
+    AND typeof(NEW.`standard_minutes`) = 'integer'
+    AND typeof(NEW.`break_minutes`) = 'integer'
+    AND NEW.`standard_minutes` BETWEEN 0 AND 1440
+    AND NEW.`break_minutes` BETWEEN 0 AND 1440
+    AND (NEW.`standard_minutes` + NEW.`break_minutes`) * 60 <= CASE WHEN `end_day_offset` = 1 THEN 86400 - `start_second` + `end_second` ELSE `end_second` - `start_second` END
+)
+BEGIN
+  SELECT RAISE(ABORT, 'schedule_entry_minutes_exceed_duration');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_schedule_entry_minutes_validation_update`
+BEFORE UPDATE OF `shift_version_id`, `standard_minutes`, `break_minutes` ON `hr_schedule_entries`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `hr_shift_versions`
+  WHERE `id` = NEW.`shift_version_id`
+    AND typeof(NEW.`standard_minutes`) = 'integer'
+    AND typeof(NEW.`break_minutes`) = 'integer'
+    AND NEW.`standard_minutes` BETWEEN 0 AND 1440
+    AND NEW.`break_minutes` BETWEEN 0 AND 1440
+    AND (NEW.`standard_minutes` + NEW.`break_minutes`) * 60 <= CASE WHEN `end_day_offset` = 1 THEN 86400 - `start_second` + `end_second` ELSE `end_second` - `start_second` END
+)
+BEGIN
+  SELECT RAISE(ABORT, 'schedule_entry_minutes_exceed_duration');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_schedule_worker_entry_minutes_validation_insert`
+BEFORE INSERT ON `hr_schedule_worker_entries`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `hr_shift_versions`
+  WHERE `id` = NEW.`shift_version_id`
+    AND typeof(NEW.`standard_minutes`) = 'integer'
+    AND typeof(NEW.`break_minutes`) = 'integer'
+    AND NEW.`standard_minutes` BETWEEN 0 AND 1440
+    AND NEW.`break_minutes` BETWEEN 0 AND 1440
+    AND (NEW.`standard_minutes` + NEW.`break_minutes`) * 60 <= CASE WHEN `end_day_offset` = 1 THEN 86400 - `start_second` + `end_second` ELSE `end_second` - `start_second` END
+)
+BEGIN
+  SELECT RAISE(ABORT, 'schedule_entry_minutes_exceed_duration');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_schedule_worker_entry_minutes_validation_update`
+BEFORE UPDATE OF `shift_version_id`, `standard_minutes`, `break_minutes` ON `hr_schedule_worker_entries`
+WHEN NOT EXISTS (
+  SELECT 1 FROM `hr_shift_versions`
+  WHERE `id` = NEW.`shift_version_id`
+    AND typeof(NEW.`standard_minutes`) = 'integer'
+    AND typeof(NEW.`break_minutes`) = 'integer'
+    AND NEW.`standard_minutes` BETWEEN 0 AND 1440
+    AND NEW.`break_minutes` BETWEEN 0 AND 1440
+    AND (NEW.`standard_minutes` + NEW.`break_minutes`) * 60 <= CASE WHEN `end_day_offset` = 1 THEN 86400 - `start_second` + `end_second` ELSE `end_second` - `start_second` END
+)
+BEGIN
+  SELECT RAISE(ABORT, 'schedule_entry_minutes_exceed_duration');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_adjustment_item_amount_insert`
+BEFORE INSERT ON `hr_payroll_adjustment_items`
+WHEN NEW.`amount_minor` = 0
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_adjustment_amount_invalid');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_adjustment_item_amount_update`
+BEFORE UPDATE ON `hr_payroll_adjustment_items`
+WHEN NEW.`amount_minor` = 0
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_adjustment_amount_invalid');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_adjustment_closed_insert`
+BEFORE INSERT ON `hr_payroll_adjustments`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` WHERE `period_key` = NEW.`effective_period_key` AND `status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_adjustment_closed_update`
+BEFORE UPDATE ON `hr_payroll_adjustments`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` WHERE `period_key` IN (OLD.`effective_period_key`, NEW.`effective_period_key`) AND `status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_adjustment_closed_delete`
+BEFORE DELETE ON `hr_payroll_adjustments`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` WHERE `period_key` = OLD.`effective_period_key` AND `status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_adjustment_item_closed_insert`
+BEFORE INSERT ON `hr_payroll_adjustment_items`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_adjustments` AS `adjustment` INNER JOIN `hr_payroll_periods` AS `period` ON `period`.`period_key` = `adjustment`.`effective_period_key` WHERE `adjustment`.`id` = NEW.`adjustment_id` AND `period`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_adjustment_item_closed_update`
+BEFORE UPDATE ON `hr_payroll_adjustment_items`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_adjustments` AS `adjustment` INNER JOIN `hr_payroll_periods` AS `period` ON `period`.`period_key` = `adjustment`.`effective_period_key` WHERE `adjustment`.`id` IN (OLD.`adjustment_id`, NEW.`adjustment_id`) AND `period`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_adjustment_item_closed_delete`
+BEFORE DELETE ON `hr_payroll_adjustment_items`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_adjustments` AS `adjustment` INNER JOIN `hr_payroll_periods` AS `period` ON `period`.`period_key` = `adjustment`.`effective_period_key` WHERE `adjustment`.`id` = OLD.`adjustment_id` AND `period`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_closed_employee_update`
+BEFORE UPDATE ON `hr_payroll_closed_employees`
+WHEN NOT (
+  OLD.`period_key` = NEW.`period_key`
+  AND OLD.`employment_id` = NEW.`employment_id`
+  AND EXISTS (SELECT 1 FROM `hr_payroll_withdrawals` AS `withdrawal` WHERE `withdrawal`.`payroll_run_id` = OLD.`payroll_run_id`)
+  AND EXISTS (SELECT 1 FROM `hr_payroll_runs` AS `run` WHERE `run`.`id` = NEW.`payroll_run_id` AND `run`.`status` = 'ready')
+)
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_payroll_closed_employee_delete`
+BEFORE DELETE ON `hr_payroll_closed_employees`
+WHEN NOT EXISTS (
+  SELECT 1
+  FROM `hr_payroll_withdrawals` AS `withdrawal`
+  INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `withdrawal`.`payroll_run_id`
+  WHERE `withdrawal`.`payroll_run_id` = OLD.`payroll_run_id`
+    AND `run`.`status` = 'ready'
+)
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_run_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_leave_closed_insert`
+BEFORE INSERT ON `hr_monthly_leave_entries`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`period_key` = substr(NEW.`leave_date`, 1, 7) AND `period`.`status` = 'closed')
+  OR EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` INNER JOIN `hr_payroll_periods` AS `period` ON `period`.`id` = `run`.`payroll_period_id` WHERE `payslip`.`employment_id` = NEW.`employment_id` AND `period`.`period_key` = substr(NEW.`leave_date`, 1, 7) AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_leave_closed_update`
+BEFORE UPDATE ON `hr_monthly_leave_entries`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`period_key` = substr(NEW.`leave_date`, 1, 7) AND `period`.`status` = 'closed')
+  OR EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`period_key` = substr(OLD.`leave_date`, 1, 7) AND `period`.`status` = 'closed')
+  OR EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` INNER JOIN `hr_payroll_periods` AS `period` ON `period`.`id` = `run`.`payroll_period_id` WHERE `payslip`.`employment_id` IN (OLD.`employment_id`, NEW.`employment_id`) AND `period`.`period_key` IN (substr(OLD.`leave_date`, 1, 7), substr(NEW.`leave_date`, 1, 7)) AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_leave_closed_delete`
+BEFORE DELETE ON `hr_monthly_leave_entries`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`period_key` = substr(OLD.`leave_date`, 1, 7) AND `period`.`status` = 'closed')
+  OR EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` INNER JOIN `hr_payroll_periods` AS `period` ON `period`.`id` = `run`.`payroll_period_id` WHERE `payslip`.`employment_id` = OLD.`employment_id` AND `period`.`period_key` = substr(OLD.`leave_date`, 1, 7) AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_hourly_closed_insert`
+BEFORE INSERT ON `hr_monthly_hourly_entries`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`period_key` = substr(NEW.`work_date`, 1, 7) AND `period`.`status` = 'closed')
+  OR EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` INNER JOIN `hr_payroll_periods` AS `period` ON `period`.`id` = `run`.`payroll_period_id` WHERE `payslip`.`employment_id` = NEW.`employment_id` AND `period`.`period_key` = substr(NEW.`work_date`, 1, 7) AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_hourly_closed_update`
+BEFORE UPDATE ON `hr_monthly_hourly_entries`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`period_key` = substr(NEW.`work_date`, 1, 7) AND `period`.`status` = 'closed')
+  OR EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`period_key` = substr(OLD.`work_date`, 1, 7) AND `period`.`status` = 'closed')
+  OR EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` INNER JOIN `hr_payroll_periods` AS `period` ON `period`.`id` = `run`.`payroll_period_id` WHERE `payslip`.`employment_id` IN (OLD.`employment_id`, NEW.`employment_id`) AND `period`.`period_key` IN (substr(OLD.`work_date`, 1, 7), substr(NEW.`work_date`, 1, 7)) AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_monthly_hourly_closed_delete`
+BEFORE DELETE ON `hr_monthly_hourly_entries`
+WHEN EXISTS (SELECT 1 FROM `hr_payroll_periods` AS `period` WHERE `period`.`period_key` = substr(OLD.`work_date`, 1, 7) AND `period`.`status` = 'closed')
+  OR EXISTS (SELECT 1 FROM `hr_payslips` AS `payslip` INNER JOIN `hr_payroll_runs` AS `run` ON `run`.`id` = `payslip`.`payroll_run_id` INNER JOIN `hr_payroll_periods` AS `period` ON `period`.`id` = `run`.`payroll_period_id` WHERE `payslip`.`employment_id` = OLD.`employment_id` AND `period`.`period_key` = substr(OLD.`work_date`, 1, 7) AND `run`.`status` = 'closed')
+BEGIN
+  SELECT RAISE(ABORT, 'payroll_period_closed');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_worker_compensation_versions_overtime_insert`
+BEFORE INSERT ON `hr_worker_compensation_versions`
+WHEN (NEW.`overtime_rate_ppm` IS NOT NULL AND (NEW.`overtime_rate_ppm` <= 0 OR NEW.`overtime_rate_ppm` > 10000000))
+  OR (NEW.`overtime_hourly_minor` IS NOT NULL AND (NEW.`overtime_hourly_minor` <= 0 OR NEW.`overtime_hourly_minor` % 100 <> 0))
+  OR (NEW.`overtime_rate_ppm` IS NOT NULL AND NEW.`overtime_hourly_minor` IS NOT NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'hr_worker_compensation_overtime_invalid');
+END;--> statement-breakpoint
+CREATE TRIGGER `trg_hr_worker_compensation_versions_overtime_update`
+BEFORE UPDATE OF `overtime_rate_ppm`, `overtime_hourly_minor` ON `hr_worker_compensation_versions`
+WHEN (NEW.`overtime_rate_ppm` IS NOT NULL AND (NEW.`overtime_rate_ppm` <= 0 OR NEW.`overtime_rate_ppm` > 10000000))
+  OR (NEW.`overtime_hourly_minor` IS NOT NULL AND (NEW.`overtime_hourly_minor` <= 0 OR NEW.`overtime_hourly_minor` % 100 <> 0))
+  OR (NEW.`overtime_rate_ppm` IS NOT NULL AND NEW.`overtime_hourly_minor` IS NOT NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'hr_worker_compensation_overtime_invalid');
+END;--> statement-breakpoint

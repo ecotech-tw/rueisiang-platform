@@ -75,6 +75,12 @@ function utcStamp(timestamp: number) {
   return new Date(timestamp).toISOString().slice(0, 19).replace("T", " ");
 }
 
+function nextDate(date: string) {
+  const value = new Date(`${date}T00:00:00Z`);
+  value.setUTCDate(value.getUTCDate() + 1);
+  return value.toISOString().slice(0, 10);
+}
+
 async function employmentIdFor(db: Database, userId: string, expectedEmploymentId?: string) {
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(
     eq(hrEmployments.employeeUserId, userId),
@@ -348,10 +354,13 @@ export async function listHrOvertimeDays(db: Database, input: { employeeUserId?:
   ]);
   return datesBetween(input.startsOn, input.endsOn).map((date) => {
     const shiftEnd = workdayEnds.get(date);
+    const dayStart = taipeiMidnightUtc(date);
+    const dayEnd = taipeiMidnightUtc(nextDate(date));
     return {
       date,
       shiftEnd: shiftEnd === undefined ? null : utcStamp(shiftEnd),
-      existing: existing.filter((row) => taipeiDate(stamp(row.requestedStart)) === date),
+      // 跨午夜申請佔用每個相交的台北日期，不能只標在 requestedStart 那天。
+      existing: existing.filter((row) => row.requestedStart < dayEnd && row.requestedEnd > dayStart),
     };
   });
 }

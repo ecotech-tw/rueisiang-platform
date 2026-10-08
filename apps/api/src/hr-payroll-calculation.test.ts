@@ -1158,6 +1158,38 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(detailBody.record.earningMinor).toBe(440_000);
   });
 
+  it("支援人員加班跨薪資月份邊界時只計入本期涵蓋的時數", async () => {
+    const workerResponse = await request("/hr/schedule-workers", "POST", { displayName: "跨月份加班支援人員" });
+    expect(workerResponse.status, await workerResponse.clone().text()).toBe(201);
+    const workerId = (await workerResponse.json() as { id: string }).id;
+    const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "hourly", baseAmountMinor: 50_000, note: "跨月份加班邊界測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-01" },
+      { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-30" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    for (const [requestedStart, requestedEnd] of [
+      ["2026-08-31T23:00", "2026-09-01T01:00"],
+      ["2026-09-30T23:00", "2026-10-01T01:00"],
+    ]) {
+      const overtime = await request("/hr/requests/overtime", "POST", { workerId, requestedStart, requestedEnd, settlementKind: "pay", reason: "跨薪資月份邊界" });
+      expect(overtime.status, await overtime.clone().text()).toBe(201);
+    }
+
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds: [workerId], requestId: "test-payroll-worker-overtime-period-boundaries" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; amountMinor: number; overtimeMinor: number; overtimeSeconds: number; overtimeExplanation: { requestSnapshots: Array<{ requestedStart: string; requestedEnd: string }> } }> } };
+    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({
+      workerId, amountMinor: 933_332, overtimeMinor: 133_332, overtimeSeconds: 7_200,
+      overtimeExplanation: expect.objectContaining({ requestSnapshots: expect.arrayContaining([
+        expect.objectContaining({ requestedStart: "2026-08-31 15:00:00", requestedEnd: "2026-08-31 17:00:00" }),
+        expect.objectContaining({ requestedStart: "2026-09-30 15:00:00", requestedEnd: "2026-09-30 17:00:00" }),
+      ]) }),
+    })]));
+  });
+
   it("支援人員付薪加班可使用版本固定時薪，且申請人不能指定倍率", async () => {
     const worker = await request("/hr/schedule-workers", "POST", { displayName: "固定時薪加班支援人員" });
     expect(worker.status, await worker.clone().text()).toBe(201);
@@ -1413,6 +1445,29 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const updated = await request("/hr/schedules", "POST", { periodKey: "2026-09", scheduleVersionId: savedBody.id, revision: savedBody.revision, entries: [] });
     expect(updated.status, await updated.clone().text()).toBe(200);
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_schedule_entries WHERE schedule_version_id=? AND employment_id=?").get(savedBody.id, "dev-employment-chen")).toEqual({ count: 1 });
+  });
+
+  it("封存支援人員會同步 legacy mirror，既有已發布排班不因重存而刪除", async () => {
+    const workerResponse = await request("/hr/schedule-workers", "POST", { displayName: "待封存支援人員" });
+    expect(workerResponse.status, await workerResponse.clone().text()).toBe(201);
+    const workerId = (await workerResponse.json() as { id: string }).id;
+    const scheduleResponse = await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen");
+    const schedule = await scheduleResponse.json() as { shifts: Array<{ versionId: string }> };
+    expect(schedule.shifts.length).toBeGreaterThan(0);
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [{ personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const savedBody = await saved.json() as { id: string; revision: number };
+
+    const archived = await request(`/hr/schedule-workers/${workerId}`, "PATCH", { displayName: "已封存支援人員", active: false, revision: 1 });
+    expect(archived.status, await archived.clone().text()).toBe(200);
+    expect(d1.sqlite.prepare("SELECT legal_name, archived_at, revision FROM hr_employments WHERE id=?").get(workerId)).toMatchObject({ legal_name: "已封存支援人員", archived_at: expect.any(String), revision: 2 });
+    expect(d1.sqlite.prepare("SELECT display_name, active, revision FROM hr_schedule_workers WHERE id=?").get(workerId)).toEqual({ display_name: "已封存支援人員", active: 0, revision: 2 });
+
+    const updated = await request("/hr/schedules", "POST", { periodKey: "2026-09", scheduleVersionId: savedBody.id, revision: savedBody.revision, entries: [] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_schedule_worker_entries WHERE schedule_version_id=? AND worker_id=?").get(savedBody.id, workerId)).toEqual({ count: 1 });
+    const history = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { entries: Array<{ workerId: string; personName: string; archivedAt: string | null }> };
+    expect(history.entries).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, personName: "已封存支援人員", archivedAt: expect.any(String) })]));
   });
 
   it("排班制月薪依月休設定調整實際排班日數，日薪不套用差額", async () => {

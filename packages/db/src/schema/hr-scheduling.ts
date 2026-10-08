@@ -152,7 +152,7 @@ export const hrScheduleWorkers = sqliteTable("hr_schedule_workers", {
   ...timestamps(),
 }, (table) => [
   index("idx_hr_schedule_workers_active_name").on(table.active, table.displayName),
-  index("idx_hr_schedule_workers_employment").on(table.employmentId),
+  uniqueIndex("idx_hr_schedule_workers_employment").on(table.employmentId),
   check("ck_hr_schedule_workers_name", sql`length(trim(${table.displayName})) BETWEEN 1 AND 100`),
   check("ck_hr_schedule_workers_active", sql`${table.active} IN (0, 1)`),
   check("ck_hr_schedule_workers_revision", sql`${table.revision} > 0`),

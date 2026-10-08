@@ -168,7 +168,11 @@ async function saveEntriesAtomically(db: Database, version: { id: string; revisi
       WHERE schedule_version_id=${version.id}
         AND EXISTS (SELECT 1 FROM hr_employments AS employment WHERE employment.id=hr_schedule_entries.employment_id AND employment.archived_at IS NULL)
         AND ${guard}`,
-    sql`DELETE FROM hr_schedule_worker_entries WHERE schedule_version_id=${version.id} AND ${guard}`,
+    // 封存支援人員的班表同樣是歷史薪資來源；保留其既有列，只替換活動支援人員的排班。
+    sql`DELETE FROM hr_schedule_worker_entries
+      WHERE schedule_version_id=${version.id}
+        AND EXISTS (SELECT 1 FROM hr_employments AS worker WHERE worker.id=hr_schedule_worker_entries.worker_id AND worker.archived_at IS NULL)
+        AND ${guard}`,
     ...entries.map((entry) => {
       const shiftGroupId = groupIdFor(entry);
       return entry.personKind === "employee"
@@ -617,7 +621,7 @@ export async function updateHrScheduleWorker(db: Database, id: string, input: { 
   const row = activityRow({ entityType: "hr_schedule", entityId: id, source: "hr", eventType: "schedule_worker_updated", summary: "支援人員已更新", actor });
   const results = await runRawBatch(db, compileStatements([
     sql`UPDATE hr_employments SET legal_name=${name}, archived_at=${input.active ? null : sql`CURRENT_TIMESTAMP`}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND person_kind='worker' AND revision=${input.revision} AND EXISTS (SELECT 1 FROM hr_schedule_workers WHERE id=${id} AND revision=${input.revision}) RETURNING id`,
-    sql`UPDATE hr_schedule_workers SET display_name=${name}, active=${input.active ? 1 : 0}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} RETURNING id`,
+    sql`UPDATE hr_schedule_workers SET display_name=${name}, active=${input.active ? 1 : 0}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND changes() = 1 RETURNING id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail} WHERE changes() = 1`,
   ]), true);

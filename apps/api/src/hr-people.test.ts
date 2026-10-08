@@ -82,6 +82,38 @@ describe("HR 扁平員工主檔", () => {
     expect(detail.employee).toMatchObject({ personKind: "worker", employmentId: workerId, userId: null, legalName: "沒有帳號的支援人員" });
   });
 
+  it("過期版本的支援人員更新不會只改寫 legacy mirror", async () => {
+    const created = await request("/hr/schedule-workers", "POST", { displayName: "最新支援人員姓名" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const workerId = (await created.json() as { id: string }).id;
+    d1.sqlite.prepare("UPDATE hr_employments SET legal_name='已更新 canonical 姓名', revision=revision+1 WHERE id=?").run(workerId);
+
+    const staleUpdate = await request(`/hr/schedule-workers/${workerId}`, "PATCH", { displayName: "過期姓名", active: false, revision: 1 });
+    expect(staleUpdate.status).toBe(409);
+    expect(d1.sqlite.prepare("SELECT legal_name, archived_at, revision FROM hr_employments WHERE id=?").get(workerId)).toMatchObject({ legal_name: "已更新 canonical 姓名", archived_at: null, revision: 2 });
+    expect(d1.sqlite.prepare("SELECT display_name, active, revision FROM hr_schedule_workers WHERE id=?").get(workerId)).toEqual({ display_name: "最新支援人員姓名", active: 1, revision: 1 });
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM activity_events WHERE entity_id=? AND event_type='schedule_worker_updated'").get(workerId)).toEqual({ count: 0 });
+  });
+
+  it("正式員工專用資料流程拒絕支援人員 employmentId", async () => {
+    const created = await request("/hr/schedule-workers", "POST", { displayName: "不應進入正式流程的支援人員" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const workerId = (await created.json() as { id: string }).id;
+
+    expect((await request(`/hr/employments/${workerId}/service-period`, "PATCH", { serviceStartOn: "2026-01-01", revision: 1 })).status).toBe(409);
+    expect((await request(`/hr/employments/${workerId}/attendance-mode`, "PATCH", { attendanceMode: "general", revision: 1 })).status).toBe(409);
+    expect((await request(`/hr/employments/${workerId}/archive`, "POST", { revision: 1 })).status).toBe(409);
+    expect((await request(`/hr/employments/${workerId}/compensation`, "POST", { validFrom: "2026-01-01", validTo: null, payBasis: "monthly", baseAmountMinor: 500_000, overtimeHourlyMinor: null, note: "不應寫入", items: [] })).status).toBe(409);
+    expect((await request(`/hr/employments/${workerId}/insurance`, "POST", { versions: [{ scheme: "labor", status: "enrolled", validFrom: "2026-01-01", validTo: null, insuredAmountMinor: 2_950_000, dependentCount: 0, rateYear: 2026, sourceKind: "manual", sourceUrl: "", note: "不應寫入" }] })).status).toBe(409);
+    expect((await request("/hr/assignments", "POST", { employmentId: workerId, scopeId: "scope", validFrom: "2026-01-01", validTo: null })).status).toBe(409);
+
+    expect(d1.sqlite.prepare("SELECT person_kind, archived_at, revision FROM hr_employments WHERE id=?").get(workerId)).toEqual({ person_kind: "worker", archived_at: null, revision: 1 });
+    expect(d1.sqlite.prepare("SELECT active, revision FROM hr_schedule_workers WHERE id=?").get(workerId)).toEqual({ active: 1, revision: 1 });
+    for (const table of ["hr_employment_service_periods", "hr_compensation_versions", "hr_insurance_versions", "hr_employee_scopes"]) {
+      expect(d1.sqlite.prepare(`SELECT count(*) AS count FROM ${table} WHERE employment_id=?`).get(workerId)).toEqual({ count: 0 });
+    }
+  });
+
   it("正式姓名必填且限制在 100 字內", async () => {
     expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E001", position: "一般職員" })).status).toBe(400);
     expect((await request("/hr/employees", "POST", { userId: "self", legalName: "x".repeat(101), employeeNumber: "E001", position: "一般職員" })).status).toBe(400);
