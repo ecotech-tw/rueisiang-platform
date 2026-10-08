@@ -1,8 +1,8 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useSignOut } from "../auth/session.js";
 import { Icon, type IconName } from "../shell/icons.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { Alert, Button, EmptyState, PageHeader, Panel, StatusBadge } from "../ui/index.js";
+import { Alert, Button, ConfirmDialog, EmptyState, PageHeader, Panel, StatusBadge } from "../ui/index.js";
 import { useHrQuery, type Employment, type Profile as HrProfile } from "./hr/api.js";
 
 function dateLabel(value: string | null | undefined) {
@@ -93,11 +93,21 @@ export function HrProfile() {
   usePageTitle("個人中心");
   const query = useHrQuery<{ profile: HrProfile | null }>("/me");
   const signOut = useSignOut();
+  const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
+  const [signOutPending, setSignOutPending] = useState(false);
+  function confirmSignOut() {
+    setSignOutPending(true);
+    void signOut();
+  }
   return <div className="page hr-profile-page">
-    <PageHeader title="個人中心" description="查看你的帳號、任職與工作地點資料；如有錯誤，請聯絡管理者。" className="hr-profile-page-header" actions={<Button variant="secondary" icon="logout" onClick={() => void signOut()}>登出此裝置</Button>} />
+    <PageHeader title="個人中心" description="查看你的帳號、任職與工作地點資料；如有錯誤，請聯絡管理者。" />
     {query.isPending ? <Panel className="hr-profile-loading"><p className="muted">正在載入個人資料…</p></Panel> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {query.data?.profile ? <ProfileDetails profile={query.data.profile} /> : null}
     {!query.isPending && !query.error && !query.data?.profile ? <Alert>尚未指派為員工，請聯絡管理者。</Alert> : null}
+    <div className="hr-profile-signout"><Button variant="primary" className="hr-profile-signout-button" icon="logout" onClick={() => setShowSignOutConfirm(true)}>登出此裝置</Button></div>
+    {showSignOutConfirm ? <ConfirmDialog title="確定要登出這台裝置？" confirmLabel="確認登出" cancelLabel="繼續使用" tone="primary" pending={signOutPending} onCancel={() => { if (!signOutPending) setShowSignOutConfirm(false); }} onConfirm={confirmSignOut}>
+      <p>登出後會清除這台裝置的登入狀態，並返回登入頁。要繼續嗎？</p>
+    </ConfirmDialog> : null}
   </div>;
 }
