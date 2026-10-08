@@ -85,8 +85,8 @@ function timesPayload(row: ShiftRowDraft) {
  * 每列都是可直接編輯的草稿；新增、修改與刪除一起在右下角「儲存」時送出，
  * 和敘薪的項目編輯保持同一種操作節奏，不需要先找一顆編輯按鈕再跳到另一張表單。
  *
- * 平日那一格永遠顯示，週末與國定假日預設沿用平日時間與人力；只要調整人力或按下設定時間，
- * 該日型就會變成獨立設定。這樣可以表達「假日多一人」而不用重填一模一樣的時間。
+ * 平日那一格永遠顯示，週末與國定假日預設沿用平日時段與需求人力；按下設定時間後，
+ * 該日型才會變成獨立設定。這樣沿用狀態只有一個入口，也避免半列欄位無法對齊。
  */
 function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scope: ScheduleScope; groups: ShiftGroup[]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
   const [rows, setRows] = useState(() => rowsFromGroups(groups));
@@ -208,8 +208,7 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
             const label = HR_DAY_TYPE_LABELS[dayType];
             if (!draft) return <div className="shift-day-row shift-day-row-empty" key={dayType}>
               <span className="shift-day-label">{label}</span>
-              <span className="muted shift-day-inherited">沿用平日時間</span>
-              <TextField label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={row.times.weekday?.requiredHeadcount ?? 1} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
+              <span className="muted shift-day-inherited">沿用平日時段與需求人力（{row.times.weekday?.requiredHeadcount ?? 1} 人）</span>
               {canWrite ? <Button variant="secondary" icon="plus" className="add-action" disabled={disabled} onClick={() => updateTime(row.key, dayType, {})}>設定{label}時間</Button> : <span className="shift-item-spacer" aria-hidden="true" />}
             </div>;
             return <div className="shift-day-row" key={dayType}>
@@ -272,7 +271,7 @@ export function HrShifts() {
 
   const openScope = data.scopes.find((scope) => scope.id === openScopeId);
   return <div className="page fills">
-    <PageHeader title="班別管理" description="每個班別可分別設定平日、週末與國定假日的時間與需求人力；沒設定的日型會沿用平日。需求人力只作排班提示，每筆班別薪資單位固定為 1。" />
+    <PageHeader title="班別管理" description="每個班別可分別設定平日、週末與國定假日的時間與需求人力；沒設定的日型會沿用平日時段與需求人力。需求人力只作排班提示，每筆班別薪資單位固定為 1。" />
     <Panel className="grows">
       <DataTable><thead><tr>
         <th>營運據點</th><th className="numeric">班別數</th><th>班別</th>
