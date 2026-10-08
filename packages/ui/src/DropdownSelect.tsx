@@ -40,7 +40,12 @@ export interface DropdownSelectSingleProps extends DropdownSelectCommonProps {
   onValueChange?: (value: string) => void;
 }
 
-export interface DropdownSelectMultipleProps extends DropdownSelectCommonProps {
+interface DropdownSelectMultipleOptions {
+  /** 全選時收合 chip，但保留完整清單讓使用者仍可搜尋並取消單一項目。 */
+  compactSelected?: boolean;
+}
+
+export interface DropdownSelectMultipleProps extends DropdownSelectCommonProps, DropdownSelectMultipleOptions {
   multiple: true;
   value?: readonly string[];
   defaultValue?: readonly string[];
@@ -49,7 +54,7 @@ export interface DropdownSelectMultipleProps extends DropdownSelectCommonProps {
 }
 
 /** 動態切換模式時保留寬鬆的布林型別；使用 literal true/false 時仍能得到精確 callback 型別。 */
-export interface DropdownSelectConfigurableProps extends DropdownSelectCommonProps {
+export interface DropdownSelectConfigurableProps extends DropdownSelectCommonProps, DropdownSelectMultipleOptions {
   multiple: boolean;
   value?: string | number | readonly string[];
   defaultValue?: string | number | readonly string[];
@@ -202,6 +207,7 @@ function SelectMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownProps)
     onValueChange: _onValueChange,
     searchable: _searchable,
     multiple: _multiple,
+    compactSelected: _compactSelected,
     ...ariaProps
   } = props;
   const selectedOptions = optionsForValues(options, value);
@@ -325,6 +331,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
+    compactSelected = false,
     "aria-label": ariaLabel,
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
@@ -355,11 +362,11 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
         const option = optionByValue.get(selectedValue);
         return option ? [option] : [];
       }),
-      // 已選的已經是輸入框裡的 chip，清單只留還能加的；留著只會讓人在長名單裡重複找同一個人。
-      remainingOptions: stableOptions.filter((option) => !selected.has(option.value)),
+      // 一般模式已選的已經是輸入框裡的 chip，清單只留還能加的；摘要模式則要保留完整清單，才能搜尋後取消單一項目。
+      remainingOptions: compactSelected ? stableOptions : stableOptions.filter((option) => !selected.has(option.value)),
       duplicatedChipLabels: duplicated,
     };
-  }, [stableOptions, currentValue]);
+  }, [stableOptions, currentValue, compactSelected]);
   /*
    * chip 區超過高度會自己捲，而輸入框排在所有 chip 後面：預選幾十人時它一開始就在捲動範圍外，
    * 欄位看起來像一張不能打字的清單。只在掛載與新增時捲到底；移除時不動，
@@ -404,7 +411,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
             const selected = selectedValue ?? [];
             return (
               <Combobox.Chips ref={chipsRef} aria-label={ariaLabel ?? "已選項目"} className="dropdown-combobox-chips">
-                {selected.map((option) => {
+                {compactSelected && selected.length ? <span className="dropdown-combobox-chip dropdown-combobox-selection-summary">已選 {selected.length} 項</span> : selected.map((option) => {
                   // 空字串也當成沒有短名：沒填法定姓名的員工不能變成一顆只有移除鈕的空白 chip。
                   const shortened = Boolean(option.chipLabel) && !duplicatedChipLabels.has(option.chipLabel!);
                   const chip = (
@@ -439,11 +446,12 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
       <Combobox.Portal>
         <Combobox.Positioner className="combobox-positioner">
           <Combobox.Popup className={popupClass(isHrSystem)}>
-            <Combobox.Empty>{options.length && !remainingOptions.length ? "已經全部選取" : selectedOptions.length ? "沒有其他符合條件的選項（已選取的不會列在這裡）" : "找不到符合條件的選項"}</Combobox.Empty>
+            <Combobox.Empty>{compactSelected ? "找不到符合條件的選項" : options.length && !remainingOptions.length ? "已經全部選取" : selectedOptions.length ? "沒有其他符合條件的選項（已選取的不會列在這裡）" : "找不到符合條件的選項"}</Combobox.Empty>
             <Combobox.List>
               {(option: DropdownSelectOption) => (
                 <Combobox.Item key={option.value} value={option} disabled={option.disabled} className="combobox-item">
                   <span>{option.label}</span>
+                  {compactSelected ? <Combobox.ItemIndicator>✓</Combobox.ItemIndicator> : null}
                 </Combobox.Item>
               )}
             </Combobox.List>
