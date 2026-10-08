@@ -49,7 +49,7 @@ export function HrPayrollHistory() {
   const query = useHrQuery<{ records: HrPayrollHistoryRecord[] }>("/me/payroll-history");
   return <div className="page hr-payroll-history-page">
     <PageHeader title="薪資袋" description="查看已確定發放的薪資紀錄與實領金額。" />
-    <Panel className="hr-payroll-history-panel">
+    <div className="hr-payroll-history-content">
       {query.isPending ? <p className="muted">載入薪資紀錄…</p> : null}
       {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
       {query.data?.records.length ? <div className="hr-payroll-history-list">{query.data.records.map((record) => <button className="hr-payroll-history-card" key={`${record.runId}:${record.employmentId}`} type="button" onClick={() => navigate(historyPath(record))}>
@@ -57,7 +57,7 @@ export function HrPayrollHistory() {
         <div className="hr-payroll-history-card-total"><span>實領金額</span><strong>{money(record.netMinor)}</strong></div>
         <div className="hr-payroll-history-card-foot"><span>收入 {money(record.earningMinor)}</span><span>扣除 {money(record.deductionMinor)}</span><span>薪資版本 {record.versionNumber}</span></div>
       </button>)}</div> : !query.isPending && !query.error ? <div className="hr-form-empty-state"><strong>目前沒有已發放的薪資單</strong><p className="muted">完成薪資結帳後，紀錄會出現在這裡。</p></div> : null}
-    </Panel>
+    </div>
   </div>;
 }
 
@@ -72,8 +72,10 @@ export function HrPayslipDetail() {
   const record = query.data?.detail.record;
   const lines = query.data?.detail.lines ?? [];
   return <div className="page hr-payroll-history-page hr-payslip-page">
-    <Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/payroll")}>返回薪資袋</Button>
-    <PageHeader title="薪資明細" description={record ? `${periodLabel(record.periodKey)}・${dateLabel(record.payDate)}` : "查看已發放薪資項目。"} />
+    <div className="hr-form-back-bar">
+      <Button variant="link" icon="chevronLeft" className="hr-form-back-button" onClick={() => navigate("/payroll", { state: { transition: "back" } })}>返回薪資袋</Button>
+    </div>
+    <PageHeader title="薪資明細" description={record ? `${periodLabel(record.periodKey)}・${dateLabel(record.payDate)}` : "查看已發放薪資項目。"} className="hr-payslip-head" />
     {query.isPending ? <p className="muted">載入薪資明細…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {record ? <Panel className="hr-payslip-panel">

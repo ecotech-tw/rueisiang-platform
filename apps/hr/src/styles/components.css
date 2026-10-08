@@ -685,7 +685,7 @@
 .hr-notification-copy > span:not(.hr-notification-title) { color: var(--color-muted); overflow-wrap: anywhere; }
 .hr-notification-copy small { color: var(--color-muted); font-size: 11px; }
 .hr-payroll-history-page { width: 100%; max-width: 760px; margin-inline: auto; }
-.hr-payroll-history-panel { min-height: 0; }
+.hr-payroll-history-content { display: grid; gap: 12px; min-height: 0; }
 .hr-payroll-history-list { display: grid; gap: 10px; }
 .hr-payroll-history-card { display: grid; gap: 14px; width: 100%; padding: 16px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; transition-property: border-color, background-color; transition-duration: 150ms; }
 .hr-payroll-history-card:hover { border-color: var(--color-brand); background: --alpha(var(--color-brand) / 5%); }
@@ -700,7 +700,10 @@
 .hr-payslip-totals span { color: var(--color-muted); font-size: 12px; font-weight: 700; }
 .hr-payroll-history-card-total strong { font-size: 23px; font-variant-numeric: tabular-nums; }
 .hr-payroll-history-card-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; }
-.hr-payslip-page > .button { align-self: flex-start; }
+.hr-payslip-page > .page-head { margin-top: 8px; }
+.hr-payslip-head > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
+.hr-payslip-head h1 { flex: none; margin: 0; white-space: nowrap; }
+.hr-payslip-head p { min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
 .hr-payslip-panel { display: grid; gap: 18px; }
 .hr-payslip-employee { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; }
 .hr-payslip-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -3667,9 +3670,11 @@
   .shell { height: 100dvh; min-height: 100dvh; }
   .content { padding: 16px 14px 28px; }
   .content:has(.hr-forms-index-page),
-  .content:has(.hr-form-page) { padding-top: 0; }
+  .content:has(.hr-form-page),
+  .content:has(.hr-payslip-page) { padding-top: 0; }
   .hr-forms-index-page { padding-top: 16px; }
-  .hr-form-page { padding-top: 0; }
+  .hr-form-page,
+  .hr-payslip-page { padding-top: 0; }
   .hr-module-self { gap: 14px; padding-bottom: 84px; }
   .hr-module-self:has(.hr-form-page) { padding-bottom: 16px; }
   .hr-module-self:has(.hr-form-page) .hr-personal-bottom-nav { display: none; }
@@ -3771,9 +3776,8 @@
   .hr-forms-index-head { align-items: center; flex-direction: row; gap: 12px; }
   .hr-forms-index-head > :first-child { flex: 1; width: auto; min-width: 0; }
   .hr-forms-index-head > :last-child { width: auto; }
-  .hr-forms-index-head h1 { font-size: 22px; }
   .hr-forms-index-head > :first-child > .muted { font-size: 13px; line-height: 1.55; }
-  .hr-form-add-button { width: 44px; height: 44px; }
+  .hr-form-add-button { position: fixed; right: max(16px, env(safe-area-inset-right)); bottom: calc(max(12px, env(safe-area-inset-bottom)) + 72px); z-index: 21; width: 52px; height: 52px; border-radius: 50%; }
   .hr-form-sticky-controls { margin-inline: -14px; padding: 8px 14px; }
   .hr-form-back-bar { margin-inline: -14px; padding-inline: 14px; }
   .hr-form-page > .page-head { margin-top: 8px; }

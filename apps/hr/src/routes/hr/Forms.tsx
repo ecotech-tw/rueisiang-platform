@@ -443,7 +443,7 @@ export function HrForms() {
           <Button variant="secondary" onClick={() => setCorrectionAction({ request, mode: "cancel" })}>取消申請</Button>
         </div> : null}
       </article>)}</div>}
-      {!isLoading && !activeError && activeCount === 0 ? <div className="hr-form-empty-state"><strong>{search || statusFilter !== "all" ? "找不到符合條件的申請" : "目前沒有申請紀錄"}</strong><p className="muted">{search || statusFilter !== "all" ? "請調整搜尋文字或狀態篩選。" : "點右上角的＋開始新增申請。"}</p></div> : null}
+      {!isLoading && !activeError && activeCount === 0 ? <div className="hr-form-empty-state"><strong>{search || statusFilter !== "all" ? "找不到符合條件的申請" : "目前沒有申請紀錄"}</strong><p className="muted">{search || statusFilter !== "all" ? "請調整搜尋文字或狀態篩選。" : "點＋開始新增申請。"}</p></div> : null}
       {hasMore ? <div ref={sentinelRef} className="hr-form-load-sentinel" aria-live="polite">載入更多申請…</div> : activeCount > 0 ? <div className="hr-form-list-end">已顯示全部申請</div> : null}
     </Panel>
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
