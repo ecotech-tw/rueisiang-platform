@@ -2,7 +2,7 @@
   "version": "6",
   "dialect": "sqlite",
   "id": "3ba41df5-7f5c-4d18-9f8f-b1d9dcfb7e05",
-  "prevId": "be18186d-c6dd-461e-931f-f67779f8157d",
+  "prevId": "a00a87f5-6292-45c2-a31e-2e0f5af80372",
   "tables": {
     "auth_device_sessions": {
       "name": "auth_device_sessions",
@@ -9459,6 +9459,14 @@
           "notNull": true,
           "autoincrement": false,
           "default": 60
+        },
+        "required_headcount": {
+          "name": "required_headcount",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
         },
         "pay_factor_ppm": {
           "name": "pay_factor_ppm",

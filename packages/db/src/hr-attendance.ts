@@ -518,7 +518,10 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
     eventDatesByUser.set(event.employeeUserId, dates);
   }
   const leavesByUser = new Map<string, typeof leaves>();
-  for (const leave of leaves) leavesByUser.set(leave.userId, [...(leavesByUser.get(leave.userId) ?? []), leave]);
+  for (const leave of leaves) {
+    if (!leave.userId) continue;
+    leavesByUser.set(leave.userId, [...(leavesByUser.get(leave.userId) ?? []), leave]);
+  }
   const today = taipeiToday();
   const monthDates = Array.from({ length: lastDay }, (_, index) => `${year}-${String(month).padStart(2, "0")}-${String(index + 1).padStart(2, "0")}`);
   const dayTypes = await resolveDayTypes(db, monthDates);

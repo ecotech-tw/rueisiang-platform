@@ -132,7 +132,7 @@ export async function setHrLeaveTypeActive(db: Database, id: string, active: boo
 const leaveListFields = {
   entry: hrMonthlyLeaveEntries,
   leaveTypeName: hrLeaveTypes.name,
-  employeeUserId: hrEmployments.employeeUserId,
+  employeeUserId: sql<string>`${hrEmployments.employeeUserId}`.as("monthly_leave_employee_user_id"),
   employeeNumber: hrEmployments.employeeNumber,
   employeeName: displayName,
 };
@@ -147,7 +147,7 @@ export async function listHrMonthlyData(db: Database, periodKey: string, employe
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .where(and(sql`${hrMonthlyLeaveEntries.leaveDate} >= ${range.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${range.end}`, employeeFilter))
       .orderBy(asc(hrMonthlyLeaveEntries.leaveDate), ...hrEmployeeNumberOrder()),
-    db.select({ entry: hrMonthlyHourlyEntries, employeeUserId: hrEmployments.employeeUserId, employeeNumber: hrEmployments.employeeNumber, employeeName: displayName })
+    db.select({ entry: hrMonthlyHourlyEntries, employeeUserId: sql<string>`${hrEmployments.employeeUserId}`.as("monthly_employee_user_id"), employeeNumber: hrEmployments.employeeNumber, employeeName: displayName })
       .from(hrMonthlyHourlyEntries).innerJoin(hrEmployments, eq(hrEmployments.id, hrMonthlyHourlyEntries.employmentId))
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .where(and(sql`${hrMonthlyHourlyEntries.workDate} >= ${range.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${range.end}`, employeeFilter))

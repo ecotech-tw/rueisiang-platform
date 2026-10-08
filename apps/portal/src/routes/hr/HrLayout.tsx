@@ -10,7 +10,7 @@ import { HrUserMenu } from "./HrUserMenu.js";
 
 /** platform 只承載 HR 管理功能；員工本人入口在 hr.rueisiang.com。 */
 const EMPLOYEE_TABS = [
-  { label: "員工列表", to: "/hr/employees", permission: "hr:employee:read" as const, icon: "list" as const, adminOnly: false, activePaths: ["/hr/employees"], end: false },
+  { label: "人員列表", to: "/hr/employees", permission: "hr:employee:read" as const, icon: "list" as const, adminOnly: false, activePaths: ["/hr/employees"], end: false },
   { label: "支援人員", to: "/hr/support-workers", permission: "hr:schedule:read" as const, icon: "people" as const, adminOnly: true },
 ];
 
@@ -64,7 +64,7 @@ type HrNavGroup = {
 const HR_PRIMARY_NAV: HrNavGroup[] = [
   { label: "儀表板", to: "/hr", icon: "analytics", permissions: OVERVIEW_PERMISSIONS, adminOnly: true, activePaths: ["/hr"] },
   { label: "申請與審核", to: "/hr/requests", icon: "edit", permissions: ["hr:request:review"], activePaths: ["/hr/requests"] },
-  { label: "員工", to: "/hr/employees", icon: "list", permissions: ["hr:employee:read"], activePaths: ["/hr/employees", "/hr/support-workers"], children: EMPLOYEE_TABS },
+  { label: "人員", to: "/hr/employees", icon: "list", permissions: ["hr:employee:read"], activePaths: ["/hr/employees", "/hr/support-workers"], children: EMPLOYEE_TABS },
   { label: "出勤", to: "/hr/attendance-records", icon: "clock", permissions: ["hr:office:read", "hr:payroll:read"], activePaths: ["/hr/attendance-records", "/hr/attendance-scope", "/hr/attendance-settings", "/hr/special-workdays", "/hr/leave-types", "/hr/annual-leave"], children: ATTENDANCE_TABS },
   { label: "排班", to: "/hr/scheduling", icon: "calendar", permissions: ["hr:schedule:read", "hr:office:read"], activePaths: ["/hr/scheduling"], children: SCHEDULING_TABS },
   { label: "薪資", to: "/hr/compensation", icon: "payments", permissions: ["hr:payroll:read", "hr:bonus:read", "hr:employee:read"], adminOnly: true, activePaths: ["/hr/compensation", "/hr/insurance", "/hr/bonus", "/hr/payroll-settings", "/hr/payroll-settlement", "/hr/payroll-adjustments", "/hr/monthly-data"], children: PAYROLL_TABS },

@@ -141,15 +141,18 @@ export const hrScheduleVersions = sqliteTable("hr_schedule_versions", {
   check("ck_hr_schedule_versions_revision", sql`${table.revision} > 0`),
 ]);
 
-/** 沒有平台帳號的臨時支援人員只存在於排班，不會混入 users／hr_employments。 */
+/** 舊版支援人員資料表保留穩定 ID 與顯示資料；canonical 人員主檔是 hr_employments。 */
 export const hrScheduleWorkers = sqliteTable("hr_schedule_workers", {
   id: text("id").primaryKey(),
+  /** 舊表與 canonical employment 共用穩定 ID；此欄明確保留相容鏡像的 parent 關聯。 */
+  employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   displayName: text("display_name").notNull(),
   active: integer("active").notNull().default(1),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   ...timestamps(),
 }, (table) => [
   index("idx_hr_schedule_workers_active_name").on(table.active, table.displayName),
+  index("idx_hr_schedule_workers_employment").on(table.employmentId),
   check("ck_hr_schedule_workers_name", sql`length(trim(${table.displayName})) BETWEEN 1 AND 100`),
   check("ck_hr_schedule_workers_active", sql`${table.active} IN (0, 1)`),
   check("ck_hr_schedule_workers_revision", sql`${table.revision} > 0`),
@@ -190,7 +193,8 @@ export const hrScheduleEntries = sqliteTable("hr_schedule_entries", {
 export const hrScheduleWorkerEntries = sqliteTable("hr_schedule_worker_entries", {
   id: text("id").primaryKey(),
   scheduleVersionId: text("schedule_version_id").notNull().references(() => hrScheduleVersions.id, { onDelete: "restrict" }),
-  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  /** 舊欄位名保留 API／歷史相容；值是 canonical hr_employments.id。 */
+  workerId: text("worker_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
   shiftVersionId: text("shift_version_id").notNull().references(() => hrShiftVersions.id, { onDelete: "restrict" }),
   /** 同一班別的多人指派共用這個識別；舊排班為 NULL，薪資計算會以據點／班別／日期回退分組。 */
@@ -298,7 +302,8 @@ export const hrSpecialWorkdayAssignments = sqliteTable("hr_special_workday_assig
   id: text("id").primaryKey(),
   ruleId: text("rule_id").notNull().references(() => hrSpecialWorkdayRules.id, { onDelete: "restrict" }),
   employmentId: text("employment_id").references(() => hrEmployments.id, { onDelete: "restrict" }),
-  workerId: text("worker_id").references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  /** 舊欄位名保留歷史相容；值是 canonical hr_employments.id。 */
+  workerId: text("worker_id").references(() => hrEmployments.id, { onDelete: "restrict" }),
   workDate: text("work_date").notNull(),
   // 只保存套用當下各補貼的數量；單價與薪資方式結算時從目前規則解析。
   allowanceSnapshotJson: text("allowance_snapshot_json").notNull().default("[]"),
@@ -357,7 +362,8 @@ export type HrScheduleWorkerEntry = typeof hrScheduleWorkerEntries.$inferSelect;
 /** 沒有平台帳號的排班支援人員使用獨立申請表，避免為了 nullable employment 外鍵重建既有加班表。 */
 export const hrWorkerOvertimeRequests = sqliteTable("hr_worker_overtime_requests", {
   id: text("id").primaryKey(),
-  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  /** 舊欄位名保留 API／歷史相容；值是 canonical hr_employments.id。 */
+  workerId: text("worker_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   scopeId: text("scope_id").references(() => scopes.id, { onDelete: "restrict" }),
   requestedStart: text("requested_start").notNull(),
   requestedEnd: text("requested_end").notNull(),

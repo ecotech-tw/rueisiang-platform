@@ -8,7 +8,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, StatusBadge, TextField } from "../../ui/index.js";
-import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
+import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface PayrollRecordsResponse {
@@ -83,7 +83,7 @@ function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "pers
 }
 
 interface PayrollCalculationDialogProps {
-  employees: Employee[];
+  employees: HrFormalEmployee[];
   employeesPending: boolean;
   employeesError: Error | null;
   initialPeriodKey: string;
@@ -306,6 +306,7 @@ export function HrPayrollSettlement() {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [approveOpen, setApproveOpen] = useState(false);
   const employees = useHrEmployeeRoster(canRead && permissions.has("hr:employee:read"));
+  const formalEmployees = (employees.data?.employees ?? []).filter(isHrFormalEmployee);
   const records = useHrQuery<PayrollRecordsResponse>(`/payroll/records?page=${recordFilters.page}&pageSize=${recordFilters.pageSize}&search=${encodeURIComponent(recordFilters.search)}&periodKey=${encodeURIComponent(recordFilters.periodKey || "all")}&status=${recordFilters.status}&personKind=${recordFilters.personKind}&payBasis=${recordFilters.payBasis}`, canRead);
   const [pollPayrollJobs, setPollPayrollJobs] = useState(true);
   const payrollJobs = useHrQuery<PayrollJobsResponse>("/payroll/jobs", canRead, { keepPreviousData: false, refetchInterval: pollPayrollJobs ? 3000 : false });
@@ -418,7 +419,7 @@ export function HrPayrollSettlement() {
     </Panel>
 
     {showCalculationDialog ? <PayrollCalculationDialog
-      employees={employees.data?.employees ?? []}
+      employees={formalEmployees}
       employeesPending={employees.isPending}
       employeesError={employees.error instanceof Error ? employees.error : null}
       initialPeriodKey={recordFilters.periodKey || currentMonth}

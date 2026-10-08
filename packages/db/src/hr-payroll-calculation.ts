@@ -667,7 +667,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   const employmentIds = input.employmentIds.length ? input.employmentIds : ["__none__"];
   const workerIds = input.workerIds.length ? input.workerIds : ["__none__"];
   const employmentFilter = inJsonArray(hrEmployments.id, employmentIds);
-  const workerFilter = inJsonArray(hrScheduleWorkers.id, workerIds);
+  const workerFilter = inJsonArray(hrEmployments.id, workerIds);
   const employmentValues = jsonArrayValues(employmentIds);
   /*
    * 已解除的版本不是薪資的來源，它的店與排班也不該進快照：那些 Scope 的出金事後變動時，
@@ -741,7 +741,9 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select({ entry: hrScheduleWorkerEntries }).from(hrScheduleWorkerEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
       .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleWorkerEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${input.period.end}`)),
-    db.select().from(hrScheduleWorkers).where(workerFilter),
+    // 保留舊 snapshot 的欄位形狀，但姓名、狀態、revision 與建立時間以 canonical employment 為準。
+    db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName, active: sql<number>`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 1 ELSE 0 END`, createdBy: sql<string | null>`${hrScheduleWorkers.createdBy}`, createdAt: hrEmployments.createdAt, updatedAt: hrEmployments.updatedAt, revision: hrEmployments.revision })
+      .from(hrEmployments).leftJoin(hrScheduleWorkers, eq(hrEmployments.id, hrScheduleWorkers.employmentId)).where(and(workerFilter, eq(hrEmployments.personKind, "worker"))),
     db.select().from(hrWorkerCompensationVersions).where(and(inJsonArray(hrWorkerCompensationVersions.workerId, workerIds), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
     listHrSpecialWorkdaysForPayroll(db, input.period.start, input.period.end, { employmentIds: input.employmentIds, workerIds: input.workerIds }),
     db.select().from(hrBonusPolicyMembers).where(and(inJsonArray(hrBonusPolicyMembers.employmentId, employmentIds), sql`${hrBonusPolicyMembers.validFrom} < ${input.period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.period.start})`)),
@@ -827,7 +829,7 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
     const attendance = employeeLines.find((line) => line.lineKey === "attendance_summary")?.explanation ?? {};
     return {
       employmentId: payslip.employmentId,
-      employeeUserId,
+      employeeUserId: employeeUserId!,
       employeeNumber: payslip.employeeNumber,
       employeeName: payslip.employeeName,
       lines: employeeLines.filter((line) => line.lineKey !== "attendance_summary"),
@@ -1025,7 +1027,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const payrollEmploymentStatus = input.employeeUserIds === undefined ? sql`${hrEmployments.archivedAt} IS NULL` : sql`1=1`;
   const employeeRows = await db.select({
     employmentId: hrEmployments.id,
-    employeeUserId: hrEmployments.employeeUserId,
+    employeeUserId: sql<string>`${hrEmployments.employeeUserId}`.as("payroll_employee_user_id"),
     employeeNumber: hrEmployments.employeeNumber,
     employeeName: displayName,
     serviceStartOn: hrEmploymentServicePeriods.serviceStartOn,
@@ -1057,7 +1059,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   if (closedEmploymentIds.length) throw new HrError(409, "同一員工同一月份已有已結帳結果，請改用薪資調整。 ");
   await ensureHrAnnualLeaveEntitlements(db, { asOfDate: period.end, createdBy: actor.id });
   const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds: employees.map((employee) => employee.employmentId) });
-  // 臨時支援人員沒有 users／hr_employments，薪資資格來自已發布班表；不套用獎金 policy。
+  // 支援人員沒有平台帳號，但仍有 canonical hr_employments；薪資資格來自已發布班表，不套用獎金 policy。
   const scheduledEmployeeRows = await db.select({ id: hrScheduleEntries.id, employmentId: hrScheduleEntries.employmentId, scopeId: hrScheduleEntries.scopeId, shiftVersionId: hrScheduleEntries.shiftVersionId, shiftGroupId: hrScheduleEntries.shiftGroupId, workDate: hrScheduleEntries.workDate, startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes, requiredHeadcount: hrScheduleEntries.requiredHeadcount, attendanceStatus: hrScheduleEntries.attendanceStatus }).from(hrScheduleEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
     .where(and(
@@ -1066,21 +1068,22 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
     ));
-  const scheduledWorkerRowsAll = await db.select({ id: hrScheduleWorkerEntries.id, workerId: hrScheduleWorkerEntries.workerId, workerName: hrScheduleWorkers.displayName, scopeId: hrScheduleWorkerEntries.scopeId, shiftVersionId: hrScheduleWorkerEntries.shiftVersionId, shiftGroupId: hrScheduleWorkerEntries.shiftGroupId, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes, requiredHeadcount: hrScheduleWorkerEntries.requiredHeadcount, attendanceStatus: hrScheduleWorkerEntries.attendanceStatus }).from(hrScheduleWorkerEntries)
+  const scheduledWorkerRowsAll = await db.select({ id: hrScheduleWorkerEntries.id, workerId: hrScheduleWorkerEntries.workerId, workerName: hrEmployments.legalName, scopeId: hrScheduleWorkerEntries.scopeId, shiftVersionId: hrScheduleWorkerEntries.shiftVersionId, shiftGroupId: hrScheduleWorkerEntries.shiftGroupId, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes, requiredHeadcount: hrScheduleWorkerEntries.requiredHeadcount, attendanceStatus: hrScheduleWorkerEntries.attendanceStatus }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
-    .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkerEntries.workerId))
     .where(and(
       eq(hrScheduleVersions.status, "published"),
       eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end),
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`,
+      eq(hrEmployments.personKind, "worker"),
     ));
   const requestedWorkerIds = input.workerIds;
   // 特殊上班日不要求先有排班；沒有班表的支援人員用零工時列進來，月／日薪仍可依日期計算，固定時薪則由下方異常提示處理。
   const specialWorkdays = await listHrSpecialWorkdaysForPayroll(db, period.start, period.end, requestedWorkerIds === undefined ? undefined : { employmentIds: employees.map((employee) => employee.employmentId), workerIds: requestedWorkerIds });
   const specialWorkerIds = [...new Set(specialWorkdays.flatMap((item) => item.workerId ? [item.workerId] : []))];
   const specialWorkerNames = specialWorkerIds.length
-    ? await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inJsonArray(hrScheduleWorkers.id, specialWorkerIds))
+    ? await db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, specialWorkerIds), eq(hrEmployments.personKind, "worker")))
     : [];
   const specialWorkerNameById = new Map(specialWorkerNames.map((worker) => [worker.id, worker.displayName]));
   type WorkerScheduleRow = typeof scheduledWorkerRowsAll[number];
@@ -1096,7 +1099,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const eligibleWorkerIdSet = new Set(workerRowsAll.map((row) => row.workerId));
   const missingWorkerIds = requestedWorkerIds?.filter((workerId) => !eligibleWorkerIdSet.has(workerId)) ?? [];
   if (missingWorkerIds.length) {
-    const missingWorkers = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers).where(inJsonArray(hrScheduleWorkers.id, missingWorkerIds));
+    const missingWorkers = await db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, missingWorkerIds), eq(hrEmployments.personKind, "worker")));
     const namesById = new Map(missingWorkers.map((worker) => [worker.id, worker.displayName]));
     throw new HrError(400, `以下支援人員在 ${period.periodKey} 沒有已發布排班或特殊上班日套用，無法計算薪資：${missingWorkerIds.map((workerId) => namesById.get(workerId) ?? workerId).join("、")}。`);
   }
@@ -2184,7 +2187,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const deductionMinor = lines.filter((line) => line.direction === "deduction").reduce((sum, line) => sum + line.amountMinor, 0);
     statementRows.push({
       payslipId: crypto.randomUUID(),
-      employee: { employmentId: employee.employmentId, employeeUserId: employee.employeeUserId, employeeNumber: employee.employeeNumber, employeeName: employee.employeeName, lines, earningMinor, deductionMinor, netMinor: earningMinor - deductionMinor, attendanceDays: attendanceDays.size, missingPunchDays: missingPunchDays.length },
+      employee: { employmentId: employee.employmentId, employeeUserId: employee.employeeUserId!, employeeNumber: employee.employeeNumber, employeeName: employee.employeeName, lines, earningMinor, deductionMinor, netMinor: earningMinor - deductionMinor, attendanceDays: attendanceDays.size, missingPunchDays: missingPunchDays.length },
       lines,
       compensationIds,
       insuranceIds,
@@ -2237,16 +2240,17 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
 
 export async function listHrPayrollWorkerCandidates(db: Database, periodKey: string) {
   const period = periodFromKey(periodKey);
-  const rows = await db.select({ id: hrScheduleWorkers.id, displayName: hrScheduleWorkers.displayName }).from(hrScheduleWorkerEntries)
+  const rows = await db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName }).from(hrScheduleWorkerEntries)
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
-    .innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrScheduleWorkerEntries.workerId))
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkerEntries.workerId))
     .where(and(
       eq(hrScheduleVersions.status, "published"),
       eq(hrScheduleVersions.periodStart, period.start), eq(hrScheduleVersions.periodEnd, period.end),
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleWorkerEntries.workDate} >= ${period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${period.end}`,
+      eq(hrEmployments.personKind, "worker"),
     ))
-    .orderBy(asc(hrScheduleWorkers.displayName), asc(hrScheduleWorkers.id));
+    .orderBy(asc(hrEmployments.legalName), asc(hrEmployments.id));
   const candidates = new Map<string, { id: string; displayName: string }>();
   for (const row of rows) candidates.set(row.id, row);
   return [...candidates.values()];
@@ -2392,8 +2396,8 @@ async function ensureBonusScopes(db: Database, scopeIds: string[]) {
 
 async function resolveBonusPolicyEmployments(db: Database, employeeUserIds: string[] | undefined) {
   if (!employeeUserIds?.length) return [];
-  const rows = await db.select({ id: hrEmployments.id, employeeUserId: hrEmployments.employeeUserId }).from(hrEmployments)
-    .where(and(inJsonArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.archivedAt} IS NULL`));
+  const rows = await db.select({ id: hrEmployments.id, employeeUserId: sql<string>`${hrEmployments.employeeUserId}`.as("bonus_employee_user_id") }).from(hrEmployments)
+    .where(and(eq(hrEmployments.personKind, "employee"), inJsonArray(hrEmployments.employeeUserId, employeeUserIds), sql`${hrEmployments.archivedAt} IS NULL`));
   const employmentByUser = new Map<string, { id: string; employeeUserId: string }>();
   for (const row of rows) employmentByUser.set(row.employeeUserId, row);
   const missing = employeeUserIds.filter((employeeUserId) => !employmentByUser.has(employeeUserId));
@@ -2659,7 +2663,7 @@ export async function listHrPayrollRuns(db: Database) {
     for (const row of accountNames) if (!legacyEmployeeNames.has(row.userId)) legacyEmployeeNames.set(row.userId, row.employeeName);
   }
   const legacyWorkerNames = legacyRunRows.length
-    ? new Map((await db.select({ workerId: hrScheduleWorkers.id, workerName: hrScheduleWorkers.displayName }).from(hrScheduleWorkers)).map((row) => [row.workerId, row.workerName]))
+    ? new Map((await db.select({ workerId: hrEmployments.id, workerName: hrEmployments.legalName }).from(hrEmployments).where(eq(hrEmployments.personKind, "worker"))).map((row) => [row.workerId, row.workerName]))
     : new Map<string, string>();
   return rows.map((row) => {
     const input = parsePayrollCalculationInput(row.calculationInputJson);

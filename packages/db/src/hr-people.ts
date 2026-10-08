@@ -5,7 +5,7 @@ import type { Database } from "./client.js";
 import { inJsonArray } from "./sql-lists.js";
 import { hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests } from "./schema/hr-payroll.js";
+import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests, hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
 import { roles, userRoleAssignments, users } from "./schema/auth.js";
 
@@ -64,7 +64,7 @@ export async function isHrAdministrator(db: Database, userId: string): Promise<b
 
 const displayName = sql<string>`coalesce(nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`;
 /** HRIS 名稱與登入帳號名稱分開；正式姓名由 HR 維護，Google 名稱只作資料回填與候選提示。 */
-export const hrEmployeeName = sql<string>`coalesce(nullif(trim(${hrEmployments.legalName}), ''), ${displayName})`;
+export const hrEmployeeName = sql<string>`coalesce(nullif(trim(${hrEmployments.legalName}), ''), ${displayName}, '未命名人員')`;
 const supervisorName = sql<string | null>`(
   SELECT coalesce(
     nullif((SELECT trim(supervisor_employment.legal_name)
@@ -81,7 +81,8 @@ const supervisorName = sql<string | null>`(
 export const hrEmployableUser = sql`${users.status} IN ('active', 'invited')`;
 
 const employeeFields = {
-  userId: hrEmployments.employeeUserId,
+  personKind: hrEmployments.personKind,
+  userId: sql<string>`${hrEmployments.employeeUserId}`.as("employee_user_id"),
   employmentId: hrEmployments.id,
   employeeNumber: hrEmployments.employeeNumber,
   legalName: hrEmployments.legalName,
@@ -131,7 +132,7 @@ export async function listHrCandidates(db: Database, input: { page: number; sear
   const rows = await db.select({ userId: users.id, displayName, email: users.email, status: users.status }).from(users)
     .where(and(
       hrEmployableUser,
-      notExists(db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.employeeUserId, users.id), isNull(hrEmployments.archivedAt)))),
+      notExists(db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, users.id), isNull(hrEmployments.archivedAt)))),
       input.userId ? eq(users.id, input.userId) : undefined,
       input.search ? or(like(users.email, `%${input.search}%`), like(users.displayName, `%${input.search}%`), like(users.googleName, `%${input.search}%`)) : undefined,
     )).orderBy(asc(users.email)).limit(51).offset((input.page - 1) * 50);
@@ -148,10 +149,10 @@ function employmentStatusExpression() {
 
 /** 列表以每位 User 的在職列為準；沒有在職列時才退回最近一筆未在職歷史。 */
 function canonicalEmploymentCondition() {
-  return sql`${hrEmployments.id} = (
+  return sql`${hrEmployments.personKind} = 'employee' AND ${hrEmployments.id} = (
     SELECT candidate.id
     FROM hr_employments AS candidate
-    WHERE candidate.employee_user_id = ${hrEmployments.employeeUserId}
+    WHERE candidate.person_kind = 'employee' AND candidate.employee_user_id = ${hrEmployments.employeeUserId}
     ORDER BY candidate.archived_at IS NULL DESC, candidate.archived_at DESC, candidate.updated_at DESC, candidate.id DESC
     LIMIT 1
   )`;
@@ -161,6 +162,7 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) 
   const activeCondition = employmentActiveCondition();
   const employmentStatusCondition = query.employmentStatus === "active" ? activeCondition : query.employmentStatus === "inactive" ? sql`NOT (${activeCondition})` : undefined;
   const conditions = [
+    eq(hrEmployments.personKind, "employee"),
     canonicalEmploymentCondition(),
     query.status === "all" ? undefined : query.status === "employable" ? hrEmployableUser : eq(users.status, query.status),
     employmentStatusCondition,
@@ -194,9 +196,77 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) 
   return { employees, total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total, counts: { active: activeRow?.value ?? 0, inactive: inactiveRow?.value ?? 0 } };
 }
 
+export type HrPersonKind = "employee" | "worker";
+export interface HrPersonnelListQuery extends HrEmployeeListQuery {
+  personKind: "all" | HrPersonKind;
+}
+
+const personnelFields = {
+  personKind: hrEmployments.personKind,
+  userId: hrEmployments.employeeUserId,
+  employmentId: hrEmployments.id,
+  employeeNumber: hrEmployments.employeeNumber,
+  legalName: hrEmployments.legalName,
+  displayName: hrEmployeeName,
+  accountName: sql<string>`coalesce(${users.displayName}, '')`,
+  position: hrEmployments.position,
+  supervisorUserId: hrEmployments.supervisorUserId,
+  supervisorName,
+  archivedAt: hrEmployments.archivedAt,
+  email: sql<string>`coalesce(${users.email}, '')`,
+  userStatus: sql<"invited" | "active" | "disabled">`coalesce(${users.status}, 'disabled')`,
+  revision: hrEmployments.revision,
+};
+
+/** 正式員工與排班支援人員共用 roster；支援人員沒有 User，所以必須 left join。 */
+export async function listHrPersonnel(db: Database, query: HrPersonnelListQuery) {
+  const activeCondition = employmentActiveCondition();
+  const employmentStatusCondition = query.employmentStatus === "active" ? activeCondition : query.employmentStatus === "inactive" ? sql`NOT (${activeCondition})` : undefined;
+  const personKindCondition = query.personKind === "all" ? undefined : eq(hrEmployments.personKind, query.personKind);
+  // 正式員工可能有多筆封存任職，但 roster 只呈現每個人的 canonical 一列；支援人員本身只有一列。
+  const canonicalPersonCondition = query.personKind === "worker" ? undefined : query.personKind === "employee" ? canonicalEmploymentCondition() : or(eq(hrEmployments.personKind, "worker"), canonicalEmploymentCondition());
+  const accountStatusCondition = query.status === "all"
+    ? undefined
+    : query.status === "employable"
+      ? and(eq(hrEmployments.personKind, "employee"), hrEmployableUser)
+      : and(eq(hrEmployments.personKind, "employee"), eq(users.status, query.status));
+  const conditions = [
+    personKindCondition,
+    canonicalPersonCondition,
+    accountStatusCondition,
+    employmentStatusCondition,
+    query.search ? or(
+      like(hrEmployments.employeeNumber, `%${query.search}%`),
+      like(hrEmployments.legalName, `%${query.search}%`),
+      like(hrEmployments.position, `%${query.search}%`),
+      like(users.email, `%${query.search}%`),
+      like(users.displayName, `%${query.search}%`),
+      like(users.googleName, `%${query.search}%`),
+    ) : undefined,
+  ];
+  const where = and(...conditions);
+  const sortColumn = query.sortField === "email" ? sql<string>`coalesce(${users.email}, '')` : query.sortField === "status" ? sql<string>`coalesce(${users.status}, CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 'active' ELSE 'inactive' END)` : EMPLOYEE_SORT_COLUMNS[query.sortField];
+  const orderColumns = query.sortField === "employeeNumber"
+    ? hrEmployeeNumberOrder(query.sortDirection)
+    : [query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn), asc(hrEmployments.employeeNumber)];
+  const baseConditions = conditions.filter((condition) => condition !== employmentStatusCondition);
+  const activeWhere = and(...baseConditions, activeCondition);
+  const inactiveWhere = and(...baseConditions, sql`NOT (${activeCondition})`);
+  const [employees, [totalRow], [activeRow], [inactiveRow]] = await Promise.all([
+    db.select(personnelFields).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
+      .where(where).orderBy(...orderColumns, asc(hrEmployments.id))
+      .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
+    db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(where),
+    db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(activeWhere),
+    db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(inactiveWhere),
+  ]);
+  const total = totalRow?.value ?? 0;
+  return { employees, total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total, counts: { active: activeRow?.value ?? 0, inactive: inactiveRow?.value ?? 0 } };
+}
+
 export async function listHrSupervisorCandidates(db: Database, userId: string) {
   return db.select({ id: hrEmployments.employeeUserId, name: hrEmployeeName, employeeNumber: hrEmployments.employeeNumber }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(and(isNull(hrEmployments.archivedAt), ne(hrEmployments.employeeUserId, userId), eq(users.status, "active")))
+    .where(and(eq(hrEmployments.personKind, "employee"), isNull(hrEmployments.archivedAt), ne(hrEmployments.employeeUserId, userId), eq(users.status, "active")))
     .orderBy(...hrEmployeeNumberOrder(), asc(hrEmployeeName));
 }
 
@@ -213,7 +283,7 @@ export interface HrEmployeeDetailOptions {
 async function employmentRows(db: Database, userId: string) {
   return db.select({ employment: hrEmployments, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays, serviceStartOn: hrEmploymentServicePeriods.serviceStartOn })
     .from(hrEmployments).leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id)).leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
-    .where(eq(hrEmployments.employeeUserId, userId))
+    .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, userId)))
     .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.archivedAt), desc(hrEmployments.updatedAt), desc(hrEmployments.id));
 }
 
@@ -283,6 +353,7 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   const accountName = account?.accountName || userId;
   const employeeName = current.legalName.trim() || accountName;
   const employeeRecord = {
+    personKind: "employee" as const,
     employmentId: current.id, userId: current.employeeUserId, employeeNumber: current.employeeNumber, legalName: employeeName, displayName: employeeName, accountName, position: current.position, supervisorUserId: current.supervisorUserId,
     archivedAt: current.archivedAt, revision: current.revision, email: account?.email ?? "", userStatus: account?.userStatus ?? "disabled",
     employmentStatus: current.archivedAt === null ? "active" as const : "inactive" as const,
@@ -297,6 +368,59 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   };
 }
 
+/** 以 employmentId 或既有 userId 讀取 roster 內頁；支援人員沒有帳號與正式人事區塊。 */
+export async function getHrPerson(db: Database, id: string, options: HrEmployeeDetailOptions = {}) {
+  const [row] = await db.select({ employment: hrEmployments, email: users.email, userStatus: users.status, accountName: displayName })
+    .from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .where(or(eq(hrEmployments.id, id), eq(hrEmployments.employeeUserId, id))).limit(1);
+  if (!row) throw new HrError(404, "找不到人員資料。");
+  if (row.employment.personKind === "employee") return getHrEmployee(db, row.employment.employeeUserId!, options);
+  const workerCompensation = options.includeCompensation ? await db.select().from(hrWorkerCompensationVersions)
+    .where(eq(hrWorkerCompensationVersions.workerId, row.employment.id)).orderBy(desc(hrWorkerCompensationVersions.validFrom), desc(hrWorkerCompensationVersions.versionNumber)) : undefined;
+  const employment = {
+    ...row.employment,
+    supervisorName: null,
+    attendanceMode: "scheduled" as const,
+    monthlyRestDays: null,
+    serviceStartOn: null,
+  };
+  const employee = {
+    personKind: "worker" as const,
+    employmentId: row.employment.id,
+    userId: null,
+    employeeNumber: row.employment.employeeNumber,
+    legalName: row.employment.legalName,
+    displayName: row.employment.legalName,
+    accountName: "",
+    position: row.employment.position,
+    supervisorUserId: null,
+    supervisorName: null,
+    archivedAt: row.employment.archivedAt,
+    revision: row.employment.revision,
+    email: "",
+    userStatus: "disabled" as const,
+    employmentStatus: row.employment.archivedAt === null ? "active" as const : "inactive" as const,
+  };
+  const compensation = workerCompensation?.map((version) => ({
+    id: version.id,
+    employmentId: version.workerId,
+    versionNumber: version.versionNumber,
+    validFrom: version.validFrom,
+    validTo: version.validTo,
+    payBasis: version.payBasis,
+    baseAmountMinor: version.baseAmountMinor,
+    overtimeRatePpm: version.overtimeRatePpm,
+    overtimeHourlyMinor: version.overtimeHourlyMinor,
+    note: version.note,
+    voidedAt: null,
+    voidedBy: null,
+    createdAt: version.createdAt,
+    createdBy: version.createdBy,
+    items: [],
+  }));
+  return { employee, employments: [employment], assignments: [], attendanceAssignments: [], ...(compensation ? { compensation } : {}) };
+}
+
 export async function getHrSelf(db: Database, userId: string) {
   if (!await isHrEmployee(db, userId)) return null;
   return getHrEmployee(db, userId);
@@ -304,7 +428,7 @@ export async function getHrSelf(db: Database, userId: string) {
 
 export async function isHrEmployee(db: Database, userId: string) {
   const [employee] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
-    .where(and(eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);
+    .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);
   return Boolean(employee);
 }
 
@@ -322,7 +446,7 @@ export async function assignHrEmployee(db: Database, input: { userId: string; le
   const legalName = normalizeEmployeeLegalName(input.legalName);
   const [existing] = await db.select({ id: hrEmployments.id, archivedAt: hrEmployments.archivedAt, attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmployments)
     .leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
-    .where(eq(hrEmployments.employeeUserId, input.userId))
+    .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, input.userId)))
     .orderBy(sql`${hrEmployments.archivedAt} IS NULL DESC`, desc(hrEmployments.archivedAt), desc(hrEmployments.updatedAt), desc(hrEmployments.id))
     .limit(1);
   if (existing?.archivedAt === null) throw new HrError(409, "員工目前已在職，請改用編輯員工資料或出勤設定。 ");
@@ -362,7 +486,7 @@ export async function updateHrEmployee(db: Database, userId: string, input: { le
   const legalName = normalizeEmployeeLegalName(input.legalName);
   const [current] = await db.select({ id: hrEmployments.id, serviceStartOn: hrEmploymentServicePeriods.serviceStartOn }).from(hrEmployments)
     .leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
-    .where(and(eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);
+    .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);
   const serviceStartChanged = Boolean(current && input.serviceStartOn !== undefined && current.serviceStartOn !== input.serviceStartOn);
   if (serviceStartChanged) {
     const [existingEntitlement] = await db.select({ id: hrAnnualLeaveEntitlements.id }).from(hrAnnualLeaveEntitlements)
@@ -373,7 +497,7 @@ export async function updateHrEmployee(db: Database, userId: string, input: { le
   const supervisorGuard = input.supervisorUserId === undefined ? sql`` : sql` AND ${supervisorCondition(userId, input.supervisorUserId)}`;
   const servicePeriodGuard = serviceStartChanged ? sql` AND NOT EXISTS (SELECT 1 FROM hr_annual_leave_entitlements WHERE employment_id=${current?.id})` : sql``;
   const mutations: SQL[] = [sql`UPDATE hr_employments SET employee_number=${input.employeeNumber}, legal_name=${legalName}, position=${input.position}${supervisorSet}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
-    WHERE employee_user_id=${userId} AND revision=${input.revision} AND archived_at IS NULL${supervisorGuard}${servicePeriodGuard} RETURNING id`];
+    WHERE person_kind='employee' AND employee_user_id=${userId} AND revision=${input.revision} AND archived_at IS NULL${supervisorGuard}${servicePeriodGuard} RETURNING id`];
   if (serviceStartChanged) mutations.push(sql`INSERT INTO hr_employment_service_periods (employment_id, service_start_on)
     VALUES (${current?.id}, ${input.serviceStartOn})
     ON CONFLICT (employment_id) DO UPDATE SET service_start_on=excluded.service_start_on, updated_at=CURRENT_TIMESTAMP
@@ -384,7 +508,7 @@ export async function updateHrEmployee(db: Database, userId: string, input: { le
 
 export function updateHrEmployeeSupervisor(db: Database, userId: string, input: { supervisorUserId: string | null; revision: number }, actor: HrActor) {
   return write(db, sql`UPDATE hr_employments SET supervisor_user_id=${input.supervisorUserId}, revision=revision+1, updated_at=CURRENT_TIMESTAMP
-    WHERE employee_user_id=${userId} AND revision=${input.revision} AND archived_at IS NULL
+    WHERE person_kind='employee' AND employee_user_id=${userId} AND revision=${input.revision} AND archived_at IS NULL
       AND ${supervisorCondition(userId, input.supervisorUserId)}
     RETURNING id`, userId, actor, "employee_supervisor_updated", "主管不存在、不可指定自己、員工已是未在職或資料已變更，請重新整理後再試。");
 }

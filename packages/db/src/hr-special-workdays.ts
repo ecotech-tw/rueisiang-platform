@@ -6,7 +6,7 @@ import { HrError, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-p
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrPayrollRuns, hrPayrollSpecialWorkdaySourceRuns, hrPayrollSpecialWorkdaySources } from "./schema/hr-payroll-runs.js";
-import { hrScheduleWorkers, hrSpecialWorkdayAllowances, hrSpecialWorkdayAssignments, hrSpecialWorkdayOvertimeRules, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
+import { hrSpecialWorkdayAllowances, hrSpecialWorkdayAssignments, hrSpecialWorkdayOvertimeRules, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 
 export type SpecialWorkdayWageKind = "fixed_hourly" | "multiplier";
@@ -343,8 +343,8 @@ function allowanceSnapshotForAssignment(
 }
 
 export async function listHrSpecialWorkdayAssignments(db: Database, periodStart?: string, periodEnd?: string) {
-  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleName: hrSpecialWorkdayRules.name, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(trim(${hrEmployments.legalName}), ''), nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: hrScheduleWorkers.displayName }).from(hrSpecialWorkdayAssignments)
-    .innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayAssignments.ruleId)).leftJoin(hrEmployments, eq(hrEmployments.id, hrSpecialWorkdayAssignments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).leftJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrSpecialWorkdayAssignments.workerId))
+  const rows = await db.select({ assignment: hrSpecialWorkdayAssignments, ruleName: hrSpecialWorkdayRules.name, employeeNumber: hrEmployments.employeeNumber, employeeName: sql<string | null>`coalesce(nullif(trim(${hrEmployments.legalName}), ''), nullif(${users.displayName}, ''), nullif(${users.googleName}, ''), ${users.email})`, workerName: sql<string | null>`(SELECT legal_name FROM hr_employments AS worker_employment WHERE worker_employment.id = ${hrSpecialWorkdayAssignments.workerId} AND worker_employment.person_kind = 'worker')` }).from(hrSpecialWorkdayAssignments)
+    .innerJoin(hrSpecialWorkdayRules, eq(hrSpecialWorkdayRules.id, hrSpecialWorkdayAssignments.ruleId)).leftJoin(hrEmployments, eq(hrEmployments.id, hrSpecialWorkdayAssignments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(and(periodStart ? sql`${hrSpecialWorkdayAssignments.workDate} >= ${periodStart}` : undefined, periodEnd ? sql`${hrSpecialWorkdayAssignments.workDate} < ${periodEnd}` : undefined)).orderBy(asc(hrSpecialWorkdayAssignments.workDate));
   await indexMissingPayrollSpecialWorkdaySources(db);
   const [currentVersions, payrollAssignmentIds] = await Promise.all([
@@ -565,7 +565,7 @@ export async function assignHrSpecialWorkdays(db: Database, input: SpecialWorkda
   const workerIds = [...new Set(preparedAssignments.map(({ item }) => item.workerId).filter((id): id is string => Boolean(id)))];
   const [employmentRows, workerRows] = await Promise.all([
     employmentIds.length ? db.select({ id: hrEmployments.id }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(and(inJsonArray(hrEmployments.id, employmentIds), sql`${hrEmployments.archivedAt} IS NULL`, hrEmployableUser)) : Promise.resolve([]),
-    workerIds.length ? db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(inJsonArray(hrScheduleWorkers.id, workerIds), eq(hrScheduleWorkers.active, 1))) : Promise.resolve([]),
+    workerIds.length ? db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, workerIds), eq(hrEmployments.personKind, "worker"), sql`${hrEmployments.archivedAt} IS NULL`)) : Promise.resolve([]),
   ]);
   const activeEmploymentIds = new Set(employmentRows.map((row) => row.id));
   const activeWorkerIds = new Set(workerRows.map((row) => row.id));
@@ -627,7 +627,7 @@ export async function updateHrSpecialWorkdayAssignment(db: Database, assignmentI
       const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(and(eq(hrEmployments.id, input.employmentId), sql`${hrEmployments.archivedAt} IS NULL`, hrEmployableUser)).limit(1);
       if (!employment) throw new HrError(400, "員工目前不是有效員工。 ");
     } else {
-      const [worker] = await db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(eq(hrScheduleWorkers.id, input.workerId!), eq(hrScheduleWorkers.active, 1))).limit(1);
+      const [worker] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, input.workerId!), eq(hrEmployments.personKind, "worker"), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
       if (!worker) throw new HrError(400, "支援人員目前不是啟用狀態。 ");
     }
   }

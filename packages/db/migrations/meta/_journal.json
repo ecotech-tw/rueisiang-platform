@@ -1373,6 +1373,13 @@
       "when": 1791453277255,
       "tag": "0219_daily_worker_overtime",
       "breakpoints": true
+    },
+    {
+      "idx": 220,
+      "version": "6",
+      "when": 1791457571205,
+      "tag": "0220_thick_princess_powerful",
+      "breakpoints": true
     }
   ]
 }

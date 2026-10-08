@@ -1066,7 +1066,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const worker = await request("/hr/schedule-workers", "POST", { displayName: "測試支援人員" });
     expect(worker.status, await worker.clone().text()).toBe(201);
     const workerId = (await worker.json() as { id: string }).id;
-    const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", validTo: "2026-09-15", payBasis: "daily", baseAmountMinor: 320_000, note: "測試日薪" });
+    const compensation = await request(`/hr/employments/${workerId}/worker-compensation`, "POST", { validFrom: "2026-09-01", validTo: "2026-09-15", payBasis: "daily", baseAmountMinor: 320_000, note: "測試日薪" });
     expect(compensation.status, await compensation.clone().text()).toBe(201);
     const laterCompensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-15", payBasis: "daily", baseAmountMinor: 640_000, note: "測試調薪" });
     expect(laterCompensation.status, await laterCompensation.clone().text()).toBe(201);

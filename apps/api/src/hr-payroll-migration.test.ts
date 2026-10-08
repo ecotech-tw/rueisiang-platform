@@ -152,12 +152,12 @@ describe("HR 薪資與出勤設定 migration", () => {
     } finally { sqlite.close(); }
   });
 
-  it("0217 支援人員加班欄位保留據點並以 trigger 保護敘薪設定", () => {
+  it("0219 支援人員加班欄位保留據點並以 trigger 保護敘薪設定", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {
       sqlite.exec("PRAGMA foreign_keys=ON");
       for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file < "0217").sort()) apply(sqlite, file);
-      apply(sqlite, "0217_daily_worker_overtime.sql");
+      apply(sqlite, "0219_daily_worker_overtime.sql");
       sqlite.exec("INSERT INTO users(id,email) VALUES ('u','u@example.test'); INSERT INTO hr_schedule_workers(id,display_name,created_by) VALUES ('worker','測試支援人員','u');");
       expect(sqlite.prepare("SELECT name FROM pragma_table_info('hr_worker_overtime_requests') WHERE name='scope_id'").get()).toEqual({ name: "scope_id" });
       expect(sqlite.prepare('SELECT "table" AS tableName, "from" AS columnName FROM pragma_foreign_key_list(\'hr_worker_overtime_requests\') WHERE "from"=\'scope_id\'').get()).toEqual({ tableName: "scopes", columnName: "scope_id" });

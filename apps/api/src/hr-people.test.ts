@@ -72,6 +72,16 @@ describe("HR 扁平員工主檔", () => {
     expect(listed.employees.map((employee) => employee.employeeNumber)).toEqual(["E2", "E10"]);
   });
 
+  it("統一人員 roster 回傳支援人員的 employmentId 與 nullable userId", async () => {
+    const created = await request("/hr/schedule-workers", "POST", { displayName: "沒有帳號的支援人員" });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const workerId = (await created.json() as { id: string }).id;
+    const listed = await (await request("/hr/employees?personKind=all&employmentStatus=active&page=1&pageSize=100")).json() as { employees: Array<{ id?: string; personKind: string; employmentId: string; userId: string | null; legalName: string }> };
+    expect(listed.employees).toEqual(expect.arrayContaining([expect.objectContaining({ personKind: "worker", employmentId: workerId, userId: null, legalName: "沒有帳號的支援人員" })]));
+    const detail = await (await request(`/hr/employees/${workerId}`)).json() as { employee: { personKind: string; employmentId: string; userId: string | null; legalName: string } };
+    expect(detail.employee).toMatchObject({ personKind: "worker", employmentId: workerId, userId: null, legalName: "沒有帳號的支援人員" });
+  });
+
   it("正式姓名必填且限制在 100 字內", async () => {
     expect((await request("/hr/employees", "POST", { userId: "self", employeeNumber: "E001", position: "一般職員" })).status).toBe(400);
     expect((await request("/hr/employees", "POST", { userId: "self", legalName: "x".repeat(101), employeeNumber: "E001", position: "一般職員" })).status).toBe(400);

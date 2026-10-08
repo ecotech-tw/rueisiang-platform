@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, EmptyState, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
-import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type Profile } from "./api.js";
+import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type Profile } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface LeaveType { id: string; name: string; defaultPayRatePpm: number }
@@ -42,7 +42,7 @@ export function HrMonthlyData() {
   const data = useHrQuery<MonthlyResponse>(`/payroll/monthly-data?periodKey=${encodeURIComponent(periodKey)}${employeeUserId ? `&employeeUserId=${encodeURIComponent(employeeUserId)}` : ""}`, canRead && Boolean(periodKey), { keepPreviousData: false });
   const write = useHrWrite();
   const selectedEmployment = profile.data?.employments.find((employment) => !employment.archivedAt);
-  const employeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).map((employee) => ({ label: hrEmployeeLabel(employee), value: employee.userId }))], [employees.data]);
+  const employeeOptions = useMemo(() => [{ label: "請選擇員工", value: "" }, ...(employees.data?.employees ?? []).filter(isHrFormalEmployee).map((employee) => ({ label: hrEmployeeLabel(employee), value: employee.userId }))], [employees.data]);
   const leaveTypeOptions = [{ label: "請選擇假別", value: "" }, ...(data.data?.leaveTypes ?? []).map((leaveType) => ({ label: leaveType.name, value: leaveType.id }))];
 
   if (!canRead) return <Alert tone="danger">月度資料僅限全平台 HR 管理者查看。</Alert>;

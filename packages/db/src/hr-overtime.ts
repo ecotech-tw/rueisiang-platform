@@ -1,8 +1,8 @@
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
-import { hrOvertimeRequests, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
+import { hrOvertimeRequests, hrScheduleVersions, hrScheduleWorkerEntries, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
 import { users } from "./schema/auth.js";
 import { datesBetween, listHrWorkdayEnds } from "./hr-leave.js";
@@ -93,7 +93,9 @@ async function employmentForInterval(db: Database, userId: string, start: string
 async function workerForInterval(db: Database, workerId: string, start: string, end: string) {
   stamp(start);
   stamp(end);
-  const [worker] = await db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(and(eq(hrScheduleWorkers.id, workerId), eq(hrScheduleWorkers.active, 1))).limit(1);
+  const [worker] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(
+    eq(hrEmployments.id, workerId), eq(hrEmployments.personKind, "worker"), sql`${hrEmployments.archivedAt} IS NULL`,
+  )).limit(1);
   if (!worker) throw new HrError(400, "支援人員不存在或已停用，暫時無法建立加班申請。 ");
   return worker.id;
 }
@@ -147,15 +149,15 @@ export async function listHrOvertimeRequests(db: Database, employeeUserId?: stri
       employeeUserId ? eq(hrEmployments.employeeUserId, employeeUserId) : undefined,
     ))
     : [];
-  // 支援人員沒有 users／employment，另表查詢後整理成同一個 request view，讓申請中心與歷史 API 不必分兩套畫面。
+  // 支援人員沒有 users，但 canonical employment 仍是名稱、編號與啟用狀態的唯一來源。
   const workerRows = employeeUserId === undefined
-    ? await db.select({ request: hrWorkerOvertimeRequests, workerId: hrWorkerOvertimeRequests.workerId, employeeName: hrScheduleWorkers.displayName })
-      .from(hrWorkerOvertimeRequests).innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrWorkerOvertimeRequests.workerId))
-      .where(includeArchived ? undefined : eq(hrScheduleWorkers.active, 1))
+    ? await db.select({ request: hrWorkerOvertimeRequests, workerId: hrWorkerOvertimeRequests.workerId, employeeName: hrEmployments.legalName, employeeNumber: hrEmployments.employeeNumber })
+      .from(hrWorkerOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrWorkerOvertimeRequests.workerId))
+      .where(and(eq(hrEmployments.personKind, "worker"), includeArchived ? undefined : isNull(hrEmployments.archivedAt)))
     : [];
   return [
     ...employeeRows.map((row) => ({ ...row, workerId: undefined })),
-    ...workerRows.map((row) => ({ request: row.request, employeeUserId: undefined, employeeName: row.employeeName, employeeNumber: null, workerId: row.workerId })),
+    ...workerRows.map((row) => ({ request: row.request, employeeUserId: undefined, employeeName: row.employeeName, employeeNumber: row.employeeNumber, workerId: row.workerId })),
   ].sort((left, right) => right.request.requestedStart.localeCompare(left.request.requestedStart));
 }
 
@@ -200,7 +202,7 @@ function insertWorkerOvertimeRequest(id: string, workerId: string, input: Pick<H
   return sql`INSERT INTO hr_worker_overtime_requests
     (id, worker_id, scope_id, requested_start, requested_end, actual_start, actual_end, settlement_kind, status, rate_ppm, reason, reviewed_by, reviewed_at, decision_reason, created_by)
     SELECT ${id}, ${workerId}, ${input.scopeId ?? null}, ${input.requestedStart}, ${input.requestedEnd}, ${actualStart}, ${actualEnd}, ${input.settlementKind}, ${status}, ${DEFAULT_OVERTIME_RATE_PPM}, ${input.reason.trim()}, ${reviewedBy}, ${autoApprove ? sql`CURRENT_TIMESTAMP` : sql`NULL`}, ${decisionReason}, ${actor.id}
-    WHERE EXISTS (SELECT 1 FROM hr_schedule_workers WHERE id=${workerId} AND active=1)
+    WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${workerId} AND person_kind='worker' AND archived_at IS NULL)
       AND NOT EXISTS (
         SELECT 1 FROM hr_worker_overtime_requests AS existing_request
         WHERE existing_request.worker_id=${workerId}
@@ -411,9 +413,9 @@ export async function cancelHrOvertimeRequest(db: Database, id: string, actor: H
   const current = employeeCurrent
     ? { ...employeeCurrent, personKind: "employee" as const, workerId: undefined }
     : await (async () => {
-      const [worker] = await db.select({ request: hrWorkerOvertimeRequests, workerId: hrWorkerOvertimeRequests.workerId, employeeName: hrScheduleWorkers.displayName })
-        .from(hrWorkerOvertimeRequests).innerJoin(hrScheduleWorkers, eq(hrScheduleWorkers.id, hrWorkerOvertimeRequests.workerId))
-        .where(eq(hrWorkerOvertimeRequests.id, id)).limit(1);
+      const [worker] = await db.select({ request: hrWorkerOvertimeRequests, workerId: hrWorkerOvertimeRequests.workerId, employeeName: hrEmployments.legalName })
+        .from(hrWorkerOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrWorkerOvertimeRequests.workerId))
+        .where(and(eq(hrWorkerOvertimeRequests.id, id), eq(hrEmployments.personKind, "worker"))).limit(1);
       return worker ? { ...worker, personKind: "worker" as const, employeeUserId: undefined } : null;
     })();
   if (!current) throw new HrError(404, "找不到加班申請。 ");

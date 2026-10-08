@@ -450,7 +450,10 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
   if (!current) throw new HrError(404, "找不到請假申請。 ");
   if (current.employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的請假申請。 ");
   if (current.status !== "pending") throw new HrError(409, "請假申請不存在或已完成處理。 ");
-  if (decision === "approved") await ensureEmploymentForPeriod(db, current.employeeUserId, current.startsOn, current.endsOn);
+  if (decision === "approved") {
+    if (!current.employeeUserId) throw new HrError(409, "支援人員不能使用正式員工請假流程。 ");
+    await ensureEmploymentForPeriod(db, current.employeeUserId, current.startsOn, current.endsOn);
+  }
   const annualAllocation = decision === "approved" && current.leaveKind === "annual"
     ? await allocateHrAnnualLeave(db, {
       employmentId: current.employmentId,

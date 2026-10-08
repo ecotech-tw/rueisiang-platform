@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
-import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type Profile, type ScheduleWorkerRecord, type InsuranceContributionComponent, type InsuranceContributionRule, type SupportWorkerPayBasis } from "./api.js";
+import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type CompensationVersion, type Employee, type Employment, type HrFormalEmployee, type Profile, type ScheduleWorkerRecord, type InsuranceContributionComponent, type InsuranceContributionRule, type SupportWorkerPayBasis } from "./api.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
@@ -151,7 +151,8 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     setMessage(null);
   }, [employment, employmentVersions, suggestedValidFrom, templateVersion]);
 
-  const selected = employees.find((employee) => employee.userId === userId);
+  const formalEmployees = employees.filter(isHrFormalEmployee);
+  const selected = formalEmployees.find((employee) => employee.userId === userId);
   const baseMinor = draftAmountMinor(baseAmount) ?? 0;
   const draftTotals = totalsByBasis([
     { basis: payBasis, amountMinor: baseMinor },
@@ -223,7 +224,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       label="員工"
       value={userId}
       required
-      options={[{ value: "", label: "請選擇員工" }, ...employees.map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))]}
+      options={[{ value: "", label: "請選擇員工" }, ...formalEmployees.map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))]}
       searchable
       disabled={isEditing}
       onChange={(event) => setUserId(event.target.value)}
@@ -314,7 +315,7 @@ function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerR
     if (overtimeMode === "amount" && !Number.isSafeInteger(numericOvertime)) { setMessage("固定加班金額請填大於 0 的整數元。"); return; }
     const values = { validFrom, validTo: validTo || null, payBasis, baseAmountMinor: numericAmount * 100, overtimeRatePpm: overtimeMode === "rate" ? Math.round(numericOvertime * 1_000_000) : null, overtimeHourlyMinor: overtimeMode === "amount" ? numericOvertime * 100 : null, note };
     setMessage(null);
-    save.mutate({ path: `/schedule-workers/${worker.id}/compensation`, method: "POST", values }, { onSuccess: () => { toast.show("支援人員敘薪已儲存。"); (closeRequestRef.current ?? onClose)(); } });
+    save.mutate({ path: `/employments/${encodeURIComponent(worker.employmentId ?? worker.id)}/worker-compensation`, method: "POST", values }, { onSuccess: () => { toast.show("支援人員敘薪已儲存。", "success"); (closeRequestRef.current ?? onClose)(); } });
   } }} actions={<Button type="submit" loading={save.isPending}>儲存{basisLabel}</Button>}>
     <p>支援人員可選日薪或時薪；加班設定可固定倍率或固定金額，留空則沿用制度倍率。敘薪版本不覆蓋歷史，特殊工作日級距優先套用。</p>
     <SelectField label="計薪方式" value={payBasis} options={WORKER_PAY_BASIS_OPTIONS} onChange={(event) => { setPayBasis(event.target.value as SupportWorkerPayBasis); setMessage(null); }} />
@@ -328,7 +329,7 @@ function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerR
   </Dialog>;
 }
 
-function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (userId: string) => void }) {
+function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: HrFormalEmployee; canWrite: boolean; onEdit: (userId: string) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
   const compensationVersions = (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id);
@@ -350,9 +351,9 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: Emp
   </tr>;
 }
 
-function WorkerCompensationRow({ worker, canWrite, onEdit }: { worker: ScheduleWorkerRecord; canWrite: boolean; onEdit: () => void }) {
-  const current = currentVersion(worker.compensation);
-  return <tr><td><strong>{worker.displayName}</strong><br /><span className="muted">排班支援人員</span></td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite ? <Button variant="icon" icon="plus" className="compensation-action-add" title="新增版本" aria-label={`為${worker.displayName}新增敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
+function WorkerCompensationRow({ employee, worker, canWrite, onEdit }: { employee: Employee; worker: ScheduleWorkerRecord | undefined; canWrite: boolean; onEdit: () => void }) {
+  const current = currentVersion(worker?.compensation ?? []);
+  return <tr><td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}・排班支援人員</span></td><td>支援人員／排班</td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite && worker ? <Button variant="icon" icon={current ? "edit" : "plus"} className={current ? "compensation-action-update" : "compensation-action-add"} title={current ? "更新版本" : "新增版本"} aria-label={`為${employee.legalName}新增敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
 }
 
 export function HrCompensationManagement({ settingsOnly = false }: { settingsOnly?: boolean } = {}) {
@@ -363,9 +364,9 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   const canWrite = isHrAdministrator && permissions.has("hr:employee:write");
   const employees = useHrEmployeeRoster(!settingsOnly && canRead && permissions.has("hr:employee:read"));
   const [employeeFilters, setEmployeeFilters] = useState({ page: 1, pageSize: 25, search: "", status: "all", sortField: "employeeNumber", sortDirection: "asc" as "asc" | "desc" });
-  const employeeTablePath = `/employees?page=${employeeFilters.page}&pageSize=${employeeFilters.pageSize}&search=${encodeURIComponent(employeeFilters.search)}&status=${employeeFilters.status}&employmentStatus=active&sortField=${employeeFilters.sortField}&sortDirection=${employeeFilters.sortDirection}`;
+  const employeeTablePath = `/employees?page=${employeeFilters.page}&pageSize=${employeeFilters.pageSize}&search=${encodeURIComponent(employeeFilters.search)}&status=${employeeFilters.status}&employmentStatus=active&personKind=all&sortField=${employeeFilters.sortField}&sortDirection=${employeeFilters.sortDirection}`;
   const employeeTable = useHrQuery<EmployeePageResponse>(employeeTablePath, !settingsOnly && canRead && permissions.has("hr:employee:read"));
-  const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers", !settingsOnly && canRead && permissions.has("hr:schedule:read"));
+  const workers = useHrQuery<{ workers: ScheduleWorkerRecord[] }>("/schedule-workers", !settingsOnly && canRead);
   // 勞保／健保級距集中在「勞健保管理」的級距管理 modal；這裡只維護公司負擔規則。
   const contributionRules = useHrQuery<{ rules: InsuranceContributionRule[] }>("/insurance-contribution-rules", settingsOnly && canRead);
   const createContribution = useHrWrite();
@@ -380,13 +381,13 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
   if (!canRead) return <Alert tone="danger">敘薪明細僅限全平台 HR 管理者查看。</Alert>;
   const pageLoading = settingsOnly
     ? contributionRules.isPending
-    : (permissions.has("hr:employee:read") && (employees.isPending || employeeTable.isPending)) || (permissions.has("hr:schedule:read") && workers.isPending);
+    : (permissions.has("hr:employee:read") && (employees.isPending || employeeTable.isPending)) || workers.isPending;
   if (pageLoading) return <HrPageSkeleton variant="table" />;
   const selectedContributionTarget = getContributionTarget(contributionTarget);
   return <div className="page">
     <PageHeader
       title={settingsOnly ? "制度設定" : "敘薪管理"}
-      description={settingsOnly ? "管理公司採用的勞健保負擔規則；勞健保級距請從「勞健保管理」的級距管理進入。薪資結算只使用已保存的設定。" : "設定每位員工的薪資組成與生效版本；薪資變更不覆蓋歷史，薪資結算會讀取指定月份有效的敘薪版本。"}
+      description={settingsOnly ? "管理公司採用的勞健保負擔規則；勞健保級距請從「勞健保管理」的級距管理進入。薪資結算只使用已保存的設定。" : "設定正式員工與排班支援人員的薪資組成與生效版本；薪資變更不覆蓋歷史，薪資結算會讀取指定月份有效的敘薪版本。"}
     />
     {settingsOnly ? <>
       <Panel>
@@ -406,15 +407,17 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
       />
       {employeeTable.error ? <Alert tone="danger">{employeeTable.error.message}</Alert> : null}
       <DataTable><thead><tr>
-        <SortableHeader label="員工" field="employeeNumber" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
+        <SortableHeader label="人員" field="employeeNumber" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
         <th>目前任職</th><th>方式</th><th className="numeric">總計薪資</th><th>生效期間</th><th>操作</th>
       </tr></thead><tbody>
-        {(employeeTable.data?.employees ?? []).map((employee) => <EmployeeCompensationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={(userId) => setEditing({ userId })} />)}
+        {(employeeTable.data?.employees ?? []).map((employee) => employee.personKind === "worker"
+          ? <WorkerCompensationRow key={employee.employmentId ?? employee.userId} employee={employee} worker={(workers.data?.workers ?? []).find((item) => item.id === employee.employmentId)} canWrite={canWrite} onEdit={() => { const worker = (workers.data?.workers ?? []).find((item) => item.id === employee.employmentId); if (worker) setEditingWorker(worker); }} />
+          : isHrFormalEmployee(employee) ? <EmployeeCompensationRow key={employee.employmentId ?? employee.userId} employee={employee} canWrite={canWrite} onEdit={(userId) => setEditing({ userId })} /> : null)}
       </tbody></DataTable>
-      {!employeeTable.data?.employees.length ? <EmptyState>{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</EmptyState> : null}
+      {!employeeTable.data?.employees.length ? <EmptyState>{employeeTable.data?.total ? "沒有符合條件的人員。" : "尚無人員。"}</EmptyState> : null}
       {employeeTable.data && employeeTable.data.total > 0 ? <Pager page={employeeTable.data.page} pageSize={employeeTable.data.pageSize} pageSizes={EMPLOYEE_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(employeeTable.data.total / employeeTable.data.pageSize))} totalLabel={`共 ${employeeTable.data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => setEmployeeFilters((current) => ({ ...current, page }))} onPageSize={(pageSize) => setEmployeeFilters((current) => ({ ...current, pageSize, page: 1 }))} /> : null}
     </Panel>
-      {permissions.has("hr:schedule:read") ? <Panel><div className="panel-head"><div><h2>支援人員敘薪</h2><p>薪資直接 mapping 到支援人員主檔；可選日薪或時薪，日薪依已發布排班日期計算，時薪依排班快照的計薪工時扣除休息時間，不參與獎金。</p></div></div>{workers.error ? <Alert tone="danger">{workers.error.message}</Alert> : null}<DataTable><thead><tr><th>人員</th><th>方式</th><th className="numeric">目前金額</th><th>生效期間</th><th>操作</th></tr></thead><tbody>{(workers.data?.workers ?? []).map((worker) => <WorkerCompensationRow key={worker.id} worker={worker} canWrite={canWrite} onEdit={() => setEditingWorker(worker)} />)}</tbody></DataTable>{!workers.error && !workers.data?.workers.length ? <EmptyState>尚無排班支援人員。</EmptyState> : null}</Panel> : null}
+      {workers.error ? <Alert tone="danger">{workers.error.message}</Alert> : null}
       {editing ? <CompensationEditor employees={employees.data?.employees ?? []} initialUserId={editing.userId} onClose={() => setEditing(null)} /> : null}
       {editingWorker ? <WorkerCompensationEditor worker={editingWorker} onClose={() => setEditingWorker(null)} /> : null}
     </>}

@@ -1,10 +1,10 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } from "@rueisiang/auth";
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
-  cancelHrFormRequest, createHrCompensationVersion, deleteHrFormRequestDraft, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview,
-  createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrEmployee, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
+  cancelHrFormRequest, createHrCompensationVersion, deleteHrFormRequestDraft, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview, getHrPerson,
+  createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
   isHrAdministrator,
-  listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests,
+  listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests, listHrPersonnel,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
   approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
@@ -860,7 +860,7 @@ export const hr = new Hono<AppEnv>()
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(key)) throw new HTTPException(400, { message: "排班月份必須是 YYYY-MM。" });
     return c.json(await setHrScheduleLock(c.get("db"), key, { revision: revision(raw), locked: booleanValue(raw, "locked", "鎖定狀態") }, c.get("user")));
   })
-  .get("/schedule-workers", requireAnyPermission("hr:schedule:read", "hr:office:read"), async (c) => {
+  .get("/schedule-workers", requireAnyPermission("hr:schedule:read", "hr:office:read", "hr:payroll:read"), async (c) => {
     // 特殊上班日也需要讀取支援人員名單；出勤設定讀取者不必因此取得排班管理權限。
     if (!can(c.get("user"), "hr:office:read") && !await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ workers: await listHrScheduleWorkers(c.get("db")) });
@@ -886,6 +886,21 @@ export const hr = new Hono<AppEnv>()
     return c.json(await updateHrScheduleWorker(c.get("db"), c.req.param("id"), { displayName: text(input, "displayName", "姓名", 100), active: booleanValue(input, "active", "啟用狀態"), revision: revision(input) }, c.get("user")));
   })
   .post("/schedule-workers/:id/compensation", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理薪資資料。" });
+    const input = await body(c);
+    const validFrom = date(input, "validFrom")!;
+    const validTo = date(input, "validTo", true);
+    period(validFrom, validTo);
+    return c.json(await createHrWorkerCompensation(c.get("db"), {
+      workerId: c.req.param("id"), validFrom, validTo, payBasis: workerPayBasis(input),
+      baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER),
+      overtimeRatePpm: input.overtimeRatePpm === null || input.overtimeRatePpm === undefined || input.overtimeRatePpm === "" ? null : integerValue(input, "overtimeRatePpm", "固定加班倍率（ppm）", 1, 10_000_000),
+      overtimeHourlyMinor: input.overtimeHourlyMinor === null || input.overtimeHourlyMinor === undefined || input.overtimeHourlyMinor === "" ? null : integerValue(input, "overtimeHourlyMinor", "加班固定時薪（分）", 1, Number.MAX_SAFE_INTEGER),
+      note: noteValue(input),
+    }, c.get("user")), 201);
+  })
+  // canonical employment 入口；/schedule-workers/:id/compensation 保留給舊版排班頁相容。
+  .post("/employments/:id/worker-compensation", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理薪資資料。" });
     const input = await body(c);
     const validFrom = date(input, "validFrom")!;
@@ -1242,12 +1257,16 @@ export const hr = new Hono<AppEnv>()
     const sortDirection = c.req.query("sortDirection") === "desc" ? "desc" : "asc";
     const search = c.req.query("search")?.trim() ?? "";
     if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
-    return c.json(await listHrEmployees(c.get("db"), { page, pageSize, search, status, employmentStatus, today: formatTaipeiDate(new Date()), sortField, sortDirection }));
+    const personKind = c.req.query("personKind") ?? "employee";
+    if (personKind !== "all" && personKind !== "employee" && personKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
+    return c.json(personKind === "employee"
+      ? await listHrEmployees(c.get("db"), { page, pageSize, search, status, employmentStatus, today: formatTaipeiDate(new Date()), sortField, sortDirection })
+      : await listHrPersonnel(c.get("db"), { page, pageSize, search, status, employmentStatus, today: formatTaipeiDate(new Date()), sortField, sortDirection, personKind }));
   })
   .get("/supervisor-candidates", requirePermission("hr:employee:write"), async (c) => c.json({ users: await listHrSupervisorCandidates(c.get("db"), c.req.query("exclude") ?? c.get("user").id) }))
   .get("/employees/:id", requireAnyPermission("hr:employee:read", "hr:office:read"), async (c) => {
     const fullAccess = await isHrAdministrator(c.get("db"), c.get("user").id);
-    return c.json(await getHrEmployee(c.get("db"), c.req.param("id"), {
+    return c.json(await getHrPerson(c.get("db"), c.req.param("id"), {
       // 只靠 hr:office:read 進來的人只拿員工、任職與出勤設定，營運 scope 歷史不給。
       includeScopeAssignments: can(c.get("user"), "hr:employee:read"),
       includeCompensation: fullAccess, includeInsurance: fullAccess, includeLeave: fullAccess, includeAttendanceEvents: fullAccess,

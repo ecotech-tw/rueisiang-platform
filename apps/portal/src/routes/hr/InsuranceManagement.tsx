@@ -4,7 +4,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, EmptyState, PageHeader, Panel } from "../../ui/index.js";
-import { useHrQuery, type Employee, type Employment, type InsuranceVersion, type Profile } from "./api.js";
+import { isHrFormalEmployee, useHrQuery, type Employee, type Employment, type InsuranceVersion, type Profile, type HrFormalEmployee } from "./api.js";
 import { InsuranceEditor } from "./InsuranceEditor.js";
 import { InsuranceRateManagementDialog } from "./InsuranceRateManagementDialog.js";
 import { EmployeeFilterBar } from "./EmployeeFilterBar.js";
@@ -46,7 +46,7 @@ function money(minor: number) {
   return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`;
 }
 
-function InsuranceRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (edit: InsuranceEdit) => void }) {
+function InsuranceRow({ employee, canWrite, onEdit }: { employee: HrFormalEmployee; canWrite: boolean; onEdit: (edit: InsuranceEdit) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
   if (profile.isPending) return <HrSkeletonTableRow columns={7} />;
   if (profile.error || !profile.data) return <tr><td data-label="員工">{employee.legalName}</td><td data-label="狀態" colSpan={6}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
@@ -105,7 +105,7 @@ export function HrInsuranceManagement() {
         <SortableHeader label="員工" field="employeeNumber" active={employeeFilters.sortField} direction={employeeFilters.sortDirection} onSort={(sortField, sortDirection) => setEmployeeFilters((current) => ({ ...current, sortField, sortDirection, page: 1 }))} />
         <th>目前任職</th><th>勞保</th><th>健保</th><th>眷屬</th><th>資料提醒</th><th>操作</th>
       </tr></thead><tbody>
-        {(employeeTable.data?.employees ?? []).map((employee) => <InsuranceRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
+        {(employeeTable.data?.employees ?? []).filter(isHrFormalEmployee).map((employee) => <InsuranceRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
       </tbody></DataTable>
       {!employeeTable.data?.employees.length ? <EmptyState>{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</EmptyState> : null}
       {employeeTable.data && employeeTable.data.total > 0 ? <Pager page={employeeTable.data.page} pageSize={employeeTable.data.pageSize} pageSizes={EMPLOYEE_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(employeeTable.data.total / employeeTable.data.pageSize))} totalLabel={`共 ${employeeTable.data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => setEmployeeFilters((current) => ({ ...current, page }))} onPageSize={(pageSize) => setEmployeeFilters((current) => ({ ...current, pageSize, page: 1 }))} /> : null}

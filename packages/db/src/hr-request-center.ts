@@ -159,8 +159,8 @@ function requestCenterCte() {
     SELECT
       'overtime' AS kind,
       worker_overtime_request.id AS id,
-      worker.display_name AS employee_name,
-      NULL AS employee_number,
+      worker_employment.legal_name AS employee_name,
+      worker_employment.employee_number AS employee_number,
       worker_overtime_request.status AS status,
       worker_overtime_request.reason AS reason,
       worker_overtime_request.created_at AS created_at,
@@ -177,7 +177,7 @@ function requestCenterCte() {
       NULL AS requested_event_kind,
       NULL AS requested_at,
       (
-        '加班 支援人員 ' || coalesce(worker.display_name, '') || ' ' ||
+        '加班 支援人員 ' || coalesce(worker_employment.legal_name, '') || ' ' ||
         coalesce(datetime(worker_overtime_request.requested_start, '+8 hours'), '') || ' ' ||
         coalesce(datetime(worker_overtime_request.requested_end, '+8 hours'), '') || ' ' ||
         CASE worker_overtime_request.settlement_kind WHEN 'pay' THEN '付薪' ELSE '補休' END || ' ' ||
@@ -192,7 +192,7 @@ function requestCenterCte() {
         END
       ) AS search_text
     FROM hr_worker_overtime_requests AS worker_overtime_request
-    INNER JOIN hr_schedule_workers AS worker ON worker.id = worker_overtime_request.worker_id
+    INNER JOIN hr_employments AS worker_employment ON worker_employment.id = worker_overtime_request.worker_id AND worker_employment.person_kind = 'worker'
 
     UNION ALL
 

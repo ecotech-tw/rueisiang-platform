@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
-import { hrEmployeeLabel, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
+import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OvertimeDayPicker } from "./OvertimeDayPicker.js";
 import { OVERTIME_HOUR_PRESETS, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, summarizeAssignments } from "./overtime-entry.js";
@@ -245,7 +245,7 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees.filter(isHrFormalEmployee)).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
   const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : ""}` }))];
   const leaveDuration = useHrLeaveDuration(employeeUserId && startsAt && endsAt ? { employeeUserId, startsAt, endsAt } : null);
   const durationMinutes = leaveDuration.data?.durationMinutes ?? null;
@@ -295,7 +295,7 @@ function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone, onPend
   const [reason, setReason] = useState("");
   const toast = useToast();
   const write = useHrWrite();
-  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
+  const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees.filter(isHrFormalEmployee)).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
   const workerOptions = [{ value: "", label: "請選擇支援人員" }, ...workers.map((worker) => ({ value: worker.id, label: worker.displayName }))];
   const targetId = targetKind === "employee" ? employeeUserId : workerId;
 

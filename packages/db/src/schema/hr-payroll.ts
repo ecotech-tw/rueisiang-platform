@@ -3,7 +3,6 @@ import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-o
 import type { AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
 import { hrEmployments } from "./hr-people.js";
-import { hrScheduleWorkers } from "./hr-scheduling.js";
 
 const historyTimestamps = () => ({
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -71,7 +70,8 @@ export const hrCompensationItems = sqliteTable("hr_compensation_items", {
 /** 沒有平台帳號的排班支援人員也需要薪資版本；新版本可選日薪或時薪，monthly 僅保留給既有歷史資料。 */
 export const hrWorkerCompensationVersions = sqliteTable("hr_worker_compensation_versions", {
   id: text("id").primaryKey(),
-  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  /** 舊欄位名保留歷史相容；值是 canonical hr_employments.id。 */
+  workerId: text("worker_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   versionNumber: integer("version_number").notNull(),
   validFrom: text("valid_from").notNull(),
   validTo: text("valid_to"),

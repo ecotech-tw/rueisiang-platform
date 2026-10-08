@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { hrCompensationVersions, hrInsuranceVersions, hrWorkerCompensationVersions } from "./hr-payroll.js";
 import { hrEmployments } from "./hr-people.js";
-import { hrScheduleWorkers } from "./hr-scheduling.js";
 import { users } from "./auth.js";
 
 /** writeHrMutation 用的交易內 guard；CHECK 失敗會讓整個 D1 batch rollback。 */
@@ -199,7 +198,8 @@ export const hrPayrollClosedEmployees = sqliteTable("hr_payroll_closed_employees
 /** 支援人員沒有正式 payslip；另存同一組 period/person claim，讓發放紀錄可以逐筆核准。 */
 export const hrPayrollClosedWorkers = sqliteTable("hr_payroll_closed_workers", {
   periodKey: text("period_key").notNull(),
-  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  /** 舊欄位名保留歷史相容；值是 canonical hr_employments.id。 */
+  workerId: text("worker_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
   closedAt: text("closed_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
@@ -214,7 +214,8 @@ export const hrPayrollRecordItems = sqliteTable("hr_payroll_record_items", {
   payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
   personKind: text("person_kind", { enum: ["employee", "worker"] as const }).notNull(),
   employmentId: text("employment_id").references(() => hrEmployments.id, { onDelete: "restrict" }),
-  workerId: text("worker_id").references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  /** 舊欄位名保留歷史相容；值是 canonical hr_employments.id。 */
+  workerId: text("worker_id").references(() => hrEmployments.id, { onDelete: "restrict" }),
   itemName: text("item_name").notNull(),
   direction: text("direction", { enum: ["earning", "deduction"] as const }).notNull(),
   amountMinor: integer("amount_minor").notNull(),
@@ -267,7 +268,8 @@ export const hrPayslips = sqliteTable("hr_payslips", {
 export const hrPayrollWorkerResults = sqliteTable("hr_payroll_worker_results", {
   id: text("id").primaryKey(),
   payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
-  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  /** 舊欄位名保留歷史相容；值是 canonical hr_employments.id。 */
+  workerId: text("worker_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
   workerName: text("worker_name").notNull(),
   compensationVersionId: text("compensation_version_id").references(() => hrWorkerCompensationVersions.id, { onDelete: "restrict" }),
   payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly", "mixed"] as const }).notNull(),

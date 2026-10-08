@@ -50,7 +50,7 @@ function WorkerDialog({ worker, onClose }: { worker: ScheduleWorkerRecord | null
   } }} actions={<Button type="submit" className={isEditing ? "hr-action-update" : "add-action"} loading={save.isPending}>儲存</Button>}>
     <TextField label="姓名" value={displayName} maxLength={100} required onChange={(event) => setDisplayName(event.target.value)} />
     {isEditing ? <SelectField label="狀態" value={active ? "active" : "inactive"} options={[{ value: "active", label: "啟用中" }, { value: "inactive", label: "已停用" }]} onChange={(event) => setActive(event.target.value === "active")} /> : null}
-    <p className="form-hint">支援人員不是平台使用者，不建立帳號或員工任職關聯；停用只會停止後續排班，歷史資料仍會保留。</p>
+    <p className="form-hint">支援人員沒有平台帳號，但會建立共用人員主檔與 canonical 任職資料；停用只會停止後續排班，歷史排班與薪資資料仍會保留。</p>
     {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
   </Dialog>;
 }
