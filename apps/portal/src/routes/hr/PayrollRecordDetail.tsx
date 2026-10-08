@@ -13,7 +13,7 @@ const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日
 const PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const LINE_LABELS: Record<string, string> = {
   base_salary: "本薪",
-  monthly_rest_adjustment: "月休工作日差額",
+  monthly_rest_adjustment: "月休差額",
   overtime: "核准付薪加班",
   unpaid_leave: "請假扣款",
   booth_bonus: "櫃點獎金",
