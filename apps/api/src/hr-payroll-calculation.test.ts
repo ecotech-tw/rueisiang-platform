@@ -67,6 +67,25 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(closedBody.counts.closed).toBeGreaterThanOrEqual(1);
   });
 
+  it("員工薪資袋只提供本人已發放的薪資單與明細", async () => {
+    const calculation = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-own-payroll-history-2026-08",
+    });
+    expect(calculation.status, await calculation.clone().text()).toBe(200);
+    const runId = (await calculation.json() as { run: { runId: string } }).run.runId;
+    expect((await request(`/hr/payroll/runs/${runId}/close`, "POST", {})).status).toBe(200);
+
+    const history = await request("/hr/me/payroll-history?employeeUserId=dev-wang%40ecotech.tw");
+    expect(history.status, await history.clone().text()).toBe(200);
+    const records = (await history.json() as { records: Array<{ runId: string; employmentId: string }> }).records.filter((record) => record.runId === runId);
+    expect(records).toEqual([expect.objectContaining({ runId, employmentId: "dev-employment-lin" })]);
+
+    const detail = await request(`/hr/me/payroll-history/${runId}/dev-employment-lin`);
+    expect(detail.status, await detail.clone().text()).toBe(200);
+    expect((await detail.json() as { detail: { record: { netMinor: number }; lines: Array<{ direction: string }> } }).detail).toMatchObject({ record: { netMinor: expect.any(Number) }, lines: expect.any(Array) });
+    expect((await request(`/hr/me/payroll-history/${runId}/dev-employment-wang`)).status).toBe(404);
+  });
+
   it("已確定發放的薪資批次可填寫原因撤回，並釋放期間供重新試算", async () => {
     const calculated = await request("/hr/payroll/calculate", "POST", {
       periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-payroll-withdraw-2026-08-first",

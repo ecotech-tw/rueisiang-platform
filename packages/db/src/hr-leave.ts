@@ -1,6 +1,7 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, hrEmployeeName, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, isHrAdministrator, writeHrMutation, type HrActor } from "./hr-people.js";
+import { insertHrNotification } from "./hr-notifications.js";
 import { allocateHrAnnualLeave, listHrAnnualLeaveEntitlements } from "./hr-annual-leave.js";
 import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { hrEmployments } from "./schema/hr-people.js";
@@ -27,6 +28,8 @@ export interface HrLeaveDurationInput {
 export interface HrLeaveRequestInput extends HrLeaveDurationInput {
   leaveTypeId: string;
   reason: string;
+  /** 修改待審申請時使用，避免覆寫較新的版本。 */
+  revision?: number;
 }
 
 export interface HrLeaveRequestCreateOptions {
@@ -334,6 +337,32 @@ export async function listHrLeaveRequests(db: Database, employeeUserId?: string)
     .orderBy(desc(hrLeaveRequests.startsAt), asc(hrLeaveRequests.createdAt));
 }
 
+/** 直屬主管只看到被指定給自己的待審申請；HR 管理者可用 allowAny 進入完整待審匣。 */
+export async function listHrLeaveReviewRequests(db: Database, userId: string, allowAny = false) {
+  return db.select(requestFields).from(hrLeaveRequests)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+    .leftJoin(hrLeaveTypes, eq(hrLeaveTypes.id, hrLeaveRequests.leaveTypeId))
+    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .where(and(eq(hrLeaveRequests.status, "pending"), ne(hrEmployments.employeeUserId, userId), allowAny ? undefined : eq(hrLeaveRequests.approverUserId, userId)))
+    .orderBy(asc(hrLeaveRequests.createdAt));
+}
+
+async function requestApprover(db: Database, employmentId: string, employeeUserId: string) {
+  const [employment] = await db.select({ supervisorUserId: hrEmployments.supervisorUserId }).from(hrEmployments)
+    .where(and(eq(hrEmployments.id, employmentId), eq(hrEmployments.employeeUserId, employeeUserId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
+  const supervisorUserId = employment?.supervisorUserId;
+  if (supervisorUserId && supervisorUserId !== employeeUserId) {
+    const [approver] = await db.select({ userId: hrEmployments.employeeUserId }).from(hrEmployments)
+      .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+      .where(and(eq(hrEmployments.employeeUserId, supervisorUserId), sql`${hrEmployments.archivedAt} IS NULL`, eq(users.status, "active"))).limit(1);
+    if (approver) return approver.userId;
+  }
+  // 沒有可用直屬主管時送到全平台 HR 管理者；其待審匣本來就可代審所有申請。
+  const candidates = await db.select({ userId: users.id }).from(users).where(eq(users.status, "active")).orderBy(asc(users.email));
+  for (const candidate of candidates) if (candidate.userId !== employeeUserId && await isHrAdministrator(db, candidate.userId)) return candidate.userId;
+  throw new HrError(409, "目前找不到可用的申請審核者，請聯絡 HR 後再送出。");
+}
+
 export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestInput, actor: HrActor, options: HrLeaveRequestCreateOptions = {}) {
   if (input.reason.length > 1000) throw new HrError(400, "請假原因不可超過 1000 字。 ");
   const { employmentId, interval } = await resolveLeaveInterval(db, input);
@@ -350,13 +379,14 @@ export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestIn
   const status = autoApprove ? "approved" : "pending";
   const payRatePpm = leaveType.defaultPayRatePpm;
   const reviewComment = autoApprove ? "HR 後台建立後直接核准" : null;
+  const approverUserId = autoApprove ? null : await requestApprover(db, employmentId, input.employeeUserId);
   // 代登直接核准時，特休必須在同一個週期內有足夠額度；待審申請則在核准當下再檢查。
   const annualAllocation = autoApprove && leaveType.leaveKind === "annual"
     ? await allocateHrAnnualLeave(db, { employmentId, startsOn: interval.startsOn, endsOn: interval.endsOn, durationMinutes: interval.durationMinutes })
     : null;
   const requestStatement = sql`INSERT INTO hr_leave_requests
-      (id, employment_id, leave_type_id, leave_type, status, starts_at, ends_at, starts_on, ends_on, duration_minutes, pay_rate_ppm, reason, reviewed_by, reviewed_at, review_comment, created_by)
-      SELECT ${id}, ${employmentId}, ${leaveType.id}, ${leaveType.name}, ${status}, ${interval.startsAt}, ${interval.endsAt}, ${interval.startsOn}, ${interval.endsOn}, ${interval.durationMinutes}, ${payRatePpm}, ${input.reason.trim()}, ${autoApprove ? actor.id : null}, ${autoApprove ? sql`CURRENT_TIMESTAMP` : sql`NULL`}, ${reviewComment}, ${actor.id}
+      (id, employment_id, leave_type_id, leave_type, status, approver_user_id, starts_at, ends_at, starts_on, ends_on, duration_minutes, pay_rate_ppm, reason, reviewed_by, reviewed_at, review_comment, created_by)
+      SELECT ${id}, ${employmentId}, ${leaveType.id}, ${leaveType.name}, ${status}, ${approverUserId}, ${interval.startsAt}, ${interval.endsAt}, ${interval.startsOn}, ${interval.endsOn}, ${interval.durationMinutes}, ${payRatePpm}, ${input.reason.trim()}, ${autoApprove ? actor.id : null}, ${autoApprove ? sql`CURRENT_TIMESTAMP` : sql`NULL`}, ${reviewComment}, ${actor.id}
       WHERE EXISTS (
         SELECT 1 FROM hr_employments AS current_employment
         WHERE current_employment.id=${employmentId}
@@ -378,13 +408,66 @@ export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestIn
       WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE id=${id} AND status='approved')
         AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${annualAllocation.entitlementId}), 0) >= ${annualAllocation.durationHalfHours}
       RETURNING id`] : requestStatement;
+  const mutations = approverUserId && !autoApprove
+    ? [...(Array.isArray(statements) ? statements : [statements]), insertHrNotification({
+      userId: approverUserId, sourceKey: `leave-request:${id}:submitted`, kind: "request_submitted", entityKind: "leave", entityId: id,
+      title: "有新的請假申請待審核", body: `請假期間：${interval.startsOn}～${interval.endsOn}，請開啟待審清單處理。`,
+    })]
+    : statements;
   try {
-    return await writeHrMutation(db, statements, id, actor, "leave_request_created", "相同員工已有重疊的請假時段、任職期間無效、特休額度不足或資料不合法。 ");
+    return await writeHrMutation(db, mutations, id, actor, "leave_request_created", "相同員工已有重疊的請假時段、任職期間無效、特休額度不足或資料不合法。 ");
   } catch (error) {
     if (error instanceof HrError) throw error;
     if (error instanceof Error && /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed/.test(error.message)) throw new HrError(409, "相同員工已有重疊的請假時段、任職期間無效、特休額度不足或資料不合法。 ");
     throw error;
   }
+}
+
+/** 待審請假可以由申請人修改；每次修改都會增加 revision，避免手機畫面覆蓋較新的資料。 */
+export async function updateHrLeaveRequest(db: Database, id: string, input: HrLeaveRequestInput, actor: HrActor) {
+  if (input.revision === undefined) throw new HrError(400, "請提供申請版本，並重新整理後操作。 ");
+  if (input.reason.length > 1000) throw new HrError(400, "請假原因不可超過 1000 字。 ");
+  const [current] = await db.select({
+    employeeUserId: hrEmployments.employeeUserId,
+    employmentId: hrLeaveRequests.employmentId,
+    status: hrLeaveRequests.status,
+    revision: hrLeaveRequests.revision,
+    approverUserId: hrLeaveRequests.approverUserId,
+    archivedAt: hrEmployments.archivedAt,
+  }).from(hrLeaveRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId)).where(eq(hrLeaveRequests.id, id)).limit(1);
+  if (!current) throw new HrError(404, "找不到請假申請。 ");
+  if (current.employeeUserId !== actor.id) throw new HrError(404, "找不到可修改的請假申請。 ");
+  if (current.status !== "pending") throw new HrError(409, "只有待審核的請假申請可以修改。 ");
+  if (current.revision !== input.revision) throw new HrError(409, "請假申請不存在或版本已過期，請重新整理。 ");
+  if (current.archivedAt) throw new HrError(409, "員工任職已結束，無法修改請假申請。 ");
+  const resolved = await resolveLeaveInterval(db, { employeeUserId: actor.id, startsAt: input.startsAt, endsAt: input.endsAt });
+  if (resolved.employmentId !== current.employmentId) throw new HrError(409, "請假日期不在原任職期間內，請重新整理後再試。 ");
+  const [leaveType] = await db.select({ id: hrLeaveTypes.id, name: hrLeaveTypes.name, defaultPayRatePpm: hrLeaveTypes.defaultPayRatePpm })
+    .from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
+  if (!leaveType) throw new HrError(404, "找不到啟用中的假別。 ");
+
+  const nextRevision = current.revision + 1;
+  const update = sql`UPDATE hr_leave_requests SET
+    leave_type_id=${leaveType.id}, leave_type=${leaveType.name}, pay_rate_ppm=${leaveType.defaultPayRatePpm},
+    starts_at=${resolved.interval.startsAt}, ends_at=${resolved.interval.endsAt}, starts_on=${resolved.interval.startsOn}, ends_on=${resolved.interval.endsOn},
+    duration_minutes=${resolved.interval.durationMinutes}, reason=${input.reason.trim()},
+    reviewed_by=NULL, reviewed_at=NULL, review_comment=NULL, revision=${nextRevision}
+    WHERE id=${id} AND employment_id=${current.employmentId} AND status='pending' AND revision=${input.revision}
+      AND NOT EXISTS (
+        SELECT 1 FROM hr_leave_requests AS existing_request
+        WHERE existing_request.id <> ${id}
+          AND existing_request.employment_id=${current.employmentId}
+          AND existing_request.status IN ('pending', 'approved')
+          AND (
+            (existing_request.starts_at <> '' AND existing_request.starts_at < ${resolved.interval.endsAt} AND existing_request.ends_at > ${resolved.interval.startsAt})
+            OR (existing_request.starts_at = '' AND existing_request.starts_on < ${resolved.interval.endsOn} AND existing_request.ends_on > ${resolved.interval.startsOn})
+          )
+      ) RETURNING id`;
+  const mutations = current.approverUserId ? [update, insertHrNotification({
+    userId: current.approverUserId, sourceKey: `leave-request:${id}:updated:${nextRevision}`, kind: "request_submitted", entityKind: "leave", entityId: id,
+    title: "請假申請已更新，請重新審核", body: `申請人已更新 ${resolved.interval.startsOn}～${resolved.interval.endsOn} 的請假申請。`,
+  })] : update;
+  return writeHrMutation(db, mutations, id, actor, "leave_request_updated", "請假申請已變更、時段重疊或資料不合法，請重新整理。 ");
 }
 
 export interface HrLeaveCancellationOptions {
@@ -396,6 +479,7 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
   const [current] = await db.select({
     employeeUserId: hrEmployments.employeeUserId,
     status: hrLeaveRequests.status,
+    approverUserId: hrLeaveRequests.approverUserId,
   }).from(hrLeaveRequests)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
     .where(eq(hrLeaveRequests.id, id)).limit(1);
@@ -406,7 +490,13 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
   const update = sql`UPDATE hr_leave_requests SET
     status='cancelled', reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, review_comment='申請已取消'
     WHERE id=${id} AND status=${current.status} RETURNING id`;
-  if (current.status === "pending") return writeHrMutation(db, update, id, actor, "leave_request_cancelled", "請假申請已變更或完成處理，請重新整理。 ");
+  if (current.status === "pending") {
+    const mutations = current.approverUserId ? [update, insertHrNotification({
+      userId: current.approverUserId, sourceKey: `leave-request:${id}:cancelled`, kind: "request_cancelled", entityKind: "leave", entityId: id,
+      title: "請假申請已取消", body: "申請人已取消一筆待審請假申請。",
+    })] : update;
+    return writeHrMutation(db, mutations, id, actor, "leave_request_cancelled", "請假申請已變更或完成處理，請重新整理。 ");
+  }
 
   const [usage] = await db.select({
     entitlementId: hrAnnualLeaveLedger.entitlementId,
@@ -432,13 +522,14 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
     RETURNING id`], id, actor, "leave_request_cancelled", "請假申請已變更、額度反向紀錄已存在或無法取消，請重新整理。 ");
 }
 
-export async function reviewHrLeaveRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor) {
+export async function reviewHrLeaveRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, options: { allowAny?: boolean } = {}) {
   if (!comment.trim() && decision === "rejected") throw new HrError(400, "駁回請假申請時必須填寫審核意見。 ");
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
   const [current] = await db.select({
     employeeUserId: hrEmployments.employeeUserId,
     employmentId: hrLeaveRequests.employmentId,
     status: hrLeaveRequests.status,
+    approverUserId: hrLeaveRequests.approverUserId,
     leaveKind: hrLeaveTypes.leaveKind,
     startsOn: hrLeaveRequests.startsOn,
     endsOn: hrLeaveRequests.endsOn,
@@ -449,6 +540,7 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
     .where(eq(hrLeaveRequests.id, id)).limit(1);
   if (!current) throw new HrError(404, "找不到請假申請。 ");
   if (current.employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的請假申請。 ");
+  if (!options.allowAny && current.approverUserId !== actor.id) throw new HrError(404, "找不到指定給你的待審請假申請。 ");
   if (current.status !== "pending") throw new HrError(409, "請假申請不存在或已完成處理。 ");
   if (decision === "approved") {
     if (!current.employeeUserId) throw new HrError(409, "支援人員不能使用正式員工請假流程。 ");
@@ -483,5 +575,12 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
       )
       AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${annualAllocation.entitlementId}), 0) >= ${annualAllocation.durationHalfHours}
     RETURNING id`, updateStatement] : updateStatement;
-  return writeHrMutation(db, statements, id, actor, "leave_request_reviewed", "請假申請不存在、申請人不可自審、特休額度不足或已完成處理。 ");
+  const mutations = current.employeeUserId
+    ? [...(Array.isArray(statements) ? statements : [statements]), insertHrNotification({
+      userId: current.employeeUserId, sourceKey: `leave-request:${id}:reviewed:${decision}`, kind: "request_reviewed", entityKind: "leave", entityId: id,
+      title: decision === "approved" ? "請假申請已核准" : decision === "rejected" ? "請假申請已駁回" : "請假申請已取消",
+      body: comment.trim() || (decision === "approved" ? "你的請假申請已完成核准。" : "請開啟申請紀錄查看處理結果。"),
+    })]
+    : Array.isArray(statements) ? statements : [statements];
+  return writeHrMutation(db, mutations, id, actor, "leave_request_reviewed", "請假申請不存在、申請人不可自審、特休額度不足或已完成處理。 ");
 }

@@ -17,6 +17,13 @@ function formatTaipei(value: string | null) {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
+function formatTaipeiTime(value: string | null) {
+  if (!value) return "—";
+  const date = new Date(`${value.replace(" ", "T")}Z`);
+  if (Number.isNaN(date.getTime())) return value.slice(11, 16);
+  return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+}
+
 function formatNowTaipei(value: Date) {
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(value);
 }
@@ -49,6 +56,17 @@ function monthLabel(year: number, month: number) {
 function shiftMonth(year: number, month: number, offset: number) {
   const next = new Date(Date.UTC(year, month - 1 + offset, 1));
   return { year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 };
+}
+
+function formatWorkedMinutes(minutes: number) {
+  if (minutes <= 0) return "0 小時";
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return rest ? `${hours} 小時 ${rest} 分` : `${hours} 小時`;
+}
+
+function calendarStatusLabel(status: ClockCalendarDay["status"]) {
+  return status === "present" ? "已有打卡" : status === "missing" ? "待確認缺卡" : status === "leave" ? "已核准請假" : status === "rest" ? "休息日" : status === "future" ? "尚未到班" : status === "open" ? "今日進行中" : status === "not-employed" ? "非任職日" : "出勤狀態";
 }
 
 type StaticMapPointer = { x: number; y: number };
@@ -222,7 +240,7 @@ function CalendarGrid({ data, selectedDate, onSelect, slideClass = "" }: { data:
         className={`hr-clock-calendar-day ${day.status}${day.date === data.today ? " today" : ""}${day.date === selectedDate ? " selected" : ""}${day.anomaly ? " has-anomaly" : ""}${day.specialKind === "typhoon_stop" ? " typhoon-stop" : ""}`}
         onClick={() => onSelect(day.date)}
         aria-pressed={day.date === selectedDate}
-        aria-label={`${day.date}${day.specialKind === "typhoon_stop" ? "，災防停班" : ""}${day.anomaly ? "，有出勤異常" : day.status === "leave" ? "，已核准請假" : day.eventCount ? `，已有 ${day.eventCount} 筆打卡` : "，沒有打卡紀錄"}`}
+        aria-label={`${day.date}，${calendarStatusLabel(day.status)}${day.workedMinutes ? `，實際 ${formatWorkedMinutes(day.workedMinutes)}` : ""}${day.specialKind === "typhoon_stop" ? "，災防停班" : ""}${day.anomaly ? "，有出勤異常" : day.eventCount ? `，已有 ${day.eventCount} 筆打卡` : "，沒有打卡紀錄"}`}
       >
         <strong>{Number(day.date.slice(-2))}</strong>
         {day.anomaly ? <i aria-hidden="true" /> : null}
@@ -239,6 +257,7 @@ function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendar
   return <section className={`hr-clock-calendar-details${day.anomaly ? " has-anomaly" : ""}`} aria-live="polite">
     <div className="hr-clock-calendar-details-head"><strong>{dayLabel}</strong><span>{["日", "一", "二", "三", "四", "五", "六"][day.weekday]}曜日</span></div>
     {day.specialKind === "typhoon_stop" ? <p className="hr-clock-calendar-special">災防停班：原排班保留，適用範圍內未打卡不列為缺勤。</p> : null}
+    {day.expectedStartAt || day.expectedEndAt || day.workedMinutes > 0 ? <div className="hr-clock-calendar-day-metrics"><span>預期 {day.expectedStartAt ? formatTaipeiTime(day.expectedStartAt) : "—"}～{day.expectedEndAt ? formatTaipeiTime(day.expectedEndAt) : "—"}</span><strong>實際 {formatWorkedMinutes(day.workedMinutes)}</strong></div> : null}
     {day.status === "leave" ? <p className="hr-clock-calendar-empty-detail">已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="hr-clock-calendar-events">
       {day.events.map((event) => <li key={event.id}><span>{event.eventKind === "clock_in" ? "上班" : "下班"}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}
     </ul> : day.anomaly ? null : <p className="hr-clock-calendar-empty-detail">{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "目前不是活動員工。" : "這天尚未有打卡紀錄。"}</p>}
@@ -259,16 +278,6 @@ function ClockOfficeCard({ status, check }: { status?: ClockStatus; check?: Cloc
       <small>{detail}</small>
     </div>
   </section>;
-}
-
-function ClockTimeline({ status }: { status?: ClockStatus }) {
-  const chronologicalEvents = status ? [...status.events].reverse() : [];
-  return chronologicalEvents.length ? <ol className="hr-clock-timeline">
-    {chronologicalEvents.map((event, index) => <li key={event.id} className={index === 0 ? "first" : index === chronologicalEvents.length - 1 ? "last" : "middle"}>
-      <span className="hr-clock-event-label">{eventLabel(index, chronologicalEvents.length)}</span>
-      <div className="hr-clock-event-copy"><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}{event.distanceMeters === null ? "" : `・距離 ${event.distanceMeters} 公尺`}</small></div>
-    </li>)}
-  </ol> : <p className="muted">今天尚未打卡。</p>;
 }
 
 export function HrClock() {
@@ -469,21 +478,43 @@ export function HrClockCalendar() {
   </div>;
 }
 
+function ClockHistoryDay({ day }: { day: ClockCalendarDay }) {
+  const dayLabel = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", weekday: "short" }).format(new Date(`${day.date}T00:00:00Z`));
+  return <article className={`hr-clock-history-day${day.anomaly ? " has-anomaly" : ""}`}>
+    <div className="hr-clock-history-day-head"><div><strong>{dayLabel}</strong><span>{calendarStatusLabel(day.status)}</span></div><strong>{day.workedMinutes ? formatWorkedMinutes(day.workedMinutes) : "—"}</strong></div>
+    {day.expectedStartAt || day.expectedEndAt ? <p className="hr-clock-history-schedule">預期 {formatTaipeiTime(day.expectedStartAt)}～{formatTaipeiTime(day.expectedEndAt)}</p> : null}
+    {day.events.length ? <ol className="hr-clock-history-events">{day.events.map((event, index) => <li key={event.id}><span>{eventLabel(index, day.events.length)}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}</ol> : <p className="hr-clock-history-empty">{day.anomalyMessage ?? (day.status === "missing" ? "這天尚未有打卡紀錄。" : "沒有打卡事件。")}</p>}
+    {day.anomaly ? <p className="hr-clock-history-anomaly">{day.anomalyMessage ?? "請確認出勤紀錄。"}</p> : null}
+  </article>;
+}
+
 export function HrClockLogs() {
   usePageTitle("打卡紀錄");
   const navigate = useNavigate();
   const [closing, setClosing] = useState(false);
-  const status = useHrQuery<ClockStatus>("/me/clock-events");
+  const [calendarMonth, setCalendarMonth] = useState(currentMonth);
+  const calendar = useHrQuery<ClockCalendar>(`/me/attendance-calendar?year=${calendarMonth.year}&month=${calendarMonth.month}`);
+  const days = calendar.data?.days.filter((day) => day.eventCount > 0 || day.anomaly || day.status === "missing") ?? [];
+  const totalWorkedMinutes = calendar.data?.days.reduce((total, day) => total + day.workedMinutes, 0) ?? 0;
+  const anomalyCount = calendar.data?.days.filter((day) => day.anomaly).length ?? 0;
+  const recordedCount = calendar.data?.days.filter((day) => day.eventCount > 0).length ?? 0;
   function closeSubpage() {
     setClosing(true);
     window.setTimeout(() => navigate("/clock"), 220);
   }
+  function changeMonth(offset: number) {
+    setCalendarMonth((current) => shiftMonth(current.year, current.month, offset));
+  }
   return <div className={`page hr-clock-page hr-clock-subpage${closing ? " closing" : ""}`}>
     <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
-    <PageHeader title="打卡紀錄" description="今天每次操作都會保留；第一筆視為上班，最後一筆視為下班。" />
-    <Panel className="hr-clock-history-panel">
-      <ClockTimeline status={status.data} />
-      {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
+    <PageHeader title="打卡紀錄" description="按月份查看實際工時、預期班別與出勤異常。" />
+    <Panel className="hr-clock-history-panel hr-clock-logs-panel">
+      <div className="hr-clock-history-toolbar"><Button variant="icon" icon="chevronLeft" aria-label="上個月" onClick={() => changeMonth(-1)} /><strong>{monthLabel(calendarMonth.year, calendarMonth.month)}</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" onClick={() => changeMonth(1)} /></div>
+      {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
+      {calendar.isPending ? <p className="muted">載入月度紀錄…</p> : calendar.data ? <>
+        <div className="hr-clock-history-summary"><div><span>實際工時</span><strong>{formatWorkedMinutes(totalWorkedMinutes)}</strong></div><div><span>有打卡日</span><strong>{recordedCount} 天</strong></div><div><span>待確認</span><strong>{anomalyCount} 天</strong></div></div>
+        {days.length ? <div className="hr-clock-history-days">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <div className="hr-form-empty-state"><strong>本月沒有需要顯示的紀錄</strong><p className="muted">有打卡或出勤異常的日期會列在這裡。</p></div>}
+      </> : null}
     </Panel>
   </div>;
 }

@@ -330,6 +330,17 @@ function calendarEventsForDate<T extends { eventKind: "clock_in" | "clock_out"; 
   return nextClose?.eventKind === "clock_out" ? [...withoutPreviousClose, nextClose] : withoutPreviousClose;
 }
 
+function calendarWorkedMinutes(events: Array<{ eventKind: "clock_in" | "clock_out"; occurredAt: string }>) {
+  let total = 0;
+  for (let index = 0; index + 1 < events.length; index += 2) {
+    const start = taipeiClockMinutes(events[index]!.occurredAt);
+    const end = taipeiClockMinutes(events[index + 1]!.occurredAt);
+    if (start === null || end === null || events[index]!.eventKind !== "clock_in" || events[index + 1]!.eventKind !== "clock_out") continue;
+    total += (end < start ? end + 24 * 60 : end) - start;
+  }
+  return total;
+}
+
 function calendarAnomaly(events: Array<{ eventKind: "clock_in" | "clock_out"; occurredAt: string }>, schedule: ReturnType<typeof scheduleForDate>, expectedWorkday: boolean, scheduledEmployee: boolean) {
   if (!events.length) return expectedWorkday ? { code: "missing" as const, message: "這天是預期出勤日，請確認是否忘記打卡。" } : null;
   let expectedKind: "clock_in" | "clock_out" = "clock_in";
@@ -450,6 +461,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
       specialScopeIds,
       status: status as "not-employed" | "future" | "present" | "open" | "missing" | "rest" | "leave",
       eventCount: dayEvents.length,
+      workedMinutes: calendarWorkedMinutes(anomalyEvents),
       firstEventAt: dayEvents[0]?.occurredAt ?? null,
       lastEventAt: dayEvents.at(-1)?.occurredAt ?? null,
       anomaly: anomaly as HrClockCalendarAnomaly | null,

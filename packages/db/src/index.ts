@@ -5,6 +5,7 @@ export {
   getHrAttendanceLocation, setHrAttendanceLocationPrimary, updateHrAttendanceScope, getHrClockCalendar, countHrClockCalendarAnomalies, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation, HR_ATTENDANCE_LOCATION_PAGE_SIZES, type HrAttendanceLocationListQuery, type HrAttendanceScopeUpdateInput,
 } from "./hr-attendance.js";
 export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } from "./hr-overview.js";
+export { insertHrNotification, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, type HrNotificationEntityKind, type HrNotificationInsert, type HrNotificationKind } from "./hr-notifications.js";
 export {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
   monthPeriodFromKey, HR_SCHEDULE_ATTENDANCE_STATUSES,
@@ -21,9 +22,9 @@ export {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, parseSpecialWorkdayAllowanceSnapshot, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, specialWorkdayAllowanceTotal, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAllowanceQuantityInput, type SpecialWorkdayAllowanceSnapshot, type SpecialWorkdayAssignmentInput, type SpecialWorkdayAssignmentItem, type SpecialWorkdayAssignmentUpdateInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
 } from "./hr-special-workdays.js";
-export { cancelHrOvertimeRequest, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest, type HrOvertimeBatchInput, type HrOvertimeCancellationOptions, type HrOvertimeDay, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
+export { cancelHrOvertimeRequest, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest, type HrOvertimeBatchInput, type HrOvertimeCancellationOptions, type HrOvertimeDay, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
 export { HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage, type HrRequestCenterKind, type HrRequestCenterListQuery, type HrRequestCenterPage, type HrRequestCenterRow, type HrRequestCenterStatus } from "./hr-request-center.js";
-export { calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, type HrLeaveCancellationOptions, type HrLeaveCredit, type HrLeaveDurationInput, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput, type HrSelfLeaveTypeOption } from "./hr-leave.js";
+export { calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest, type HrLeaveCancellationOptions, type HrLeaveCredit, type HrLeaveDurationInput, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput, type HrSelfLeaveTypeOption } from "./hr-leave.js";
 export {
   addCalendarMonths, allocateHrAnnualLeave, buildHrAnnualLeaveSettlementMutations, buildHrAnnualLeaveSettlementReversalMutations, createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements,
   getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates,

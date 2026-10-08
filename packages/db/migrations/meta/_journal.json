@@ -1387,6 +1387,13 @@
       "when": 1791470954842,
       "tag": "0221_peaceful_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 222,
+      "version": "6",
+      "when": 1791478156502,
+      "tag": "0222_burly_synch",
+      "breakpoints": true
     }
   ]
 }

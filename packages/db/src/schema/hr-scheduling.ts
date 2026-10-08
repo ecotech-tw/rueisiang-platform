@@ -331,6 +331,8 @@ export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   status: text("status", { enum: ["draft", "pending", "approved", "rejected", "cancelled"] as const }).notNull().default("pending"),
   ratePpm: integer("rate_ppm").notNull().default(1_333_333),
   reason: text("reason").notNull().default(""),
+  /** 建立時凍結的審核者；沒有直屬主管時留空，由具備 HR 申請審核權限者代審。 */
+  approverUserId: text("approver_user_id").references(() => users.id, { onDelete: "restrict" }),
   reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
   reviewedAt: text("reviewed_at"),
   decisionReason: text("decision_reason").notNull().default(""),
@@ -341,6 +343,7 @@ export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   // 只管仍然有效的申請：被駁回的那一列留著當紀錄，但不可以佔住時段讓人無法重新申請。
   uniqueIndex("idx_hr_overtime_unique_request").on(table.employmentId, table.requestedStart, table.requestedEnd).where(sql`${table.status} IN ('draft', 'pending', 'approved')`),
   index("idx_hr_overtime_status").on(table.status, table.requestedStart),
+  index("idx_hr_overtime_approver_status").on(table.approverUserId, table.status),
   check("ck_hr_overtime_requested_period", sql`${table.requestedEnd} > ${table.requestedStart}`),
   check("ck_hr_overtime_actual_pair", sql`(${table.actualStart} IS NULL AND ${table.actualEnd} IS NULL) OR (${table.actualStart} IS NOT NULL AND ${table.actualEnd} IS NOT NULL AND ${table.actualEnd} > ${table.actualStart})`),
   check("ck_hr_overtime_settlement", sql`${table.settlementKind} IN ('pay', 'compensatory')`),
