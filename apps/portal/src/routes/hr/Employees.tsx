@@ -14,6 +14,11 @@ interface FieldDefinition { key: string; label: string; type?: "date" | "email";
 interface Editor { title: string; path: string; method: string; fields: FieldDefinition[]; initial?: Record<string, unknown>; description?: string; undoable?: boolean; successMessage?: string; submitLabel?: string; submitVariant?: "primary" | "secondary" | "danger" }
 type FormalEmployee = Employee & { personKind: "employee"; userId: string };
 
+export function employeeDetailPath(employee: Pick<Employee, "employmentId" | "userId">): string {
+  const detailId = employee.employmentId ?? employee.userId ?? "";
+  return `/hr/employees/${encodeURIComponent(detailId)}`;
+}
+
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 const PAY_BASIS_LABEL: Record<CompensationVersion["payBasis"], string> = { monthly: "月薪", daily: "日薪", hourly: "時薪" };
 const INSURANCE_LABEL: Record<InsuranceVersion["scheme"], string> = { labor: "勞保", health: "健保" };
@@ -354,9 +359,9 @@ export function HrEmployees() {
         {canWrite ? <th>操作</th> : null}
       </tr></thead><tbody>
         {data?.employees.map((employee) => {
-          const detailId = employee.employmentId ?? employee.userId ?? "";
+          const detailPath = employeeDetailPath(employee);
           const formalEmployee = employee.personKind === "employee" && employee.userId ? employee as FormalEmployee : null;
-          return <tr key={employee.employmentId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(`/hr/employees/${encodeURIComponent(detailId)}`)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(`/hr/employees/${encodeURIComponent(detailId)}`); } }}><td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}<br /><span className="muted">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? employee.supervisorUserId ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>{formalEmployee && canWrite ? <td data-label="操作"><Button variant="secondary" icon="edit" className="hr-action-update" onClick={(event) => { event.stopPropagation(); setManageEmployee(formalEmployee); }}>員工資料</Button></td> : canWrite ? <td data-label="操作"><span className="muted">由支援人員管理</span></td> : null}</tr>;
+          return <tr key={employee.employmentId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(detailPath)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(detailPath); } }}><td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}<br /><span className="muted">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? employee.supervisorUserId ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>{formalEmployee && canWrite ? <td data-label="操作"><Button variant="secondary" icon="edit" className="hr-action-update" onClick={(event) => { event.stopPropagation(); setManageEmployee(formalEmployee); }}>員工資料</Button></td> : canWrite ? <td data-label="操作"><span className="muted">由支援人員管理</span></td> : null}</tr>;
         })}
       </tbody></DataTable>
       {employees.isPlaceholderData ? <p className="muted table-note">載入中…</p> : null}
