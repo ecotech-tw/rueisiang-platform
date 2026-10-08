@@ -1781,9 +1781,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const scopeCount = assignment.version.scopeIds.length || 1;
         const bonusBaseFormula = scopeCount > 1 && assignment.version.bonusKind === "team_performance"
           ? `Σ各櫃點 max(0, 櫃點業績 − ${payrollFormulaMoney(assignment.version.guaranteeMinor)}) × ${payrollFormulaPercent(assignment.version.ratePpm)}`
-          : scopeCount > 1
-            ? `max(0, 各櫃點本人排班日營收合計 − ${payrollFormulaMoney(assignment.version.guaranteeMinor)}) × ${payrollFormulaPercent(assignment.version.ratePpm)}`
-            : `max(0, ${payrollFormulaMoney(bonus.revenueMinor)} − ${payrollFormulaMoney(assignment.version.guaranteeMinor)}) × ${payrollFormulaPercent(assignment.version.ratePpm)}`;
+          : `max(0, ${payrollFormulaMoney(bonus.revenueMinor)} − ${payrollFormulaMoney(assignment.version.guaranteeMinor)}) × ${payrollFormulaPercent(assignment.version.ratePpm)}`;
         const bonusFormulaDetail = assignment.version.bonusKind === "individual_performance"
           ? `${bonusBaseFormula} = ${payrollFormulaMoney(bonus.amountMinor)}（四捨五入至元）`
           : `${bonusBaseFormula} × 本人權重 ${assignment.member.weightUnits} ÷ 全體權重 ${bonus.weightedTotal} = ${payrollFormulaMoney(bonus.amountMinor)}（每人最後四捨五入至元；顯示獎金池 ${payrollFormulaMoney(bonus.poolAmountMinor)}）`;
