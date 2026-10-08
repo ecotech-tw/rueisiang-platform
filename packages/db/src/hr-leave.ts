@@ -575,10 +575,12 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
       )
       AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${annualAllocation.entitlementId}), 0) >= ${annualAllocation.durationHalfHours}
     RETURNING id`, updateStatement] : updateStatement;
-  const mutations = [...(Array.isArray(statements) ? statements : [statements]), insertHrNotification({
-    userId: current.employeeUserId, sourceKey: `leave-request:${id}:reviewed:${decision}`, kind: "request_reviewed", entityKind: "leave", entityId: id,
-    title: decision === "approved" ? "請假申請已核准" : decision === "rejected" ? "請假申請已駁回" : "請假申請已取消",
-    body: comment.trim() || (decision === "approved" ? "你的請假申請已完成核准。" : "請開啟申請紀錄查看處理結果。"),
-  })];
+  const mutations = current.employeeUserId
+    ? [...(Array.isArray(statements) ? statements : [statements]), insertHrNotification({
+      userId: current.employeeUserId, sourceKey: `leave-request:${id}:reviewed:${decision}`, kind: "request_reviewed", entityKind: "leave", entityId: id,
+      title: decision === "approved" ? "請假申請已核准" : decision === "rejected" ? "請假申請已駁回" : "請假申請已取消",
+      body: comment.trim() || (decision === "approved" ? "你的請假申請已完成核准。" : "請開啟申請紀錄查看處理結果。"),
+    })]
+    : Array.isArray(statements) ? statements : [statements];
   return writeHrMutation(db, mutations, id, actor, "leave_request_reviewed", "請假申請不存在、申請人不可自審、特休額度不足或已完成處理。 ");
 }

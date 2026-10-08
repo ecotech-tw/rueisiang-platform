@@ -279,7 +279,6 @@ export const hrLeaveRequests = sqliteTable("hr_leave_requests", {
   check("ck_hr_leave_requests_duration", sql`${table.durationMinutes} > 0`),
   check("ck_hr_leave_requests_pay_rate", sql`${table.payRatePpm} BETWEEN 0 AND 1000000`),
   check("ck_hr_leave_requests_reason", sql`length(${table.reason}) <= 1000`),
-  check("ck_hr_leave_requests_revision", sql`${table.revision} > 0`),
 ]);
 
 /** 公司共用的特休政策版本；法定級距是資料，不散落在計算程式裡。 */
