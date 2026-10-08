@@ -241,10 +241,12 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
 function groupSummary(group: ShiftGroup) {
   const extras = group.versions.filter((shift) => shift.dayType !== "weekday");
   const headcountOverrides = extras.filter((shift) => shift.requiredHeadcount !== group.weekday.requiredHeadcount);
+  const overrideDayTypes = new Set(headcountOverrides.map((shift) => shift.dayType));
+  const timeOnlyExtras = extras.filter((shift) => !overrideDayTypes.has(shift.dayType));
   const headcount = headcountOverrides.length
-    ? `需求平日 ${group.weekday.requiredHeadcount} 人（${headcountOverrides.map((shift) => `${HR_DAY_TYPE_LABELS[shift.dayType]} ${shift.requiredHeadcount} 人`).join("、")}）`
+    ? `需求平日 ${group.weekday.requiredHeadcount} 人；${headcountOverrides.map((shift) => `${HR_DAY_TYPE_LABELS[shift.dayType]} ${shift.requiredHeadcount} 人`).join("、")}`
     : `需求 ${group.weekday.requiredHeadcount} 人`;
-  return `${group.name} ${shiftTimeRange(group.weekday)} · ${headcount}${extras.length ? `（另設${extras.map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]).join("、")}）` : ""}`;
+  return `${group.name} ${shiftTimeRange(group.weekday)} · ${headcount}${timeOnlyExtras.length ? `（另設${timeOnlyExtras.map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]).join("、")}）` : ""}`;
 }
 
 export function HrShifts() {
