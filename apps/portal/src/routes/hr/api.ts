@@ -49,7 +49,8 @@ export interface NamedOption { id: string; name: string; employeeNumber?: string
 export interface Candidate { userId: string; displayName: string; email: string; status: "invited" | "active" }
 export interface InsuranceBracket { level: number; lowerSalary: number; upperSalary: number | null; insuredAmount: number }
 export interface InsuranceBracketTable { scheme: "labor" | "health"; year: number; sourceUrl: string; fetchedAt: string; brackets: InsuranceBracket[] }
-export interface InsuranceRateTableRecord { id: string; scheme: "labor" | "health"; year: number; status: "draft" | "active" | "archived"; sourceKind: "official" | "manual"; sourceUrl: string; fetchedAt: string; contentHash: string; note: string; activatedAt: string | null; brackets: InsuranceBracket[] }
+export interface InsuranceRateTableBracket extends InsuranceBracket { employeeAmountMinor: number | null }
+export interface InsuranceRateTableRecord { id: string; scheme: "labor" | "health"; year: number; status: "draft" | "active" | "archived"; sourceKind: "official" | "manual"; sourceUrl: string; fetchedAt: string; contentHash: string; note: string; activatedAt: string | null; brackets: InsuranceRateTableBracket[] }
 export type InsuranceContributionComponent = "ordinary_accident" | "employment";
 export interface InsuranceContributionRule { id: string; scheme: "labor" | "health"; component: InsuranceContributionComponent | null; validFrom: string; validTo: string | null; employeeRatePpm: number; employerRatePpm: number; dependentRatePpm: number; totalRatePpm?: number; employeeSharePpm?: number; employerSharePpm?: number; sourceKind: "official" | "manual"; note: string; sourceUrl?: string; isSystemDefault?: boolean }
 export interface InsuranceContributionComponentEstimate { component: InsuranceContributionComponent | null; ruleId: string; employeeRatePpm: number; employeeAmountMinor: number; totalRatePpm?: number; employeeSharePpm?: number }

@@ -66,14 +66,17 @@ describe("HR 薪資與勞健保", () => {
     expect(response.status).toBe(200);
     const body = await response.json() as { tables: { scheme: string; brackets: { insuredAmount: number; lowerSalary: number }[]; sourceUrl: string }[] };
     expect(body.tables).toHaveLength(2);
+    expect(body.tables.find((table) => table.scheme === "labor")?.brackets[0]).toMatchObject({ insuredAmount: 29500, lowerSalary: 0, upperSalary: 29500 });
     expect(body.tables.find((table) => table.scheme === "labor")?.brackets[1]).toMatchObject({ insuredAmount: 30300, lowerSalary: 29501 });
-    expect(body.tables.find((table) => table.scheme === "health")?.brackets[0]).toMatchObject({ insuredAmount: 29500, lowerSalary: 0 });
+    expect(body.tables.find((table) => table.scheme === "health")?.brackets[0]).toMatchObject({ insuredAmount: 29500, lowerSalary: 0, upperSalary: 29500 });
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock.mock.calls.map(([input]) => String(input))).toContain("https://info.nhi.gov.tw/api/iode0000s01/Dataset?rId=A21030000I-B1000A-00G");
     expect((await request("/hr/insurance-rates/sync", "POST", { year: 2026 })).status).toBe(201);
     expect((await request("/hr/insurance-rates/sync", "POST", { year: 2026 })).status).toBe(201);
-    const synced = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: { id: string; scheme: string; status: string }[] };
+    const synced = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: { id: string; scheme: string; status: string; brackets: { employeeAmountMinor: number | null }[] }[] };
     expect(synced.tables.filter((table) => table.status === "draft")).toHaveLength(2);
+    expect(synced.tables.find((table) => table.scheme === "labor" && table.status === "draft")?.brackets[0]?.employeeAmountMinor).toBe(73_800);
+    expect(synced.tables.find((table) => table.scheme === "health" && table.status === "draft")?.brackets[0]?.employeeAmountMinor).toBe(45_800);
     const laborDraft = synced.tables.find((table) => table.scheme === "labor")!;
     const activated = await request(`/hr/insurance-rates/${laborDraft.id}/activate`, "POST", {});
     expect(activated.status, await activated.clone().text()).toBe(200);
@@ -87,6 +90,31 @@ describe("HR 薪資與勞健保", () => {
     ] });
     expect(official.status, await official.clone().text()).toBe(201);
     expect(synced.tables.filter((table) => table.status === "archived")).toHaveLength(0);
+  });
+
+  it("勞保級距會納入基本工資以下的部分工時級距", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("iode0010")) return healthDatasetMetadataResponse();
+      if (url.includes("mol.gov.tw")) return new Response(JSON.stringify([
+        { 適用起日: "1150101", 身分別: "一般勞工", 投保薪資等級: "1", 月薪資總額: "29500元以下", 月投保薪資: "29500" },
+        { 適用起日: "1150101", 身分別: "一般勞工", 投保薪資等級: "2", 月薪資總額: "29501元至30300元", 月投保薪資: "30300" },
+        { 適用起日: "1150101", 身分別: "部分工時勞工", 投保薪資等級: "1", 月薪資總額: "11100元以下", 月投保薪資: "11100" },
+        { 適用起日: "1150101", 身分別: "部分工時勞工", 投保薪資等級: "2", 月薪資總額: "11101元至12540元", 月投保薪資: "12540" },
+        { 適用起日: "1150101", 身分別: "部分工時勞工", 投保薪資等級: "18", 月薪資總額: "28591元至29500元", 月投保薪資: "29500" },
+      ]));
+      return new Response("組別級距,投保等級,月投保金額（元）,實際薪資月額（元）\n第一組,1,29500,29500元以下\n");
+    });
+    const response = await request("/hr/insurance-brackets?year=2026");
+    expect(response.status, await response.clone().text()).toBe(200);
+    const body = await response.json() as { tables: { scheme: string; brackets: { level: number; lowerSalary: number; upperSalary: number | null; insuredAmount: number }[] }[] };
+    const labor = body.tables.find((table) => table.scheme === "labor")!;
+    expect(labor.brackets).toEqual([
+      { level: 1, lowerSalary: 0, upperSalary: 11100, insuredAmount: 11100 },
+      { level: 2, lowerSalary: 11101, upperSalary: 12540, insuredAmount: 12540 },
+      { level: 3, lowerSalary: 28591, upperSalary: 29500, insuredAmount: 29500 },
+      { level: 4, lowerSalary: 29501, upperSalary: 30300, insuredAmount: 30300 },
+    ]);
   });
 
   it("指定下一年度時使用官方資料的年度欄位與對應 resource", async () => {
@@ -141,16 +169,19 @@ describe("HR 薪資與勞健保", () => {
     const listed = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string; scheme: string; status: string; sourceKind: string; note: string; contentHash: string; brackets: typeof brackets }> };
     const draft = listed.tables.find((table) => table.id === createdBody.id)!;
     expect(draft).toMatchObject({ scheme: "labor", status: "draft", sourceKind: "manual", note: "人工覆核：官方服務暫時無法取得" });
-    expect(draft.brackets).toEqual(brackets);
+    expect(draft.brackets).toHaveLength(brackets.length);
+    expect(draft.brackets[0]).toMatchObject({ ...brackets[0], employeeAmountMinor: 73_800 });
+    expect(draft.brackets[1]).toMatchObject({ ...brackets[1], employeeAmountMinor: 75_800 });
 
     const updated = await request(`/hr/insurance-rates/${createdBody.id}`, "PATCH", {
       sourceUrl: "勞保 2026 公告（修訂）", note: "人工覆核：已確認修訂版", contentHash: draft.contentHash,
       brackets: [brackets[0], { ...brackets[1], insuredAmount: 30400 }],
     });
     expect(updated.status, await updated.clone().text()).toBe(200);
-    const afterUpdate = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string; contentHash: string; brackets: { insuredAmount: number }[] }> };
+    const afterUpdate = await (await request("/hr/insurance-rates?year=2026")).json() as { tables: Array<{ id: string; contentHash: string; brackets: { insuredAmount: number; employeeAmountMinor: number | null }[] }> };
     const updatedDraft = afterUpdate.tables.find((table) => table.id === createdBody.id)!;
     expect(updatedDraft.brackets[1]?.insuredAmount).toBe(30400);
+    expect(updatedDraft.brackets[1]?.employeeAmountMinor).toBe(76_000);
     expect(updatedDraft.contentHash).not.toBe(draft.contentHash);
     expect((await request(`/hr/insurance-rates/${createdBody.id}`, "PATCH", { sourceUrl: "過期版本", note: "過期", contentHash: draft.contentHash, brackets })).status).toBe(409);
 

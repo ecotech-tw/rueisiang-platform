@@ -8,20 +8,27 @@ const SCHEME_LABEL: Record<"labor" | "health", string> = { labor: "勞保", heal
 interface BracketDraft extends InsuranceBracket {
   key: string;
   upperSalary: number | null;
+  employeeAmountMinor: number | null;
 }
 
 function draftKey() {
   return `bracket-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-function toDraft(bracket: InsuranceBracket): BracketDraft {
-  return { ...bracket, key: draftKey() };
+function toDraft(bracket: InsuranceBracket & { employeeAmountMinor?: number | null }): BracketDraft {
+  return { ...bracket, key: draftKey(), employeeAmountMinor: bracket.employeeAmountMinor ?? null };
 }
 
 function integer(value: string): number | null {
   if (!value.trim()) return null;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function employeeAmountLabel(amountMinor: number | null | undefined) {
+  return amountMinor === null || amountMinor === undefined
+    ? "尚未設定"
+    : `NT$ ${Math.round(amountMinor / 100).toLocaleString("zh-TW")}`;
 }
 
 export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDeleted, onBusy }: {
@@ -45,10 +52,12 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
   useEffect(() => { onBusy?.(save.isPending || remove.isPending); }, [onBusy, remove.isPending, save.isPending]);
 
   const updateBracket = (key: string, patch: Partial<Pick<InsuranceBracket, "lowerSalary" | "upperSalary" | "insuredAmount">>) => {
-    setBrackets((current) => current.map((bracket) => bracket.key === key ? { ...bracket, ...patch } : bracket));
+    setBrackets((current) => current.map((bracket) => bracket.key === key
+      ? { ...bracket, ...patch, ...(patch.insuredAmount !== undefined ? { employeeAmountMinor: null } : {}) }
+      : bracket));
   };
   const addBracket = () => {
-    setBrackets((current) => [...current, { key: draftKey(), level: current.length + 1, lowerSalary: 0, upperSalary: null, insuredAmount: 0 }]);
+    setBrackets((current) => [...current, { key: draftKey(), level: current.length + 1, lowerSalary: 0, upperSalary: null, insuredAmount: 0, employeeAmountMinor: null }]);
   };
   const removeBracket = (key: string) => {
     setBrackets((current) => current.filter((item) => item.key !== key).map((item, index) => ({ ...item, level: index + 1 })));
@@ -89,19 +98,20 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
       <div className="hr-rate-editor-intro"><strong>{isExistingDraft ? "編輯待審閱版本" : table ? "從目前啟用版本建立人工版本" : "建立人工版本"}</strong><span className="muted">{year} 年・{SCHEME_LABEL[scheme]}；人工資料會保留來源與覆核備註。</span></div>
       <div className="hr-rate-editor">
         <DataTable containerClassName="hr-rate-editor-scroll" className="compact hr-rate-editor-table">
-            <thead><tr><th>級距</th><th>薪資下限（元）</th><th>薪資上限（元）</th><th>投保金額（元）</th><th>操作</th></tr></thead>
+            <thead><tr><th>級距</th><th>薪資下限（元）</th><th>薪資上限（元）</th><th>投保金額（元）</th><th>員工負擔／月<br /><span className="muted">健保以 0 位眷屬</span></th><th>操作</th></tr></thead>
             <tbody>
               {brackets.map((bracket, index) => <tr key={bracket.key}>
                 <td data-label="級距"><output className="hr-rate-level" aria-label={`第 ${index + 1} 筆級距序號`}>{index + 1}</output></td>
                 <td data-label="薪資下限（元）"><input className="hr-rate-input numeric" type="number" min="0" step="1" value={bracket.lowerSalary} aria-label={`第 ${index + 1} 筆薪資下限`} onChange={(event) => updateBracket(bracket.key, { lowerSalary: Number(event.target.value) })} /></td>
                 <td data-label="薪資上限（元）"><input className="hr-rate-input numeric" type="number" min="0" step="1" value={bracket.upperSalary ?? ""} placeholder="無上限" aria-label={`第 ${index + 1} 筆薪資上限，留空表示無上限`} onChange={(event) => updateBracket(bracket.key, { upperSalary: event.target.value.trim() ? Number(event.target.value) : null })} /></td>
                 <td data-label="投保金額（元）"><input className="hr-rate-input numeric" type="number" min="1" step="1" value={bracket.insuredAmount} aria-label={`第 ${index + 1} 筆投保金額`} onChange={(event) => updateBracket(bracket.key, { insuredAmount: Number(event.target.value) })} /></td>
+                <td data-label="員工負擔／月"><output className="hr-rate-employee-amount numeric" aria-label={`第 ${index + 1} 筆級距員工每月負擔`}>{employeeAmountLabel(bracket.employeeAmountMinor)}</output></td>
                 <td data-label="操作"><Button type="button" variant="icon" icon="trash" title={`刪除第 ${index + 1} 筆級距`} aria-label={`刪除第 ${index + 1} 筆級距`} onClick={() => removeBracket(bracket.key)} /></td>
               </tr>)}
             </tbody>
         </DataTable>
         {!brackets.length ? <EmptyState>尚無級距，請新增一筆。</EmptyState> : null}
-        <div className="hr-rate-editor-foot"><Button type="button" icon="plus" className="add-action" onClick={addBracket}>新增級距</Button><span className="muted">上限留空代表該級距沒有上限。</span></div>
+        <div className="hr-rate-editor-foot"><Button type="button" icon="plus" className="add-action" onClick={addBracket}>新增級距</Button><span className="muted">薪資下限填 0 代表「以下」級距；員工負擔由該年度費率計算，健保欄先以 0 位眷屬呈現。</span></div>
       </div>
       <div className="field-grid">
         <TextField label="資料來源網址或公告名稱（可留空）" value={sourceUrl} maxLength={500} onChange={(event) => setSourceUrl(event.target.value)} />
