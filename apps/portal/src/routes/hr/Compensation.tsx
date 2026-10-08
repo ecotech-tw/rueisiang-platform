@@ -18,6 +18,42 @@ const WORKER_PAY_BASIS_LABEL: Record<SupportWorkerPayBasis, string> = { daily: "
 const WORKER_PAY_BASIS_OPTIONS = Object.entries(WORKER_PAY_BASIS_LABEL).map(([value, label]) => ({ value: value as SupportWorkerPayBasis, label }));
 type WorkerOvertimeMode = "none" | "rate" | "amount";
 const WORKER_OVERTIME_OPTIONS = [{ value: "none", label: "不適用（沿用制度倍率）" }, { value: "rate", label: "固定加班倍率" }, { value: "amount", label: "固定加班金額／時" }];
+
+export function buildWorkerCompensationSubmission(input: {
+  employmentId: string;
+  validFrom: string;
+  validTo: string;
+  payBasis: SupportWorkerPayBasis;
+  amount: string;
+  overtimeMode: WorkerOvertimeMode;
+  overtimeValue: string;
+  note: string;
+}) {
+  const basisLabel = WORKER_PAY_BASIS_LABEL[input.payBasis];
+  const numericAmount = Number(input.amount);
+  if (!Number.isSafeInteger(numericAmount) || numericAmount < 0) return { ok: false as const, message: `${basisLabel}請填非負整數的金額（元）。` };
+  const numericOvertime = input.overtimeValue === "" ? NaN : Number(input.overtimeValue);
+  if (input.overtimeMode !== "none" && (!Number.isFinite(numericOvertime) || numericOvertime <= 0)) {
+    return { ok: false as const, message: input.overtimeMode === "rate" ? "固定加班倍率請填大於 0 的數字。" : "固定加班金額請填大於 0 的整數元。" };
+  }
+  if (input.overtimeMode === "amount" && !Number.isSafeInteger(numericOvertime)) return { ok: false as const, message: "固定加班金額請填大於 0 的整數元。" };
+  return {
+    ok: true as const,
+    request: {
+      path: `/employments/${encodeURIComponent(input.employmentId)}/worker-compensation`,
+      method: "POST",
+      values: {
+        validFrom: input.validFrom,
+        validTo: input.validTo || null,
+        payBasis: input.payBasis,
+        baseAmountMinor: numericAmount * 100,
+        overtimeRatePpm: input.overtimeMode === "rate" ? Math.round(numericOvertime * 1_000_000) : null,
+        overtimeHourlyMinor: input.overtimeMode === "amount" ? numericOvertime * 100 : null,
+        note: input.note,
+      },
+    },
+  };
+}
 function workerOvertimeLabel(version: { overtimeRatePpm?: number | null; overtimeHourlyMinor?: number | null } | null | undefined) {
   if (version?.overtimeRatePpm != null) return `固定 ${(version.overtimeRatePpm / 1_000_000).toFixed(6).replace(/0+$/, "").replace(/\.$/, "")} 倍`;
   if (version?.overtimeHourlyMinor != null) return `固定 ${money(version.overtimeHourlyMinor)}／時`;
@@ -290,7 +326,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
   </>;
 }
 
-function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerRecord; onClose: () => void }) {
+export function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerRecord; onClose: () => void }) {
   const current = currentVersion(worker.compensation);
   const initialPayBasis: SupportWorkerPayBasis = current?.payBasis === "hourly" ? "hourly" : "daily";
   const initialOvertimeMode: WorkerOvertimeMode = current?.overtimeRatePpm != null ? "rate" : current?.overtimeHourlyMinor != null ? "amount" : "none";
@@ -308,14 +344,10 @@ function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerR
   const basisLabel = WORKER_PAY_BASIS_LABEL[payBasis];
   return <Dialog title={`設定 ${worker.displayName} 的敘薪`} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
-    const numericAmount = Number(amount);
-    if (!Number.isSafeInteger(numericAmount) || numericAmount < 0) { setMessage(`${basisLabel}請填非負整數的金額（元）。`); return; }
-    const numericOvertime = overtimeValue === "" ? NaN : Number(overtimeValue);
-    if (overtimeMode !== "none" && (!Number.isFinite(numericOvertime) || numericOvertime <= 0)) { setMessage(overtimeMode === "rate" ? "固定加班倍率請填大於 0 的數字。" : "固定加班金額請填大於 0 的整數元。"); return; }
-    if (overtimeMode === "amount" && !Number.isSafeInteger(numericOvertime)) { setMessage("固定加班金額請填大於 0 的整數元。"); return; }
-    const values = { validFrom, validTo: validTo || null, payBasis, baseAmountMinor: numericAmount * 100, overtimeRatePpm: overtimeMode === "rate" ? Math.round(numericOvertime * 1_000_000) : null, overtimeHourlyMinor: overtimeMode === "amount" ? numericOvertime * 100 : null, note };
+    const submission = buildWorkerCompensationSubmission({ employmentId: worker.employmentId ?? worker.id, validFrom, validTo, payBasis, amount, overtimeMode, overtimeValue, note });
+    if (!submission.ok) { setMessage(submission.message); return; }
     setMessage(null);
-    save.mutate({ path: `/employments/${encodeURIComponent(worker.employmentId ?? worker.id)}/worker-compensation`, method: "POST", values }, { onSuccess: () => { toast.show("支援人員敘薪已儲存。", "success"); (closeRequestRef.current ?? onClose)(); } });
+    save.mutate(submission.request, { onSuccess: () => { toast.show("支援人員敘薪已儲存。", "success"); (closeRequestRef.current ?? onClose)(); } });
   } }} actions={<Button type="submit" loading={save.isPending}>儲存{basisLabel}</Button>}>
     <p>支援人員可選日薪或時薪；加班設定可固定倍率或固定金額，留空則沿用制度倍率。敘薪版本不覆蓋歷史，特殊工作日級距優先套用。</p>
     <SelectField label="計薪方式" value={payBasis} options={WORKER_PAY_BASIS_OPTIONS} onChange={(event) => { setPayBasis(event.target.value as SupportWorkerPayBasis); setMessage(null); }} />
@@ -351,9 +383,9 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: HrF
   </tr>;
 }
 
-function WorkerCompensationRow({ employee, worker, canWrite, onEdit }: { employee: Employee; worker: ScheduleWorkerRecord | undefined; canWrite: boolean; onEdit: () => void }) {
+export function WorkerCompensationRow({ employee, worker, canWrite, onEdit }: { employee: Employee; worker: ScheduleWorkerRecord | undefined; canWrite: boolean; onEdit: () => void }) {
   const current = currentVersion(worker?.compensation ?? []);
-  return <tr><td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}・排班支援人員</span></td><td>支援人員／排班</td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite && worker ? <Button variant="icon" icon={current ? "edit" : "plus"} className={current ? "compensation-action-update" : "compensation-action-add"} title={current ? "更新版本" : "新增版本"} aria-label={`為${employee.legalName}新增敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
+  return <tr><td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}・排班支援人員</span></td><td>支援人員／排班</td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite && worker ? <Button variant="icon" icon={current ? "edit" : "plus"} className={current ? "compensation-action-update" : "compensation-action-add"} title={current ? "更新版本" : "新增版本"} aria-label={`為${employee.legalName}${current ? "更新" : "新增"}敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
 }
 
 export function HrCompensationManagement({ settingsOnly = false }: { settingsOnly?: boolean } = {}) {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, summarizeAssignments } from "./overtime-entry.js";
+import { addMinutes, buildOvertimeSubmission, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, summarizeAssignments } from "./overtime-entry.js";
 
 describe("加班時數與結束時間互相換算", () => {
   it("由時數推出結束時間，跨午夜會進到隔天", () => {
@@ -32,6 +32,30 @@ describe("加班時數與結束時間互相換算", () => {
     expect(isValidOvertimeMinutes(20)).toBe(false);
     expect(isValidOvertimeMinutes(1470)).toBe(false);
     expect(isValidOvertimeMinutes(null)).toBe(false);
+  });
+});
+
+describe("加班申請的對象與送出內容", () => {
+  it("單日支援人員加班送 workerId，不會誤送成正式員工", () => {
+    expect(buildOvertimeSubmission({
+      targetKind: "worker", employeeUserId: "", workerId: "worker-1", mode: "single",
+      requestedStart: "2026-10-07T23:00", requestedEnd: "2026-10-08T00:30",
+      settlementKind: "pay", reason: "跨午夜支援加班", entries: [],
+    })).toEqual({
+      path: "/requests/overtime", method: "POST",
+      values: { workerId: "worker-1", settlementKind: "pay", reason: "跨午夜支援加班", requestedStart: "2026-10-07T23:00", requestedEnd: "2026-10-08T00:30" },
+    });
+  });
+
+  it("多日正式員工加班維持 employeeUserId 與批次路徑", () => {
+    expect(buildOvertimeSubmission({
+      targetKind: "employee", employeeUserId: "user-1", workerId: "", mode: "multiple",
+      requestedStart: "", requestedEnd: "", settlementKind: "compensatory", reason: "多日補休",
+      entries: [{ requestedStart: "2026-10-01T18:00", requestedEnd: "2026-10-01T19:00" }],
+    })).toEqual({
+      path: "/requests/overtime/batch", method: "POST",
+      values: { employeeUserId: "user-1", settlementKind: "compensatory", reason: "多日補休", entries: [{ requestedStart: "2026-10-01T18:00", requestedEnd: "2026-10-01T19:00" }] },
+    });
   });
 });
 

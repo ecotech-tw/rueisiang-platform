@@ -9,7 +9,7 @@ import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, P
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OvertimeDayPicker } from "./OvertimeDayPicker.js";
-import { OVERTIME_HOUR_PRESETS, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, summarizeAssignments } from "./overtime-entry.js";
+import { OVERTIME_HOUR_PRESETS, addMinutes, buildOvertimeSubmission, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, summarizeAssignments } from "./overtime-entry.js";
 
 type RequestKind = "leave" | "overtime" | "clock_correction";
 type RequestStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled";
@@ -280,7 +280,7 @@ const OVERTIME_MODE_OPTIONS = [{ value: "single", label: "單日" }, { value: "m
 const OVERTIME_PRESET_OPTIONS = OVERTIME_HOUR_PRESETS.map((hours) => ({ value: String(hours), label: `${hours} 小時` }));
 const OVERTIME_UNIT_ERROR = "時數要以 0.5 小時為單位，最多 24 小時。";
 
-function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone, onPendingChange }: { employees: Employee[]; workers: WorkerCandidate[] } & RequestFormProps) {
+export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone, onPendingChange }: { employees: Employee[]; workers: WorkerCandidate[] } & RequestFormProps) {
   const [mode, setMode] = useState<OvertimeMode>("single");
   const [targetKind, setTargetKind] = useState<"employee" | "worker">("employee");
   const [employeeUserId, setEmployeeUserId] = useState("");
@@ -344,10 +344,7 @@ function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone, onPend
     event.preventDefault();
     if (!canSubmit) return;
     onPendingChange(true);
-    const shared = { ...(targetKind === "employee" ? { employeeUserId } : { workerId }), settlementKind, reason };
-    write.mutate(mode === "single"
-      ? { path: "/requests/overtime", method: "POST", values: { ...shared, requestedStart: start, requestedEnd: end } }
-      : { path: "/requests/overtime/batch", method: "POST", values: { ...shared, entries } }, {
+    write.mutate(buildOvertimeSubmission({ targetKind, employeeUserId, workerId, mode, requestedStart: start, requestedEnd: end, settlementKind, reason, entries }), {
       onSuccess: () => {
         onPendingChange(false);
         toast.show(mode === "single" ? "加班申請成功，已回到申請紀錄。" : `已建立 ${entries.length} 筆加班申請，已回到申請紀錄。`, "success");
