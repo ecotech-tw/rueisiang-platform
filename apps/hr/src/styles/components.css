@@ -376,6 +376,8 @@
 .hr-personal-bottom-link .hr-personal-nav-icon { display: grid; place-items: center; }
 .hr-personal-bottom-link svg { width: 22px; height: 22px; }
 .hr-personal-bottom-link.active { color: var(--color-brand-dark); }
+.hr-personal-nav-icon { position: relative; }
+.hr-personal-nav-badge { position: absolute; top: -6px; right: -10px; min-width: 16px; padding: 1px 4px; border-radius: 999px; background: var(--color-brand); color: var(--color-paper); font-size: 9px; font-weight: 800; line-height: 14px; text-align: center; }
 .hr-location-table td { vertical-align: top; }
 .hr-location-table td > small { display: block; margin-top: 4px; }
 .hr-location-map-search { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 10px; }
@@ -428,6 +430,8 @@
 .hr-clock-calendar-details-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .hr-clock-calendar-details-head strong { font-size: 14px; }
 .hr-clock-calendar-details-head span { color: var(--color-muted); font-size: 12px; }
+.hr-clock-calendar-day-metrics { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 7px 9px; border-radius: 8px; background: var(--color-paper); color: var(--color-muted); font-size: 11px; }
+.hr-clock-calendar-day-metrics strong { color: var(--color-ink); font-size: 12px; font-variant-numeric: tabular-nums; }
 .hr-clock-calendar-empty-detail { margin: 0; color: var(--color-muted); font-size: 12px; }
 .hr-clock-calendar-special { margin: 0; padding: 6px 8px; border-radius: 8px; background: --alpha(var(--color-secondary) / 12%); color: var(--color-ink); font-size: 12px; }
 .hr-clock-calendar-events { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 0; padding: 0; list-style: none; }
@@ -504,6 +508,28 @@
 .hr-clock-blocked { margin: 0; color: var(--color-muted); font-size: 14px; }
 .hr-clock-history-panel { display: grid; gap: 14px; }
 .hr-clock-history-panel .panel-head { margin-bottom: 0; }
+.hr-clock-logs-panel { min-height: 0; overflow-y: auto; }
+.hr-clock-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--color-soft-line); }
+.hr-clock-history-toolbar strong { font-size: 16px; }
+.hr-clock-history-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.hr-clock-history-summary > div { display: grid; gap: 4px; min-width: 0; padding: 11px 12px; border-radius: 12px; background: var(--color-canvas); }
+.hr-clock-history-summary span { color: var(--color-muted); font-size: 11px; font-weight: 700; }
+.hr-clock-history-summary strong { overflow: hidden; color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.hr-clock-history-days { display: grid; gap: 10px; }
+.hr-clock-history-day { display: grid; gap: 8px; padding: 13px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-paper); }
+.hr-clock-history-day.has-anomaly { border-color: --alpha(var(--color-brand) / 42%); background: --alpha(var(--color-brand-soft) / 42%); }
+.hr-clock-history-day-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.hr-clock-history-day-head > div { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.hr-clock-history-day-head strong { font-size: 15px; font-variant-numeric: tabular-nums; }
+.hr-clock-history-day-head span { color: var(--color-muted); font-size: 12px; }
+.hr-clock-history-schedule { margin: 0; color: var(--color-muted); font-size: 12px; }
+.hr-clock-history-events { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.hr-clock-history-events li { display: grid; grid-template-columns: 46px minmax(0, 1fr); gap: 2px 8px; padding: 7px 9px; border-radius: 9px; background: var(--color-canvas); }
+.hr-clock-history-events li span { grid-row: span 2; align-self: center; color: var(--color-muted); font-size: 11px; }
+.hr-clock-history-events li strong { font-size: 12px; font-variant-numeric: tabular-nums; }
+.hr-clock-history-events li small { color: var(--color-muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hr-clock-history-empty { margin: 0; color: var(--color-muted); font-size: 12px; }
+.hr-clock-history-anomaly { margin: 0; color: var(--color-brand-dark); font-size: 12px; font-weight: 700; }
 .hr-clock-timeline { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
 .hr-clock-timeline li { display: grid; grid-template-columns: 72px minmax(0, 1fr); align-items: center; gap: 14px; padding: 14px 0; border-top: 1px solid var(--color-soft-line); }
 .hr-clock-event-label { display: inline-grid; min-height: 30px; place-items: center; border-radius: 999px; background: var(--color-canvas); color: var(--color-muted); font-weight: 800; }
@@ -612,6 +638,49 @@
 .hr-location-toggle input:focus-visible + .hr-location-toggle-track { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-location-toggle strong { color: var(--color-muted); font-size: 13px; }
 .hr-location-toggle input:checked ~ strong { color: var(--color-brand-dark); }
+.hr-notifications-page { width: 100%; max-width: 760px; margin-inline: auto; }
+.hr-notification-panel { min-height: 0; }
+.hr-notification-list { display: grid; gap: 8px; }
+.hr-notification-item { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: start; gap: 10px; width: 100%; padding: 12px; border: 1px solid var(--color-line); border-radius: 13px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; }
+.hr-notification-item:hover { border-color: var(--color-brand); background: --alpha(var(--color-brand) / 5%); }
+.hr-notification-item.unread { border-color: --alpha(var(--color-brand) / 35%); background: var(--color-brand-soft); }
+.hr-notification-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 12px; background: var(--color-canvas); color: var(--color-brand-dark); }
+.hr-notification-icon svg { width: 20px; height: 20px; }
+.hr-notification-copy { display: grid; gap: 4px; min-width: 0; font-size: 13px; line-height: 1.5; }
+.hr-notification-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.hr-notification-title strong { min-width: 0; font-size: 14px; }
+.hr-notification-copy > span:not(.hr-notification-title) { color: var(--color-muted); overflow-wrap: anywhere; }
+.hr-notification-copy small { color: var(--color-muted); font-size: 11px; }
+.hr-payroll-history-page { width: 100%; max-width: 760px; margin-inline: auto; }
+.hr-payroll-history-panel { min-height: 0; }
+.hr-payroll-history-list { display: grid; gap: 10px; }
+.hr-payroll-history-card { display: grid; gap: 14px; width: 100%; padding: 16px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; transition-property: border-color, background-color; transition-duration: 150ms; }
+.hr-payroll-history-card:hover { border-color: var(--color-brand); background: --alpha(var(--color-brand) / 5%); }
+.hr-payroll-history-card:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-payroll-history-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.hr-payroll-history-card-head > div { display: grid; gap: 3px; }
+.hr-payroll-history-card-head strong { font-size: 16px; }
+.hr-payroll-history-card-head span,
+.hr-payroll-history-card-foot { color: var(--color-muted); font-size: 12px; }
+.hr-payroll-history-card-total { display: grid; gap: 4px; padding: 12px; border-radius: 11px; background: var(--color-canvas); }
+.hr-payroll-history-card-total span,
+.hr-payslip-totals span { color: var(--color-muted); font-size: 12px; font-weight: 700; }
+.hr-payroll-history-card-total strong { font-size: 23px; font-variant-numeric: tabular-nums; }
+.hr-payroll-history-card-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.hr-payslip-page > .button { align-self: flex-start; }
+.hr-payslip-panel { display: grid; gap: 18px; }
+.hr-payslip-employee { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; }
+.hr-payslip-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.hr-payslip-totals > div { display: grid; gap: 5px; min-width: 0; padding: 12px; border-radius: 12px; background: var(--color-canvas); }
+.hr-payslip-totals strong { overflow: hidden; font-size: 14px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.hr-payslip-totals .net { background: var(--color-brand-soft); }
+.hr-payslip-totals .net strong { color: var(--color-brand-dark); font-size: 16px; }
+.hr-payslip-lines { display: grid; gap: 16px; }
+.hr-payslip-lines section { display: grid; gap: 8px; }
+.hr-payslip-lines h2 { margin: 0; font-size: 15px; }
+.hr-payslip-lines ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.hr-payslip-lines li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--color-soft-line); font-size: 13px; }
+.hr-payslip-lines li strong { flex: none; font-variant-numeric: tabular-nums; }
 
  
 .page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 20px; }
@@ -3580,7 +3649,7 @@
   .shell:has(.hr-clock-full-page) .mobile-topbar { background: transparent; border-bottom-color: transparent; }
   .hr-module-header { align-items: stretch; flex-direction: column; gap: 4px; padding-bottom: 6px; }
   .hr-personal-top-nav { display: none; }
-  .hr-personal-bottom-nav { position: fixed; right: 50%; bottom: max(12px, env(safe-area-inset-bottom)); left: auto; z-index: 20; display: grid; grid-template-columns: 1fr 1fr 1fr; align-items: center; width: min(260px, calc(100% - 48px)); min-height: 56px; overflow: visible; padding: 5px 8px; border: 1px solid --alpha(var(--color-paper) / 62%); border-radius: 22px; background: --alpha(var(--color-paper) / 58%); box-shadow: 0 12px 34px --alpha(var(--color-ink) / 18%); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); transform: translateX(50%); }
+  .hr-personal-bottom-nav { position: fixed; right: 50%; bottom: max(12px, env(safe-area-inset-bottom)); left: auto; z-index: 20; display: grid; grid-template-columns: repeat(5, 1fr); align-items: center; width: min(380px, calc(100% - 20px)); min-height: 56px; overflow: visible; padding: 5px 8px; border: 1px solid --alpha(var(--color-paper) / 62%); border-radius: 22px; background: --alpha(var(--color-paper) / 58%); box-shadow: 0 12px 34px --alpha(var(--color-ink) / 18%); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); transform: translateX(50%); }
   @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
     .hr-personal-bottom-nav { background: --alpha(var(--color-paper) / 92%); }
   }
@@ -3638,6 +3707,18 @@
   .hr-clock-full-page .hr-clock-retry-action { width: 100%; min-height: 38px; }
   .hr-clock-full-page .hr-clock-feedback-corner { top: 12px; left: 16px; max-width: calc(100vw - 32px); }
   .hr-form-field-row { grid-template-columns: 1fr; gap: 14px; }
+  .hr-clock-history-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .hr-clock-history-summary > div { padding: 9px 8px; }
+  .hr-clock-history-summary strong { font-size: 13px; }
+  .hr-clock-history-day { padding: 11px; }
+  .hr-notifications-page,
+  .hr-payroll-history-page { max-width: none; }
+  .hr-payslip-totals { gap: 6px; }
+  .hr-payslip-totals > div { padding: 10px 8px; }
+  .hr-payslip-totals strong { font-size: 12px; }
+  .hr-payslip-totals .net strong { font-size: 14px; }
+  .hr-notifications-page .page-head { align-items: flex-start; }
+  .hr-notifications-page .page-head > .button { min-height: 40px; padding-inline: 10px; font-size: 12px; }
   .hr-forms-index-head { align-items: center; flex-direction: row; gap: 12px; }
   .hr-forms-index-head > :first-child { flex: 1; width: auto; min-width: 0; }
   .hr-forms-index-head > :last-child { width: auto; }

@@ -16,6 +16,7 @@ export type IconName =
   | "personAdd"
   | "tag"
   | "history"
+  | "notifications"
   | "sync"
   | "warehouse"
   | "inventory"
@@ -182,6 +183,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M4.3 12a7.7 7.7 0 1 0 2.5-5.7" />
       <path d="M4.1 4.4v4h4" />
       <path d="M12 7.9V12l2.9 1.7" />
+    </>
+  ),
+  notifications: (
+    <>
+      <path d="M18 9a6 6 0 0 0-12 0c0 7-2.4 7-2.4 9h16.8C20.4 16 18 16 18 9Z" />
+      <path d="M10 21h4" />
     </>
   ),
   sync: (

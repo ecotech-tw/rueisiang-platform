@@ -104,6 +104,7 @@ export interface ClockCalendarDay {
   specialScopeIds: string[];
   status: "not-employed" | "future" | "present" | "open" | "missing" | "rest" | "leave";
   eventCount: number;
+  workedMinutes: number;
   firstEventAt: string | null;
   lastEventAt: string | null;
   anomaly: "missing" | "incomplete" | "invalid-sequence" | "short-duration" | "late-arrival" | "early-leave" | "unscheduled" | null;
@@ -148,6 +149,8 @@ export interface LeaveRequest {
     leaveTypeId: string | null;
     leaveType: string;
     status: "draft" | "pending" | "approved" | "rejected" | "cancelled";
+    approverUserId: string | null;
+    revision: number;
     startsAt: string;
     endsAt: string;
     startsOn: string;
@@ -186,7 +189,38 @@ export interface FormRequest {
 }
 export interface FormApprover { id: string; name: string; employeeNumber?: string }
 export interface FormApproversResponse { approvers: FormApprover[]; defaultApproverUserId: string | null }
-export interface OvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; revision: number; createdAt: string }; employeeName: string | null }
+export interface HrNotification {
+  id: string;
+  kind: "request_submitted" | "request_reviewed" | "request_cancelled";
+  entityKind: "leave" | "overtime" | "clock_correction";
+  entityId: string;
+  title: string;
+  body: string;
+  readAt: string | null;
+  createdAt: string;
+}
+export interface HrNotificationsResponse { notifications: HrNotification[]; unreadCount: number }
+export interface HrPayrollHistoryRecord {
+  runId: string;
+  periodKey: string;
+  versionNumber: number;
+  payDate: string | null;
+  employmentId: string;
+  employeeNumber: string;
+  employeeName: string;
+  earningMinor: number;
+  deductionMinor: number;
+  netMinor: number;
+  closedAt: string;
+}
+export interface PayrollLine { lineKey: string; direction: "earning" | "deduction"; amountMinor: number; explanation: Record<string, unknown> }
+export interface HrPayslipDetailResponse {
+  detail: {
+    record: Pick<HrPayrollHistoryRecord, "periodKey" | "versionNumber" | "payDate" | "employmentId" | "employeeNumber" | "employeeName" | "earningMinor" | "deductionMinor" | "netMinor">;
+    lines: PayrollLine[];
+  };
+}
+export interface OvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; approverUserId: string | null; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; revision: number; createdAt: string }; employeeUserId: string; employeeName: string | null }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);

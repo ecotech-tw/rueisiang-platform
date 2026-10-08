@@ -27,6 +27,15 @@ async function assignEmployee() {
   expect(response.status, await response.clone().text()).toBe(201);
 }
 
+async function assignEmployeeSupervisor() {
+  await assignEmployee();
+  const approver = await request("/hr/employees", "POST", { userId: "admin", legalName: "審核主管", employeeNumber: "E-APPROVER", position: "一般職員", serviceStartOn: "2026-01-01" });
+  expect(approver.status, await approver.clone().text()).toBe(201);
+  const employee = await (await request("/hr/employees/employee")).json() as { employments: Array<{ revision: number }> };
+  const supervisor = await request("/hr/employees/employee/supervisor", "PATCH", { supervisorUserId: "admin", revision: employee.employments[0]!.revision });
+  expect(supervisor.status, await supervisor.clone().text()).toBe(200);
+}
+
 beforeEach(async () => {
   d1 = createTargetOnlyD1();
   const db = createDatabase(d1 as never);
@@ -344,6 +353,120 @@ describe("HR 申請中心", () => {
     expect((await afterCancel.json() as { requests: Array<{ request: { id: string; status: string } }> }).requests.find((item) => item.request.id === requestId)?.request.status).toBe("cancelled");
   });
 
+  it("請假與加班待審可由指定主管處理，修改版本受控並通知雙方", async () => {
+    await assignEmployeeSupervisor();
+    const leaveType = await request("/hr/leave-types", "POST", { name: "手機簽核測試假", defaultPayRatePpm: 1_000_000 });
+    expect(leaveType.status, await leaveType.clone().text()).toBe(201);
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+
+    const leave = await request("/hr/me/leave-requests", "POST", {
+      leaveTypeId, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "手機修改測試",
+    }, employeeCookie);
+    expect(leave.status, await leave.clone().text()).toBe(201);
+    const leaveId = (await leave.json() as { id: string }).id;
+    const leaveList = await (await request("/hr/me/leave-requests", "GET", undefined, employeeCookie)).json() as { requests: Array<{ request: { id: string; revision: number; status: string } }> };
+    const initialLeave = leaveList.requests.find((item) => item.request.id === leaveId)?.request;
+    expect(initialLeave).toMatchObject({ revision: 1, status: "pending" });
+
+    const updatedLeave = await request(`/hr/me/leave-requests/${leaveId}`, "PATCH", {
+      leaveTypeId, startsAt: "2026-02-09T09:00", endsAt: "2026-02-09T13:00", reason: "手機更新後的原因", revision: initialLeave?.revision,
+    }, employeeCookie);
+    expect(updatedLeave.status, await updatedLeave.clone().text()).toBe(200);
+    expect((await request(`/hr/me/leave-requests/${leaveId}`, "PATCH", {
+      leaveTypeId, startsAt: "2026-02-09T09:00", endsAt: "2026-02-09T13:00", reason: "舊版本不可覆蓋", revision: 1,
+    }, employeeCookie)).status).toBe(409);
+
+    const overtime = await request("/hr/me/overtime", "POST", {
+      requestedStart: "2026-02-10T18:00", requestedEnd: "2026-02-10T20:00", settlementKind: "compensatory", reason: "主管手機簽核",
+    }, employeeCookie);
+    expect(overtime.status, await overtime.clone().text()).toBe(201);
+    const overtimeId = (await overtime.json() as { id: string }).id;
+
+    const leaveInbox = await (await request("/hr/me/leave-requests", "GET", undefined, adminCookie)).json() as { reviewRequests: Array<{ request: { id: string; status: string; approverUserId: string } }> };
+    expect(leaveInbox.reviewRequests.find((item) => item.request.id === leaveId)?.request).toMatchObject({ status: "pending", approverUserId: "admin" });
+    const overtimeInbox = await (await request("/hr/me/overtime", "GET", undefined, adminCookie)).json() as { reviewRequests: Array<{ request: { id: string; status: string; approverUserId: string }; employeeUserId: string }> };
+    expect(overtimeInbox.reviewRequests.find((item) => item.request.id === overtimeId)).toMatchObject({ request: { status: "pending", approverUserId: "admin" }, employeeUserId: "employee" });
+
+    const approverNotifications = await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json() as { notifications: Array<{ id: string; entityId: string; kind: string }>; unreadCount: number };
+    expect(approverNotifications.unreadCount).toBe(3);
+    expect(approverNotifications.notifications.filter((item) => item.entityId === leaveId && item.kind === "request_submitted")).toHaveLength(2);
+    expect(approverNotifications.notifications.some((item) => item.entityId === overtimeId && item.kind === "request_submitted")).toBe(true);
+
+    expect((await request(`/hr/me/leave-requests/${leaveId}/review`, "POST", { decision: "approved", comment: "手機核准" }, adminCookie)).status).toBe(200);
+    expect((await request(`/hr/me/overtime/${overtimeId}/review`, "POST", { decision: "rejected", comment: "請補充工時說明" }, adminCookie)).status).toBe(200);
+    const employeeNotifications = await (await request("/hr/me/notifications", "GET", undefined, employeeCookie)).json() as { notifications: Array<{ id: string; entityId: string; title: string }>; unreadCount: number };
+    expect(employeeNotifications.unreadCount).toBe(2);
+    expect(employeeNotifications.notifications).toEqual(expect.arrayContaining([
+      expect.objectContaining({ entityId: leaveId, title: "請假申請已核准" }),
+      expect.objectContaining({ entityId: overtimeId, title: "加班申請已駁回" }),
+    ]));
+
+    // 通知只能由擁有者標記已讀，其他人的通知 ID 不可操作。
+    const markForeignRead = await request(`/hr/me/notifications/${approverNotifications.notifications[0]!.id}/read`, "POST", {}, employeeCookie);
+    expect(markForeignRead.status).toBe(404);
+    expect((await request(`/hr/me/notifications/${employeeNotifications.notifications[0]!.id}/read`, "POST", {}, employeeCookie)).status).toBe(200);
+    expect((await (await request("/hr/me/notifications", "GET", undefined, employeeCookie)).json() as { unreadCount: number }).unreadCount).toBe(1);
+    const readAll = await request("/hr/me/notifications/read-all", "POST", {}, employeeCookie);
+    expect(readAll.status).toBe(200);
+    expect((await (await request("/hr/me/notifications", "GET", undefined, employeeCookie)).json() as { unreadCount: number }).unreadCount).toBe(0);
+  });
+
+  it("找不到非本人審核者時拒絕建立請假與加班申請", async () => {
+    const employment = await request("/hr/employees", "POST", { userId: "admin", legalName: "唯一管理者", employeeNumber: "E-ONLY-ADMIN", position: "管理者", serviceStartOn: "2026-01-01" });
+    expect(employment.status, await employment.clone().text()).toBe(201);
+    const leaveType = await request("/hr/leave-types", "POST", { name: "無審核者測試假", defaultPayRatePpm: 1_000_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+
+    expect((await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "沒有其他審核者" }, adminCookie)).status).toBe(409);
+    expect((await request("/hr/me/overtime", "POST", { requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "pay", reason: "沒有其他審核者" }, adminCookie)).status).toBe(409);
+    const inbox = await (await request("/hr/me/leave-requests", "GET", undefined, adminCookie)).json() as { requests: unknown[] };
+    expect(inbox.requests).toHaveLength(0);
+  });
+
+  it("HR 管理者的待審清單不顯示本人申請", async () => {
+    d1.sqlite.prepare("INSERT INTO users(id,email,display_name,status) VALUES ('admin-two','admin-two@example.test','第二管理者','active')").run();
+    d1.sqlite.prepare("INSERT INTO user_role_assignments(user_id,role_id) VALUES ('admin-two','role-admin')").run();
+    await assignEmployeeSupervisor();
+    const leaveType = await request("/hr/leave-types", "POST", { name: "自審排除測試假", defaultPayRatePpm: 1_000_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+    const employeeLeave = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "員工申請" }, employeeCookie);
+    expect(employeeLeave.status, await employeeLeave.clone().text()).toBe(201);
+    const employeeLeaveId = (await employeeLeave.json() as { id: string }).id;
+    const selfLeave = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-02-09T09:00", endsAt: "2026-02-09T13:00", reason: "管理者本人申請" }, adminCookie);
+    expect(selfLeave.status, await selfLeave.clone().text()).toBe(201);
+    const selfLeaveId = (await selfLeave.json() as { id: string }).id;
+
+    const leaveInbox = await (await request("/hr/me/leave-requests", "GET", undefined, adminCookie)).json() as { reviewRequests: Array<{ request: { id: string } }> };
+    expect(leaveInbox.reviewRequests.map((item) => item.request.id)).toContain(employeeLeaveId);
+    expect(leaveInbox.reviewRequests.map((item) => item.request.id)).not.toContain(selfLeaveId);
+
+    const employeeOvertime = await request("/hr/me/overtime", "POST", { requestedStart: "2026-02-10T18:00", requestedEnd: "2026-02-10T20:00", settlementKind: "pay", reason: "員工加班申請" }, employeeCookie);
+    const employeeOvertimeId = (await employeeOvertime.json() as { id: string }).id;
+    const selfOvertime = await request("/hr/me/overtime", "POST", { requestedStart: "2026-02-11T18:00", requestedEnd: "2026-02-11T20:00", settlementKind: "pay", reason: "管理者本人加班申請" }, adminCookie);
+    const selfOvertimeId = (await selfOvertime.json() as { id: string }).id;
+    const overtimeInbox = await (await request("/hr/me/overtime", "GET", undefined, adminCookie)).json() as { reviewRequests: Array<{ request: { id: string } }> };
+    expect(overtimeInbox.reviewRequests.map((item) => item.request.id)).toContain(employeeOvertimeId);
+    expect(overtimeInbox.reviewRequests.map((item) => item.request.id)).not.toContain(selfOvertimeId);
+  });
+
+  it("請假被駁回後以新申請重送，原駁回紀錄保留", async () => {
+    await assignEmployee();
+    const leaveType = await request("/hr/leave-types", "POST", { name: "駁回重送測試假", defaultPayRatePpm: 1_000_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+    const values = { leaveTypeId, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "第一次申請" };
+    const first = await request("/hr/me/leave-requests", "POST", values, employeeCookie);
+    expect(first.status, await first.clone().text()).toBe(201);
+    const firstId = (await first.json() as { id: string }).id;
+    expect((await request(`/hr/requests/leave/${firstId}/review`, "POST", { decision: "rejected", comment: "請調整申請日期" })).status).toBe(200);
+
+    const resubmitted = await request("/hr/me/leave-requests", "POST", { ...values, startsAt: "2026-02-06T09:00", endsAt: "2026-02-06T13:00", reason: "依意見重新申請" }, employeeCookie);
+    expect(resubmitted.status, await resubmitted.clone().text()).toBe(201);
+    const secondId = (await resubmitted.json() as { id: string }).id;
+    const records = await (await request("/hr/me/leave-requests", "GET", undefined, employeeCookie)).json() as { requests: Array<{ request: { id: string; status: string; reviewComment: string | null } }> };
+    expect(records.requests.find((item) => item.request.id === firstId)?.request).toMatchObject({ status: "rejected", reviewComment: "請調整申請日期" });
+    expect(records.requests.find((item) => item.request.id === secondId)?.request.status).toBe("pending");
+  });
+
   it("本人可以更新待審加班申請，已核准申請需取消後重送", async () => {
     await assignEmployee();
 
@@ -528,6 +651,9 @@ describe("HR 申請中心", () => {
       expect((await request(`/hr/me/form-requests/${id}/review`, "POST", { decision: "approved" })).status).toBe(200);
       expect((await request(`/hr/me/form-requests/${id}/cancel`, "POST", {}, employeeCookie)).status).toBe(409);
       expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_clock_events WHERE correction_request_id=?").get(id)).toEqual({ count: 1 });
+      const notifications = await (await request("/hr/me/notifications", "GET", undefined, employeeCookie)).json() as { notifications: Array<{ entityId: string; title: string }>; unreadCount: number };
+      expect(notifications.unreadCount).toBe(1);
+      expect(notifications.notifications).toContainEqual(expect.objectContaining({ entityId: id, title: "補打卡申請已核准" }));
     });
 
     it("草稿可以由申請人刪除，送出後不能刪", async () => {

@@ -12,13 +12,13 @@ import {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_ATTENDANCE_STATUSES, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis, type HrScheduleAttendanceStatus,
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
-  cancelHrOvertimeRequest, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
+  cancelHrOvertimeRequest, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
-  calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest,
+  calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
-  createDeviceSession, revokeDeviceSession,
+  createDeviceSession, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -413,6 +413,7 @@ function leaveRequestInput(input: Record<string, unknown>, employeeUserId: strin
     ...leaveDurationInput(input, employeeUserId),
     leaveTypeId: text(input, "leaveTypeId", "假別"),
     reason: nullableText(input, "reason", "請假原因", 1000) ?? "",
+    revision: input.revision === undefined ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER),
   } as const;
 }
 function leaveTypeInput(input: Record<string, unknown>) {
@@ -521,6 +522,28 @@ export const hr = new Hono<AppEnv>()
     throw error;
   })
   .get("/me/session", async (c) => c.json({ ...await sessionUserPayload(c.get("db"), c.get("user")), deviceRemembered: c.get("deviceSession") }))
+  .get("/me/notifications", async (c) => {
+    const limit = c.req.query("limit") === undefined ? 50 : calendarNumber(c.req.query("limit"), 50, "通知筆數", 1, 100);
+    return c.json(await listHrNotifications(c.get("db"), c.get("user").id, limit));
+  })
+  .post("/me/notifications/:id/read", async (c) => c.json(await markHrNotificationRead(c.get("db"), c.req.param("id"), c.get("user").id)))
+  .post("/me/notifications/read-all", async (c) => c.json(await markAllHrNotificationsRead(c.get("db"), c.get("user").id)))
+  .get("/me/payroll-history", async (c) => c.json({ records: await listHrPayrollEmployeeHistory(c.get("db"), c.get("user").id) }))
+  .get("/me/payroll-history/:runId/:employmentId", async (c) => {
+    const userId = c.get("user").id;
+    const runId = c.req.param("runId");
+    const employmentId = c.req.param("employmentId");
+    const owned = (await listHrPayrollEmployeeHistory(c.get("db"), userId)).find((record) => record.runId === runId && record.employmentId === employmentId);
+    if (!owned) throw new HTTPException(404, { message: "找不到已發放的薪資明細。" });
+    const detail = await getHrPayrollRecordDetail(c.get("db"), { runId, personKind: "employee", personId: employmentId });
+    return c.json({ detail: {
+      record: owned,
+      lines: [
+        ...(detail.employee?.lines ?? []),
+        ...detail.items.map((item) => ({ lineKey: `legacy_adjustment_${item.id}`, direction: item.direction, amountMinor: item.amountMinor, explanation: { itemName: item.itemName, reason: item.reason } })),
+      ],
+    } });
+  })
   /*
    * 記住這台手機。只接受 12 小時 session 發：裝置 cookie 能自己再發一台的話，
    * 被偷的那台撤銷之後，它早先替自己發出去的另一台還活著。
@@ -592,20 +615,43 @@ export const hr = new Hono<AppEnv>()
     }, c.get("user"));
     return c.json(result, result.idempotent ? 200 : 201);
   })
-  .get("/me/overtime", async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), c.get("user").id) }))
+  .get("/me/overtime", async (c) => {
+    const user = c.get("user");
+    const allowAny = can(user, "hr:request:review");
+    return c.json({ requests: await listHrOvertimeRequests(c.get("db"), user.id), reviewRequests: await listHrOvertimeReviewRequests(c.get("db"), user.id, allowAny) });
+  })
   .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
   .patch("/me/overtime/:id", async (c) => c.json(await updateHrOvertimeRequest(c.get("db"), c.req.param("id"), overtimeInput(await body(c), c.get("user").id), c.get("user"))))
   .post("/me/overtime/:id/cancel", async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"))))
+  .post("/me/overtime/:id/review", async (c) => {
+    const input = await body(c);
+    const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
+    if (!decision) throw new HTTPException(400, { message: "加班審核結果不正確。" });
+    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), undefined, { allowAny: can(c.get("user"), "hr:request:review") }));
+  })
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), undefined, true) }))
   .get("/me/leave-types", async (c) => {
     const asOfDate = c.req.query("asOfDate");
     if (asOfDate !== undefined) date({ date: asOfDate }, "date");
     return c.json({ leaveTypes: await listHrSelfLeaveTypeOptions(c.get("db"), c.get("user").id, asOfDate) });
   })
-  .get("/me/leave-requests", async (c) => c.json({ requests: await listHrLeaveRequests(c.get("db"), c.get("user").id) }))
+  .get("/me/leave-requests", async (c) => {
+    const user = c.get("user");
+    const allowAny = can(user, "hr:request:review");
+    return c.json({ requests: await listHrLeaveRequests(c.get("db"), user.id), reviewRequests: await listHrLeaveReviewRequests(c.get("db"), user.id, allowAny) });
+  })
   .post("/me/leave-duration", async (c) => c.json(await calculateHrLeaveDuration(c.get("db"), leaveDurationInput(await body(c), c.get("user").id))))
   .post("/me/leave-requests", async (c) => c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .patch("/me/leave-requests/:id", async (c) => c.json(await updateHrLeaveRequest(c.get("db"), c.req.param("id"), leaveRequestInput(await body(c), c.get("user").id), c.get("user"))))
   .post("/me/leave-requests/:id/cancel", async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"))))
+  .post("/me/leave-requests/:id/review", async (c) => {
+    const input = await body(c);
+    const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
+    if (!decision) throw new HTTPException(400, { message: "請假審核結果不正確。" });
+    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: can(c.get("user"), "hr:request:review") }));
+  })
   .get("/leave-types", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     return c.json({ leaveTypes: await listHrLeaveTypes(c.get("db"), true) });
@@ -729,7 +775,7 @@ export const hr = new Hono<AppEnv>()
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "請假審核結果不正確。" });
     const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
-    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user")));
+    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: true }));
   })
   .post("/requests/leave/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
   .post("/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
@@ -740,7 +786,7 @@ export const hr = new Hono<AppEnv>()
     const actualStart = optionalDateTimeValue(input, "actualStart", "實際加班開始");
     const actualEnd = optionalDateTimeValue(input, "actualEnd", "實際加班結束");
     if ((actualStart === undefined) !== (actualEnd === undefined)) throw new HTTPException(400, { message: "實際加班開始與結束時間必須一起填寫。" });
-    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined));
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true }));
   })
   .get("/me/form-approvers", async (c) => c.json(await listHrFormApprovers(c.get("db"), c.get("user").id)))
   .get("/me/form-requests", async (c) => c.json(await listHrFormRequests(c.get("db"), c.get("user").id, can(c.get("user"), "hr:request:review"))))

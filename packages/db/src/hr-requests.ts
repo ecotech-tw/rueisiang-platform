@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, ne, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
+import { insertHrNotification } from "./hr-notifications.js";
 import { hrFormRequests } from "./schema/hr-requests.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
@@ -116,7 +117,7 @@ export async function listHrFormRequests(db: Database, userId: string, allowAny 
   const requests = await db.select(formFields).from(hrFormRequests)
     .where(eq(hrFormRequests.employeeUserId, userId)).orderBy(desc(hrFormRequests.createdAt));
   const reviewRequests = await db.select(formFields).from(hrFormRequests)
-    .where(allowAny ? eq(hrFormRequests.status, "pending") : and(eq(hrFormRequests.approverUserId, userId), eq(hrFormRequests.status, "pending")))
+    .where(and(eq(hrFormRequests.status, "pending"), ne(hrFormRequests.employeeUserId, userId), allowAny ? undefined : eq(hrFormRequests.approverUserId, userId)))
     .orderBy(asc(hrFormRequests.submittedAt), asc(hrFormRequests.createdAt));
   return { requests, reviewRequests };
 }
@@ -173,9 +174,14 @@ export async function submitHrFormRequest(db: Database, id: string, employeeUser
   await ensureApprover(db, employeeUserId, approverUserId);
   if (current.conflict) throw new HrError(409, "同一個時間點已有一張審核中或已核准的補打卡申請，請改時間，或先取消審核中的那一張。");
   // 上面只為了給出看得懂的訊息；真正擋住同時送出兩張的是 WHERE 裡的同一個條件。
-  return writeHrMutation(db, sql`UPDATE hr_form_requests SET
+  const update = sql`UPDATE hr_form_requests SET
     status='pending', approver_user_id=${approverUserId}, submitted_at=CURRENT_TIMESTAMP, updated_at=CURRENT_TIMESTAMP
-    WHERE id=${id} AND employee_user_id=${employeeUserId} AND status='draft' AND NOT ${conflictingRequestExists(id)} RETURNING id`, id, actor, "hr_form_request_submitted", "申請單已變更，請重新整理後再送出。");
+    WHERE id=${id} AND employee_user_id=${employeeUserId} AND status='draft' AND NOT ${conflictingRequestExists(id)} RETURNING id`;
+  const mutations = [update, insertHrNotification({
+    userId: approverUserId, sourceKey: `clock-correction:${id}:submitted`, kind: "request_submitted", entityKind: "clock_correction", entityId: id,
+    title: "有新的補打卡申請待審核", body: `申請日期：${current.correctionDate}，請開啟待審清單處理。`,
+  })];
+  return writeHrMutation(db, mutations, id, actor, "hr_form_request_submitted", "申請單已變更，請重新整理後再送出。");
 }
 
 /** 取消只開放審核中的申請：已核准的已經產生 append-only 打卡事件，不能靠改狀態收回。 */
@@ -184,8 +190,14 @@ export async function cancelHrFormRequest(db: Database, id: string, employeeUser
     .where(and(eq(hrFormRequests.id, id), eq(hrFormRequests.employeeUserId, employeeUserId))).limit(1);
   if (!current) throw new HrError(404, "找不到這份申請單。");
   if (current.status !== "pending") throw new HrError(409, "只有審核中的申請單可以取消。");
-  return writeHrMutation(db, sql`UPDATE hr_form_requests SET status='cancelled', updated_at=CURRENT_TIMESTAMP
-    WHERE id=${id} AND employee_user_id=${employeeUserId} AND status='pending' RETURNING id`, id, actor, "hr_form_request_cancelled", "申請單已被審核或變更，請重新整理。");
+  const update = sql`UPDATE hr_form_requests SET status='cancelled', updated_at=CURRENT_TIMESTAMP
+    WHERE id=${id} AND employee_user_id=${employeeUserId} AND status='pending' RETURNING id`;
+  const [request] = await db.select({ approverUserId: hrFormRequests.approverUserId }).from(hrFormRequests).where(eq(hrFormRequests.id, id)).limit(1);
+  const mutations = request?.approverUserId ? [update, insertHrNotification({
+    userId: request.approverUserId, sourceKey: `clock-correction:${id}:cancelled`, kind: "request_cancelled", entityKind: "clock_correction", entityId: id,
+    title: "補打卡申請已取消", body: "申請人已取消一筆待審補打卡申請。",
+  })] : update;
+  return writeHrMutation(db, mutations, id, actor, "hr_form_request_cancelled", "申請單已被審核或變更，請重新整理。");
 }
 
 /** 草稿沒有送出過、審核者也沒看過，直接刪除；送出過的申請一律保留成紀錄。 */
@@ -212,20 +224,31 @@ export async function reviewHrFormRequest(db: Database, id: string, reviewerUser
   const reviewWhere = sql`id=${id} AND status='pending' ${allowAny ? sql`` : sql`AND approver_user_id=${reviewerUserId}`}`;
   if (decision === "approved") {
     const eventId = crypto.randomUUID();
+    const update = sql`UPDATE hr_form_requests SET
+      status='approved', corrected_clock_event_id=${eventId}, reviewed_at=CURRENT_TIMESTAMP, review_comment=${comment.trim()}, updated_at=CURRENT_TIMESTAMP
+      WHERE ${reviewWhere} AND corrected_clock_event_id IS NULL RETURNING id`;
     await writeHrMutation(db, [
       sql`INSERT INTO hr_clock_events
         (id, employee_user_id, employment_id, source_kind, idempotency_key, correction_request_id, event_kind, recorded_by, manual_reason, occurred_at, received_at)
         SELECT ${eventId}, ${current.employeeUserId}, ${current.employmentId}, 'manual', ${`form-correction:${id}`}, ${id}, ${current.requestedEventKind}, ${reviewerUserId}, ${current.reason}, ${current.requestedAt}, CURRENT_TIMESTAMP
         FROM hr_form_requests
         WHERE ${reviewWhere} AND corrected_clock_event_id IS NULL RETURNING id`,
-      sql`UPDATE hr_form_requests SET
-        status='approved', corrected_clock_event_id=${eventId}, reviewed_at=CURRENT_TIMESTAMP, review_comment=${comment.trim()}, updated_at=CURRENT_TIMESTAMP
-        WHERE ${reviewWhere} AND corrected_clock_event_id IS NULL RETURNING id`,
+      update,
+      insertHrNotification({
+        userId: current.employeeUserId, sourceKey: `clock-correction:${id}:reviewed:approved`, kind: "request_reviewed", entityKind: "clock_correction", entityId: id,
+        title: "補打卡申請已核准", body: comment.trim() || "正式打卡紀錄已建立，請回到出勤日曆查看。",
+      }),
     ], id, actor, "hr_form_request_reviewed", "申請單已被其他人處理，請重新整理。 ");
   } else {
-    await writeHrMutation(db, sql`UPDATE hr_form_requests SET
-      status=${decision}, reviewed_at=CURRENT_TIMESTAMP, review_comment=${comment.trim()}, updated_at=CURRENT_TIMESTAMP
-      WHERE ${reviewWhere} RETURNING id`, id, actor, "hr_form_request_reviewed", "申請單已被其他人處理，請重新整理。 ");
+    await writeHrMutation(db, [
+      sql`UPDATE hr_form_requests SET
+        status=${decision}, reviewed_at=CURRENT_TIMESTAMP, review_comment=${comment.trim()}, updated_at=CURRENT_TIMESTAMP
+        WHERE ${reviewWhere} RETURNING id`,
+      insertHrNotification({
+        userId: current.employeeUserId, sourceKey: `clock-correction:${id}:reviewed:${decision}`, kind: "request_reviewed", entityKind: "clock_correction", entityId: id,
+        title: "補打卡申請已駁回", body: comment.trim() || "請開啟申請紀錄查看審核意見。",
+      }),
+    ], id, actor, "hr_form_request_reviewed", "申請單已被其他人處理，請重新整理。 ");
   }
   return { id, status: decision };
 }
