@@ -2237,7 +2237,7 @@
 .shift-items-label { color: var(--color-ink); font-size: 13px; font-weight: 600; }
 /* 內距 5px ＋ 欄位 9px 圓角 = 卡片 14px：巢狀圓角同心，邊角才不會看起來歪一塊。 */
 .shift-group { display: grid; gap: 6px; padding: 5px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-paper); }
-.shift-group-head { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
+.shift-group-head { display: grid; grid-template-columns: minmax(0, 1fr) minmax(76px, 92px) 44px; align-items: center; gap: 8px; }
 .shift-day-row { display: grid; grid-template-columns: 62px 108px 108px 100px 44px; align-items: center; gap: 8px; }
 .shift-day-row-empty { grid-template-columns: 62px minmax(0, 1fr) auto; }
 .shift-day-label { padding-left: 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; }
