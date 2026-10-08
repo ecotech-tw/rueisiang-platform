@@ -2242,7 +2242,7 @@
 .shift-day-row { display: grid; grid-template-columns: 62px minmax(72px, 1fr) minmax(72px, 1fr) minmax(72px, 1fr) minmax(76px, 90px) 44px; align-items: center; gap: 8px; }
 .shift-day-head { padding: 0 4px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
 .shift-day-head > span:not(:first-child):not(:last-child) { text-align: center; }
-.shift-day-row-empty { grid-template-columns: 62px minmax(0, 1fr) minmax(76px, 90px) auto; }
+.shift-day-row-empty { grid-template-columns: 62px minmax(0, 1fr) auto; }
 .shift-day-label { padding-left: 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; }
 .shift-day-inherited { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .shift-group .field { min-width: 0; margin: 0; }
@@ -2281,9 +2281,8 @@
   .shift-day-row-empty { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
   .shift-day-row-empty .shift-day-label { grid-column: 1 / -1; }
   .shift-day-row-empty .shift-day-inherited { grid-column: 1; grid-row: 2; }
-  .shift-day-row-empty > .field { grid-column: 1; grid-row: 3; }
   .shift-day-row-empty > .add-action,
-  .shift-day-row-empty > .shift-item-spacer { grid-column: 2; grid-row: 3; }
+  .shift-day-row-empty > .shift-item-spacer { grid-column: 2; grid-row: 2; }
 }
 /*
  * 好幾個 HR 對話框用 form-grid／form-grid two 排兩欄，但這個 class 一直沒有定義，
