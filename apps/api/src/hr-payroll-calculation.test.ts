@@ -1098,6 +1098,40 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await records.json() as { records: Array<{ personKind: string; personId: string; personName: string; payBasis: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ personKind: "worker", personId: workerId, personName: "測試支援人員", payBasis: "daily" })]));
   });
 
+  it("假日班別使用假日需求人力快照，但薪資仍只分配一個班別單位", async () => {
+    for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
+      const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "假日需求人力分配測試" });
+      expect(compensation.status, await compensation.clone().text()).toBe(201);
+    }
+    const calendar = await request("/hr/calendar/2026-09", "PUT", { days: [{ date: "2026-09-03", dayType: "holiday", name: "假日增援" }] });
+    expect(calendar.status, await calendar.clone().text()).toBe(200);
+    const created = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "假日增援班", times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 1 },
+      { dayType: "holiday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 2 },
+    ] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const templateId = (await created.json() as { id: string }).id;
+    const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ templateId: string; dayType: string; versionId: string; requiredHeadcount: number }> };
+    const holidayShift = schedule.shifts.find((shift) => shift.templateId === templateId && shift.dayType === "holiday");
+    expect(holidayShift).toMatchObject({ requiredHeadcount: 2 });
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: holidayShift!.versionId, workDate: "2026-09-03" },
+      { personKind: "employee", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: holidayShift!.versionId, workDate: "2026-09-03" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-payroll-holiday-headcount-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ employmentId: string; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }>; warnings: string[] } };
+    for (const employmentId of ["dev-employment-chen", "dev-employment-wang"]) {
+      const base = body.run.employees.find((employee) => employee.employmentId === employmentId)?.lines.find((line) => line.lineKey === "base_salary");
+      expect(base).toMatchObject({ amountMinor: 90_000 });
+      expect((base?.explanation.scheduleAllocationDetails as Array<{ requiredHeadcount: number; allocatedUnits: number; unitDenominator: number }>)).toEqual(expect.arrayContaining([
+        expect.objectContaining({ requiredHeadcount: 2, allocatedUnits: 0.5, unitDenominator: 2 }),
+      ]));
+    }
+    expect(body.run.warnings.some((warning) => warning.includes("已安排 2／需求 2 人"))).toBe(false);
+  });
+
   it("同一據點日期班別的兩位日薪員工各分得半個本薪單位，並保存分配公式", async () => {
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
       const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "多人班分配測試" });
