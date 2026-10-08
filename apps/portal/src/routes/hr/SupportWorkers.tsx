@@ -21,6 +21,12 @@ function money(minor: number) {
   return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`;
 }
 
+function overtimeLabel(version: { overtimeRatePpm?: number | null; overtimeHourlyMinor?: number | null }) {
+  if (version.overtimeRatePpm != null) return `加班固定 ${(version.overtimeRatePpm / 1_000_000).toFixed(6).replace(/0+$/, "").replace(/\.$/, "")} 倍`;
+  if (version.overtimeHourlyMinor != null) return `加班固定 ${money(version.overtimeHourlyMinor)}／時`;
+  return "加班沿用制度倍率";
+}
+
 function currentCompensation(worker: ScheduleWorkerRecord) {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
@@ -81,7 +87,7 @@ export function HrSupportWorkers() {
           return <tr key={worker.id}>
             <td data-label="姓名"><span className="cell-strong">{worker.displayName}</span></td>
             <td data-label="狀態"><StatusBadge tone={isActive(worker) ? "success" : "danger"}>{isActive(worker) ? "啟用中" : "已停用"}</StatusBadge></td>
-            <td data-label="目前薪資" className="numeric">{compensation ? `${PAY_BASIS_LABEL[compensation.payBasis]} · ${money(compensation.baseAmountMinor)}` : <span className="muted">尚未設定</span>}</td>
+            <td data-label="目前薪資" className="numeric">{compensation ? <>{PAY_BASIS_LABEL[compensation.payBasis]} · {money(compensation.baseAmountMinor)}<br /><span className="muted">{overtimeLabel(compensation)}</span></> : <span className="muted">尚未設定</span>}</td>
             <td data-label="生效日">{compensation?.validFrom ?? "—"}</td>
             {canWrite ? <td data-label="操作"><Button variant="secondary" className="hr-action-update" onClick={() => setEditing(worker)}>管理</Button></td> : null}
           </tr>;

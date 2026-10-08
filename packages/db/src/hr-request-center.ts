@@ -157,6 +157,46 @@ function requestCenterCte() {
     UNION ALL
 
     SELECT
+      'overtime' AS kind,
+      worker_overtime_request.id AS id,
+      worker.display_name AS employee_name,
+      NULL AS employee_number,
+      worker_overtime_request.status AS status,
+      worker_overtime_request.reason AS reason,
+      worker_overtime_request.created_at AS created_at,
+      NULL AS starts_at,
+      NULL AS ends_at,
+      NULL AS starts_on,
+      NULL AS ends_on,
+      NULL AS leave_type,
+      NULL AS duration_minutes,
+      worker_overtime_request.requested_start AS requested_start,
+      worker_overtime_request.requested_end AS requested_end,
+      worker_overtime_request.settlement_kind AS settlement_kind,
+      NULL AS correction_date,
+      NULL AS requested_event_kind,
+      NULL AS requested_at,
+      (
+        '加班 支援人員 ' || coalesce(worker.display_name, '') || ' ' ||
+        coalesce(datetime(worker_overtime_request.requested_start, '+8 hours'), '') || ' ' ||
+        coalesce(datetime(worker_overtime_request.requested_end, '+8 hours'), '') || ' ' ||
+        CASE worker_overtime_request.settlement_kind WHEN 'pay' THEN '付薪' ELSE '補休' END || ' ' ||
+        coalesce(worker_overtime_request.reason, '') || ' ' ||
+        CASE worker_overtime_request.status
+          WHEN 'draft' THEN '草稿'
+          WHEN 'pending' THEN '待審核'
+          WHEN 'approved' THEN '已核准'
+          WHEN 'rejected' THEN '已駁回'
+          WHEN 'cancelled' THEN '已取消'
+          ELSE worker_overtime_request.status
+        END
+      ) AS search_text
+    FROM hr_worker_overtime_requests AS worker_overtime_request
+    INNER JOIN hr_schedule_workers AS worker ON worker.id = worker_overtime_request.worker_id
+
+    UNION ALL
+
+    SELECT
       'clock_correction' AS kind,
       form_request.id AS id,
       coalesce(nullif(employment.legal_name, ''), nullif(employee.display_name, ''), nullif(employee.google_name, ''), employee.email) AS employee_name,

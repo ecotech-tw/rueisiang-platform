@@ -1132,6 +1132,53 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.warnings.some((warning) => warning.includes("已安排 2／需求 2 人"))).toBe(false);
   });
 
+  it("支援人員付薪加班會依敘薪固定倍率進入薪資明細與歷史紀錄", async () => {
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "付薪加班支援人員" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const workerId = (await worker.json() as { id: string }).id;
+    const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 320_000, overtimeRatePpm: 1_500_000, note: "固定加班倍率測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [{ personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const overtime = await request("/hr/requests/overtime", "POST", { workerId, scopeId: "cyberbiz:store:demo-ximen", requestedStart: "2026-09-03 18:00", requestedEnd: "2026-09-03 20:00", settlementKind: "pay", reason: "支援人員固定倍率加班" });
+    expect(overtime.status, await overtime.clone().text()).toBe(201);
+    const overtimeId = (await overtime.json() as { id: string }).id;
+    const requests = await request("/hr/overtime");
+    expect(requests.status, await requests.clone().text()).toBe(200);
+    expect((await requests.json() as { requests: Array<{ request: { id: string; status: string }; workerId?: string }> }).requests).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, request: expect.objectContaining({ id: overtimeId, status: "approved" }) })]));
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds: [workerId], requestId: "test-payroll-worker-overtime-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { runId: string; workers: Array<{ workerId: string; amountMinor: number; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown> }> } };
+    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, amountMinor: 440_000, overtimeMinor: 120_000, overtimeSeconds: 7_200, overtimeExplanation: expect.objectContaining({ approvedRequests: 1, requestSnapshots: [expect.objectContaining({ id: overtimeId, scopeId: "cyberbiz:store:demo-ximen", ratePpm: 1_333_333, settlementKind: "pay" })], fixedOvertimeSnapshots: [expect.objectContaining({ overtimeRatePpm: 1_500_000 })] }) })]));
+    const detail = await request(`/hr/payroll/records/${body.run.runId}/worker/${workerId}`);
+    expect(detail.status, await detail.clone().text()).toBe(200);
+    const detailBody = await detail.json() as { worker: { overtimeMinor?: number; overtimeSeconds?: number }; record: { earningMinor: number } };
+    expect(detailBody.worker).toMatchObject({ overtimeMinor: 120_000, overtimeSeconds: 7_200 });
+    expect(detailBody.record.earningMinor).toBe(440_000);
+  });
+
+  it("支援人員付薪加班可使用版本固定時薪，且申請人不能指定倍率", async () => {
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "固定時薪加班支援人員" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const workerId = (await worker.json() as { id: string }).id;
+    const invalidCompensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 320_000, overtimeRatePpm: 1_500_000, overtimeHourlyMinor: 50_000, note: "互斥測試" });
+    expect(invalidCompensation.status).toBe(400);
+    const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 320_000, overtimeHourlyMinor: 50_000, note: "固定時薪測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [{ personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-10" }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const invalidOvertime = await request("/hr/requests/overtime", "POST", { workerId, requestedStart: "2026-09-10 18:00", requestedEnd: "2026-09-10 20:00", settlementKind: "pay", ratePpm: 1_500_000, reason: "不可自訂倍率" });
+    expect(invalidOvertime.status).toBe(400);
+    const overtime = await request("/hr/requests/overtime", "POST", { workerId, requestedStart: "2026-09-10 18:00", requestedEnd: "2026-09-10 20:00", settlementKind: "pay", reason: "固定時薪加班" });
+    expect(overtime.status, await overtime.clone().text()).toBe(201);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds: [workerId], requestId: "test-payroll-worker-fixed-hourly-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; amountMinor: number; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown> }> } };
+    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, amountMinor: 420_000, overtimeMinor: 100_000, overtimeSeconds: 7_200, overtimeExplanation: expect.objectContaining({ fixedOvertimeSnapshots: [expect.objectContaining({ overtimeRatePpm: null, overtimeHourlyMinor: 50_000 })] }) })]));
+  });
+
   it("同一據點日期班別的兩位日薪員工各分得半個本薪單位，並保存分配公式", async () => {
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
       const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "多人班分配測試" });

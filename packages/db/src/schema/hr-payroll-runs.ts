@@ -273,6 +273,10 @@ export const hrPayrollWorkerResults = sqliteTable("hr_payroll_worker_results", {
   payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly", "mixed"] as const }).notNull(),
   scheduledDays: integer("scheduled_days").notNull(),
   amountMinor: integer("amount_minor").notNull(),
+  /** 支援人員付薪加班的歷史快照；舊結果預設為 0／空物件。 */
+  overtimeMinor: integer("overtime_minor").notNull().default(0),
+  overtimeSeconds: integer("overtime_seconds").notNull().default(0),
+  overtimeExplanationJson: text("overtime_explanation_json").notNull().default("{}"),
   /** 支援人員的班別薪資分配快照，供結帳後稽核；舊結果為空陣列。 */
   scheduleAllocationJson: text("schedule_allocation_json").notNull().default("[]"),
   typhoonStopDays: integer("typhoon_stop_days").notNull().default(0),
@@ -284,6 +288,7 @@ export const hrPayrollWorkerResults = sqliteTable("hr_payroll_worker_results", {
   check("ck_hr_payroll_worker_results_name", sql`length(trim(${table.workerName})) BETWEEN 1 AND 100`),
   check("ck_hr_payroll_worker_results_days", sql`${table.scheduledDays} >= 0`),
   check("ck_hr_payroll_worker_results_amount", sql`${table.amountMinor} >= 0`),
+  check("ck_hr_payroll_worker_results_overtime", sql`${table.overtimeMinor} >= 0 AND ${table.overtimeSeconds} >= 0 AND length(${table.overtimeExplanationJson}) <= 50000`),
   check("ck_hr_payroll_worker_results_typhoon_days", sql`${table.typhoonStopDays} >= 0 AND ${table.typhoonStopDays} <= ${table.scheduledDays}`),
   check("ck_hr_payroll_worker_results_typhoon_amount", sql`${table.typhoonStopPayMinor} >= 0`),
 ]);

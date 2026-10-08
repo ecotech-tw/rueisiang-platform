@@ -609,9 +609,31 @@ export async function updateHrScheduleWorker(db: Database, id: string, input: { 
 
 export type HrWorkerPayBasis = "daily" | "hourly";
 
-export async function createHrWorkerCompensation(db: Database, input: { workerId: string; validFrom: string; validTo: string | null; payBasis: HrWorkerPayBasis; baseAmountMinor: number; note: string }, actor: HrActor) {
+export interface HrWorkerCompensationInput {
+  workerId: string;
+  validFrom: string;
+  validTo: string | null;
+  payBasis: HrWorkerPayBasis;
+  baseAmountMinor: number;
+  /** 兩者擇一；都留空時沿用加班申請凍結的制度倍率。 */
+  overtimeRatePpm?: number | null;
+  overtimeHourlyMinor?: number | null;
+  note: string;
+}
+
+export async function createHrWorkerCompensation(db: Database, input: HrWorkerCompensationInput, actor: HrActor) {
   if (input.payBasis !== "daily" && input.payBasis !== "hourly") throw new HrError(400, "支援人員敘薪方式只能是日薪或時薪。 ");
   if (!LOCAL_DATE.test(input.validFrom) || (input.validTo !== null && !LOCAL_DATE.test(input.validTo)) || (input.validTo !== null && input.validTo <= input.validFrom) || !Number.isSafeInteger(input.baseAmountMinor) || input.baseAmountMinor < 0) throw new HrError(400, "支援人員敘薪資料不正確。 ");
+  const overtimeRatePpm = input.overtimeRatePpm ?? null;
+  const overtimeHourlyMinor = input.overtimeHourlyMinor ?? null;
+  if (overtimeHourlyMinor !== null && (!Number.isSafeInteger(overtimeHourlyMinor) || overtimeHourlyMinor <= 0 || overtimeHourlyMinor % 100 !== 0)) {
+    throw new HrError(400, "加班固定時薪必須是大於 0 的整數元；不適用請留空。 ");
+  }
+  if (overtimeRatePpm !== null && (!Number.isSafeInteger(overtimeRatePpm) || overtimeRatePpm <= 0 || overtimeRatePpm > 10_000_000)
+    || overtimeRatePpm !== null && overtimeHourlyMinor !== null) {
+    throw new HrError(400, "支援人員加班設定必須是固定倍率、固定金額二擇一；不適用請留空。 ");
+  }
+  if (input.note.length > 1000) throw new HrError(400, "支援人員敘薪備註不可超過 1000 字。 ");
   const [worker] = await db.select({ id: hrScheduleWorkers.id }).from(hrScheduleWorkers).where(eq(hrScheduleWorkers.id, input.workerId)).limit(1);
   if (!worker) throw new HrError(404, "找不到支援人員。 ");
   const [[latest], [latestVersionNumber]] = await Promise.all([
@@ -632,7 +654,7 @@ export async function createHrWorkerCompensation(db: Database, input: { workerId
   const row = activityRow({ entityType: "hr_schedule", entityId: input.workerId, source: "hr", eventType: "worker_compensation_created", summary: "支援人員敘薪已建立", actor });
   await runRawBatch(db, compileStatements([
     ...(closePrevious ? [sql`UPDATE hr_worker_compensation_versions SET valid_to=${input.validFrom} WHERE id=${closePrevious.id} AND valid_to IS NULL AND valid_from < ${input.validFrom} RETURNING id`] : []),
-    sql`INSERT INTO hr_worker_compensation_versions (id, worker_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, note, created_by) VALUES (${id}, ${input.workerId}, ${versionNumber}, ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${input.note}, ${actor.id}) RETURNING id`,
+    sql`INSERT INTO hr_worker_compensation_versions (id, worker_id, version_number, valid_from, valid_to, pay_basis, base_amount_minor, overtime_rate_ppm, overtime_hourly_minor, note, created_by) VALUES (${id}, ${input.workerId}, ${versionNumber}, ${input.validFrom}, ${input.validTo}, ${input.payBasis}, ${input.baseAmountMinor}, ${overtimeRatePpm}, ${overtimeHourlyMinor}, ${input.note}, ${actor.id}) RETURNING id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
   ]), false);
   return { id, versionNumber };

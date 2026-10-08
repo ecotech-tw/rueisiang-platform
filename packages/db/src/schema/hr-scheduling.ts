@@ -354,7 +354,40 @@ export type HrScheduleVersion = typeof hrScheduleVersions.$inferSelect;
 export type HrScheduleEntry = typeof hrScheduleEntries.$inferSelect;
 export type HrScheduleWorker = typeof hrScheduleWorkers.$inferSelect;
 export type HrScheduleWorkerEntry = typeof hrScheduleWorkerEntries.$inferSelect;
+/** 沒有平台帳號的排班支援人員使用獨立申請表，避免為了 nullable employment 外鍵重建既有加班表。 */
+export const hrWorkerOvertimeRequests = sqliteTable("hr_worker_overtime_requests", {
+  id: text("id").primaryKey(),
+  workerId: text("worker_id").notNull().references(() => hrScheduleWorkers.id, { onDelete: "restrict" }),
+  scopeId: text("scope_id").references(() => scopes.id, { onDelete: "restrict" }),
+  requestedStart: text("requested_start").notNull(),
+  requestedEnd: text("requested_end").notNull(),
+  actualStart: text("actual_start"),
+  actualEnd: text("actual_end"),
+  settlementKind: text("settlement_kind", { enum: ["pay", "compensatory"] as const }).notNull(),
+  status: text("status", { enum: ["draft", "pending", "approved", "rejected", "cancelled"] as const }).notNull().default("pending"),
+  ratePpm: integer("rate_ppm").notNull().default(1_333_333),
+  reason: text("reason").notNull().default(""),
+  reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
+  reviewedAt: text("reviewed_at"),
+  decisionReason: text("decision_reason").notNull().default(""),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  ...timestamps(),
+}, (table) => [
+  index("idx_hr_worker_overtime_worker_start").on(table.workerId, table.requestedStart),
+  uniqueIndex("idx_hr_worker_overtime_unique_request").on(table.workerId, table.requestedStart, table.requestedEnd).where(sql`${table.status} IN ('draft', 'pending', 'approved')`),
+  index("idx_hr_worker_overtime_status").on(table.status, table.requestedStart),
+  check("ck_hr_worker_overtime_requested_period", sql`${table.requestedEnd} > ${table.requestedStart}`),
+  check("ck_hr_worker_overtime_actual_pair", sql`(${table.actualStart} IS NULL AND ${table.actualEnd} IS NULL) OR (${table.actualStart} IS NOT NULL AND ${table.actualEnd} IS NOT NULL AND ${table.actualEnd} > ${table.actualStart})`),
+  check("ck_hr_worker_overtime_settlement", sql`${table.settlementKind} IN ('pay', 'compensatory')`),
+  check("ck_hr_worker_overtime_status", sql`${table.status} IN ('draft', 'pending', 'approved', 'rejected', 'cancelled')`),
+  check("ck_hr_worker_overtime_rate", sql`${table.ratePpm} BETWEEN 0 AND 10000000`),
+  check("ck_hr_worker_overtime_reason", sql`length(${table.reason}) <= 1000`),
+  check("ck_hr_worker_overtime_decision_reason", sql`length(${table.decisionReason}) <= 1000`),
+  check("ck_hr_worker_overtime_revision", sql`${table.revision} > 0`),
+]);
+
 export type HrOvertimeRequest = typeof hrOvertimeRequests.$inferSelect;
+export type HrWorkerOvertimeRequest = typeof hrWorkerOvertimeRequests.$inferSelect;
 export type HrSpecialWorkdayRule = typeof hrSpecialWorkdayRules.$inferSelect;
 export type HrSpecialWorkdayRuleVersion = typeof hrSpecialWorkdayRuleVersions.$inferSelect;
 export type HrSpecialWorkdayAllowance = typeof hrSpecialWorkdayAllowances.$inferSelect;

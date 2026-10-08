@@ -77,6 +77,9 @@ export const hrWorkerCompensationVersions = sqliteTable("hr_worker_compensation_
   validTo: text("valid_to"),
   payBasis: text("pay_basis", { enum: ["monthly", "daily", "hourly"] as const }).notNull(),
   baseAmountMinor: integer("base_amount_minor").notNull(),
+  /** 日薪／時薪支援人員可在敘薪版本固定加班倍率或固定時薪；兩者皆空時沿用申請上的制度倍率。 */
+  overtimeRatePpm: integer("overtime_rate_ppm"),
+  overtimeHourlyMinor: integer("overtime_hourly_minor"),
   note: text("note").notNull().default(""),
   ...historyTimestamps(),
 }, (table) => [
@@ -86,6 +89,10 @@ export const hrWorkerCompensationVersions = sqliteTable("hr_worker_compensation_
   check("ck_hr_worker_compensation_versions_dates", sql`length(${table.validFrom}) = 10 AND (${table.validTo} IS NULL OR (length(${table.validTo}) = 10 AND ${table.validTo} > ${table.validFrom}))`),
   check("ck_hr_worker_compensation_versions_basis", sql`${table.payBasis} IN ('monthly', 'daily', 'hourly')`),
   check("ck_hr_worker_compensation_versions_amount", sql`${table.baseAmountMinor} >= 0`),
+  /*
+   * SQLite 不能在既有表上直接追加 CHECK；0217 以 trigger 保護新增欄位，API service
+   * 同時做安全整數與訊息驗證，避免為了欄位約束重建既有外鍵鏈。
+   */
   check("ck_hr_worker_compensation_versions_note", sql`length(${table.note}) <= 1000`),
 ]);
 

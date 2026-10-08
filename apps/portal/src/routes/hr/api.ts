@@ -154,7 +154,7 @@ export interface FormRequest {
   updatedAt: string;
 }
 export interface FormApprover { id: string; name: string; employeeNumber?: string }
-export interface HrOvertimeRequest { request: { id: string; employmentId: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; reviewedBy?: string | null; reviewedAt?: string | null; decisionReason: string; createdBy?: string; createdAt: string }; employeeUserId?: string; employeeName: string | null; employeeNumber: string | null }
+export interface HrOvertimeRequest { request: { id: string; employmentId?: string; scopeId?: string | null; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; reviewedBy?: string | null; reviewedAt?: string | null; decisionReason: string; createdBy?: string; createdAt: string }; employeeUserId?: string; workerId?: string; employeeName: string | null; employeeNumber: string | null }
 export interface HrLeaveType { id: string; name: string; leaveKind: "annual" | "other"; defaultPayRatePpm: number; active: number; createdBy: string; createdAt: string; updatedAt: string }
 export interface HrOvertimeDay { date: string; shiftEnd: string | null; existing: Array<{ requestedStart: string; requestedEnd: string; status: string }> }
 export interface HrLeaveDurationResponse { startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number }
@@ -210,7 +210,7 @@ export interface PayrollScheduleAllocationDetail {
   unitNumerator: number;
   unitDenominator: number;
 }
-export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails?: PayrollScheduleAllocationDetail[] }
+export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails?: PayrollScheduleAllocationDetail[] }
 export interface PayrollWorkerCandidate { id: string; displayName: string }
 export interface PayrollRun { runId: string; runName: string; periodKey: string; payDate: string | null; status: "ready" | "closed"; engineVersion: string; withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
 export type BonusKind = "team_performance" | "individual_performance";
@@ -355,7 +355,7 @@ export const SCHEDULE_ATTENDANCE_STATUS_LABELS: Record<ScheduleAttendanceStatus,
 export interface ScheduleEntry { id: string; scheduleVersionId: string; personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; scopeId: string; shiftVersionId: string; shiftGroupId: string | null; workDate: string; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; requiredHeadcount: number; attendanceStatus: ScheduleAttendanceStatus; employeeNumber: string | null; personName: string; archivedAt: string | null; scopeName: string; shiftName: string }
 export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; calendar: HrCalendarDay[]; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
 export type SupportWorkerPayBasis = "daily" | "hourly";
-export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | SupportWorkerPayBasis; baseAmountMinor: number; note: string }
+export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | SupportWorkerPayBasis; baseAmountMinor: number; overtimeRatePpm?: number | null; overtimeHourlyMinor?: number | null; note: string }
 export interface ScheduleWorkerRecord { id: string; displayName: string; active: boolean | number; revision: number; compensation: WorkerCompensation[] }
 export interface ScheduleWorkerPageResponse { workers: ScheduleWorkerRecord[]; total: number; page: number; pageSize: number; hasMore: boolean }
 

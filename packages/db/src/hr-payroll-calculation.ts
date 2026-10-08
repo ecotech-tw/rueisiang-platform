@@ -49,7 +49,7 @@ import {
 } from "./schema/hr-payroll-runs.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments, hrSpecialWorkdayRules } from "./schema/hr-scheduling.js";
+import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments, hrSpecialWorkdayRules, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 import { scopes } from "./schema/reports.js";
@@ -188,7 +188,7 @@ export interface HrPayrollRunResult {
   engineVersion: string;
   withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null;
   employees: HrPayrollEmployeeResult[];
-  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] }>;
+  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] }>;
   warnings: string[];
 }
 
@@ -707,7 +707,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
     .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`));
   const allocationEmploymentIds = [...new Set(allocationEmploymentRows.map((row) => row.employmentId))];
-  const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
+  const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, workerOvertime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({
       id: hrEmployments.id,
       employeeUserId: hrEmployments.employeeUserId,
@@ -728,6 +728,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrMonthlyLeaveEntries).where(and(inJsonArray(hrMonthlyLeaveEntries.employmentId, employmentIds), sql`${hrMonthlyLeaveEntries.leaveDate} >= ${input.period.start}`, sql`${hrMonthlyLeaveEntries.leaveDate} < ${input.period.end}`)),
     db.select().from(hrMonthlyHourlyEntries).where(and(inJsonArray(hrMonthlyHourlyEntries.employmentId, employmentIds), sql`${hrMonthlyHourlyEntries.workDate} >= ${input.period.start}`, sql`${hrMonthlyHourlyEntries.workDate} < ${input.period.end}`)),
     db.select().from(hrOvertimeRequests).where(and(eq(hrOvertimeRequests.status, "approved"), inJsonArray(hrOvertimeRequests.employmentId, employmentIds), sql`(${hrOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
+    db.select().from(hrWorkerOvertimeRequests).where(and(eq(hrWorkerOvertimeRequests.status, "approved"), inJsonArray(hrWorkerOvertimeRequests.workerId, workerIds), sql`(${hrWorkerOvertimeRequests.requestedStart} < ${periodEndUtc} AND ${hrWorkerOvertimeRequests.requestedEnd} > ${periodStartUtc}) OR (${hrWorkerOvertimeRequests.actualStart} IS NOT NULL AND ${hrWorkerOvertimeRequests.actualStart} < ${periodEndUtc} AND ${hrWorkerOvertimeRequests.actualEnd} > ${periodStartUtc})`)),
     db.select().from(hrClockEvents).where(and(inJsonArray(hrClockEvents.employmentId, employmentIds), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
     db.select({ employmentId: hrEmployments.id, archivedAt: hrEmployments.archivedAt, userStatus: users.status }).from(hrEmployments)
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(inJsonArray(hrEmployments.id, allocationEmploymentIds.length ? allocationEmploymentIds : ["__none__"])),
@@ -762,7 +763,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   return stableJson({
     periodKey: input.period.periodKey,
     employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves,
-    annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, calendarDays, calendarDayScopes,
+    annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, workerOvertime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, calendarDays, calendarDayScopes,
     scheduleEntries: scheduleEntries.map(({ entry }) => entry),
     workerScheduleEntries: workerScheduleEntries.map(({ entry }) => entry),
     workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes,
@@ -862,7 +863,14 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
       } catch {
         scheduleAllocationDetails = [];
       }
-      return { workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor, compensationVersionId: worker.compensationVersionId, scheduleAllocationDetails };
+      let overtimeExplanation: Record<string, unknown> = {};
+      try {
+        const parsed = JSON.parse(worker.overtimeExplanationJson) as unknown;
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) overtimeExplanation = parsed as Record<string, unknown>;
+      } catch {
+        overtimeExplanation = {};
+      }
+      return { workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, ...(worker.overtimeMinor || worker.overtimeSeconds ? { overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanation } : {}), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor, compensationVersionId: worker.compensationVersionId, scheduleAllocationDetails };
     }),
     warnings: [...new Set([...(hasInsuranceDeduction ? [] : [PAYROLL_DEMO_WARNING]), ...persistedWarnings, ...warnings])],
   };
@@ -1165,6 +1173,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     eq(hrOvertimeRequests.status, "approved"),
     sql`(${hrOvertimeRequests.requestedEnd} > ${periodStartUtc} AND ${hrOvertimeRequests.requestedStart} < ${periodEndUtc}) OR (${hrOvertimeRequests.actualStart} IS NOT NULL AND ${hrOvertimeRequests.actualEnd} > ${periodStartUtc} AND ${hrOvertimeRequests.actualStart} < ${periodEndUtc})`,
   ));
+  const workerOvertime = await db.select().from(hrWorkerOvertimeRequests).where(and(
+    eq(hrWorkerOvertimeRequests.status, "approved"),
+    sql`(${hrWorkerOvertimeRequests.requestedEnd} > ${periodStartUtc} AND ${hrWorkerOvertimeRequests.requestedStart} < ${periodEndUtc}) OR (${hrWorkerOvertimeRequests.actualStart} IS NOT NULL AND ${hrWorkerOvertimeRequests.actualEnd} > ${periodStartUtc} AND ${hrWorkerOvertimeRequests.actualStart} < ${periodEndUtc})`,
+  ));
   const clocks = await db.select().from(hrClockEvents).where(and(
     sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`,
     sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`,
@@ -1305,7 +1317,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       }
     }
   }
-  type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] };
+  type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; overtimeMinor: number; overtimeSeconds: number; overtimeExplanation: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] };
   const workerStatements = new Map<string, WorkerStatement>();
   const workerRowsById = new Map<string, typeof scheduledWorkerRows>();
   for (const row of scheduledWorkerRows) workerRowsById.set(row.workerId, [...(workerRowsById.get(row.workerId) ?? []), row]);
@@ -1316,6 +1328,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const compensationIds = new Set<string>();
     const payBases = new Set<"monthly" | "daily" | "hourly">();
     let amountMinor = 0;
+    let overtimeMinor = 0;
+    let overtimeSeconds = 0;
+    const overtimeCalculationParts: PayrollCalculationPart[] = [];
+    const overtimeElapsedByDate = new Map<string, number>();
+    const fixedOvertimeSnapshots: Array<{ compensationVersionId: string; overtimeRatePpm: number | null; overtimeHourlyMinor: number | null }> = [];
+    const specialWorkdayRuleSnapshots = new Map<string, { workDate: string; ruleVersionId: string; overtimeRules: Array<{ fromHalfHours: number; toHalfHours: number | null; rateKind: "fixed_hourly" | "multiplier"; fixedAmountMinor: number | null; multiplierPpm: number | null }> }>();
     let typhoonStopDays = 0;
     let typhoonStopPayMinor = 0;
     let missingCompensation = false;
@@ -1371,10 +1389,82 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         if (typhoonStop && typhoonAmount > 0) { typhoonStopDays += 1; typhoonStopPayMinor += typhoonAmount; }
       }
     }
+    const workerOvertimeRows = workerOvertime.filter((row) => row.workerId === workerId).sort((left, right) => {
+      const leftStart = left.actualStart ?? left.requestedStart;
+      const rightStart = right.actualStart ?? right.requestedStart;
+      return leftStart.localeCompare(rightStart) || (left.actualEnd ?? left.requestedEnd).localeCompare(right.actualEnd ?? right.requestedEnd);
+    });
+    const scheduledDateSet = new Set(dates);
+    for (const row of workerOvertimeRows) {
+      const start = row.actualStart ?? row.requestedStart;
+      const end = row.actualEnd ?? row.requestedEnd;
+      const clippedStart = start > periodStartUtc ? start : periodStartUtc;
+      const clippedEnd = end < periodEndUtc ? end : periodEndUtc;
+      if (!secondsBetween(clippedStart, clippedEnd)) continue;
+      for (const segment of splitOvertimeByTaipeiDate(clippedStart, clippedEnd)) {
+        if (!scheduledDateSet.has(segment.date)) continue;
+        const elapsedSeconds = overtimeElapsedByDate.get(segment.date) ?? 0;
+        overtimeElapsedByDate.set(segment.date, elapsedSeconds + segment.seconds);
+        if (row.settlementKind !== "pay") continue;
+        const compensation = covering(workerCompensationsForPeriod, segment.date);
+        if (!compensation) {
+          calculationWarnings.add(`${workerName} 的加班日期 ${segment.date} 找不到有效的支援人員敘薪，該段加班費為 0。`);
+          continue;
+        }
+        const special = specialWorkdays.find((item) => item.workerId === workerId && item.workDate === segment.date);
+        if (special?.ruleVersionId) specialWorkdayRuleSnapshots.set(`${segment.date}:${special.ruleVersionId}`, {
+          workDate: segment.date,
+          ruleVersionId: special.ruleVersionId,
+          overtimeRules: special.overtimeRules.map((rule) => ({ fromHalfHours: rule.fromHalfHours, toHalfHours: rule.toHalfHours, rateKind: rule.rateKind, fixedAmountMinor: rule.fixedAmountMinor, multiplierPpm: rule.multiplierPpm })),
+        });
+        for (const chunk of splitOvertimeByRules(segment.seconds, special?.overtimeRules ?? [], elapsedSeconds)) {
+          const fixedHourlyMinor = chunk.rule?.rateKind === "fixed_hourly" ? chunk.rule.fixedAmountMinor! : chunk.rule ? null : compensation.overtimeHourlyMinor ?? null;
+          const parts: PayrollCalculationPart[] = [];
+          if (fixedHourlyMinor !== null) {
+            parts.push({
+              formula: `${segment.date}：${chunk.rule ? "特殊日固定時薪" : "約定加班固定時薪"} ${payrollFormulaMoney(fixedHourlyMinor)} × ${payrollFormulaHours(chunk.seconds / 3600)} 小時`,
+              amountMinor: Math.floor(fixedHourlyMinor * chunk.seconds / 3600),
+            });
+          } else {
+            const hourly = compensation.payBasis === "monthly"
+              ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays / standardDailyHours)
+              : compensation.payBasis === "daily" ? Math.floor(compensation.baseAmountMinor / standardDailyHours) : compensation.baseAmountMinor;
+            // 特殊日級距優先；級距未涵蓋的時數才回到敘薪版本固定倍率，未設定固定倍率才套用制度兩級。
+            const fallbackRules = compensation.overtimeRatePpm !== null
+              ? [{ fromHalfHours: 1, toHalfHours: null, rateKind: "multiplier" as const, fixedAmountMinor: null, multiplierPpm: compensation.overtimeRatePpm }]
+              : statutoryOvertimeRules(row.ratePpm);
+            const tiers = chunk.rule ? [chunk] : splitOvertimeByRules(chunk.seconds, fallbackRules, chunk.positionSeconds);
+            for (const tier of tiers) {
+              const ratePpm = tier.rule?.multiplierPpm ?? compensation.overtimeRatePpm ?? row.ratePpm;
+              parts.push({
+                formula: `${segment.date}：floor(${payrollFormulaMoney(hourly)} × ${payrollFormulaHours(tier.seconds / 3600)} 小時 × ${payrollFormulaPercent(ratePpm)})`,
+                amountMinor: Math.floor(hourly * tier.seconds / 3600 * ratePpm / PPM),
+              });
+            }
+          }
+          overtimeSeconds += chunk.seconds;
+          for (const part of parts) {
+            overtimeMinor += part.amountMinor;
+            if (part.amountMinor > 0) overtimeCalculationParts.push(part);
+          }
+        }
+        if (compensation.overtimeRatePpm !== null || compensation.overtimeHourlyMinor !== null) {
+          const snapshot = { compensationVersionId: compensation.id, overtimeRatePpm: compensation.overtimeRatePpm, overtimeHourlyMinor: compensation.overtimeHourlyMinor };
+          if (!fixedOvertimeSnapshots.some((item) => item.compensationVersionId === snapshot.compensationVersionId)) fixedOvertimeSnapshots.push(snapshot);
+        }
+      }
+    }
+    amountMinor += overtimeMinor;
     if (missingCompensation) calculationWarnings.add(`${workerName} 有排班日期找不到有效的支援人員敘薪，該日期薪資為 0。`);
     const payBasis = payBases.size === 1 ? [...payBases][0]! : payBases.size > 1 ? "mixed" : "daily";
     workerStatements.set(workerId, {
-      workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor, typhoonStopDays, typhoonStopPayMinor,
+      workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor, overtimeMinor, overtimeSeconds,
+      overtimeExplanation: {
+        approvedRequests: workerOvertimeRows.filter((row) => row.settlementKind === "pay").length,
+        requestSnapshots: workerOvertimeRows.map((row) => ({ id: row.id, scopeId: row.scopeId, requestedStart: row.requestedStart, requestedEnd: row.requestedEnd, actualStart: row.actualStart, actualEnd: row.actualEnd, settlementKind: row.settlementKind, ratePpm: row.ratePpm })),
+        standardDailyHours, monthlyDivisorDays, fixedOvertimeSnapshots, specialWorkdayRuleSnapshots: [...specialWorkdayRuleSnapshots.values()], calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
+      },
+      typhoonStopDays, typhoonStopPayMinor,
       compensationVersionId: compensationIds.size === 1 ? [...compensationIds][0]! : null,
       scheduleAllocationDetails: workerAllocationDetails.get(workerId) ?? [],
     });
@@ -2133,7 +2223,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ...compensationIds.map((id) => db.insert(hrPayslipCompensationLinks).values({ payslipId, compensationVersionId: id })),
     ...insuranceIds.map((id) => db.insert(hrPayslipInsuranceLinks).values({ payslipId, insuranceVersionId: id })),
   ]),
-  ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, scheduleAllocationJson: JSON.stringify(worker.scheduleAllocationDetails), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
+  ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanationJson: JSON.stringify(worker.overtimeExplanation), scheduleAllocationJson: JSON.stringify(worker.scheduleAllocationDetails), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
   ...payrollSpecialWorkdaySourceStatements(db, runId, sourceSnapshotJson),
   db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: PAYROLL_ENGINE_VERSION } }))];
   try {

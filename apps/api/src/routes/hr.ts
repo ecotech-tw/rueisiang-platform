@@ -373,18 +373,29 @@ function overtimeSettlementKind(input: Record<string, unknown>) {
   if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
   return settlementKind;
 }
-function overtimeBatchInput(input: Record<string, unknown>, employeeUserId: string) {
+function overtimeTarget(input: Record<string, unknown>, forcedEmployeeUserId?: string) {
+  const employeeUserId = forcedEmployeeUserId ?? (input.employeeUserId === undefined ? undefined : text(input, "employeeUserId", "員工", 200));
+  const workerId = input.workerId === undefined ? undefined : text(input, "workerId", "支援人員", 200);
+  if ((employeeUserId === undefined) === (workerId === undefined)) throw new HTTPException(400, { message: "加班申請必須指定一位正式員工或支援人員。" });
+  return { employeeUserId, workerId } as const;
+}
+function overtimeBatchInput(input: Record<string, unknown>, forcedEmployeeUserId?: string) {
+  const target = overtimeTarget(input, forcedEmployeeUserId);
+  if (target.workerId && input.ratePpm !== undefined) throw new HTTPException(400, { message: "支援人員加班倍率由敘薪版本或制度決定，不可由申請人指定。" });
   if (!Array.isArray(input.entries)) throw new HTTPException(400, { message: "請至少選擇一天加班。" });
   const entries = input.entries.map((entry: unknown) => {
     if (!entry || typeof entry !== "object") throw new HTTPException(400, { message: "加班時段格式不正確。" });
     const values = entry as Record<string, unknown>;
-    return { requestedStart: dateTimeValue(values, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(values, "requestedEnd", "加班結束") };
+    return { requestedStart: dateTimeValue(values, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(values, "requestedEnd", "加班結束"), scopeId: nullableText(values, "scopeId", "營運據點") };
   });
-  return { employeeUserId, settlementKind: overtimeSettlementKind(input), reason: nullableText(input, "reason", "加班原因", 1000) ?? "", entries } as const;
+  return { ...target, scopeId: nullableText(input, "scopeId", "營運據點"), settlementKind: overtimeSettlementKind(input), reason: nullableText(input, "reason", "加班原因", 1000) ?? "", entries } as const;
 }
-function overtimeInput(input: Record<string, unknown>, employeeUserId: string) {
+function overtimeInput(input: Record<string, unknown>, forcedEmployeeUserId?: string) {
   const settlementKind = overtimeSettlementKind(input);
-  return { employeeUserId, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm: input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000), revision: input.revision === undefined ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER), reason: nullableText(input, "reason", "加班原因", 1000) ?? "" } as const;
+  const target = overtimeTarget(input, forcedEmployeeUserId);
+  const ratePpm = input.ratePpm === undefined ? undefined : integerValue(input, "ratePpm", "已確認加班倍率（ppm）", 0, 10_000_000);
+  if (target.workerId && ratePpm !== undefined) throw new HTTPException(400, { message: "支援人員加班倍率由敘薪版本或制度決定，不可由申請人指定。" });
+  return { ...target, scopeId: nullableText(input, "scopeId", "營運據點"), requestedStart: dateTimeValue(input, "requestedStart", "加班開始"), requestedEnd: dateTimeValue(input, "requestedEnd", "加班結束"), settlementKind, ratePpm, revision: input.revision === undefined ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER), reason: nullableText(input, "reason", "加班原因", 1000) ?? "" } as const;
 }
 function leaveDateTimeValue(input: Record<string, unknown>, key: "startsAt" | "endsAt", alias: "startAt" | "endAt", label: string) {
   const raw = input[key] ?? input[alias];
@@ -683,20 +694,36 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(input, text(input, "employeeUserId", "員工")), c.get("user"), { autoApprove: true }), 201);
   })
+  .get("/requests/workers", requirePermission("hr:request:review"), async (c) => c.json({ workers: (await listHrScheduleWorkers(c.get("db"))).filter((worker) => worker.active === 1).map((worker) => ({ id: worker.id, displayName: worker.displayName })) }))
   .post("/requests/overtime", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
-    const employeeUserId = text(input, "employeeUserId", "員工");
-    return c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(input, employeeUserId), c.get("user"), { autoApprove: true }), 201);
+    return c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(input), c.get("user"), { autoApprove: true }), 201);
   })
   .post("/requests/overtime/batch", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
-    return c.json(await createHrOvertimeRequests(c.get("db"), overtimeBatchInput(input, text(input, "employeeUserId", "員工")), c.get("user"), { autoApprove: true }), 201);
+    return c.json(await createHrOvertimeRequests(c.get("db"), overtimeBatchInput(input), c.get("user"), { autoApprove: true }), 201);
   })
   .get("/requests/overtime-days", requirePermission("hr:request:review"), async (c) => {
-    const query = { employeeUserId: c.req.query("employeeUserId"), startsOn: c.req.query("startsOn"), endsOn: c.req.query("endsOn") };
-    return c.json({ days: await listHrOvertimeDays(c.get("db"), { employeeUserId: text(query, "employeeUserId", "員工"), startsOn: date(query, "startsOn")!, endsOn: date(query, "endsOn")! }) });
+    const rawEmployeeUserId = c.req.query("employeeUserId");
+    const rawWorkerId = c.req.query("workerId");
+    const target = overtimeTarget({
+      employeeUserId: rawEmployeeUserId ? text({ employeeUserId: rawEmployeeUserId }, "employeeUserId", "員工") : undefined,
+      workerId: rawWorkerId ? text({ workerId: rawWorkerId }, "workerId", "支援人員") : undefined,
+    });
+    const query = { ...target, startsOn: c.req.query("startsOn"), endsOn: c.req.query("endsOn") };
+    return c.json({ days: await listHrOvertimeDays(c.get("db"), { ...target, startsOn: date(query, "startsOn")!, endsOn: date(query, "endsOn")! }) });
   })
   .post("/requests/overtime/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
+  .post("/requests/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
+    if (!decision) throw new HTTPException(400, { message: "加班審核結果不正確。" });
+    const comment = input.comment ? text(input, "comment", "審核意見", 1000) : "";
+    const actualStart = optionalDateTimeValue(input, "actualStart", "實際加班開始");
+    const actualEnd = optionalDateTimeValue(input, "actualEnd", "實際加班結束");
+    if ((actualStart === undefined) !== (actualEnd === undefined)) throw new HTTPException(400, { message: "實際加班開始與結束時間必須一起填寫。" });
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined));
+  })
   .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
@@ -864,7 +891,13 @@ export const hr = new Hono<AppEnv>()
     const validFrom = date(input, "validFrom")!;
     const validTo = date(input, "validTo", true);
     period(validFrom, validTo);
-    return c.json(await createHrWorkerCompensation(c.get("db"), { workerId: c.req.param("id"), validFrom, validTo, payBasis: workerPayBasis(input), baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER), note: noteValue(input) }, c.get("user")), 201);
+    return c.json(await createHrWorkerCompensation(c.get("db"), {
+      workerId: c.req.param("id"), validFrom, validTo, payBasis: workerPayBasis(input),
+      baseAmountMinor: integerValue(input, "baseAmountMinor", "薪資金額（分）", 0, Number.MAX_SAFE_INTEGER),
+      overtimeRatePpm: input.overtimeRatePpm === null || input.overtimeRatePpm === undefined || input.overtimeRatePpm === "" ? null : integerValue(input, "overtimeRatePpm", "固定加班倍率（ppm）", 1, 10_000_000),
+      overtimeHourlyMinor: input.overtimeHourlyMinor === null || input.overtimeHourlyMinor === undefined || input.overtimeHourlyMinor === "" ? null : integerValue(input, "overtimeHourlyMinor", "加班固定時薪（分）", 1, Number.MAX_SAFE_INTEGER),
+      note: noteValue(input),
+    }, c.get("user")), 201);
   })
   .get("/calendar/years/:year", requirePermission("hr:schedule:read"), async (c) => c.json({ days: await listHrCalendarYear(c.get("db"), calendarYear(c.req.param("year"))), scopes: await listHrScopes(c.get("db")) }))
   .put("/calendar/years/:year", requirePermission("hr:schedule:write"), async (c) => {
