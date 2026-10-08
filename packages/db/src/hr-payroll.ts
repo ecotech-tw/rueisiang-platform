@@ -49,13 +49,29 @@ function parseLaborRows(value: unknown, sourceUrl: string, year: number): HrInsu
   if (!Array.isArray(value)) throw new HrInsuranceRateError("勞動部級距資料格式不正確。");
   const effectiveDate = `${year - 1911}0101`;
   const rows = value.filter((row): row is Record<string, string> => Boolean(row) && typeof row === "object"
-    && (row as Record<string, unknown>)["身分別"] === "一般勞工"
     && (row as Record<string, unknown>)["適用起日"] === effectiveDate);
-  const brackets = rows.map((row) => ({
+  const parseBracket = (row: Record<string, string>) => ({
     level: numberValue(row["投保薪資等級"] ?? ""),
     ...salaryRange(row["月薪資總額"] ?? ""),
     insuredAmount: numberValue(row["月投保薪資"] ?? ""),
-  }));
+  });
+  const generalBrackets = rows.filter((row) => row["身分別"] === "一般勞工").map(parseBracket);
+  const partTimeBrackets = rows.filter((row) => row["身分別"] === "部分工時勞工").map(parseBracket);
+  if (!generalBrackets.length) throw new HrInsuranceRateError(`勞動部沒有民國 ${year - 1911} 年一般勞工級距資料。`);
+
+  // 一般勞工資料從基本工資起算；不高於基本工資的投保級距在同一份官方資料的部分工時表中。
+  // 合併兩段後，月薪低於基本工資的員工才不會被錯套到第一個一般勞工級距。
+  const generalMinimum = generalBrackets.find((bracket) => bracket.lowerSalary === 0)?.upperSalary;
+  const lowerPartTimeBrackets = generalMinimum === undefined || generalMinimum === null
+    ? []
+    : partTimeBrackets.filter((bracket) => bracket.upperSalary !== null && bracket.upperSalary <= generalMinimum);
+  const generalBracketsAfterMinimum = generalMinimum === undefined || generalMinimum === null
+    ? generalBrackets
+    : generalBrackets.filter((bracket) => bracket.lowerSalary > generalMinimum);
+  const brackets = (lowerPartTimeBrackets.length
+    ? [...lowerPartTimeBrackets, ...generalBracketsAfterMinimum]
+    : generalBrackets
+  ).map((bracket, index) => ({ ...bracket, level: index + 1 }));
   if (!brackets.length) throw new HrInsuranceRateError(`勞動部沒有民國 ${year - 1911} 年一般勞工級距資料。`);
   return { scheme: "labor", year, sourceUrl, fetchedAt: new Date().toISOString(), brackets };
 }
@@ -392,8 +408,9 @@ export async function createHrInsuranceContributionRule(db: Database, input: HrI
 }
 
 export type HrInsuranceRateTableSourceKind = "official" | "manual";
+export type HrInsuranceBracketView = HrInsuranceBracket & { employeeAmountMinor: number | null };
 export interface HrInsuranceRateTableRecord {
-  id: string; scheme: HrInsuranceScheme; year: number; status: "draft" | "active" | "archived"; sourceKind: HrInsuranceRateTableSourceKind; sourceUrl: string; fetchedAt: string; contentHash: string; note: string; brackets: HrInsuranceBracket[]; activatedAt: string | null;
+  id: string; scheme: HrInsuranceScheme; year: number; status: "draft" | "active" | "archived"; sourceKind: HrInsuranceRateTableSourceKind; sourceUrl: string; fetchedAt: string; contentHash: string; note: string; brackets: HrInsuranceBracketView[]; activatedAt: string | null;
 }
 
 type HrInsuranceRateTableData = { sourceKind: HrInsuranceRateTableSourceKind; note: string; brackets: HrInsuranceBracket[] };
@@ -448,9 +465,19 @@ async function manualRateHash(dataJson: string) {
 
 export async function listHrInsuranceRateTables(db: Database, year?: number): Promise<HrInsuranceRateTableRecord[]> {
   const rows = await db.select().from(hrInsuranceRateTables).where(year === undefined ? undefined : eq(hrInsuranceRateTables.year, year)).orderBy(desc(hrInsuranceRateTables.year), desc(hrInsuranceRateTables.fetchedAt));
+  const contributionRules = await listHrInsuranceContributionRules(db);
+  const employeeAmountFor = (scheme: HrInsuranceScheme, rateYear: number, insuredAmount: number) => {
+    const rules = resolveHrInsuranceContributionRules(contributionRules, scheme, `${rateYear}-01-01`);
+    if (!hasCompleteHrInsuranceContributionRules(scheme, rules)) return null;
+    return calculateHrInsuranceEmployeeBreakdown({ scheme, insuredAmountMinor: insuredAmount * 100, dependentCount: 0, rules }).employeeAmountMinor;
+  };
   return rows.map((row) => {
     const data = rateTableData(row.dataJson);
-    return { id: row.id, scheme: row.scheme, year: row.year, status: row.status, sourceKind: data.sourceKind, sourceUrl: row.sourceUrl, fetchedAt: row.fetchedAt, contentHash: row.contentHash, note: data.note, activatedAt: row.activatedAt, brackets: data.brackets };
+    return {
+      id: row.id, scheme: row.scheme, year: row.year, status: row.status, sourceKind: data.sourceKind, sourceUrl: row.sourceUrl,
+      fetchedAt: row.fetchedAt, contentHash: row.contentHash, note: data.note, activatedAt: row.activatedAt,
+      brackets: data.brackets.map((bracket) => ({ ...bracket, employeeAmountMinor: employeeAmountFor(row.scheme, row.year, bracket.insuredAmount) })),
+    };
   });
 }
 

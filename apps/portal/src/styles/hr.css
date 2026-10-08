@@ -1028,12 +1028,14 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
     0 12px 24px --alpha(var(--color-ink) / 8%);
   scrollbar-gutter: stable;
 }
-.hr-rate-editor-table { min-width: 680px; border-collapse: separate; border-spacing: 0; }
+.hr-rate-editor-table { min-width: 820px; border-collapse: separate; border-spacing: 0; }
 .hr-system .hr-rate-editor-scroll .hr-rate-editor-table thead th:first-child { border-top-left-radius: 14px; }
 .hr-system .hr-rate-editor-scroll .hr-rate-editor-table thead th:last-child { border-top-right-radius: 14px; }
 .hr-rate-editor-table th { height: 44px; padding-block: 6px; font-size: 12px; }
 .hr-rate-editor-table td { padding-block: 8px; }
 .hr-rate-level { display: grid; place-items: center; width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--color-soft-line); border-radius: 10px; background: --alpha(var(--color-paper) / 54%); color: var(--color-muted); font-weight: 800; font-variant-numeric: tabular-nums; }
+.hr-rate-employee-amount { display: grid; min-height: 40px; place-items: center end; padding: 8px 10px; color: var(--color-brand-dark); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hr-rate-editor-table th .muted { font-size: 10px; font-weight: 500; }
 .hr-rate-editor-table .hr-rate-input {
   width: 100%;
   min-width: 0;

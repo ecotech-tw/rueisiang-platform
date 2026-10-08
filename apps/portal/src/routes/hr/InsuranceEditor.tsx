@@ -49,6 +49,12 @@ function amountLabel(amount: number | undefined) {
 function premiumLabel(amountMinor: number) {
   return `-NT$ ${Math.round(amountMinor / 100).toLocaleString("zh-TW")}`;
 }
+
+function bracketEmployeeAmountLabel(amountMinor: number | null | undefined, scheme: InsuranceScheme) {
+  if (amountMinor === null || amountMinor === undefined) return "";
+  const dependentHint = scheme === "health" ? "（0 眷屬）" : "";
+  return `／員工負擔${dependentHint} NT$ ${Math.round(amountMinor / 100).toLocaleString("zh-TW")}`;
+}
 function componentLabel(component: InsuranceContributionEstimate["components"][number]["component"]) {
   if (component === "ordinary_accident") return "普通事故";
   if (component === "employment") return "就業保險";
@@ -204,7 +210,7 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
           const selectedBracket = selectedBrackets[scheme];
           const bracketOptions = [
             { value: "", label: activeTable ? "請輸入實際月薪" : "尚未有可用級距", disabled: true },
-            ...(activeTable?.brackets ?? []).map((bracket) => ({ value: String(bracket.level), label: `第 ${bracket.level} 級／${amountLabel(bracket.insuredAmount)}` })),
+            ...(activeTable?.brackets ?? []).map((bracket) => ({ value: String(bracket.level), label: `第 ${bracket.level} 級／${amountLabel(bracket.insuredAmount)}${bracketEmployeeAmountLabel(bracket.employeeAmountMinor, scheme)}` })),
           ];
           const displayedSelection = selection === AUTO_BRACKET ? String(selectedBracket?.level ?? "") : selection;
           return <section className="hr-insurance-scheme-card" key={scheme}>

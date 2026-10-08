@@ -42,7 +42,7 @@ export function InsuranceRateManagementDialog({ year, onClose }: { year: number;
       </div>
       {rates.error || getRates.error || activateRate.error ? <Alert tone="danger">{rates.error?.message ?? getRates.error?.message ?? activateRate.error?.message}</Alert> : null}
       <div className="hr-rate-management-context"><StatusBadge tone={editingTable?.status === "draft" ? "warning" : editingTable?.status === "active" ? "success" : "neutral"}>{statusLabel(editingTable)}</StatusBadge><span>{editingTable ? `${SCHEME_LABEL[scheme]}目前有 ${editingTable.brackets.length} 筆級距` : `尚無${SCHEME_LABEL[scheme]}級距`}</span>{editingTable?.sourceKind === "manual" ? <StatusBadge tone="warning">人工維護</StatusBadge> : editingTable ? <StatusBadge tone="success">官方資料</StatusBadge> : null}</div>
-      {rates.isPending ? <div className="hr-rate-management-loading" role="status">正在載入級距…</div> : <InsuranceRateTableEditor key={`${scheme}-${editingTable?.id ?? "new"}`} scheme={scheme} year={year} table={editingTable} onSaved={refresh} onDeleted={refresh} onBusy={setEditorBusy} />}
+      {rates.isPending ? <div className="hr-rate-management-loading" role="status">正在載入級距…</div> : <InsuranceRateTableEditor key={`${scheme}-${editingTable?.id ?? "new"}-${editingTable?.contentHash ?? ""}`} scheme={scheme} year={year} table={editingTable} onSaved={refresh} onDeleted={refresh} onBusy={setEditorBusy} />}
     </Dialog>
   </>;
 }
