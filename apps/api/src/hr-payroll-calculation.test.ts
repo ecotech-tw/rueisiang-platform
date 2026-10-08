@@ -1460,9 +1460,21 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(saved.status, await saved.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-hourly-2026-09" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
-    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; payBasis: string; scheduledDays: number; amountMinor: number }> } };
+    const body = await payroll.json() as { run: { runId: string; workers: Array<{ workerId: string; payBasis: string; scheduledDays: number; amountMinor: number; scheduleAllocationDetails: Array<{ date: string; payBasis?: string | null; scheduledHours?: number; payableHours?: number }> }> } };
     // 09:00–18:00 扣 60 分鐘休息＝8 小時；兩天 × NT$500／時。
-    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, payBasis: "hourly", scheduledDays: 2, amountMinor: 800_000 })]));
+    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({
+      workerId, payBasis: "hourly", scheduledDays: 2, amountMinor: 800_000,
+      scheduleAllocationDetails: expect.arrayContaining([
+        expect.objectContaining({ date: "2026-09-03", payBasis: "hourly", scheduledHours: 8, payableHours: 8 }),
+        expect.objectContaining({ date: "2026-09-04", payBasis: "hourly", scheduledHours: 8, payableHours: 8 }),
+      ]),
+    })]));
+    const detail = await request(`/hr/payroll/records/${body.run.runId}/worker/${workerId}`);
+    expect(detail.status, await detail.clone().text()).toBe(200);
+    expect((await detail.json() as { worker: { scheduleAllocationDetails: Array<{ date: string; payBasis?: string | null; scheduledHours?: number; payableHours?: number }> } }).worker.scheduleAllocationDetails).toEqual(expect.arrayContaining([
+      expect.objectContaining({ date: "2026-09-03", payBasis: "hourly", scheduledHours: 8, payableHours: 8 }),
+      expect.objectContaining({ date: "2026-09-04", payBasis: "hourly", scheduledHours: 8, payableHours: 8 }),
+    ]));
   });
 
   it("支援人員時薪套用特殊上班日倍率時仍依排班工時計算", async () => {

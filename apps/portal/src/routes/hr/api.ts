@@ -215,6 +215,9 @@ export interface PayrollScheduleAllocationDetail {
   allocatedUnits: number;
   unitNumerator: number;
   unitDenominator: number;
+  payBasis?: "monthly" | "daily" | "hourly" | null;
+  scheduledHours?: number;
+  payableHours?: number;
 }
 export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails?: PayrollScheduleAllocationDetail[] }
 export interface PayrollWorkerCandidate { id: string; displayName: string }

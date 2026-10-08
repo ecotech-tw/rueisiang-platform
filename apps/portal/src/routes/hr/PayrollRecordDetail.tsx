@@ -109,7 +109,10 @@ function isScheduleAllocationDetail(value: unknown): value is PayrollScheduleAll
   return typeof detail.date === "string" && typeof detail.scopeId === "string" && typeof detail.shiftVersionId === "string"
     && (detail.shiftGroupId === null || typeof detail.shiftGroupId === "string")
     && (detail.attendanceStatus === "scheduled" || detail.attendanceStatus === "present" || detail.attendanceStatus === "absent")
-    && [detail.requiredHeadcount, detail.assignedCount, detail.effectiveCount, detail.allocatedUnits, detail.unitNumerator, detail.unitDenominator].every((item) => typeof item === "number" && Number.isFinite(item));
+    && [detail.requiredHeadcount, detail.assignedCount, detail.effectiveCount, detail.allocatedUnits, detail.unitNumerator, detail.unitDenominator].every((item) => typeof item === "number" && Number.isFinite(item))
+    && (detail.payBasis === undefined || detail.payBasis === null || detail.payBasis === "monthly" || detail.payBasis === "daily" || detail.payBasis === "hourly")
+    && (detail.scheduledHours === undefined || (typeof detail.scheduledHours === "number" && Number.isFinite(detail.scheduledHours) && detail.scheduledHours >= 0))
+    && (detail.payableHours === undefined || (typeof detail.payableHours === "number" && Number.isFinite(detail.payableHours) && detail.payableHours >= 0));
 }
 function scheduleAllocationDetailsOf(value: PayrollLine | PayrollWorker | null | undefined): PayrollScheduleAllocationDetail[] {
   if (!value) return [];
@@ -135,6 +138,77 @@ function PayrollAllocationDetails({ details }: { details: PayrollScheduleAllocat
       <ol>{details.map((detail, index) => <li key={`${detail.date}:${detail.shiftGroupId ?? detail.shiftVersionId}:${index}`}><span>{detail.date}・{ATTENDANCE_STATUS_LABEL[detail.attendanceStatus]}・有效 {detail.effectiveCount}/{detail.assignedCount} 人</span><strong>{allocationUnitLabel(detail)}</strong></li>)}</ol>
     </details>
   </div>;
+}
+
+export interface PayrollWorkerWorkDay {
+  date: string;
+  allocatedUnits: number;
+  payBasis: "monthly" | "daily" | "hourly" | null;
+  scheduledHours: number | null;
+  payableHours: number | null;
+}
+
+export function payrollWorkerWorkDays(details: PayrollScheduleAllocationDetail[]): PayrollWorkerWorkDay[] {
+  const byDate = new Map<string, PayrollWorkerWorkDay>();
+  for (const detail of details) {
+    const current = byDate.get(detail.date);
+    if (!current) {
+      byDate.set(detail.date, {
+        date: detail.date,
+        allocatedUnits: detail.allocatedUnits,
+        payBasis: detail.payBasis ?? null,
+        scheduledHours: typeof detail.scheduledHours === "number" ? detail.scheduledHours : null,
+        payableHours: typeof detail.payableHours === "number" ? detail.payableHours : null,
+      });
+      continue;
+    }
+    byDate.set(detail.date, {
+      date: detail.date,
+      allocatedUnits: current.allocatedUnits + detail.allocatedUnits,
+      payBasis: current.payBasis === (detail.payBasis ?? null) ? current.payBasis : null,
+      scheduledHours: current.scheduledHours === null || typeof detail.scheduledHours !== "number" ? null : current.scheduledHours + detail.scheduledHours,
+      payableHours: current.payableHours === null || typeof detail.payableHours !== "number" ? null : current.payableHours + detail.payableHours,
+    });
+  }
+  return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function payrollHours(hours: number): string {
+  return `${hours.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 小時`;
+}
+
+function payrollWorkerWorkDayBasisLabel(day: PayrollWorkerWorkDay): string {
+  if (day.payBasis === "daily") return day.allocatedUnits > 0 ? "納入日薪計算" : "日薪・未分配";
+  if (day.payBasis === "hourly") return day.scheduledHours === null || day.payableHours === null
+    ? "時薪・工時未保存"
+    : `時薪・排班 ${payrollHours(day.scheduledHours)}・計薪 ${payrollHours(day.payableHours)}`;
+  return day.payBasis === "monthly" ? "月薪計算" : "當日敘薪方式未保存";
+}
+
+export function PayrollWorkerWorkSummary({ worker, details }: { worker: PayrollWorker; details: PayrollScheduleAllocationDetail[] }) {
+  const workDays = payrollWorkerWorkDays(details);
+  if (worker.payBasis === "daily") {
+    const payableDays = workDays.filter((day) => day.allocatedUnits > 0);
+    return <section className="hr-payroll-worker-work-summary" aria-label="日薪計薪日期">
+      <div className="hr-payroll-worker-work-summary-head"><strong>日薪計薪日期</strong><span>{payableDays.length} 天</span></div>
+      {payableDays.length ? <ul>{payableDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>納入日薪計算</strong></li>)}</ul> : <p>{details.length ? "本期沒有可計薪日期。" : "此筆歷史快照未保存逐日排班資料。"}</p>}
+    </section>;
+  }
+  if (worker.payBasis === "mixed") {
+    return <section className="hr-payroll-worker-work-summary" aria-label="逐日計薪方式">
+      <div className="hr-payroll-worker-work-summary-head"><strong>逐日計薪方式</strong><span>{workDays.length} 天</span></div>
+      {workDays.length ? <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{payrollWorkerWorkDayBasisLabel(day)}</strong></li>)}</ul> : <p>此筆歷史快照未保存逐日計薪資料。</p>}
+    </section>;
+  }
+  if (worker.payBasis !== "hourly") return null;
+  const hasHours = workDays.length > 0 && workDays.every((day) => day.scheduledHours !== null && day.payableHours !== null);
+  const scheduledHours = hasHours ? workDays.reduce((sum, day) => sum + day.scheduledHours!, 0) : 0;
+  const payableHours = hasHours ? workDays.reduce((sum, day) => sum + day.payableHours!, 0) : 0;
+  return <section className="hr-payroll-worker-work-summary" aria-label="時薪逐日工時">
+    <div className="hr-payroll-worker-work-summary-head"><strong>時薪逐日工時</strong><span>{workDays.length} 天</span></div>
+    {workDays.length ? <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{day.scheduledHours === null || day.payableHours === null ? "工時未保存" : `排班 ${payrollHours(day.scheduledHours)}・計薪 ${payrollHours(day.payableHours)}`}</strong></li>)}</ul> : <p>此筆歷史快照未保存逐日工時明細。</p>}
+    {hasHours ? <p>合計排班 {payrollHours(scheduledHours)}・分配計薪 {payrollHours(payableHours)}。多人共用班別薪資單位時，計薪工時會依分配比例折算。</p> : workDays.length ? <p>此筆歷史試算未保存逐日工時，無法回溯工時數。</p> : null}
+  </section>;
 }
 function payBasisOf(detail: PayrollRecordDetail) {
   return detail.record.payBasis ? PAY_BASIS_LABEL[detail.record.payBasis] ?? detail.record.payBasis : "—";
@@ -327,7 +401,7 @@ export function HrPayrollRecordDetail() {
       {detail.record.status === "closed" ? <Alert tone="info">這筆紀錄已確定發放，以下明細是不可改寫的歷史快照。{detail.run.withdrawal ? <p>本批次曾撤回後重新確定發放；原撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p> : null}</Alert> : detail.run.withdrawal ? <Alert tone="warning"><strong>這筆薪資批次已退回尚未結算。</strong> 原始薪資快照與撤回原因仍保留供稽核，現在可以重新確認發放、重新試算{detail.run.canDelete ? "，或刪除整批試算" : ""}。<p>撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p></Alert> : detail.run.canDelete ? <Alert tone="warning">請確認試算公式與薪資加扣項後，再確定發放。薪資加扣項會以試算時保存的明細快照呈現；若資料有變更，請重新試算。</Alert> : <Alert tone="info">本批次已有其他人員確定發放，不能刪除整批試算；目前紀錄仍可繼續確認。</Alert>}
       {detail.run.warnings.length ? <Alert tone="warning"><strong>試算提醒</strong><ul className="hr-payroll-warning-list">{detail.run.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></Alert> : null}
 
-      {detail.employee ? <PayrollLineList lines={detailLines} /> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班、有效敘薪與核准付薪加班計算；原始試算結果保留在這筆發放紀錄中。</p>{detail.worker?.overtimeMinor ? <p className="muted">其中核准付薪加班：{money(detail.worker.overtimeMinor)}（{((detail.worker.overtimeSeconds ?? 0) / 3600).toFixed(1)} 小時）</p> : null}<PayrollAllocationDetails details={workerAllocationDetails} /><PayrollLineList lines={detailLines} /></div>}
+      {detail.employee ? <PayrollLineList lines={detailLines} /> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班、有效敘薪與核准付薪加班計算；原始試算結果保留在這筆發放紀錄中。</p>{detail.worker?.overtimeMinor ? <p className="muted">其中核准付薪加班：{money(detail.worker.overtimeMinor)}（{((detail.worker.overtimeSeconds ?? 0) / 3600).toFixed(1)} 小時）</p> : null}{detail.worker ? <PayrollWorkerWorkSummary worker={detail.worker} details={workerAllocationDetails} /> : null}<PayrollAllocationDetails details={workerAllocationDetails} /><PayrollLineList lines={detailLines} /></div>}
 
       <section className="hr-payroll-record-items" aria-labelledby="payroll-items-title">
         <div className="hr-payroll-section-head"><div><h3 id="payroll-items-title">薪資加扣項</h3><p>附加在這筆紀錄的補發與扣款。{canCalculate && detail.record.status === "unsettled" ? "請從上方「新增薪資加扣項」開始。" : ""}</p></div></div>
