@@ -503,6 +503,10 @@ export interface ScheduleAllocationDetail {
   allocatedUnits: number;
   unitNumerator: number;
   unitDenominator: number;
+  /** 歷史快照可能沒有這幾欄；新試算保存逐日敘薪方式、扣除休息後的工時與分配後計薪工時。 */
+  payBasis?: "monthly" | "daily" | "hourly" | null;
+  scheduledHours?: number;
+  payableHours?: number;
 }
 
 interface SchedulePayAllocation {
@@ -1279,6 +1283,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const workerScheduleAllocations = new Map<string, SchedulePayAllocation>();
   const employeeAllocationDetails = new Map<string, ScheduleAllocationDetail[]>();
   const workerAllocationDetails = new Map<string, ScheduleAllocationDetail[]>();
+  const workerCompensationsById = new Map<string, typeof workerCompensations>();
+  for (const compensation of workerCompensations) {
+    workerCompensationsById.set(compensation.workerId, [...(workerCompensationsById.get(compensation.workerId) ?? []), compensation]);
+  }
   for (const groupRows of rowsByScheduleGroup.values()) {
     const requiredHeadcount = Math.max(1, ...groupRows.map((row) => row.requiredHeadcount));
     if (groupRows.length !== requiredHeadcount) {
@@ -1296,6 +1304,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     if (!eligibleRows.length) calculationWarnings.add(`排班 ${groupRows[0]!.workDate}（${groupRows[0]!.scopeId}）沒有有效出勤人員，該班薪資單位未分配。`);
     for (const { row, status } of statuses) {
       const eligible = eligibleRows.some((item) => item.row.id === row.id);
+      const rowScheduledHours = scheduledHours(row);
+      const workerCompensation = row.personKind === "worker"
+        ? covering(workerCompensationsById.get(row.personId) ?? [], row.workDate)
+        : undefined;
       const detail: ScheduleAllocationDetail = {
         date: row.workDate,
         shiftGroupId: row.shiftGroupId,
@@ -1308,6 +1320,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         allocatedUnits: eligible ? 1 / denominator : 0,
         unitNumerator: eligible ? 1 : 0,
         unitDenominator: denominator,
+        ...(row.personKind === "worker" ? { payBasis: workerCompensation?.payBasis ?? null } : {}),
+        scheduledHours: rowScheduledHours,
+        payableHours: rowScheduledHours * (eligible ? 1 / denominator : 0),
       };
       const allocation: SchedulePayAllocation = { detail, row };
       if (row.personKind === "employee") {
@@ -1327,7 +1342,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   for (const [workerId, rows] of workerRowsById) {
     const workerName = rows[0]!.workerName;
     const dates = [...new Set(rows.map((row) => row.workDate))].sort();
-    const workerCompensationsForPeriod = workerCompensations.filter((item) => item.workerId === workerId);
+    const workerCompensationsForPeriod = workerCompensationsById.get(workerId) ?? [];
     const compensationIds = new Set<string>();
     const payBases = new Set<"monthly" | "daily" | "hourly">();
     let amountMinor = 0;

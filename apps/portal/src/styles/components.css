@@ -4153,6 +4153,15 @@
 .hr-payroll-worker-result-head small { color: var(--color-muted); font-size: 12px; }
 .hr-payroll-worker-result-head > strong { color: var(--color-brand-dark); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .hr-payroll-worker-result p { margin: 0; color: var(--color-muted); font-size: 12px; line-height: 1.6; }
+.hr-payroll-worker-work-summary { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--color-soft-line); }
+.hr-payroll-worker-work-summary-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hr-payroll-worker-work-summary-head strong { font-size: 13px; }
+.hr-payroll-worker-work-summary-head span { color: var(--color-brand-dark); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.hr-payroll-worker-work-summary ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
+.hr-payroll-worker-work-summary li { display: flex; justify-content: space-between; gap: 12px; color: var(--color-muted); font-size: 12px; }
+.hr-payroll-worker-work-summary li span { flex: none; overflow-wrap: anywhere; }
+.hr-payroll-worker-work-summary li strong { flex: 1 1 auto; min-width: 0; color: var(--color-ink); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.hr-payroll-worker-work-summary p { margin: 0; color: var(--color-muted); font-size: 11px; line-height: 1.6; }
 .hr-payroll-secondary { overflow: hidden; }
 .hr-payroll-secondary > summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 56px; cursor: pointer; list-style: none; }
 .hr-payroll-secondary > summary::-webkit-details-marker { display: none; }
