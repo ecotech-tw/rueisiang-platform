@@ -19,7 +19,7 @@ function apply(sqlite: DatabaseSync, file: string) {
 }
 
 describe("班別需求人力 migration", () => {
-  it("0216 在 D1 transaction 中保留被外鍵引用的班別，並限制需求人力值域", () => {
+  it("0216～0218 在 D1 transaction 中保留班別關聯、回填日型需求人力並限制值域", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {
       sqlite.exec("PRAGMA foreign_keys=ON");
@@ -41,9 +41,12 @@ describe("班別需求人力 migration", () => {
 
       apply(sqlite, "0215_large_dracula.sql");
       apply(sqlite, "0216_worthless_wither.sql");
+      sqlite.prepare("UPDATE hr_shift_templates SET required_headcount = 4 WHERE id = 't'").run();
+      apply(sqlite, "0217_modern_onslaught.sql");
+      apply(sqlite, "0218_backfill_shift_version_headcount.sql");
 
-      expect(sqlite.prepare("SELECT required_headcount FROM hr_shift_templates WHERE id = 't'").get()).toEqual({ required_headcount: 1 });
-      expect(sqlite.prepare("SELECT shift_template_id FROM hr_shift_versions WHERE id = 'v'").get()).toEqual({ shift_template_id: "t" });
+      expect(sqlite.prepare("SELECT required_headcount FROM hr_shift_templates WHERE id = 't'").get()).toEqual({ required_headcount: 4 });
+      expect(sqlite.prepare("SELECT shift_template_id, required_headcount FROM hr_shift_versions WHERE id = 'v'").get()).toEqual({ shift_template_id: "t", required_headcount: 4 });
       expect(sqlite.prepare("SELECT shift_template_id FROM hr_scope_shift_assignments WHERE scope_id = 's'").get()).toEqual({ shift_template_id: "t" });
       expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
 
@@ -52,6 +55,11 @@ describe("班別需求人力 migration", () => {
         VALUES ('invalid', 'T2', '無效班別', 0, 'u')
       `).run()).toThrow("hr_shift_templates_headcount_invalid");
       expect(() => sqlite.prepare("UPDATE hr_shift_templates SET required_headcount = 101 WHERE id = 't'").run()).toThrow("hr_shift_templates_headcount_invalid");
+      expect(() => sqlite.prepare(`
+        INSERT INTO hr_shift_versions(id, shift_template_id, required_headcount, version_number, start_second, end_second, created_by)
+        VALUES ('invalid-version', 't', 0, 1, 28800, 64800, 'u')
+      `).run()).toThrow("hr_shift_versions_headcount_invalid");
+      expect(() => sqlite.prepare("UPDATE hr_shift_versions SET required_headcount = 101 WHERE id = 'v'").run()).toThrow("hr_shift_versions_headcount_invalid");
     } finally {
       sqlite.close();
     }

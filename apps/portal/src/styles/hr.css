@@ -948,17 +948,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .hr-calendar-entry.absent { opacity: .62; }
 .hr-system .hr-calendar-entry span { color: var(--color-ink); font-weight: 800; }
 .hr-system .hr-calendar-entry small { color: var(--color-muted); }
-.hr-system .hr-calendar-attendance-status {
-  width: 100%;
-  margin-top: 5px;
-  padding: 2px 4px;
-  border: 0;
-  border-radius: 6px;
-  background: --alpha(var(--color-paper) / 38%);
-  color: var(--color-muted);
-  font-size: 11px;
-}
-.hr-system .hr-calendar-attendance-status:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 .hr-system .hr-calendar-attendance-readonly { display: block; margin-top: 3px; font-size: 11px; }
 .hr-system .hr-calendar-entry button {
   top: 5px;

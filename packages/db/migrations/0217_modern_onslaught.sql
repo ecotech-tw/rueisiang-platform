@@ -1,0 +1,1 @@
+ALTER TABLE `hr_shift_versions` ADD `required_headcount` integer DEFAULT 1 NOT NULL;

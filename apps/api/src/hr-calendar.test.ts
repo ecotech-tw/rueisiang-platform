@@ -19,7 +19,7 @@ async function request(path: string, method = "GET", payload?: Record<string, un
 }
 
 /** 三組時間的班別；只給平日就是最常見的那種班別。 */
-async function createShift(name: string, times: Array<{ dayType: string; startTime: string; endTime: string }>) {
+async function createShift(name: string, times: Array<{ dayType: string; startTime: string; endTime: string; requiredHeadcount?: number }>) {
   const response = await request("/hr/shift-templates", "POST", { scopeId: "scope", name, times });
   expect(response.status, await response.clone().text()).toBe(201);
   return await response.json() as { id: string; versionId: string };
@@ -130,6 +130,43 @@ describe("HR 行事曆與班別日型", () => {
     const updated = await request(`/hr/shift-templates/${createdBody.id}`, "PATCH", { scopeId: "scope", name: "多人班更新", revision: 1, times: [{ dayType: "weekday", startTime: "10:00", endTime: "19:00" }] });
     expect(updated.status, await updated.clone().text()).toBe(200);
     expect((await listShifts()).find((shift) => shift.templateId === createdBody.id)).toMatchObject({ name: "多人班更新", requiredHeadcount: 3 });
+  });
+
+  it("需求人力可以按日型設定，沒設定的日型沿用平日值", async () => {
+    const created = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "假日增援班", times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 1 },
+      { dayType: "holiday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 2 },
+    ] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const createdBody = await created.json() as { id: string };
+    expect((await listShifts()).filter((shift) => shift.templateId === createdBody.id).map((shift) => ({ dayType: shift.dayType, requiredHeadcount: shift.requiredHeadcount })).sort((a, b) => a.dayType.localeCompare(b.dayType))).toEqual([
+      { dayType: "holiday", requiredHeadcount: 2 },
+      { dayType: "weekday", requiredHeadcount: 1 },
+    ]);
+
+    const updated = await request(`/hr/shift-templates/${createdBody.id}`, "PATCH", { scopeId: "scope", name: "假日增援班", revision: 1, times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 2 },
+      { dayType: "holiday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 3 },
+    ] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    expect((await listShifts()).filter((shift) => shift.templateId === createdBody.id).map((shift) => ({ dayType: shift.dayType, requiredHeadcount: shift.requiredHeadcount })).sort((a, b) => a.dayType.localeCompare(b.dayType))).toEqual([
+      { dayType: "holiday", requiredHeadcount: 3 },
+      { dayType: "weekday", requiredHeadcount: 2 },
+    ]);
+
+    // 舊版只送班別層級值時，仍應把同一個值套到所有已存在的日型。
+    const legacyUpdated = await request(`/hr/shift-templates/${createdBody.id}`, "PATCH", { scopeId: "scope", name: "假日增援班", requiredHeadcount: 4, revision: 2, times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00" },
+      { dayType: "holiday", startTime: "09:00", endTime: "18:00" },
+    ] });
+    expect(legacyUpdated.status, await legacyUpdated.clone().text()).toBe(200);
+    expect((await listShifts()).filter((shift) => shift.templateId === createdBody.id).map((shift) => shift.requiredHeadcount)).toEqual([4, 4]);
+
+    const invalid = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "假日錯誤人力", times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 1 },
+      { dayType: "holiday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 101 },
+    ] });
+    expect(invalid.status).toBe(400);
   });
 
   it("平日那組是必填的，因為其他日型沒設定時要沿用它", async () => {

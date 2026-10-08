@@ -56,7 +56,7 @@ export const hrShiftTemplates = sqliteTable("hr_shift_templates", {
   code: text("code").notNull(),
   name: text("name").notNull(),
   active: integer("active").notNull().default(1),
-  /** 排班提示用的需求人力；薪資單位不隨需求人力增加，固定由每個班別分配 1 單位。 */
+  /** 舊版班別需求人力的相容鏡像；新的來源是各日型版本上的需求人力。 */
   requiredHeadcount: integer("required_headcount").notNull().default(1),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   ...timestamps(),
@@ -93,6 +93,8 @@ export const hrShiftVersions = sqliteTable("hr_shift_versions", {
    * 裡會連坐（見 CLAUDE.md 的 0023）。值域由 TS 的 enum 與 assertDayType 把關。
    */
   dayType: text("day_type", { enum: ["weekday", "weekend", "holiday"] as const }).notNull().default("weekday"),
+  /** 這個日型的排班提示人力；薪資單位不隨需求人力增加，固定由每個班別分配 1 單位。 */
+  requiredHeadcount: integer("required_headcount").notNull().default(1),
   versionNumber: integer("version_number").notNull(),
   startSecond: integer("start_second").notNull(),
   endSecond: integer("end_second").notNull(),

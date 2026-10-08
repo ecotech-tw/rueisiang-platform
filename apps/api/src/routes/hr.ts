@@ -438,7 +438,8 @@ function shiftTimes(input: Record<string, unknown>): HrShiftTime[] {
     const entry = item as Record<string, unknown>;
     if (!isHrDayType(entry.dayType)) throw new HTTPException(400, { message: "班別的日期類型不正確。" });
     const defaults = defaultShiftMinutes(entry);
-    return { dayType: entry.dayType, startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes };
+    const requiredHeadcount = entry.requiredHeadcount === undefined ? undefined : integerValue(entry, "requiredHeadcount", "需求人力", 1, 100);
+    return { dayType: entry.dayType, startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes, requiredHeadcount };
   });
 }
 /**
