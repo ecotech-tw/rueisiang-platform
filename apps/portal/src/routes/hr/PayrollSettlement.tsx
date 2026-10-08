@@ -201,8 +201,9 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
           <strong className="hr-payroll-picker-group-title">正式員工</strong>
           {employeesPending ? <p className="muted hr-payroll-picker-empty">正在載入符合資格的員工…</p> : employees.length ? <DropdownSelect
             multiple
-            // 全體模式使用摘要式多選；移除一位後切回可搜尋的 chip，避免全選把輸入框撐高。
-            searchable={selectionMode !== "all"}
+            searchable
+            // 全體模式只收合視覺上的 chip，清單仍保留所有人，才能搜尋並取消單一人員。
+            compactSelected={selectionMode === "all"}
             value={employeeValue}
             options={employeeOptions}
             placeholder="搜尋姓名或員工編號"
@@ -218,7 +219,8 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
           <strong className="hr-payroll-picker-group-title">支援人員</strong>
           {!periodKey ? <p className="muted hr-payroll-picker-empty">選擇計算月份後會列出該月有排班的支援人員。</p> : supportWorkers.isPending ? <p className="muted hr-payroll-picker-empty">正在載入本月已發布排班…</p> : workerOptions.length ? <DropdownSelect
             multiple
-            searchable={selectionMode !== "all"}
+            searchable
+            compactSelected={selectionMode === "all"}
             value={workerValue}
             options={workerSelectOptions}
             placeholder="搜尋支援人員"
