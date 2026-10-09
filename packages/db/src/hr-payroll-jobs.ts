@@ -1,7 +1,7 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, type HrActor } from "./hr-people.js";
-import { HR_PAYROLL_CALCULATION_INPUT_JSON_MAX_LENGTH, type HrPayrollCalculationInput } from "./hr-payroll-calculation.js";
+import { assertHrPayrollSelectionAvailable, HR_PAYROLL_CALCULATION_INPUT_JSON_MAX_LENGTH, type HrPayrollCalculationInput } from "./hr-payroll-calculation.js";
 import { hrPayrollJobs, type HrPayrollJob } from "./schema/hr-payroll-runs.js";
 
 export type HrPayrollJobStatus = HrPayrollJob["status"];
@@ -115,6 +115,7 @@ export async function createHrPayrollJob(db: Database, input: CreateHrPayrollJob
 
   const [existing] = await db.select().from(hrPayrollJobs).where(eq(hrPayrollJobs.requestId, requestId)).limit(1);
   if (existing) return { job: toView(existing), created: false };
+  await assertHrPayrollSelectionAvailable(db, calculation);
 
   const jobId = crypto.randomUUID();
   const calculationInputJson = JSON.stringify(calculation);

@@ -372,6 +372,45 @@ describe("HR 薪資與勞健保", () => {
     expect((await calculated.json() as { run: { employees: unknown[] } }).run.employees).toHaveLength(1);
   });
 
+  it("同月份已有未結算試算的員工不再列入或接受重複試算，刪除後可重新計算", async () => {
+    await assign();
+    const profile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const employmentId = profile.employments[0]!.id;
+    expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 3_000_000 })).status).toBe(201);
+    const calculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], workerIds: [], requestId: "duplicate-payroll-first" });
+    expect(calculated.status, await calculated.clone().text()).toBe(200);
+    const runId = (await calculated.json() as { run: { runId: string } }).run.runId;
+
+    const exclusions = await request("/hr/payroll/candidate-exclusions?periodKey=2026-01");
+    expect(exclusions.status).toBe(200);
+    expect(await exclusions.json()).toMatchObject({ employeeUserIds: ["employee"], allEmployees: false });
+    const duplicate = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], workerIds: [], requestId: "duplicate-payroll-second" });
+    expect(duplicate.status, await duplicate.clone().text()).toBe(409);
+
+    const deleted = await request(`/hr/payroll/runs/${runId}`, "DELETE", {});
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    const afterDelete = await request("/hr/payroll/candidate-exclusions?periodKey=2026-01");
+    expect((await afterDelete.json() as { employeeUserIds: string[] }).employeeUserIds).toEqual([]);
+    expect((await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], workerIds: [], requestId: "duplicate-payroll-after-delete" })).status).toBe(200);
+  });
+
+  it("全選試算只納入當月尚未試算的員工", async () => {
+    const db = createDatabase(d1 as never);
+    await db.insert(users).values({ id: "employee-two", email: "employee-two@example.test", displayName: "第二位員工", status: "active" });
+    await assign();
+    await assignUser("employee-two", "E-PAY-2");
+    const firstProfile = await (await request("/hr/employees/employee")).json() as { employments: { id: string }[] };
+    const secondProfile = await (await request("/hr/employees/employee-two")).json() as { employments: { id: string }[] };
+    for (const employmentId of [firstProfile.employments[0]!.id, secondProfile.employments[0]!.id]) {
+      expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-01-01", payBasis: "monthly", baseAmountMinor: 3_000_000 })).status).toBe(201);
+    }
+    const first = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee"], workerIds: [], requestId: "all-payroll-first" });
+    expect(first.status, await first.clone().text()).toBe(200);
+    const all = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", workerIds: [], requestId: "all-payroll-second" });
+    expect(all.status, await all.clone().text()).toBe(200);
+    expect((await all.json() as { run: { employees: Array<{ employeeUserId: string }> } }).run.employees.map((employee) => employee.employeeUserId)).toEqual(["employee-two"]);
+  });
+
   it("尚未到職的員工不會阻擋薪資期間結帳", async () => {
     const db = createDatabase(d1 as never);
     await db.insert(users).values({ id: "future-employee", email: "future-employee@example.test", displayName: "未到職員工", status: "active" });
@@ -425,6 +464,8 @@ describe("HR 薪資與勞健保", () => {
     expect(concurrentClose.map((response) => response.status).sort()).toEqual([200, 409]);
     const afterFirst = await (await request("/hr/payroll/runs")).json() as { runs: Array<{ run: { requestId: string; status: string }; periodStatus: string }> };
     expect(afterFirst.runs.find((item) => item.run.requestId === "partial-close-first")).toMatchObject({ run: { status: "closed" }, periodStatus: "open" });
+    const afterFirstExclusions = await request("/hr/payroll/candidate-exclusions?periodKey=2026-01");
+    expect(await afterFirstExclusions.json()).toMatchObject({ employeeUserIds: ["employee"], allEmployees: false });
 
     const second = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-01", employeeUserIds: ["employee-two"], requestId: "partial-close-second" });
     expect(second.status, await second.clone().text()).toBe(200);

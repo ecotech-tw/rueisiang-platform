@@ -184,7 +184,7 @@ describe("週年制特休額度", () => {
     expect(settlement).toEqual([{ deltaHalfHours: -48, entryKind: "settlement", sourceKey: `annual-settlement:${afterClose[0]!.id}` }]);
   });
 
-  it("撤回薪資結帳會以反向台帳恢復未休特休額度並重新開放期間", async () => {
+  it("撤回薪資結帳以反向台帳恢復未休特休額度，但同月仍不可重複試算", async () => {
     const db = createDatabase(d1 as never);
     const profile = await (await request("/hr/employees/employee")).json() as { employments: Array<{ id: string }> };
     const employmentId = profile.employments[0]!.id;
@@ -209,11 +209,9 @@ describe("週年制特休額度", () => {
     expect(reversal).toEqual([{ entryKind: "settlement_reversal", deltaHalfHours: 48, sourceKey: `annual-settlement-reversal:${runId}:annual-settlement:${entitlement[0]!.id}` }]);
 
     const recalculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-02", employeeUserIds: ["employee"], requestId: "annual-settlement-withdrawal-second" });
-    expect(recalculated.status, await recalculated.clone().text()).toBe(200);
-    const newRunId = (await recalculated.json() as { run: { runId: string } }).run.runId;
-    const reclosed = await request(`/hr/payroll/runs/${newRunId}/close`, "POST", {});
-    expect(reclosed.status, await reclosed.clone().text()).toBe(200);
-    expect((await db.select({ status: hrAnnualLeaveEntitlements.status }).from(hrAnnualLeaveEntitlements).where(eq(hrAnnualLeaveEntitlements.id, entitlement[0]!.id)).limit(1))[0]?.status).toBe("settled");
+    expect(recalculated.status, await recalculated.clone().text()).toBe(409);
+    expect((await recalculated.json() as { error: string }).error).toContain("已有試算結果");
+    expect((await db.select({ status: hrAnnualLeaveEntitlements.status }).from(hrAnnualLeaveEntitlements).where(eq(hrAnnualLeaveEntitlements.id, entitlement[0]!.id)).limit(1))[0]?.status).toBe("open");
   });
 
   it("部分撤回只反向恢復該批次實際結算的特休折現", async () => {
@@ -235,12 +233,6 @@ describe("週年制特休額度", () => {
     const firstRunId = (await firstCalculated.json() as { run: { runId: string } }).run.runId;
     const approved = await request("/hr/payroll/records/approve", "POST", { records: [{ runId: firstRunId, personKind: "employee", personId: firstEmploymentId }] });
     expect(approved.status, await approved.clone().text()).toBe(200);
-
-    const secondCalculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-02", employeeUserIds: ["employee-two"], requestId: "annual-settlement-withdrawal-partial-second" });
-    expect(secondCalculated.status, await secondCalculated.clone().text()).toBe(200);
-    const secondRunId = (await secondCalculated.json() as { run: { runId: string } }).run.runId;
-    const secondClosed = await request(`/hr/payroll/runs/${secondRunId}/close`, "POST", {});
-    expect(secondClosed.status, await secondClosed.clone().text()).toBe(200);
 
     const entitlements = await db.select({ id: hrAnnualLeaveEntitlements.id, employmentId: hrAnnualLeaveEntitlements.employmentId })
       .from(hrAnnualLeaveEntitlements).where(eq(hrAnnualLeaveEntitlements.periodStart, "2025-09-01"));

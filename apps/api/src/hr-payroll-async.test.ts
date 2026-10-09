@@ -73,6 +73,13 @@ describe("薪資背景 Queue 與 Durable Object", () => {
     expect(repeat.status, await repeat.clone().text()).toBe(202);
     const repeatBody = await repeat.json() as { job: { jobId: string } };
     expect(repeatBody.job.jobId).toBe(firstBody.job.jobId);
+
+    const exclusions = await request("/hr/payroll/candidate-exclusions?periodKey=2026-08");
+    expect(await exclusions.json()).toMatchObject({ employeeUserIds: ["dev-eli-lin@ecotech.tw"], allEmployees: false, allWorkers: true });
+    const overlapping = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], workerIds: [], expectedCount: 1, requestId: "async-payroll-request-overlap",
+    });
+    expect(overlapping.status, await overlapping.clone().text()).toBe(409);
     expect(queueMessages).toHaveLength(1);
   });
 

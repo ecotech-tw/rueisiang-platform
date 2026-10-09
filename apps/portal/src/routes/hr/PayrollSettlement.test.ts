@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { visiblePayrollJobs } from "./PayrollSettlement.js";
+import { availablePayrollEmployees, availablePayrollWorkers, visiblePayrollJobs } from "./PayrollSettlement.js";
 
 type Job = Parameters<typeof visiblePayrollJobs>[0][number];
 
@@ -27,6 +27,21 @@ function job(patch: Partial<Job>): Job {
 }
 
 const visibleIds = (jobs: Job[]) => visiblePayrollJobs(jobs).map((item) => item.jobId);
+
+describe("新增薪資試算的可選人員", () => {
+  it("排除本月已有試算結果或正在試算的人員", () => {
+    const exclusions = { employeeUserIds: ["calculated"], workerIds: ["worker-calculated"], allEmployees: false, allWorkers: false };
+    expect(availablePayrollEmployees([{ userId: "calculated" }, { userId: "available" }], exclusions)).toEqual([{ userId: "available" }]);
+    expect(availablePayrollWorkers([{ id: "worker-calculated" }, { id: "worker-available" }], exclusions)).toEqual([{ id: "worker-available" }]);
+  });
+
+  it("名單載入失敗或當月全體都已被占用時不提供可選人員", () => {
+    const exclusions = { employeeUserIds: [], workerIds: [], allEmployees: true, allWorkers: true };
+    expect(availablePayrollEmployees([{ userId: "employee" }], undefined)).toEqual([]);
+    expect(availablePayrollEmployees([{ userId: "employee" }], exclusions)).toEqual([]);
+    expect(availablePayrollWorkers([{ id: "worker" }], exclusions)).toEqual([]);
+  });
+});
 
 describe("薪資試算面板要列哪些工作", () => {
   it("進行中的工作一律顯示", () => {
