@@ -53,6 +53,25 @@ export function nextDate(date: string) {
   return new Date(Date.parse(`${date}T00:00:00Z`) + DAY_MINUTES * 60_000).toISOString().slice(0, 10);
 }
 
+export interface OvertimeEntryDay {
+  date: string;
+  startAt: string | null;
+}
+
+export function selectedUnscheduledDates(days: readonly OvertimeEntryDay[], assigned: Readonly<Record<string, number>>) {
+  return days.filter((day) => day.startAt === null && assigned[day.date] !== undefined).map((day) => day.date);
+}
+
+export function buildOvertimeEntries(days: readonly OvertimeEntryDay[], assigned: Readonly<Record<string, number>>, unscheduledStartTime: string) {
+  return days.flatMap((day) => {
+    const minutes = assigned[day.date];
+    if (minutes === undefined) return [];
+    const startAt = day.startAt ?? (/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(unscheduledStartTime) ? `${day.date}T${unscheduledStartTime}` : "");
+    const requestedEnd = startAt ? addMinutes(startAt, minutes) : "";
+    return requestedEnd ? [{ requestedStart: startAt, requestedEnd }] : [];
+  });
+}
+
 export function weekdayIndex(date: string) {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
 }

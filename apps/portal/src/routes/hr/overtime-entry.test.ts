@@ -1,5 +1,8 @@
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { addMinutes, buildOvertimeSubmission, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, summarizeAssignments } from "./overtime-entry.js";
+import { OvertimeDayPicker } from "./OvertimeDayPicker.js";
+import { addMinutes, buildOvertimeEntries, buildOvertimeSubmission, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, selectedUnscheduledDates, summarizeAssignments } from "./overtime-entry.js";
 
 describe("加班時數與結束時間互相換算", () => {
   it("由時數推出結束時間，跨午夜會進到隔天", () => {
@@ -66,6 +69,36 @@ describe("多日加班的月份與小計", () => {
     expect(monthRange("2026-13")).toBeNull();
     expect(monthRange("")).toBeNull();
     expect(nextDate("2026-02-28")).toBe("2026-03-01");
+  });
+
+  it("未排班日期必須指定起始時間；有排班日期仍沿用班表下班時間", () => {
+    const days = [
+      { date: "2026-10-13", startAt: null },
+      { date: "2026-10-14", startAt: "2026-10-14T20:00" },
+    ];
+    const assigned = { "2026-10-13": 90, "2026-10-14": 60 };
+
+    expect(selectedUnscheduledDates(days, assigned)).toEqual(["2026-10-13"]);
+    expect(buildOvertimeEntries(days, assigned, "")).toEqual([
+      { requestedStart: "2026-10-14T20:00", requestedEnd: "2026-10-14T21:00" },
+    ]);
+    expect(buildOvertimeEntries(days, assigned, "18:30")).toEqual([
+      { requestedStart: "2026-10-13T18:30", requestedEnd: "2026-10-13T20:00" },
+      { requestedStart: "2026-10-14T20:00", requestedEnd: "2026-10-14T21:00" },
+    ]);
+    expect(buildOvertimeEntries(days, assigned, "25:00")).toHaveLength(1);
+  });
+
+  it("未排班日期可點選，選取後仍標示未排班狀態", () => {
+    const days = [{ date: "2026-10-13", startAt: null, hasExisting: false }];
+    const unselected = renderToStaticMarkup(createElement(OvertimeDayPicker, { days, assigned: {}, onToggle: () => {} }));
+    expect(unselected).toContain('class="hr-overtime-day unscheduled"');
+    expect(unselected).not.toContain("disabled");
+    expect(unselected).toContain("未排班");
+
+    const selected = renderToStaticMarkup(createElement(OvertimeDayPicker, { days, assigned: { "2026-10-13": 60 }, onToggle: () => {} }));
+    expect(selected).toContain('class="hr-overtime-day selected unscheduled"');
+    expect(selected).toContain('class="hr-overtime-day-status">未排班</small>');
   });
 
   it("依時數分組列出天數與總時數", () => {

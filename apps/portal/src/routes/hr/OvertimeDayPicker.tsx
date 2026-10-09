@@ -4,7 +4,7 @@ const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as cons
 
 export interface OvertimePickerDay {
   date: string;
-  /** 當天下班時間（台北 `YYYY-MM-DDTHH:mm`），也就是加班的起算點；沒有排班時為 null。 */
+  /** 當天下班時間（台北 `YYYY-MM-DDTHH:mm`），也就是加班的起算點；未排班日由表單另外指定。 */
   startAt: string | null;
   hasExisting: boolean;
 }
@@ -29,18 +29,20 @@ export function OvertimeDayPicker({ days, assigned, disabled = false, onToggle }
       const minutes = assigned[day.date];
       const selected = minutes !== undefined;
       // 單位另外包起來：手機一格只有四十幾 px，放不下時只藏單位，數字要留著。
-      const [value, unit] = day.hasExisting ? ["已加班", ""] : day.startAt === null ? ["未排班", ""] : selected ? [`+${hoursText(minutes)}`, " 小時"] : [day.startAt.slice(11), " 下班"];
+      const isUnscheduled = day.startAt === null;
+      const [value, unit] = day.hasExisting ? ["已加班", ""] : isUnscheduled ? [selected ? `+${hoursText(minutes)}` : "未排班", selected ? " 小時" : ""] : selected ? [`+${hoursText(minutes)}`, " 小時"] : [day.startAt?.slice(11) ?? "", " 下班"];
       return <button
         key={day.date}
         type="button"
-        className={`hr-overtime-day${selected ? " selected" : ""}`}
+        className={`hr-overtime-day${selected ? " selected" : ""}${isUnscheduled ? " unscheduled" : ""}`}
         aria-pressed={selected}
-        aria-label={`${Number(day.date.slice(5, 7))} 月 ${Number(day.date.slice(8))} 日，${value}${unit}`}
-        disabled={disabled || day.hasExisting || day.startAt === null}
+        aria-label={`${Number(day.date.slice(5, 7))} 月 ${Number(day.date.slice(8))} 日，${isUnscheduled ? "未排班，" : ""}${value}${unit}`}
+        disabled={disabled || day.hasExisting}
         onClick={() => onToggle(day.date)}
       >
         <strong>{Number(day.date.slice(8))}</strong>
         <small>{value}{unit ? <span className="hr-overtime-day-unit">{unit}</span> : null}</small>
+        {isUnscheduled && selected ? <small className="hr-overtime-day-status">未排班</small> : null}
       </button>;
     })}
   </div>;

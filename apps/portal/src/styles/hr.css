@@ -1189,7 +1189,10 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-overtime-day:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-overtime-day.selected { background: var(--color-brand-soft); box-shadow: 0 0 0 1px --alpha(var(--color-brand) / 28%) inset; color: var(--color-brand-dark); }
 .hr-overtime-day.selected small { color: var(--color-brand-dark); font-weight: 700; }
+.hr-overtime-day .hr-overtime-day-status { font-weight: 500; line-height: 1; }
 .hr-overtime-day:disabled { background: transparent; box-shadow: none; color: var(--color-muted); cursor: not-allowed; }
+.hr-system .hr-overtime-unscheduled-dates { display: grid; gap: 4px; margin: 8px 0 0; padding-inline-start: 20px; list-style: disc; }
+.hr-system .hr-overtime-unscheduled-dates li { font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   .hr-overtime-day { transition: none; }
   .hr-overtime-day:active:not(:disabled) { scale: 1; }
