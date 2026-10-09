@@ -29,20 +29,26 @@ jobs:
       migrations: ${{ steps.paths.outputs.migrations }}
       hr: ${{ steps.paths.outputs.hr }}
       current: ${{ steps.current.outputs.current }}
+      attempt: ${{ steps.current.outputs.attempt }}
       artifact_run_id: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.id || github.run_id }}
     steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
           fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
       - name: 確認 CI 對應的 commit 仍在 main
         id: current
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
           TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          echo "attempt=$RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
             exit 0
@@ -65,6 +71,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           if [[ "$CURRENT_RUN" != "true" ]]; then
@@ -82,20 +89,7 @@ jobs:
               echo "hr=true"
             } >> "$GITHUB_OUTPUT"
           else
-            last_deployed_sha=""
-            runs_url="$API_URL/repos/$REPOSITORY/actions/workflows/deploy.yml/runs?branch=main&per_page=100"
-            if runs_json="$(curl -fsSL --retry 3 --retry-all-errors \
-              -H "Accept: application/vnd.github+json" \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              "$runs_url")"; then
-              if ! last_deployed_sha="$(jq -r '[.workflow_runs[] | select(.conclusion == "success")][0].head_sha // empty' <<< "$runs_json")"; then
-                echo "::warning::無法解析 Deploy run，改用完整 tree 做安全的部署範圍判斷。"
-                last_deployed_sha=""
-              fi
-            else
-              echo "::warning::無法查詢上次成功 Deploy，改用完整 tree 做安全的部署範圍判斷。"
-            fi
+            last_deployed_sha="$(node "$GITHUB_WORKSPACE/.github/scripts/deploy-baseline.mjs")"
 
             if [[ -n "$last_deployed_sha" ]] \
               && git cat-file -e "$last_deployed_sha^{commit}" 2>/dev/null \
@@ -113,7 +107,7 @@ jobs:
 
   prepare:
     needs: detect
-    if: needs.detect.outputs.current == 'true' && (needs.detect.outputs.platform == 'true' || needs.detect.outputs.migrations == 'true' || needs.detect.outputs.hr == 'true')
+    if: needs.detect.outputs.current == 'true' && needs.detect.outputs.attempt == format('{0}', github.run_attempt) && (needs.detect.outputs.platform == 'true' || needs.detect.outputs.migrations == 'true' || needs.detect.outputs.hr == 'true')
     runs-on: ubuntu-latest
     env:
       # HR is a separate static Worker; its production bundle must call the Platform API.
@@ -164,7 +158,7 @@ jobs:
 
   deploy-platform:
     needs: [detect, prepare]
-    if: needs.detect.outputs.current == 'true' && (needs.detect.outputs.platform == 'true' || needs.detect.outputs.migrations == 'true')
+    if: needs.detect.outputs.current == 'true' && needs.detect.outputs.attempt == format('{0}', github.run_attempt) && (needs.detect.outputs.platform == 'true' || needs.detect.outputs.migrations == 'true')
     runs-on: ubuntu-latest
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -265,7 +259,7 @@ jobs:
 
   deploy-hr:
     needs: [detect, prepare]
-    if: needs.detect.outputs.current == 'true' && needs.detect.outputs.hr == 'true'
+    if: needs.detect.outputs.current == 'true' && needs.detect.outputs.attempt == format('{0}', github.run_attempt) && needs.detect.outputs.hr == 'true'
     runs-on: ubuntu-latest
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -320,3 +314,33 @@ jobs:
           done
           echo "::error::HR 自訂網域健康檢查逾時。"
           exit 1
+
+  record-deployment:
+    needs: [detect, prepare, deploy-platform, deploy-hr]
+    if: always() && !cancelled() && needs.detect.outputs.current == 'true' && needs.detect.outputs.attempt == format('{0}', github.run_attempt) && needs.prepare.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: 確認部署與 smoke test 全部成功
+        id: marker
+        env:
+          CURRENT_RUN: ${{ needs.detect.outputs.current }}
+          PREPARE_RESULT: ${{ needs.prepare.result }}
+          PLATFORM_RESULT: ${{ needs.deploy-platform.result }}
+          HR_RESULT: ${{ needs.deploy-hr.result }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          TARGET_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
+        run: node .github/scripts/deploy-baseline.mjs record
+      # 未部署、部分成功或 smoke test 失敗都不能變成累積 diff 的基準。
+      - uses: actions/upload-artifact@v4
+        if: steps.marker.outputs.sha != ''
+        with:
+          name: deployed-commit-${{ steps.marker.outputs.sha }}-attempt-${{ github.run_attempt }}
+          path: deployment-commit.txt
+          if-no-files-found: error
+          overwrite: true

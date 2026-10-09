@@ -8,7 +8,7 @@ hr=false
 
 while IFS= read -r path; do
   case "$path" in
-    apps/api/*|apps/portal/*|packages/assistant/*|packages/auth/*|packages/config/*|packages/cyberbiz/*|packages/db/src/*|packages/db/package.json|packages/db/tsconfig.json|packages/db/drizzle.config.ts|packages/tools/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|.github/workflows/deploy.yml)
+    apps/api/*|apps/portal/*|packages/assistant/*|packages/auth/*|packages/config/*|packages/cyberbiz/*|packages/db/src/*|packages/db/package.json|packages/db/tsconfig.json|packages/db/drizzle.config.ts|packages/tools/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|.github/workflows/deploy.yml|.github/scripts/deploy-baseline.mjs|.github/scripts/detect-deploy-scope.sh)
       platform=true ;;
   esac
   case "$path" in
@@ -16,7 +16,7 @@ while IFS= read -r path; do
       migrations=true ;;
   esac
   case "$path" in
-    apps/hr/*|packages/auth/*|packages/config/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|.github/workflows/deploy.yml)
+    apps/hr/*|packages/auth/*|packages/config/*|package.json|pnpm-lock.yaml|pnpm-workspace.yaml|turbo.json|.github/workflows/deploy.yml|.github/scripts/deploy-baseline.mjs|.github/scripts/detect-deploy-scope.sh)
       hr=true ;;
   esac
 done
