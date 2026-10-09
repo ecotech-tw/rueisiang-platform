@@ -5,7 +5,7 @@ import { usePageTitle } from "../shell/usePageTitle.js";
 import { Alert, Button, Panel } from "../ui/index.js";
 import { useHrWrite } from "../routes/hr/api.js";
 
-export function LiffAccountLinkPage({ replaceExisting = false }: { replaceExisting?: boolean }) {
+export function LiffAccountLinkPage({ replaceExisting = false, intentExpired = false }: { replaceExisting?: boolean; intentExpired?: boolean }) {
   usePageTitle("綁定 LINE 打卡");
   const { user } = useSession();
   const client = useQueryClient();
@@ -32,7 +32,9 @@ export function LiffAccountLinkPage({ replaceExisting = false }: { replaceExisti
       <dl className="hr-liff-link-account"><div><dt>姓名</dt><dd>{user?.name || "—"}</dd></div><div><dt>登入帳號</dt><dd>{user?.email || "—"}</dd></div></dl>
       {!user?.isEmployee ? <Alert tone="danger">此帳號尚未指派為在職員工，無法使用 LINE 打卡。請聯絡 HR 管理者。</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      <Button variant="primary" className="hr-liff-link-confirm" disabled={!user?.isEmployee || link.isPending} onClick={() => void confirmLink()}>
+      {intentExpired ? <Alert tone="danger">LINE 綁定驗證已逾時，請重新從 LINE 開啟打卡頁。若目前仍在 LINE 打卡頁，可重新載入驗證。</Alert> : null}
+      {intentExpired ? <Button variant="secondary" onClick={() => window.location.reload()}>重新載入驗證</Button> : null}
+      <Button variant="primary" className="hr-liff-link-confirm" disabled={intentExpired || !user?.isEmployee || link.isPending} onClick={() => void confirmLink()}>
         {link.isPending ? "驗證並綁定中…" : replaceExisting ? "解除舊綁定並改綁目前 LINE" : "確認並綁定這個帳號"}
       </Button>
       <Button variant="secondary" disabled={link.isPending} onClick={() => void signOut()}>不是這個帳號？登出後切換</Button>

@@ -2,6 +2,9 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_BASE_URL } from "../config.js";
 import { getLiffIdToken, isLiffConfigured } from "./liff.js";
 
+// 綁定 query 的逾時／失敗 refetch 不能清除此頁已開始的 LINE 綁定流程。
+let lineLinkRequired = false;
+
 interface SessionUser {
   id: string;
   email: string;
@@ -12,6 +15,7 @@ interface SessionUser {
   deviceRemembered: boolean;
   /** 這次登入的裝置憑證來自已驗證的 LINE LIFF 身分。 */
   lineLiffAuthenticated: boolean;
+  lineLinkRequired: boolean;
 }
 
 async function responseError(response: Response, fallback: string): Promise<Error> {
@@ -27,7 +31,7 @@ async function fetchPendingLineIntent(): Promise<boolean> {
   return Boolean(result.pending);
 }
 
-async function fetchSession(): Promise<SessionUser | null> {
+export async function fetchSession(): Promise<SessionUser | null> {
   const lineIdToken = getLiffIdToken();
   if (lineIdToken) {
     const lineSession = await fetch(`${API_BASE_URL}/hr/me/liff-session`, {
@@ -37,6 +41,8 @@ async function fetchSession(): Promise<SessionUser | null> {
       body: JSON.stringify({ idToken: lineIdToken }),
     });
     if (!lineSession.ok) throw await responseError(lineSession, "LINE 身分驗證失敗，請重新開啟打卡頁。");
+    const result = await lineSession.json() as { linked: boolean };
+    lineLinkRequired = !result.linked;
   }
 
   // 裝置 cookie 只送到 /api/hr/me 底下，那條只認 12 小時 session。
@@ -49,10 +55,14 @@ async function fetchSession(): Promise<SessionUser | null> {
    * 有 session 但這台還沒記住：剛登入、從平台的帳號選單點過來、或裝置已過期。
    * LIFF linking intent 正等平台登入完成時不要先發一般裝置憑證；其餘照舊記住裝置。
    */
-  if (!user.deviceRemembered && !lineIdToken && !await fetchPendingLineIntent()) {
-    await fetch(`${API_BASE_URL}/hr/me/device`, { method: "POST", credentials: "include" }).catch(() => undefined);
+  if (user.lineLiffAuthenticated) lineLinkRequired = false;
+  if (!user.deviceRemembered && !lineIdToken) {
+    if (await fetchPendingLineIntent()) lineLinkRequired = true;
+    if (!lineLinkRequired) {
+      await fetch(`${API_BASE_URL}/hr/me/device`, { method: "POST", credentials: "include" }).catch(() => undefined);
+    }
   }
-  return user;
+  return { ...user, lineLinkRequired };
 }
 
 export function useSession() {

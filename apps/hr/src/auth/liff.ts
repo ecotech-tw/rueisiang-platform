@@ -9,7 +9,8 @@ export function isLiffConfigured(): boolean {
 }
 
 export async function initializeLiff(): Promise<void> {
-  if (!liffId || initialized) return;
+  // isInClient 可在 init 前呼叫；一般 HR 瀏覽器不應依賴 LINE 服務才能啟動。
+  if (!liffId || !liff.isInClient() || initialized) return;
   if (!initPromise) {
     initPromise = liff.init({ liffId }).then(() => {
       initialized = true;
