@@ -537,6 +537,28 @@ function roundScheduleAllocationAmount(amountMinor: number, numerator: number, d
   return Number(roundHalfUpDiv(BigInt(amountMinor) * BigInt(numerator), BigInt(denominator)));
 }
 
+function roundScheduleAllocationGroupAmounts(entries: Array<{ allocation: SchedulePayAllocation; amountMinor: number }>) {
+  const amounts = new Map(entries.map(({ allocation }) => [allocation.row.id, 0]));
+  const payableEntries = entries.filter(({ allocation, amountMinor }) => amountMinor > 0 && allocation.detail.unitNumerator > 0 && allocation.detail.unitDenominator > 0);
+  if (!payableEntries.length) return amounts;
+
+  // 同班有效人員共用分數；總額只捨入一次，餘數相同時依已保存的排班 id 決定，避免分批試算改變結果。
+  const { unitNumerator, unitDenominator } = payableEntries[0]!.allocation.detail;
+  const denominator = BigInt(unitDenominator);
+  const shares = payableEntries.map(({ allocation, amountMinor }) => {
+    const numerator = BigInt(amountMinor) * BigInt(unitNumerator);
+    return { rowId: allocation.row.id, amountMinor: Number(numerator / denominator), remainder: numerator % denominator };
+  });
+  const totalNumerator = payableEntries.reduce((sum, { amountMinor }) => sum + BigInt(amountMinor) * BigInt(unitNumerator), 0n);
+  const groupAmount = Number(roundHalfUpDiv(totalNumerator, denominator));
+  const roundingUnits = groupAmount - shares.reduce((sum, share) => sum + share.amountMinor, 0);
+  for (const share of shares) amounts.set(share.rowId, share.amountMinor);
+  for (const share of [...shares].sort((left, right) => left.remainder === right.remainder ? left.rowId.localeCompare(right.rowId) : left.remainder > right.remainder ? -1 : 1).slice(0, roundingUnits)) {
+    amounts.set(share.rowId, share.amountMinor + 1);
+  }
+  return amounts;
+}
+
 function taipeiDate(value: string): string {
   const normalized = value.replace(" ", "T");
   const timestamp = Date.parse(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
@@ -658,6 +680,12 @@ function payrollSnapshotsMatch(currentValue: string, savedValue: string) {
       delete saved.allocationEmploymentStates;
       delete saved.allocationClocks;
     }
+    for (const key of ["allocationEmployeeCompensations", "allocationWorkerCompensations"]) {
+      if (Object.hasOwn(current, key) !== Object.hasOwn(saved, key)) {
+        delete current[key];
+        delete saved[key];
+      }
+    }
     return comparablePayrollSnapshot(JSON.stringify(current)) === comparablePayrollSnapshot(JSON.stringify(saved));
   } catch {
     return comparablePayrollSnapshot(currentValue) === comparablePayrollSnapshot(savedValue);
@@ -726,6 +754,16 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
     .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`));
   const allocationEmploymentIds = [...new Set(allocationEmploymentRows.map((row) => row.employmentId))];
+  const allocationWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId })
+    .from(hrScheduleWorkerEntries)
+    .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
+    .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleWorkerEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${input.period.end}`));
+  const allocationWorkerIds = [...new Set(allocationWorkerRows.map((row) => row.workerId))];
+  // 分數本薪的餘數分配也依賴未選取同班人員的敘薪；否則他人調薪後仍能把過期結果結帳。
+  const [allocationEmployeeCompensations, allocationWorkerCompensations] = await Promise.all([
+    db.select().from(hrCompensationVersions).where(and(inJsonArray(hrCompensationVersions.employmentId, allocationEmploymentIds.length ? allocationEmploymentIds : ["__none__"]), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
+    db.select().from(hrWorkerCompensationVersions).where(and(inJsonArray(hrWorkerCompensationVersions.workerId, allocationWorkerIds.length ? allocationWorkerIds : ["__none__"]), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
+  ]);
   const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, workerOvertime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({
       id: hrEmployments.id,
@@ -787,7 +825,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, workerOvertime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, calendarDays, calendarDayScopes,
     scheduleEntries: scheduleEntries.map(({ entry }) => entry),
     workerScheduleEntries: workerScheduleEntries.map(({ entry }) => entry),
-    workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes,
+    workers, workerCompensations, allocationEmployeeCompensations, allocationWorkerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes,
     bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems,
   });
 }
@@ -1379,13 +1417,14 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   }
   const employeeScheduleAllocations = new Map<string, SchedulePayAllocation[]>();
   const workerScheduleAllocations = new Map<string, SchedulePayAllocation>();
+  const schedulePayAllocationsByGroup = new Map<string, SchedulePayAllocation[]>();
   const employeeAllocationDetails = new Map<string, ScheduleAllocationDetail[]>();
   const workerAllocationDetails = new Map<string, ScheduleAllocationDetail[]>();
   const workerCompensationsById = new Map<string, typeof workerCompensations>();
   for (const compensation of workerCompensations) {
     workerCompensationsById.set(compensation.workerId, [...(workerCompensationsById.get(compensation.workerId) ?? []), compensation]);
   }
-  for (const groupRows of rowsByScheduleGroup.values()) {
+  for (const [groupKey, groupRows] of rowsByScheduleGroup) {
     const requiredHeadcount = Math.max(1, ...groupRows.map((row) => row.requiredHeadcount));
     if (groupRows.length !== requiredHeadcount) {
       calculationWarnings.add(`排班 ${groupRows[0]!.workDate}（${groupRows[0]!.scopeId}）已安排 ${groupRows.length}／需求 ${requiredHeadcount} 人，請確認人力。`);
@@ -1429,6 +1468,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         payableHours: rowScheduledHours * allocatedUnits,
       };
       const allocation: SchedulePayAllocation = { detail, row };
+      schedulePayAllocationsByGroup.set(groupKey, [...(schedulePayAllocationsByGroup.get(groupKey) ?? []), allocation]);
       if (row.personKind === "employee") {
         const key = `${row.personId}:${row.workDate}`;
         employeeScheduleAllocations.set(key, [...(employeeScheduleAllocations.get(key) ?? []), allocation]);
@@ -1437,6 +1477,35 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         workerScheduleAllocations.set(row.id, allocation);
         workerAllocationDetails.set(row.personId, [...(workerAllocationDetails.get(row.personId) ?? []), detail]);
       }
+    }
+  }
+  const employeeCompensationsById = new Map<string, typeof compensations>();
+  for (const compensation of compensations) {
+    employeeCompensationsById.set(compensation.employmentId, [...(employeeCompensationsById.get(compensation.employmentId) ?? []), compensation]);
+  }
+  const scheduleBaseAmountEntriesByGroup = new Map<string, Array<{ allocation: SchedulePayAllocation; amountMinor: number; payBasis: "monthly" | "daily" | "hourly" }>>();
+  for (const allocations of schedulePayAllocationsByGroup.values()) {
+    for (const allocation of allocations) {
+      const { row } = allocation;
+      const compensation = row.personKind === "employee"
+        ? covering(employeeCompensationsById.get(row.personId) ?? [], row.workDate)
+        : covering(workerCompensationsById.get(row.personId) ?? [], row.workDate);
+      if (!compensation || compensation.payBasis === "hourly" && row.personKind === "employee") continue;
+      const amountMinor = compensation.payBasis === "daily"
+        ? compensation.baseAmountMinor
+        : compensation.payBasis === "monthly"
+          ? Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
+          : Math.round(compensation.baseAmountMinor * scheduledHours(row));
+      const key = `${scheduleAllocationGroupKey(row)}:${compensation.payBasis}`;
+      scheduleBaseAmountEntriesByGroup.set(key, [...(scheduleBaseAmountEntriesByGroup.get(key) ?? []), { allocation, amountMinor, payBasis: compensation.payBasis }]);
+    }
+  }
+  const scheduleBaseAmountAllocationsByRow = new Map<string, { baseAmountMinor: number; allocatedAmountMinor: number; payBasis: "monthly" | "daily" | "hourly" }>();
+  // 必須先納入未被選取、甚至已在另一批次結算的人員，再取出本批次結果；不能按試算名單分配餘數。
+  for (const entries of scheduleBaseAmountEntriesByGroup.values()) {
+    const roundedAmounts = roundScheduleAllocationGroupAmounts(entries);
+    for (const { allocation, amountMinor, payBasis } of entries) {
+      scheduleBaseAmountAllocationsByRow.set(allocation.row.id, { baseAmountMinor: amountMinor, allocatedAmountMinor: roundedAmounts.get(allocation.row.id) ?? 0, payBasis });
     }
   }
   type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; lines: HrPayrollLineResult[]; overtimeMinor: number; overtimeSeconds: number; overtimeExplanation: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] };
@@ -1466,6 +1535,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     let missingCompensation = false;
     const allocationFor = (row: (typeof rows)[number]) => workerScheduleAllocations.get(row.id);
     const allocatedAmount = (amount: number, row: (typeof rows)[number]) => {
+      const roundedGroupAmount = scheduleBaseAmountAllocationsByRow.get(row.id);
+      if (roundedGroupAmount?.baseAmountMinor === amount) return roundedGroupAmount.allocatedAmountMinor;
       const allocation = allocationFor(row);
       return allocation ? roundScheduleAllocationAmount(amount, allocation.detail.unitNumerator, allocation.detail.unitDenominator) : amount;
     };
@@ -1705,12 +1776,17 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const allocation = allocations.find((candidate) => candidate.row.id === row.id);
       return sum + (allocation?.detail.allocatedUnits ?? 0);
     }, 0);
-    const allocatedRowsAmount = (amount: number, rowsForDate: typeof scheduledEmployeeRows, allocations: SchedulePayAllocation[], maximumUnits = 1) => allocations.length
-      ? Math.min(Math.round(amount * maximumUnits), rowsForDate.reduce((sum, row) => {
+    const allocatedRowsAmount = (amount: number, rowsForDate: typeof scheduledEmployeeRows, allocations: SchedulePayAllocation[], maximumUnits = 1) => {
+      if (!allocations.length) return 0;
+      if (rowsForDate.length && rowsForDate.every((row) => scheduleBaseAmountAllocationsByRow.get(row.id)?.baseAmountMinor === amount)) {
+        const groupAmount = rowsForDate.reduce((sum, row) => sum + (scheduleBaseAmountAllocationsByRow.get(row.id)?.allocatedAmountMinor ?? 0), 0);
+        return scheduleBaseAmountAllocationsByRow.get(rowsForDate[0]!.id)?.payBasis === "daily" ? groupAmount : Math.min(Math.round(amount * maximumUnits), groupAmount);
+      }
+      return Math.min(Math.round(amount * maximumUnits), rowsForDate.reduce((sum, row) => {
         const allocation = allocations.find((candidate) => candidate.row.id === row.id);
         return sum + (allocation ? roundScheduleAllocationAmount(amount, allocation.detail.unitNumerator, allocation.detail.unitDenominator) : 0);
-      }, 0))
-      : 0;
+      }, 0));
+    };
     if (employeeCompensations.some((item) => item.payBasis === "daily") && scheduledDates.size === 0 && !specialDates.size) {
       calculationWarnings.add(`${employee.employeeName} 為日薪制但本期沒有已發布排班，薪資為 0。`);
     }

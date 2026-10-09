@@ -1526,6 +1526,86 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await employeesOnly.json() as { run: { workers: unknown[] } }).run.workers).toEqual([]);
   });
 
+  it.each([
+    { baseAmounts: [1, 1, 1], expectedAmounts: [0, 1, 1] },
+    { baseAmounts: [2, 2, 2], expectedAmounts: [1, 1, 2] },
+    { baseAmounts: [1, 2, 3], expectedAmounts: [1, 1, 2] },
+    { baseAmounts: [0, 1, 1], expectedAmounts: [0, 0, 1] },
+  ])("需求2人排3位支援人員時按同班總額捨入，日薪 $baseAmounts", async ({ baseAmounts, expectedAmounts }) => {
+    const workerIds: string[] = [];
+    for (const [index, name] of ["分數薪資支援甲", "分數薪資支援乙", "分數薪資支援丙"].entries()) {
+      const worker = await request("/hr/schedule-workers", "POST", { displayName: name });
+      expect(worker.status, await worker.clone().text()).toBe(201);
+      const workerId = (await worker.json() as { id: string }).id;
+      workerIds.push(workerId);
+      const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: baseAmounts[index], note: "分數薪資捨入測試" });
+      expect(compensation.status, await compensation.clone().text()).toBe(201);
+    }
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "分數薪資捨入班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00", breakMinutes: 60, requiredHeadcount: 2 }] });
+    expect(shift.status, await shift.clone().text()).toBe(201);
+    const shiftVersionId = (await shift.json() as { versionId: string }).versionId;
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: workerIds.map((workerId) => ({ personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId, workDate: "2026-09-03" })) });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds, requestId: "test-payroll-worker-fractional-rounding-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { runId: string; workers: Array<{ workerId: string; amountMinor: number; scheduleAllocationDetails: Array<{ unitNumerator: number; unitDenominator: number }> }> } };
+    expect(body.run.workers).toHaveLength(3);
+    expect(body.run.workers.map((worker) => worker.amountMinor).sort((left, right) => left - right)).toEqual(expectedAmounts);
+    expect(body.run.workers.reduce((sum, worker) => sum + worker.amountMinor, 0)).toBe(Math.round(baseAmounts.reduce((sum, amount) => sum + amount, 0) * 2 / 3));
+    expect(body.run.workers.every((worker) => worker.scheduleAllocationDetails[0]?.unitNumerator === 2 && worker.scheduleAllocationDetails[0]?.unitDenominator === 3)).toBe(true);
+    expect((await request(`/hr/payroll/runs/${body.run.runId}`, "DELETE")).status).toBe(200);
+    // 逐人、反序試算必須取得相同餘數；先前批次的排除名單不能改變後面的人分得多少。
+    for (const [index, workerId] of [...workerIds].reverse().entries()) {
+      const selected = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds: [workerId], requestId: `test-payroll-worker-rounding-selected-${index}` });
+      expect(selected.status, await selected.clone().text()).toBe(200);
+      const selectedBody = await selected.json() as { run: { workers: Array<{ workerId: string; amountMinor: number }> } };
+      expect(selectedBody.run.workers).toEqual([expect.objectContaining({ workerId, amountMinor: body.run.workers.find((worker) => worker.workerId === workerId)!.amountMinor })]);
+    }
+  });
+
+  it("日薪員工與支援人員同班共用捨入總額，不因分批選人改變", async () => {
+    const employeeIds = ["dev-employment-chen", "dev-employment-wang"];
+    for (const employmentId of employeeIds) {
+      const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 1, note: "混合人員捨入測試" });
+      expect(compensation.status, await compensation.clone().text()).toBe(201);
+    }
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "混合班捨入支援" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const workerId = (await worker.json() as { id: string }).id;
+    expect((await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 1, note: "混合人員捨入測試" })).status).toBe(201);
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "混合人員捨入班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 2 }] });
+    expect(shift.status, await shift.clone().text()).toBe(201);
+    const shiftVersionId = (await shift.json() as { versionId: string }).versionId;
+    expect((await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      ...employeeIds.map((employmentId) => ({ personKind: "employee", employmentId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId, workDate: "2026-09-03" })),
+      { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId, workDate: "2026-09-03" },
+    ] })).status).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"], workerIds: [workerId], requestId: "test-payroll-mixed-rounding" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    type MixedRun = { runId: string; employees: Array<{ employmentId: string; lines: Array<{ lineKey: string; amountMinor: number }> }>; workers: Array<{ workerId: string; amountMinor: number }> };
+    const { run } = await payroll.json() as { run: MixedRun };
+    const amounts = [...run.employees.map((employee) => employee.lines.find((line) => line.lineKey === "base_salary")!.amountMinor), run.workers[0]!.amountMinor];
+    expect(amounts.sort((left, right) => left - right)).toEqual([0, 1, 1]);
+    expect((await request(`/hr/payroll/runs/${run.runId}`, "DELETE")).status).toBe(200);
+    const selected = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: ["dev-wang@ecotech.tw"], workerIds: [], requestId: "test-payroll-mixed-rounding-selected" });
+    expect(selected.status, await selected.clone().text()).toBe(200);
+    const selectedRun = (await selected.json() as { run: MixedRun }).run;
+    expect(selectedRun.employees[0]!.lines.find((line) => line.lineKey === "base_salary")!.amountMinor).toBe(run.employees.find((employee) => employee.employmentId === "dev-employment-wang")!.lines.find((line) => line.lineKey === "base_salary")!.amountMinor);
+    expect((await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-02", payBasis: "daily", baseAmountMinor: 2, note: "未選取員工調薪" })).status).toBe(201);
+    const staleEmployeePeer = await request(`/hr/payroll/runs/${selectedRun.runId}/close`, "POST", {});
+    expect(staleEmployeePeer.status).toBe(409);
+    expect(await staleEmployeePeer.text()).toContain("薪資試算來源已變更");
+    expect((await request(`/hr/payroll/runs/${selectedRun.runId}`, "DELETE")).status).toBe(200);
+    const recalculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: ["dev-wang@ecotech.tw"], workerIds: [], requestId: "test-payroll-mixed-rounding-recalculated" });
+    expect(recalculated.status, await recalculated.clone().text()).toBe(200);
+    const recalculatedRun = (await recalculated.json() as { run: MixedRun }).run;
+    expect((await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-02", payBasis: "daily", baseAmountMinor: 2, note: "未選取支援人員調薪" })).status).toBe(201);
+    const staleWorkerPeer = await request(`/hr/payroll/runs/${recalculatedRun.runId}/close`, "POST", {});
+    expect(staleWorkerPeer.status).toBe(409);
+    expect(await staleWorkerPeer.text()).toContain("薪資試算來源已變更");
+  });
+
   it("支援人員可選時薪，並依排班快照的工作時數扣除休息時間計算", async () => {
     const worker = await request("/hr/schedule-workers", "POST", { displayName: "時薪支援人員" });
     expect(worker.status, await worker.clone().text()).toBe(201);
