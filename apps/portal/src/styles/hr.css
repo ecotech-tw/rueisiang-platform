@@ -1204,7 +1204,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-request-selection-count { margin-right: auto; color: var(--color-muted); }
 .hr-request-selection-actions > button { flex: none; }
 .hr-request-table tr.selected td { background: --alpha(var(--color-brand) / 7%); }
-.hr-request-select-cell { width: 48px; padding-inline: 10px !important; text-align: center; }
+.hr-request-table .hr-request-select-cell { width: 48px; padding-inline: 10px !important; text-align: center; }
 .hr-request-row-select { display: inline-grid; width: 40px; height: 40px; place-items: center; cursor: pointer; }
 .hr-request-select-cell input:focus-visible,
 .hr-request-mobile-select-all input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
