@@ -94,7 +94,7 @@ function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const PAYROLL_RUN_NAME_MAX_LENGTH = 20;
 const PAYROLL_RUN_NAME_ELLIPSIS = "...";
-const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v4";
+const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v5";
 const displayName = hrEmployeeName;
 
 function shortenPayrollRunName(value: string): string {
@@ -515,7 +515,7 @@ interface SchedulePayAllocation {
 }
 
 function scheduleAllocationGroupKey(row: Pick<SchedulePayrollRow, "scopeId" | "shiftVersionId" | "shiftGroupId" | "workDate">) {
-  // 舊資料沒有 shiftGroupId；用同一據點／班別／日期回退，讓既有多人排班也能分攤。
+  // 舊資料沒有 shiftGroupId；用同一據點／班別／日期回退，讓既有多人排班也能共用出勤資格判斷。
   return row.shiftGroupId ? `${row.shiftGroupId}:${row.workDate}` : `${row.scopeId}:${row.shiftVersionId}:${row.workDate}`;
 }
 
@@ -630,7 +630,7 @@ function comparablePayrollSnapshot(value: string): string {
 }
 
 /**
- * 新版快照會加入多人班分母需要的員工狀態與打卡；舊批次沒有這兩個欄位，
+ * 新版快照會加入多人班出勤資格需要的員工狀態與打卡；舊批次沒有這兩個欄位，
  * 不能因為部署計薪引擎就讓已經試算完成的舊批次全部無法結帳。
  */
 function payrollSnapshotsMatch(currentValue: string, savedValue: string) {
@@ -704,7 +704,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       WHERE selected_worker_entry.schedule_version_id = hr_schedule_versions.id
         AND selected_worker_entry.worker_id IN (${jsonArrayValues(workerIds)}))`;
   /*
-   * 部分結算只產生其中一人的結果，但分配分母仍會讀同一發布版本的全部正式員工排班。
+   * 部分結算只產生其中一人的結果，但同班其他人的出勤狀態仍會影響哪些排班有效。
    * 先找出這些班表列的員工，後面只快照他們的在職狀態與打卡，避免未相關員工的異動
    * 阻擋結帳，也避免未選取員工的打卡／封存狀態漏出快照。
    */
@@ -740,7 +740,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(inJsonArray(hrEmployments.id, allocationEmploymentIds.length ? allocationEmploymentIds : ["__none__"])),
     db.select().from(hrClockEvents).where(and(inJsonArray(hrClockEvents.employmentId, allocationEmploymentIds.length ? allocationEmploymentIds : ["__none__"]), sql`${hrClockEvents.occurredAt} >= ${periodStartUtc}`, sql`${hrClockEvents.occurredAt} < ${periodEndUtc}`)),
     db.select().from(hrScheduleVersions).where(and(latestPublishedSchedule, selectedScheduleVersions)),
-    // 分配分母可能包含未被本次部分結算選取的人員；來源快照因此要保存同一發布班表的全部列，避免未選人員異動後結帳仍沿用舊分母。
+    // 同班人員狀態與排班人數會影響部分結算；來源快照要保存同一發布班表的全部列。
     db.select({ entry: hrScheduleEntries }).from(hrScheduleEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
       .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`)),
@@ -1284,7 +1284,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const statementRows: Array<{ employee: HrPayrollEmployeeResult; payslipId: string; lines: HrPayrollLineResult[]; compensationIds: string[]; insuranceIds: string[] }> = [];
   const calculationWarnings = new Set<string>();
   const clockedEmployeeDates = new Set(clocks.filter((row) => row.employmentId).map((row) => `${row.employmentId}:${taipeiDate(row.occurredAt)}`));
-  // 封存正式員工可因歷史查詢被明確選取，但不再佔用多人班的分母／薪資單位。
+  // 封存正式員工可因歷史查詢被明確選取，但不會計入本期排班薪資單位。
   const activeEmploymentIds = new Set(employeeRows.filter((row) => !row.archivedAt).map((row) => row.employmentId));
   const allocationRows: SchedulePayrollRow[] = [
     ...scheduledEmployeeRows.filter((row) => activeEmploymentIds.has(row.employmentId)).map((row) => ({ ...row, personKind: "employee" as const, personId: row.employmentId })),
@@ -1316,10 +1316,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const statuses = groupRows.map((row) => ({ row, status: effectiveStatus(row) }));
     const presentRows = statuses.filter((item) => item.status === "present");
     const eligibleRows = presentRows.length ? presentRows : statuses.filter((item) => item.status !== "absent");
-    const denominator = Math.max(1, eligibleRows.length);
     if (!eligibleRows.length) calculationWarnings.add(`排班 ${groupRows[0]!.workDate}（${groupRows[0]!.scopeId}）沒有有效出勤人員，該班薪資單位未分配。`);
     for (const { row, status } of statuses) {
       const eligible = eligibleRows.some((item) => item.row.id === row.id);
+      const allocatedUnits = eligible ? 1 : 0;
       const rowScheduledHours = scheduledHours(row);
       const workerCompensation = row.personKind === "worker"
         ? covering(workerCompensationsById.get(row.personId) ?? [], row.workDate)
@@ -1333,12 +1333,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         assignedCount: groupRows.length,
         effectiveCount: eligibleRows.length,
         attendanceStatus: status,
-        allocatedUnits: eligible ? 1 / denominator : 0,
-        unitNumerator: eligible ? 1 : 0,
-        unitDenominator: denominator,
+        allocatedUnits,
+        unitNumerator: allocatedUnits,
+        unitDenominator: 1,
         ...(row.personKind === "worker" ? { payBasis: workerCompensation?.payBasis ?? null } : {}),
         scheduledHours: rowScheduledHours,
-        payableHours: rowScheduledHours * (eligible ? 1 / denominator : 0),
+        payableHours: rowScheduledHours * allocatedUnits,
       };
       const allocation: SchedulePayAllocation = { detail, row };
       if (row.personKind === "employee") {
@@ -1885,7 +1885,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       lines.push({ lineKey: "base_salary", direction: "earning", amountMinor: baseMinor, explanation: {
         payBasis: fullMonthComp?.payBasis ?? "unknown", period: input.periodKey,
         rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : fullMonthComp?.payBasis === "daily" ? "依已發布排班單位計算；特殊上班日依套用資料" : "月薪整月按月薪給付；未滿整月按固定 30 日制按在職日數比例計算",
-        allocationRule: fullMonthComp?.payBasis === "daily" ? "每個據點／日期／班別固定 1 單位，由有效出勤人員平均分配；日薪依各班別分配單位加總" : undefined,
+        allocationRule: fullMonthComp?.payBasis === "daily" ? "每筆有效排班各計 1 單位；日薪依各班別單位加總" : undefined,
         scheduleAllocationDetails: employeeAllocationDetails.get(employee.employmentId) ?? [],
         calculationParts: baseParts, formulaDetail: payrollFormulaTotal(baseParts, baseMinor),
       } });

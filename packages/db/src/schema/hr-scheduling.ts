@@ -93,7 +93,7 @@ export const hrShiftVersions = sqliteTable("hr_shift_versions", {
    * 裡會連坐（見 CLAUDE.md 的 0023）。值域由 TS 的 enum 與 assertDayType 把關。
    */
   dayType: text("day_type", { enum: ["weekday", "weekend", "holiday"] as const }).notNull().default("weekday"),
-  /** 這個日型的排班提示人力；薪資單位不隨需求人力增加，固定由每個班別分配 1 單位。 */
+  /** 這個日型的排班提示人力；薪資按每筆有效排班各計 1 單位，不依此值拆分。 */
   requiredHeadcount: integer("required_headcount").notNull().default(1),
   versionNumber: integer("version_number").notNull(),
   startSecond: integer("start_second").notNull(),
