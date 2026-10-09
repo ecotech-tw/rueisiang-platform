@@ -1105,16 +1105,49 @@ describe("HR 薪資與櫃點獎金試算", () => {
       { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-16" },
     ] });
     expect(updated.status, await updated.clone().text()).toBe(200);
+    const adjustment = await request("/hr/payroll/adjustments", "POST", {
+      employmentId: workerId, effectivePeriodKey: "2026-09", reason: "支援人員薪資調整", items: [
+        { itemName: "交通補貼", amountMinor: 10_000 }, { itemName: "制服代扣", amountMinor: -5_000 },
+      ],
+    });
+    expect(adjustment.status, await adjustment.clone().text()).toBe(201);
+    const adjustmentId = (await adjustment.json() as { id: string }).id;
+    const updatedAdjustment = await request(`/hr/payroll/adjustments/${adjustmentId}`, "PATCH", {
+      employmentId: workerId, effectivePeriodKey: "2026-09", reason: "支援人員薪資調整已覆核", revision: 1, items: [
+        { itemName: "交通補貼", amountMinor: 10_000 }, { itemName: "制服代扣", amountMinor: -5_000 },
+      ],
+    });
+    expect(updatedAdjustment.status, await updatedAdjustment.clone().text()).toBe(200);
+    const adjustmentList = await request("/hr/payroll/adjustments?effectivePeriodKey=2026-09");
+    expect(adjustmentList.status, await adjustmentList.clone().text()).toBe(200);
+    expect((await adjustmentList.json() as { adjustments: Array<{ employmentId: string; employeeName: string; items: Array<{ itemName: string }> }> }).adjustments)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ employmentId: workerId, employeeName: "測試支援人員", items: expect.arrayContaining([expect.objectContaining({ itemName: "交通補貼" }), expect.objectContaining({ itemName: "制服代扣" })]) })]));
     const db = createDatabase(d1 as never);
     await db.insert(hrCalendarDays).values({ date: "2026-09-03", dayType: "weekday", name: "災防停班", specialKind: "typhoon_stop", updatedBy: "dev-eli-lin@ecotech.tw" });
     await db.insert(hrCalendarDayScopes).values({ date: "2026-09-03", scopeId: "cyberbiz:store:demo-ximen" });
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-2026-09" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
-    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; workerName: string; payBasis: string; scheduledDays: number; amountMinor: number; typhoonStopDays: number; typhoonStopPayMinor: number }> } };
-    expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "測試支援人員", payBasis: "daily", scheduledDays: 2, amountMinor: 960_000, typhoonStopDays: 1, typhoonStopPayMinor: 320_000 })]));
+    const body = await payroll.json() as { run: { runId: string; workers: Array<{ workerId: string; workerName: string; payBasis: string; scheduledDays: number; amountMinor: number; lines: Array<{ lineKey: string; direction: string; amountMinor: number; explanation: Record<string, unknown> }>; typhoonStopDays: number; typhoonStopPayMinor: number }> } };
+    const workerResult = body.run.workers.find((item) => item.workerId === workerId);
+    expect(workerResult).toMatchObject({ workerId, workerName: "測試支援人員", payBasis: "daily", scheduledDays: 2, amountMinor: 965_000, typhoonStopDays: 1, typhoonStopPayMinor: 320_000 });
+    expect(workerResult?.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ direction: "earning", amountMinor: 10_000, explanation: expect.objectContaining({ itemName: "交通補貼" }) }),
+      expect.objectContaining({ direction: "deduction", amountMinor: 5_000, explanation: expect.objectContaining({ itemName: "制服代扣" }) }),
+    ]));
     const records = await request(`/hr/payroll/records?periodKey=2026-09&personKind=worker&search=${encodeURIComponent("測試支援人員")}`);
     expect(records.status, await records.clone().text()).toBe(200);
-    expect((await records.json() as { records: Array<{ personKind: string; personId: string; personName: string; payBasis: string }> }).records).toEqual(expect.arrayContaining([expect.objectContaining({ personKind: "worker", personId: workerId, personName: "測試支援人員", payBasis: "daily" })]));
+    expect((await records.json() as { records: Array<{ personKind: string; personId: string; personName: string; payBasis: string; earningMinor: number; deductionMinor: number; netMinor: number }> }).records)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ personKind: "worker", personId: workerId, personName: "測試支援人員", payBasis: "daily", earningMinor: 970_000, deductionMinor: 5_000, netMinor: 965_000 })]));
+    const detail = await request(`/hr/payroll/records/${body.run.runId}/worker/${workerId}`);
+    expect(detail.status, await detail.clone().text()).toBe(200);
+    expect((await detail.json() as { record: { earningMinor: number; deductionMinor: number; netMinor: number } }).record)
+      .toMatchObject({ earningMinor: 970_000, deductionMinor: 5_000, netMinor: 965_000 });
+    const approved = await request("/hr/payroll/records/approve", "POST", { records: [{ runId: body.run.runId, personKind: "worker", personId: workerId }] });
+    expect(approved.status, await approved.clone().text()).toBe(200);
+    const blockedAdjustment = await request("/hr/payroll/adjustments", "POST", {
+      employmentId: workerId, effectivePeriodKey: "2026-09", reason: "已發放後不可加扣", items: [{ itemName: "不應建立", amountMinor: 100 }],
+    });
+    expect(blockedAdjustment.status).toBe(409);
   });
 
   it("假日班別使用假日需求人力快照，但薪資仍只分配一個班別單位", async () => {

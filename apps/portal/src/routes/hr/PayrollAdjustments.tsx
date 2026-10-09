@@ -2,13 +2,13 @@ import { useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
-import { hrEmployeeLabel, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
+import { hrEmployeeLabel, useHrPersonnelRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface PayrollAdjustmentsResponse { adjustments: PayrollAdjustment[] }
 interface AdjustmentItemDraft { key: string; itemName: string; direction: "earning" | "deduction"; amount: string }
 
-type EmployeeWithEmployment = Employee & { employmentId: string };
+type PersonnelWithEmployment = Employee & { employmentId: string };
 
 function taipeiMonth() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -25,8 +25,9 @@ function signedMoney(minor: number) {
 function totalMinor(adjustment: PayrollAdjustment) {
   return adjustment.items.reduce((sum, item) => sum + item.amountMinor, 0);
 }
-function asEmployeeOptions(employees: Employee[]): EmployeeWithEmployment[] {
-  return employees.filter((employee): employee is EmployeeWithEmployment => Boolean(employee.employmentId));
+function asPersonnelOptions(employees: Employee[]): PersonnelWithEmployment[] {
+  return employees.filter((person): person is PersonnelWithEmployment => Boolean(person.employmentId)
+    && (person.personKind === "worker" || person.userStatus === "active" || person.userStatus === "invited"));
 }
 function initialItems(adjustment?: PayrollAdjustment): AdjustmentItemDraft[] {
   if (adjustment?.items.length) return adjustment.items.map((item, index) => ({
@@ -53,7 +54,7 @@ function PayrollAdjustmentDialog({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const employeeOptions = asEmployeeOptions(employees);
+  const personnelOptions = asPersonnelOptions(employees);
   const currentPeriod = taipeiMonth();
   const defaultEffective = adjustment?.effectivePeriodKey ?? currentPeriod;
   const [employmentId, setEmploymentId] = useState(adjustment?.employmentId ?? "");
@@ -75,7 +76,7 @@ function PayrollAdjustmentDialog({
   }
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!employmentId) { setValidationError("請選擇員工。"); return; }
+    if (!employmentId) { setValidationError("請選擇人員。"); return; }
     if (!effectivePeriodKey) { setValidationError("請選擇生效薪資月份。"); return; }
     if (!reason.trim()) { setValidationError("請填寫加扣項原因。"); return; }
     const payloadItems: Array<{ itemName: string; amountMinor: number }> = [];
@@ -96,16 +97,16 @@ function PayrollAdjustmentDialog({
   return <Dialog
     className="hr-payroll-adjustment-dialog"
     title={adjustment ? "編輯薪資加扣項" : "新增薪資加扣項"}
-    titleMeta={employeeOptions.find((employee) => employee.employmentId === employmentId)?.legalName ?? "選擇員工"}
+    titleMeta={personnelOptions.find((person) => person.employmentId === employmentId)?.legalName ?? "選擇人員"}
     onClose={onClose}
     closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending}
     formProps={{ onSubmit: submit }}
-    actions={<><Button variant="secondary" onClick={onClose} disabled={save.isPending}>取消</Button><Button type="submit" icon="check" className={adjustment ? "hr-action-update" : "add-action"} loading={save.isPending} disabled={employeesPending || !employeeOptions.length}>{adjustment ? "保存加扣項" : "建立加扣項"}</Button></>}
+    actions={<><Button variant="secondary" onClick={onClose} disabled={save.isPending}>取消</Button><Button type="submit" icon="check" className={adjustment ? "hr-action-update" : "add-action"} loading={save.isPending} disabled={employeesPending || !personnelOptions.length}>{adjustment ? "保存加扣項" : "建立加扣項"}</Button></>}
   >
     <p className="form-hint hr-payroll-adjustment-dialog-note">這筆加扣項會在生效月份試算時自動帶入，可用於一次性獎金、補發或扣款。</p>
     <div className="form-grid two">
-      <SelectField label="員工" value={employmentId} required searchable options={[{ value: "", label: employeesPending ? "正在載入員工…" : "請選擇員工" }, ...employeeOptions.map((employee) => ({ value: employee.employmentId, label: hrEmployeeLabel(employee) }))]} onChange={(event) => setEmploymentId(event.target.value)} />
+      <SelectField label="人員" value={employmentId} required searchable options={[{ value: "", label: employeesPending ? "正在載入人員…" : "請選擇人員" }, ...personnelOptions.map((person) => ({ value: person.employmentId, label: `${hrEmployeeLabel(person)}${person.personKind === "worker" ? "（支援人員）" : ""}` }))]} onChange={(event) => setEmploymentId(event.target.value)} />
       <TextField label="生效薪資月份" type="month" value={effectivePeriodKey} required onChange={(event) => setEffectivePeriodKey(event.target.value)} />
     </div>
     <div className="hr-payroll-adjustment-items">
@@ -120,7 +121,7 @@ function PayrollAdjustmentDialog({
       </div>
     </div>
     <TextField label="加扣項原因" value={reason} maxLength={1000} required placeholder="例如：一次性獎金" onChange={(event) => setReason(event.target.value)} />
-    {employeesError ? <Alert tone="danger">員工名單載入失敗：{employeesError.message}</Alert> : null}
+    {employeesError ? <Alert tone="danger">人員名單載入失敗：{employeesError.message}</Alert> : null}
     {validationError || save.error ? <Alert tone="danger">{validationError ?? save.error?.message}</Alert> : null}
   </Dialog>;
 }
@@ -134,7 +135,7 @@ export function HrPayrollAdjustments() {
   const [editing, setEditing] = useState<PayrollAdjustment | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const adjustments = useHrQuery<PayrollAdjustmentsResponse>(`/payroll/adjustments${effectivePeriodKey ? `?effectivePeriodKey=${encodeURIComponent(effectivePeriodKey)}` : ""}`, canRead);
-  const employees = useHrEmployeeRoster(canCalculate);
+  const employees = useHrPersonnelRoster(canCalculate);
 
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (adjustments.isPending) return <HrPageSkeleton variant="table" />;
@@ -161,10 +162,10 @@ export function HrPayrollAdjustments() {
       {adjustments.error ? <Alert tone="danger">薪資加扣項載入失敗：{adjustments.error.message}</Alert> : null}
       <div className="hr-payroll-adjustments-table-region">
         <DataTable className="hr-payroll-adjustment-table">
-            <thead><tr><th>生效月份</th><th>員工</th><th>加扣項目</th><th className="numeric">加扣金額</th><th>原因</th><th>操作</th></tr></thead>
+            <thead><tr><th>生效月份</th><th>人員</th><th>加扣項目</th><th className="numeric">加扣金額</th><th>原因</th><th>操作</th></tr></thead>
             <tbody>{(adjustments.data?.adjustments ?? []).map((adjustment) => <tr key={adjustment.id}>
               <td data-label="生效月份"><strong>{periodLabel(adjustment.effectivePeriodKey)}</strong></td>
-              <td data-label="員工"><strong>{adjustment.employeeName}</strong><small className="cell-sub">{adjustment.employeeNumber ?? adjustment.employmentId}</small></td>
+              <td data-label="人員"><strong>{adjustment.employeeName}</strong><small className="cell-sub">{adjustment.employeeNumber ?? adjustment.employmentId}</small></td>
               <td data-label="加扣項目"><div className="hr-payroll-adjustment-item-summary">{adjustment.items.map((item) => <span key={item.id}><strong>{item.itemName}</strong><small>{item.amountMinor < 0 ? "扣款" : "補發／加給"}</small></span>)}</div></td>
               <td data-label="加扣金額" className="numeric"><strong>{signedMoney(totalMinor(adjustment))}</strong></td>
               <td data-label="原因" className="hr-payroll-adjustment-reason">{adjustment.reason}</td>

@@ -4,7 +4,7 @@ import { activityRow } from "./activity.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployments } from "./schema/hr-people.js";
-import { hrPayrollAdjustmentItems, hrPayrollAdjustments, hrPayrollClosedEmployees, hrPayrollPeriods, hrPayrollRuns, hrPayslips } from "./schema/hr-payroll-runs.js";
+import { hrPayrollAdjustmentItems, hrPayrollAdjustments, hrPayrollClosedEmployees, hrPayrollClosedWorkers, hrPayrollPeriods, hrPayrollRuns, hrPayrollWorkerResults, hrPayslips } from "./schema/hr-payroll-runs.js";
 import { users } from "./schema/auth.js";
 
 export interface HrPayrollAdjustmentItemInput { itemName: string; amountMinor: number }
@@ -30,7 +30,13 @@ async function ensureEditable(db: Database, employmentId: string, effectivePerio
     .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, effectivePeriodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
   const [closedClaim] = await db.select({ employmentId: hrPayrollClosedEmployees.employmentId }).from(hrPayrollClosedEmployees)
     .where(and(eq(hrPayrollClosedEmployees.periodKey, effectivePeriodKey), eq(hrPayrollClosedEmployees.employmentId, employmentId))).limit(1);
-  if (periodRow?.status === "closed" || closed || closedClaim) throw new HrError(409, "加扣項生效月份已結帳，請建立下一個月份的新加扣項。 ");
+  const [closedWorker] = await db.select({ id: hrPayrollWorkerResults.id }).from(hrPayrollWorkerResults)
+    .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayrollWorkerResults.payrollRunId))
+    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
+    .where(and(eq(hrPayrollWorkerResults.workerId, employmentId), eq(hrPayrollPeriods.periodKey, effectivePeriodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
+  const [closedWorkerClaim] = await db.select({ workerId: hrPayrollClosedWorkers.workerId }).from(hrPayrollClosedWorkers)
+    .where(and(eq(hrPayrollClosedWorkers.periodKey, effectivePeriodKey), eq(hrPayrollClosedWorkers.workerId, employmentId))).limit(1);
+  if (periodRow?.status === "closed" || closed || closedClaim || closedWorker || closedWorkerClaim) throw new HrError(409, "加扣項生效月份已結帳，請建立下一個月份的新加扣項。 ");
 }
 async function ensureEmployment(db: Database, employmentId: string) {
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
@@ -59,7 +65,7 @@ export async function listHrPayrollAdjustments(db: Database, effectivePeriodKey?
   if (effectivePeriodKey) periodKey(effectivePeriodKey);
   const rawRows = await db.select(adjustmentJoinSelection).from(hrPayrollAdjustments)
     .innerJoin(hrPayrollAdjustmentItems, eq(hrPayrollAdjustmentItems.adjustmentId, hrPayrollAdjustments.id))
-    .innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId)).innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(effectivePeriodKey ? eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey) : undefined).orderBy(desc(hrPayrollAdjustments.effectivePeriodKey), ...hrEmployeeNumberOrder(), asc(hrPayrollAdjustments.createdAt));
   const rows = rawRows.map((row) => joinedAdjustment(row));
   const byId = new Map<string, { adjustment: typeof rows[number]["adjustment"]; employeeNumber: string; employeeName: string; items: typeof rows[number]["item"][] }>();
@@ -99,7 +105,7 @@ export async function updateHrPayrollAdjustment(db: Database, id: string, input:
 export async function listHrPayrollAdjustmentsForPeriod(db: Database, effectivePeriodKey: string) {
   const rawRows = await db.select(adjustmentJoinSelection).from(hrPayrollAdjustments)
     .innerJoin(hrPayrollAdjustmentItems, eq(hrPayrollAdjustmentItems.adjustmentId, hrPayrollAdjustments.id)).innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId))
-    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey));
   const rows = rawRows.map((row) => joinedAdjustment(row));
   const byEmployment = new Map<string, Array<{ adjustment: typeof rows[number]["adjustment"]; item: typeof rows[number]["item"] }>>();
