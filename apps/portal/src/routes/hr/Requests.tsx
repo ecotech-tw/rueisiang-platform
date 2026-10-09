@@ -4,12 +4,13 @@ import { useNavigate, useSearchParams } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OvertimeDayPicker } from "./OvertimeDayPicker.js";
-import { OVERTIME_HOUR_PRESETS, addMinutes, buildOvertimeSubmission, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, summarizeAssignments } from "./overtime-entry.js";
+import { OVERTIME_HOUR_PRESETS, addMinutes, buildOvertimeEntries, buildOvertimeSubmission, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, selectedUnscheduledDates, summarizeAssignments } from "./overtime-entry.js";
 
 type RequestKind = "leave" | "overtime" | "clock_correction";
 type RequestStatus = "draft" | "pending" | "approved" | "rejected" | "cancelled";
@@ -289,6 +290,8 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
   const [month, setMonth] = useState(() => taipeiToday().slice(0, 7));
   /** null 代表還沒手動改過，開始時間跟著班表的下班時間走。 */
   const [manualStart, setManualStart] = useState<string | null>(null);
+  const [unscheduledStartTime, setUnscheduledStartTime] = useState("");
+  const [showUnscheduledConfirmation, setShowUnscheduledConfirmation] = useState(false);
   const [hours, setHours] = useState("1");
   const [assigned, setAssigned] = useState<Record<string, number>>({});
   const [settlementKind, setSettlementKind] = useState<"pay" | "compensatory">("pay");
@@ -319,16 +322,18 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
   const startHint = !targetId ? "選了申請對象會自動帶入下班時間" : daysLoading ? "查詢班表中…" : suggestedStart ? (startEdited ? `班表下班時間是 ${suggestedStart}` : "已帶入班表的下班時間") : singleDay ? "這天沒有可帶入的下班時間，請自行填寫" : undefined;
 
   const pickerDays = useMemo(() => days.map((day) => ({ date: day.date, startAt: day.startAt, hasExisting: day.existing.length > 0 })), [days]);
-  const entries = mode === "multiple" ? days.flatMap((day) => {
-    const dayMinutes = assigned[day.date];
-    return dayMinutes !== undefined && day.startAt ? [{ requestedStart: day.startAt, requestedEnd: addMinutes(day.startAt, dayMinutes) }] : [];
-  }) : [];
+  const entries = mode === "multiple" ? buildOvertimeEntries(days, assigned, unscheduledStartTime) : [];
   const summary = summarizeAssignments(assigned);
-  const canSubmit = Boolean(targetId) && (mode === "single" ? Boolean(start) && minutesValid : entries.length > 0);
+  const unscheduledDates = mode === "single"
+    ? singleDay?.startAt === null ? [date] : []
+    : selectedUnscheduledDates(days, assigned);
+  const scheduleLoaded = Boolean(targetId && !daysLoading && dayQuery.data);
+  const canSubmit = Boolean(targetId && scheduleLoaded && !dayQuery.error) && (mode === "single" ? Boolean(start) && minutesValid : entries.length > 0 && entries.length === summary.days);
 
   // 換員工或換日期後，原本帶入的下班時間與選好的日子都屬於上一個班表，留著會送出錯的時段。
   function resetDayDefaults() {
     setManualStart(null);
+    setUnscheduledStartTime("");
     setAssigned({});
   }
   function toggleDay(day: string) {
@@ -340,9 +345,7 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
       return next;
     });
   }
-  function submit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!canSubmit) return;
+  function createRequests() {
     onPendingChange(true);
     write.mutate(buildOvertimeSubmission({ targetKind, employeeUserId, workerId, mode, requestedStart: start, requestedEnd: end, settlementKind, reason, entries }), {
       onSuccess: () => {
@@ -352,6 +355,15 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
       },
       onError: () => onPendingChange(false),
     });
+  }
+  function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (!canSubmit) return;
+    if (unscheduledDates.length) {
+      setShowUnscheduledConfirmation(true);
+      return;
+    }
+    createRequests();
   }
 
   const hoursField = <TextField label={mode === "single" ? "加班時數（小時）" : "每天加班時數（小時）"} type="number" inputMode="decimal" min={0.5} max={24} step={0.5} required value={hours} disabled={write.isPending} error={hours.trim() && !minutesValid ? OVERTIME_UNIT_ERROR : undefined} onChange={(event) => setHours(event.target.value)} />;
@@ -372,6 +384,7 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
         <TextField label="結束時間" type="time" step={1800} value={end.slice(11)} disabled={write.isPending || !start} hint={end && end.slice(0, 10) !== date ? "隔天結束" : "改時數或結束時間，另一個會跟著變"} onChange={(event) => { const next = minutesUntil(start, event.target.value); if (next !== null) setHours(hoursText(next)); }} />
       </div>
       {singleDay?.existing.length ? <p className="muted field-note">這天已有加班：{singleDay.existing.map((row) => `${taipeiInputValue(row.requestedStart).slice(11)}～${taipeiInputValue(row.requestedEnd).slice(11)}`).join("、")}，時段不能重疊。</p> : null}
+      {dayQuery.error ? <Alert tone="danger">無法確認這天的班表：{dayQuery.error.message}</Alert> : null}
       <p className="hr-overtime-summary" aria-live="polite">{start && minutesValid ? <>共 <strong>{hoursText(minutes)} 小時</strong>・{start.slice(11)}～{end.slice(11)}{end.slice(0, 10) !== date ? "（隔天）" : ""}</> : "填好開始時間與時數後會顯示加班時段。"}</p>
     </> : <>
       <div className="form-grid two">
@@ -379,17 +392,31 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
         {hoursField}
       </div>
       {presets}
-      <p className="muted field-note">先選時數，再點日期；再點一次同樣時數就取消。每天從班表的下班時間開始算。</p>
+      <p className="muted field-note">先選時數，再點日期；再點一次同樣時數就取消。有排班的日期從班表下班時間開始；未排班日期需指定開始時間，送出前會再次確認。</p>
       {!targetId ? <p className="muted table-note">先選申請對象，才看得到這個月的班表。</p>
         : dayQuery.error ? <Alert tone="danger">{dayQuery.error.message}</Alert>
         : daysLoading ? <p className="muted table-note">載入班表…</p>
         : <OvertimeDayPicker days={pickerDays} assigned={assigned} disabled={write.isPending || !minutesValid} onToggle={toggleDay} />}
+      {unscheduledDates.length ? <TextField label="未排班日開始時間（台北）" type="time" step={1800} required value={unscheduledStartTime} disabled={write.isPending} hint="所有已選未排班日期都從這個時間開始；有排班日期仍沿用班表下班時間。" onChange={(event) => setUnscheduledStartTime(event.target.value)} /> : null}
       <p className="hr-overtime-summary" aria-live="polite">{summary.days ? <>已選 <strong>{summary.days} 天、共 {hoursText(summary.totalMinutes)} 小時</strong>（{summary.breakdown}）</> : "還沒選任何一天。"}</p>
     </>}
     <SelectField label="結算方式" required value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={write.isPending} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} />
     <Field label="加班原因（選填）"><textarea rows={3} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
-    {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
+    {write.error && !showUnscheduledConfirmation ? <Alert tone="danger">{write.error.message}</Alert> : null}
     {actionsSlot ? createPortal(<><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" className="add-action" loading={write.isPending} disabled={!canSubmit}>{mode === "multiple" && entries.length ? `建立 ${entries.length} 筆加班申請` : "建立加班申請"}</Button></>, actionsSlot) : null}
+    {showUnscheduledConfirmation ? <ConfirmDialog
+      title="確認未排班日加班"
+      confirmLabel="確認建立申請"
+      cancelLabel="返回修改"
+      tone="primary"
+      pending={write.isPending}
+      onConfirm={createRequests}
+      onCancel={() => setShowUnscheduledConfirmation(false)}
+    >
+      <p>以下日期未排班，請確認仍有加班安排。未排班日期會從 {mode === "single" ? startTime : unscheduledStartTime} 開始計算；有排班日期仍使用班表下班時間。</p>
+      <ul className="hr-overtime-unscheduled-dates">{unscheduledDates.map((day) => <li key={day}>{day}</li>)}</ul>
+      {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
+    </ConfirmDialog> : null}
   </form>;
 }
 
