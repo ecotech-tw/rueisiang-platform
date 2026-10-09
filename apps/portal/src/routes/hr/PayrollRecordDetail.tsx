@@ -131,7 +131,7 @@ function PayrollAllocationDetails({ details }: { details: PayrollScheduleAllocat
   return <div className="hr-payroll-allocation-details">
     <dl className="hr-payroll-line-details">
       <div><dt>分配班別</dt><dd>{details.length} 班</dd></div>
-      <div><dt>單位規則</dt><dd>每人每班 1 單位</dd></div>
+      <div><dt>單位規則</dt><dd>需求人力為上限，超額排班時均分</dd></div>
       <div><dt>本次分得</dt><dd>{totalUnits.toLocaleString("zh-TW", { maximumFractionDigits: 3 })} 單位</dd></div>
     </dl>
     <details className="hr-payroll-line-steps">

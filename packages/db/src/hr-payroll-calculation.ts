@@ -95,7 +95,7 @@ function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const PAYROLL_RUN_NAME_MAX_LENGTH = 20;
 const PAYROLL_RUN_NAME_ELLIPSIS = "...";
-const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v5";
+const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v6";
 const displayName = hrEmployeeName;
 
 function shortenPayrollRunName(value: string): string {
@@ -521,6 +521,15 @@ interface SchedulePayAllocation {
 function scheduleAllocationGroupKey(row: Pick<SchedulePayrollRow, "scopeId" | "shiftVersionId" | "shiftGroupId" | "workDate">) {
   // 舊資料沒有 shiftGroupId；用同一據點／班別／日期回退，讓既有多人排班也能共用出勤資格判斷。
   return row.shiftGroupId ? `${row.shiftGroupId}:${row.workDate}` : `${row.scopeId}:${row.shiftVersionId}:${row.workDate}`;
+}
+
+function greatestCommonDivisor(left: number, right: number) {
+  while (right !== 0) {
+    const remainder = left % right;
+    left = right;
+    right = remainder;
+  }
+  return left;
 }
 
 function roundScheduleAllocationAmount(amountMinor: number, numerator: number, denominator: number) {
@@ -1387,12 +1396,18 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         ? "present" as const
         : "scheduled" as const;
     const statuses = groupRows.map((row) => ({ row, status: effectiveStatus(row) }));
-    // 出勤狀態逐人判斷：某人已出勤不應排除同班其他尚未確認的人；只有明確未出勤者不取得單位。
     const eligibleRows = statuses.filter((item) => item.status !== "absent");
     if (!eligibleRows.length) calculationWarnings.add(`排班 ${groupRows[0]!.workDate}（${groupRows[0]!.scopeId}）沒有有效出勤人員，該班薪資單位未分配。`);
+    // 需求人力是單位池上限；有效人數超額時均分，未排滿時不把空缺單位轉給在班人員。
+    const unitPool = Math.min(requiredHeadcount, eligibleRows.length);
+    const unitDivisor = eligibleRows.length ? greatestCommonDivisor(unitPool, eligibleRows.length) : 1;
+    const eligibleUnitNumerator = eligibleRows.length ? unitPool / unitDivisor : 0;
+    const eligibleUnitDenominator = eligibleRows.length ? eligibleRows.length / unitDivisor : 1;
     for (const { row, status } of statuses) {
-      const eligible = eligibleRows.some((item) => item.row.id === row.id);
-      const allocatedUnits = eligible ? 1 : 0;
+      const eligible = status !== "absent";
+      const unitNumerator = eligible ? eligibleUnitNumerator : 0;
+      const unitDenominator = eligible ? eligibleUnitDenominator : 1;
+      const allocatedUnits = unitNumerator / unitDenominator;
       const rowScheduledHours = scheduledHours(row);
       const workerCompensation = row.personKind === "worker"
         ? covering(workerCompensationsById.get(row.personId) ?? [], row.workDate)
@@ -1407,8 +1422,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         effectiveCount: eligibleRows.length,
         attendanceStatus: status,
         allocatedUnits,
-        unitNumerator: allocatedUnits,
-        unitDenominator: 1,
+        unitNumerator,
+        unitDenominator,
         ...(row.personKind === "worker" ? { payBasis: workerCompensation?.payBasis ?? null } : {}),
         scheduledHours: rowScheduledHours,
         payableHours: rowScheduledHours * allocatedUnits,
@@ -1958,7 +1973,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       lines.push({ lineKey: "base_salary", direction: "earning", amountMinor: baseMinor, explanation: {
         payBasis: fullMonthComp?.payBasis ?? "unknown", period: input.periodKey,
         rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : fullMonthComp?.payBasis === "daily" ? "依已發布排班單位計算；特殊上班日依套用資料" : "月薪整月按月薪給付；未滿整月按固定 30 日制按在職日數比例計算",
-        allocationRule: fullMonthComp?.payBasis === "daily" ? "每筆有效排班各計 1 單位；日薪依各班別單位加總" : undefined,
+        allocationRule: fullMonthComp?.payBasis === "daily" ? "每班有效單位池為需求人力與有效排班人數較小值，由有效人員平均分配" : undefined,
         scheduleAllocationDetails: employeeAllocationDetails.get(employee.employmentId) ?? [],
         calculationParts: baseParts, formulaDetail: payrollFormulaTotal(baseParts, baseMinor),
       } });
