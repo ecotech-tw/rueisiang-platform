@@ -43,6 +43,19 @@ describe("薪資明細項目文案", () => {
 
     expect(payrollLineLabel(line)).toBe("業績獎金");
   });
+
+  it("支援人員本薪與特殊上班日補貼沿用正式員工文案", () => {
+    const line = (lineKey: string, explanation: Record<string, unknown> = {}) => ({
+      lineKey,
+      direction: "earning" as const,
+      amountMinor: 1,
+      explanation,
+    }) as Parameters<typeof payrollLineLabel>[0];
+
+    expect(payrollLineLabel(line("worker_pay"))).toBe("本薪");
+    expect(payrollLineLabel(line("special_allowance_20260903_1", { ruleName: "夜間進／撤櫃", itemName: "餐費補貼" }))).toBe("夜間進／撤櫃：餐費補貼");
+    expect(payrollLineLabel(line("special_workday", { ruleNames: ["夜間進／撤櫃"] }))).toBe("夜間進／撤櫃：薪資加給");
+  });
 });
 
 describe("支援人員逐日計薪依據", () => {

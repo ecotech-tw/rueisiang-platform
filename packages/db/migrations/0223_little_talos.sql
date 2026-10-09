@@ -1,0 +1,1 @@
+ALTER TABLE `hr_payroll_worker_results` ADD `payroll_lines_json` text DEFAULT '[]' NOT NULL;

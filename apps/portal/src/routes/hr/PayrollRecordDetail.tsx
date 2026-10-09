@@ -22,7 +22,7 @@ const LINE_LABELS: Record<string, string> = {
   special_workday: "特殊上班日薪資加給",
   annual_leave_settlement: "未休特休折現",
   typhoon_stop_pay: "災防停班給薪",
-  worker_pay: "排班薪資",
+  worker_pay: "本薪",
 };
 
 function money(minor: number): string {
@@ -214,10 +214,11 @@ function payBasisOf(detail: PayrollRecordDetail) {
   return detail.record.payBasis ? PAY_BASIS_LABEL[detail.record.payBasis] ?? detail.record.payBasis : "—";
 }
 function payrollLinesOf(detail: PayrollRecordDetail): PayrollLine[] {
-  const baseLines = detail.employee?.lines ?? (detail.worker ? [
+  const workerLines = detail.worker?.lines?.length ? detail.worker.lines : detail.worker ? [
     { lineKey: "worker_pay", direction: "earning" as const, amountMinor: Math.max(0, detail.worker.amountMinor - (detail.worker.overtimeMinor ?? 0)), explanation: {} },
     ...((detail.worker.overtimeMinor ?? 0) > 0 ? [{ lineKey: "overtime", direction: "earning" as const, amountMinor: detail.worker.overtimeMinor ?? 0, explanation: detail.worker.overtimeExplanation ?? {} }] : []),
-  ] : []);
+  ] : [];
+  const baseLines = detail.employee?.lines ?? workerLines;
   const legacyLines = detail.items.map((item) => ({
     lineKey: `legacy_adjustment_${item.id}`,
     direction: item.direction,
