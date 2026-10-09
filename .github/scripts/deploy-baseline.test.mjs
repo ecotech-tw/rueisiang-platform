@@ -89,6 +89,24 @@ test("重跑全 skipped 仍不能抹除前一次 attempt 遠端異動，回退�
   assert.equal(await findDeploymentBaseline(options), "");
 });
 
+for (const status of ["queued", "pending", "in_progress"]) {
+  test(`歷史 ${status} 重跑不能隱藏前次 attempt 的部署副作用`, async () => {
+    const { options, calls } = fixture([run(2, { status, conclusion: null, run_attempt: 2 }), run(1)], { 1: [marker(oldSha)] });
+    assert.equal(await findDeploymentBaseline(options), "");
+    assert.equal(calls.length, 1);
+  });
+
+  test(`本次 ${status} 重跑仍應排除，不影響歷史有效基準`, async () => {
+    const { options } = fixture([run(99, { status, conclusion: null, run_attempt: 2 }), run(1)], { 1: [marker(oldSha)] });
+    assert.equal(await findDeploymentBaseline(options), oldSha);
+  });
+
+  test(`歷史首次 ${status} 尚無部署副作用，仍可採有效基準`, async () => {
+    const { options } = fixture([run(2, { status, conclusion: null }), run(1)], { 1: [marker(oldSha)] });
+    assert.equal(await findDeploymentBaseline(options), oldSha);
+  });
+}
+
 test("非 main 的手動回滾也屬於真實部署基準", async () => {
   const { options, calls } = fixture([run(1, { head_branch: "rollback-tag" })], { 1: [marker(oldSha)] });
   assert.equal(await findDeploymentBaseline(options), oldSha);

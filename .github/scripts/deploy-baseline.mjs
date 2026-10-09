@@ -42,9 +42,10 @@ export async function findDeploymentBaseline({ apiUrl, repository, token, curren
   // 舊 run 重跑（含手動回滾）可能比新建 run 更晚完成，不能只採 API 的建立順序。
   runs.sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at));
   for (const run of runs) {
-    if (String(run.id) === String(currentRunId) || run.status !== "completed") continue;
-    // 最新 attempt 全 skipped 也不能抹掉先前 attempt 可能已改過遠端的事實。
+    if (String(run.id) === String(currentRunId)) continue;
+    // 重跑即使仍在排隊或全 skipped，也不能抹掉先前 attempt 的遠端副作用。
     if (run.run_attempt !== 1) return "";
+    if (run.status !== "completed") continue;
     const { artifacts } = await getJson(`/actions/runs/${run.id}/artifacts?per_page=100`);
     if (!Array.isArray(artifacts)) throw new Error("部署標記清單格式錯誤");
     const suffix = `-attempt-${run.run_attempt}`;
