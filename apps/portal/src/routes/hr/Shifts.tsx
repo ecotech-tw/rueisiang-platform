@@ -271,7 +271,7 @@ export function HrShifts() {
 
   const openScope = data.scopes.find((scope) => scope.id === openScopeId);
   return <div className="page fills">
-    <PageHeader title="班別管理" description="每個班別可分別設定平日、週末與國定假日的時間與需求人力；沒設定的日型會沿用平日時段與需求人力。需求人力只作排班提示；每筆有效排班各計 1 個薪資單位。" />
+    <PageHeader title="班別管理" description="每個班別可分別設定平日、週末與國定假日的時間與需求人力；沒設定的日型會沿用平日時段與需求人力。需求人力同時是薪資單位池上限；待確認與已出勤人員計入、明確未出勤排除，超額排班時由有效人員平均分配。" />
     <Panel className="grows">
       <DataTable><thead><tr>
         <th>營運據點</th><th className="numeric">班別數</th><th>班別</th>

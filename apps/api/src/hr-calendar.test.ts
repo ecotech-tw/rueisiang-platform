@@ -120,7 +120,7 @@ describe("HR 行事曆與班別日型", () => {
     expect(new Set(shifts.map((shift) => shift.name))).toEqual(new Set(["早班"]));
   });
 
-  it("班別需求人力只作排班提示，限制 1～100 且修改時保留既有值", async () => {
+  it("班別需求人力限制 1～100 且修改時保留既有值", async () => {
     const created = await request("/hr/shift-templates", "POST", { scopeId: "scope", name: "多人班", requiredHeadcount: 3, times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
     expect(created.status, await created.clone().text()).toBe(201);
     const createdBody = await created.json() as { id: string };

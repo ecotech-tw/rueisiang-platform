@@ -1347,7 +1347,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, amountMinor: 420_000, overtimeMinor: 100_000, overtimeSeconds: 7_200, overtimeExplanation: expect.objectContaining({ fixedOvertimeSnapshots: [expect.objectContaining({ overtimeRatePpm: null, overtimeHourlyMinor: 50_000 })] }) })]));
   });
 
-  it("同一據點日期班別的兩位日薪員工各得完整本薪單位，並保存分配公式", async () => {
+  it("需求1人但同班排2位日薪員工時，各得1/2本薪單位", async () => {
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
       const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "多人班分配測試" });
       expect(compensation.status, await compensation.clone().text()).toBe(201);
@@ -1363,8 +1363,8 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const body = await payroll.json() as { run: { employees: Array<{ employmentId: string; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }>; warnings: string[] } };
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"]) {
       const base = body.run.employees.find((employee) => employee.employmentId === employmentId)?.lines.find((line) => line.lineKey === "base_salary");
-      expect(base).toMatchObject({ amountMinor: 180_000, explanation: expect.objectContaining({ formulaDetail: "日薪 NT$ 1,800 × 1 天 = NT$ 1,800" }) });
-      expect((base?.explanation.scheduleAllocationDetails as Array<{ allocatedUnits: number; unitNumerator: number; unitDenominator: number }>)[0]).toMatchObject({ allocatedUnits: 1, unitNumerator: 1, unitDenominator: 1 });
+      expect(base).toMatchObject({ amountMinor: 90_000, explanation: expect.objectContaining({ formulaDetail: "日薪 NT$ 1,800 × 0.5 天 = NT$ 900" }) });
+      expect((base?.explanation.scheduleAllocationDetails as Array<{ allocatedUnits: number; unitNumerator: number; unitDenominator: number }>)[0]).toMatchObject({ allocatedUnits: 0.5, unitNumerator: 1, unitDenominator: 2 });
     }
     expect(body.run.warnings).toEqual(expect.arrayContaining([expect.stringContaining("已安排 2／需求 1 人")]));
   });
@@ -1397,7 +1397,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(close.status, await close.clone().text()).toBe(409);
   });
 
-  it("多人班月薪災防停班對每位員工按完整單位計算", async () => {
+  it("多人班月薪災防停班依需求人力單位池分配", async () => {
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
       const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "月薪多人班災防停班測試" });
       expect(compensation.status, await compensation.clone().text()).toBe(201);
@@ -1418,8 +1418,8 @@ describe("HR 薪資與櫃點獎金試算", () => {
       const employee = body.run.employees.find((item) => item.employmentId === employmentId)!;
       expect(employee.earningMinor).toBe(3_000_000);
       expect(employee.lines).toEqual(expect.arrayContaining([
-        expect.objectContaining({ lineKey: "base_salary", amountMinor: 2_900_000 }),
-        expect.objectContaining({ lineKey: "typhoon_stop_pay", amountMinor: 100_000 }),
+        expect.objectContaining({ lineKey: "base_salary", amountMinor: 2_950_000 }),
+        expect.objectContaining({ lineKey: "typhoon_stop_pay", amountMinor: 50_000 }),
       ]));
     }
   });
@@ -1506,7 +1506,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(selected.status, await selected.clone().text()).toBe(200);
     const selectedBody = await selected.json() as { run: { runId: string; runName: string; workers: Array<{ workerId: string; workerName: string; amountMinor: number }> } };
     expect(selectedBody.run.runName).toBe("指定支援人員甲");
-    expect(selectedBody.run.workers).toEqual([{ workerId: firstWorkerId, workerName: "指定支援人員甲", amountMinor: 320_000, payBasis: "daily", scheduledDays: 1, typhoonStopDays: 0, typhoonStopPayMinor: 0, compensationVersionId: expect.any(String), lines: [expect.objectContaining({ lineKey: "base_salary", direction: "earning", amountMinor: 320_000 })], scheduleAllocationDetails: [expect.objectContaining({ assignedCount: 3, effectiveCount: 3, unitNumerator: 1, unitDenominator: 1, allocatedUnits: 1 })] }]);
+    expect(selectedBody.run.workers).toEqual([{ workerId: firstWorkerId, workerName: "指定支援人員甲", amountMinor: 106_667, payBasis: "daily", scheduledDays: 1, typhoonStopDays: 0, typhoonStopPayMinor: 0, compensationVersionId: expect.any(String), lines: [expect.objectContaining({ lineKey: "base_salary", direction: "earning", amountMinor: 106_667 })], scheduleAllocationDetails: [expect.objectContaining({ assignedCount: 3, effectiveCount: 3, unitNumerator: 1, unitDenominator: 3, allocatedUnits: 1 / 3 })] }]);
     const calculationInput = d1.sqlite.prepare("SELECT calculation_input_json AS calculationInputJson FROM hr_payroll_runs WHERE id=?").get(selectedBody.run.runId) as { calculationInputJson: string };
     expect(JSON.parse(calculationInput.calculationInputJson)).toEqual(expect.objectContaining({ employeeUserIds: [], workerIds: [firstWorkerId] }));
     const exclusions = await request("/hr/payroll/candidate-exclusions?periodKey=2026-09");
@@ -1524,6 +1524,86 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const employeesOnly = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: ["dev-eli-lin@ecotech.tw"], workerIds: [], requestId: "test-payroll-exclude-workers-2026-09" });
     expect(employeesOnly.status, await employeesOnly.clone().text()).toBe(200);
     expect((await employeesOnly.json() as { run: { workers: unknown[] } }).run.workers).toEqual([]);
+  });
+
+  it.each([
+    { baseAmounts: [1, 1, 1], expectedAmounts: [0, 1, 1] },
+    { baseAmounts: [2, 2, 2], expectedAmounts: [1, 1, 2] },
+    { baseAmounts: [1, 2, 3], expectedAmounts: [1, 1, 2] },
+    { baseAmounts: [0, 1, 1], expectedAmounts: [0, 0, 1] },
+  ])("需求2人排3位支援人員時按同班總額捨入，日薪 $baseAmounts", async ({ baseAmounts, expectedAmounts }) => {
+    const workerIds: string[] = [];
+    for (const [index, name] of ["分數薪資支援甲", "分數薪資支援乙", "分數薪資支援丙"].entries()) {
+      const worker = await request("/hr/schedule-workers", "POST", { displayName: name });
+      expect(worker.status, await worker.clone().text()).toBe(201);
+      const workerId = (await worker.json() as { id: string }).id;
+      workerIds.push(workerId);
+      const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: baseAmounts[index], note: "分數薪資捨入測試" });
+      expect(compensation.status, await compensation.clone().text()).toBe(201);
+    }
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "分數薪資捨入班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00", breakMinutes: 60, requiredHeadcount: 2 }] });
+    expect(shift.status, await shift.clone().text()).toBe(201);
+    const shiftVersionId = (await shift.json() as { versionId: string }).versionId;
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: workerIds.map((workerId) => ({ personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId, workDate: "2026-09-03" })) });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds, requestId: "test-payroll-worker-fractional-rounding-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { runId: string; workers: Array<{ workerId: string; amountMinor: number; scheduleAllocationDetails: Array<{ unitNumerator: number; unitDenominator: number }> }> } };
+    expect(body.run.workers).toHaveLength(3);
+    expect(body.run.workers.map((worker) => worker.amountMinor).sort((left, right) => left - right)).toEqual(expectedAmounts);
+    expect(body.run.workers.reduce((sum, worker) => sum + worker.amountMinor, 0)).toBe(Math.round(baseAmounts.reduce((sum, amount) => sum + amount, 0) * 2 / 3));
+    expect(body.run.workers.every((worker) => worker.scheduleAllocationDetails[0]?.unitNumerator === 2 && worker.scheduleAllocationDetails[0]?.unitDenominator === 3)).toBe(true);
+    expect((await request(`/hr/payroll/runs/${body.run.runId}`, "DELETE")).status).toBe(200);
+    // 逐人、反序試算必須取得相同餘數；先前批次的排除名單不能改變後面的人分得多少。
+    for (const [index, workerId] of [...workerIds].reverse().entries()) {
+      const selected = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds: [workerId], requestId: `test-payroll-worker-rounding-selected-${index}` });
+      expect(selected.status, await selected.clone().text()).toBe(200);
+      const selectedBody = await selected.json() as { run: { workers: Array<{ workerId: string; amountMinor: number }> } };
+      expect(selectedBody.run.workers).toEqual([expect.objectContaining({ workerId, amountMinor: body.run.workers.find((worker) => worker.workerId === workerId)!.amountMinor })]);
+    }
+  });
+
+  it("日薪員工與支援人員同班共用捨入總額，不因分批選人改變", async () => {
+    const employeeIds = ["dev-employment-chen", "dev-employment-wang"];
+    for (const employmentId of employeeIds) {
+      const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 1, note: "混合人員捨入測試" });
+      expect(compensation.status, await compensation.clone().text()).toBe(201);
+    }
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "混合班捨入支援" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const workerId = (await worker.json() as { id: string }).id;
+    expect((await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 1, note: "混合人員捨入測試" })).status).toBe(201);
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "混合人員捨入班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 2 }] });
+    expect(shift.status, await shift.clone().text()).toBe(201);
+    const shiftVersionId = (await shift.json() as { versionId: string }).versionId;
+    expect((await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      ...employeeIds.map((employmentId) => ({ personKind: "employee", employmentId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId, workDate: "2026-09-03" })),
+      { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId, workDate: "2026-09-03" },
+    ] })).status).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"], workerIds: [workerId], requestId: "test-payroll-mixed-rounding" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    type MixedRun = { runId: string; employees: Array<{ employmentId: string; lines: Array<{ lineKey: string; amountMinor: number }> }>; workers: Array<{ workerId: string; amountMinor: number }> };
+    const { run } = await payroll.json() as { run: MixedRun };
+    const amounts = [...run.employees.map((employee) => employee.lines.find((line) => line.lineKey === "base_salary")!.amountMinor), run.workers[0]!.amountMinor];
+    expect(amounts.sort((left, right) => left - right)).toEqual([0, 1, 1]);
+    expect((await request(`/hr/payroll/runs/${run.runId}`, "DELETE")).status).toBe(200);
+    const selected = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: ["dev-wang@ecotech.tw"], workerIds: [], requestId: "test-payroll-mixed-rounding-selected" });
+    expect(selected.status, await selected.clone().text()).toBe(200);
+    const selectedRun = (await selected.json() as { run: MixedRun }).run;
+    expect(selectedRun.employees[0]!.lines.find((line) => line.lineKey === "base_salary")!.amountMinor).toBe(run.employees.find((employee) => employee.employmentId === "dev-employment-wang")!.lines.find((line) => line.lineKey === "base_salary")!.amountMinor);
+    expect((await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-02", payBasis: "daily", baseAmountMinor: 2, note: "未選取員工調薪" })).status).toBe(201);
+    const staleEmployeePeer = await request(`/hr/payroll/runs/${selectedRun.runId}/close`, "POST", {});
+    expect(staleEmployeePeer.status).toBe(409);
+    expect(await staleEmployeePeer.text()).toContain("薪資試算來源已變更");
+    expect((await request(`/hr/payroll/runs/${selectedRun.runId}`, "DELETE")).status).toBe(200);
+    const recalculated = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: ["dev-wang@ecotech.tw"], workerIds: [], requestId: "test-payroll-mixed-rounding-recalculated" });
+    expect(recalculated.status, await recalculated.clone().text()).toBe(200);
+    const recalculatedRun = (await recalculated.json() as { run: MixedRun }).run;
+    expect((await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-02", payBasis: "daily", baseAmountMinor: 2, note: "未選取支援人員調薪" })).status).toBe(201);
+    const staleWorkerPeer = await request(`/hr/payroll/runs/${recalculatedRun.runId}/close`, "POST", {});
+    expect(staleWorkerPeer.status).toBe(409);
+    expect(await staleWorkerPeer.text()).toContain("薪資試算來源已變更");
   });
 
   it("支援人員可選時薪，並依排班快照的工作時數扣除休息時間計算", async () => {
@@ -1823,7 +1903,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { runId: string; engineVersion: string; employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }>; warnings: string[] } };
     const employee = body.run.employees[0]!;
-    expect(body.run.engineVersion).toBe("hr-payroll-demo-v5");
+    expect(body.run.engineVersion).toBe("hr-payroll-demo-v6");
     expect(employee.earningMinor).toBe(3_080_000);
     expect(employee.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 3_000_000 }),

@@ -93,7 +93,7 @@ export const hrShiftVersions = sqliteTable("hr_shift_versions", {
    * 裡會連坐（見 CLAUDE.md 的 0023）。值域由 TS 的 enum 與 assertDayType 把關。
    */
   dayType: text("day_type", { enum: ["weekday", "weekend", "holiday"] as const }).notNull().default("weekday"),
-  /** 這個日型的排班提示人力；薪資按每筆有效排班各計 1 單位，不依此值拆分。 */
+  /** 這個日型的需求人力；已發布排班以此值作為同班薪資單位池上限。 */
   requiredHeadcount: integer("required_headcount").notNull().default(1),
   versionNumber: integer("version_number").notNull(),
   startSecond: integer("start_second").notNull(),
@@ -172,7 +172,7 @@ export const hrScheduleEntries = sqliteTable("hr_schedule_entries", {
   endsAt: text("ends_at").notNull(),
   standardMinutes: integer("standard_minutes").notNull().default(480),
   breakMinutes: integer("break_minutes").notNull().default(60),
-  /** 發布時凍結的需求人力，只作排班提示與薪資稽核快照。 */
+  /** 發布時凍結的需求人力，作為該班薪資單位池上限。 */
   requiredHeadcount: integer("required_headcount").notNull().default(1),
   /** scheduled=尚未確認；present=有效出勤；absent=未出勤，不取得該班薪資單位。 */
   attendanceStatus: text("attendance_status", { enum: ["scheduled", "present", "absent"] as const }).notNull().default("scheduled"),
@@ -204,7 +204,7 @@ export const hrScheduleWorkerEntries = sqliteTable("hr_schedule_worker_entries",
   endsAt: text("ends_at").notNull(),
   standardMinutes: integer("standard_minutes").notNull().default(480),
   breakMinutes: integer("break_minutes").notNull().default(60),
-  /** 發布時凍結的需求人力，只作排班提示與薪資稽核快照。 */
+  /** 發布時凍結的需求人力，作為該班薪資單位池上限。 */
   requiredHeadcount: integer("required_headcount").notNull().default(1),
   /** scheduled=尚未確認；present=有效出勤；absent=未出勤，不取得該班薪資單位。 */
   attendanceStatus: text("attendance_status", { enum: ["scheduled", "present", "absent"] as const }).notNull().default("scheduled"),

@@ -150,7 +150,7 @@ function compileStatements(statements: SQL[]) {
 async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor) {
   const nextRevision = version.revision + 1;
   const guard = sql`EXISTS (SELECT 1 FROM hr_schedule_versions WHERE id=${version.id} AND revision=${nextRevision} AND locked_at IS NULL)`;
-  // 同一據點／日期／班別是一個薪資單位；多人只是在這個群組底下增加指派人員。
+  // 同班需求人力會決定分攤單位池，所以所有指派必須共用同一群組。
   // group id 不直接暴露給輸入端，由發布動作一次建立，避免前端偽造跨月或跨班別的群組。
   const groupIds = new Map<string, string>();
   const groupIdFor = (entry: EnrichedScheduleEntry) => {
