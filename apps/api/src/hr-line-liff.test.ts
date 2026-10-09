@@ -1,10 +1,11 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
-import { createDatabase, findUserByLineIdentity, linkLineAccount, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, findUserByLineIdentity, linkLineAccount, replaceLineAccount, unlinkLineAccount, syncSystemRoles } from "@rueisiang/db";
 import { authDeviceSessions, hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmployments, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
+import { createLineLinkIntentCookie, LINE_LIFF_INTENT_TTL_SECONDS } from "./line-liff.js";
 
 const SECRET = "test-secret";
 const CHANNEL_ID = "1234567890";
@@ -119,7 +120,7 @@ beforeEach(async () => {
   await syncSystemRoles(db());
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("HR LINE LIFF 登入與帳號綁定", () => {
   it("驗證 LINE ID token 後只發 HR 本人範圍的 LIFF 裝置 session", async () => {
@@ -178,6 +179,27 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     const session = await call("/api/hr/me/session", { headers: requestHeaders(`${platformSession}; ${deviceCookie}`) });
     expect(await session.json()).toMatchObject({ id: employee.id, lineLiffAuthenticated: true });
     expect((await db().select().from(authDeviceSessions)).map((row) => row.authMethod)).toEqual(["line_liff"]);
+  });
+
+  it("綁定回應遺失後冪等重試仍交付 LIFF session，不只清除意圖", async () => {
+    const employee = await seedEmployee("line-link-retry@ecotech.tw");
+    const platformSession = await sessionCookie(employee.id, employee.email);
+    const intentResponse = await bootstrap("line-alice");
+    const intent = asCookie(cookieFrom(intentResponse, "rueisiang_hr_line_intent"));
+    const confirm = () => call("/api/hr/liff/link", {
+      method: "POST",
+      headers: { ...requestHeaders(`${platformSession}; ${intent}`), "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect((await confirm()).status).toBe(201);
+    // 不採用第一次回應的裝置 cookie，模擬 DB 已寫入但回應遺失。
+    const retry = await confirm();
+    expect(retry.status).toBe(200);
+    expect(cookieFrom(retry, "rueisiang_hr_line_intent")).toContain("Max-Age=0");
+    const deviceCookie = asCookie(cookieFrom(retry, DEVICE_SESSION_COOKIE));
+    const session = await call("/api/hr/me/session", { headers: requestHeaders(`${platformSession}; ${deviceCookie}`) });
+    expect(await session.json()).toMatchObject({ id: employee.id, lineLiffAuthenticated: true });
+    expect((await call("/api/hr/me/payroll-history", { headers: requestHeaders(deviceCookie) })).status).toBe(403);
   });
 
   it("不接受 LINE 驗證回傳的錯誤 audience，也不會由前端 body 指定 LINE UID", async () => {
@@ -301,6 +323,93 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     expect(await findUserByLineIdentity(db(), { channelId: CHANNEL_ID, lineUserId: "U-line-alice" })).toBeNull();
     expect((await db().select().from(authDeviceSessions))[0]?.revokedAt).toBeTruthy();
     expect((await call("/api/hr/me/session", { headers: requestHeaders(deviceCookie) })).status).toBe(401);
+  });
+
+  it.each(["unlink", "replace"] as const)("%s 完成後，先前已查到舊身分的 bootstrap 不能補發 session", async (operation) => {
+    const employee = await seedEmployee(`line-race-${operation}@ecotech.tw`);
+    const platformSession = await sessionCookie(employee.id, employee.email);
+    await linkLineAccount(db(), employee.id, { channelId: CHANNEL_ID, lineUserId: "U-line-alice" });
+    let reachedInsert!: () => void;
+    let resumeInsert!: () => void;
+    const reached = new Promise<void>((resolve) => { reachedInsert = resolve; });
+    const resumed = new Promise<void>((resolve) => { resumeInsert = resolve; });
+    const prepare = d1.prepare.bind(d1);
+    let paused = false;
+    vi.spyOn(d1, "prepare").mockImplementation((query) => {
+      const statement = prepare(query);
+      if (!paused && /INSERT INTO auth_device_sessions[\s\S]*SELECT/i.test(query)) {
+        paused = true;
+        const bind = statement.bind.bind(statement);
+        vi.spyOn(statement, "bind").mockImplementation((...values) => {
+          const bound = bind(...values);
+          const all = bound.all.bind(bound);
+          vi.spyOn(bound, "all").mockImplementation(async () => {
+            reachedInsert();
+            await resumed;
+            return all();
+          });
+          return bound;
+        });
+      }
+      return statement;
+    });
+    const oldLogin = bootstrap("line-alice");
+    await reached;
+    try {
+      const mutation = operation === "unlink"
+        ? await call("/api/hr/me/liff-link", { method: "DELETE", headers: requestHeaders(platformSession) })
+        : await call("/api/hr/liff/link", {
+          method: "POST", headers: { ...requestHeaders(platformSession), "Content-Type": "application/json" },
+          body: JSON.stringify({ idToken: "line-bob", replaceExisting: true }),
+        });
+      expect(mutation.status).toBe(200);
+    } finally {
+      resumeInsert();
+    }
+    const response = await oldLogin;
+    expect(response.status).toBe(409);
+    expect(cookieFrom(response, DEVICE_SESSION_COOKIE)).toBeUndefined();
+    expect(await findUserByLineIdentity(db(), { channelId: CHANNEL_ID, lineUserId: "U-line-alice" })).toBeNull();
+    const sessions = await db().select().from(authDeviceSessions);
+    expect(sessions.filter((row) => !row.revokedAt)).toHaveLength(operation === "replace" ? 1 : 0);
+  });
+
+  it.each(["unlink", "replace"] as const)("%s 的 session 撤銷失敗時同一 transaction 回滾關聯變更", async (operation) => {
+    const employee = await seedEmployee(`line-rollback-${operation}@ecotech.tw`);
+    await linkLineAccount(db(), employee.id, { channelId: CHANNEL_ID, lineUserId: "U-line-alice" });
+    await bootstrap("line-alice");
+    d1.sqlite.exec(`CREATE TRIGGER fail_line_revoke BEFORE UPDATE OF revoked_at ON auth_device_sessions
+      WHEN NEW.auth_method = 'line_liff' BEGIN SELECT RAISE(ABORT, 'simulated revoke failure'); END`);
+    await expect(operation === "unlink"
+      ? unlinkLineAccount(db(), employee.id)
+      : replaceLineAccount(db(), employee.id, { channelId: CHANNEL_ID, lineUserId: "U-line-bob" })).rejects.toThrow();
+    expect(await findUserByLineIdentity(db(), { channelId: CHANNEL_ID, lineUserId: "U-line-alice" })).toBe(employee.id);
+    expect((await db().select().from(authDeviceSessions))[0]?.revokedAt).toBeNull();
+  });
+
+  it("過期 intent 不能建立綁定或 session", async () => {
+    const employee = await seedEmployee("line-expired-intent@ecotech.tw");
+    const cookie = await createLineLinkIntentCookie({ channelId: CHANNEL_ID, lineUserId: "U-line-alice" }, SECRET,
+      Date.now() - LINE_LIFF_INTENT_TTL_SECONDS * 1000 - 1000);
+    const response = await call("/api/hr/liff/link", {
+      method: "POST", headers: { ...requestHeaders(`${await sessionCookie(employee.id, employee.email)}; ${asCookie(cookie)}`), "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    expect(response.status).toBe(400);
+    expect(await findUserByLineIdentity(db(), { channelId: CHANNEL_ID, lineUserId: "U-line-alice" })).toBeNull();
+    expect(await db().select().from(authDeviceSessions)).toHaveLength(0);
+  });
+
+  it("取得 LIFF session 後封存員工，下一次請求被拒絕且撤銷装置", async () => {
+    const employee = await seedEmployee("line-archive-after-login@ecotech.tw");
+    await linkLineAccount(db(), employee.id, { channelId: CHANNEL_ID, lineUserId: "U-line-alice" });
+    const deviceCookie = asCookie(cookieFrom(await bootstrap("line-alice"), DEVICE_SESSION_COOKIE));
+    await db().update(hrEmployments).set({ archivedAt: new Date().toISOString() }).where(eq(hrEmployments.id, employee.employmentId));
+    const response = await call("/api/hr/me/session", { headers: requestHeaders(deviceCookie) });
+    expect(response.status).toBe(403);
+    expect(cookieFrom(response, DEVICE_SESSION_COOKIE)).toContain("Max-Age=0");
+    expect((await db().select().from(authDeviceSessions))[0]?.revokedAt).toBeTruthy();
+    expect((await call("/api/hr/me/clock-events", { headers: requestHeaders(deviceCookie) })).status).toBe(401);
   });
 
   it("綁定到非在職員工的 LINE 身分不能換取 HR session", async () => {

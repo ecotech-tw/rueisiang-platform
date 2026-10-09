@@ -305,9 +305,9 @@ export { GLOBAL_SCOPE, type Role, type User, type UserRole } from "./schema/auth
 export { countOtherActiveAdmins, loadAuthUser, recordLogin, updateProfile } from "./users.js";
 export {
   createDeviceSession,
+  createLineLiffSession,
   revokeDeviceSession,
   revokeUserDeviceSessions,
-  revokeUserLineLiffSessions,
   useDeviceSession,
   type DeviceSessionAuthMethod,
   type DeviceSessionUse,

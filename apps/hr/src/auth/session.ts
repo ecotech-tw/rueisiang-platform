@@ -25,8 +25,8 @@ async function responseError(response: Response, fallback: string): Promise<Erro
 
 async function fetchPendingLineIntent(): Promise<boolean> {
   if (!isLiffConfigured()) return false;
-  const response = await fetch(`${API_BASE_URL}/hr/liff/link`, { credentials: "include" }).catch(() => null);
-  if (!response?.ok) return false;
+  const response = await fetch(`${API_BASE_URL}/hr/liff/link`, { credentials: "include" });
+  if (!response.ok) throw await responseError(response, "讀取 LINE 綁定狀態失敗，請重新嘗試。");
   const result = await response.json() as { pending?: boolean };
   return Boolean(result.pending);
 }

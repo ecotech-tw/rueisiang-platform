@@ -1,6 +1,6 @@
-import { and, eq, ne, notExists, sql } from "drizzle-orm";
+import { and, eq, isNull, ne, notExists, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { authLineAccountLinks } from "./schema/auth.js";
+import { authDeviceSessions, authLineAccountLinks } from "./schema/auth.js";
 
 export interface LineAccountIdentity {
   channelId: string;
@@ -42,7 +42,18 @@ export async function linkLineAccount(db: Database, userId: string, identity: Li
   return current?.channelId === identity.channelId && current.lineUserId === identity.lineUserId ? "existing" : "conflict";
 }
 
-/** Replace an existing identity in one guarded UPDATE so a conflicting LINE account cannot erase the old link. */
+function lineSessionRevocation(db: Database, userId: string, guard?: SQL) {
+  return db.update(authDeviceSessions)
+    .set({ revokedAt: new Date().toISOString() })
+    .where(and(
+      eq(authDeviceSessions.userId, userId),
+      eq(authDeviceSessions.authMethod, "line_liff"),
+      isNull(authDeviceSessions.revokedAt),
+      guard,
+    ));
+}
+
+/** 關聯替換與撤銷須不可分割；綁定衝突時兩者都不變更。 */
 export async function replaceLineAccount(db: Database, userId: string, identity: LineAccountIdentity): Promise<"created" | "replaced" | "existing" | "conflict"> {
   const [current] = await db.select({ channelId: authLineAccountLinks.channelId, lineUserId: authLineAccountLinks.lineUserId })
     .from(authLineAccountLinks)
@@ -58,16 +69,22 @@ export async function replaceLineAccount(db: Database, userId: string, identity:
       eq(authLineAccountLinks.lineUserId, identity.lineUserId),
       ne(authLineAccountLinks.userId, userId),
     ));
-  const updated = await db.update(authLineAccountLinks)
-    .set({ channelId: identity.channelId, lineUserId: identity.lineUserId, linkedAt: sql`CURRENT_TIMESTAMP` })
-    .where(and(eq(authLineAccountLinks.userId, userId), notExists(conflictingIdentity)))
-    .returning({ userId: authLineAccountLinks.userId });
+  const [updated] = await db.batch([
+    db.update(authLineAccountLinks)
+      .set({ channelId: identity.channelId, lineUserId: identity.lineUserId, linkedAt: sql`CURRENT_TIMESTAMP` })
+      .where(and(eq(authLineAccountLinks.userId, userId), notExists(conflictingIdentity)))
+      .returning({ userId: authLineAccountLinks.userId }),
+    lineSessionRevocation(db, userId, sql`changes() = 1`),
+  ]);
   return updated.length ? "replaced" : "conflict";
 }
 
 export async function unlinkLineAccount(db: Database, userId: string): Promise<boolean> {
-  const rows = await db.delete(authLineAccountLinks)
-    .where(eq(authLineAccountLinks.userId, userId))
-    .returning({ userId: authLineAccountLinks.userId });
+  const [rows] = await db.batch([
+    db.delete(authLineAccountLinks)
+      .where(eq(authLineAccountLinks.userId, userId))
+      .returning({ userId: authLineAccountLinks.userId }),
+    lineSessionRevocation(db, userId),
+  ]);
   return rows.length > 0;
 }

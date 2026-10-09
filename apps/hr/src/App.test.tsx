@@ -24,6 +24,8 @@ let root: Root;
 let client: QueryClient;
 let intentPending: boolean;
 let linked: boolean;
+let lineAuthenticated: boolean;
+let intentFailure: "network" | "server" | null;
 let platformOnly: boolean;
 let expired: boolean;
 let sessionAuthorized: boolean;
@@ -34,6 +36,8 @@ beforeEach(() => {
   notifyManager.setScheduler(queueMicrotask);
   intentPending = false;
   linked = false;
+  lineAuthenticated = false;
+  intentFailure = null;
   platformOnly = false;
   expired = false;
   sessionAuthorized = true;
@@ -46,23 +50,29 @@ beforeEach(() => {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const path = new URL(String(input), "https://hr.example.test").pathname;
     requested.push(`${init?.method ?? "GET"} ${path}`);
-    if (path.endsWith("/me/liff-session")) return Response.json({ linked });
+    if (path.endsWith("/me/liff-session")) {
+      if (linked) lineAuthenticated = true;
+      return Response.json({ linked });
+    }
     if (path.endsWith("/me/session")) {
       if (!sessionAuthorized) return Response.json({ error: "請先登入。" }, { status: 401 });
-      return Response.json({ ...user, deviceRemembered: !platformOnly || linked, lineLiffAuthenticated: linked });
+      return Response.json({ ...user, deviceRemembered: !platformOnly || lineAuthenticated, lineLiffAuthenticated: lineAuthenticated });
     }
     if (path.endsWith("/liff/link")) {
       if (!platformOnly && !liff.token) return Response.json({ error: "請先登入。" }, { status: 401 });
+      if (init?.method !== "POST" && intentFailure === "network") throw new Error("連不上伺服器");
+      if (init?.method !== "POST" && intentFailure === "server") return Response.json({ error: "意圖查詢暫時失敗" }, { status: 503 });
       if (init?.method === "POST") {
         if (expired) {
           intentPending = false;
           return Response.json({ error: "LINE 綁定驗證已逾時，請重新從 LINE 開啟打卡頁。" }, { status: 400 });
         }
         linked = true;
+        lineAuthenticated = true;
         intentPending = false;
         return Response.json({ linked: true });
       }
-      return Response.json({ linked: false, pending: intentPending });
+      return Response.json({ linked, pending: intentPending });
     }
     if (path.endsWith("/me/device")) return Response.json({ ok: true });
     throw new Error(`未預期請求：${path}`);
@@ -134,6 +144,34 @@ describe("LIFF 與一般 HR 登入流程", () => {
     expect(requested).not.toContain("POST /api/hr/me/device");
     await clickButton("確認並綁定這個帳號");
     await expectText("打卡入口");
+  });
+
+  it.each(["network", "server"] as const)("OAuth 意圖探測 %s 失敗時不記住一般裝置，恢復後仍可確認綁定", async (failure) => {
+    platformOnly = true;
+    intentPending = true;
+    intentFailure = failure;
+    await renderApp();
+    await expectText("重新嘗試");
+    expect(container.textContent).not.toContain("打卡入口");
+    expect(requested).not.toContain("POST /api/hr/me/device");
+    intentFailure = null;
+    await clickButton("重新嘗試");
+    await expectText("綁定 LINE 打卡");
+    expect(requested).not.toContain("POST /api/hr/me/device");
+    await clickButton("確認並綁定這個帳號");
+    await expectText("打卡入口");
+  });
+
+  it("OAuth 返回已存在相同綁定但尚無 LINE session 時，確認成功交付 session 後退出 gate", async () => {
+    platformOnly = true;
+    intentPending = true;
+    linked = true;
+    await renderApp();
+    await expectText("綁定 LINE 打卡");
+    expect(client.getQueryData(["session"])).toMatchObject({ lineLiffAuthenticated: false, lineLinkRequired: true });
+    await clickButton("解除舊綁定並改綁目前 LINE");
+    await expectText("打卡入口");
+    expect(client.getQueryData(["session"])).toMatchObject({ lineLiffAuthenticated: true, lineLinkRequired: false });
   });
 
   it("綁定逾時 POST 400 後的 query refetch 不卸載綁定頁，保留錯誤與恢復入口", async () => {

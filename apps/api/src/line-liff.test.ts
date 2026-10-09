@@ -49,15 +49,19 @@ describe("LINE LIFF 身分驗證", () => {
   });
 
   it("issues a short-lived HttpOnly intent cookie and rejects tampering, expiry, or channel mismatch", async () => {
-    const cookie = await createLineLinkIntentCookie({ channelId: CHANNEL_ID, lineUserId: "U-line-subject" }, "test-secret");
+    const issuedAt = Date.UTC(2026, 9, 10);
+    const cookie = await createLineLinkIntentCookie({ channelId: CHANNEL_ID, lineUserId: "U-line-subject" }, "test-secret", issuedAt);
     const value = cookie.slice(cookie.indexOf("=") + 1).split(";")[0]!;
     expect(cookie).toContain(`Path=${LINE_LIFF_INTENT_PATH};`);
     expect(cookie).toContain("HttpOnly; Secure; SameSite=Lax");
     expect(cookie).toContain(`Max-Age=${LINE_LIFF_INTENT_TTL_SECONDS}`);
-    expect(await readLineLinkIntent(value, "test-secret", CHANNEL_ID)).toEqual({ channelId: CHANNEL_ID, lineUserId: "U-line-subject" });
-    expect(await readLineLinkIntent(value, "wrong-secret", CHANNEL_ID)).toBeNull();
-    expect(await readLineLinkIntent(value, "test-secret", "other-channel")).toBeNull();
-    expect(await readLineLinkIntent(`${value}tampered`, "test-secret", CHANNEL_ID)).toBeNull();
+    const expiresAt = issuedAt + LINE_LIFF_INTENT_TTL_SECONDS * 1000;
+    expect(await readLineLinkIntent(value, "test-secret", CHANNEL_ID, expiresAt - 1)).toEqual({ channelId: CHANNEL_ID, lineUserId: "U-line-subject" });
+    expect(await readLineLinkIntent(value, "test-secret", CHANNEL_ID, expiresAt)).toBeNull();
+    expect(await readLineLinkIntent(value, "test-secret", CHANNEL_ID, expiresAt + 1)).toBeNull();
+    expect(await readLineLinkIntent(value, "wrong-secret", CHANNEL_ID, issuedAt)).toBeNull();
+    expect(await readLineLinkIntent(value, "test-secret", "other-channel", issuedAt)).toBeNull();
+    expect(await readLineLinkIntent(`${value}tampered`, "test-secret", CHANNEL_ID, issuedAt)).toBeNull();
     expect(clearLineLinkIntentCookie()).toContain("Max-Age=0");
   });
 });

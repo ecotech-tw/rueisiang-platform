@@ -18,7 +18,7 @@ import {
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
-  createDeviceSession, findUserByLineIdentity, getLineAccountLink, isHrEmployee, linkLineAccount, loadAuthUser, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession, revokeUserLineLiffSessions, replaceLineAccount, unlinkLineAccount, useDeviceSession,
+  createDeviceSession, createLineLiffSession, findUserByLineIdentity, getLineAccountLink, isHrEmployee, linkLineAccount, loadAuthUser, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession, replaceLineAccount, unlinkLineAccount, useDeviceSession,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -572,7 +572,8 @@ export const hr = new Hono<AppEnv>()
       if (currentDevice.renewed) c.header("Set-Cookie", deviceCookie(currentDevice.renewed), { append: true });
     } else {
       if (rawDevice) await revokeDeviceSession(c.get("db"), rawDevice);
-      const token = await createDeviceSession(c.get("db"), userId, c.req.header("User-Agent") ?? "", { authMethod: "line_liff" });
+      const token = await createLineLiffSession(c.get("db"), userId, c.req.header("User-Agent") ?? "", identity);
+      if (!token) throw new HTTPException(409, { message: "LINE 綁定已變更，請重新從 LINE 開啟打卡頁。" });
       c.header("Set-Cookie", deviceCookie(token), { append: true });
     }
 
@@ -609,18 +610,16 @@ export const hr = new Hono<AppEnv>()
       : await linkLineAccount(c.get("db"), userId, identity);
     if (linked === "conflict") throw new HTTPException(409, { message: "此 LINE 或平台帳號已綁定其他身分，請聯絡 HR 管理者處理。" });
 
-    if (linked === "replaced") await revokeUserLineLiffSessions(c.get("db"), userId);
-    if (linked === "created" || linked === "replaced") {
-      const token = await createDeviceSession(c.get("db"), userId, c.req.header("User-Agent") ?? "", { authMethod: "line_liff" });
-      c.header("Set-Cookie", deviceCookie(token), { append: true });
-    }
+    // 冪等重試可能尚未收到上次的 cookie；成功確認綁定必須同時交付 LIFF session。
+    const token = await createLineLiffSession(c.get("db"), userId, c.req.header("User-Agent") ?? "", identity);
+    if (!token) throw new HTTPException(409, { message: "LINE 綁定已變更，請重新從 LINE 開啟打卡頁。" });
+    c.header("Set-Cookie", deviceCookie(token), { append: true });
     c.header("Set-Cookie", clearLineLinkIntentCookie(), { append: true });
     return c.json({ linked: true }, linked === "created" ? 201 : 200);
   })
   .delete("/me/liff-link", async (c) => {
     const userId = c.get("user").id;
     await unlinkLineAccount(c.get("db"), userId);
-    await revokeUserLineLiffSessions(c.get("db"), userId);
     if (c.get("lineLiffSession")) c.header("Set-Cookie", clearDeviceCookie(), { append: true });
     return c.json({ unlinked: true });
   })

@@ -7,8 +7,9 @@ import {
   parseDeviceToken,
   type DeviceToken,
 } from "@rueisiang/auth";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import type { LineAccountIdentity } from "./line-liff.js";
 import { authDeviceSessions } from "./schema/auth.js";
 
 const USER_AGENT_MAX_LENGTH = 200;
@@ -24,7 +25,7 @@ export async function createDeviceSession(
   db: Database,
   userId: string,
   userAgent: string,
-  options: { authMethod?: DeviceSessionAuthMethod; now?: Date } = {},
+  options: { now?: Date } = {},
 ): Promise<DeviceToken> {
   const now = options.now ?? new Date();
   const token = newDeviceToken();
@@ -33,11 +34,31 @@ export async function createDeviceSession(
     userId,
     tokenHash: await hashDeviceSecret(token.secret),
     userAgent: userAgent.slice(0, USER_AGENT_MAX_LENGTH),
-    authMethod: options.authMethod ?? "device",
+    authMethod: "device",
     rotatedAt: now.toISOString(),
     expiresAt: secondsLater(now, DEVICE_SESSION_IDLE_SECONDS),
   });
   return token;
+}
+
+/** 發證與目前 LINE 關聯在同一 SQL 判定，避免解除／替換完成後舊請求補發憑證。 */
+export async function createLineLiffSession(
+  db: Database,
+  userId: string,
+  userAgent: string,
+  identity: LineAccountIdentity,
+  now = new Date(),
+): Promise<DeviceToken | null> {
+  const token = newDeviceToken();
+  const tokenHash = await hashDeviceSecret(token.secret);
+  const rows = await db.all<{ id: string }>(sql`INSERT INTO auth_device_sessions
+    (id, user_id, token_hash, user_agent, auth_method, rotated_at, expires_at)
+    SELECT ${token.id}, ${userId}, ${tokenHash}, ${userAgent.slice(0, USER_AGENT_MAX_LENGTH)}, 'line_liff',
+      ${now.toISOString()}, ${secondsLater(now, DEVICE_SESSION_IDLE_SECONDS)}
+    WHERE EXISTS (SELECT 1 FROM auth_line_account_links
+      WHERE user_id = ${userId} AND channel_id = ${identity.channelId} AND line_user_id = ${identity.lineUserId})
+    RETURNING id`);
+  return rows.length ? token : null;
 }
 
 export interface DeviceSessionUse {
@@ -116,15 +137,4 @@ export async function revokeUserDeviceSessions(db: Database, userId: string, now
     .update(authDeviceSessions)
     .set({ revokedAt: now.toISOString() })
     .where(and(eq(authDeviceSessions.userId, userId), isNull(authDeviceSessions.revokedAt)));
-}
-
-export async function revokeUserLineLiffSessions(db: Database, userId: string, now = new Date()): Promise<void> {
-  await db
-    .update(authDeviceSessions)
-    .set({ revokedAt: now.toISOString() })
-    .where(and(
-      eq(authDeviceSessions.userId, userId),
-      eq(authDeviceSessions.authMethod, "line_liff"),
-      isNull(authDeviceSessions.revokedAt),
-    ));
 }
