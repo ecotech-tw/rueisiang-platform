@@ -50,7 +50,7 @@ import {
 } from "./schema/hr-payroll-runs.js";
 import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrSpecialWorkdayAssignments, hrSpecialWorkdayRules, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
+import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrShiftVersions, hrSpecialWorkdayAssignments, hrSpecialWorkdayRules, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
 import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 import { scopes } from "./schema/reports.js";
@@ -95,7 +95,7 @@ function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const PAYROLL_RUN_NAME_MAX_LENGTH = 20;
 const PAYROLL_RUN_NAME_ELLIPSIS = "...";
-const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v6";
+const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v7";
 const displayName = hrEmployeeName;
 
 function shortenPayrollRunName(value: string): string {
@@ -483,7 +483,9 @@ type SchedulePayrollRow = {
   id: string;
   personKind: "employee" | "worker";
   personId: string;
+  archivedAt: string | null;
   scopeId: string;
+  shiftTemplateId: string;
   shiftVersionId: string;
   shiftGroupId: string | null;
   workDate: string;
@@ -518,9 +520,9 @@ interface SchedulePayAllocation {
   row: SchedulePayrollRow;
 }
 
-function scheduleAllocationGroupKey(row: Pick<SchedulePayrollRow, "scopeId" | "shiftVersionId" | "shiftGroupId" | "workDate">) {
-  // 舊資料沒有 shiftGroupId；用同一據點／班別／日期回退，讓既有多人排班也能共用出勤資格判斷。
-  return row.shiftGroupId ? `${row.shiftGroupId}:${row.workDate}` : `${row.scopeId}:${row.shiftVersionId}:${row.workDate}`;
+function scheduleAllocationGroupKey(row: Pick<SchedulePayrollRow, "scopeId" | "shiftTemplateId" | "workDate">) {
+  // 重新發布會換群組 id，封存支援卻保留舊列；薪資須按同一據點／班別／日期合池，不能因發布批次或日型版本拆池。
+  return `${row.scopeId}:${row.shiftTemplateId}:${row.workDate}`;
 }
 
 function greatestCommonDivisor(left: number, right: number) {
@@ -692,6 +694,11 @@ function payrollSnapshotsMatch(currentValue: string, savedValue: string) {
   }
 }
 
+// 與 hrEmployableUser 的資格一致；快照合池判定與實際分配共用，受邀員工不能只漏在其中一邊。
+function eligibleScheduleEmploymentIds(states: readonly { employmentId: string; archivedAt: string | null; userStatus: string }[]) {
+  return new Set(states.filter((row) => !row.archivedAt && (row.userStatus === "active" || row.userStatus === "invited")).map((row) => row.employmentId));
+}
+
 interface PayrollSourceSnapshotInput {
   period: { start: string; end: string; periodKey: string };
   employmentIds: string[];
@@ -754,8 +761,9 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
     .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`));
   const allocationEmploymentIds = [...new Set(allocationEmploymentRows.map((row) => row.employmentId))];
-  const allocationWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId })
+  const allocationWorkerRows = await db.select({ workerId: hrScheduleWorkerEntries.workerId, archivedAt: hrEmployments.archivedAt })
     .from(hrScheduleWorkerEntries)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkerEntries.workerId))
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
     .where(and(latestPublishedSchedule, selectedScheduleVersions, sql`${hrScheduleWorkerEntries.workDate} >= ${input.period.start}`, sql`${hrScheduleWorkerEntries.workDate} < ${input.period.end}`));
   const allocationWorkerIds = [...new Set(allocationWorkerRows.map((row) => row.workerId))];
@@ -819,8 +827,22 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrPayrollAdjustments).where(and(eq(hrPayrollAdjustments.effectivePeriodKey, input.period.periodKey), inJsonArray(hrPayrollAdjustments.employmentId, payrollEmploymentIds))),
     db.select().from(hrPayrollAdjustmentItems).where(sql`${hrPayrollAdjustmentItems.adjustmentId} IN (SELECT id FROM hr_payroll_adjustments WHERE effective_period_key=${input.period.periodKey} AND employment_id IN (${payrollEmploymentValues}))`),
   ]);
+  // 只有已拆池的來源才要求新版合池標記，避免舊引擎超付結果直接結帳；未拆池的舊批次仍保留相容性。
+  const activeAllocationEmploymentIds = eligibleScheduleEmploymentIds(allocationEmploymentStates);
+  const allocationEntries = [...scheduleEntries.filter(({ entry }) => activeAllocationEmploymentIds.has(entry.employmentId)), ...workerScheduleEntries].map(({ entry }) => entry);
+  const allocationShiftVersions = allocationEntries.length ? await db.select({ id: hrShiftVersions.id, templateId: hrShiftVersions.shiftTemplateId }).from(hrShiftVersions).where(inJsonArray(hrShiftVersions.id, [...new Set(allocationEntries.map((entry) => entry.shiftVersionId))])) : [];
+  const allocationTemplates = new Map(allocationShiftVersions.map((shift) => [shift.id, shift.templateId]));
+  const savedGroupsByShift = new Map<string, Set<string>>();
+  for (const entry of allocationEntries) {
+    const key = `${entry.scopeId}:${allocationTemplates.get(entry.shiftVersionId)}:${entry.workDate}`;
+    const groups = savedGroupsByShift.get(key) ?? new Set<string>();
+    groups.add(entry.shiftGroupId ? `group:${entry.shiftGroupId}` : `version:${entry.shiftVersionId}`);
+    savedGroupsByShift.set(key, groups);
+  }
+  const requiresTemplateGrouping = [...savedGroupsByShift.values()].some((groups) => groups.size > 1);
   return stableJson({
     periodKey: input.period.periodKey,
+    ...(requiresTemplateGrouping ? { scheduleAllocationGrouping: "template-v2", allocationWorkerStates: allocationWorkerRows } : {}),
     employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves,
     annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, workerOvertime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, calendarDays, calendarDayScopes,
     scheduleEntries: scheduleEntries.map(({ entry }) => entry),
@@ -1212,7 +1234,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     sql`(${hrWorkerOvertimeRequests.requestedEnd} > ${periodStartUtc} AND ${hrWorkerOvertimeRequests.requestedStart} < ${periodEndUtc}) OR (${hrWorkerOvertimeRequests.actualStart} IS NOT NULL AND ${hrWorkerOvertimeRequests.actualEnd} > ${periodStartUtc} AND ${hrWorkerOvertimeRequests.actualStart} < ${periodEndUtc})`,
   ));
   const paidOvertimeWorkerIds = [...new Set(workerOvertime.filter((row) => row.settlementKind === "pay").map((row) => row.workerId))];
-  const scheduledEmployeeRows = await db.select({ id: hrScheduleEntries.id, employmentId: hrScheduleEntries.employmentId, scopeId: hrScheduleEntries.scopeId, shiftVersionId: hrScheduleEntries.shiftVersionId, shiftGroupId: hrScheduleEntries.shiftGroupId, workDate: hrScheduleEntries.workDate, startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes, requiredHeadcount: hrScheduleEntries.requiredHeadcount, attendanceStatus: hrScheduleEntries.attendanceStatus }).from(hrScheduleEntries)
+  const scheduledEmployeeRows = await db.select({ id: hrScheduleEntries.id, employmentId: hrScheduleEntries.employmentId, scopeId: hrScheduleEntries.scopeId, shiftVersionId: hrScheduleEntries.shiftVersionId, shiftTemplateId: hrShiftVersions.shiftTemplateId, shiftGroupId: hrScheduleEntries.shiftGroupId, workDate: hrScheduleEntries.workDate, startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt, standardMinutes: hrScheduleEntries.standardMinutes, breakMinutes: hrScheduleEntries.breakMinutes, requiredHeadcount: hrScheduleEntries.requiredHeadcount, attendanceStatus: hrScheduleEntries.attendanceStatus }).from(hrScheduleEntries)
+    .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleEntries.shiftVersionId))
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
     .where(and(
       eq(hrScheduleVersions.status, "published"),
@@ -1220,7 +1243,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${period.start} AND latest_schedule_version.period_end = ${period.end} AND latest_schedule_version.status = 'published')`,
       sql`${hrScheduleEntries.workDate} >= ${period.start}`, sql`${hrScheduleEntries.workDate} < ${period.end}`,
     ));
-  const scheduledWorkerRowsAll = await db.select({ id: hrScheduleWorkerEntries.id, workerId: hrScheduleWorkerEntries.workerId, workerName: hrEmployments.legalName, scopeId: hrScheduleWorkerEntries.scopeId, shiftVersionId: hrScheduleWorkerEntries.shiftVersionId, shiftGroupId: hrScheduleWorkerEntries.shiftGroupId, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes, requiredHeadcount: hrScheduleWorkerEntries.requiredHeadcount, attendanceStatus: hrScheduleWorkerEntries.attendanceStatus }).from(hrScheduleWorkerEntries)
+  const scheduledWorkerRowsAll = await db.select({ id: hrScheduleWorkerEntries.id, workerId: hrScheduleWorkerEntries.workerId, workerName: hrEmployments.legalName, archivedAt: hrEmployments.archivedAt, scopeId: hrScheduleWorkerEntries.scopeId, shiftVersionId: hrScheduleWorkerEntries.shiftVersionId, shiftTemplateId: hrShiftVersions.shiftTemplateId, shiftGroupId: hrScheduleWorkerEntries.shiftGroupId, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt, standardMinutes: hrScheduleWorkerEntries.standardMinutes, breakMinutes: hrScheduleWorkerEntries.breakMinutes, requiredHeadcount: hrScheduleWorkerEntries.requiredHeadcount, attendanceStatus: hrScheduleWorkerEntries.attendanceStatus }).from(hrScheduleWorkerEntries)
+    .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleWorkerEntries.shiftVersionId))
     .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkerEntries.workerId))
     .where(and(
@@ -1235,17 +1259,17 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const specialWorkdays = await listHrSpecialWorkdaysForPayroll(db, period.start, period.end, requestedWorkerIds === undefined ? undefined : { employmentIds: employees.map((employee) => employee.employmentId), workerIds: requestedWorkerIds });
   const specialWorkerIds = [...new Set(specialWorkdays.flatMap((item) => item.workerId ? [item.workerId] : []))];
   const specialWorkerNames = specialWorkerIds.length
-    ? await db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, specialWorkerIds), eq(hrEmployments.personKind, "worker")))
+    ? await db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName, archivedAt: hrEmployments.archivedAt }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, specialWorkerIds), eq(hrEmployments.personKind, "worker")))
     : [];
-  const specialWorkerNameById = new Map(specialWorkerNames.map((worker) => [worker.id, worker.displayName]));
+  const specialWorkerById = new Map(specialWorkerNames.map((worker) => [worker.id, worker]));
   type WorkerScheduleRow = typeof scheduledWorkerRowsAll[number];
   const scheduledWorkerDates = new Set(scheduledWorkerRowsAll.map((row) => `${row.workerId}:${row.workDate}`));
   const specialWorkerRows: WorkerScheduleRow[] = specialWorkdays.flatMap((item) => {
     if (!item.workerId || scheduledWorkerDates.has(`${item.workerId}:${item.workDate}`)) return [];
-    const workerName = specialWorkerNameById.get(item.workerId);
-    if (!workerName) return [];
+    const worker = specialWorkerById.get(item.workerId);
+    if (!worker) return [];
     const midnight = `${item.workDate}T00:00:00Z`;
-    return [{ id: `special-workday-${item.workerId}-${item.workDate}`, workerId: item.workerId, workerName, scopeId: "special-workday", shiftVersionId: "special-workday", shiftGroupId: `special-workday:${item.workerId}:${item.workDate}`, workDate: item.workDate, startsAt: midnight, endsAt: midnight, standardMinutes: 0, breakMinutes: 0, requiredHeadcount: 1, attendanceStatus: "scheduled" as const }];
+    return [{ id: `special-workday-${item.workerId}-${item.workDate}`, workerId: item.workerId, workerName: worker.displayName, archivedAt: worker.archivedAt, scopeId: "special-workday", shiftTemplateId: `special-workday:${item.workerId}`, shiftVersionId: "special-workday", shiftGroupId: `special-workday:${item.workerId}:${item.workDate}`, workDate: item.workDate, startsAt: midnight, endsAt: midnight, standardMinutes: 0, breakMinutes: 0, requiredHeadcount: 1, attendanceStatus: "scheduled" as const }];
   });
   const workerRowsAll: WorkerScheduleRow[] = [...scheduledWorkerRowsAll, ...specialWorkerRows];
   const eligibleWorkerIdSet = new Set([...workerRowsAll.map((row) => row.workerId), ...paidOvertimeWorkerIds]);
@@ -1404,11 +1428,16 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const statementRows: Array<{ employee: HrPayrollEmployeeResult; payslipId: string; lines: HrPayrollLineResult[]; compensationIds: string[]; insuranceIds: string[] }> = [];
   const calculationWarnings = new Set<string>();
   const clockedEmployeeDates = new Set(clocks.filter((row) => row.employmentId).map((row) => `${row.employmentId}:${taipeiDate(row.occurredAt)}`));
-  // 封存正式員工可因歷史查詢被明確選取，但不會計入本期排班薪資單位。
-  const activeEmploymentIds = new Set(employeeRows.filter((row) => !row.archivedAt).map((row) => row.employmentId));
+  // 分配資格直接採第一份來源快照，避免 preparing 回呼後把舊資格／封存狀態算進新快照的結果。
+  const allocationSnapshot = JSON.parse(sourceSnapshotBeforeCalculation) as {
+    allocationEmploymentStates: Array<{ employmentId: string; archivedAt: string | null; userStatus: string }>;
+    allocationWorkerStates?: Array<{ workerId: string; archivedAt: string | null }>;
+  };
+  const activeEmploymentIds = eligibleScheduleEmploymentIds(allocationSnapshot.allocationEmploymentStates);
+  const workerArchiveById = new Map((allocationSnapshot.allocationWorkerStates ?? []).map((row) => [row.workerId, row.archivedAt]));
   const allocationRows: SchedulePayrollRow[] = [
-    ...scheduledEmployeeRows.filter((row) => activeEmploymentIds.has(row.employmentId)).map((row) => ({ ...row, personKind: "employee" as const, personId: row.employmentId })),
-    ...workerRowsAll.map((row) => ({ ...row, personKind: "worker" as const, personId: row.workerId })),
+    ...scheduledEmployeeRows.filter((row) => activeEmploymentIds.has(row.employmentId)).map((row) => ({ ...row, archivedAt: null, personKind: "employee" as const, personId: row.employmentId })),
+    ...workerRowsAll.map((row) => ({ ...row, archivedAt: workerArchiveById.has(row.workerId) ? workerArchiveById.get(row.workerId)! : row.archivedAt, personKind: "worker" as const, personId: row.workerId })),
   ];
   const rowsByScheduleGroup = new Map<string, SchedulePayrollRow[]>();
   for (const row of allocationRows) {
@@ -1425,7 +1454,14 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     workerCompensationsById.set(compensation.workerId, [...(workerCompensationsById.get(compensation.workerId) ?? []), compensation]);
   }
   for (const [groupKey, groupRows] of rowsByScheduleGroup) {
-    const requiredHeadcount = Math.max(1, ...groupRows.map((row) => row.requiredHeadcount));
+    // 活動人員的列會整批重新發布，代表新需求；封存舊快照不能把已調降的人力拉回去。全班封存時仍採保存值。
+    const currentSnapshotRows = groupRows.filter((row) => !row.archivedAt);
+    const headcountRows = currentSnapshotRows.length ? currentSnapshotRows : groupRows;
+    const headcounts = new Set(headcountRows.map((row) => row.requiredHeadcount));
+    if (headcounts.size > 1 && groupRows.some((row) => row.personKind === "worker" ? selectedWorkerIds.includes(row.personId) : employees.some((employee) => employee.employmentId === row.personId))) {
+      throw new HrError(409, "同班排班需求人力快照不一致，請先確認封存人員的歷史排班，再重新發布並試算。 ");
+    }
+    const requiredHeadcount = Math.max(1, ...headcounts);
     if (groupRows.length !== requiredHeadcount) {
       calculationWarnings.add(`排班 ${groupRows[0]!.workDate}（${groupRows[0]!.scopeId}）已安排 ${groupRows.length}／需求 ${requiredHeadcount} 人，請確認人力。`);
     }
@@ -1456,7 +1492,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         shiftGroupId: row.shiftGroupId,
         scopeId: row.scopeId,
         shiftVersionId: row.shiftVersionId,
-        requiredHeadcount: row.requiredHeadcount,
+        requiredHeadcount,
         assignedCount: groupRows.length,
         effectiveCount: eligibleRows.length,
         attendanceStatus: status,

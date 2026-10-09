@@ -125,7 +125,7 @@ function allocationUnitLabel(detail: PayrollScheduleAllocationDetail): string {
   if (detail.unitNumerator <= 0) return "0 個本薪單位";
   return `${detail.unitNumerator}/${detail.unitDenominator} 個本薪單位`;
 }
-function PayrollAllocationDetails({ details }: { details: PayrollScheduleAllocationDetail[] }) {
+export function PayrollAllocationDetails({ details }: { details: PayrollScheduleAllocationDetail[] }) {
   if (!details.length) return null;
   const totalUnits = details.reduce((sum, detail) => sum + detail.allocatedUnits, 0);
   return <div className="hr-payroll-allocation-details">
@@ -136,7 +136,7 @@ function PayrollAllocationDetails({ details }: { details: PayrollScheduleAllocat
     </dl>
     <details className="hr-payroll-line-steps">
       <summary><span>查看每日分配</span><span>{details.length} 筆</span></summary>
-      <ol>{details.map((detail, index) => <li key={`${detail.date}:${detail.shiftGroupId ?? detail.shiftVersionId}:${index}`}><span>{detail.date}・{ATTENDANCE_STATUS_LABEL[detail.attendanceStatus]}・有效 {detail.effectiveCount}/{detail.assignedCount} 人</span><strong>{allocationUnitLabel(detail)}</strong></li>)}</ol>
+      <ol>{details.map((detail, index) => <li key={`${detail.date}:${detail.shiftGroupId ?? detail.shiftVersionId}:${index}`}><span>{detail.date}・{ATTENDANCE_STATUS_LABEL[detail.attendanceStatus]}・需求 {detail.requiredHeadcount} 人・有效 {detail.effectiveCount}/{detail.assignedCount} 人</span><strong>{allocationUnitLabel(detail)}</strong></li>)}</ol>
     </details>
   </div>;
 }

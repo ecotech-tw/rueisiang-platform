@@ -3,7 +3,7 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { inJsonArray } from "./sql-lists.js";
-import { HR_DAY_TYPE_LABELS, isHrDayType, listHrCalendarMonth } from "./hr-calendar.js";
+import { HR_DAY_TYPE_LABELS, isHrDayType, listHrCalendarMonth, resolveDayTypes } from "./hr-calendar.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, type HrActor } from "./hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
@@ -213,7 +213,14 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrScopeShiftAssignments.shiftTemplateId))
     .innerJoin(hrShiftVersions, eq(hrShiftVersions.shiftTemplateId, hrShiftTemplates.id))
     .where(eq(hrShiftTemplates.active, 1));
-  const shiftMap = new Map(latestShiftVersions(shiftRows).map((shift) => [`${shift.versionId}:${shift.scopeId}`, shift]));
+  const currentShifts = latestShiftVersions(shiftRows);
+  const shiftMap = new Map(currentShifts.map((shift) => [`${shift.versionId}:${shift.scopeId}`, shift]));
+  const shiftsByTemplateAndScope = new Map<string, typeof currentShifts>();
+  for (const shift of currentShifts) {
+    const key = `${shift.templateId}:${shift.scopeId}`;
+    shiftsByTemplateAndScope.set(key, [...(shiftsByTemplateAndScope.get(key) ?? []), shift]);
+  }
+  const dayTypes = await resolveDayTypes(db, [...new Set(entries.map((entry) => entry.workDate).filter((date) => datePeriodContains(date, period)))]);
   const employmentRows = await db.select({ id: hrEmployments.id }).from(hrEmployments)
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(sql`${hrEmployments.archivedAt} IS NULL`);
@@ -229,8 +236,13 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     const attendanceStatus = entry.attendanceStatus ?? "scheduled";
     if (!HR_SCHEDULE_ATTENDANCE_STATUSES.includes(attendanceStatus)) throw new HrError(400, "排班出勤狀態不正確。 ");
     if (!scopeIds.has(entry.scopeId)) throw new HrError(404, "找不到有效的營運據點。 ");
-    const shift = shiftMap.get(`${entry.shiftVersionId}:${entry.scopeId}`);
-    if (!shift || shift.scopeId !== entry.scopeId) throw new HrError(400, "班別未設定在這個營運據點。 ");
+    const selectedShift = shiftMap.get(`${entry.shiftVersionId}:${entry.scopeId}`);
+    if (!selectedShift || selectedShift.scopeId !== entry.scopeId) throw new HrError(400, "班別未設定在這個營運據點。 ");
+    // 舊班表或行事曆修改後仍可能帶平日版 id；發布時以當日日型重選同一班別，避免假日沿用平日人力。
+    const versions = shiftsByTemplateAndScope.get(`${selectedShift.templateId}:${entry.scopeId}`)!;
+    const dayType = dayTypes.get(entry.workDate);
+    const shift = versions.find((version) => version.dayType === dayType) ?? versions.find((version) => version.dayType === "weekday");
+    if (!shift) throw new HrError(400, "班別缺少適用的日型設定。 ");
     if (entry.personKind === "employee") {
       const employment = entry.employmentId ? employmentMap.get(entry.employmentId) : undefined;
       if (!employment) throw new HrError(400, "排班人員不是目前有效的員工。 ");
@@ -251,7 +263,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     if (personIntervals.some((current) => interval.start < current.end && current.start < interval.end)) throw new HrError(409, "同一人員在同一營運據點的排班時段重疊。 ");
     personIntervals.push(interval);
     occupied.set(personAtScope, personIntervals);
-    enriched.push({ ...entry, startsAt, endsAt, standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes, shiftTemplateId: shift.templateId, requiredHeadcount: shift.requiredHeadcount, attendanceStatus });
+    enriched.push({ ...entry, shiftVersionId: shift.versionId, startsAt, endsAt, standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes, shiftTemplateId: shift.templateId, requiredHeadcount: shift.requiredHeadcount, attendanceStatus });
   }
   // 月休是薪資結算的基準，允許實際排班日數與約定不同，差額由薪資引擎補發或扣回。
   return enriched;

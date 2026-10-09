@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
-import { chunks, createDatabase } from "@rueisiang/db";
+import { calculateHrPayroll, chunks, createDatabase } from "@rueisiang/db";
 import { hrCalendarDayScopes, hrCalendarDays, hrClockEvents, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrPayrollRecordItems, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -1147,6 +1147,50 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(blockedAdjustment.status).toBe(409);
   });
 
+  it("舊平日版排班重新發布時按日期套用週末與國定假日人力，舊薪資快照不改寫", async () => {
+    for (const employmentId of ["dev-employment-chen", "dev-employment-wang"]) {
+      expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 160_000, note: "日型重套測試" })).status).toBe(201);
+    }
+    expect((await request("/hr/calendar/2026-09", "PUT", { days: [{ date: "2026-09-25", dayType: "holiday", name: "中秋節" }] })).status).toBe(200);
+    const created = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "日型重套班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 1 }] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id: templateId, versionId } = await created.json() as { id: string; versionId: string };
+    const entries = ["2026-09-04", "2026-09-05", "2026-09-06", "2026-09-25"].flatMap((workDate) => ["dev-employment-chen", "dev-employment-wang"].map((employmentId) => ({ personKind: "employee", employmentId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: versionId, workDate })));
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const savedVersion = await saved.json() as { id: string; revision: number };
+    type Run = { runId: string; employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; explanation: { scheduleAllocationDetails?: Array<{ date: string; requiredHeadcount: number; allocatedUnits: number }> } }> }> };
+    const before = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"], workerIds: [], requestId: "daytype-republish-before" });
+    expect(before.status, await before.clone().text()).toBe(200);
+    const beforeRun = (await before.json() as { run: Run }).run;
+    expect(beforeRun.employees.every((employee) => employee.lines.find((line) => line.lineKey === "base_salary")?.amountMinor === 320_000)).toBe(true);
+    const updated = await request(`/hr/shift-templates/${templateId}`, "PATCH", { scopeId: "cyberbiz:store:demo-ximen", name: "日型重套班", revision: 1, times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 1 },
+      { dayType: "weekend", startTime: "10:00", endTime: "19:00", requiredHeadcount: 2 },
+      { dayType: "holiday", startTime: "11:00", endTime: "20:00", requiredHeadcount: 2 },
+    ] });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const readSchedule = await (await request("/hr/schedules?periodKey=2026-09")).json() as { entries: Array<{ shiftVersionId: string; requiredHeadcount: number }> };
+    expect(readSchedule.entries.every((entry) => entry.shiftVersionId === versionId && entry.requiredHeadcount === 1)).toBe(true);
+    const republished = await request("/hr/schedules", "POST", { periodKey: "2026-09", scheduleVersionId: savedVersion.id, revision: savedVersion.revision, entries });
+    expect(republished.status, await republished.clone().text()).toBe(200);
+    const oldRun = (await (await request(`/hr/payroll/runs/${beforeRun.runId}`)).json() as { run: Run }).run;
+    expect(oldRun.employees.every((employee) => employee.lines.find((line) => line.lineKey === "base_salary")?.amountMinor === 320_000)).toBe(true);
+    expect((await request(`/hr/payroll/runs/${beforeRun.runId}/close`, "POST", {})).status).toBe(409);
+    expect((await request(`/hr/payroll/runs/${beforeRun.runId}`, "DELETE")).status).toBe(200);
+    const after = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"], workerIds: [], requestId: "daytype-republish-after" });
+    expect(after.status, await after.clone().text()).toBe(200);
+    const afterRun = (await after.json() as { run: Run }).run;
+    for (const employee of afterRun.employees) {
+      const base = employee.lines.find((line) => line.lineKey === "base_salary")!;
+      expect(base.amountMinor).toBe(560_000);
+      expect(base.explanation.scheduleAllocationDetails).toEqual(expect.arrayContaining([
+        expect.objectContaining({ date: "2026-09-04", requiredHeadcount: 1, allocatedUnits: 0.5 }),
+        ...["2026-09-05", "2026-09-06", "2026-09-25"].map((date) => expect.objectContaining({ date, requiredHeadcount: 2, allocatedUnits: 1 })),
+      ]));
+    }
+  });
+
   it("假日班別使用需求人力快照，兩位有效員工各得一個完整薪資單位", async () => {
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
       const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "假日需求人力分配測試" });
@@ -1699,6 +1743,108 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_schedule_entries WHERE schedule_version_id=? AND employment_id=?").get(savedBody.id, "dev-employment-chen")).toEqual({ count: 1 });
   });
 
+  it.each([
+    { workDate: "2026-09-03", employeePeers: false, originalHeadcount: 1, requiredHeadcount: 2, scenario: "mixed" },
+    { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 1, requiredHeadcount: 2, scenario: "mixed" },
+    { workDate: "2026-09-03", employeePeers: true, originalHeadcount: 1, requiredHeadcount: 2, scenario: "mixed" },
+    { workDate: "2026-09-05", employeePeers: true, originalHeadcount: 1, requiredHeadcount: 2, scenario: "mixed" },
+    { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 3, requiredHeadcount: 1, scenario: "mixed" },
+    { workDate: "2026-09-05", employeePeers: true, originalHeadcount: 3, requiredHeadcount: 1, scenario: "mixed" },
+    { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 1, requiredHeadcount: 2, scenario: "allFrozen" },
+    { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 3, requiredHeadcount: 1, scenario: "allFrozen" },
+    { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 3, requiredHeadcount: 1, scenario: "unarchived" },
+    { workDate: "2026-09-05", employeePeers: true, originalHeadcount: 1, requiredHeadcount: 2, scenario: "invited" },
+    { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 3, requiredHeadcount: 1, scenario: "preparingReactivation" },
+    { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 3, requiredHeadcount: 1, scenario: "allocationReactivation" },
+    { workDate: "2026-09-05", employeePeers: true, originalHeadcount: 1, requiredHeadcount: 2, scenario: "invitedUnselectedWorker" },
+  ])("重新發布 $workDate（正式員工同班：$employeePeers，人力 $originalHeadcount→$requiredHeadcount，$scenario）時封存支援的舊群組仍參與同班單位池", async ({ workDate, employeePeers, originalHeadcount, requiredHeadcount, scenario }) => {
+    const workerIds: string[] = [];
+    for (const name of ["封存同班甲", "活動同班乙", "活動同班丙"]) {
+      const worker = await request("/hr/schedule-workers", "POST", { displayName: name });
+      expect(worker.status, await worker.clone().text()).toBe(201);
+      const workerId = (await worker.json() as { id: string }).id;
+      workerIds.push(workerId);
+      expect((await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 300_000, note: "封存同班單位池" })).status).toBe(201);
+    }
+    const shift = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "封存同班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: originalHeadcount }] });
+    expect(shift.status, await shift.clone().text()).toBe(201);
+    const { id: templateId, versionId } = await shift.json() as { id: string; versionId: string };
+    const employmentIds = ["dev-employment-chen", "dev-employment-wang"];
+    if (scenario === "invited" || scenario === "invitedUnselectedWorker") d1.sqlite.prepare("UPDATE users SET status='invited' WHERE id IN ('dev-chen@ecotech.tw','dev-wang@ecotech.tw')").run();
+    if (employeePeers) for (const employmentId of employmentIds) {
+      expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 300_000, note: "封存同班單位池" })).status).toBe(201);
+      expect((await request(`/hr/employments/${employmentId}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 1 })).status).toBe(200);
+    }
+    const workerEntries = workerIds.map((workerId) => ({ personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: versionId, workDate }));
+    const entries = employeePeers ? [workerEntries[0]!, ...employmentIds.map((employmentId) => ({ personKind: "employee", employmentId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: versionId, workDate }))] : workerEntries;
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const savedVersion = await saved.json() as { id: string; revision: number };
+    const archivedEntry = d1.sqlite.prepare("SELECT * FROM hr_schedule_worker_entries WHERE worker_id=? AND work_date=?").get(workerIds[0]!, workDate);
+    expect((await request(`/hr/schedule-workers/${workerIds[0]}`, "PATCH", { displayName: "封存同班甲", active: false, revision: 1 })).status).toBe(200);
+    expect((await request(`/hr/shift-templates/${templateId}`, "PATCH", { scopeId: "cyberbiz:store:demo-ximen", name: "封存同班", revision: 1, times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: workDate === "2026-09-03" ? requiredHeadcount : originalHeadcount },
+      { dayType: "weekend", startTime: "09:00", endTime: "18:00", requiredHeadcount },
+    ] })).status).toBe(200);
+    const republished = await request("/hr/schedules", "POST", { periodKey: "2026-09", scheduleVersionId: savedVersion.id, revision: savedVersion.revision, entries: entries.slice(1) });
+    expect(republished.status, await republished.clone().text()).toBe(200);
+    expect(d1.sqlite.prepare("SELECT * FROM hr_schedule_worker_entries WHERE worker_id=? AND work_date=?").get(workerIds[0]!, workDate)).toEqual(archivedEntry);
+    if (scenario === "allFrozen") for (const workerId of workerIds.slice(1)) {
+      expect((await request(`/hr/schedule-workers/${workerId}`, "PATCH", { displayName: "活動同班", active: false, revision: 1 })).status).toBe(200);
+    }
+    if (scenario === "unarchived") expect((await request(`/hr/schedule-workers/${workerIds[0]}`, "PATCH", { displayName: "封存同班甲", active: true, revision: 2 })).status).toBe(200);
+    if (scenario === "preparingReactivation" || scenario === "allocationReactivation") {
+      let reactivated = false;
+      await expect(calculateHrPayroll(createDatabase(d1 as never), { periodKey: "2026-09", employeeUserIds: [], workerIds: workerIds.slice(1), requestId: scenario }, { id: "dev-eli-lin@ecotech.tw", email: "eli-lin@ecotech.tw" }, {
+        onProgress: async ({ phase }) => {
+          const targetPhase = scenario === "preparingReactivation" ? "preparing" : "calculating_workers";
+          if (!reactivated && phase === targetPhase) {
+            reactivated = true;
+            expect((await request(`/hr/schedule-workers/${workerIds[0]}`, "PATCH", { displayName: "封存同班甲", active: true, revision: 2 })).status).toBe(200);
+          }
+        },
+      })).rejects.toMatchObject({ status: 409 });
+      expect(reactivated).toBe(true);
+      expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_runs WHERE request_id=?").get(scenario)).toEqual({ count: 0 });
+      return;
+    }
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: employeePeers ? ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"] : [], workerIds: scenario === "invitedUnselectedWorker" ? [] : employeePeers ? workerIds.slice(0, 1) : workerIds, requestId: `archived-group-${workDate}-${employeePeers}` });
+    if (scenario === "allFrozen" || scenario === "unarchived") {
+      expect(payroll.status, await payroll.clone().text()).toBe(409);
+      expect(await payroll.text()).toContain("同班排班需求人力快照不一致");
+      return;
+    }
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const { run } = await payroll.json() as { run: { runId: string; employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }>; workers: Array<{ amountMinor: number; scheduleAllocationDetails: Array<{ requiredHeadcount: number; effectiveCount: number; allocatedUnits: number }> }> } };
+    const amounts = [...run.employees.map((employee) => employee.lines.find((line) => line.lineKey === "base_salary")!.amountMinor), ...run.workers.map((worker) => worker.amountMinor)];
+    const perPerson = 300_000 * requiredHeadcount / 3;
+    const paidCount = scenario === "invitedUnselectedWorker" ? 2 : 3;
+    expect(amounts).toEqual(Array.from({ length: paidCount }, () => perPerson));
+    expect(amounts.reduce((sum, amount) => sum + amount, 0)).toBe(perPerson * paidCount);
+    for (const worker of run.workers) expect(worker.scheduleAllocationDetails).toEqual([expect.objectContaining({ requiredHeadcount, effectiveCount: 3, allocatedUnits: requiredHeadcount / 3 })]);
+    // 模擬舊 v6 未保存合池標記；來源列未變也不能把拆池超付的舊結果直接結帳。
+    const { source_snapshot_json: sourceSnapshotJson } = d1.sqlite.prepare("SELECT source_snapshot_json FROM hr_payroll_runs WHERE id=?").get(run.runId) as { source_snapshot_json: string };
+    const snapshot = JSON.parse(sourceSnapshotJson) as Record<string, unknown>;
+    expect(snapshot.scheduleAllocationGrouping).toBe("template-v2");
+    delete snapshot.scheduleAllocationGrouping;
+    delete snapshot.allocationWorkerStates;
+    d1.sqlite.prepare("UPDATE hr_payroll_runs SET engine_version='hr-payroll-demo-v6', source_snapshot_json=? WHERE id=?").run(JSON.stringify(snapshot), run.runId);
+    const close = await request(`/hr/payroll/runs/${run.runId}/close`, "POST", {});
+    expect(close.status, await close.clone().text()).toBe(409);
+    expect(await close.text()).toContain("薪資試算來源已變更");
+    const oldGroupingSnapshot = JSON.parse(sourceSnapshotJson) as Record<string, unknown>;
+    oldGroupingSnapshot.scheduleAllocationGrouping = "template-v1";
+    d1.sqlite.prepare("UPDATE hr_payroll_runs SET engine_version='hr-payroll-demo-v7', source_snapshot_json=? WHERE id=?").run(JSON.stringify(oldGroupingSnapshot), run.runId);
+    expect((await request(`/hr/payroll/runs/${run.runId}/close`, "POST", {})).status).toBe(409);
+    d1.sqlite.prepare("UPDATE hr_payroll_runs SET source_snapshot_json=? WHERE id=?").run(sourceSnapshotJson, run.runId);
+    if (scenario === "invitedUnselectedWorker") {
+      expect((await request(`/hr/schedule-workers/${workerIds[0]}`, "PATCH", { displayName: "封存同班甲", active: true, revision: 2 })).status).toBe(200);
+      const changedClose = await request(`/hr/payroll/runs/${run.runId}/close`, "POST", {});
+      expect(changedClose.status, await changedClose.clone().text()).toBe(409);
+      expect(await changedClose.text()).toContain("薪資試算來源已變更");
+    } else expect((await request(`/hr/payroll/runs/${run.runId}/close`, "POST", {})).status).toBe(200);
+  });
+
   it("封存支援人員會同步 legacy mirror，既有已發布排班不因重存而刪除", async () => {
     const workerResponse = await request("/hr/schedule-workers", "POST", { displayName: "待封存支援人員" });
     expect(workerResponse.status, await workerResponse.clone().text()).toBe(201);
@@ -1903,7 +2049,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { runId: string; engineVersion: string; employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }>; warnings: string[] } };
     const employee = body.run.employees[0]!;
-    expect(body.run.engineVersion).toBe("hr-payroll-demo-v6");
+    expect(body.run.engineVersion).toBe("hr-payroll-demo-v7");
     expect(employee.earningMinor).toBe(3_080_000);
     expect(employee.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 3_000_000 }),
