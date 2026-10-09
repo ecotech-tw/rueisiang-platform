@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, syncSystemRoles } from "@rueisiang/db";
-import { hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrEmployments, hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -555,6 +555,61 @@ describe("HR 申請中心", () => {
     expect(again.status, await again.clone().text()).toBe(201);
     const batchAgain = await request("/hr/requests/overtime/batch", "POST", { employeeUserId: "employee", settlementKind: "pay", reason: "", entries: [{ requestedStart: "2026-02-07T18:00", requestedEnd: "2026-02-07T20:00" }] });
     expect(batchAgain.status, await batchAgain.clone().text()).toBe(201);
+  });
+
+  it("管理端可整批取消已核准加班，整批全有或全無並保留人員快照", async () => {
+    await assignEmployee();
+    const db = createDatabase(d1 as never);
+    await db.insert(hrEmployments).values({ id: "worker-bulk", personKind: "worker", employeeNumber: "W-BULK", legalName: "支援人員", position: "支援人員" });
+
+    const employeeRequest = await request("/hr/requests/overtime", "POST", {
+      employeeUserId: "employee", requestedStart: "2026-02-12T18:00", requestedEnd: "2026-02-12T20:00", settlementKind: "pay", reason: "批次取消正式員工",
+    });
+    expect(employeeRequest.status, await employeeRequest.clone().text()).toBe(201);
+    const employeeId = (await employeeRequest.json() as { id: string }).id;
+    const workerRequest = await request("/hr/requests/overtime", "POST", {
+      workerId: "worker-bulk", requestedStart: "2026-02-13T18:00", requestedEnd: "2026-02-13T20:00", settlementKind: "compensatory", reason: "批次取消支援人員",
+    });
+    expect(workerRequest.status, await workerRequest.clone().text()).toBe(201);
+    const workerId = (await workerRequest.json() as { id: string }).id;
+    const pendingRequest = await request("/hr/me/overtime", "POST", {
+      requestedStart: "2026-02-14T18:00", requestedEnd: "2026-02-14T20:00", settlementKind: "pay", reason: "不可批次刪除待審申請",
+    }, employeeCookie);
+    expect(pendingRequest.status, await pendingRequest.clone().text()).toBe(201);
+    const pendingId = (await pendingRequest.json() as { id: string }).id;
+
+    const cancelBatch = (ids: string[], cookie = adminCookie) => request("/hr/requests/overtime/cancel-batch", "POST", { ids }, cookie);
+    expect((await cancelBatch([], adminCookie)).status).toBe(400);
+    expect((await cancelBatch([employeeId, employeeId])).status).toBe(400);
+    expect((await cancelBatch(["missing-overtime"])).status).toBe(404);
+    expect((await cancelBatch(Array.from({ length: 101 }, (_, index) => `overtime-${index}`))).status).toBe(400);
+    expect((await cancelBatch([employeeId], employeeCookie)).status).toBe(403);
+    expect((await cancelBatch([employeeId, pendingId])).status).toBe(409);
+
+    const unchanged = await (await request("/hr/requests")).json() as { overtime: Array<{ request: { id: string; status: string } }> };
+    expect(unchanged.overtime.map(({ request }) => request.id)).toEqual(expect.arrayContaining([employeeId, workerId, pendingId]));
+    expect(unchanged.overtime.find(({ request }) => request.id === employeeId)?.request.status).toBe("approved");
+
+    const cancelled = await cancelBatch([employeeId, workerId]);
+    expect(cancelled.status, await cancelled.clone().text()).toBe(200);
+    expect(await cancelled.json()).toEqual({ ids: [employeeId, workerId], count: 2 });
+    const remaining = await (await request("/hr/requests")).json() as { overtime: Array<{ request: { id: string; status: string } }> };
+    expect(remaining.overtime.map(({ request }) => request.id)).toEqual([pendingId]);
+
+    const audit = d1.sqlite.prepare("SELECT entity_id, event_type, payload_json FROM activity_events WHERE event_type='overtime_requests_cancelled'").get() as { entity_id: string; event_type: string; payload_json: string };
+    expect(audit.entity_id).toBe(employeeId);
+    expect(JSON.parse(audit.payload_json)).toMatchObject({
+      requestIds: [employeeId, workerId],
+      requests: [
+        expect.objectContaining({ id: employeeId, personKind: "employee", employeeUserId: "employee", status: "approved", reason: "批次取消正式員工" }),
+        expect.objectContaining({ id: workerId, personKind: "worker", workerId: "worker-bulk", status: "approved", reason: "批次取消支援人員" }),
+      ],
+    });
+
+    const resubmitted = await request("/hr/requests/overtime", "POST", {
+      employeeUserId: "employee", requestedStart: "2026-02-12T18:00", requestedEnd: "2026-02-12T20:00", settlementKind: "pay", reason: "刪除後可以重送",
+    });
+    expect(resubmitted.status, await resubmitted.clone().text()).toBe(201);
   });
 
   it("被駁回的加班申請保留紀錄，但不佔用時段", async () => {

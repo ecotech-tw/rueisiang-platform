@@ -443,6 +443,7 @@ function CreateRequestDialog({ initialKind, employees, workers, leaveTypes, onCl
 export function HrRequestCenter() {
   usePageTitle("申請與審核");
   const { permissions } = useSession();
+  const toast = useToast();
   const canAccess = permissions.has("hr:request:review");
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -451,6 +452,8 @@ export function HrRequestCenter() {
   const [filters, setFilters] = useState<RequestFilters>(DEFAULT_REQUEST_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
   const [reviewing, setReviewing] = useState<RequestRow | null>(null);
+  const [selectedOvertimeIds, setSelectedOvertimeIds] = useState<string[]>([]);
+  const [cancelSelectedOpen, setCancelSelectedOpen] = useState(false);
   const employees = useHrQuery<EmployeePageResponse>("/requests/employees", canAccess, { keepPreviousData: false });
   const leaveTypes = useHrQuery<{ leaveTypes: LeaveType[] }>("/requests/leave-types", canAccess, { keepPreviousData: false });
   const workers = useHrQuery<{ workers: WorkerCandidate[] }>("/requests/workers", canAccess, { keepPreviousData: false });
@@ -463,6 +466,7 @@ export function HrRequestCenter() {
     return `/requests?${params.toString()}`;
   }, [filters.kind, filters.page, filters.pageSize, filters.search, filters.status]);
   const requests = useHrQuery<HrRequestCenterResponse>(requestPath, canAccess);
+  const cancelOvertime = useHrWrite<{ ids: string[]; count: number }>();
   const rows = useMemo(() => toRequestRows(requests.data), [requests.data]);
   const filteredRows = useMemo(() => {
     if (requests.data?.pagination) return rows;
@@ -489,21 +493,60 @@ export function HrRequestCenter() {
   const visibleRows = isServerPaged ? rows : filteredRows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
   const loadedPage = requests.data?.pagination?.page;
   const activeFilterCount = [filters.kind, filters.status].filter((value) => value !== "all").length;
+  const cancellableOvertimeRows = useMemo(() => visibleRows.filter((row) => row.kind === "overtime" && row.status === "approved"), [visibleRows]);
+  const cancellableOvertimeIds = useMemo(() => cancellableOvertimeRows.map((row) => row.id), [cancellableOvertimeRows]);
+  const selectedOvertimeRows = cancellableOvertimeRows.filter((row) => selectedOvertimeIds.includes(row.id));
+  const selectedVisibleCount = cancellableOvertimeIds.filter((id) => selectedOvertimeIds.includes(id)).length;
+  const allVisibleOvertimeSelected = cancellableOvertimeIds.length > 0 && selectedVisibleCount === cancellableOvertimeIds.length;
+  const selectAllOvertimeRef = useRef<HTMLInputElement>(null);
+  const mobileSelectAllOvertimeRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!loadedPage) return;
     setFilters((current) => current.page === loadedPage ? current : { ...current, page: loadedPage });
   }, [loadedPage]);
 
+  useEffect(() => {
+    const validIds = new Set(cancellableOvertimeIds);
+    setSelectedOvertimeIds((current) => current.filter((id) => validIds.has(id)));
+  }, [cancellableOvertimeIds]);
+
+  useEffect(() => {
+    const indeterminate = selectedVisibleCount > 0 && !allVisibleOvertimeSelected;
+    if (selectAllOvertimeRef.current) selectAllOvertimeRef.current.indeterminate = indeterminate;
+    if (mobileSelectAllOvertimeRef.current) mobileSelectAllOvertimeRef.current.indeterminate = indeterminate;
+  }, [allVisibleOvertimeSelected, selectedVisibleCount]);
+
   if (!canAccess) return <Alert tone="danger">你沒有檢視 HR 申請的權限。</Alert>;
   if (employees.isPending || leaveTypes.isPending || workers.isPending || requests.isPending) return <HrPageSkeleton variant="table" />;
 
   function updateFilters(patch: Partial<RequestFilters>) {
+    setSelectedOvertimeIds([]);
     setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
+  }
+
+  function toggleVisibleOvertime(checked: boolean) {
+    setSelectedOvertimeIds((current) => checked
+      ? [...new Set([...current, ...cancellableOvertimeIds])]
+      : current.filter((id) => !cancellableOvertimeIds.includes(id)));
+  }
+
+  function cancelSelectedOvertime() {
+    if (!selectedOvertimeRows.length || cancelOvertime.isPending) return;
+    const ids = selectedOvertimeRows.map((row) => row.id);
+    cancelOvertime.mutate({ path: "/requests/overtime/cancel-batch", method: "POST", values: { ids } }, {
+      onSuccess: ({ count }) => {
+        setSelectedOvertimeIds([]);
+        setCancelSelectedOpen(false);
+        toast.show(`已取消並刪除 ${count} 筆加班申請，稽核快照已保留。`, "success");
+        void requests.refetch();
+      },
+    });
   }
 
   function finishCreate() {
     setCreateOpen(false);
+    setSelectedOvertimeIds([]);
     setFilters({ ...DEFAULT_REQUEST_FILTERS });
     void navigate("/hr/requests", { replace: true });
     void requests.refetch();
@@ -525,11 +568,35 @@ export function HrRequestCenter() {
         </div>
       </FilterToolbar>
       {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
-      <DataTable className="hr-request-table" containerClassName={requests.isFetching ? "is-refreshing" : ""}><thead><tr><th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th></tr></thead><tbody>{visibleRows.map((row) => <tr key={`${row.kind}-${row.id}`}><td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td><td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td><td data-label="期間">{row.period}</td><td data-label="內容"><Tooltip label={row.detail} focusable={false}><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td><td data-label="原因"><Tooltip label={row.reason} focusable={false}><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td><td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td><td data-label="操作">{row.status === "pending" ? <Button variant="secondary" className="hr-action-info" onClick={() => setReviewing(row)}>審核</Button> : (row.kind === "leave" || row.kind === "overtime") && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消{REQUEST_KIND_LABEL[row.kind]}</Button> : "—"}</td></tr>)}</tbody></DataTable>
+      {cancellableOvertimeIds.length ? <div className="hr-request-mobile-select-all"><label className="table-select-all"><input ref={mobileSelectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => toggleVisibleOvertime(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /><span>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</span></label></div> : null}
+      <DataTable className="hr-request-table" containerClassName={requests.isFetching ? "is-refreshing" : ""}>
+        <thead><tr>
+          <th className="hr-request-select-cell"><input ref={selectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={!cancellableOvertimeIds.length || requests.isFetching || cancelOvertime.isPending} onChange={(event) => toggleVisibleOvertime(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /></th>
+          <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th>
+        </tr></thead>
+        <tbody>{visibleRows.map((row) => {
+          const canBulkCancel = row.kind === "overtime" && row.status === "approved";
+          return <tr key={`${row.kind}-${row.id}`} className={selectedOvertimeIds.includes(row.id) ? "selected" : undefined}>
+            <td data-label="選取" className="hr-request-select-cell">{canBulkCancel ? <label className="hr-request-row-select"><input className="table-checkbox" type="checkbox" checked={selectedOvertimeIds.includes(row.id)} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => setSelectedOvertimeIds((current) => event.target.checked ? [...new Set([...current, row.id])] : current.filter((id) => id !== row.id))} aria-label={`選取 ${row.employeeName} ${row.period} 的已核准加班申請`} /></label> : null}</td>
+            <td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td>
+            <td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td>
+            <td data-label="期間">{row.period}</td>
+            <td data-label="內容"><Tooltip label={row.detail} focusable={false}><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td>
+            <td data-label="原因"><Tooltip label={row.reason} focusable={false}><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td>
+            <td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td>
+            <td data-label="操作">{row.status === "pending" ? <Button variant="secondary" className="hr-action-info" onClick={() => setReviewing(row)}>審核</Button> : row.kind === "leave" && row.status === "approved" ? <Button variant="secondary" onClick={() => setReviewing(row)}>取消請假</Button> : canBulkCancel ? <Tooltip label="取消並刪除已核准加班申請" focusable={false}><Button variant="icon" icon="trash" className="danger" aria-label={`取消 ${row.employeeName} 的已核准加班申請`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
+          </tr>;
+        })}</tbody>
+      </DataTable>
+      {selectedOvertimeRows.length ? <div className="hr-request-selection-actions" role="status"><span className="hr-request-selection-count" aria-live="polite">已選取 {selectedOvertimeRows.length} 筆加班申請</span><Button variant="danger" icon="trash" disabled={requests.isFetching || cancelOvertime.isPending} onClick={() => { cancelOvertime.reset(); setCancelSelectedOpen(true); }}>取消並刪除所選加班</Button></div> : null}
       {requests.data && !visibleRows.length ? <p className="muted table-note">{total ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</p> : null}
-      {total ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => setFilters((current) => ({ ...current, page: nextPage }))} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
+      {total ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => { setSelectedOvertimeIds([]); setFilters((current) => ({ ...current, page: nextPage })); }} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} workers={workers.data?.workers ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
     {reviewing ? <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}
+    {cancelSelectedOpen && selectedOvertimeRows.length ? <ConfirmDialog title={`取消並刪除 ${selectedOvertimeRows.length} 筆加班申請？`} confirmLabel={`取消並刪除 ${selectedOvertimeRows.length} 筆`} pending={cancelOvertime.isPending} onCancel={() => { if (!cancelOvertime.isPending) setCancelSelectedOpen(false); }} onConfirm={cancelSelectedOvertime}>
+      <p>選取的都是已核准加班。取消後會從申請紀錄刪除，不再納入薪資計算；HR 稽核紀錄會保留每筆申請的完整快照。</p>
+      {cancelOvertime.error ? <Alert tone="danger">{cancelOvertime.error.message}</Alert> : null}
+    </ConfirmDialog> : null}
   </div>;
 }

@@ -7,6 +7,7 @@ import { hrOvertimeRequests, hrScheduleVersions, hrScheduleWorkerEntries, hrWork
 import { scopes } from "./schema/reports.js";
 import { users } from "./schema/auth.js";
 import { datesBetween, listHrWorkdayEnds } from "./hr-leave.js";
+import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
 import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
 
 /** 同一天前 2 小時的加班倍率，建立申請時凍結在申請上；超過 2 小時的級距由薪資試算套用。倍率不是請款人可自由輸入的金額。 */
@@ -47,6 +48,7 @@ export interface HrOvertimeDay {
 
 /** 一次最多一個月；每筆申請在 D1 batch 裡要兩句，再多就接近單次 batch 的上限。 */
 export const MAX_OVERTIME_BATCH_ENTRIES = 31;
+export const MAX_OVERTIME_CANCELLATION_ENTRIES = 100;
 const MAX_OVERTIME_DAY_RANGE = 62;
 
 export interface HrOvertimeActualInterval { start: string; end: string }
@@ -489,6 +491,48 @@ export async function cancelHrOvertimeRequest(db: Database, id: string, actor: H
   return writeHrMutation(db, mutations, id, actor, "overtime_request_cancelled", "加班申請已變更或完成處理，請重新整理。 ", {
     activity: { entityLabel: current.employeeName, payload: eventPayload, summary: "加班申請已取消並刪除" },
   });
+}
+
+export async function cancelHrOvertimeRequests(db: Database, ids: string[], actor: HrActor) {
+  if (!ids.length || ids.length > MAX_OVERTIME_CANCELLATION_ENTRIES || ids.some((id) => !id.trim() || id.length > 100) || new Set(ids).size !== ids.length) {
+    throw new HrError(400, "加班申請清單格式不正確。 ");
+  }
+
+  const [employeeRows, workerRows] = await Promise.all([
+    db.select({ request: hrOvertimeRequests, employeeUserId: hrEmployments.employeeUserId, employeeName: hrEmployeeName })
+      .from(hrOvertimeRequests)
+      .innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId))
+      .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+      .where(inJsonArray(hrOvertimeRequests.id, ids)),
+    db.select({ request: hrWorkerOvertimeRequests, employeeName: hrEmployments.legalName })
+      .from(hrWorkerOvertimeRequests)
+      .innerJoin(hrEmployments, eq(hrEmployments.id, hrWorkerOvertimeRequests.workerId))
+      .where(and(inJsonArray(hrWorkerOvertimeRequests.id, ids), eq(hrEmployments.personKind, "worker"))),
+  ]);
+  const found = [...employeeRows.map(({ request }) => request), ...workerRows.map(({ request }) => request)];
+  if (found.length !== ids.length) throw new HrError(404, "找不到完整的加班申請清單。 ");
+  if (found.some((request) => request.status !== "approved")) throw new HrError(409, "只有已核准的加班申請可以批次取消，請重新整理後再試。 ");
+
+  const employeeById = new Map(employeeRows.map(({ request, employeeUserId, employeeName }) => [request.id, { personKind: "employee" as const, employeeUserId, employeeName, ...request }]));
+  const workerById = new Map(workerRows.map(({ request, employeeName }) => [request.id, { personKind: "worker" as const, employeeName, ...request }]));
+  const snapshots = ids.map((id) => employeeById.get(id) ?? workerById.get(id)!);
+  const employeeIds = employeeRows.map(({ request }) => request.id);
+  const workerIds = workerRows.map(({ request }) => request.id);
+  const deletions = [
+    employeeIds.length ? sql`DELETE FROM hr_overtime_requests
+      WHERE id IN (${jsonArrayValues(employeeIds)}) AND status='approved'
+        AND (SELECT count(*) FROM hr_overtime_requests WHERE id IN (${jsonArrayValues(employeeIds)}) AND status='approved')=${employeeIds.length}
+      RETURNING id` : null,
+    workerIds.length ? sql`DELETE FROM hr_worker_overtime_requests
+      WHERE id IN (${jsonArrayValues(workerIds)}) AND status='approved'
+        AND (SELECT count(*) FROM hr_worker_overtime_requests WHERE id IN (${jsonArrayValues(workerIds)}) AND status='approved')=${workerIds.length}
+      RETURNING id` : null,
+  ].filter((statement): statement is NonNullable<typeof statement> => statement !== null);
+  const summary = `批次取消並刪除 ${ids.length} 筆已核准加班申請`;
+  await writeHrMutation(db, deletions, ids[0]!, actor, "overtime_requests_cancelled", "加班申請已變更或完成處理，請重新整理後再試。 ", {
+    activity: { entityLabel: snapshots[0]!.employeeName ?? "加班申請", payload: { requestIds: ids, requests: snapshots }, summary },
+  });
+  return { ids, count: ids.length };
 }
 
 export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval, options: { allowAny?: boolean } = {}) {
