@@ -179,7 +179,7 @@ export const hrScheduleEntries = sqliteTable("hr_schedule_entries", {
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
-  uniqueIndex("idx_hr_schedule_entries_unique").on(table.scheduleVersionId, table.employmentId, table.workDate, table.startsAt),
+  uniqueIndex("idx_hr_schedule_entries_unique").on(table.scheduleVersionId, table.employmentId, table.scopeId, table.workDate, table.startsAt),
   index("idx_hr_schedule_entries_employment_date").on(table.employmentId, table.workDate),
   index("idx_hr_schedule_entries_group").on(table.scheduleVersionId, table.shiftGroupId),
   index("idx_hr_schedule_entries_scope_date").on(table.scopeId, table.workDate),
@@ -211,7 +211,7 @@ export const hrScheduleWorkerEntries = sqliteTable("hr_schedule_worker_entries",
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
-  uniqueIndex("idx_hr_schedule_worker_entries_unique").on(table.scheduleVersionId, table.workerId, table.workDate, table.startsAt),
+  uniqueIndex("idx_hr_schedule_worker_entries_unique").on(table.scheduleVersionId, table.workerId, table.scopeId, table.workDate, table.startsAt),
   index("idx_hr_schedule_worker_entries_worker_date").on(table.workerId, table.workDate),
   index("idx_hr_schedule_worker_entries_group").on(table.scheduleVersionId, table.shiftGroupId),
   index("idx_hr_schedule_worker_entries_scope_date").on(table.scopeId, table.workDate),

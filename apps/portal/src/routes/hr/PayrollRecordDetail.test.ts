@@ -84,6 +84,19 @@ describe("支援人員逐日計薪依據", () => {
     expect(hourly).not.toMatch(/<details\b[^>]*\bopen(?:=|\s|>)/);
   });
 
+  it("同日跨據點的日薪明列多個排班計薪單位", () => {
+    const html = renderToStaticMarkup(createElement(PayrollWorkerWorkSummary, {
+      worker: { payBasis: "daily" } as PayrollWorker,
+      details: [
+        allocationDetail({ payBasis: "daily" }),
+        allocationDetail({ shiftGroupId: "second-site", scopeId: "scope-other", shiftVersionId: "shift-other", payBasis: "daily" }),
+      ],
+    }));
+
+    expect(html).toContain("1 天・2 單位");
+    expect(html).toContain("日薪 × 2 單位");
+  });
+
   it("舊試算沒有逐日工時時明確標示，不回推猜測", () => {
     const html = renderToStaticMarkup(createElement(PayrollWorkerWorkSummary, { worker: { payBasis: "hourly" } as PayrollWorker, details: [allocationDetail()] }));
 

@@ -1381,7 +1381,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const allocation = allocationFor(row);
       return allocation ? roundScheduleAllocationAmount(amount, allocation.detail.unitNumerator, allocation.detail.unitDenominator) : amount;
     };
-    const allocatedDailyAmount = (amount: number, rowsForDate: (typeof rows)[number][]) => Math.min(amount, rowsForDate.reduce((sum, row) => sum + allocatedAmount(amount, row), 0));
+    const allocatedDailyAmount = (amount: number, rowsForDate: (typeof rows)[number][]) => rowsForDate.reduce((sum, row) => sum + allocatedAmount(amount, row), 0);
     const recordBaseAmount = (formula: string, amount: number) => {
       baseMinor += amount;
       if (amount > 0) baseCalculationParts.push({ formula, amountMinor: amount });
@@ -1418,7 +1418,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           specialAdjustmentMinor += adjustment;
           specialCalculationParts.push({ formula: `${date}・${special.ruleNameSnapshot}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時) − ${payrollFormulaMoney(baseAmount)}`, amountMinor: adjustment });
         } else if (special.multiplierPpmSnapshot !== null) {
-          const allocatedUnits = dateAllocations.length ? Math.min(1, dateAllocations.reduce((sum, allocation) => sum + allocation.detail.allocatedUnits, 0)) : 1;
+          const scheduledUnits = dateAllocations.reduce((sum, allocation) => sum + allocation.detail.allocatedUnits, 0);
+          const allocatedUnits = dateAllocations.length ? compensation.payBasis === "daily" ? scheduledUnits : Math.min(1, scheduledUnits) : 1;
           const baseAmount = compensation.payBasis === "monthly"
             ? Math.round(compensation.baseAmountMinor / monthlyDivisorDays * allocatedUnits)
             : compensation.payBasis === "hourly"
@@ -1451,7 +1452,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       } else if (compensation.payBasis === "daily") {
         const amount = allocatedDailyAmount(compensation.baseAmountMinor, dateRows);
         amountMinor += amount;
-        recordBaseAmount(`${date}：日薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} 按班別分配`, amount);
+        const allocatedUnits = dateAllocations.reduce((sum, allocation) => sum + allocation.detail.allocatedUnits, 0);
+        recordBaseAmount(`${date}：日薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × ${payrollFormulaHours(allocatedUnits)} 個排班單位`, amount);
         const typhoonAmount = allocatedDailyAmount(compensation.baseAmountMinor, typhoonRows);
         if (typhoonStop && typhoonAmount > 0) { typhoonStopDays += 1; typhoonStopPayMinor += typhoonAmount; }
       } else {
@@ -1611,8 +1613,12 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       return affectedRows.some((row) => allocations.find((allocation) => allocation.row.id === row.id)?.detail.allocatedUnits ? true : false);
     });
     const typhoonStopDateSet = new Set(typhoonStopDatesForEmployee);
-    const allocatedRowsAmount = (amount: number, rowsForDate: typeof scheduledEmployeeRows, allocations: SchedulePayAllocation[]) => allocations.length
-      ? Math.min(amount, rowsForDate.reduce((sum, row) => {
+    const allocatedUnitsForRows = (rowsForDate: typeof scheduledEmployeeRows, allocations: SchedulePayAllocation[]) => rowsForDate.reduce((sum, row) => {
+      const allocation = allocations.find((candidate) => candidate.row.id === row.id);
+      return sum + (allocation?.detail.allocatedUnits ?? 0);
+    }, 0);
+    const allocatedRowsAmount = (amount: number, rowsForDate: typeof scheduledEmployeeRows, allocations: SchedulePayAllocation[], maximumUnits = 1) => allocations.length
+      ? Math.min(Math.round(amount * maximumUnits), rowsForDate.reduce((sum, row) => {
         const allocation = allocations.find((candidate) => candidate.row.id === row.id);
         return sum + (allocation ? roundScheduleAllocationAmount(amount, allocation.detail.unitNumerator, allocation.detail.unitDenominator) : 0);
       }, 0))
@@ -1623,15 +1629,16 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     for (const day of employmentDays) {
       const compensation = covering(employeeCompensations, day);
       if (!compensation) continue;
-      // 日薪是買「已發布的工作日」，不能把整個計算期間誤當成出勤日；特殊上班日則由明確套用資料保留計薪機會。
+      // 日薪依有效的已發布排班單位計算；特殊上班日則由明確套用資料保留計薪機會。
       if (compensation.payBasis === "daily" && !scheduledDates.has(day) && !specialDates.has(day) && !typhoonStopDateSet.has(day)) continue;
       const special = specialAssignments.find((item) => item.workDate === day);
       const scheduledRowsForDay = scheduledRowsByEmploymentDate.get(`${employee.employmentId}:${day}`) ?? [];
       const scheduleAllocations = scheduleAllocationsForDate(day);
       const scheduleUnits = scheduleUnitsForDate(day);
-      const payableDailyUnits = Math.min(1, scheduleAllocations.length ? scheduleUnits : special && compensation.payBasis === "daily" ? 1 : 0);
+      const availableDailyUnits = scheduleAllocations.length ? scheduleUnits : special && compensation.payBasis === "daily" ? 1 : 0;
+      const payableDailyUnits = compensation.payBasis === "daily" ? availableDailyUnits : Math.min(1, availableDailyUnits);
       const allocateRowsAmount = (amount: number, rowsForDate: typeof scheduledRowsForDay) => scheduleAllocations.length
-        ? allocatedRowsAmount(amount, rowsForDate, scheduleAllocations)
+        ? allocatedRowsAmount(amount, rowsForDate, scheduleAllocations, compensation.payBasis === "daily" ? allocatedUnitsForRows(rowsForDate, scheduleAllocations) : 1)
         : payableDailyUnits > 0 ? Math.round(amount * payableDailyUnits) : 0;
       const allocateDailyAmount = (amount: number) => allocateRowsAmount(amount, scheduledRowsForDay);
       const typhoonRowsForDay = typhoonRowsForDate(day, scheduledRowsForDay);
@@ -1693,7 +1700,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
           formula: compensation.payBasis === "monthly"
             ? `${day}：災防停班，floor(月薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天) × ${payrollFormulaHours(Math.min(1, allocatedTyphoonUnits))} 單位`
             : compensation.payBasis === "daily"
-              ? `${day}：災防停班，日薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × ${payrollFormulaHours(Math.min(1, allocatedTyphoonUnits))} 單位`
+              ? `${day}：災防停班，日薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × ${payrollFormulaHours(allocatedTyphoonUnits)} 單位`
               : `${day}：災防停班適用排班，時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × ${payrollFormulaHours(hours)} 小時`,
           amountMinor: amount,
         });
@@ -1877,8 +1884,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         }));
       lines.push({ lineKey: "base_salary", direction: "earning", amountMinor: baseMinor, explanation: {
         payBasis: fullMonthComp?.payBasis ?? "unknown", period: input.periodKey,
-        rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : fullMonthComp?.payBasis === "daily" ? "依已發布排班日期計算；特殊上班日依套用資料" : "月薪整月按月薪給付；未滿整月按固定 30 日制按在職日數比例計算",
-        allocationRule: fullMonthComp?.payBasis === "daily" ? "每個據點／日期／班別固定 1 單位，由有效出勤人員平均分配；同一人同日多班依日薪上限 1 單位" : undefined,
+        rule: fullMonthComp?.payBasis === "hourly" ? "依月度人工工時登記（0.5 小時單位）" : fullMonthComp?.payBasis === "daily" ? "依已發布排班單位計算；特殊上班日依套用資料" : "月薪整月按月薪給付；未滿整月按固定 30 日制按在職日數比例計算",
+        allocationRule: fullMonthComp?.payBasis === "daily" ? "每個據點／日期／班別固定 1 單位，由有效出勤人員平均分配；日薪依各班別分配單位加總" : undefined,
         scheduleAllocationDetails: employeeAllocationDetails.get(employee.employmentId) ?? [],
         calculationParts: baseParts, formulaDetail: payrollFormulaTotal(baseParts, baseMinor),
       } });

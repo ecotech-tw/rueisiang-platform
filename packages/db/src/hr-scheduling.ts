@@ -222,6 +222,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     .where(eq(hrEmployments.personKind, "worker"));
   const workerMap = new Map(workers.map((worker) => [worker.id, worker]));
   const enriched: EnrichedScheduleEntry[] = [];
+  // 跨據點代班由現場自行安排；只有同一據點的重疊會阻擋排班。
   const occupied = new Map<string, Array<{ start: number; end: number }>>();
   for (const entry of entries) {
     if (!datePeriodContains(entry.workDate, period)) throw new HrError(400, "排班日期必須位於指定月份。 ");
@@ -244,11 +245,12 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     const startsAt = wallTime(entry.workDate, shift.startSecond);
     const endsAt = wallTime(addDays(entry.workDate, shift.endDayOffset), shift.endSecond);
     const personId = entry.personKind === "employee" ? `employee:${entry.employmentId}` : `worker:${entry.workerId}`;
+    const personAtScope = `${personId}:${entry.scopeId}`;
     const interval = { start: dateToDayNumber(entry.workDate) * DAY_SECONDS + shift.startSecond, end: dateToDayNumber(entry.workDate) * DAY_SECONDS + shift.endDayOffset * DAY_SECONDS + shift.endSecond };
-    const personIntervals = occupied.get(personId) ?? [];
-    if (personIntervals.some((current) => interval.start < current.end && current.start < interval.end)) throw new HrError(409, "同一人員的排班時段重疊。 ");
+    const personIntervals = occupied.get(personAtScope) ?? [];
+    if (personIntervals.some((current) => interval.start < current.end && current.start < interval.end)) throw new HrError(409, "同一人員在同一營運據點的排班時段重疊。 ");
     personIntervals.push(interval);
-    occupied.set(personId, personIntervals);
+    occupied.set(personAtScope, personIntervals);
     enriched.push({ ...entry, startsAt, endsAt, standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes, shiftTemplateId: shift.templateId, requiredHeadcount: shift.requiredHeadcount, attendanceStatus });
   }
   // 月休是薪資結算的基準，允許實際排班日數與約定不同，差額由薪資引擎補發或扣回。

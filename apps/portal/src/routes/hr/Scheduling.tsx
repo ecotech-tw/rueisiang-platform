@@ -36,6 +36,31 @@ export function firstQuickPersonId(data: { employees: readonly { employmentId: s
   return personKind === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? "";
 }
 
+export interface SameDayMultiScopeSchedule {
+  personKind: ScheduleEntry["personKind"];
+  personId: string;
+  personName: string;
+  workDate: string;
+  scopeNames: string[];
+}
+
+export function sameDayMultiScopeSchedules(entries: readonly Pick<ScheduleEntry, "personKind" | "employmentId" | "workerId" | "workDate" | "scopeId" | "scopeName" | "personName" | "archivedAt">[]): SameDayMultiScopeSchedule[] {
+  const byPersonAndDate = new Map<string, { personKind: ScheduleEntry["personKind"]; personId: string; personName: string; workDate: string; scopes: Map<string, string> }>();
+  for (const entry of entries) {
+    if (entry.archivedAt) continue;
+    const personId = entry.personKind === "employee" ? entry.employmentId : entry.workerId;
+    if (!personId) continue;
+    const key = `${entry.personKind}:${personId}:${entry.workDate}`;
+    const group = byPersonAndDate.get(key) ?? { personKind: entry.personKind, personId, personName: entry.personName, workDate: entry.workDate, scopes: new Map<string, string>() };
+    group.scopes.set(entry.scopeId, entry.scopeName || entry.scopeId);
+    byPersonAndDate.set(key, group);
+  }
+  return [...byPersonAndDate.values()]
+    .filter((group) => group.scopes.size > 1)
+    .map(({ scopes, ...schedule }) => ({ ...schedule, scopeNames: [...scopes.values()] }))
+    .sort((left, right) => left.workDate.localeCompare(right.workDate) || left.personName.localeCompare(right.personName, "zh-Hant-TW"));
+}
+
 /**
  * 把「人＋據點＋班別＋日期」組成月曆上的一筆排班。
  *
@@ -108,7 +133,7 @@ function diffEntries(draft: ScheduleEntry[], saved: ScheduleEntry[]) {
  * 使用者仍然改得動：在國定假日排一個平日時間的班是合理的需求，
  * 系統不該因為那天被標成假日就不給選。
  */
-function ScheduleEntryDialog({ data, day, dayType, defaultScopeId, onAdd, onClose }: { data: HrScheduleResponse; day: string; dayType: HrDayType; defaultScopeId: string; onAdd: (entry: ScheduleEntry) => void; onClose: () => void }) {
+function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAdd, onClose }: { data: HrScheduleResponse; entries: ScheduleEntry[]; day: string; dayType: HrDayType; defaultScopeId: string; onAdd: (entry: ScheduleEntry) => void; onClose: () => void }) {
   const [personKind, setPersonKind] = useState<"employee" | "worker">("employee");
   const [scopeId, setScopeId] = useState(defaultScopeId);
   const [personId, setPersonId] = useState(data.employees[0]?.employmentId ?? data.workers[0]?.id ?? "");
@@ -121,6 +146,7 @@ function ScheduleEntryDialog({ data, day, dayType, defaultScopeId, onAdd, onClos
   }, [templates, dayType]);
   useEffect(() => { setPersonId(personKind === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? ""); }, [personKind, data.employees, data.workers]);
   const selectedShift = shifts.find((shift) => shift.versionId === shiftVersionId);
+  const otherScopeNames = [...new Set(entries.filter((entry) => !entry.archivedAt && entry.workDate === day && entry.personKind === personKind && (personKind === "employee" ? entry.employmentId === personId : entry.workerId === personId) && entry.scopeId !== scopeId).map((entry) => entry.scopeName))];
   const closeRequestRef = useRef<(() => void) | null>(null);
   return <Dialog title={`${day} 新增排班`} onClose={onClose} closeRequestRef={closeRequestRef} formProps={{ onSubmit: (event) => {
     event.preventDefault();
@@ -139,6 +165,7 @@ function ScheduleEntryDialog({ data, day, dayType, defaultScopeId, onAdd, onClos
       return shift ? [{ value: shift.versionId, label: shiftLabel(shift) }] : [];
     })} onChange={(event) => setShiftVersionId(event.target.value)} />
     {selectedShift && selectedShift.dayType !== "weekday" ? <p className="muted field-note">這天是{HR_DAY_TYPE_LABELS[dayType]}，已套用{HR_DAY_TYPE_LABELS[selectedShift.dayType]}時間。</p> : null}
+    {otherScopeNames.length ? <Alert tone="warning">此人員已在 {day} 排入「{otherScopeNames.join("、")}」。仍可加入另一據點；請確認支援安排，日薪會依排班單位計算。</Alert> : null}
     {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先到 <GuardedNavLink to="/hr/scheduling/shifts">班別管理</GuardedNavLink> 新增。</Alert> : null}
   </Dialog>;
 }
@@ -229,6 +256,7 @@ export function HrScheduling() {
   useEffect(() => { if (data?.version?.locked) setQuick(null); }, [data?.version?.locked]);
   useEffect(() => { if (scopeId !== "all" && !data?.scopes.some((scope) => scope.id === scopeId)) setScopeId("all"); }, [data?.scopes, scopeId]);
   const visibleEntries = useMemo(() => scopeId === "all" ? draftEntries : draftEntries.filter((entry) => entry.scopeId === scopeId), [draftEntries, scopeId]);
+  const multiScopeSchedules = useMemo(() => sameDayMultiScopeSchedules(draftEntries), [draftEntries]);
   /*
    * 日型跟班別版本的對照表。兩張都由後端的回應直接產生：
    * 日型不在這裡再推一次星期幾，否則補班日這種算不出來的日子會跟後端對不起來。
@@ -342,9 +370,10 @@ export function HrScheduling() {
   const today = taipeiToday();
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人，共用固定 1 個薪資單位；班別需求人力會顯示在排班卡片上。正式員工依排班出勤；支援人員依敘薪方式按排班日期或計薪時數計薪，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.filter((entry) => !entry.archivedAt).map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate, attendanceStatus: entry.attendanceStatus })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人，共用固定 1 個薪資單位；跨據點同日排班會提醒但不阻擋，日薪依班別計薪單位累計。正式員工依排班出勤；支援人員日薪依排班單位、時薪依計薪時數計算，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.filter((entry) => !entry.archivedAt).map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate, attendanceStatus: entry.attendanceStatus })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
     {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
+    {multiScopeSchedules.length ? <Alert tone="warning"><strong>同日跨據點排班提醒：</strong>{multiScopeSchedules.slice(0, 5).map((item) => `${item.personName}（${item.workDate}：${item.scopeNames.join("、")}）`).join("；")}{multiScopeSchedules.length > 5 ? `；另有 ${multiScopeSchedules.length - 5} 組` : ""}。仍可儲存；日薪依各班別排班單位計算。</Alert> : null}
     <Panel className="grows hr-calendar-panel">
       <div className="hr-calendar-head">
         <div className="hr-schedule-month">
@@ -426,7 +455,7 @@ export function HrScheduling() {
       </div>
       </div>
     </Panel>
-    {addingDay && defaultScope ? <ScheduleEntryDialog data={data} day={addingDay} dayType={dayTypeOf(addingDay)} defaultScopeId={defaultScope} onAdd={(entry) => setDraftEntries((current) => [...current, entry])} onClose={() => setAddingDay(null)} /> : null}
+    {addingDay && defaultScope ? <ScheduleEntryDialog data={data} entries={draftEntries} day={addingDay} dayType={dayTypeOf(addingDay)} defaultScopeId={defaultScope} onAdd={(entry) => setDraftEntries((current) => [...current, entry])} onClose={() => setAddingDay(null)} /> : null}
     {editingCalendar ? <CalendarDialog periodKey={key} days={data.calendar} scopes={data.scopes} canWrite={canWrite} onClose={() => setEditingCalendar(false)} onSaved={() => schedule.refetch()} /> : null}
   </div>;
 }
