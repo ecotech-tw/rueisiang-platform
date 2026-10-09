@@ -673,6 +673,8 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   const employmentFilter = inJsonArray(hrEmployments.id, employmentIds);
   const workerFilter = inJsonArray(hrEmployments.id, workerIds);
   const employmentValues = jsonArrayValues(employmentIds);
+  const payrollEmploymentIds = [...new Set([...input.employmentIds, ...input.workerIds])];
+  const payrollEmploymentValues = jsonArrayValues(payrollEmploymentIds.length ? payrollEmploymentIds : ["__none__"]);
   /*
    * 已解除的版本不是薪資的來源，它的店與排班也不該進快照：那些 Scope 的出金事後變動時，
    * 會把一個跟這次薪資無關的異動當成「來源已變更」，擋住結帳並逼人重新試算。
@@ -763,8 +765,8 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
       .where(and(eq(hrScheduleVersions.status, "published"), sql`${hrScheduleEntries.employmentId} IN (SELECT employment_id FROM hr_bonus_policy_members WHERE policy_version_id IN (${relevantBonusVersionIds}))`, sql`${hrScheduleEntries.workDate} >= ${sourcePeriod.start}`, sql`${hrScheduleEntries.workDate} < ${input.period.end}`))
       .orderBy(asc(hrScheduleEntries.employmentId), asc(hrScheduleEntries.workDate), asc(hrScheduleEntries.scopeId)),
-    db.select().from(hrPayrollAdjustments).where(and(eq(hrPayrollAdjustments.effectivePeriodKey, input.period.periodKey), inJsonArray(hrPayrollAdjustments.employmentId, employmentIds))),
-    db.select().from(hrPayrollAdjustmentItems).where(sql`${hrPayrollAdjustmentItems.adjustmentId} IN (SELECT id FROM hr_payroll_adjustments WHERE effective_period_key=${input.period.periodKey} AND employment_id IN (${jsonArrayValues(employmentIds)}))`),
+    db.select().from(hrPayrollAdjustments).where(and(eq(hrPayrollAdjustments.effectivePeriodKey, input.period.periodKey), inJsonArray(hrPayrollAdjustments.employmentId, payrollEmploymentIds))),
+    db.select().from(hrPayrollAdjustmentItems).where(sql`${hrPayrollAdjustmentItems.adjustmentId} IN (SELECT id FROM hr_payroll_adjustments WHERE effective_period_key=${input.period.periodKey} AND employment_id IN (${payrollEmploymentValues}))`),
   ]);
   return stableJson({
     periodKey: input.period.periodKey,
@@ -1538,6 +1540,17 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     } });
     lines.push(...specialAllowanceLines);
     if (overtimeMinor > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, explanation: overtimeExplanation });
+    const workerAdjustments = payrollAdjustments.get(workerId) ?? [];
+    workerAdjustments.forEach(({ adjustment, item }, index) => {
+      const amount = Math.abs(item.amountMinor);
+      if (!amount) return;
+      amountMinor += item.amountMinor;
+      lines.push({ lineKey: `adjustment_${index + 1}`, direction: item.amountMinor >= 0 ? "earning" : "deduction", amountMinor: amount, explanation: {
+        adjustmentId: adjustment.id, itemName: item.itemName, reason: adjustment.reason,
+        formulaDetail: `人工加扣項（${item.itemName}） = ${payrollFormulaMoney(amount)}`,
+      } });
+    });
+    if (amountMinor < 0) throw new HrError(400, `${workerName} 的薪資扣款不可超過本期應發金額。`);
     workerStatements.set(workerId, {
       workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor, lines, overtimeMinor, overtimeSeconds, overtimeExplanation,
       typhoonStopDays, typhoonStopPayMinor,
@@ -2817,9 +2830,12 @@ export async function listHrPayrollRecords(db: Database, input: HrPayrollRecordL
       payroll_period.period_key AS periodKey,
       payroll_run.pay_date AS payDate,
       CASE WHEN payroll_run.status = 'closed' OR closed_worker.worker_id IS NOT NULL THEN 'closed' ELSE 'unsettled' END AS recordStatus,
-      worker_result.amount_minor + coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id AND item.direction='earning'), 0) AS earningMinor,
-      coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id AND item.direction='deduction'), 0) AS deductionMinor,
-      worker_result.amount_minor + coalesce((SELECT sum(CASE WHEN item.direction='earning' THEN item.amount_minor ELSE -item.amount_minor END) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id), 0) AS netMinor,
+      coalesce((SELECT sum(CASE WHEN json_extract(worker_line.value, '$.direction')='earning' THEN json_extract(worker_line.value, '$.amountMinor') ELSE 0 END) FROM json_each(worker_result.payroll_lines_json) AS worker_line), worker_result.amount_minor)
+        + coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id AND item.direction='earning'), 0) AS earningMinor,
+      coalesce((SELECT sum(CASE WHEN json_extract(worker_line.value, '$.direction')='deduction' THEN json_extract(worker_line.value, '$.amountMinor') ELSE 0 END) FROM json_each(worker_result.payroll_lines_json) AS worker_line), 0)
+        + coalesce((SELECT sum(item.amount_minor) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id AND item.direction='deduction'), 0) AS deductionMinor,
+      coalesce((SELECT sum(CASE WHEN json_extract(worker_line.value, '$.direction')='earning' THEN json_extract(worker_line.value, '$.amountMinor') ELSE -json_extract(worker_line.value, '$.amountMinor') END) FROM json_each(worker_result.payroll_lines_json) AS worker_line), worker_result.amount_minor)
+        + coalesce((SELECT sum(CASE WHEN item.direction='earning' THEN item.amount_minor ELSE -item.amount_minor END) FROM hr_payroll_record_items AS item WHERE item.payroll_run_id=payroll_run.id AND item.person_kind='worker' AND item.worker_id=worker_result.worker_id), 0) AS netMinor,
       payroll_run.created_at AS createdAt,
       CASE WHEN payroll_run.status = 'closed' OR closed_worker.worker_id IS NOT NULL THEN coalesce(closed_worker.closed_at, payroll_run.updated_at) ELSE NULL END AS closedAt
     FROM hr_payroll_worker_results AS worker_result
@@ -2993,6 +3009,8 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
   const items = await listHrPayrollRecordItems(db, input);
   const earningItems = items.filter((item) => item.direction === "earning").reduce((sum, item) => sum + item.amountMinor, 0);
   const deductionItems = items.filter((item) => item.direction === "deduction").reduce((sum, item) => sum + item.amountMinor, 0);
+  const workerEarningMinor = worker?.lines.length ? worker.lines.filter((line) => line.direction === "earning").reduce((sum, line) => sum + line.amountMinor, 0) : worker?.amountMinor ?? 0;
+  const workerDeductionMinor = worker?.lines.reduce((sum, line) => sum + (line.direction === "deduction" ? line.amountMinor : 0), 0) ?? 0;
   const closedAt = await payrollRecordIsClosed(db, input, result.periodKey);
   const status = run.status === "closed" || closedAt ? "closed" : "unsettled";
   const record: HrPayrollRecord = {
@@ -3008,9 +3026,9 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
     periodKey: result.periodKey,
     payDate: result.payDate,
     status,
-    earningMinor: (employee?.earningMinor ?? worker?.amountMinor ?? 0) + earningItems,
-    deductionMinor: (employee?.deductionMinor ?? 0) + deductionItems,
-    netMinor: (employee?.netMinor ?? worker?.amountMinor ?? 0) + earningItems - deductionItems,
+    earningMinor: (employee?.earningMinor ?? workerEarningMinor) + earningItems,
+    deductionMinor: (employee?.deductionMinor ?? workerDeductionMinor) + deductionItems,
+    netMinor: (employee?.netMinor ?? workerEarningMinor - workerDeductionMinor) + earningItems - deductionItems,
     createdAt: run.createdAt,
     closedAt: closedAt ?? (run.status === "closed" ? run.updatedAt : null),
   };

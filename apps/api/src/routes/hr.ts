@@ -1131,12 +1131,12 @@ export const hr = new Hono<AppEnv>()
   .post("/payroll/adjustments", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
-    return c.json(await createHrPayrollAdjustment(c.get("db"), { employmentId: text(input, "employmentId", "員工任職"), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "加扣項原因", 1000), items: adjustmentItems(input) }, c.get("user")), 201);
+    return c.json(await createHrPayrollAdjustment(c.get("db"), { employmentId: text(input, "employmentId", "人員任職"), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "加扣項原因", 1000), items: adjustmentItems(input) }, c.get("user")), 201);
   })
   .patch("/payroll/adjustments/:id", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
-    return c.json(await updateHrPayrollAdjustment(c.get("db"), c.req.param("id"), { employmentId: text(input, "employmentId", "員工任職"), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "加扣項原因", 1000), items: adjustmentItems(input), revision: revision(input) }, c.get("user")));
+    return c.json(await updateHrPayrollAdjustment(c.get("db"), c.req.param("id"), { employmentId: text(input, "employmentId", "人員任職"), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "加扣項原因", 1000), items: adjustmentItems(input), revision: revision(input) }, c.get("user")));
   })
   .get("/payroll/workers", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
