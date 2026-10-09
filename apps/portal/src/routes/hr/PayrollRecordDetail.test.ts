@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { payrollLineLabel, payrollWorkerWorkDays, PayrollWorkerWorkSummary, specialWorkdayDifferenceLabel } from "./PayrollRecordDetail.js";
+import { PayrollAllocationDetails, payrollLineLabel, payrollWorkerWorkDays, PayrollWorkerWorkSummary, specialWorkdayDifferenceLabel } from "./PayrollRecordDetail.js";
 import type { PayrollScheduleAllocationDetail, PayrollWorker } from "./api.js";
 
 function allocationDetail(patch: Partial<PayrollScheduleAllocationDetail> = {}): PayrollScheduleAllocationDetail {
@@ -20,6 +20,15 @@ function allocationDetail(patch: Partial<PayrollScheduleAllocationDetail> = {}):
     ...patch,
   };
 }
+
+describe("薪資單位的需求人力快照", () => {
+  it("明列試算保存的需求人力，避免把有效2/2人誤認為需求2人", () => {
+    const html = renderToStaticMarkup(createElement(PayrollAllocationDetails, { details: [allocationDetail({ requiredHeadcount: 1, assignedCount: 2, effectiveCount: 2, unitNumerator: 1, unitDenominator: 2, allocatedUnits: 0.5 })] }));
+    expect(html).toContain("需求 1 人");
+    expect(html).toContain("有效 2/2 人");
+    expect(html).toContain("1/2 個本薪單位");
+  });
+});
 
 describe("薪資明細項目文案", () => {
   it("業績獎金使用獎金設定名稱，讓多筆獎金可以區分", () => {

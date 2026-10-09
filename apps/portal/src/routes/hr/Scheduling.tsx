@@ -61,12 +61,21 @@ export function sameDayMultiScopeSchedules(entries: readonly Pick<ScheduleEntry,
     .sort((left, right) => left.workDate.localeCompare(right.workDate) || left.personName.localeCompare(right.personName, "zh-Hant-TW"));
 }
 
-/**
- * 把「人＋據點＋班別＋日期」組成月曆上的一筆排班。
- *
- * 對話框與快速排班都要產同一種東西，寫兩份的話遲早只改到一邊——那種 bug 會長成
- * 「用對話框加的會顯示班別名稱，用快速排班加的空白」。
- */
+// 設定或日型改變不會自動改寫已發布快照；需要明確提示並允許沒有增刪人員時重新儲存。
+export function outdatedScheduleShiftCount(entries: readonly ScheduleEntry[], shifts: ScheduleShift[], calendar: readonly HrCalendarDay[]): number {
+  const dayTypes = new Map(calendar.map((day) => [day.date, day.dayType]));
+  const byVersion = new Map(shifts.map((shift) => [shift.versionId, shift]));
+  return entries.filter((entry) => {
+    if (entry.archivedAt || !entry.startsAt) return false;
+    const selected = byVersion.get(entry.shiftVersionId);
+    const dayType = dayTypes.get(entry.workDate);
+    if (!selected || !dayType) return false;
+    const applicable = pickShiftForDay(shifts.filter((shift) => shift.templateId === selected.templateId && shift.scopeId === entry.scopeId), dayType);
+    return applicable && (applicable.versionId !== entry.shiftVersionId || applicable.requiredHeadcount !== entry.requiredHeadcount);
+  }).length;
+}
+
+/** 對話框與快速排班共用，避免兩種新增方式產生不同的日型、班別名稱與人力。 */
 function makeEntry(data: HrScheduleResponse, pick: QuickPick, workDate: string, dayType: HrDayType): ScheduleEntry | null {
   const shift = pickShiftForDay(data.shifts.filter((item) => item.templateId === pick.shiftTemplateId && item.scopeId === pick.scopeId), dayType);
   if (!shift || !pick.personId) return null;
@@ -265,6 +274,7 @@ export function HrScheduling() {
   const templateByVersion = useMemo(() => new Map((data?.shifts ?? []).map((shift) => [shift.versionId, shift.templateId])), [data?.shifts]);
   const dayTypeOf = (date: string): HrDayType => dayTypeByDate.get(date)?.dayType ?? "weekday";
   const templateOf = (versionId: string) => templateByVersion.get(versionId);
+  const outdatedShiftCount = outdatedScheduleShiftCount(draftEntries, data?.shifts ?? [], data?.calendar ?? []);
   const dates = Array.from({ length: daysInMonth(month) }, (_, index) => dateAt(month, index + 1));
   const entriesOn = (day: string) => visibleEntries.filter((entry) => entry.workDate === day);
   const groupStats = useMemo(() => {
@@ -370,8 +380,9 @@ export function HrScheduling() {
   const today = taipeiToday();
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人；需求人力為薪資單位池上限，待確認與已出勤人員平均分配、明確未出勤者不計；跨據點同日排班會提醒但不阻擋，日薪依班別計薪單位累計。正式員工依排班出勤；支援人員日薪依排班單位、時薪依計薪時數計算，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={!changed || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.filter((entry) => !entry.archivedAt).map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate, attendanceStatus: entry.attendanceStatus })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人；需求人力為薪資單位池上限，待確認與已出勤人員平均分配、明確未出勤者不計；跨據點同日排班會提醒但不阻擋，日薪依班別計薪單位累計。正式員工依排班出勤；支援人員日薪依排班單位、時薪依計薪時數計算，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={(!changed && !outdatedShiftCount) || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.filter((entry) => !entry.archivedAt).map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate, attendanceStatus: entry.attendanceStatus })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
     {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
+    {outdatedShiftCount ? <Alert tone="warning">有 {outdatedShiftCount} 筆排班仍保存舊日型或需求人力。{version?.locked ? "請先開鎖，再按「儲存」重新發布。" : "按「儲存」可依目前行事曆及班別設定重新發布時段、工時與需求人力。"}未結帳的薪資需重新試算；已結帳薪資不會自動改寫。</Alert> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
     {multiScopeSchedules.length ? <Alert tone="warning"><strong>同日跨據點排班提醒：</strong>{multiScopeSchedules.slice(0, 5).map((item) => `${item.personName}（${item.workDate}：${item.scopeNames.join("、")}）`).join("；")}{multiScopeSchedules.length > 5 ? `；另有 ${multiScopeSchedules.length - 5} 組` : ""}。仍可儲存；日薪依各班別排班單位計算。</Alert> : null}
     <Panel className="grows hr-calendar-panel">

@@ -338,8 +338,8 @@ export interface HrCalendarResponse { days: HrCalendarDay[]; scopes: ScheduleSco
  * 一個班別在某個日型該用哪一組時間；沒設定該日型就退回平日。
  *
  * 後端之所以規定平日那組必填（assertShiftTimes），就是為了這條退路一定找得到東西。
- * 挑選發生在前端是因為「預設帶哪一組」純粹是輸入時的預設值——存進班表的是使用者最後
- * 選定的版本 ID，後端只驗證它屬於這家店，不會再推算一次，使用者才改得動。
+ * 前端供新增排班預覽使用；後端發布時仍依行事曆重選同一班別的適用日型，
+ * 避免舊班表或行事曆改動後沿用錯誤的人力與時段。
  */
 export function pickShiftForDay(versions: ScheduleShift[], dayType: HrDayType) {
   return versions.find((shift) => shift.dayType === dayType) ?? versions.find((shift) => shift.dayType === "weekday");

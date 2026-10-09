@@ -212,6 +212,7 @@ describe("HR 行事曆與班別日型", () => {
     const detail = await (await request("/hr/employees/staff")).json() as { employments: Array<{ id: string }> };
     const employmentId = detail.employments[0]?.id;
     const holiday = (await listShifts()).find((shift) => shift.dayType === "holiday")!;
+    expect((await request("/hr/calendar/2026-02", "PUT", { days: [{ date: "2026-02-17", dayType: "holiday", name: "春節" }] })).status).toBe(200);
     const published = await request("/hr/schedules", "POST", { periodKey: "2026-02", entries: [
       { personKind: "employee", employmentId, scopeId: "scope", shiftVersionId: holiday.versionId, workDate: "2026-02-17" },
     ] });
@@ -224,6 +225,37 @@ describe("HR 行事曆與班別日型", () => {
     expect(await blocked.text()).toContain("排班月曆");
     // 擋下來就要什麼都沒改：名稱、時間與那組被排到的版本都還在。
     expect(await listShifts()).toHaveLength(2);
+  });
+
+  it.each([
+    { workDate: "2026-02-06", dayType: "weekday", selectedDayType: "holiday", requiredHeadcount: 1, start: "09:00:00", override: false },
+    { workDate: "2026-02-07", dayType: "weekend", selectedDayType: "weekday", requiredHeadcount: 2, start: "10:00:00", override: false },
+    { workDate: "2026-02-17", dayType: "holiday", selectedDayType: "weekday", requiredHeadcount: 3, start: "11:00:00", override: true },
+    { workDate: "2026-02-21", dayType: "weekday", selectedDayType: "weekend", requiredHeadcount: 1, start: "09:00:00", override: true },
+  ])("發布排班以行事曆 $workDate 的 $dayType 重選班別，不信任輸入日型", async ({ workDate, dayType, selectedDayType, requiredHeadcount, start, override }) => {
+    const created = await createShift("日型驗證班", [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 1 },
+      { dayType: "weekend", startTime: "10:00", endTime: "19:00", requiredHeadcount: 2 },
+      { dayType: "holiday", startTime: "11:00", endTime: "20:00", requiredHeadcount: 3 },
+    ]);
+    if (override) expect((await request("/hr/calendar/2026-02", "PUT", { days: [{ date: workDate, dayType, name: "指定日型" }] })).status).toBe(200);
+    expect((await request("/hr/employees", "POST", { userId: "admin", legalName: "排班員工", employeeNumber: "E-CAL", position: "一般職員", serviceStartOn: "2026-01-01" })).status).toBe(201);
+    const employmentId = (await (await request("/hr/employees/admin")).json() as { employments: Array<{ id: string }> }).employments[0]!.id;
+    const workerResponse = await request("/hr/schedule-workers", "POST", { displayName: "日型支援人員" });
+    expect(workerResponse.status, await workerResponse.clone().text()).toBe(201);
+    const workerId = (await workerResponse.json() as { id: string }).id;
+    const versions = (await listShifts()).filter((shift) => shift.templateId === created.id);
+    const selected = versions.find((shift) => shift.dayType === selectedDayType)!;
+    const applicable = versions.find((shift) => shift.dayType === dayType)!;
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-02", entries: [
+      { personKind: "employee", employmentId, scopeId: "scope", shiftVersionId: selected.versionId, workDate },
+      { personKind: "worker", workerId, scopeId: "scope", shiftVersionId: applicable.versionId, workDate },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const schedule = await (await request("/hr/schedules?periodKey=2026-02")).json() as { entries: Array<{ shiftVersionId: string; requiredHeadcount: number; startsAt: string; shiftGroupId: string }> };
+    expect(schedule.entries).toHaveLength(2);
+    expect(schedule.entries.every((entry) => entry.shiftVersionId === applicable.versionId && entry.requiredHeadcount === requiredHeadcount && entry.startsAt === `${workDate} ${start}`)).toBe(true);
+    expect(new Set(schedule.entries.map((entry) => entry.shiftGroupId)).size).toBe(1);
   });
 
   it("排班月曆會一起帶出該月的日型，前端才不用自己推星期幾", async () => {
