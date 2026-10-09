@@ -12,7 +12,7 @@ import {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_ATTENDANCE_STATUSES, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis, type HrScheduleAttendanceStatus,
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
-  cancelHrOvertimeRequest, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest,
+  cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, MAX_OVERTIME_CANCELLATION_ENTRIES, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
   calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
@@ -497,6 +497,11 @@ function stringArray(input: Record<string, unknown>, key: string, label: string,
   if (!Array.isArray(value) || value.length > maxItems || value.some((item) => typeof item !== "string" || !item.trim() || item.length > 100)) throw new HTTPException(400, { message: `${label}格式不正確。` });
   return value as string[];
 }
+function overtimeRequestIds(input: Record<string, unknown>) {
+  const ids = stringArray(input, "ids", "取消加班申請清單", MAX_OVERTIME_CANCELLATION_ENTRIES);
+  if (!ids.length || new Set(ids).size !== ids.length) throw new HTTPException(400, { message: "取消加班申請清單不可空白或重複。" });
+  return ids;
+}
 function attendanceAssignmentsToEnd(input: Record<string, unknown>) {
   const value = input.assignmentsToEnd;
   if (!Array.isArray(value) || value.length > 100) throw new HTTPException(400, { message: "要結束的辦公位置指派格式不正確。" });
@@ -748,6 +753,10 @@ export const hr = new Hono<AppEnv>()
   .post("/requests/overtime/batch", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     return c.json(await createHrOvertimeRequests(c.get("db"), overtimeBatchInput(input), c.get("user"), { autoApprove: true }), 201);
+  })
+  .post("/requests/overtime/cancel-batch", requirePermission("hr:request:review"), async (c) => {
+    const ids = overtimeRequestIds(await body(c));
+    return c.json(await cancelHrOvertimeRequests(c.get("db"), ids, c.get("user")));
   })
   .get("/requests/overtime-days", requirePermission("hr:request:review"), async (c) => {
     const rawEmployeeUserId = c.req.query("employeeUserId");
