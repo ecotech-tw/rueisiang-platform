@@ -73,7 +73,50 @@ describe("薪資背景 Queue 與 Durable Object", () => {
     expect(repeat.status, await repeat.clone().text()).toBe(202);
     const repeatBody = await repeat.json() as { job: { jobId: string } };
     expect(repeatBody.job.jobId).toBe(firstBody.job.jobId);
+
+    const exclusions = await request("/hr/payroll/candidate-exclusions?periodKey=2026-08");
+    expect(await exclusions.json()).toMatchObject({ employeeUserIds: ["dev-eli-lin@ecotech.tw"], allEmployees: false, allWorkers: true });
+    const overlapping = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], workerIds: [], expectedCount: 1, requestId: "async-payroll-request-overlap",
+    });
+    expect(overlapping.status, await overlapping.clone().text()).toBe(409);
     expect(queueMessages).toHaveLength(1);
+  });
+
+  it("已有全選背景試算時，拒絕另一筆全選工作", async () => {
+    const first = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", requestId: "async-payroll-all-first",
+    });
+    expect(first.status, await first.clone().text()).toBe(202);
+
+    const overlapping = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", requestId: "async-payroll-all-overlap",
+    });
+    expect(overlapping.status, await overlapping.clone().text()).toBe(409);
+    expect(queueMessages).toHaveLength(1);
+  });
+
+  it("attendanceMode 限定的背景試算只占用符合出勤方式的人員", async () => {
+    const attendanceMode = await request("/hr/employments/dev-employment-wang/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
+    expect(attendanceMode.status, await attendanceMode.clone().text()).toBe(200);
+
+    const scheduled = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", attendanceMode: "scheduled", workerIds: [], requestId: "async-payroll-scheduled-all",
+    });
+    expect(scheduled.status, await scheduled.clone().text()).toBe(202);
+    const exclusions = await request("/hr/payroll/candidate-exclusions?periodKey=2026-08");
+    expect(await exclusions.json()).toMatchObject({ employeeUserIds: ["dev-wang@ecotech.tw"], allEmployees: false });
+
+    const general = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", attendanceMode: "general", employeeUserIds: ["dev-eli-lin@ecotech.tw"], workerIds: [], requestId: "async-payroll-general-during-scheduled",
+    });
+    expect(general.status, await general.clone().text()).toBe(202);
+
+    const duplicate = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", attendanceMode: "scheduled", employeeUserIds: ["dev-wang@ecotech.tw"], workerIds: [], requestId: "async-payroll-scheduled-duplicate",
+    });
+    expect(duplicate.status, await duplicate.clone().text()).toBe(409);
+    expect(queueMessages).toHaveLength(2);
   });
 
   it("Queue 暫時不可用時保留 outbox pending，之後可由相同 requestId 補送", async () => {

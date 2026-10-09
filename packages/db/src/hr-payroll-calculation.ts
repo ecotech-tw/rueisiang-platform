@@ -34,6 +34,7 @@ import {
 } from "./schema/hr-payroll.js";
 import {
   hrPayrollClosedEmployees,
+  hrPayrollJobs,
   hrPayrollPeriods,
   hrPayrollRunEmployees,
   hrPayrollRuns,
@@ -111,6 +112,9 @@ function suggestedPayrollRunName(employeeUserIds: string[] | null | undefined, w
 }
 
 interface PayrollCalculationInputSnapshot {
+  periodKey?: unknown;
+  requestId?: unknown;
+  attendanceMode?: unknown;
   runName?: unknown;
   employeeUserIds?: unknown;
   workerIds?: unknown;
@@ -1010,6 +1014,93 @@ function calculateAssignedBonus(
   };
 }
 
+export interface HrPayrollCandidateExclusions {
+  employeeUserIds: string[];
+  workerIds: string[];
+  allEmployees: boolean;
+  allWorkers: boolean;
+}
+
+/** 同月份已有結果或排隊中的工作都不能再次試算；撤回後需刪除舊批次才會重新開放。 */
+export async function listHrPayrollCandidateExclusions(db: Database, periodKey: string, excludeRequestId?: string): Promise<HrPayrollCandidateExclusions> {
+  const period = periodFromKey(periodKey);
+  const [employeeRows, workerRows, activeJobs] = await Promise.all([
+    db.all<{ employeeUserId: string }>(sql`SELECT DISTINCT employment.employee_user_id AS employeeUserId
+      FROM hr_payslips AS payslip
+      INNER JOIN hr_employments AS employment ON employment.id=payslip.employment_id
+      INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=payslip.payroll_run_id
+      INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
+      WHERE payroll_period.period_key=${period.periodKey} AND payroll_run.status <> 'failed' AND employment.employee_user_id IS NOT NULL`),
+    db.all<{ workerId: string }>(sql`SELECT DISTINCT worker_result.worker_id AS workerId
+      FROM hr_payroll_worker_results AS worker_result
+      INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=worker_result.payroll_run_id
+      INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
+      WHERE payroll_period.period_key=${period.periodKey} AND payroll_run.status <> 'failed'`),
+    db.select({ requestId: hrPayrollJobs.requestId, calculationInputJson: hrPayrollJobs.calculationInputJson })
+      .from(hrPayrollJobs)
+      .where(sql`${hrPayrollJobs.status} IN ('queued', 'calculating')`),
+  ]);
+  const employeeUserIds = new Set(employeeRows.map((row) => row.employeeUserId));
+  const workerIds = new Set(workerRows.map((row) => row.workerId));
+  const periodJobs = activeJobs
+    .filter((job) => job.requestId !== excludeRequestId)
+    .map((job) => parsePayrollCalculationInput(job.calculationInputJson))
+    .filter((input) => input.periodKey === period.periodKey);
+  const hasAttendanceFilteredJob = periodJobs.some((input) => input.attendanceMode === "general" || input.attendanceMode === "scheduled");
+  const attendanceRows = hasAttendanceFilteredJob
+    ? await db.select({
+      employeeUserId: hrEmployments.employeeUserId,
+      attendanceMode: sql<string>`coalesce((SELECT attendance_mode FROM hr_employment_attendance_settings WHERE employment_id = ${hrEmployments.id}), 'general')`,
+      archivedAt: hrEmployments.archivedAt,
+    }).from(hrEmployments)
+      .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+      .where(hrEmployableUser)
+    : [];
+  let allEmployees = false;
+  let allWorkers = false;
+  for (const input of periodJobs) {
+    const selectedEmployeeUserIds = payrollEmployeeUserIdsFromInput(input);
+    const selectedWorkerIds = payrollWorkerIdsFromInput(input);
+    const attendanceMode = input.attendanceMode === "general" || input.attendanceMode === "scheduled" ? input.attendanceMode : null;
+    if (selectedEmployeeUserIds === undefined || selectedEmployeeUserIds === null) {
+      if (attendanceMode) {
+        for (const row of attendanceRows) {
+          if (!row.archivedAt && row.employeeUserId && row.attendanceMode === attendanceMode) employeeUserIds.add(row.employeeUserId);
+        }
+      } else {
+        allEmployees = true;
+      }
+    } else if (attendanceMode) {
+      const selectedIds = new Set(selectedEmployeeUserIds);
+      for (const row of attendanceRows) {
+        if (row.employeeUserId && selectedIds.has(row.employeeUserId) && row.attendanceMode === attendanceMode) employeeUserIds.add(row.employeeUserId);
+      }
+    } else {
+      for (const userId of selectedEmployeeUserIds) employeeUserIds.add(userId);
+    }
+    if (selectedWorkerIds === undefined || selectedWorkerIds === null) allWorkers = true;
+    else for (const workerId of selectedWorkerIds) workerIds.add(workerId);
+  }
+  return { employeeUserIds: [...employeeUserIds], workerIds: [...workerIds], allEmployees, allWorkers };
+}
+
+function assertPayrollSelectionAvailable(input: HrPayrollCalculationInput, exclusions: HrPayrollCandidateExclusions): void {
+  const excludedEmployeeIds = new Set(exclusions.employeeUserIds);
+  const excludedWorkerIds = new Set(exclusions.workerIds);
+  if ((input.employeeUserIds === undefined && exclusions.allEmployees)
+    || (input.employeeUserIds?.length && (exclusions.allEmployees || input.employeeUserIds.some((userId) => excludedEmployeeIds.has(userId))))) {
+    throw new HrError(409, "選取的員工本月已有試算結果或正在試算，請重新整理名單。 ");
+  }
+  if ((input.workerIds === undefined && exclusions.allWorkers)
+    || (input.workerIds?.length && (exclusions.allWorkers || input.workerIds.some((workerId) => excludedWorkerIds.has(workerId))))) {
+    throw new HrError(409, "選取的支援人員本月已有試算結果或正在試算，請重新整理名單。 ");
+  }
+}
+
+export async function assertHrPayrollSelectionAvailable(db: Database, input: HrPayrollCalculationInput): Promise<void> {
+  assertPayrollSelectionAvailable(input, await listHrPayrollCandidateExclusions(db, input.periodKey, input.requestId));
+}
+
 /**
  * 以明確輸入的示範規則試算薪資：月薪整月按月薪給付，排班制且有月休設定時再依實際排班日數調整；
  * 入職／離職未滿整月才以 30 日制按在職日數比例計算；核准付薪加班、申請上凍結的給薪比例；
@@ -1036,6 +1127,10 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   if (existing) return getPayrollRunResult(db, existing.id, ["requestId 已存在，回傳原試算結果。"]);
   const [existingPeriod] = await db.select({ status: hrPayrollPeriods.status }).from(hrPayrollPeriods).where(eq(hrPayrollPeriods.id, `payroll-period-${period.periodKey}`)).limit(1);
   if (existingPeriod?.status === "closed") throw new HrError(409, "該月份已結帳，不能重新建立薪資試算。 ");
+  const candidateExclusions = await listHrPayrollCandidateExclusions(db, period.periodKey, input.requestId);
+  assertPayrollSelectionAvailable(input, candidateExclusions);
+  const excludedEmployeeUserIds = new Set(candidateExclusions.employeeUserIds);
+  const excludedWorkerIds = new Set(candidateExclusions.workerIds);
 
   const payrollEmploymentStatus = input.employeeUserIds === undefined ? sql`${hrEmployments.archivedAt} IS NULL` : sql`1=1`;
   const employeeRows = await db.select({
@@ -1052,24 +1147,14 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
     .where(and(payrollEmploymentStatus, hrEmployableUser));
-  const selectedEmployees = employeeRows.filter((row) => employeeSelected(row, input));
+  const selectedEmployees = employeeRows.filter((row) => employeeSelected(row, input)
+    && (input.employeeUserIds !== undefined || (!candidateExclusions.allEmployees && !excludedEmployeeUserIds.has(row.employeeUserId))));
   const employees = selectedEmployees.filter((employee) => employmentDaysForPeriod(employee, period).length > 0);
   const employeesWithoutPeriod = selectedEmployees.filter((employee) => !employees.includes(employee));
   if (input.employeeUserIds !== undefined && employeesWithoutPeriod.length) {
     const employeeDetails = employeesWithoutPeriod.map((employee) => `${employee.employeeName}（服務年資起算日：${employee.serviceStartOn ?? "未設定"}）`).join("、");
     throw new HrError(400, `以下員工在 ${period.periodKey} 沒有在職區間，無法計算薪資：${employeeDetails}。請至員工管理確認服務年資起算日。`);
   }
-  const closedEmploymentIds = employees.length ? await db.all<{ employmentId: string }>(sql`
-    SELECT DISTINCT payslip.employment_id AS employmentId
-    FROM hr_payslips AS payslip
-    INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=payslip.payroll_run_id
-    INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
-    LEFT JOIN hr_payroll_closed_employees AS claim ON claim.period_key=payroll_period.period_key AND claim.employment_id=payslip.employment_id
-    WHERE payroll_period.period_key=${period.periodKey}
-      AND (payroll_run.status='closed' OR claim.employment_id IS NOT NULL)
-      AND payslip.employment_id IN (${jsonArrayValues(employees.map((employee) => employee.employmentId))})
-  `) : [];
-  if (closedEmploymentIds.length) throw new HrError(409, "同一員工同一月份已有已結帳結果，請改用薪資調整。 ");
   await ensureHrAnnualLeaveEntitlements(db, { asOfDate: period.end, createdBy: actor.id });
   const annualLeaveSettlements = await listHrAnnualLeaveSettlementCandidates(db, { asOfDate: period.end, periodStart: period.start, employmentIds: employees.map((employee) => employee.employmentId) });
   // 支援人員沒有平台帳號；薪資資格來自已發布班表、特殊上班日或已核准付薪加班，不套用獎金 policy。
@@ -1123,27 +1208,15 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const namesById = new Map(missingWorkers.map((worker) => [worker.id, worker.displayName]));
     throw new HrError(400, `以下支援人員在 ${period.periodKey} 沒有已發布排班、特殊上班日或核准付薪加班，無法計算薪資：${missingWorkerIds.map((workerId) => namesById.get(workerId) ?? workerId).join("、")}。`);
   }
-  const scheduledWorkerRows = requestedWorkerIds === undefined
-    ? workerRowsAll
-    : workerRowsAll.filter((row) => requestedWorkerIds.includes(row.workerId));
-  const selectedWorkerIds = requestedWorkerIds === undefined
-    ? [...eligibleWorkerIdSet]
-    : [...new Set(requestedWorkerIds)];
+  const scheduledWorkerRows = workerRowsAll.filter((row) => (requestedWorkerIds === undefined || requestedWorkerIds.includes(row.workerId))
+    && (requestedWorkerIds !== undefined || (!candidateExclusions.allWorkers && !excludedWorkerIds.has(row.workerId))));
+  const selectedWorkerIds = requestedWorkerIds !== undefined
+    ? [...new Set(requestedWorkerIds)]
+    : [...eligibleWorkerIdSet].filter((workerId) => !candidateExclusions.allWorkers && !excludedWorkerIds.has(workerId));
   const workerProfiles = selectedWorkerIds.length
     ? await db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, selectedWorkerIds), eq(hrEmployments.personKind, "worker")))
     : [];
   const workerNamesById = new Map(workerProfiles.map((worker) => [worker.id, worker.displayName]));
-  const closedWorkerRows = selectedWorkerIds.length ? await db.all<{ workerId: string }>(sql`
-    SELECT DISTINCT worker_result.worker_id AS workerId
-    FROM hr_payroll_worker_results AS worker_result
-    INNER JOIN hr_payroll_runs AS payroll_run ON payroll_run.id=worker_result.payroll_run_id
-    INNER JOIN hr_payroll_periods AS payroll_period ON payroll_period.id=payroll_run.payroll_period_id
-    LEFT JOIN hr_payroll_closed_workers AS claim ON claim.period_key=payroll_period.period_key AND claim.worker_id=worker_result.worker_id
-    WHERE payroll_period.period_key=${period.periodKey}
-      AND (payroll_run.status='closed' OR claim.worker_id IS NOT NULL)
-      AND worker_result.worker_id IN (${jsonArrayValues(selectedWorkerIds)})
-  `) : [];
-  if (closedWorkerRows.length) throw new HrError(409, "同一支援人員同一月份已有已結帳結果，請改用薪資調整。 ");
   const runName = requestedRunName ?? suggestedPayrollRunName(input.employeeUserIds, input.workerIds, [...selectedEmployees.map((employee) => employee.employeeName), ...workerNamesById.values()]);
   const scheduledRowsByEmploymentDate = new Map<string, typeof scheduledEmployeeRows>();
   for (const row of scheduledEmployeeRows) {

@@ -221,6 +221,7 @@ export interface PayrollScheduleAllocationDetail {
 }
 export interface PayrollWorker { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; lines?: PayrollLine[]; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails?: PayrollScheduleAllocationDetail[] }
 export interface PayrollWorkerCandidate { id: string; displayName: string }
+export interface PayrollCandidateExclusions { employeeUserIds: string[]; workerIds: string[]; allEmployees: boolean; allWorkers: boolean }
 export interface PayrollRun { runId: string; runName: string; periodKey: string; payDate: string | null; status: "ready" | "closed"; engineVersion: string; withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null; employees: PayrollEmployee[]; workers: PayrollWorker[]; warnings: string[] }
 export type BonusKind = "team_performance" | "individual_performance";
 export type PerformancePeriod = "current_month" | "previous_month";

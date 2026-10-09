@@ -8,7 +8,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, StatusBadge, TextField } from "../../ui/index.js";
-import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
+import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface PayrollRecordsResponse {
@@ -82,6 +82,18 @@ function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "pers
   return `${record.runId}:${record.personKind}:${record.personId}`;
 }
 
+export function availablePayrollEmployees<T extends Pick<HrFormalEmployee, "userId">>(employees: readonly T[], exclusions: PayrollCandidateExclusions | undefined): T[] {
+  if (!exclusions || exclusions.allEmployees) return [];
+  const excludedIds = new Set(exclusions.employeeUserIds);
+  return employees.filter((employee) => !excludedIds.has(employee.userId));
+}
+
+export function availablePayrollWorkers<T extends Pick<PayrollWorkerCandidate, "id">>(workers: readonly T[], exclusions: PayrollCandidateExclusions | undefined): T[] {
+  if (!exclusions || exclusions.allWorkers) return [];
+  const excludedIds = new Set(exclusions.workerIds);
+  return workers.filter((worker) => !excludedIds.has(worker.id));
+}
+
 interface PayrollCalculationDialogProps {
   employees: HrFormalEmployee[];
   employeesPending: boolean;
@@ -102,8 +114,14 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const calculatePayroll = useHrWrite<{ job?: PayrollJob; run?: PayrollRun }>();
   const closeRequestRef = useRef<(() => void) | null>(null);
   const supportWorkers = useHrQuery<{ workers: PayrollWorkerCandidate[] }>(periodKey ? `/payroll/workers?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/workers?periodKey=", Boolean(periodKey), { keepPreviousData: false });
-  const workerOptions = supportWorkers.data?.workers ?? NO_PAYROLL_WORKERS;
-  const peopleCount = employees.length + workerOptions.length;
+  const candidateExclusions = useHrQuery<PayrollCandidateExclusions>(periodKey ? `/payroll/candidate-exclusions?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/candidate-exclusions?periodKey=", Boolean(periodKey), { keepPreviousData: false });
+  const rawWorkerOptions = supportWorkers.data?.workers ?? NO_PAYROLL_WORKERS;
+  const availableEmployees = useMemo(() => availablePayrollEmployees(employees, candidateExclusions.data), [candidateExclusions.data, employees]);
+  const workerOptions = useMemo(() => {
+    if (!candidateExclusions.data || candidateExclusions.data.allWorkers) return NO_PAYROLL_WORKERS;
+    return availablePayrollWorkers(rawWorkerOptions, candidateExclusions.data);
+  }, [candidateExclusions.data, rawWorkerOptions]);
+  const peopleCount = availableEmployees.length + workerOptions.length;
   const selectedCount = selectionMode === "all" ? peopleCount : selectedEmployeeIds.length + selectedWorkerIds.length;
   const unselectedCount = Math.max(0, peopleCount - selectedCount);
   const selectionLimitError = selectionMode === "selected" && (selectedEmployeeIds.length > MAX_PAYROLL_SELECTED_EMPLOYEES || selectedWorkerIds.length > MAX_PAYROLL_SELECTED_WORKERS)
@@ -116,9 +134,9 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const employeeOptions = useMemo(() => {
     const selected = new Set(selectedEmployeeIds);
     const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_EMPLOYEES;
-    return employees.map((employee) => ({ value: employee.userId, label: `${hrEmployeeLabel(employee)}・${employee.position || "未設定職位"}`, chipLabel: employee.legalName, disabled: atLimit && !selected.has(employee.userId) }));
-  }, [employees, selectionMode, selectedEmployeeIds]);
-  const employeeValue = useMemo(() => selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds, [employees, selectionMode, selectedEmployeeIds]);
+    return availableEmployees.map((employee) => ({ value: employee.userId, label: `${hrEmployeeLabel(employee)}・${employee.position || "未設定職位"}`, chipLabel: employee.legalName, disabled: atLimit && !selected.has(employee.userId) }));
+  }, [availableEmployees, selectionMode, selectedEmployeeIds]);
+  const employeeValue = useMemo(() => selectionMode === "all" ? availableEmployees.map((employee) => employee.userId) : selectedEmployeeIds, [availableEmployees, selectionMode, selectedEmployeeIds]);
   const workerSelectOptions = useMemo(() => {
     const selected = new Set(selectedWorkerIds);
     const atLimit = selectionMode !== "all" && selected.size >= MAX_PAYROLL_SELECTED_WORKERS;
@@ -132,6 +150,10 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     setSelectedWorkerIds([]);
   }, [periodKey]);
   useEffect(() => {
+    const availableEmployeeIds = new Set(availableEmployees.map((employee) => employee.userId));
+    setSelectedEmployeeIds((current) => current.filter((userId) => availableEmployeeIds.has(userId)));
+  }, [availableEmployees]);
+  useEffect(() => {
     const availableWorkerIds = new Set(workerOptions.map((worker) => worker.id));
     setSelectedWorkerIds((current) => current.filter((workerId) => availableWorkerIds.has(workerId)));
   }, [workerOptions]);
@@ -142,7 +164,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
    */
   function selectAllPeople() {
     setSelectionMode("all");
-    setSelectedEmployeeIds(employees.map((employee) => employee.userId));
+    setSelectedEmployeeIds(availableEmployees.map((employee) => employee.userId));
     setSelectedWorkerIds(workerOptions.map((worker) => worker.id));
   }
   function updateSelection(nextEmployeeIds: string[], nextWorkerIds: string[]) {
@@ -155,7 +177,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     updateSelection(nextEmployeeIds, currentWorkerIds);
   }
   function updateWorkerSelection(nextWorkerIds: string[]) {
-    const currentEmployeeIds = selectionMode === "all" ? employees.map((employee) => employee.userId) : selectedEmployeeIds;
+    const currentEmployeeIds = selectionMode === "all" ? availableEmployees.map((employee) => employee.userId) : selectedEmployeeIds;
     updateSelection(currentEmployeeIds, nextWorkerIds);
   }
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -188,18 +210,18 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     closeRequestRef={closeRequestRef}
     closeDisabled={calculatePayroll.isPending}
     formProps={{ onSubmit: submit }}
-    actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" className="add-action" loading={calculatePayroll.isPending} disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || supportWorkers.isPending || Boolean(supportWorkers.error) || Boolean(selectionLimitError)}>開始試算</Button></>}
+    actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" className="add-action" loading={calculatePayroll.isPending} disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || supportWorkers.isPending || Boolean(supportWorkers.error) || candidateExclusions.isPending || Boolean(candidateExclusions.error) || Boolean(selectionLimitError) || peopleCount === 0}>開始試算</Button></>}
   >
     <div className="form-grid two">
       <TextField type="month" label="計算月份" value={periodKey} required onChange={(event) => setPeriodKey(event.target.value)} />
       <TextField type="date" label="發薪日（選填）" value={payDate} onChange={(event) => setPayDate(event.target.value)} />
     </div>
     <div className="hr-payroll-employee-picker-section">
-      <div className="hr-payroll-picker-heading"><div><strong>試算人員</strong><small>每位人員會在發放紀錄建立一筆資料；預設納入全部符合資格的員工與本月有排班的支援人員，可移除不試算的人。</small></div><span className="flex flex-none items-center gap-2"><Button variant="link" onClick={selectAllPeople} disabled={selectionMode === "all" || peopleCount === 0 || calculatePayroll.isPending}>全選</Button><span className="hr-payroll-picker-count">{selectionMode === "all" ? `全體 ${selectedCount} 人` : `已選 ${selectedCount} 人`}</span></span></div>
+      <div className="hr-payroll-picker-heading"><div><strong>試算人員</strong><small>每位人員會在發放紀錄建立一筆資料；預設納入全部符合資格的人員。當月已有試算結果或正在試算的人員（不論是否已發放）會自動排除。</small></div><span className="flex flex-none items-center gap-2"><Button variant="link" onClick={selectAllPeople} disabled={selectionMode === "all" || peopleCount === 0 || calculatePayroll.isPending}>全選</Button><span className="hr-payroll-picker-count">{selectionMode === "all" ? `全體 ${selectedCount} 人` : `已選 ${selectedCount} 人`}</span></span></div>
       <div className="hr-payroll-employee-picker" role="group" aria-label="選擇員工與支援人員">
         <div className="hr-payroll-picker-group">
           <strong className="hr-payroll-picker-group-title">正式員工</strong>
-          {employeesPending ? <p className="muted hr-payroll-picker-empty">正在載入符合資格的員工…</p> : employees.length ? <DropdownSelect
+          {!periodKey ? <p className="muted hr-payroll-picker-empty">選擇計算月份後會列出尚未試算的正式員工。</p> : employeesPending || candidateExclusions.isPending ? <p className="muted hr-payroll-picker-empty">正在載入符合資格的員工…</p> : employeesError || candidateExclusions.error ? <p className="muted hr-payroll-picker-empty">本月薪資試算名單載入失敗。</p> : availableEmployees.length ? <DropdownSelect
             multiple
             searchable
             // 全體模式只收合視覺上的 chip，清單仍保留所有人，才能搜尋並取消單一人員。
@@ -211,13 +233,13 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             // 另一份名單還沒載完時不能動：這時從「全體」移除一個人，會把還沒出現的那一邊記成「一個都沒選」。
             // 用 isLoading 不用 isPending：月份清空時查詢是停用的，isPending 會一直是 true，下拉就再也解不開。
             // 載入失敗也算沒載完：重試成功之前名單一樣是空的。
-            disabled={calculatePayroll.isPending || supportWorkers.isLoading || Boolean(supportWorkers.error)}
+            disabled={calculatePayroll.isPending || supportWorkers.isLoading || Boolean(supportWorkers.error) || candidateExclusions.isLoading || Boolean(candidateExclusions.error)}
             onValueChange={updateEmployeeSelection}
-          /> : <p className="muted hr-payroll-picker-empty">目前沒有符合資格的正式員工。</p>}
+          /> : <p className="muted hr-payroll-picker-empty">{employees.length ? "本月份正式員工皆已有試算結果或正在試算。" : "目前沒有符合資格的正式員工。"}</p>}
         </div>
         <div className="hr-payroll-picker-group">
           <strong className="hr-payroll-picker-group-title">支援人員</strong>
-          {!periodKey ? <p className="muted hr-payroll-picker-empty">選擇計算月份後會列出該月有排班的支援人員。</p> : supportWorkers.isPending ? <p className="muted hr-payroll-picker-empty">正在載入本月已發布排班…</p> : workerOptions.length ? <DropdownSelect
+          {!periodKey ? <p className="muted hr-payroll-picker-empty">選擇計算月份後會列出該月可試算的支援人員。</p> : supportWorkers.isPending || candidateExclusions.isPending ? <p className="muted hr-payroll-picker-empty">正在載入本月已發布排班…</p> : supportWorkers.error || candidateExclusions.error ? <p className="muted hr-payroll-picker-empty">本月支援人員試算名單載入失敗。</p> : workerOptions.length ? <DropdownSelect
             multiple
             searchable
             compactSelected={selectionMode === "all"}
@@ -225,9 +247,9 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             options={workerSelectOptions}
             placeholder="搜尋支援人員"
             aria-label="選擇支援人員"
-            disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError)}
+            disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || candidateExclusions.isLoading || Boolean(candidateExclusions.error)}
             onValueChange={updateWorkerSelection}
-          /> : <p className="muted hr-payroll-picker-empty">本月份沒有已發布排班的支援人員。</p>}
+          /> : <p className="muted hr-payroll-picker-empty">{rawWorkerOptions.length ? "本月份支援人員皆已有試算結果或正在試算。" : "本月份沒有已發布排班的支援人員。"}</p>}
         </div>
       </div>
       {selectionLimitError ? <Alert tone="warning">{selectionLimitError}</Alert> : null}
@@ -235,6 +257,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     </div>
     {employeesError ? <Alert tone="danger">員工名單載入失敗：{employeesError.message}</Alert> : null}
     {supportWorkers.error instanceof Error ? <Alert tone="danger">支援人員名單載入失敗：{supportWorkers.error.message}</Alert> : null}
+    {candidateExclusions.error instanceof Error ? <Alert tone="danger">本月已有薪資試算名單載入失敗：{candidateExclusions.error.message}</Alert> : null}
     {validationError || calculatePayroll.error ? <Alert tone="danger">{validationError ?? calculatePayroll.error?.message}</Alert> : null}
   </Dialog>;
 }
