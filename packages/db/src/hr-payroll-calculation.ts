@@ -114,6 +114,7 @@ function suggestedPayrollRunName(employeeUserIds: string[] | null | undefined, w
 interface PayrollCalculationInputSnapshot {
   periodKey?: unknown;
   requestId?: unknown;
+  attendanceMode?: unknown;
   runName?: unknown;
   employeeUserIds?: unknown;
   workerIds?: unknown;
@@ -1041,16 +1042,42 @@ export async function listHrPayrollCandidateExclusions(db: Database, periodKey: 
   ]);
   const employeeUserIds = new Set(employeeRows.map((row) => row.employeeUserId));
   const workerIds = new Set(workerRows.map((row) => row.workerId));
+  const periodJobs = activeJobs
+    .filter((job) => job.requestId !== excludeRequestId)
+    .map((job) => parsePayrollCalculationInput(job.calculationInputJson))
+    .filter((input) => input.periodKey === period.periodKey);
+  const hasAttendanceFilteredJob = periodJobs.some((input) => input.attendanceMode === "general" || input.attendanceMode === "scheduled");
+  const attendanceRows = hasAttendanceFilteredJob
+    ? await db.select({
+      employeeUserId: hrEmployments.employeeUserId,
+      attendanceMode: sql<string>`coalesce((SELECT attendance_mode FROM hr_employment_attendance_settings WHERE employment_id = ${hrEmployments.id}), 'general')`,
+      archivedAt: hrEmployments.archivedAt,
+    }).from(hrEmployments)
+      .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+      .where(hrEmployableUser)
+    : [];
   let allEmployees = false;
   let allWorkers = false;
-  for (const job of activeJobs) {
-    if (job.requestId === excludeRequestId) continue;
-    const input = parsePayrollCalculationInput(job.calculationInputJson);
-    if (input.periodKey !== period.periodKey) continue;
+  for (const input of periodJobs) {
     const selectedEmployeeUserIds = payrollEmployeeUserIdsFromInput(input);
     const selectedWorkerIds = payrollWorkerIdsFromInput(input);
-    if (selectedEmployeeUserIds === undefined || selectedEmployeeUserIds === null) allEmployees = true;
-    else for (const userId of selectedEmployeeUserIds) employeeUserIds.add(userId);
+    const attendanceMode = input.attendanceMode === "general" || input.attendanceMode === "scheduled" ? input.attendanceMode : null;
+    if (selectedEmployeeUserIds === undefined || selectedEmployeeUserIds === null) {
+      if (attendanceMode) {
+        for (const row of attendanceRows) {
+          if (!row.archivedAt && row.employeeUserId && row.attendanceMode === attendanceMode) employeeUserIds.add(row.employeeUserId);
+        }
+      } else {
+        allEmployees = true;
+      }
+    } else if (attendanceMode) {
+      const selectedIds = new Set(selectedEmployeeUserIds);
+      for (const row of attendanceRows) {
+        if (row.employeeUserId && selectedIds.has(row.employeeUserId) && row.attendanceMode === attendanceMode) employeeUserIds.add(row.employeeUserId);
+      }
+    } else {
+      for (const userId of selectedEmployeeUserIds) employeeUserIds.add(userId);
+    }
     if (selectedWorkerIds === undefined || selectedWorkerIds === null) allWorkers = true;
     else for (const workerId of selectedWorkerIds) workerIds.add(workerId);
   }
@@ -1060,10 +1087,12 @@ export async function listHrPayrollCandidateExclusions(db: Database, periodKey: 
 function assertPayrollSelectionAvailable(input: HrPayrollCalculationInput, exclusions: HrPayrollCandidateExclusions): void {
   const excludedEmployeeIds = new Set(exclusions.employeeUserIds);
   const excludedWorkerIds = new Set(exclusions.workerIds);
-  if (input.employeeUserIds?.length && (exclusions.allEmployees || input.employeeUserIds.some((userId) => excludedEmployeeIds.has(userId)))) {
+  if ((input.employeeUserIds === undefined && exclusions.allEmployees)
+    || (input.employeeUserIds?.length && (exclusions.allEmployees || input.employeeUserIds.some((userId) => excludedEmployeeIds.has(userId))))) {
     throw new HrError(409, "選取的員工本月已有試算結果或正在試算，請重新整理名單。 ");
   }
-  if (input.workerIds?.length && (exclusions.allWorkers || input.workerIds.some((workerId) => excludedWorkerIds.has(workerId)))) {
+  if ((input.workerIds === undefined && exclusions.allWorkers)
+    || (input.workerIds?.length && (exclusions.allWorkers || input.workerIds.some((workerId) => excludedWorkerIds.has(workerId))))) {
     throw new HrError(409, "選取的支援人員本月已有試算結果或正在試算，請重新整理名單。 ");
   }
 }
