@@ -1210,6 +1210,50 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(detailBody.record.earningMinor).toBe(440_000);
   });
 
+  it("支援人員已核准付薪的未排班日加班仍計薪，且僅有加班也能列入試算", async () => {
+    const scheduledWorkerResponse = await request("/hr/schedule-workers", "POST", { displayName: "未排班日加班支援人員甲" });
+    expect(scheduledWorkerResponse.status, await scheduledWorkerResponse.clone().text()).toBe(201);
+    const scheduledWorkerId = (await scheduledWorkerResponse.json() as { id: string }).id;
+    const overtimeOnlyWorkerResponse = await request("/hr/schedule-workers", "POST", { displayName: "僅加班支援人員乙" });
+    expect(overtimeOnlyWorkerResponse.status, await overtimeOnlyWorkerResponse.clone().text()).toBe(201);
+    const overtimeOnlyWorkerId = (await overtimeOnlyWorkerResponse.json() as { id: string }).id;
+    for (const workerId of [scheduledWorkerId, overtimeOnlyWorkerId]) {
+      const compensation = await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 320_000, overtimeRatePpm: 1_500_000, note: "未排班日付薪加班測試" });
+      expect(compensation.status, await compensation.clone().text()).toBe(201);
+    }
+
+    const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ versionId: string }> };
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [{ personKind: "worker", workerId: scheduledWorkerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" }] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const scheduledWorkerOvertime = await request("/hr/requests/overtime", "POST", { workerId: scheduledWorkerId, requestedStart: "2026-09-04 18:00", requestedEnd: "2026-09-04 20:00", settlementKind: "pay", reason: "未排班日加班" });
+    expect(scheduledWorkerOvertime.status, await scheduledWorkerOvertime.clone().text()).toBe(201);
+    const scheduledWorkerOvertimeId = (await scheduledWorkerOvertime.json() as { id: string }).id;
+    const overtimeOnlyWorkerOvertime = await request("/hr/requests/overtime", "POST", { workerId: overtimeOnlyWorkerId, requestedStart: "2026-09-05 18:00", requestedEnd: "2026-09-05 20:00", settlementKind: "pay", reason: "本月僅有未排班日加班" });
+    expect(overtimeOnlyWorkerOvertime.status, await overtimeOnlyWorkerOvertime.clone().text()).toBe(201);
+    const overtimeOnlyWorkerOvertimeId = (await overtimeOnlyWorkerOvertime.json() as { id: string }).id;
+    const requests = await request("/hr/overtime");
+    expect(requests.status, await requests.clone().text()).toBe(200);
+    expect((await requests.json() as { requests: Array<{ request: { id: string; settlementKind: string; status: string }; workerId?: string }> }).requests).toEqual(expect.arrayContaining([
+      expect.objectContaining({ workerId: scheduledWorkerId, request: expect.objectContaining({ id: scheduledWorkerOvertimeId, settlementKind: "pay", status: "approved" }) }),
+      expect.objectContaining({ workerId: overtimeOnlyWorkerId, request: expect.objectContaining({ id: overtimeOnlyWorkerOvertimeId, settlementKind: "pay", status: "approved" }) }),
+    ]));
+
+    const candidates = await request("/hr/payroll/workers?periodKey=2026-09");
+    expect(candidates.status, await candidates.clone().text()).toBe(200);
+    expect((await candidates.json() as { workers: Array<{ id: string }> }).workers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: scheduledWorkerId }),
+      expect.objectContaining({ id: overtimeOnlyWorkerId }),
+    ]));
+
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds: [scheduledWorkerId, overtimeOnlyWorkerId], requestId: "test-payroll-unscheduled-worker-overtime" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; payBasis: string; scheduledDays: number; amountMinor: number; overtimeMinor: number; overtimeSeconds: number }> } };
+    expect(body.run.workers).toEqual(expect.arrayContaining([
+      expect.objectContaining({ workerId: scheduledWorkerId, payBasis: "daily", scheduledDays: 1, amountMinor: 440_000, overtimeMinor: 120_000, overtimeSeconds: 7_200 }),
+      expect.objectContaining({ workerId: overtimeOnlyWorkerId, payBasis: "daily", scheduledDays: 0, amountMinor: 120_000, overtimeMinor: 120_000, overtimeSeconds: 7_200 }),
+    ]));
+  });
+
   it("支援人員跨台北午夜的加班依每個日期分段計薪", async () => {
     const created = await request("/hr/schedule-workers", "POST", { displayName: "跨午夜加班支援人員" });
     expect(created.status, await created.clone().text()).toBe(201);
