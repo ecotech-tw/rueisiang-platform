@@ -43,3 +43,11 @@ run_case \
   "deploy workflow" \
   $'platform=true\nmigrations=false\nhr=true' \
   ".github/workflows/deploy.yml"
+run_case \
+  "deploy baseline script" \
+  $'platform=true\nmigrations=false\nhr=true' \
+  ".github/scripts/deploy-baseline.mjs"
+run_case \
+  "deploy scope script" \
+  $'platform=true\nmigrations=false\nhr=true' \
+  ".github/scripts/detect-deploy-scope.sh"

@@ -28,9 +28,6 @@ jobs:
           shellcheck: false
           pyflakes: false
 
-      - name: 測試 Deploy 變更範圍
-        run: bash .github/scripts/test-deploy-scope.sh
-
       # 版本從 package.json 的 packageManager 欄位讀，不在這裡再寫一次。
       - uses: pnpm/action-setup@v6
 
@@ -39,6 +36,11 @@ jobs:
           # 測試用 node:sqlite 當 D1 的替身，需要 Node 24 才是內建可用。
           node-version: 24
           cache: pnpm
+
+      - name: 測試 Deploy 變更範圍與已部署基準
+        run: |
+          bash .github/scripts/test-deploy-scope.sh
+          node --test .github/scripts/deploy-baseline.test.mjs
 
       - run: pnpm install --frozen-lockfile
 
