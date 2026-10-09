@@ -76,9 +76,12 @@ describe("支援人員逐日計薪依據", () => {
     const hourly = renderToStaticMarkup(createElement(PayrollWorkerWorkSummary, { worker: { payBasis: "hourly" } as PayrollWorker, details }));
 
     expect(daily).toContain("日薪計薪日期");
+    expect(daily).toContain("1 天");
     expect(daily).toContain("2026-09-03");
+    expect(daily).not.toMatch(/<details\b[^>]*\bopen(?:=|\s|>)/);
     expect(hourly).toContain("時薪逐日工時");
     expect(hourly).toContain("排班 8 小時・計薪 4 小時");
+    expect(hourly).not.toMatch(/<details\b[^>]*\bopen(?:=|\s|>)/);
   });
 
   it("舊試算沒有逐日工時時明確標示，不回推猜測", () => {
