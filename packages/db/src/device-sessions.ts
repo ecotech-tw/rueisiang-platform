@@ -13,6 +13,8 @@ import { authDeviceSessions } from "./schema/auth.js";
 
 const USER_AGENT_MAX_LENGTH = 200;
 
+export type DeviceSessionAuthMethod = "device" | "line_liff";
+
 function secondsLater(now: Date, seconds: number): string {
   return new Date(now.getTime() + seconds * 1000).toISOString();
 }
@@ -22,14 +24,16 @@ export async function createDeviceSession(
   db: Database,
   userId: string,
   userAgent: string,
-  now = new Date(),
+  options: { authMethod?: DeviceSessionAuthMethod; now?: Date } = {},
 ): Promise<DeviceToken> {
+  const now = options.now ?? new Date();
   const token = newDeviceToken();
   await db.insert(authDeviceSessions).values({
     id: token.id,
     userId,
     tokenHash: await hashDeviceSecret(token.secret),
     userAgent: userAgent.slice(0, USER_AGENT_MAX_LENGTH),
+    authMethod: options.authMethod ?? "device",
     rotatedAt: now.toISOString(),
     expiresAt: secondsLater(now, DEVICE_SESSION_IDLE_SECONDS),
   });
@@ -38,6 +42,7 @@ export async function createDeviceSession(
 
 export interface DeviceSessionUse {
   userId: string;
+  authMethod: DeviceSessionAuthMethod;
   /** 這次換了新的 secret 時才有值，呼叫端要把它寫回 cookie。 */
   renewed: DeviceToken | null;
 }
@@ -69,7 +74,7 @@ export async function useDeviceSession(
   const sinceRotation = (now.getTime() - Date.parse(row.rotatedAt)) / 1000;
 
   if (hash === row.tokenHash) {
-    if (sinceRotation < DEVICE_SESSION_ROTATE_SECONDS) return { userId: row.userId, renewed: null };
+    if (sinceRotation < DEVICE_SESSION_ROTATE_SECONDS) return { userId: row.userId, authMethod: row.authMethod, renewed: null };
 
     const renewed = newDeviceToken();
     /*
@@ -87,11 +92,11 @@ export async function useDeviceSession(
       })
       .where(and(eq(authDeviceSessions.id, row.id), eq(authDeviceSessions.tokenHash, hash)))
       .returning({ id: authDeviceSessions.id });
-    return { userId: row.userId, renewed: updated.length ? { id: row.id, secret: renewed.secret } : null };
+    return { userId: row.userId, authMethod: row.authMethod, renewed: updated.length ? { id: row.id, secret: renewed.secret } : null };
   }
 
   if (hash === row.previousTokenHash && sinceRotation <= DEVICE_SESSION_REUSE_GRACE_SECONDS) {
-    return { userId: row.userId, renewed: null };
+    return { userId: row.userId, authMethod: row.authMethod, renewed: null };
   }
 
   // 過了緩衝還拿舊值來，代表有兩個地方持有同一台裝置的憑證：整台撤銷，逼真正的主人重新登入。
@@ -111,4 +116,15 @@ export async function revokeUserDeviceSessions(db: Database, userId: string, now
     .update(authDeviceSessions)
     .set({ revokedAt: now.toISOString() })
     .where(and(eq(authDeviceSessions.userId, userId), isNull(authDeviceSessions.revokedAt)));
+}
+
+export async function revokeUserLineLiffSessions(db: Database, userId: string, now = new Date()): Promise<void> {
+  await db
+    .update(authDeviceSessions)
+    .set({ revokedAt: now.toISOString() })
+    .where(and(
+      eq(authDeviceSessions.userId, userId),
+      eq(authDeviceSessions.authMethod, "line_liff"),
+      isNull(authDeviceSessions.revokedAt),
+    ));
 }

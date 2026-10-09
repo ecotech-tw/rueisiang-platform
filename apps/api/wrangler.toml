@@ -89,6 +89,8 @@ custom_domain = true
 
 # 出金表：執行本身跑在帳務 repo 的 GitHub Actions 上，平台只負責觸發與查狀態。
 # CYBERBIZ 帳密、Gmail 與 Drive 的授權都留在那邊的 Actions secrets，這裡碰不到。
+# Configure non-secret LINE_LIFF_CHANNEL_ID in the Cloudflare Worker settings when enabling HR LIFF;
+# keep_vars = true preserves the dashboard value; keep it out of this file so deploys cannot replace it with a placeholder.
 [vars]
 PUBLIC_APP_URL = "https://platform.rueisiang.com"
 AUTH_COOKIE_DOMAIN = ".rueisiang.com"

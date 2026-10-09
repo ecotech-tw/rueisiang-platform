@@ -1,4 +1,4 @@
-import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie } from "@rueisiang/auth";
+import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie, verifySession } from "@rueisiang/auth";
 import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
   cancelHrFormRequest, createHrCompensationVersion, deleteHrFormRequestDraft, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview, getHrPerson,
@@ -18,7 +18,7 @@ import {
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
-  createDeviceSession, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession,
+  createDeviceSession, findUserByLineIdentity, getLineAccountLink, isHrEmployee, linkLineAccount, loadAuthUser, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession, revokeUserLineLiffSessions, replaceLineAccount, unlinkLineAccount, useDeviceSession,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -28,6 +28,7 @@ import { GoogleMapsSearchError, searchGooglePlaces } from "../google-maps.js";
 import { DEVICE_COOKIE_PATH, clearDeviceCookie, deviceCookie, requireAnyPermission, requireAuth, requirePermission, requireSelfAuth } from "../middleware/auth.js";
 import { sessionUserPayload } from "./auth.js";
 import { body, requireString } from "../request.js";
+import { clearLineLinkIntentCookie, createLineLinkIntentCookie, LINE_LIFF_INTENT_COOKIE, LineLiffError, readLineLinkIntent, verifyLineIdToken } from "../line-liff.js";
 
 function text(input: Record<string, unknown>, key: string, label: string, max = 100) {
   const value = requireString(input, key, label);
@@ -515,18 +516,115 @@ function nextTaipeiDate(value: string) {
   return formatTaipeiDate(new Date(`${value}T00:00:00.000Z`).getTime() + 86_400_000);
 }
 
+function isLineLiffBootstrapPath(path: string) {
+  return path === `${DEVICE_COOKIE_PATH}/liff-session`;
+}
+
 function isSelfServicePath(path: string) {
   return path === DEVICE_COOKIE_PATH || path.startsWith(`${DEVICE_COOKIE_PATH}/`);
 }
 
+function requireLineLiffChannelId(env: AppEnv["Bindings"]): string {
+  const channelId = env.LINE_LIFF_CHANNEL_ID?.trim();
+  if (!channelId) throw new HTTPException(503, { message: "LINE 打卡尚未完成伺服器設定，請聯絡管理者。" });
+  return channelId;
+}
+
+async function verifiedLineIdentity(idToken: string, channelId: string) {
+  try {
+    return await verifyLineIdToken(idToken, channelId);
+  } catch (error) {
+    if (error instanceof LineLiffError) throw new HTTPException(error.status, { message: error.message });
+    throw error;
+  }
+}
+
 export const hr = new Hono<AppEnv>()
-  // 本人入口也認「記住這台手機」；其餘管理路由一律要 12 小時 session。
-  .use("*", (c, next) => isSelfServicePath(c.req.path) ? requireSelfAuth(c, next) : requireAuth(c, next))
+  // LINE bootstrap 僅接受已驗證 ID token；本人 API 可用受限 LIFF device session，其餘仍需一般 session。
+  .use("*", (c, next) => isLineLiffBootstrapPath(c.req.path) ? next() : isSelfServicePath(c.req.path) ? requireSelfAuth(c, next) : requireAuth(c, next))
   .onError((error, c) => {
     if (error instanceof HrError || error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     throw error;
   })
-  .get("/me/session", async (c) => c.json({ ...await sessionUserPayload(c.get("db"), c.get("user")), deviceRemembered: c.get("deviceSession") }))
+  .post("/me/liff-session", async (c) => {
+    const input = await body(c);
+    const channelId = requireLineLiffChannelId(c.env);
+    const identity = await verifiedLineIdentity(text(input, "idToken", "LINE 登入憑證", 16_000), channelId);
+    const userId = await findUserByLineIdentity(c.get("db"), identity);
+    const rawDevice = readCookie(c.req.header("Cookie"), DEVICE_SESSION_COOKIE);
+
+    if (!userId) {
+      await revokeDeviceSession(c.get("db"), rawDevice);
+      c.header("Set-Cookie", clearDeviceCookie(), { append: true });
+      c.header("Set-Cookie", await createLineLinkIntentCookie(identity, c.env.AUTH_SESSION_SECRET), { append: true });
+      return c.json({ linked: false });
+    }
+
+    const user = await loadAuthUser(c.get("db"), { id: userId });
+    if (!user || user.status !== "active" || !await isHrEmployee(c.get("db"), userId)) {
+      await revokeDeviceSession(c.get("db"), rawDevice);
+      c.header("Set-Cookie", clearDeviceCookie(), { append: true });
+      throw new HTTPException(403, { message: "LINE 打卡僅限在職員工使用。" });
+    }
+
+    const currentDevice = await useDeviceSession(c.get("db"), rawDevice);
+    if (currentDevice?.userId === userId && currentDevice.authMethod === "line_liff") {
+      if (currentDevice.renewed) c.header("Set-Cookie", deviceCookie(currentDevice.renewed), { append: true });
+    } else {
+      if (rawDevice) await revokeDeviceSession(c.get("db"), rawDevice);
+      const token = await createDeviceSession(c.get("db"), userId, c.req.header("User-Agent") ?? "", { authMethod: "line_liff" });
+      c.header("Set-Cookie", deviceCookie(token), { append: true });
+    }
+
+    const claims = await verifySession(readCookie(c.req.header("Cookie"), SESSION_COOKIE), c.env.AUTH_SESSION_SECRET);
+    if (claims && claims.userId !== userId) c.header("Set-Cookie", clearCookie(SESSION_COOKIE, "/", c.env.AUTH_COOKIE_DOMAIN), { append: true });
+    c.header("Set-Cookie", clearLineLinkIntentCookie(), { append: true });
+    return c.json({ linked: true });
+  })
+  .get("/liff/link", async (c) => {
+    const userId = c.get("user").id;
+    const link = await getLineAccountLink(c.get("db"), userId);
+    const channelId = c.env.LINE_LIFF_CHANNEL_ID?.trim() ?? "";
+    const intent = await readLineLinkIntent(readCookie(c.req.header("Cookie"), LINE_LIFF_INTENT_COOKIE), c.env.AUTH_SESSION_SECRET, channelId);
+    return c.json({ linked: Boolean(link), pending: Boolean(intent) });
+  })
+  .post("/liff/link", async (c) => {
+    const input = await body(c);
+    const channelId = requireLineLiffChannelId(c.env);
+    const rawIntent = readCookie(c.req.header("Cookie"), LINE_LIFF_INTENT_COOKIE);
+    const intent = await readLineLinkIntent(rawIntent, c.env.AUTH_SESSION_SECRET, channelId);
+    if (input.idToken !== undefined && typeof input.idToken !== "string") throw new HTTPException(400, { message: "LINE 登入憑證格式不正確。" });
+    if (input.replaceExisting !== undefined && typeof input.replaceExisting !== "boolean") throw new HTTPException(400, { message: "LINE 替換綁定設定格式不正確。" });
+    const replaceExisting = input.replaceExisting === true;
+    const idToken = typeof input.idToken === "string" && input.idToken.trim() ? text(input, "idToken", "LINE 登入憑證", 16_000) : null;
+    const identity = idToken ? await verifiedLineIdentity(idToken, channelId) : intent;
+    if (!identity) throw new HTTPException(400, { message: "LINE 綁定驗證已逾時，請重新從 LINE 開啟打卡頁。" });
+    if (intent && idToken && (identity.channelId !== intent.channelId || identity.lineUserId !== intent.lineUserId)) {
+      throw new HTTPException(400, { message: "LINE 身分與本次登入流程不一致，請重新開始綁定。" });
+    }
+    const userId = c.get("user").id;
+    if (!await isHrEmployee(c.get("db"), userId)) throw new HTTPException(403, { message: "LINE 打卡僅限在職員工使用。" });
+    const linked = replaceExisting
+      ? await replaceLineAccount(c.get("db"), userId, identity)
+      : await linkLineAccount(c.get("db"), userId, identity);
+    if (linked === "conflict") throw new HTTPException(409, { message: "此 LINE 或平台帳號已綁定其他身分，請聯絡 HR 管理者處理。" });
+
+    if (linked === "replaced") await revokeUserLineLiffSessions(c.get("db"), userId);
+    if (linked === "created" || linked === "replaced") {
+      const token = await createDeviceSession(c.get("db"), userId, c.req.header("User-Agent") ?? "", { authMethod: "line_liff" });
+      c.header("Set-Cookie", deviceCookie(token), { append: true });
+    }
+    c.header("Set-Cookie", clearLineLinkIntentCookie(), { append: true });
+    return c.json({ linked: true }, linked === "created" ? 201 : 200);
+  })
+  .delete("/me/liff-link", async (c) => {
+    const userId = c.get("user").id;
+    await unlinkLineAccount(c.get("db"), userId);
+    await revokeUserLineLiffSessions(c.get("db"), userId);
+    if (c.get("lineLiffSession")) c.header("Set-Cookie", clearDeviceCookie(), { append: true });
+    return c.json({ unlinked: true });
+  })
+  .get("/me/session", async (c) => c.json({ ...await sessionUserPayload(c.get("db"), c.get("user")), deviceRemembered: c.get("deviceSession"), lineLiffAuthenticated: c.get("lineLiffSession") }))
   .get("/me/notifications", async (c) => {
     const limit = c.req.query("limit") === undefined ? 50 : calendarNumber(c.req.query("limit"), 50, "通知筆數", 1, 100);
     return c.json(await listHrNotifications(c.get("db"), c.get("user").id, limit));
@@ -574,7 +672,7 @@ export const hr = new Hono<AppEnv>()
     if (!canViewOverview || !await isHrAdministrator(c.get("db"), user.id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以檢視 HRIS 概覽。" });
     return c.json(await getHrOverview(c.get("db")));
   })
-  .get("/me/clock-events", async (c) => c.json(await getHrClockStatus(c.get("db"), c.get("user").id)))
+  .get("/me/clock-events", async (c) => c.json(await getHrClockStatus(c.get("db"), c.get("user").id, { requireGeolocation: c.get("lineLiffSession") })))
   .get("/me/attendance-calendar", async (c) => {
     const fallback = currentTaipeiYearMonth();
     const year = calendarNumber(c.req.query("year"), fallback.year, "年份", 1900, 9999);
@@ -586,7 +684,7 @@ export const hr = new Hono<AppEnv>()
     const latitudeE7 = coordinate(input, "latitude", "緯度", 90);
     const longitudeE7 = coordinate(input, "longitude", "經度", 180);
     if (latitudeE7 === null || longitudeE7 === null) throw new HTTPException(400, { message: "請先取得完整的目前定位。" });
-    return c.json(await checkHrClockLocation(c.get("db"), c.get("user").id, latitudeE7, longitudeE7));
+    return c.json(await checkHrClockLocation(c.get("db"), c.get("user").id, latitudeE7, longitudeE7, { requireGeolocation: c.get("lineLiffSession") }));
   })
   .get("/me/attendance-map/locations", async (c) => c.json({ locations: await getHrClockMapCenters(c.get("db"), c.get("user").id) }))
   .get("/me/attendance-map", async (c) => {
@@ -617,6 +715,7 @@ export const hr = new Hono<AppEnv>()
       idempotencyKey: text(input, "idempotencyKey", "請求識別碼", 200),
       latitudeE7,
       longitudeE7,
+      sourceKind: c.get("lineLiffSession") ? "line" : "portal",
     }, c.get("user"));
     return c.json(result, result.idempotent ? 200 : 201);
   })

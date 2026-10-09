@@ -85,6 +85,7 @@ export const authDeviceSessions = sqliteTable("auth_device_sessions", {
   tokenHash: text("token_hash").notNull(),
   previousTokenHash: text("previous_token_hash"),
   userAgent: text("user_agent").notNull().default(""),
+  authMethod: text("auth_method", { enum: ["device", "line_liff"] as const }).notNull().default("device"),
   rotatedAt: text("rotated_at").notNull(),
   expiresAt: text("expires_at").notNull(),
   revokedAt: text("revoked_at"),
@@ -92,6 +93,18 @@ export const authDeviceSessions = sqliteTable("auth_device_sessions", {
 }, (table) => [
   uniqueIndex("idx_auth_device_sessions_token_hash").on(table.tokenHash),
   index("idx_auth_device_sessions_user_id").on(table.userId),
+]);
+
+/** LINE Login 的 ID token subject；不在此保存 access token 或 LINE profile。 */
+export const authLineAccountLinks = sqliteTable("auth_line_account_links", {
+  userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  channelId: text("channel_id").notNull(),
+  lineUserId: text("line_user_id").notNull(),
+  linkedAt: text("linked_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_auth_line_account_links_identity").on(table.channelId, table.lineUserId),
+  check("ck_auth_line_account_links_channel_id", sql`length(trim(${table.channelId})) BETWEEN 1 AND 100`),
+  check("ck_auth_line_account_links_line_user_id", sql`length(trim(${table.lineUserId})) BETWEEN 1 AND 255`),
 ]);
 
 export const GLOBAL_SCOPE = "";

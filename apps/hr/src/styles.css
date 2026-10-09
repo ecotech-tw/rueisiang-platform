@@ -41,3 +41,37 @@
   code { font-size: 12px; }
   h1, h2, h3 { font-weight: 700; }
 }
+
+.hr-liff-startup-error {
+  min-height: 100vh;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+}
+.hr-liff-startup-error p { max-width: 34rem; color: var(--color-muted); }
+.hr-liff-startup-error button {
+  min-height: 48px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-brand);
+  color: white;
+  font-weight: 700;
+}
+.hr-liff-startup-error button:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 3px; }
+
+.hr-liff-link-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
+.hr-liff-link-card { width: min(100%, 480px); display: grid; gap: 16px; padding: clamp(22px, 5vw, 36px); }
+.hr-liff-link-card h1 { margin: 0; font-size: 24px; }
+.hr-liff-link-card > p { margin: 0; color: var(--color-muted); }
+.hr-liff-link-mark { justify-self: start; padding: 5px 10px; border-radius: 999px; background: #06c755; color: white; font-size: 12px; font-weight: 800; letter-spacing: .04em; }
+.hr-liff-link-account { display: grid; gap: 0; margin: 0; border-block: 1px solid var(--color-line); }
+.hr-liff-link-account > div { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 12px; padding: 12px 0; }
+.hr-liff-link-account > div + div { border-top: 1px solid var(--color-soft-line); }
+.hr-liff-link-account dt { color: var(--color-muted); }
+.hr-liff-link-account dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-weight: 700; }
+.hr-liff-link-confirm { min-height: 48px; }
+.hr-liff-link-card > small { color: var(--color-muted); }

@@ -307,9 +307,12 @@ export {
   createDeviceSession,
   revokeDeviceSession,
   revokeUserDeviceSessions,
+  revokeUserLineLiffSessions,
   useDeviceSession,
+  type DeviceSessionAuthMethod,
   type DeviceSessionUse,
 } from "./device-sessions.js";
+export { findUserByLineIdentity, getLineAccountLink, linkLineAccount, replaceLineAccount, unlinkLineAccount, type LineAccountIdentity } from "./line-liff.js";
 export { syncSystemRoles } from "./seed.js";
 export {
   acceptInvitation,

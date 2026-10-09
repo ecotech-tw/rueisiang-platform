@@ -1415,6 +1415,13 @@
       "when": 1791525708240,
       "tag": "0225_steep_deathbird",
       "breakpoints": true
+    },
+    {
+      "idx": 226,
+      "version": "6",
+      "when": 1791558578180,
+      "tag": "0226_odd_northstar",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState } from "react";
+import { useSession, useSignOut } from "../../auth/session.js";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -282,15 +283,21 @@ function ClockOfficeCard({ status, check }: { status?: ClockStatus; check?: Cloc
 
 export function HrClock() {
   usePageTitle("打卡日曆");
+  const { user } = useSession();
+  const lineLiffAuthenticated = Boolean(user?.lineLiffAuthenticated);
   const query = useHrQuery<ClockStatus>("/me/clock-events");
   const routeLocation = useLocation();
   const clock = useHrWrite();
+  const unlink = useHrWrite<{ unlinked: boolean }>();
+  const signOut = useSignOut();
   const locationCheck = useHrWrite<ClockLocationCheck>();
   const [now, setNow] = useState(() => new Date());
   const [locationRequested, setLocationRequested] = useState(false);
   const [locating, setLocating] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [unlinkConfirmOpen, setUnlinkConfirmOpen] = useState(false);
+  const [unlinkError, setUnlinkError] = useState("");
   const confirmCloseRef = useRef<(() => void) | null>(null);
   const [successMessage, setSuccessMessage] = useState("");
   const status = query.data;
@@ -375,6 +382,17 @@ export function HrClock() {
     await clockInOrOut();
   }
 
+  async function confirmUnlinkLine() {
+    setUnlinkError("");
+    try {
+      await unlink.mutateAsync({ path: "/me/liff-link", method: "DELETE", values: {} });
+      await signOut();
+    } catch (error) {
+      setUnlinkError(error instanceof Error ? error.message : "解除 LINE 綁定失敗，請稍後再試。");
+      setUnlinkConfirmOpen(false);
+    }
+  }
+
   useEffect(() => {
     if (!successMessage) return;
     const timer = window.setTimeout(() => setSuccessMessage(""), 3_200);
@@ -397,15 +415,17 @@ export function HrClock() {
           {clock.isPending || locating ? <span className="hr-clock-action-loading">…</span> : <Icon name="clock" />}
         </button>
         <ClockOfficeCard status={status} check={visibleLocationCheck} />
-        <nav className="hr-clock-deep-links" aria-label="打卡詳細資料">
+        {!lineLiffAuthenticated ? <nav className="hr-clock-deep-links" aria-label="打卡詳細資料">
           <NavLink to="/clock/calendar" aria-label="出勤日曆"><Icon name="calendar" /><span>出勤日曆</span></NavLink>
           <NavLink to="/clock/logs" aria-label="打卡紀錄"><Icon name="history" /><span>打卡紀錄</span></NavLink>
-        </nav>
+        </nav> : null}
         {lastEvent ? <p className="hr-clock-last-event">最近一次：{lastEvent.eventKind === "clock_out" ? "下班" : "上班"}・{formatTaipei(lastEvent.occurredAt)}</p> : <p className="hr-clock-last-event">今天尚未打卡。</p>}
         {(demoLocationFailed || status?.geolocationRequired) && (visibleLocationError || outsideOffice) ? <Button className="hr-clock-retry-action hr-action-info" variant="secondary" disabled={!status?.canClock || locating} onClick={() => { void verifyLocation(); }}>重新定位</Button> : null}
+        {lineLiffAuthenticated ? <Button variant="link" disabled={unlink.isPending} onClick={() => setUnlinkConfirmOpen(true)}>解除 LINE 綁定</Button> : null}
       </div>
-      {successMessage || status?.message || query.error || visibleLocationError || clock.error ? <div className="hr-clock-feedback-corner">
+      {successMessage || status?.message || query.error || visibleLocationError || clock.error || unlinkError ? <div className="hr-clock-feedback-corner">
         {successMessage ? <Alert tone="success">{successMessage}</Alert> : null}
+        {unlinkError ? <Alert tone="danger">{unlinkError}</Alert> : null}
         {status?.message ? <p className="hr-clock-blocked">{status.message}</p> : null}
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
         {visibleLocationError ? <Alert tone="danger">{visibleLocationError}</Alert> : null}
@@ -414,6 +434,9 @@ export function HrClock() {
     </section>
     {confirmOpen ? <Dialog title="確認打卡" role="alertdialog" portal={false} onClose={closeConfirm} closeRequestRef={confirmCloseRef} actions={<><Button variant="secondary" onClick={closeConfirm}>取消</Button><Button onClick={() => { (confirmCloseRef.current ?? closeConfirm)(); void confirmClock(); }}>確認{actionLabel}打卡</Button></>}>
       <p>確定要{actionLabel}打卡嗎？</p>
+    </Dialog> : null}
+    {unlinkConfirmOpen ? <Dialog title="解除 LINE 打卡綁定？" role="alertdialog" portal={false} onClose={() => setUnlinkConfirmOpen(false)} actions={<><Button variant="secondary" onClick={() => setUnlinkConfirmOpen(false)}>取消</Button><Button variant="danger" disabled={unlink.isPending} onClick={() => void confirmUnlinkLine()}>{unlink.isPending ? "解除中…" : "解除並登出"}</Button></>}>
+      <p>解除後會撤銷 LINE 打卡登入。下次使用時需重新以公司帳號登入並綁定 LINE。</p>
     </Dialog> : null}
   </div>;
 }

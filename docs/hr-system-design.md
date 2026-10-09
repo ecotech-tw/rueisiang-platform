@@ -8,13 +8,14 @@
 
 | 領域 | 唯一來源／邊界 |
 |---|---|
-| 帳號 | `users` 保存姓名、Email 與 `status`；停用帳號和員工封存是兩個操作 |
+| 帳號 | `users` 保存姓名、Email 與 `status`；停用帳號和員工封存是兩個操作。LINE LIFF 關聯由 `auth_line_account_links` 保存 LINE Login channel 與已驗證 subject，不保存 LINE access token 或前端 profile |
 | 員工主檔 | `hr_employments`；員工編號、目前職位、主管與 `archived_at` 都在同一列 |
 | 出勤 | `hr_employment_attendance_settings`、工作範圍、辦公位置與 append-only clock events |
 | 敘薪／保險 | `hr_compensation_versions`、`hr_insurance_versions` 自己維護版本，不因職位更新自動新增版本 |
 | 排班／假勤／加班／獎金／薪資 | 以穩定 `employmentId` 關聯，保留各領域自己的快照、版本與稽核歷史 |
 | 操作稽核 | 共用 `activity_events`；既有 `hr_employment_actions` 僅作歷史保留，不再作為目前狀態來源 |
 | 權限 | `packages/auth/src/permissions.ts` 是唯一來源；後端每次請求重新判定，不信任前端顯示 |
+| LIFF 登入 | `auth_device_sessions.auth_method='line_liff'` 與一般記住裝置分開標記；只可使用 HR 打卡與定位 API，且每次請求確認帳號 active、員工任職有效 |
 
 ## 二、員工資料模型
 
@@ -110,6 +111,8 @@ RETURNING id;
 5. `0180` 在沒有 FK 依賴後才移除 `hr_employees`。
 
 `hr_employment_actions` 與共用 activity history 保留；migration 測試以 D1 transaction 模式驗證舊 employment ID、下游 FK、trigger、`foreign_key_check` 與已封存列。不得把 generated migration SQL 事後改成另一份 schema；必要的資料搬移另以獨立 migration 檔案保存。
+
+`0226` 新增 LINE 帳號唯一關聯，並以 `ALTER TABLE ADD COLUMN` 為既有裝置 session 加上認證來源，舊資料預設為一般 `device`；migration 測試驗證舊 session 保留、LINE identity 唯一與 FK 完整。
 
 ## 六、API、權限與 UI
 
