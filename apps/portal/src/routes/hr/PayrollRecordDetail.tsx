@@ -179,15 +179,18 @@ function payrollHours(hours: number): string {
 }
 
 function payrollWorkerWorkDayBasisLabel(day: PayrollWorkerWorkDay): string {
-  if (day.payBasis === "daily") return day.allocatedUnits > 0 ? "納入日薪計算" : "日薪・未分配";
+  if (day.payBasis === "daily") return day.allocatedUnits > 0
+    ? day.allocatedUnits === 1 ? "納入日薪計算" : `日薪 × ${day.allocatedUnits.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 單位`
+    : "日薪・未分配";
   if (day.payBasis === "hourly") return day.scheduledHours === null || day.payableHours === null
     ? "時薪・工時未保存"
     : `時薪・排班 ${payrollHours(day.scheduledHours)}・計薪 ${payrollHours(day.payableHours)}`;
   return day.payBasis === "monthly" ? "月薪計算" : "當日敘薪方式未保存";
 }
 
-function PayrollWorkerWorkSummaryDisclosure({ title, count, emptyMessage, children }: { title: string; count: number; emptyMessage: string; children: ReactNode }) {
-  const heading = <><strong>{title}</strong><span className="hr-payroll-worker-work-summary-count">{count} 天</span></>;
+function PayrollWorkerWorkSummaryDisclosure({ title, count, countDetail, emptyMessage, children }: { title: string; count: number; countDetail?: string; emptyMessage: string; children: ReactNode }) {
+  const countLabel = countDetail ? `${count} 天・${countDetail}` : `${count} 天`;
+  const heading = <><strong>{title}</strong><span className="hr-payroll-worker-work-summary-count">{countLabel}</span></>;
   if (!count) return <><div className="hr-payroll-worker-work-summary-head">{heading}</div><p>{emptyMessage}</p></>;
   return <details className="hr-payroll-worker-work-summary-details">
     <summary className="hr-payroll-worker-work-summary-head hr-payroll-worker-work-summary-trigger">{heading}<span className="hr-payroll-disclosure-marker" aria-hidden="true"><Icon name="chevronDown" /></span></summary>
@@ -199,9 +202,10 @@ export function PayrollWorkerWorkSummary({ worker, details }: { worker: PayrollW
   const workDays = payrollWorkerWorkDays(details);
   if (worker.payBasis === "daily") {
     const payableDays = workDays.filter((day) => day.allocatedUnits > 0);
+    const allocatedUnits = payableDays.reduce((sum, day) => sum + day.allocatedUnits, 0);
     return <section className="hr-payroll-worker-work-summary" aria-label="日薪計薪日期">
-      <PayrollWorkerWorkSummaryDisclosure title="日薪計薪日期" count={payableDays.length} emptyMessage={details.length ? "本期沒有可計薪日期。" : "此筆歷史快照未保存逐日排班資料。"}>
-        <ul>{payableDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>納入日薪計算</strong></li>)}</ul>
+      <PayrollWorkerWorkSummaryDisclosure title="日薪計薪日期" count={payableDays.length} countDetail={`${allocatedUnits.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 單位`} emptyMessage={details.length ? "本期沒有可計薪日期。" : "此筆歷史快照未保存逐日排班資料。"}>
+        <ul>{payableDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{payrollWorkerWorkDayBasisLabel(day)}</strong></li>)}</ul>
       </PayrollWorkerWorkSummaryDisclosure>
     </section>;
   }
