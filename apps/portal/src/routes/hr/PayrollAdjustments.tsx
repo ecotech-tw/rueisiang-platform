@@ -10,6 +10,12 @@ interface AdjustmentItemDraft { key: string; itemName: string; direction: "earni
 
 type PersonnelWithEmployment = Employee & { employmentId: string };
 
+export function payrollAdjustmentPersonnelLabel(person: Pick<Employee, "personKind" | "employeeNumber" | "legalName">): string {
+  if (person.personKind !== "worker") return hrEmployeeLabel(person);
+  const name = person.legalName.trim();
+  return name ? `${name}（支援人員）・${person.employeeNumber}` : `${person.employeeNumber}（支援人員）`;
+}
+
 function taipeiMonth() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
   return `${parts.find((item) => item.type === "year")?.value ?? ""}-${parts.find((item) => item.type === "month")?.value ?? ""}`;
@@ -106,7 +112,7 @@ function PayrollAdjustmentDialog({
   >
     <p className="form-hint hr-payroll-adjustment-dialog-note">這筆加扣項會在生效月份試算時自動帶入，可用於一次性獎金、補發或扣款。</p>
     <div className="form-grid two">
-      <SelectField label="人員" value={employmentId} required searchable options={[{ value: "", label: employeesPending ? "正在載入人員…" : "請選擇人員" }, ...personnelOptions.map((person) => ({ value: person.employmentId, label: `${hrEmployeeLabel(person)}${person.personKind === "worker" ? "（支援人員）" : ""}` }))]} onChange={(event) => setEmploymentId(event.target.value)} />
+      <SelectField label="人員" value={employmentId} required searchable options={[{ value: "", label: employeesPending ? "正在載入人員…" : "請選擇人員" }, ...personnelOptions.map((person) => ({ value: person.employmentId, label: payrollAdjustmentPersonnelLabel(person) }))]} onChange={(event) => setEmploymentId(event.target.value)} />
       <TextField label="生效薪資月份" type="month" value={effectivePeriodKey} required onChange={(event) => setEffectivePeriodKey(event.target.value)} />
     </div>
     <div className="hr-payroll-adjustment-items">
