@@ -279,6 +279,7 @@ export const hrPayrollWorkerResults = sqliteTable("hr_payroll_worker_results", {
   overtimeMinor: integer("overtime_minor").notNull().default(0),
   overtimeSeconds: integer("overtime_seconds").notNull().default(0),
   overtimeExplanationJson: text("overtime_explanation_json").notNull().default("{}"),
+  payrollLinesJson: text("payroll_lines_json").notNull().default("[]"),
   /** 支援人員的班別薪資分配快照，供結帳後稽核；舊結果為空陣列。 */
   scheduleAllocationJson: text("schedule_allocation_json").notNull().default("[]"),
   typhoonStopDays: integer("typhoon_stop_days").notNull().default(0),

@@ -8,7 +8,7 @@ import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes
 import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributionRules, listHrInsuranceContributionRules, resolveHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
-import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, payrollSpecialWorkdaySourceStatements, specialWorkdayAllowanceTotal } from "./hr-special-workdays.js";
+import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, payrollSpecialWorkdaySourceStatements } from "./hr-special-workdays.js";
 import { HrError, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { listEffectiveDailyPayouts } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
@@ -188,7 +188,7 @@ export interface HrPayrollRunResult {
   engineVersion: string;
   withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null;
   employees: HrPayrollEmployeeResult[];
-  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] }>;
+  workers: Array<{ workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; lines: HrPayrollLineResult[]; overtimeMinor?: number; overtimeSeconds?: number; overtimeExplanation?: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] }>;
   warnings: string[];
 }
 
@@ -876,7 +876,14 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
       } catch {
         overtimeExplanation = {};
       }
-      return { workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, ...(worker.overtimeMinor || worker.overtimeSeconds ? { overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanation } : {}), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor, compensationVersionId: worker.compensationVersionId, scheduleAllocationDetails };
+      let lines: HrPayrollLineResult[] = [];
+      try {
+        const parsed = JSON.parse(worker.payrollLinesJson) as unknown;
+        if (Array.isArray(parsed)) lines = parsed as HrPayrollLineResult[];
+      } catch {
+        lines = [];
+      }
+      return { workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, lines, ...(worker.overtimeMinor || worker.overtimeSeconds ? { overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanation } : {}), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor, compensationVersionId: worker.compensationVersionId, scheduleAllocationDetails };
     }),
     warnings: [...new Set([...(hasInsuranceDeduction ? [] : [PAYROLL_DEMO_WARNING]), ...persistedWarnings, ...warnings])],
   };
@@ -1335,7 +1342,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       }
     }
   }
-  type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; overtimeMinor: number; overtimeSeconds: number; overtimeExplanation: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] };
+  type WorkerStatement = { workerId: string; workerName: string; payBasis: "monthly" | "daily" | "hourly" | "mixed"; scheduledDays: number; amountMinor: number; lines: HrPayrollLineResult[]; overtimeMinor: number; overtimeSeconds: number; overtimeExplanation: Record<string, unknown>; typhoonStopDays: number; typhoonStopPayMinor: number; compensationVersionId: string | null; scheduleAllocationDetails: ScheduleAllocationDetail[] };
   const workerStatements = new Map<string, WorkerStatement>();
   const workerRowsById = new Map<string, typeof scheduledWorkerRows>();
   for (const row of scheduledWorkerRows) workerRowsById.set(row.workerId, [...(workerRowsById.get(row.workerId) ?? []), row]);
@@ -1346,8 +1353,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     const compensationIds = new Set<string>();
     const payBases = new Set<"monthly" | "daily" | "hourly">();
     let amountMinor = 0;
+    let baseMinor = 0;
+    let specialAdjustmentMinor = 0;
     let overtimeMinor = 0;
     let overtimeSeconds = 0;
+    const baseCalculationParts: PayrollCalculationPart[] = [];
+    const specialCalculationParts: PayrollCalculationPart[] = [];
+    const specialAllowanceLines: HrPayrollLineResult[] = [];
     const overtimeCalculationParts: PayrollCalculationPart[] = [];
     const overtimeElapsedByDate = new Map<string, number>();
     const fixedOvertimeSnapshots: Array<{ compensationVersionId: string; overtimeRatePpm: number | null; overtimeHourlyMinor: number | null }> = [];
@@ -1361,6 +1373,11 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       return allocation ? roundScheduleAllocationAmount(amount, allocation.detail.unitNumerator, allocation.detail.unitDenominator) : amount;
     };
     const allocatedDailyAmount = (amount: number, rowsForDate: (typeof rows)[number][]) => Math.min(amount, rowsForDate.reduce((sum, row) => sum + allocatedAmount(amount, row), 0));
+    const recordBaseAmount = (formula: string, amount: number) => {
+      baseMinor += amount;
+      if (amount > 0) baseCalculationParts.push({ formula, amountMinor: amount });
+    };
+    const workerSpecialAssignments = specialWorkdays.filter((item) => item.workerId === workerId).sort((left, right) => left.workDate.localeCompare(right.workDate));
     for (const date of dates) {
       const dateRows = rows.filter((row) => row.workDate === date);
       const dateAllocations = dateRows.map((row) => allocationFor(row)).filter((allocation): allocation is SchedulePayAllocation => Boolean(allocation));
@@ -1372,38 +1389,67 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       }
       compensationIds.add(compensation.id);
       payBases.add(compensation.payBasis);
-      const special = specialWorkdays.find((item) => item.workerId === workerId && item.workDate === date);
+      const special = workerSpecialAssignments.find((item) => item.workDate === date);
       const typhoonRows = typhoonRowsForDate(date, dateRows);
       const typhoonStop = typhoonStopTouchesRows(date, dateRows) && !special;
       if (special) {
         const hours = allocatedHours;
         const requiresHours = special.wageKindSnapshot === "fixed_hourly" || compensation.payBasis === "hourly";
         if (!hours && requiresHours) calculationWarnings.add(`${workerName} 的特殊上班日 ${date} 缺少工時資料，薪資列為異常且不自動補 0。`);
-        else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) amountMinor += Math.round(special.fixedAmountMinorSnapshot * hours);
-        else if (special.multiplierPpmSnapshot !== null) {
+        else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) {
+          const baseAmount = compensation.payBasis === "monthly"
+            ? dateRows.reduce((sum, row) => sum + allocatedAmount(Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), row), 0)
+            : compensation.payBasis === "hourly"
+              ? dateRows.reduce((sum, row) => sum + allocatedAmount(Math.round(compensation.baseAmountMinor * scheduledHours(row)), row), 0)
+              : allocatedDailyAmount(compensation.baseAmountMinor, dateRows);
+          const specialAmount = Math.round(special.fixedAmountMinorSnapshot * hours);
+          amountMinor += specialAmount;
+          recordBaseAmount(`${date}：特殊日原本敘薪依班別分配計算`, baseAmount);
+          const adjustment = specialAmount - baseAmount;
+          specialAdjustmentMinor += adjustment;
+          specialCalculationParts.push({ formula: `${date}・${special.ruleNameSnapshot}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時) − ${payrollFormulaMoney(baseAmount)}`, amountMinor: adjustment });
+        } else if (special.multiplierPpmSnapshot !== null) {
           const allocatedUnits = dateAllocations.length ? Math.min(1, dateAllocations.reduce((sum, allocation) => sum + allocation.detail.allocatedUnits, 0)) : 1;
           const baseAmount = compensation.payBasis === "monthly"
             ? Math.round(compensation.baseAmountMinor / monthlyDivisorDays * allocatedUnits)
             : compensation.payBasis === "hourly"
               ? Math.round(compensation.baseAmountMinor * hours)
               : Math.round(compensation.baseAmountMinor * allocatedUnits);
-          amountMinor += Math.floor(baseAmount * special.multiplierPpmSnapshot / PPM);
+          const specialAmount = Math.floor(baseAmount * special.multiplierPpmSnapshot / PPM);
+          amountMinor += specialAmount;
+          recordBaseAmount(`${date}：特殊日原本敘薪依班別分配計算`, baseAmount);
+          const adjustment = specialAmount - baseAmount;
+          specialAdjustmentMinor += adjustment;
+          specialCalculationParts.push({ formula: `${date}・${special.ruleNameSnapshot}：floor(${payrollFormulaMoney(baseAmount)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)}) − ${payrollFormulaMoney(baseAmount)}`, amountMinor: adjustment });
         }
-        amountMinor += specialWorkdayAllowanceTotal(special.allowanceSnapshotJson, special.allowanceQuantity);
+        for (const [index, allowance] of parseSpecialWorkdayAllowanceSnapshot(special.allowanceSnapshotJson, special.allowanceQuantity).entries()) {
+          const allowanceAmount = allowance.unitAmountMinor * allowance.quantity;
+          if (allowanceAmount <= 0) continue;
+          amountMinor += allowanceAmount;
+          const allowancePart = { formula: `${date}・${special.ruleNameSnapshot}：${allowance.itemName} ${payrollFormulaMoney(allowance.unitAmountMinor)} × ${allowance.quantity} 次`, amountMinor: allowanceAmount };
+          specialAllowanceLines.push({ lineKey: `special_allowance_${date.replaceAll("-", "")}_${index + 1}`, direction: "earning", amountMinor: allowanceAmount, explanation: {
+            rule: special.ruleNameSnapshot, ruleName: special.ruleNameSnapshot, itemName: allowance.itemName, quantity: allowance.quantity,
+            quantities: [{ itemName: allowance.itemName, quantity: allowance.quantity }], allowances: special.allowanceSnapshotJson,
+            calculationParts: [allowancePart], formulaDetail: payrollFormulaTotal([allowancePart], allowanceAmount),
+          } });
+        }
       } else if (compensation.payBasis === "monthly") {
         const amount = dateRows.reduce((sum, row) => sum + allocatedAmount(Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), row), 0);
         amountMinor += amount;
+        recordBaseAmount(`${date}：floor(月薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} ÷ ${monthlyDivisorDays} 天) 按班別分配`, amount);
         const typhoonAmount = typhoonRows.reduce((sum, row) => sum + allocatedAmount(Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), row), 0);
         if (typhoonStop && typhoonAmount > 0) { typhoonStopDays += 1; typhoonStopPayMinor += typhoonAmount; }
       } else if (compensation.payBasis === "daily") {
         const amount = allocatedDailyAmount(compensation.baseAmountMinor, dateRows);
         amountMinor += amount;
+        recordBaseAmount(`${date}：日薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} 按班別分配`, amount);
         const typhoonAmount = allocatedDailyAmount(compensation.baseAmountMinor, typhoonRows);
         if (typhoonStop && typhoonAmount > 0) { typhoonStopDays += 1; typhoonStopPayMinor += typhoonAmount; }
       } else {
         const amount = dateRows.reduce((sum, row) => sum + allocatedAmount(Math.round(compensation.baseAmountMinor * scheduledHours(row)), row), 0);
         const typhoonAmount = typhoonRows.reduce((sum, row) => sum + allocatedAmount(Math.round(compensation.baseAmountMinor * scheduledHours(row)), row), 0);
         amountMinor += amount;
+        recordBaseAmount(`${date}：時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × 分配後 ${payrollFormulaHours(allocatedHours)} 小時`, amount);
         if (typhoonStop && typhoonAmount > 0) { typhoonStopDays += 1; typhoonStopPayMinor += typhoonAmount; }
       }
     }
@@ -1475,13 +1521,25 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     amountMinor += overtimeMinor;
     if (missingCompensation) calculationWarnings.add(`${workerName} 有排班日期找不到有效的支援人員敘薪，該日期薪資為 0。`);
     const payBasis = payBases.size === 1 ? [...payBases][0]! : payBases.size > 1 ? "mixed" : "daily";
+    const overtimeExplanation = {
+      approvedRequests: workerOvertimeRows.filter((row) => row.settlementKind === "pay").length,
+      requestSnapshots: workerOvertimeRows.map((row) => ({ id: row.id, scopeId: row.scopeId, requestedStart: row.requestedStart, requestedEnd: row.requestedEnd, actualStart: row.actualStart, actualEnd: row.actualEnd, settlementKind: row.settlementKind, ratePpm: row.ratePpm })),
+      standardDailyHours, monthlyDivisorDays, fixedOvertimeSnapshots, specialWorkdayRuleSnapshots: [...specialWorkdayRuleSnapshots.values()], calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
+    };
+    const lines: HrPayrollLineResult[] = [{ lineKey: "base_salary", direction: "earning", amountMinor: baseMinor, explanation: {
+      payBasis, rule: "依支援人員有效敘薪、已發布排班與班別分配計算",
+      calculationParts: baseCalculationParts, formulaDetail: payrollFormulaTotal(baseCalculationParts, baseMinor),
+    } }];
+    if (specialAdjustmentMinor !== 0) lines.push({ lineKey: "special_workday", direction: specialAdjustmentMinor > 0 ? "earning" : "deduction", amountMinor: Math.abs(specialAdjustmentMinor), explanation: {
+      rule: "特殊上班日差額：特殊日應發薪資 − 原本薪資",
+      ruleNames: [...new Set(workerSpecialAssignments.map((item) => item.ruleNameSnapshot).filter((name) => name.trim()))],
+      assignmentIds: workerSpecialAssignments.map((item) => item.id),
+      calculationParts: specialCalculationParts, formulaDetail: payrollFormulaTotal(specialCalculationParts, specialAdjustmentMinor),
+    } });
+    lines.push(...specialAllowanceLines);
+    if (overtimeMinor > 0) lines.push({ lineKey: "overtime", direction: "earning", amountMinor: overtimeMinor, explanation: overtimeExplanation });
     workerStatements.set(workerId, {
-      workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor, overtimeMinor, overtimeSeconds,
-      overtimeExplanation: {
-        approvedRequests: workerOvertimeRows.filter((row) => row.settlementKind === "pay").length,
-        requestSnapshots: workerOvertimeRows.map((row) => ({ id: row.id, scopeId: row.scopeId, requestedStart: row.requestedStart, requestedEnd: row.requestedEnd, actualStart: row.actualStart, actualEnd: row.actualEnd, settlementKind: row.settlementKind, ratePpm: row.ratePpm })),
-        standardDailyHours, monthlyDivisorDays, fixedOvertimeSnapshots, specialWorkdayRuleSnapshots: [...specialWorkdayRuleSnapshots.values()], calculationParts: overtimeCalculationParts, formulaDetail: payrollFormulaTotal(overtimeCalculationParts, overtimeMinor),
-      },
+      workerId, workerName, payBasis, scheduledDays: dates.length, amountMinor, lines, overtimeMinor, overtimeSeconds, overtimeExplanation,
       typhoonStopDays, typhoonStopPayMinor,
       compensationVersionId: compensationIds.size === 1 ? [...compensationIds][0]! : null,
       scheduleAllocationDetails: workerAllocationDetails.get(workerId) ?? [],
@@ -2241,7 +2299,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     ...compensationIds.map((id) => db.insert(hrPayslipCompensationLinks).values({ payslipId, compensationVersionId: id })),
     ...insuranceIds.map((id) => db.insert(hrPayslipInsuranceLinks).values({ payslipId, insuranceVersionId: id })),
   ]),
-  ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanationJson: JSON.stringify(worker.overtimeExplanation), scheduleAllocationJson: JSON.stringify(worker.scheduleAllocationDetails), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
+  ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanationJson: JSON.stringify(worker.overtimeExplanation), payrollLinesJson: JSON.stringify(worker.lines), scheduleAllocationJson: JSON.stringify(worker.scheduleAllocationDetails), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
   ...payrollSpecialWorkdaySourceStatements(db, runId, sourceSnapshotJson),
   db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: PAYROLL_ENGINE_VERSION } }))];
   try {
