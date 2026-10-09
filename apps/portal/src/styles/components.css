@@ -4156,7 +4156,12 @@
 .hr-payroll-worker-work-summary { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--color-soft-line); }
 .hr-payroll-worker-work-summary-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .hr-payroll-worker-work-summary-head strong { font-size: 13px; }
-.hr-payroll-worker-work-summary-head span { color: var(--color-brand-dark); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.hr-payroll-worker-work-summary-count { color: var(--color-brand-dark); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.hr-payroll-worker-work-summary-details { display: grid; gap: 6px; }
+.hr-payroll-worker-work-summary-trigger { cursor: pointer; list-style: none; }
+.hr-payroll-worker-work-summary-trigger::-webkit-details-marker { display: none; }
+.hr-payroll-worker-work-summary-trigger:hover { background: --alpha(var(--color-brand) / 4%); }
+.hr-payroll-worker-work-summary-trigger:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
 .hr-payroll-worker-work-summary ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
 .hr-payroll-worker-work-summary li { display: flex; justify-content: space-between; gap: 12px; color: var(--color-muted); font-size: 12px; }
 .hr-payroll-worker-work-summary li span { flex: none; overflow-wrap: anywhere; }

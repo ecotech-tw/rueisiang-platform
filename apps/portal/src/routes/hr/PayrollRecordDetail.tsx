@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState, type FormEvent, type Ref } from "react";
+import { useMemo, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useSession } from "../../auth/session.js";
+import { Icon } from "../../shell/icons.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -185,19 +186,30 @@ function payrollWorkerWorkDayBasisLabel(day: PayrollWorkerWorkDay): string {
   return day.payBasis === "monthly" ? "月薪計算" : "當日敘薪方式未保存";
 }
 
+function PayrollWorkerWorkSummaryDisclosure({ title, count, emptyMessage, children }: { title: string; count: number; emptyMessage: string; children: ReactNode }) {
+  const heading = <><strong>{title}</strong><span className="hr-payroll-worker-work-summary-count">{count} 天</span></>;
+  if (!count) return <><div className="hr-payroll-worker-work-summary-head">{heading}</div><p>{emptyMessage}</p></>;
+  return <details className="hr-payroll-worker-work-summary-details">
+    <summary className="hr-payroll-worker-work-summary-head hr-payroll-worker-work-summary-trigger">{heading}<span className="hr-payroll-disclosure-marker" aria-hidden="true"><Icon name="chevronDown" /></span></summary>
+    {children}
+  </details>;
+}
+
 export function PayrollWorkerWorkSummary({ worker, details }: { worker: PayrollWorker; details: PayrollScheduleAllocationDetail[] }) {
   const workDays = payrollWorkerWorkDays(details);
   if (worker.payBasis === "daily") {
     const payableDays = workDays.filter((day) => day.allocatedUnits > 0);
     return <section className="hr-payroll-worker-work-summary" aria-label="日薪計薪日期">
-      <div className="hr-payroll-worker-work-summary-head"><strong>日薪計薪日期</strong><span>{payableDays.length} 天</span></div>
-      {payableDays.length ? <ul>{payableDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>納入日薪計算</strong></li>)}</ul> : <p>{details.length ? "本期沒有可計薪日期。" : "此筆歷史快照未保存逐日排班資料。"}</p>}
+      <PayrollWorkerWorkSummaryDisclosure title="日薪計薪日期" count={payableDays.length} emptyMessage={details.length ? "本期沒有可計薪日期。" : "此筆歷史快照未保存逐日排班資料。"}>
+        <ul>{payableDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>納入日薪計算</strong></li>)}</ul>
+      </PayrollWorkerWorkSummaryDisclosure>
     </section>;
   }
   if (worker.payBasis === "mixed") {
     return <section className="hr-payroll-worker-work-summary" aria-label="逐日計薪方式">
-      <div className="hr-payroll-worker-work-summary-head"><strong>逐日計薪方式</strong><span>{workDays.length} 天</span></div>
-      {workDays.length ? <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{payrollWorkerWorkDayBasisLabel(day)}</strong></li>)}</ul> : <p>此筆歷史快照未保存逐日計薪資料。</p>}
+      <PayrollWorkerWorkSummaryDisclosure title="逐日計薪方式" count={workDays.length} emptyMessage="此筆歷史快照未保存逐日計薪資料。">
+        <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{payrollWorkerWorkDayBasisLabel(day)}</strong></li>)}</ul>
+      </PayrollWorkerWorkSummaryDisclosure>
     </section>;
   }
   if (worker.payBasis !== "hourly") return null;
@@ -205,9 +217,10 @@ export function PayrollWorkerWorkSummary({ worker, details }: { worker: PayrollW
   const scheduledHours = hasHours ? workDays.reduce((sum, day) => sum + day.scheduledHours!, 0) : 0;
   const payableHours = hasHours ? workDays.reduce((sum, day) => sum + day.payableHours!, 0) : 0;
   return <section className="hr-payroll-worker-work-summary" aria-label="時薪逐日工時">
-    <div className="hr-payroll-worker-work-summary-head"><strong>時薪逐日工時</strong><span>{workDays.length} 天</span></div>
-    {workDays.length ? <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{day.scheduledHours === null || day.payableHours === null ? "工時未保存" : `排班 ${payrollHours(day.scheduledHours)}・計薪 ${payrollHours(day.payableHours)}`}</strong></li>)}</ul> : <p>此筆歷史快照未保存逐日工時明細。</p>}
-    {hasHours ? <p>合計排班 {payrollHours(scheduledHours)}・分配計薪 {payrollHours(payableHours)}。多人共用班別薪資單位時，計薪工時會依分配比例折算。</p> : workDays.length ? <p>此筆歷史試算未保存逐日工時，無法回溯工時數。</p> : null}
+    <PayrollWorkerWorkSummaryDisclosure title="時薪逐日工時" count={workDays.length} emptyMessage="此筆歷史快照未保存逐日工時明細。">
+      <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{day.scheduledHours === null || day.payableHours === null ? "工時未保存" : `排班 ${payrollHours(day.scheduledHours)}・計薪 ${payrollHours(day.payableHours)}`}</strong></li>)}</ul>
+      {hasHours ? <p>合計排班 {payrollHours(scheduledHours)}・分配計薪 {payrollHours(payableHours)}。多人共用班別薪資單位時，計薪工時會依分配比例折算。</p> : <p>此筆歷史試算未保存逐日工時，無法回溯工時數。</p>}
+    </PayrollWorkerWorkSummaryDisclosure>
   </section>;
 }
 function payBasisOf(detail: PayrollRecordDetail) {
