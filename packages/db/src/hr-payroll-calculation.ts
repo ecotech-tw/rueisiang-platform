@@ -694,6 +694,11 @@ function payrollSnapshotsMatch(currentValue: string, savedValue: string) {
   }
 }
 
+// 與 hrEmployableUser 的資格一致；快照合池判定與實際分配共用，受邀員工不能只漏在其中一邊。
+function eligibleScheduleEmploymentIds(states: readonly { employmentId: string; archivedAt: string | null; userStatus: string }[]) {
+  return new Set(states.filter((row) => !row.archivedAt && (row.userStatus === "active" || row.userStatus === "invited")).map((row) => row.employmentId));
+}
+
 interface PayrollSourceSnapshotInput {
   period: { start: string; end: string; periodKey: string };
   employmentIds: string[];
@@ -823,7 +828,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     db.select().from(hrPayrollAdjustmentItems).where(sql`${hrPayrollAdjustmentItems.adjustmentId} IN (SELECT id FROM hr_payroll_adjustments WHERE effective_period_key=${input.period.periodKey} AND employment_id IN (${payrollEmploymentValues}))`),
   ]);
   // 只有已拆池的來源才要求新版合池標記，避免舊引擎超付結果直接結帳；未拆池的舊批次仍保留相容性。
-  const activeAllocationEmploymentIds = new Set(allocationEmploymentStates.filter((row) => !row.archivedAt && row.userStatus === "active").map((row) => row.employmentId));
+  const activeAllocationEmploymentIds = eligibleScheduleEmploymentIds(allocationEmploymentStates);
   const allocationEntries = [...scheduleEntries.filter(({ entry }) => activeAllocationEmploymentIds.has(entry.employmentId)), ...workerScheduleEntries].map(({ entry }) => entry);
   const allocationShiftVersions = allocationEntries.length ? await db.select({ id: hrShiftVersions.id, templateId: hrShiftVersions.shiftTemplateId }).from(hrShiftVersions).where(inJsonArray(hrShiftVersions.id, [...new Set(allocationEntries.map((entry) => entry.shiftVersionId))])) : [];
   const allocationTemplates = new Map(allocationShiftVersions.map((shift) => [shift.id, shift.templateId]));
@@ -837,7 +842,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   const requiresTemplateGrouping = [...savedGroupsByShift.values()].some((groups) => groups.size > 1);
   return stableJson({
     periodKey: input.period.periodKey,
-    ...(requiresTemplateGrouping ? { scheduleAllocationGrouping: "template-v1", allocationWorkerStates: allocationWorkerRows } : {}),
+    ...(requiresTemplateGrouping ? { scheduleAllocationGrouping: "template-v2", allocationWorkerStates: allocationWorkerRows } : {}),
     employments, employeeProfiles, accountProfiles, attendanceSettings, compensations, compensationItems, insurance, insuranceRules, leaves,
     annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, workerOvertime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, calendarDays, calendarDayScopes,
     scheduleEntries: scheduleEntries.map(({ entry }) => entry),
@@ -1423,11 +1428,16 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const statementRows: Array<{ employee: HrPayrollEmployeeResult; payslipId: string; lines: HrPayrollLineResult[]; compensationIds: string[]; insuranceIds: string[] }> = [];
   const calculationWarnings = new Set<string>();
   const clockedEmployeeDates = new Set(clocks.filter((row) => row.employmentId).map((row) => `${row.employmentId}:${taipeiDate(row.occurredAt)}`));
-  // 封存正式員工可因歷史查詢被明確選取，但不會計入本期排班薪資單位。
-  const activeEmploymentIds = new Set(employeeRows.filter((row) => !row.archivedAt).map((row) => row.employmentId));
+  // 分配資格直接採第一份來源快照，避免 preparing 回呼後把舊資格／封存狀態算進新快照的結果。
+  const allocationSnapshot = JSON.parse(sourceSnapshotBeforeCalculation) as {
+    allocationEmploymentStates: Array<{ employmentId: string; archivedAt: string | null; userStatus: string }>;
+    allocationWorkerStates?: Array<{ workerId: string; archivedAt: string | null }>;
+  };
+  const activeEmploymentIds = eligibleScheduleEmploymentIds(allocationSnapshot.allocationEmploymentStates);
+  const workerArchiveById = new Map((allocationSnapshot.allocationWorkerStates ?? []).map((row) => [row.workerId, row.archivedAt]));
   const allocationRows: SchedulePayrollRow[] = [
     ...scheduledEmployeeRows.filter((row) => activeEmploymentIds.has(row.employmentId)).map((row) => ({ ...row, archivedAt: null, personKind: "employee" as const, personId: row.employmentId })),
-    ...workerRowsAll.map((row) => ({ ...row, personKind: "worker" as const, personId: row.workerId })),
+    ...workerRowsAll.map((row) => ({ ...row, archivedAt: workerArchiveById.has(row.workerId) ? workerArchiveById.get(row.workerId)! : row.archivedAt, personKind: "worker" as const, personId: row.workerId })),
   ];
   const rowsByScheduleGroup = new Map<string, SchedulePayrollRow[]>();
   for (const row of allocationRows) {

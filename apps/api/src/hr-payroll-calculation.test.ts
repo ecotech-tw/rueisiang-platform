@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
-import { chunks, createDatabase } from "@rueisiang/db";
+import { calculateHrPayroll, chunks, createDatabase } from "@rueisiang/db";
 import { hrCalendarDayScopes, hrCalendarDays, hrClockEvents, hrCompensationVersions, hrLeaveRequests, hrLeaveTypes, hrMonthlyHourlyEntries, hrMonthlyLeaveEntries, hrOvertimeRequests, hrPayrollRecordItems, hrScheduleEntries, hrSpecialWorkdayAssignments, hrSpecialWorkdayRuleVersions, hrSpecialWorkdayRules, reportPayoutDaily } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -1753,6 +1753,10 @@ describe("HR 薪資與櫃點獎金試算", () => {
     { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 1, requiredHeadcount: 2, scenario: "allFrozen" },
     { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 3, requiredHeadcount: 1, scenario: "allFrozen" },
     { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 3, requiredHeadcount: 1, scenario: "unarchived" },
+    { workDate: "2026-09-05", employeePeers: true, originalHeadcount: 1, requiredHeadcount: 2, scenario: "invited" },
+    { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 3, requiredHeadcount: 1, scenario: "preparingReactivation" },
+    { workDate: "2026-09-05", employeePeers: false, originalHeadcount: 3, requiredHeadcount: 1, scenario: "allocationReactivation" },
+    { workDate: "2026-09-05", employeePeers: true, originalHeadcount: 1, requiredHeadcount: 2, scenario: "invitedUnselectedWorker" },
   ])("重新發布 $workDate（正式員工同班：$employeePeers，人力 $originalHeadcount→$requiredHeadcount，$scenario）時封存支援的舊群組仍參與同班單位池", async ({ workDate, employeePeers, originalHeadcount, requiredHeadcount, scenario }) => {
     const workerIds: string[] = [];
     for (const name of ["封存同班甲", "活動同班乙", "活動同班丙"]) {
@@ -1766,6 +1770,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(shift.status, await shift.clone().text()).toBe(201);
     const { id: templateId, versionId } = await shift.json() as { id: string; versionId: string };
     const employmentIds = ["dev-employment-chen", "dev-employment-wang"];
+    if (scenario === "invited" || scenario === "invitedUnselectedWorker") d1.sqlite.prepare("UPDATE users SET status='invited' WHERE id IN ('dev-chen@ecotech.tw','dev-wang@ecotech.tw')").run();
     if (employeePeers) for (const employmentId of employmentIds) {
       expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 300_000, note: "封存同班單位池" })).status).toBe(201);
       expect((await request(`/hr/employments/${employmentId}/attendance-mode`, "PATCH", { attendanceMode: "scheduled", revision: 1 })).status).toBe(200);
@@ -1788,8 +1793,23 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect((await request(`/hr/schedule-workers/${workerId}`, "PATCH", { displayName: "活動同班", active: false, revision: 1 })).status).toBe(200);
     }
     if (scenario === "unarchived") expect((await request(`/hr/schedule-workers/${workerIds[0]}`, "PATCH", { displayName: "封存同班甲", active: true, revision: 2 })).status).toBe(200);
-    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: employeePeers ? ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"] : [], workerIds: employeePeers ? workerIds.slice(0, 1) : workerIds, requestId: `archived-group-${workDate}-${employeePeers}` });
-    if (scenario !== "mixed") {
+    if (scenario === "preparingReactivation" || scenario === "allocationReactivation") {
+      let reactivated = false;
+      await expect(calculateHrPayroll(createDatabase(d1 as never), { periodKey: "2026-09", employeeUserIds: [], workerIds: workerIds.slice(1), requestId: scenario }, { id: "dev-eli-lin@ecotech.tw", email: "eli-lin@ecotech.tw" }, {
+        onProgress: async ({ phase }) => {
+          const targetPhase = scenario === "preparingReactivation" ? "preparing" : "calculating_workers";
+          if (!reactivated && phase === targetPhase) {
+            reactivated = true;
+            expect((await request(`/hr/schedule-workers/${workerIds[0]}`, "PATCH", { displayName: "封存同班甲", active: true, revision: 2 })).status).toBe(200);
+          }
+        },
+      })).rejects.toMatchObject({ status: 409 });
+      expect(reactivated).toBe(true);
+      expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_runs WHERE request_id=?").get(scenario)).toEqual({ count: 0 });
+      return;
+    }
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: employeePeers ? ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"] : [], workerIds: scenario === "invitedUnselectedWorker" ? [] : employeePeers ? workerIds.slice(0, 1) : workerIds, requestId: `archived-group-${workDate}-${employeePeers}` });
+    if (scenario === "allFrozen" || scenario === "unarchived") {
       expect(payroll.status, await payroll.clone().text()).toBe(409);
       expect(await payroll.text()).toContain("同班排班需求人力快照不一致");
       return;
@@ -1798,21 +1818,31 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const { run } = await payroll.json() as { run: { runId: string; employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number }> }>; workers: Array<{ amountMinor: number; scheduleAllocationDetails: Array<{ requiredHeadcount: number; effectiveCount: number; allocatedUnits: number }> }> } };
     const amounts = [...run.employees.map((employee) => employee.lines.find((line) => line.lineKey === "base_salary")!.amountMinor), ...run.workers.map((worker) => worker.amountMinor)];
     const perPerson = 300_000 * requiredHeadcount / 3;
-    expect(amounts).toEqual([perPerson, perPerson, perPerson]);
-    expect(amounts.reduce((sum, amount) => sum + amount, 0)).toBe(300_000 * requiredHeadcount);
+    const paidCount = scenario === "invitedUnselectedWorker" ? 2 : 3;
+    expect(amounts).toEqual(Array.from({ length: paidCount }, () => perPerson));
+    expect(amounts.reduce((sum, amount) => sum + amount, 0)).toBe(perPerson * paidCount);
     for (const worker of run.workers) expect(worker.scheduleAllocationDetails).toEqual([expect.objectContaining({ requiredHeadcount, effectiveCount: 3, allocatedUnits: requiredHeadcount / 3 })]);
     // 模擬舊 v6 未保存合池標記；來源列未變也不能把拆池超付的舊結果直接結帳。
     const { source_snapshot_json: sourceSnapshotJson } = d1.sqlite.prepare("SELECT source_snapshot_json FROM hr_payroll_runs WHERE id=?").get(run.runId) as { source_snapshot_json: string };
     const snapshot = JSON.parse(sourceSnapshotJson) as Record<string, unknown>;
-    expect(snapshot.scheduleAllocationGrouping).toBe("template-v1");
+    expect(snapshot.scheduleAllocationGrouping).toBe("template-v2");
     delete snapshot.scheduleAllocationGrouping;
     delete snapshot.allocationWorkerStates;
     d1.sqlite.prepare("UPDATE hr_payroll_runs SET engine_version='hr-payroll-demo-v6', source_snapshot_json=? WHERE id=?").run(JSON.stringify(snapshot), run.runId);
     const close = await request(`/hr/payroll/runs/${run.runId}/close`, "POST", {});
     expect(close.status, await close.clone().text()).toBe(409);
     expect(await close.text()).toContain("薪資試算來源已變更");
-    d1.sqlite.prepare("UPDATE hr_payroll_runs SET engine_version='hr-payroll-demo-v7', source_snapshot_json=? WHERE id=?").run(sourceSnapshotJson, run.runId);
-    expect((await request(`/hr/payroll/runs/${run.runId}/close`, "POST", {})).status).toBe(200);
+    const oldGroupingSnapshot = JSON.parse(sourceSnapshotJson) as Record<string, unknown>;
+    oldGroupingSnapshot.scheduleAllocationGrouping = "template-v1";
+    d1.sqlite.prepare("UPDATE hr_payroll_runs SET engine_version='hr-payroll-demo-v7', source_snapshot_json=? WHERE id=?").run(JSON.stringify(oldGroupingSnapshot), run.runId);
+    expect((await request(`/hr/payroll/runs/${run.runId}/close`, "POST", {})).status).toBe(409);
+    d1.sqlite.prepare("UPDATE hr_payroll_runs SET source_snapshot_json=? WHERE id=?").run(sourceSnapshotJson, run.runId);
+    if (scenario === "invitedUnselectedWorker") {
+      expect((await request(`/hr/schedule-workers/${workerIds[0]}`, "PATCH", { displayName: "封存同班甲", active: true, revision: 2 })).status).toBe(200);
+      const changedClose = await request(`/hr/payroll/runs/${run.runId}/close`, "POST", {});
+      expect(changedClose.status, await changedClose.clone().text()).toBe(409);
+      expect(await changedClose.text()).toContain("薪資試算來源已變更");
+    } else expect((await request(`/hr/payroll/runs/${run.runId}/close`, "POST", {})).status).toBe(200);
   });
 
   it("封存支援人員會同步 legacy mirror，既有已發布排班不因重存而刪除", async () => {
