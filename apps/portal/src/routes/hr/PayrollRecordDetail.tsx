@@ -131,7 +131,7 @@ function PayrollAllocationDetails({ details }: { details: PayrollScheduleAllocat
   return <div className="hr-payroll-allocation-details">
     <dl className="hr-payroll-line-details">
       <div><dt>分配班別</dt><dd>{details.length} 班</dd></div>
-      <div><dt>固定薪資單位</dt><dd>每班 1 單位</dd></div>
+      <div><dt>單位規則</dt><dd>每人每班 1 單位</dd></div>
       <div><dt>本次分得</dt><dd>{totalUnits.toLocaleString("zh-TW", { maximumFractionDigits: 3 })} 單位</dd></div>
     </dl>
     <details className="hr-payroll-line-steps">
@@ -223,7 +223,7 @@ export function PayrollWorkerWorkSummary({ worker, details }: { worker: PayrollW
   return <section className="hr-payroll-worker-work-summary" aria-label="時薪逐日工時">
     <PayrollWorkerWorkSummaryDisclosure title="時薪逐日工時" count={workDays.length} emptyMessage="此筆歷史快照未保存逐日工時明細。">
       <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{day.scheduledHours === null || day.payableHours === null ? "工時未保存" : `排班 ${payrollHours(day.scheduledHours)}・計薪 ${payrollHours(day.payableHours)}`}</strong></li>)}</ul>
-      {hasHours ? <p>合計排班 {payrollHours(scheduledHours)}・分配計薪 {payrollHours(payableHours)}。多人共用班別薪資單位時，計薪工時會依分配比例折算。</p> : <p>此筆歷史試算未保存逐日工時，無法回溯工時數。</p>}
+      {hasHours ? <p>合計排班 {payrollHours(scheduledHours)}・有效排班計薪 {payrollHours(payableHours)}。依此次薪資試算保存的排班單位計算；歷史批次保留當時分配結果。</p> : <p>此筆歷史試算未保存逐日工時，無法回溯工時數。</p>}
     </PayrollWorkerWorkSummaryDisclosure>
   </section>;
 }
