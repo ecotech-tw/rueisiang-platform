@@ -1314,8 +1314,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         ? "present" as const
         : "scheduled" as const;
     const statuses = groupRows.map((row) => ({ row, status: effectiveStatus(row) }));
-    const presentRows = statuses.filter((item) => item.status === "present");
-    const eligibleRows = presentRows.length ? presentRows : statuses.filter((item) => item.status !== "absent");
+    // 出勤狀態逐人判斷：某人已出勤不應排除同班其他尚未確認的人；只有明確未出勤者不取得單位。
+    const eligibleRows = statuses.filter((item) => item.status !== "absent");
     if (!eligibleRows.length) calculationWarnings.add(`排班 ${groupRows[0]!.workDate}（${groupRows[0]!.scopeId}）沒有有效出勤人員，該班薪資單位未分配。`);
     for (const { row, status } of statuses) {
       const eligible = eligibleRows.some((item) => item.row.id === row.id);

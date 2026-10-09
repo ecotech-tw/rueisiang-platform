@@ -1167,7 +1167,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const holidayShift = schedule.shifts.find((shift) => shift.templateId === templateId && shift.dayType === "holiday");
     expect(holidayShift).toMatchObject({ requiredHeadcount: 2 });
     const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
-      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: holidayShift!.versionId, workDate: "2026-09-03" },
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: holidayShift!.versionId, workDate: "2026-09-03", attendanceStatus: "present" },
       { personKind: "employee", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: holidayShift!.versionId, workDate: "2026-09-03" },
     ] });
     expect(saved.status, await saved.clone().text()).toBe(200);
@@ -1372,7 +1372,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.warnings).toEqual(expect.arrayContaining([expect.stringContaining("已安排 2／需求 1 人")]));
   });
 
-  it("部分結算後同班出勤分配變更時，結帳會要求重新試算", async () => {
+  it("部分結算後同班打卡來源變更時，結帳會要求重新試算", async () => {
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
       const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "部分結算出勤狀態快照測試" });
       expect(compensation.status, await compensation.clone().text()).toBe(201);
@@ -1427,7 +1427,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     }
   });
 
-  it("明確標記已出勤／未出勤時，只把固定單位分給已出勤人員", async () => {
+  it("明確標記未出勤者不取得固定薪資單位", async () => {
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
       const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "出勤狀態分配測試" });
       expect(compensation.status, await compensation.clone().text()).toBe(201);
@@ -1466,7 +1466,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(body.run.workers).toEqual(expect.arrayContaining([expect.objectContaining({ workerId, workerName: "無排班特殊日支援人員", payBasis: "daily", scheduledDays: 1, amountMinor: 480_000 })]));
   });
 
-  it("薪資結算可只選指定的支援人員，並保存支援人員選取範圍", async () => {
+  it("同班員工打卡不會排除支援人員單位，部分結算仍保存指定範圍", async () => {
     const firstWorkerResponse = await request("/hr/schedule-workers", "POST", { displayName: "指定支援人員甲" });
     const secondWorkerResponse = await request("/hr/schedule-workers", "POST", { displayName: "未指定支援人員乙" });
     expect(firstWorkerResponse.status, await firstWorkerResponse.clone().text()).toBe(201);
@@ -1481,10 +1481,21 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const schedule = await scheduleResponse.json() as { shifts: Array<{ versionId: string }> };
     expect(schedule.shifts.length).toBeGreaterThan(0);
     const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
       { personKind: "worker", workerId: firstWorkerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
       { personKind: "worker", workerId: secondWorkerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: "2026-09-03" },
     ] });
     expect(saved.status, await saved.clone().text()).toBe(200);
+    const attendanceDb = createDatabase(d1 as never);
+    await attendanceDb.insert(hrClockEvents).values({
+      id: "shared-shift-employee-clock",
+      employeeUserId: "dev-chen@ecotech.tw",
+      employmentId: "dev-employment-chen",
+      sourceKind: "manual",
+      idempotencyKey: "shared-shift-employee-clock",
+      eventKind: "clock_in",
+      occurredAt: "2026-09-03 01:00:00",
+    });
     expect(d1.sqlite.prepare("SELECT count(*) AS count, count(DISTINCT shift_group_id) AS groups, min(required_headcount) AS required, min(attendance_status) AS status FROM hr_schedule_worker_entries WHERE work_date=?").get("2026-09-03")).toEqual({ count: 2, groups: 1, required: 1, status: "scheduled" });
 
     const candidates = await request("/hr/payroll/workers?periodKey=2026-09");
@@ -1498,7 +1509,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(selected.status, await selected.clone().text()).toBe(200);
     const selectedBody = await selected.json() as { run: { runId: string; runName: string; workers: Array<{ workerId: string; workerName: string; amountMinor: number }> } };
     expect(selectedBody.run.runName).toBe("指定支援人員甲");
-    expect(selectedBody.run.workers).toEqual([{ workerId: firstWorkerId, workerName: "指定支援人員甲", amountMinor: 320_000, payBasis: "daily", scheduledDays: 1, typhoonStopDays: 0, typhoonStopPayMinor: 0, compensationVersionId: expect.any(String), lines: [expect.objectContaining({ lineKey: "base_salary", direction: "earning", amountMinor: 320_000 })], scheduleAllocationDetails: [expect.objectContaining({ assignedCount: 2, effectiveCount: 2, unitNumerator: 1, unitDenominator: 1, allocatedUnits: 1 })] }]);
+    expect(selectedBody.run.workers).toEqual([{ workerId: firstWorkerId, workerName: "指定支援人員甲", amountMinor: 320_000, payBasis: "daily", scheduledDays: 1, typhoonStopDays: 0, typhoonStopPayMinor: 0, compensationVersionId: expect.any(String), lines: [expect.objectContaining({ lineKey: "base_salary", direction: "earning", amountMinor: 320_000 })], scheduleAllocationDetails: [expect.objectContaining({ assignedCount: 3, effectiveCount: 3, unitNumerator: 1, unitDenominator: 1, allocatedUnits: 1 })] }]);
     const calculationInput = d1.sqlite.prepare("SELECT calculation_input_json AS calculationInputJson FROM hr_payroll_runs WHERE id=?").get(selectedBody.run.runId) as { calculationInputJson: string };
     expect(JSON.parse(calculationInput.calculationInputJson)).toEqual(expect.objectContaining({ employeeUserIds: [], workerIds: [firstWorkerId] }));
     const duplicateReady = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], workerIds: [firstWorkerId], requestId: "test-payroll-selected-worker-2026-09-ready-duplicate" });
