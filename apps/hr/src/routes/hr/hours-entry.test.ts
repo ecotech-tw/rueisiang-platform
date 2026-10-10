@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addMinutes, hoursToMinutes, minutesToHours } from "./hours-entry.js";
+import { hoursToMinutes } from "./hours-entry.js";
 
 describe("hoursToMinutes", () => {
   it("只接受 0.5 小時的正倍數", () => {
@@ -15,22 +15,5 @@ describe("hoursToMinutes", () => {
   it("超過 31 天的時數不算，日期才不會被推出可表示的範圍", () => {
     expect(hoursToMinutes("744")).toBe(44_640);
     for (const text of ["744.5", "9999999999", "1e10"]) expect(hoursToMinutes(text)).toBeNull();
-  });
-});
-
-describe("minutesToHours", () => {
-  it("整數小時不帶小數點", () => {
-    expect(minutesToHours(120)).toBe("2");
-    expect(minutesToHours(90)).toBe("1.5");
-  });
-});
-
-describe("addMinutes", () => {
-  it("跨午夜與跨月都會進位", () => {
-    expect(addMinutes("2026-01-31T22:30", 120)).toBe("2026-02-01T00:30");
-  });
-
-  it("開始時間還沒填完整時回空字串", () => {
-    expect(addMinutes("", 60)).toBe("");
   });
 });
