@@ -30,7 +30,7 @@ export function OvertimeDayPicker({ days, assigned, disabled = false, onToggle }
       const selected = minutes !== undefined;
       // 單位另外包起來：手機一格只有四十幾 px，放不下時只藏單位，數字要留著。
       const isUnscheduled = day.startAt === null;
-      const [value, unit] = day.hasExisting ? ["已加班", ""] : isUnscheduled ? [selected ? `+${hoursText(minutes)}` : "未排班", selected ? " 小時" : ""] : selected ? [`+${hoursText(minutes)}`, " 小時"] : [day.startAt?.slice(11) ?? "", " 下班"];
+      const [value, unit] = day.hasExisting ? ["已申請", ""] : isUnscheduled ? [selected ? `+${hoursText(minutes)}` : "未排班", selected ? " 小時" : ""] : selected ? [`+${hoursText(minutes)}`, " 小時"] : [day.startAt?.slice(11) ?? "", " 下班"];
       return <button
         key={day.date}
         type="button"

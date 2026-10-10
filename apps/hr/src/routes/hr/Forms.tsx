@@ -490,11 +490,11 @@ const OVERTIME_PRESET_OPTIONS = OVERTIME_HOUR_PRESETS.map((hours) => ({ value: S
 const SELF_SERVICE_SETTLEMENT_KIND = "pay";
 
 /** 櫃位人員月底一次補整個月：先選時數、再點日期，換個時數繼續點，一次送出。 */
-function OvertimeBatchFields({ reason, onReasonChange }: { reason: string; onReasonChange: (value: string) => void }) {
+function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }: { reason: string; onReasonChange: (value: string) => void; onPendingChange: (pending: boolean) => void; onDone: () => void }) {
   const navigate = useNavigate();
   const [month, setMonth] = useState(() => taipeiInputNow().date.slice(0, 7));
   const [hours, setHours] = useState("1");
-  const [assigned, setAssigned] = useState<Record<string, number>>({});
+  const [picked, setPicked] = useState<Record<string, number>>({});
   const [unscheduledStartTime, setUnscheduledStartTime] = useState("");
   const [confirmingUnscheduled, setConfirmingUnscheduled] = useState(false);
   const save = useHrWrite<{ ids: string[] }>();
@@ -507,14 +507,19 @@ function OvertimeBatchFields({ reason, onReasonChange }: { reason: string; onRea
 
   const minutes = parseHours(hours);
   const minutesValid = isValidOvertimeMinutes(minutes);
+  // 送出被擋下（409）後重抓的班表，可能把選好的日子變成「已有申請」。那一格已經點不掉，
+  // 留在送出內容裡會每次重送都再被擋，所以選擇一律以最新的班表為準。
+  const takenDates = useMemo(() => days.filter((day) => day.hasExisting && picked[day.date] !== undefined).map((day) => day.date), [days, picked]);
+  const assigned = useMemo(() => Object.fromEntries(Object.entries(picked).filter(([date]) => !takenDates.includes(date))), [picked, takenDates]);
   const entries = buildOvertimeEntries(days, assigned, unscheduledStartTime);
   const summary = summarizeAssignments(assigned);
   const unscheduledDates = selectedUnscheduledDates(days, assigned);
-  const canSubmit = !save.isPending && entries.length > 0 && entries.length === summary.days;
+  const missingUnscheduledStart = unscheduledDates.length > 0 && entries.length !== summary.days;
+  const canSubmit = !save.isPending && Boolean(dayQuery.data) && !dayQuery.error && summary.days > 0 && !missingUnscheduledStart;
 
   function toggleDay(day: string) {
     if (!isValidOvertimeMinutes(minutes)) return;
-    setAssigned((current) => {
+    setPicked((current) => {
       const next = { ...current };
       if (next[day] === minutes) delete next[day];
       else next[day] = minutes;
@@ -522,7 +527,8 @@ function OvertimeBatchFields({ reason, onReasonChange }: { reason: string; onRea
     });
   }
   function send() {
-    save.mutate({ path: "/me/overtime/batch", method: "POST", values: { settlementKind: SELF_SERVICE_SETTLEMENT_KIND, reason, entries } }, { onSuccess: () => navigate("/forms?tab=overtime", { replace: true }) });
+    onPendingChange(true);
+    save.mutate({ path: "/me/overtime/batch", method: "POST", values: { settlementKind: SELF_SERVICE_SETTLEMENT_KIND, reason, entries } }, { onSuccess: onDone, onSettled: () => onPendingChange(false) });
   }
   function submit() {
     if (!canSubmit) return;
@@ -534,7 +540,7 @@ function OvertimeBatchFields({ reason, onReasonChange }: { reason: string; onRea
     <div className="hr-form-fields">
       <div className="hr-form-field-row">
         {/* 換月份後選好的日子屬於上一個班表，留著會送出畫面上看不到的時段。 */}
-        <TextField label="月份" type="month" required value={month} disabled={save.isPending} onChange={(event) => { setMonth(event.target.value); setAssigned({}); setUnscheduledStartTime(""); }} />
+        <TextField label="月份" type="month" required value={month} disabled={save.isPending} onChange={(event) => { setMonth(event.target.value); setPicked({}); setUnscheduledStartTime(""); }} />
         <TextField label="每天加班時數（小時）" type="number" inputMode="decimal" min={0.5} max={24} step={0.5} required value={hours} disabled={save.isPending} error={hours.trim() && !minutesValid ? "時數要以 0.5 小時為單位，最多 24 小時。" : undefined} onChange={(event) => setHours(event.target.value)} />
       </div>
       <SegmentedControl className="hr-form-tabs hr-overtime-presets" aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={save.isPending} onChange={setHours} />
@@ -543,7 +549,8 @@ function OvertimeBatchFields({ reason, onReasonChange }: { reason: string; onRea
         : !range ? <p className="muted">請先選擇月份。</p>
         : dayQuery.isPending ? <p className="muted">載入班表…</p>
         : <OvertimeDayPicker days={days} assigned={assigned} disabled={save.isPending || !minutesValid} onToggle={toggleDay} />}
-      {unscheduledDates.length ? <TextField label="未排班日開始時間（台北）" type="time" step={1800} required value={unscheduledStartTime} disabled={save.isPending} hint="所有已選的未排班日期都從這個時間開始。" onChange={(event) => setUnscheduledStartTime(event.target.value)} /> : null}
+      {takenDates.length ? <Alert tone="info">{takenDates.join("、")} 已經有加班申請，已從這次的選擇移除。</Alert> : null}
+      {unscheduledDates.length ? <TextField label="未排班日開始時間（台北）" type="time" step={1800} required value={unscheduledStartTime} disabled={save.isPending} hint="所有已選的未排班日期都從這個時間開始。" error={missingUnscheduledStart ? "選了未排班的日期，要先填開始時間才能送出。" : undefined} onChange={(event) => setUnscheduledStartTime(event.target.value)} /> : null}
       <div className="hr-leave-duration-card" aria-live="polite">
         <div><span>{summary.days ? `已選 ${summary.days} 天` : "還沒選任何一天"}</span><strong>{hoursText(summary.totalMinutes)} 小時</strong></div>
         {summary.days ? <small>{summary.breakdown}；每一天會是一筆申請。</small> : null}
@@ -553,7 +560,7 @@ function OvertimeBatchFields({ reason, onReasonChange }: { reason: string; onRea
     {save.error && !confirmingUnscheduled ? <Alert tone="danger">{save.error.message}</Alert> : null}
     <div className="hr-form-actions">
       <Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={save.isPending}>取消</Button>
-      <Button className="add-action" loading={save.isPending} onClick={submit} disabled={!canSubmit}>{entries.length ? `送出 ${entries.length} 筆加班申請` : "送出加班申請"}</Button>
+      <Button className="add-action" loading={save.isPending} onClick={submit} disabled={!canSubmit}>{summary.days ? `送出 ${summary.days} 筆加班申請` : "送出加班申請"}</Button>
     </div>
     {confirmingUnscheduled ? <ConfirmDialog title="確認未排班日加班" confirmLabel="確認送出申請" cancelLabel="返回修改" tone="primary" pending={save.isPending} onConfirm={send} onCancel={() => setConfirmingUnscheduled(false)}>
       <p>以下日期沒有排班，會從 {unscheduledStartTime} 開始計算；有排班的日期仍從下班時間起算。</p>
@@ -563,7 +570,8 @@ function OvertimeBatchFields({ reason, onReasonChange }: { reason: string; onRea
   </>;
 }
 
-export function HrOvertimeForm() {  const [params] = useSearchParams();
+export function HrOvertimeForm() {
+  const [params] = useSearchParams();
   const requestId = params.get("request");
   const copyId = params.get("copy");
   const editing = Boolean(requestId);
@@ -573,11 +581,13 @@ export function HrOvertimeForm() {  const [params] = useSearchParams();
   const initial = taipeiInputNow();
   const [start, setStart] = useState(`${initial.date}T18:00`);
   const [end, setEnd] = useState(`${initial.date}T20:00`);
-  // 既有申請可能是補休（HR 後台代登或舊資料）；編輯與重送沿用原值，不能悄悄改成付薪。
+  // 既有申請可能是補休（HR 後台代登或舊資料）。編輯是改同一筆，沿用原值並在畫面上講明；
+  // 重送是建立新申請，跟其他新申請一樣付薪。
   const [settlementKind, setSettlementKind] = useState<"pay" | "compensatory">(SELF_SERVICE_SETTLEMENT_KIND);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [mode, setMode] = useState<OvertimeMode>("single");
+  const [batchPending, setBatchPending] = useState(false);
   const [loadedRevision, setLoadedRevision] = useState<{ id: string; revision: number } | null>(null);
   const save = useHrWrite();
   const restoredDraft = useRef(false);
@@ -590,7 +600,7 @@ export function HrOvertimeForm() {  const [params] = useSearchParams();
     const endInput = taipeiInputFromUtc(existingRequest.request.requestedEnd);
     setStart(`${startInput.date}T${startInput.time}`);
     setEnd(`${endInput.date}T${endInput.time}`);
-    setSettlementKind(existingRequest.request.settlementKind);
+    setSettlementKind(copying ? SELF_SERVICE_SETTLEMENT_KIND : existingRequest.request.settlementKind);
     setReason(existingRequest.request.reason);
     setLoadedRevision({ id: existingRequest.request.id, revision: existingRequest.request.revision });
   }, [existingRequest?.request.id]);
@@ -633,7 +643,7 @@ export function HrOvertimeForm() {  const [params] = useSearchParams();
     save.mutate({ path: editing ? `/me/overtime/${requestId}` : "/me/overtime", method: editing ? "PATCH" : "POST", values: { requestedStart: start, requestedEnd: end, settlementKind, reason, ...(editing ? { revision: loadedRevision?.revision } : {}) } }, { onSuccess: () => { if (!editing) sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }, onError: (cause) => setError(cause.message) });
   }
 
-  return <div className="page hr-form-page"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel>{editing || copying ? null : <SegmentedControl className="hr-form-tabs hr-overtime-mode" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} /> : <><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => setStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></div><p className="form-hint">{!(requestedMinutes > 0) ? "填寫開始與結束時間後顯示加班時數。" : requestedMinutes % 30 === 0 ? `加班時數：${formatHours(requestedMinutes)}` : "加班時數必須以 0.5 小時為單位，請調整開始或結束時間。"}</p><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></>}</Panel></div>;
+  return <div className="page hr-form-page"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : mode === "multiple" ? "先選時數再點日期，每一天會建立一筆申請；選好的日期離開頁面後不會保留。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel>{editing || copying ? null : <SegmentedControl className="hr-form-tabs hr-overtime-mode" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending || batchPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} onPendingChange={setBatchPending} onDone={() => { sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }} /> : <><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => setStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></div><p className="form-hint">{!(requestedMinutes > 0) ? "填寫開始與結束時間後顯示加班時數。" : requestedMinutes % 30 === 0 ? `加班時數：${formatHours(requestedMinutes)}` : "加班時數必須以 0.5 小時為單位，請調整開始或結束時間。"}</p><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{existingRequest?.request.settlementKind === "compensatory" ? <Alert tone="info">{editing ? "這筆申請的結算方式是補休，更新後仍是補休、不計加班費。要改成付薪請取消後重新申請。" : "原申請的結算方式是補休；重新送出會改為付薪。需要補休請洽 HR。"}</Alert> : null}{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></>}</Panel></div>;
 }
 
 function leaveTypeLabel(leaveType: LeaveTypeOption) {

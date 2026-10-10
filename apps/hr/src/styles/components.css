@@ -3794,6 +3794,7 @@
   .hr-form-back-bar { margin-inline: -14px; padding-inline: 14px; }
   .hr-form-page > .page-head { margin-top: 8px; }
   .hr-form-tabs button { min-height: 42px; padding-inline: 8px; font-size: 13px; }
+  .hr-form-tabs.hr-overtime-presets button { padding-inline: 4px; }
   .hr-form-filters { grid-template-columns: minmax(0, 1fr) 128px; gap: 8px; padding-top: 8px; }
   .hr-form-section,
   .hr-form-page > .panel { padding: 16px 14px; border-radius: 18px; box-shadow: 0 8px 24px --alpha(var(--color-ink) / 7%); }
