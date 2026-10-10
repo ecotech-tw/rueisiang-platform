@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter } from "react-router";
+import { createBrowserRouter, RouterProvider } from "react-router";
 import { initializeLiff } from "./auth/liff.js";
 import { App } from "./App.js";
 import "./styles.css";
@@ -17,12 +17,12 @@ if (!root) throw new Error("找不到 #root。");
 
 const reactRoot = createRoot(root);
 void initializeLiff().then(() => {
+  // 保留 App 的宣告式 Routes，只提供 data router，讓排班的返回／前進也能阻擋離頁。
+  const router = createBrowserRouter([{ path: "*", element: <App /> }]);
   reactRoot.render(
     <StrictMode>
       <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
+        <RouterProvider router={router} />
       </QueryClientProvider>
     </StrictMode>,
   );

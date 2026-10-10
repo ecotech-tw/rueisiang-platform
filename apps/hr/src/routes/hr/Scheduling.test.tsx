@@ -2,7 +2,7 @@
 import { QueryClient, QueryClientProvider, notifyManager } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { MemoryRouter } from "react-router";
+import { createMemoryRouter, Route, RouterProvider, Routes } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { scheduleChanges, type HrScheduleResponse, type ScheduleEntry } from "@rueisiang/db/schedule-draft";
 import { HrScheduling } from "./Scheduling.js";
@@ -14,10 +14,13 @@ function data(locked = false): HrScheduleResponse {
 }
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
-async function renderPage(initial: HrScheduleResponse, mutationStatus = 200) {
+async function renderPage(initial: HrScheduleResponse, mutationStatus = 200, getFailures = 0) {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.setSystemTime(new Date("2026-02-01T00:00:00Z"));
   notifyManager.setScheduler(queueMicrotask);
+  // 無 loader 的 router 測試不需要 signal；Node Request 不接受 JSDOM 的 AbortSignal。
+  const NativeRequest = Request;
+  vi.stubGlobal("Request", class extends NativeRequest { constructor(input: RequestInfo | URL, init?: RequestInit) { super(input, { ...init, signal: undefined }); } });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(["hr", "/me/schedule-scopes"], { scopes: [{ id: "store", name: "門市" }] });
   client.setQueryData(["hr", "/me/schedules?periodKey=2026-02&scopeId=store"], initial);
@@ -27,12 +30,14 @@ async function renderPage(initial: HrScheduleResponse, mutationStatus = 200) {
       writes.push({ path: String(path), method: init.method, values: JSON.parse(String(init.body)) });
       return Response.json(mutationStatus === 200 ? { id: "version", revision: 3 } : { error: "同一據點排班重疊，草稿仍保留" }, { status: mutationStatus });
     }
+    if (getFailures-- > 0) return Response.json({ error: "最新班表暫時無法載入" }, { status: 500 });
     return Response.json({ ...initial, version: { ...initial.version, revision: 3 } });
   });
   const container = document.createElement("div"); document.body.append(container);
   const root = createRoot(container);
-  await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrScheduling /></QueryClientProvider></MemoryRouter>));
-  return { client, writes, clickDate: async (date: string) => { await act(async () => (container.querySelector(`[aria-label="${date} 排班"]`) as HTMLButtonElement).click()); }, save: async () => { await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === "儲存")!.click(); await new Promise((resolve) => setTimeout(resolve, 10)); }); }, cleanup: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
+  const router = createMemoryRouter([{ path: "*", element: <Routes><Route path="/scheduling" element={<HrScheduling />} /><Route path="/profile" element={<p>個人頁</p>} /></Routes> }], { initialEntries: ["/profile", "/scheduling", "/profile"], initialIndex: 1 });
+  await act(async () => root.render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>));
+  return { client, writes, router, click: async (label: string) => { await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === label)!.click(); await new Promise((resolve) => setTimeout(resolve, 10)); }); }, clickDate: async (date: string) => { await act(async () => (container.querySelector(`[aria-label="${date} 排班"]`) as HTMLButtonElement).click()); }, save: async () => { await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === "儲存")!.click(); await new Promise((resolve) => setTimeout(resolve, 10)); }); }, cleanup: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
 }
 
 describe("HR 前台快速排班", () => {
@@ -65,9 +70,57 @@ describe("HR 前台快速排班", () => {
       await page.clickDate("2026-02-07"); await page.save();
       expect(document.body.textContent).toContain("同一據點排班重疊");
       expect(document.body.textContent).toContain("尚未儲存：新增 1 筆");
-      await act(async () => page.client.setQueryData(["hr", "/me/schedules?periodKey=2026-02&scopeId=store"], { ...data(), version: { ...data().version!, revision: 3 } }));
       expect(document.body.textContent).toContain("排班已被其他人修改，草稿仍保留");
       expect(document.querySelector('[aria-label="2026-02-07 排班"]')?.getAttribute("aria-pressed")).toBe("true");
+      await page.save();
+      expect(page.writes).toHaveLength(1);
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      await page.click("重新載入");
+      expect(document.body.textContent).not.toContain("尚未儲存：新增 1 筆");
+      await page.clickDate("2026-02-07"); await page.save();
+      expect(page.writes[1]!.values.revision).toBe(3);
+    } finally { await page.cleanup(); }
+  });
+
+  it("409 後重抓失敗仍保留草稿與重試入口，不重送舊 revision", async () => {
+    const page = await renderPage(data(), 409, 1);
+    try {
+      await page.clickDate("2026-02-07"); await page.save();
+      expect(document.body.textContent).toContain("最新班表暫時無法載入");
+      expect(document.querySelector('[aria-label="2026-02-07 排班"]')?.getAttribute("aria-pressed")).toBe("true");
+      await page.save(); expect(page.writes).toHaveLength(1);
+      vi.spyOn(window, "confirm").mockReturnValue(true);
+      await page.click("重新載入");
+      expect((document.querySelector('[aria-label="2026-02-07 排班"]') as HTMLButtonElement).disabled).toBe(false);
+      await page.clickDate("2026-02-07"); await page.save();
+      expect(page.writes[1]!.values.revision).toBe(3);
+    } finally { await page.cleanup(); }
+  });
+
+  it("返回、前進與程式導覽都先確認；取消不遺失草稿，確認才離頁", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const page = await renderPage(data());
+    try {
+      await page.clickDate("2026-02-07");
+      for (const target of [-1, 1, "/profile"] as const) {
+        await act(async () => { if (typeof target === "number") await page.router.navigate(target); else await page.router.navigate(target); });
+        expect(page.router.state.location.pathname).toBe("/scheduling");
+        expect(document.querySelector('[aria-label="2026-02-07 排班"]')?.getAttribute("aria-pressed")).toBe("true");
+      }
+      expect(confirm).toHaveBeenCalledTimes(3);
+      confirm.mockReturnValue(true);
+      await act(async () => { await page.router.navigate(-1); });
+      expect(document.body.textContent).toContain("個人頁");
+    } finally { await page.cleanup(); }
+  });
+
+  it.each(["present", "absent"] as const)("已確認出勤 %s 的日期不可取消，卡片不提供移除", async (attendanceStatus) => {
+    const page = await renderPage({ ...data(), entries: [{ ...savedEntry, attendanceStatus }] });
+    try {
+      expect((document.querySelector('[aria-label="2026-02-06 排班"]') as HTMLButtonElement).disabled).toBe(true);
+      expect(document.querySelector('[aria-label="移除 2026-02-06 小明 早班"]')).toBeNull();
+      await page.clickDate("2026-02-06");
+      expect(document.body.textContent).toContain("沒有未儲存變更");
     } finally { await page.cleanup(); }
   });
 

@@ -73,6 +73,37 @@ describe("據點負責人的 HR 前台排班", () => {
     expect((await getHrSchedule(db, "2026-02")).entries).toHaveLength(1);
   });
 
+  it.each(["employee", "worker"] as const)("%s 的已確認出勤狀態不可用同次或分次刪增清除，但可重新套用快照", async (personKind) => {
+    await assign("scheduler");
+    const scheduled = personKind === "worker" ? entry("worker-1") : { personKind, employmentId: "employment-other", scopeId: "store-a", shiftVersionId: shiftId, workDate: "2026-02-06" };
+    for (const attendanceStatus of ["present", "absent"] as const) {
+      const before = await getHrSchedule(db, "2026-02");
+      expect((await changes({ entries: [{ ...scheduled, attendanceStatus }], removedIds: before.entries.map((entry) => entry.id) })).status).toBe(200);
+      const original = await getHrSchedule(db, "2026-02");
+      expect((await changes({ removedIds: [original.entries[0]!.id], entries: [scheduled] }, "scheduler")).status).toBe(403);
+      expect((await changes({ removedIds: [original.entries[0]!.id] }, "scheduler")).status).toBe(403);
+      expect((await changes({ entries: [scheduled] }, "scheduler")).status).toBe(409);
+      expect(await getHrSchedule(db, "2026-02")).toEqual(original);
+      expect((await changes({ refreshIds: [original.entries[0]!.id] }, "scheduler")).status).toBe(200);
+      expect((await getHrSchedule(db, "2026-02")).entries[0]!.attendanceStatus).toBe(attendanceStatus);
+    }
+  });
+
+  it("驗證後出勤狀態才確認，原子守衛仍禁止負責人移除", async () => {
+    await assign("scheduler");
+    await changes({ entries: [entry("worker-1")] });
+    const original = await getHrSchedule(db, "2026-02");
+    const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementation(async (statements) => {
+      d1.sqlite.prepare("UPDATE hr_schedule_worker_entries SET attendance_status='absent' WHERE id=?").run(original.entries[0]!.id);
+      return batch(statements);
+    });
+    expect((await changes({ removedIds: [original.entries[0]!.id], entries: [entry("worker-1")] }, "scheduler")).status).toBe(409);
+    const after = await getHrSchedule(db, "2026-02");
+    expect(after.entries[0]).toMatchObject({ id: original.entries[0]!.id, attendanceStatus: "absent" });
+    expect(after.version).toEqual(original.version);
+  });
+
   it("撤銷、更換、停權、封存與停用據點會立即收回資格", async () => {
     await assign("scheduler");
     expect((await assign("other", 1)).status).toBe(200);
@@ -213,6 +244,54 @@ describe("排班差異儲存", () => {
     expect(after.entries).toHaveLength(1);
     expect(after.entries[0]!.id).toBe(original.entries[0]!.id);
     expect(after.version).toEqual(original.version);
+  });
+
+  it("首次月份發布前負責人被撤銷，版本、排班與發布稽核都不建立", async () => {
+    await assign("scheduler");
+    expect((await getHrSchedule(db, "2026-02")).version).toBeNull();
+    const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementation(async (statements) => {
+      d1.sqlite.prepare("UPDATE hr_schedule_managers SET user_id=NULL WHERE scope_id='store-a'").run();
+      return batch(statements);
+    });
+    expect((await changes({ entries: [entry("worker-1")] }, "scheduler")).status).toBe(409);
+    expect((await getHrSchedule(db, "2026-02")).version).toBeNull();
+    expect(d1.sqlite.prepare("SELECT count(*) AS total FROM activity_events WHERE event_type='schedule_saved'").get()).toMatchObject({ total: 0 });
+  });
+
+  it.each(["PATCH", "POST"])("%s 首次發布前人員封存，不留下空月份", async (method) => {
+    const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementation(async (statements) => {
+      d1.sqlite.prepare("UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP WHERE id='worker-1'").run();
+      return batch(statements);
+    });
+    const result = method === "PATCH" ? await changes({ entries: [entry("worker-1")] }) : await request("/schedules", "POST", { periodKey: "2026-02", entries: [entry("worker-1")] });
+    expect(result.status).toBe(409);
+    expect((await getHrSchedule(db, "2026-02")).version).toBeNull();
+    expect((await db.select().from(hrScheduleVersions))).toHaveLength(0);
+  });
+
+  it("首次批次 INSERT 中途失敗，版本與稽核也一併回滾", async () => {
+    const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementation(async (statements) => batch([...statements.slice(0, -1), d1.prepare("INSERT INTO hr_schedule_worker_entries(id) VALUES('invalid')")]));
+    expect((await changes({ entries: [entry("worker-1")] })).status).toBe(500);
+    expect((await getHrSchedule(db, "2026-02")).version).toBeNull();
+    expect(d1.sqlite.prepare("SELECT count(*) AS total FROM activity_events WHERE event_type='schedule_saved'").get()).toMatchObject({ total: 0 });
+  });
+
+  it("首次發布競態只接受先提交者，另一方不留下版本、排班或稽核", async () => {
+    const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => {
+      expect((await changes({ entries: [entry("worker-2")] })).status).toBe(200);
+      return batch(statements);
+    });
+    expect((await changes({ entries: [entry("worker-1")] })).status).toBe(409);
+    const after = await getHrSchedule(db, "2026-02");
+    expect(after.entries).toHaveLength(1);
+    expect(after.entries[0]!.workerId).toBe("worker-2");
+    expect(after.version!.revision).toBe(2);
+    expect((await db.select().from(hrScheduleVersions))).toHaveLength(1);
+    expect(d1.sqlite.prepare("SELECT count(*) AS total FROM activity_events WHERE event_type='schedule_saved'").get()).toMatchObject({ total: 1 });
   });
 
   it("1000 筆排班以固定 6 條 SQL 批次寫入，不隨筆數逐筆查詢", async () => {

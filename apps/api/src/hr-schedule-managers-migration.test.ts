@@ -9,7 +9,7 @@ describe("據點排班負責人 migration", () => {
       sqlite.exec("PRAGMA foreign_keys=ON; CREATE TABLE users(id TEXT PRIMARY KEY); CREATE TABLE scopes(id TEXT PRIMARY KEY); INSERT INTO users VALUES('admin'), ('scheduler'); INSERT INTO scopes VALUES('store');");
       sqlite.exec("BEGIN");
       try {
-        sqlite.exec(readFileSync(new URL("../../../packages/db/migrations/0227_tan_vapor.sql", import.meta.url), "utf8"));
+        sqlite.exec(readFileSync(new URL("../../../packages/db/migrations/0228_worthless_riptide.sql", import.meta.url), "utf8"));
         sqlite.exec("COMMIT");
       } catch (error) { sqlite.exec("ROLLBACK"); throw error; }
       sqlite.exec("INSERT INTO hr_schedule_managers(scope_id, user_id, updated_by) VALUES('store', 'scheduler', 'admin');");

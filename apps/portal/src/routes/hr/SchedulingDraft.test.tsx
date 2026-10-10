@@ -17,14 +17,14 @@ function data(revision = 2): HrScheduleResponse {
   return { periodKey: "2026-02", period: { start: "2026-02-01", end: "2026-03-01" }, version: { id: "version", revision, status: "published", locked: false, lockedAt: null }, scopes: [{ id: "store", name: "門市" }], calendar: Array.from({ length: 28 }, (_, index) => ({ date: `2026-02-${String(index + 1).padStart(2, "0")}`, dayType: "weekday", name: "", specialKind: "none", specialScopeIds: [], overridden: false })), employees: [{ employmentId: "employee", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [], entries: [], shifts: [{ versionId: "shift", templateId: "early", scopeId: "store", name: "早班", dayType: "weekday", revision: 1, startSecond: 32400, endSecond: 64800, endDayOffset: 0, standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1 }] };
 }
 
-async function renderPage(getFailures = 0) {
+async function renderPage(getFailures = 0, mutationStatus = 200) {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.setSystemTime(new Date("2026-02-01T00:00:00Z")); notifyManager.setScheduler(queueMicrotask);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(["hr", "/schedules?periodKey=2026-02"], data());
   const writes: Record<string, unknown>[] = [];
   vi.stubGlobal("fetch", async (_path: RequestInfo | URL, init?: RequestInit) => {
-    if (init?.method === "PATCH") { writes.push(JSON.parse(String(init.body))); return Response.json({ id: "version", revision: 3 }); }
+    if (init?.method === "PATCH") { writes.push(JSON.parse(String(init.body))); return Response.json(mutationStatus === 200 ? { id: "version", revision: 3 } : { error: "排班已被其他人修改，請重新整理。" }, { status: mutationStatus }); }
     if (getFailures-- > 0) return Response.json({ error: "重新載入暫時失敗" }, { status: 500 });
     return Response.json(data(3));
   });
@@ -46,6 +46,20 @@ describe("後台排班差異草稿", () => {
       expect(page.dateButton().getAttribute("aria-pressed")).toBe("true");
       expect(page.dateButton().disabled).toBe(true);
       await page.click("儲存"); expect(page.writes).toHaveLength(0);
+    } finally { await page.cleanup(); }
+  });
+  it("409 後自動重抓並保留草稿，明確接受新基準後才以新 revision 儲存", async () => {
+    const page = await renderPage(0, 409);
+    try {
+      await page.click("儲存");
+      expect(document.body.textContent).toContain("未儲存草稿仍保留");
+      expect(page.dateButton().getAttribute("aria-pressed")).toBe("true");
+      expect(page.dateButton().disabled).toBe(true);
+      await page.click("儲存"); expect(page.writes).toHaveLength(1);
+      await page.click("放棄草稿並載入最新班表");
+      await act(async () => page.dateButton().click());
+      await page.click("儲存");
+      expect(page.writes[1]!.revision).toBe(3);
     } finally { await page.cleanup(); }
   });
   it("PATCH 成功但 GET 失敗時清除未儲存警告，能重抓但不能重送差異", async () => {

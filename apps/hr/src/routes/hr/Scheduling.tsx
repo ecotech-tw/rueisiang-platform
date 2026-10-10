@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useBlocker } from "react-router";
 import { outdatedScheduleIds, pickShiftForDay, scheduleChanges, shiftTimeRange, type HrScheduleResponse, type ScheduleEntry, type ScheduleScope } from "@rueisiang/db/schedule-draft";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, EmptyState, PageHeader, Panel, SelectField } from "../../ui/index.js";
@@ -24,11 +24,12 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
   const [templateId, setTemplateId] = useState(data.shifts[0]?.templateId ?? "");
   const [message, setMessage] = useState<string | null>(null);
   const [savedNeedsReload, setSavedNeedsReload] = useState(false);
+  const [reloadRequired, setReloadRequired] = useState(false);
   const save = useHrWrite<{ id: string; revision: number }>({ invalidate: false });
   const changes = scheduleChanges(draft, baseline.entries, outdatedScheduleIds(draft, data.shifts, data.calendar));
   const dirty = changes.entries.length > 0 || changes.removedIds.length > 0;
   const stale = (data.version?.revision ?? 0) !== (baseline.version?.revision ?? 0);
-  const disabled = save.isPending || savedNeedsReload || Boolean(data.version?.locked) || stale;
+  const disabled = save.isPending || savedNeedsReload || reloadRequired || Boolean(data.version?.locked) || stale;
   useEffect(() => { onChangeState(dirty && !savedNeedsReload, save.isPending); }, [dirty, savedNeedsReload, save.isPending, onChangeState]);
   // 背景重抓不能吃掉草稿；保留舊 revision，讓 API 拒絕覆蓋他人的變更。
   useEffect(() => {
@@ -37,10 +38,12 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
   const shifts = [...new Map(data.shifts.map((shift) => [shift.templateId, shift])).values()];
   const matchesPerson = (entry: ScheduleEntry) => entry.personKind === kind && (kind === "employee" ? entry.employmentId : entry.workerId) === personId;
   const templateOf = (entry: ScheduleEntry) => data.shifts.find((shift) => shift.versionId === entry.shiftVersionId)?.templateId;
-  const picked = (date: string) => draft.some((entry) => !entry.archivedAt && entry.workDate === date && matchesPerson(entry) && templateOf(entry) === templateId);
+  const selectedEntry = (date: string) => draft.find((entry) => !entry.archivedAt && entry.workDate === date && matchesPerson(entry) && templateOf(entry) === templateId);
+  const picked = (date: string) => Boolean(selectedEntry(date));
   const toggle = (date: string) => {
     if (disabled || !personId || !templateId) return;
-    const existing = draft.find((entry) => !entry.archivedAt && entry.workDate === date && matchesPerson(entry) && templateOf(entry) === templateId);
+    const existing = selectedEntry(date);
+    if (existing?.attendanceStatus !== undefined && existing.attendanceStatus !== "scheduled") return;
     if (existing) { setDraft((entries) => entries.filter((entry) => entry.id !== existing.id)); setMessage(null); return; }
     const day = data.calendar.find((day) => day.date === date);
     const shift = day && pickShiftForDay(data.shifts.filter((shift) => shift.templateId === templateId), day.dayType);
@@ -59,7 +62,7 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
   };
   const reload = async () => {
     const fresh = await onReload();
-    if (fresh) { setBaseline(fresh); setDraft(fresh.entries); setSavedNeedsReload(false); }
+    if (fresh) { setBaseline(fresh); setDraft(fresh.entries); setSavedNeedsReload(false); setReloadRequired(false); }
   };
   const submit = async () => {
     setMessage(null);
@@ -70,11 +73,16 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
       await reload();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "排班儲存失敗，草稿仍保留。");
+      setReloadRequired(true);
+      // 失敗後重抓只更新讀取資料，不接受新基準；有草稿時仍要明確確認後才能放棄。
+      const fresh = await onReload();
+      if (fresh) setReloadRequired(false);
     }
   };
   const employee = kind === "employee" ? data.employees.find((employee) => employee.employmentId === personId) : undefined;
   const selectedDays = new Set(draft.filter(matchesPerson).map((entry) => entry.workDate)).size;
   return <>
+    {reloadRequired && !stale ? <Alert tone="warning">載入最新班表失敗，草稿仍保留。<Button variant="secondary" onClick={() => { if (!dirty || window.confirm("重新載入會放棄尚未儲存的排班，確定繼續？")) void reload(); }}>重新載入</Button></Alert> : null}
     {data.version?.locked ? <Alert>這個月份已鎖定，請聯絡 HR 開鎖後再調整。</Alert> : null}
     {stale ? <Alert tone="warning">排班已被其他人修改，草稿仍保留。請重新載入後再安排。<Button variant="secondary" onClick={() => { if (!dirty || window.confirm("重新載入會放棄尚未儲存的排班，確定繼續？")) void reload(); }}>重新載入</Button></Alert> : null}
     <Panel className="hr-front-schedule-tools">
@@ -94,9 +102,9 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
       <div className="hr-front-schedule-grid">
         {Array.from({ length: new Date(`${data.periodKey}-01T00:00:00Z`).getUTCDay() }, (_, index) => <div key={`empty-${index}`} />)}
         {data.calendar.map((day) => <div key={day.date} className={`hr-front-schedule-day day-${day.dayType}${picked(day.date) ? " picked" : ""}`}>
-          <button type="button" className="hr-front-schedule-date" aria-label={`${day.date} 排班`} aria-pressed={picked(day.date)} disabled={disabled || !personId || !templateId} onClick={() => toggle(day.date)}>{Number(day.date.slice(8))}</button>
+          <button type="button" className="hr-front-schedule-date" aria-label={`${day.date} 排班`} aria-pressed={picked(day.date)} disabled={disabled || !personId || !templateId || Boolean(selectedEntry(day.date) && selectedEntry(day.date)!.attendanceStatus !== "scheduled")} onClick={() => toggle(day.date)}>{Number(day.date.slice(8))}</button>
           {day.name ? <small>{day.name}</small> : null}
-          {draft.filter((entry) => entry.workDate === day.date).map((entry) => <div className={`hr-front-schedule-entry${matchesPerson(entry) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}</small>{!entry.archivedAt ? <button type="button" aria-label={`移除 ${day.date} ${entry.personName} ${entry.shiftName}`} disabled={disabled} onClick={() => setDraft((entries) => entries.filter((other) => other.id !== entry.id))}>×</button> : null}</div>)}
+          {draft.filter((entry) => entry.workDate === day.date).map((entry) => <div className={`hr-front-schedule-entry${matchesPerson(entry) ? " current" : ""}`} key={entry.id}><span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}{entry.attendanceStatus !== "scheduled" ? "・出勤已確認" : ""}</small>{!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <button type="button" aria-label={`移除 ${day.date} ${entry.personName} ${entry.shiftName}`} disabled={disabled} onClick={() => setDraft((entries) => entries.filter((other) => other.id !== entry.id))}>×</button> : null}</div>)}
         </div>)}
       </div>
     </Panel>
@@ -112,12 +120,16 @@ export function HrScheduling() {
   const selectedScopeId = scopeId || scopes.data?.scopes[0]?.id || "";
   const schedule = useHrQuery<HrScheduleResponse>(`/me/schedules?periodKey=${month}&scopeId=${encodeURIComponent(selectedScopeId)}`, Boolean(selectedScopeId));
   const confirmLeave = () => !editState.pending && (!editState.dirty || window.confirm("排班還沒儲存，確定要放棄變更？"));
+  const blocker = useBlocker(editState.dirty || editState.pending);
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    if (!editState.pending && (!editState.dirty || window.confirm("排班還沒儲存，確定要放棄變更？"))) blocker.proceed();
+    else blocker.reset();
+  }, [blocker, editState]);
   useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => { if (editState.dirty || editState.pending) { event.preventDefault(); event.returnValue = ""; } };
-    const click = (event: MouseEvent) => { if ((event.target as HTMLElement).closest("a[href]") && !confirmLeave()) { event.preventDefault(); event.stopPropagation(); } };
     window.addEventListener("beforeunload", unload);
-    document.addEventListener("click", click, true);
-    return () => { window.removeEventListener("beforeunload", unload); document.removeEventListener("click", click, true); };
+    return () => window.removeEventListener("beforeunload", unload);
   }, [editState]);
   return <div className="page hr-front-schedule-page">
     <PageHeader title="據點排班" description="只管理你負責的營運據點；儲存直接發布，不需送審。" actions={<Link className="button secondary" to="/profile">個人中心</Link>} />

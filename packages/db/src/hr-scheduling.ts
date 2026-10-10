@@ -117,25 +117,6 @@ async function latestScheduleVersion(db: Database, period: { start: string; end:
   return version;
 }
 
-async function getOrCreateScheduleVersion(db: Database, period: { start: string; end: string }, actor: HrActor) {
-  const current = await latestScheduleVersion(db, period);
-  if (current) return current;
-  const id = crypto.randomUUID();
-  const [created] = await db.insert(hrScheduleVersions).values({
-    id,
-    periodStart: period.start,
-    periodEnd: period.end,
-    versionNumber: 1,
-    status: "published",
-    submittedBy: actor.id,
-    approvedBy: actor.id,
-    decisionReason: "直接發布",
-  }).onConflictDoNothing().returning();
-  const version = created ?? await latestScheduleVersion(db, period);
-  if (!version) throw new HrError(409, "排班版本建立失敗，請重新整理。 ");
-  return version;
-}
-
 async function runRawBatch(db: Database, statements: Array<{ sql: string; params: unknown[] }>, expectedUpdate: boolean, conflictMessage = "排班已被其他人修改或目前已鎖定，請重新整理。 ") {
   const prepared = statements.map((compiled) => db.$client.prepare(compiled.sql).bind(...compiled.params));
   const results = await db.$client.batch(prepared);
@@ -148,7 +129,7 @@ function compileStatements(statements: SQL[]) {
   return statements.map((statement) => dialect.sqlToQuery(statement));
 }
 
-async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor, removed?: { employee: string[]; worker: string[] }, authorizedScopeId?: string, retainedGroups: Array<{ scopeId: string; shiftTemplateId: string; workDate: string; shiftGroupId: string | null }> = []) {
+async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor, removed?: { employee: string[]; worker: string[]; scheduledOnlyIds?: string[] }, authorizedScopeId?: string, retainedGroups: Array<{ scopeId: string; shiftTemplateId: string; workDate: string; shiftGroupId: string | null }> = [], newPeriod?: { start: string; end: string }) {
   const nextRevision = version.revision + 1;
   const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: "schedule_saved", summary: "排班已發布", actor });
   // revision+1 可能是別人的更新；以本次獨有的稽核列守衛，CAS 失敗時後續 SQL 才會全部略過。
@@ -166,13 +147,22 @@ async function saveEntriesAtomically(db: Database, version: { id: string; revisi
   };
   const personIds = JSON.stringify(entries.map((entry) => entry.personKind === "employee" ? entry.employmentId : entry.workerId));
   const scopeIds = JSON.stringify([...new Set(entries.map((entry) => entry.scopeId))]);
-  const statements = [
-    sql`UPDATE hr_schedule_versions SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${version.id} AND revision=${version.revision} AND locked_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM hr_employments WHERE id IN (SELECT value FROM json_each(${personIds})) AND archived_at IS NOT NULL)
+  const eligible = sql`NOT EXISTS (SELECT 1 FROM hr_employments WHERE id IN (SELECT value FROM json_each(${personIds})) AND archived_at IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM scopes WHERE id IN (SELECT value FROM json_each(${scopeIds})) AND (active<>1 OR scope_kind<>'store'))
       ${removed ? sql`AND NOT EXISTS (SELECT 1 FROM hr_schedule_entries AS entry INNER JOIN hr_employments AS person ON person.id=entry.employment_id WHERE entry.id IN (SELECT value FROM json_each(${JSON.stringify(removed.employee)})) AND person.archived_at IS NOT NULL)
         AND NOT EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS entry INNER JOIN hr_employments AS person ON person.id=entry.worker_id WHERE entry.id IN (SELECT value FROM json_each(${JSON.stringify(removed.worker)})) AND person.archived_at IS NOT NULL)` : sql``}
-      ${authorizedScopeId ? sql`AND EXISTS (SELECT 1 FROM hr_schedule_managers AS manager INNER JOIN users ON users.id=manager.user_id INNER JOIN hr_employments ON hr_employments.employee_user_id=users.id INNER JOIN scopes ON scopes.id=manager.scope_id WHERE manager.scope_id=${authorizedScopeId} AND manager.user_id=${actor.id} AND users.status='active' AND hr_employments.archived_at IS NULL AND scopes.active=1 AND scopes.scope_kind='store')` : sql``} RETURNING id`,
+      ${authorizedScopeId ? sql`AND EXISTS (SELECT 1 FROM hr_schedule_managers AS manager INNER JOIN users ON users.id=manager.user_id INNER JOIN hr_employments ON hr_employments.employee_user_id=users.id INNER JOIN scopes ON scopes.id=manager.scope_id WHERE manager.scope_id=${authorizedScopeId} AND manager.user_id=${actor.id} AND users.status='active' AND hr_employments.archived_at IS NULL AND scopes.active=1 AND scopes.scope_kind='store')` : sql``}
+      ${removed?.scheduledOnlyIds?.length ? sql`AND NOT EXISTS (SELECT 1 FROM hr_schedule_entries WHERE id IN (SELECT value FROM json_each(${JSON.stringify(removed.scheduledOnlyIds)})) AND attendance_status<>'scheduled')
+        AND NOT EXISTS (SELECT 1 FROM hr_schedule_worker_entries WHERE id IN (SELECT value FROM json_each(${JSON.stringify(removed.scheduledOnlyIds)})) AND attendance_status<>'scheduled')` : sql``}`;
+  // 首次發布也必須同批建立月份；守衛失敗或任何 INSERT 失敗都不能留下空的已發布版本。
+  const writeVersion = newPeriod
+    ? sql`INSERT INTO hr_schedule_versions (id, period_start, period_end, version_number, status, submitted_by, approved_by, decision_reason, revision)
+        SELECT ${version.id}, ${newPeriod.start}, ${newPeriod.end}, 1, 'published', ${actor.id}, ${actor.id}, '直接發布', ${nextRevision}
+        WHERE ${eligible} AND NOT EXISTS (SELECT 1 FROM hr_schedule_versions WHERE period_start=${newPeriod.start} AND period_end=${newPeriod.end} AND status='published')
+        ON CONFLICT DO NOTHING RETURNING id`
+    : sql`UPDATE hr_schedule_versions SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${version.id} AND revision=${version.revision} AND locked_at IS NULL AND ${eligible} RETURNING id`;
+  const statements = [
+    writeVersion,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail} WHERE changes()=1`,
     // 已封存員工的排班是歷史快照；只替換仍可編輯的活動員工，避免儲存其他人時連帶刪除歷史。
@@ -364,10 +354,10 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
 export async function saveHrSchedule(db: Database, input: SaveHrScheduleInput, actor: HrActor) {
   const period = monthPeriodFromKey(input.periodKey);
   const entries = await validateAndEnrichEntries(db, period, input.entries);
-  let version = input.scheduleVersionId ? (await db.select().from(hrScheduleVersions).where(eq(hrScheduleVersions.id, input.scheduleVersionId)).limit(1))[0] : await getOrCreateScheduleVersion(db, period, actor);
-  if (!version || version.periodStart !== period.start || version.periodEnd !== period.end || version.status !== "published") throw new HrError(404, "找不到指定月份的排班版本。 ");
-  if (input.revision !== undefined && input.revision !== version.revision) throw new HrError(409, "排班已被其他人修改，請重新整理。 ");
-  return saveEntriesAtomically(db, version, entries, actor);
+  const version = input.scheduleVersionId ? (await db.select().from(hrScheduleVersions).where(eq(hrScheduleVersions.id, input.scheduleVersionId)).limit(1))[0] : await latestScheduleVersion(db, period);
+  if (input.scheduleVersionId && !version || version && (version.periodStart !== period.start || version.periodEnd !== period.end || version.status !== "published")) throw new HrError(404, "找不到指定月份的排班版本。 ");
+  if (input.revision !== undefined && input.revision !== (version?.revision ?? 1)) throw new HrError(409, "排班已被其他人修改，請重新整理。 ");
+  return saveEntriesAtomically(db, version ?? { id: crypto.randomUUID(), revision: 1, lockedAt: null }, entries, actor, undefined, undefined, [], version ? undefined : period);
 }
 
 export interface HrScheduleChangesInput {
@@ -395,6 +385,7 @@ export async function saveHrScheduleChanges(db: Database, input: HrScheduleChang
     const entry = byId.get(id);
     if (!entry || entry.archivedAt) throw new HrError(409, "排班不存在或人員已封存，請重新整理。 ");
     if (authorizedScopeId && entry.scopeId !== authorizedScopeId) throw new HrError(403, "只能修改負責據點的排班。 ");
+    if (authorizedScopeId && input.removedIds.includes(id) && entry.attendanceStatus !== "scheduled") throw new HrError(403, "已確認出勤狀態的排班不可移除，請聯絡 HR 調整。 ");
   }
   if (authorizedScopeId && input.entries.some((entry) => entry.scopeId !== authorizedScopeId || entry.attendanceStatus && entry.attendanceStatus !== "scheduled")) throw new HrError(403, "只能安排負責據點的排班，不能設定出勤狀態。 ");
   const refreshed = input.refreshIds.map((id) => {
@@ -412,13 +403,12 @@ export async function saveHrScheduleChanges(db: Database, input: HrScheduleChang
     }
   }
   if (!touchedIds.size && !enriched.length) throw new HrError(400, "沒有需要儲存的排班變更。 ");
-  const version = current.version ?? await getOrCreateScheduleVersion(db, period, actor);
-  // 新月份若剛被另一個請求建立並儲存，也不能覆蓋它。
-  if (!current.version && version.revision !== 1) throw new HrError(409, "排班已被其他人建立，請重新整理。 ");
+  const version = current.version ?? { id: crypto.randomUUID(), revision: 1, lockedAt: null };
   return saveEntriesAtomically(db, { ...version, lockedAt: version.lockedAt }, enriched, actor, {
     employee: [...touchedIds].filter((id) => byId.get(id)?.personKind === "employee"),
     worker: [...touchedIds].filter((id) => byId.get(id)?.personKind === "worker"),
-  }, authorizedScopeId, retained);
+    scheduledOnlyIds: authorizedScopeId ? input.removedIds : [],
+  }, authorizedScopeId, retained, current.version ? undefined : period);
 }
 
 export async function setHrScheduleLock(db: Database, periodKey: string, input: { revision: number; locked: boolean }, actor: HrActor) {
