@@ -486,7 +486,8 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
     0 -8px 18px --alpha(var(--color-ink) / 12%) inset,
     0 10px 24px --alpha(var(--color-info) / 18%);
 }
-.hr-system .primary-button.add-action {
+.hr-system .primary-button.add-action,
+.hr-system .primary-button.hr-action-approve {
   background: --alpha(var(--color-ok) / 78%);
   box-shadow:
     0 1px 0 --alpha(var(--color-paper) / 30%) inset,
@@ -516,7 +517,8 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .ghost-button:hover:not(:disabled),
 .hr-system .icon-button:hover:not(:disabled) { background: --alpha(var(--color-brand) / 10%); }
 .hr-system .primary-button:hover:not(:disabled) { background: --alpha(var(--color-info) / 92%); }
-.hr-system .primary-button.add-action:hover:not(:disabled) { background: --alpha(var(--color-ok) / 92%); }
+.hr-system .primary-button.add-action:hover:not(:disabled),
+.hr-system .primary-button.hr-action-approve:hover:not(:disabled) { background: --alpha(var(--color-ok) / 92%); }
 .hr-system .ghost-button.add-action:hover:not(:disabled),
 .hr-system .chip-action.add-action:hover:not(:disabled) { background: var(--color-ok-soft); color: var(--color-ok); }
 .hr-system .icon-button.add-action:hover:not(:disabled),

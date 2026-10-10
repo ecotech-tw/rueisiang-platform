@@ -19,8 +19,8 @@ function notificationTarget(notification: HrNotification) {
   const batch = notification.entityScope === "batch";
   const params = notification.kind === "request_submitted"
     ? new URLSearchParams({ tab, [batch ? "reviewBatch" : "review"]: notification.entityId })
-    // 批次鍵不是使用者看得懂的東西，不能像申請編號那樣塞進搜尋框。
-    : new URLSearchParams(batch ? { tab, status: "all", batch: notification.entityId } : { tab, status: "all", search: notification.entityId });
+    // ID 與批次鍵都不是使用者看得懂的東西，不塞進搜尋框；清單直接只列通知提到的申請。
+    : new URLSearchParams({ tab, status: "all", [batch ? "batch" : "focus"]: notification.entityId });
   return `/forms?${params.toString()}`;
 }
 

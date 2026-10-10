@@ -3619,11 +3619,13 @@
 .manual-sales-sku-input { min-width: 150px; max-width: 220px; }
 
 /* HR employee actions use the same semantic colors as the management station. */
-.hr-module-self .primary-button.add-action {
+.hr-module-self .primary-button.add-action,
+.hr-module-self .primary-button.hr-action-approve {
   background: var(--color-ok);
   color: var(--color-paper);
 }
-.hr-module-self .primary-button.add-action:hover:not(:disabled) {
+.hr-module-self .primary-button.add-action:hover:not(:disabled),
+.hr-module-self .primary-button.hr-action-approve:hover:not(:disabled) {
   background: color-mix(in srgb, var(--color-ok) 86%, var(--color-ink));
 }
 .hr-module-self .ghost-button.add-action,

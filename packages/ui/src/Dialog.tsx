@@ -111,8 +111,11 @@ export function Dialog({
    * HRIS 的樣式是用 .hr-system 開頭寫的，移出去之後會全部失效；所以在 HRIS 頁面開啟時
    * 用一層 display: contents 的殼把 hr-system 補回來。不能直接加在遮罩上——.hr-system
    * 自己帶著 grid-template-rows 與 align-content: stretch，會把遮罩的垂直置中蓋掉。
+   *
+   * 員工 HR 站的語意色寫在 .hr-module-self 底下，是同一個問題：不補回來的話，對話框裡的
+   * hr-action-*／add-action 全部落回品牌紅，核准跟旁邊的駁回（深紅）分不出來。
    */
-  const inHrSystem = typeof document !== "undefined" && Boolean(document.querySelector(".hr-system"));
+  const scopeClass = typeof document === "undefined" ? "" : [".hr-system", ".hr-module-self"].find((selector) => document.querySelector(selector))?.slice(1) ?? "";
   const backdropClassNameValue = ["modal-backdrop", backdropClassName, closing ? "closing" : ""].filter(Boolean).join(" ");
   const bodyClassNameValue = ["modal-body", bodyClassName].filter(Boolean).join(" ");
   const actionFooter = actions ? <div className="modal-actions">{actions}</div> : null;
@@ -126,7 +129,7 @@ export function Dialog({
           if (event.target === event.currentTarget) requestClose();
         }}
       >
-        <div className={inHrSystem ? "modal-scope hr-system" : "modal-scope"}>
+        <div className={scopeClass ? `modal-scope ${scopeClass}` : "modal-scope"}>
         <div className={cardClassName} role={role} aria-modal="true" aria-labelledby={titleId}>
         <div className="modal-head">
           {titleMeta ? (
