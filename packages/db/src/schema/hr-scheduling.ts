@@ -336,6 +336,8 @@ export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
   reviewedAt: text("reviewed_at"),
   decisionReason: text("decision_reason").notNull().default(""),
+  /** 本人一次送出多天時同一批共用的鍵；通知掛在這個鍵上，批裡任何一筆被取消或先審掉都不會讓通知失效。單筆申請留空。 */
+  batchId: text("batch_id"),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   ...timestamps(),
 }, (table) => [

@@ -251,14 +251,17 @@ describe("HR 申請中心", () => {
     const { ids } = await created.json() as { ids: string[] };
     expect(ids).toHaveLength(3);
 
-    const inbox = await (await request("/hr/me/overtime", "GET", undefined, adminCookie)).json() as { reviewRequests: Array<{ request: { id: string; status: string; actualStart: string | null; approverUserId: string }; employeeUserId: string }> };
+    const inbox = await (await request("/hr/me/overtime", "GET", undefined, adminCookie)).json() as { reviewRequests: Array<{ request: { id: string; status: string; actualStart: string | null; approverUserId: string; batchId: string | null }; employeeUserId: string }> };
     expect(inbox.reviewRequests).toHaveLength(3);
+    const batchId = inbox.reviewRequests[0]!.request.batchId;
+    expect(batchId).toBeTruthy();
+    expect(inbox.reviewRequests.every((item) => item.request.batchId === batchId)).toBe(true);
     expect(inbox.reviewRequests.every((item) => item.employeeUserId === "employee" && item.request.status === "pending" && item.request.actualStart === null && item.request.approverUserId === "admin")).toBe(true);
 
-    const notifications = await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json() as { notifications: Array<{ entityId: string; kind: string; title: string; body: string }>; unreadCount: number };
+    const notifications = await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json() as { notifications: Array<{ entityId: string; entityScope: string; kind: string; title: string; body: string }>; unreadCount: number };
     expect(notifications.unreadCount).toBe(1);
-    // 通知掛在最早那一天的申請上，內文列出整批的日期。
-    expect(notifications.notifications[0]).toMatchObject({ entityId: ids[0], kind: "request_submitted", title: "有 3 筆新的加班申請待審核" });
+    // 通知掛在批次鍵上而不是某一筆：批裡任何一筆被取消或先審掉，通知仍然點得進整批。
+    expect(notifications.notifications[0]).toMatchObject({ entityId: batchId, entityScope: "batch", kind: "request_submitted", title: "有 3 筆新的加班申請待審核" });
     expect(notifications.notifications[0]!.body).toContain("2026-01-06、2026-01-07、2026-01-10");
 
     const days = await request("/hr/me/overtime-days?startsOn=2026-01-05&endsOn=2026-01-08", "GET", undefined, employeeCookie);
@@ -287,6 +290,89 @@ describe("HR 申請中心", () => {
     const afterNotifications = await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json() as { notifications: Array<{ title: string }>; unreadCount: number };
     expect(afterNotifications.unreadCount).toBe(2);
     expect(afterNotifications.notifications.some((item) => item.title === "有新的加班申請待審核")).toBe(true);
+  });
+
+  it("整批加班逐筆核准、逐筆取消時，通知各合成一則並逐行累積；駁回仍然一筆一則", async () => {
+    await assignEmployeeSupervisor();
+    const created = await request("/hr/me/overtime/batch", "POST", { settlementKind: "pay", reason: "月底補登", entries: [6, 7, 8, 9, 12, 13].map((day) => ({ requestedStart: `2026-01-${String(day).padStart(2, "0")}T18:00`, requestedEnd: `2026-01-${String(day).padStart(2, "0")}T19:00` })) }, employeeCookie);
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { ids } = await created.json() as { ids: string[] };
+    type Notice = { entityId: string; entityScope: string; kind: string; title: string; body: string; readAt: string | null };
+    const notices = async (cookie: string) => (await (await request("/hr/me/notifications", "GET", undefined, cookie)).json() as { notifications: Notice[]; unreadCount: number });
+    const batchId = (await notices(adminCookie)).notifications[0]!.entityId;
+    const review = (id: string, decision: string, comment = "") => request(`/hr/me/overtime/${id}/review`, "POST", { decision, comment }, adminCookie);
+
+    // 第一筆有意見、第二筆沒有：前一筆的意見不能被後一筆蓋掉，而且看得出是哪一天的。
+    expect((await review(ids[0]!, "approved", "只核 1 小時")).status).toBe(200);
+    expect((await review(ids[1]!, "approved")).status).toBe(200);
+    let mine = await notices(employeeCookie);
+    expect(mine.notifications).toHaveLength(1);
+    expect(mine.notifications[0]).toMatchObject({ entityId: batchId, entityScope: "batch", kind: "request_reviewed", title: "加班申請已核准", body: "2026-01-06 已核准：只核 1 小時\n2026-01-07 已核准。" });
+
+    // 讀過之後又核准一筆：同一則接上新的一行並重新變成未讀，不另外多一則。
+    expect((await request("/hr/me/notifications/read-all", "POST", {}, employeeCookie)).status).toBe(200);
+    expect((await notices(employeeCookie)).unreadCount).toBe(0);
+    expect((await review(ids[2]!, "approved")).status).toBe(200);
+    mine = await notices(employeeCookie);
+    expect(mine.notifications).toHaveLength(1);
+    expect(mine.unreadCount).toBe(1);
+    expect(mine.notifications[0]!.readAt).toBeNull();
+    expect(mine.notifications[0]!.body).toBe("2026-01-06 已核准：只核 1 小時\n2026-01-07 已核准。\n2026-01-08 已核准。");
+
+    // 駁回各有各的理由，掛在那一筆申請上。
+    expect((await review(ids[3]!, "rejected", "這天沒有加班紀錄")).status).toBe(200);
+    mine = await notices(employeeCookie);
+    expect(mine.notifications).toHaveLength(2);
+    expect(mine.notifications.find((item) => item.title === "加班申請已駁回")).toMatchObject({ entityId: ids[3], entityScope: "request", body: "這天沒有加班紀錄" });
+
+    // 員工連續取消兩天：審核者只有一則取消通知，兩天都列在裡面。
+    expect((await request(`/hr/me/overtime/${ids[4]}/cancel`, "POST", {}, employeeCookie)).status).toBe(200);
+    expect((await request("/hr/me/notifications/read-all", "POST", {}, adminCookie)).status).toBe(200);
+    expect((await request(`/hr/me/overtime/${ids[5]}/cancel`, "POST", {}, employeeCookie)).status).toBe(200);
+    const inbox = await notices(adminCookie);
+    const cancelled = inbox.notifications.filter((item) => item.kind === "request_cancelled");
+    expect(cancelled).toHaveLength(1);
+    expect(cancelled[0]).toMatchObject({ entityId: batchId, entityScope: "batch", readAt: null, body: "申請人已取消 2026-01-12 的待審加班申請。\n申請人已取消 2026-01-13 的待審加班申請。" });
+    expect(inbox.unreadCount).toBe(1);
+  });
+
+  it("單筆申請與後台代登不帶批次鍵，通知維持一筆一則", async () => {
+    await assignEmployeeSupervisor();
+    const single = await request("/hr/me/overtime", "POST", { requestedStart: "2026-01-20T18:00", requestedEnd: "2026-01-20T19:00", settlementKind: "pay", reason: "" }, employeeCookie);
+    const singleId = (await single.json() as { id: string }).id;
+    expect((await request(`/hr/me/overtime/${singleId}/cancel`, "POST", {}, employeeCookie)).status).toBe(200);
+    const after = await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json() as { notifications: Array<{ kind: string; entityId: string; entityScope: string; body: string }> };
+    expect(after.notifications.find((item) => item.kind === "request_cancelled")).toMatchObject({ entityId: singleId, entityScope: "request", body: "申請人已取消 2026-01-20 的待審加班申請。" });
+
+    // 後台代登直接核准、沒有通知要合併；批次鍵只代表「本人送出、待審核的一批」。
+    const proxied = await request("/hr/requests/overtime/batch", "POST", { employeeUserId: "employee", settlementKind: "pay", reason: "", entries: [21, 22].map((day) => ({ requestedStart: `2026-01-${day}T18:00`, requestedEnd: `2026-01-${day}T19:00` })) });
+    expect(proxied.status, await proxied.clone().text()).toBe(201);
+    const mine = await (await request("/hr/me/overtime", "GET", undefined, employeeCookie)).json() as { requests: Array<{ request: { batchId: string | null; status: string } }> };
+    expect(mine.requests).toHaveLength(2);
+    expect(mine.requests.every((item) => item.request.status === "approved" && item.request.batchId === null)).toBe(true);
+  });
+
+  it("通知內文超過上限時整行捨棄最舊的，每一行的日期都留著", async () => {
+    await assignEmployeeSupervisor();
+    const created = await request("/hr/me/overtime/batch", "POST", { settlementKind: "pay", reason: "", entries: [6, 7, 8].map((day) => ({ requestedStart: `2026-01-0${day}T18:00`, requestedEnd: `2026-01-0${day}T19:00` })) }, employeeCookie);
+    const { ids } = await created.json() as { ids: string[] };
+    const review = (id: string, comment: string) => request(`/hr/me/overtime/${id}/review`, "POST", { decision: "approved", comment }, adminCookie);
+    const body = async () => (await (await request("/hr/me/notifications", "GET", undefined, employeeCookie)).json() as { notifications: Array<{ body: string }> }).notifications[0]!.body;
+
+    // 意見長度就是上限：單獨一行也放不下時截的是意見，日期前綴完整。
+    const maxComment = `${"長".repeat(996)}😀結尾`;
+    expect([...maxComment].length).toBe(999);
+    expect((await review(ids[0]!, maxComment)).status).toBe(200);
+    const first = await body();
+    expect([...first].length).toBeLessThanOrEqual(1000);
+    expect(first.startsWith("2026-01-06 已核准：長")).toBe(true);
+    expect(first.endsWith("…")).toBe(true);
+
+    // 再接兩行就超過上限：最舊的那一行整行捨棄，不留沒有日期的殘段。
+    expect((await review(ids[1]!, "😀短意見")).status).toBe(200);
+    expect(await body()).toBe("…\n2026-01-07 已核准：😀短意見");
+    expect((await review(ids[2]!, "")).status).toBe(200);
+    expect(await body()).toBe("…\n2026-01-07 已核准：😀短意見\n2026-01-08 已核准。");
   });
 
   it("加班日曆帶出每天的下班時間與已存在的申請", async () => {

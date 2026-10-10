@@ -198,6 +198,8 @@ export interface HrNotification {
   id: string;
   kind: "request_submitted" | "request_reviewed" | "request_cancelled";
   entityKind: "leave" | "overtime" | "clock_correction";
+  /** batch 時 entityId 是整批加班的批次鍵，不是申請 ID。 */
+  entityScope: "request" | "batch";
   entityId: string;
   title: string;
   body: string;
@@ -226,7 +228,7 @@ export interface HrPayslipDetailResponse {
   };
 }
 export interface HrOvertimeDay { date: string; shiftEnd: string | null; existing: Array<{ requestedStart: string; requestedEnd: string; status: string }> }
-export interface OvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; approverUserId: string | null; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; revision: number; createdAt: string }; employeeUserId: string; employeeName: string | null }
+export interface OvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; approverUserId: string | null; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; batchId: string | null; revision: number; createdAt: string }; employeeUserId: string; employeeName: string | null }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);

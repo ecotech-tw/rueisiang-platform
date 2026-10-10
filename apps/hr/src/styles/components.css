@@ -691,7 +691,7 @@
 .hr-notification-copy { display: grid; gap: 4px; min-width: 0; font-size: 13px; line-height: 1.5; }
 .hr-notification-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .hr-notification-title strong { min-width: 0; font-size: 14px; }
-.hr-notification-copy > span:not(.hr-notification-title) { color: var(--color-muted); overflow-wrap: anywhere; }
+.hr-notification-copy > span:not(.hr-notification-title) { color: var(--color-muted); overflow-wrap: anywhere; white-space: pre-line; }
 .hr-notification-copy small { color: var(--color-muted); font-size: 11px; }
 .hr-payroll-history-page { width: 100%; max-width: 760px; margin-inline: auto; }
 .hr-payroll-history-content { display: grid; gap: 12px; min-height: 0; }
