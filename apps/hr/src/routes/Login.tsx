@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
-import { useSession } from "../auth/session.js";
+import { isSignedOutEntry, useSession } from "../auth/session.js";
+import { isLiffClient } from "../auth/liff.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
 import { Button, TextField } from "../ui/index.js";
 import { API_BASE_URL } from "../config.js";
@@ -9,7 +10,7 @@ function safeReturnTo(value: string | null): string {
   if (!value) return "/";
   try {
     const target = new URL(value, window.location.origin);
-    if (target.origin !== window.location.origin) return "/";
+    if (target.origin !== window.location.origin || target.pathname.replace(/\/$/, "") === "/login") return "/";
     return `${target.pathname}${target.search}${target.hash}`;
   } catch {
     return "/";
@@ -59,6 +60,11 @@ export function Login() {
         <p className="muted">用公司的 Google 帳號，或邀請信裡設定的密碼登入。</p>
 
         {error || sessionError ? <p className="login-error" role="alert">{error ?? (sessionError instanceof Error ? sessionError.message : "讀取登入狀態失敗，請重新載入。")}</p> : null}
+
+        {isSignedOutEntry() && isLiffClient() ? <>
+          <p className="muted">已登出此裝置，LINE 綁定仍保留。可重新登入，或關閉後再從 LINE 開啟 HR。</p>
+          <a className="login-button" href={returnTo}>使用 LINE 重新登入</a>
+        </> : null}
 
         <a className="login-button" href={`${API_BASE_URL}/auth/google/start?returnTo=${encodeURIComponent(googleReturnTo)}`}>
           使用 Google 帳號登入

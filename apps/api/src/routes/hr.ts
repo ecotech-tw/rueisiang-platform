@@ -587,7 +587,8 @@ export const hr = new Hono<AppEnv>()
     const link = await getLineAccountLink(c.get("db"), userId);
     const channelId = c.env.LINE_LIFF_CHANNEL_ID?.trim() ?? "";
     const intent = await readLineLinkIntent(readCookie(c.req.header("Cookie"), LINE_LIFF_INTENT_COOKIE), c.env.AUTH_SESSION_SECRET, channelId);
-    return c.json({ linked: Boolean(link), pending: Boolean(intent) });
+    const replaceRequired = Boolean(link && intent && (await findUserByLineIdentity(c.get("db"), intent)) !== userId);
+    return c.json({ linked: Boolean(link), pending: Boolean(intent), replaceRequired });
   })
   .post("/liff/link", async (c) => {
     const input = await body(c);
@@ -880,7 +881,7 @@ export const hr = new Hono<AppEnv>()
     const actualStart = optionalDateTimeValue(input, "actualStart", "實際加班開始");
     const actualEnd = optionalDateTimeValue(input, "actualEnd", "實際加班結束");
     if ((actualStart === undefined) !== (actualEnd === undefined)) throw new HTTPException(400, { message: "實際加班開始與結束時間必須一起填寫。" });
-    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined));
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true }));
   })
   .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);

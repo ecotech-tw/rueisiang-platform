@@ -15,7 +15,9 @@
 | 排班／假勤／加班／獎金／薪資 | 以穩定 `employmentId` 關聯，保留各領域自己的快照、版本與稽核歷史 |
 | 操作稽核 | 共用 `activity_events`；既有 `hr_employment_actions` 僅作歷史保留，不再作為目前狀態來源 |
 | 權限 | `packages/auth/src/permissions.ts` 是唯一來源；後端每次請求重新判定，不信任前端顯示 |
-| LIFF 登入 | `auth_device_sessions.auth_method='line_liff'` 與一般記住裝置分開標記；只可使用 HR 打卡與定位 API，且每次請求確認帳號 active、員工任職有效 |
+| LIFF 登入 | `auth_device_sessions.auth_method='line_liff'` 與一般記住裝置分開標記；可使用既有 HR 本人 API，資料歸屬與權限仍由各服務判定；不提供管理端認證，且每次請求確認帳號 active、員工任職有效 |
+
+HR 主動登出先撤銷裝置憑證，再以當次登入頁的 URL 狀態暫停自動認證，避免 LIFF SSO 立即抵銷登出。LINE 綁定不刪除，也不保存永久停用自動登入的旗標；明確重新登入或從 LINE 重新開啟正常入口時恢復身分驗證。
 
 ## 二、員工資料模型
 

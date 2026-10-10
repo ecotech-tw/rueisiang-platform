@@ -15,7 +15,7 @@ function RequireSession({ children }: { children: React.ReactNode }) {
   const { user, loading, error, reload } = useSession();
   const location = useLocation();
   const checkLineLink = Boolean(user?.lineLinkRequired && !user.lineLiffAuthenticated);
-  const lineLink = useHrQuery<{ linked: boolean; pending: boolean }>("/liff/link", checkLineLink);
+  const lineLink = useHrQuery<{ linked: boolean; pending: boolean; replaceRequired: boolean }>("/liff/link", checkLineLink);
   if (loading) return <div className="boot">載入中…</div>;
   if (error) return <div className="boot" role="alert"><p>{error instanceof Error ? error.message : "讀取登入狀態失敗。"}</p><button type="button" onClick={() => void reload()}>重新嘗試</button></div>;
   if (!user) {
@@ -24,8 +24,7 @@ function RequireSession({ children }: { children: React.ReactNode }) {
   }
   if (checkLineLink && lineLink.isPending) return <div className="boot">確認 LINE 綁定狀態…</div>;
   if (checkLineLink && lineLink.error) return <div className="boot" role="alert"><p>{lineLink.error instanceof Error ? lineLink.error.message : "讀取 LINE 綁定狀態失敗。"}</p><button type="button" onClick={() => void lineLink.refetch()}>重新嘗試</button></div>;
-  if (checkLineLink) return <LiffAccountLinkPage replaceExisting={Boolean(lineLink.data?.linked)} intentExpired={!lineLink.data?.pending} />;
-  if (user.lineLiffAuthenticated && location.pathname !== "/clock") return <Navigate to="/clock" replace />;
+  if (checkLineLink) return <LiffAccountLinkPage replaceExisting={Boolean(lineLink.data?.replaceRequired)} intentExpired={!lineLink.data?.pending} />;
   return <>{children}</>;
 }
 

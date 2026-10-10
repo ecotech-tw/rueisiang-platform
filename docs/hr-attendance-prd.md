@@ -23,11 +23,11 @@
 
 ### LINE LIFF 打卡（第一階段）
 
-- LIFF 只提供打卡入口，不包含請假、加班、補打卡申請或對話式申請。
+- LIFF 是既有 HR 員工站的 LINE 登入入口，手機保留表單申請、薪資袋、打卡、通知與個人中心；不新增對話式申請。
 - 員工首次先用既有平台密碼或 Google OAuth 登入 HR，再明確確認要綁定的公司帳號；之後 LINE Login subject 才可自動認證。
 - 前端只送 `liff.getIDToken()`；API 向 LINE verify endpoint 驗證 issuer、channel audience、有效期限與 subject。不得採信前端提供的 LINE UID、profile 或 access token。
 - 帳號關聯以 LINE Login channel + subject 唯一；一個平台帳號只能綁一組 LINE 身分，一組 LINE 身分也不能同時綁多個平台帳號。
-- 後續 LIFF 登入只簽發 HR 本人範圍的裝置 session，且只允許打卡狀態、辦公位置地圖、定位檢查與打卡事件 API；不能用來讀薪資、通知或其他申請資料。只有活動員工可換取此 session。
+- 後續 LIFF 登入只簽發 HR 本人範圍的裝置 session，沿用 `/api/hr/me/*` 的資料歸屬與申請／審核權限；不換發全平台或管理端 session。只有活動員工可換取此 session。
 - LIFF 打卡一律要求當次 GPS 座標，沿用伺服器的辦公位置座標與半徑驗證；即使一般入口允許免定位，LIFF 也不能略過。位置未設定座標時不得打卡。
 - 打卡事件來源保存為 `line`，仍使用現有伺服器時間、狀態切換、地理圍欄與 idempotency 規則。
 

@@ -415,10 +415,10 @@ export function HrClock() {
           {clock.isPending || locating ? <span className="hr-clock-action-loading">…</span> : <Icon name="clock" />}
         </button>
         <ClockOfficeCard status={status} check={visibleLocationCheck} />
-        {!lineLiffAuthenticated ? <nav className="hr-clock-deep-links" aria-label="打卡詳細資料">
+        <nav className="hr-clock-deep-links" aria-label="打卡詳細資料">
           <NavLink to="/clock/calendar" aria-label="出勤日曆"><Icon name="calendar" /><span>出勤日曆</span></NavLink>
           <NavLink to="/clock/logs" aria-label="打卡紀錄"><Icon name="history" /><span>打卡紀錄</span></NavLink>
-        </nav> : null}
+        </nav>
         {lastEvent ? <p className="hr-clock-last-event">最近一次：{lastEvent.eventKind === "clock_out" ? "下班" : "上班"}・{formatTaipei(lastEvent.occurredAt)}</p> : <p className="hr-clock-last-event">今天尚未打卡。</p>}
         {(demoLocationFailed || status?.geolocationRequired) && (visibleLocationError || outsideOffice) ? <Button className="hr-clock-retry-action hr-action-info" variant="secondary" disabled={!status?.canClock || locating} onClick={() => { void verifyLocation(); }}>重新定位</Button> : null}
         {lineLiffAuthenticated ? <Button variant="link" disabled={unlink.isPending} onClick={() => setUnlinkConfirmOpen(true)}>解除 LINE 綁定</Button> : null}
