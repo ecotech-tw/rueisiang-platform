@@ -805,7 +805,6 @@ describe("AI 助理 Sandbox", () => {
     await db().insert(assistantLineGroups).values({ id: "hr-private-chat", channelKey: channel.channelKey, lineGroupId: "U-private", sourceType: "user", enabled: true });
     await linkLineAccount(db(), "hr-self", { channelId: "login-channel", lineUserId: "U-private" });
     env.LINE_LIFF_CHANNEL_ID = "login-channel";
-    env.HR_ASSISTANT_CHANNEL_KEY = channel.channelKey;
     const name = `hr-private:${channel.channelKey}:user:U-private`;
     const agent = assistantAgents!.getByName(name);
     const input = {

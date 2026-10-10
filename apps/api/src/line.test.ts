@@ -1224,7 +1224,6 @@ describe("LINE HR 敏感回答 delivery", () => {
     await ensureAssistantDefaults(db(), { assistantKey: "rueisiang-xiaoxiang", defaultModel: "gpt-5.4-mini", defaultPrompt: "HR 測試", toolKeys: ["hr_authorize"] });
     await setAssistantChannelTools(db(), { channelKey: "rueisiang-xiaoxiang", toolKeys: ["hr_authorize"], updatedBy: "admin" });
     env.LINE_LIFF_CHANNEL_ID = "hr-login";
-    env.HR_ASSISTANT_CHANNEL_KEY = "rueisiang-xiaoxiang";
     const runId = crypto.randomUUID();
     const context = {
       assistantKey: "rueisiang-xiaoxiang", channelKey: "rueisiang-xiaoxiang", groupRowId: group.id,

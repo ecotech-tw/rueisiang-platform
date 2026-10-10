@@ -22,8 +22,8 @@ function requirePrivateContext(env: Env, input: PiLineAgentContext): HrToolConte
   // 必須在任何綁定／員工查詢之前拒絕群組，也不使用群組發話者來換取本人授權。
   if (input.sourceType !== "user") throw new HrSelfToolError("HR 授權與查詢僅限 LINE 本人私訊。" );
   const lineLoginChannelId = env.LINE_LIFF_CHANNEL_ID?.trim();
-  if (!lineLoginChannelId || env.HR_ASSISTANT_CHANNEL_KEY !== input.channelKey) {
-    throw new HrSelfToolError("這個 LINE 帳號尚未開通 HR 本人查詢。" );
+  if (!lineLoginChannelId) {
+    throw new HrSelfToolError("LINE HR 員工登入尚未設定。" );
   }
   return {
     surface: "line",
