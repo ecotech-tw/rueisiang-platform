@@ -144,6 +144,11 @@ interface ToolExecutionContext {
   request: PiAgentRunRequest;
   toolCalls: AssistantToolCall[];
   privateHrRun?: boolean;
+  /**
+   * Sandbox 模擬本人的回合：對話照常留存，但錯誤一律遮罩。provider 報錯時常把送出的內容原樣回顯，
+   * 而看得到 Worker Logs 與 run 稽核的人比看得到這個 session 的人多。
+   */
+  maskErrors?: boolean;
   hrSelf?: LineHrSelfService | SandboxHrSelfService;
 }
 
@@ -1023,7 +1028,7 @@ export class AssistantChatAgent {
             console.error("Pi agent 工具執行失敗", {
               runId: context.request.runId,
               toolKey: tool.key,
-              error: context.privateHrRun ? serializePiError(new Error(errorMessage)) : serializePiError(error),
+              error: context.privateHrRun || context.maskErrors ? serializePiError(new Error(errorMessage)) : serializePiError(error),
             });
             context.toolCalls.push({
               toolKey: tool.key,
@@ -1348,7 +1353,8 @@ export class AssistantChatAgent {
     if (this.estimatedStoredContextTokens(state) > COMPACT_AFTER_TOKENS) {
       await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);
     }
-    const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
+    const toolContext: ToolExecutionContext = { request: input, toolCalls: [], maskErrors: hrSandbox };
+    const masked = () => toolContext.privateHrRun === true || hrSandbox;
     const initialMessages = await this.contextMessages(state, INTERACTIVE_CONTEXT_TOKENS);
     const images = await this.inputImages(input.attachments);
     const agent = new Agent({
@@ -1365,7 +1371,7 @@ export class AssistantChatAgent {
         timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
         maxTokens: MODEL_MAX_OUTPUT_TOKENS,
-      }, providerDiagnostics, fallbackModel, () => toolContext.privateHrRun === true),
+      }, providerDiagnostics, fallbackModel, masked),
       sessionId: state.session_id,
       transport: "sse",
       maxRetryDelayMs: 1_000,
@@ -1388,10 +1394,10 @@ export class AssistantChatAgent {
       await agent.prompt(input.userText, images);
     } catch (error) {
       throw new AgentExecutionError(
-        toolContext.privateHrRun ? "HR 本人查詢暫時無法完成，請重新查詢。" : error instanceof Error ? error.message : "Pi agent 執行失敗。",
+        masked() ? "HR 本人查詢暫時無法完成，請重新查詢。" : error instanceof Error ? error.message : "Pi agent 執行失敗。",
         toolContext.toolCalls,
         providerDiagnostics.lastResponse,
-        toolContext.privateHrRun ? undefined : serializePiError(error),
+        masked() ? undefined : serializePiError(error),
       );
     }
     const newMessages = agent.state.messages.slice(initialMessages.length);
@@ -1401,7 +1407,7 @@ export class AssistantChatAgent {
         Date.now(),
         input.runId,
       );
-      const message = toolContext.privateHrRun ? "HR 本人查詢暫時無法完成，請重新查詢。" : agent.state.errorMessage;
+      const message = masked() ? "HR 本人查詢暫時無法完成，請重新查詢。" : agent.state.errorMessage;
       const error = new Error(message);
       throw new AgentExecutionError(
         message,
@@ -1499,15 +1505,19 @@ export class AssistantChatAgent {
       }
       return Response.json({ error: "Pi agent request 格式不正確。" }, { status: 400 });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
+      // HrSelfToolError 是我們自己寫的固定句子（未綁定、已停權…），操作者需要看到；其餘錯誤可能回顯內容。
+      const maskedSandbox = isRunRequest(payload) && isSandboxRunRequest(payload) && payload.hrSandboxUserId !== undefined;
+      const message = maskedSandbox && !(error instanceof HrSelfToolError)
+        ? "HR 本人查詢暫時無法完成，請重新查詢。"
+        : error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
       const stale = message.includes("已重設的舊 session");
       if (!stale) {
         console.error("Pi chat agent 執行失敗", {
           runId: isRunRequest(payload) ? payload.runId : undefined,
-          error: error instanceof AgentExecutionError
+          error: maskedSandbox ? serializePiError(new Error(message)) : error instanceof AgentExecutionError
             ? error.errorDiagnostic
             : serializePiError(error),
-          ...(error instanceof AgentExecutionError && error.providerResponse
+          ...(!maskedSandbox && error instanceof AgentExecutionError && error.providerResponse
             ? { providerResponse: error.providerResponse }
             : {}),
           ...(error instanceof AgentExecutionError

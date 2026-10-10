@@ -2324,6 +2324,33 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect(requests.join("\n")).not.toMatch(/敏感假單-alice|撤銷後不得留存的回答/);
   });
 
+  it.each(["before-authorize", "after-query", "transport"])("provider %s 把內容回顯在錯誤裡時，不進 UI、logs 或 run 稽核", async (failure) => {
+    const sessionId = await openSession();
+    let stage = 0;
+    const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      if ((failure === "before-authorize" && stage === 0) || stage === 2) {
+        if (failure === "transport") throw new Error("敏感本人測試問題 敏感假單-alice");
+        return Response.json({ error: { message: "敏感本人測試問題 敏感假單-alice" } }, { status: 500, headers: { "x-request-id": "敏感本人測試問題" } });
+      }
+      const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }] : [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }];
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const response = await runHr({ sessionId, toolKeys: ["crm_search_customers", ...keys] });
+    expect(response.status).toBe(502);
+    expect(await response.text()).not.toMatch(/敏感本人測試問題|敏感假單/);
+    expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/敏感本人測試問題|敏感假單/);
+    expect(JSON.stringify(await db().select().from(assistantRuns))).not.toMatch(/敏感本人測試問題|敏感假單/);
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
+  });
+
+  it("沒帶模擬對象的一般回合，provider 錯誤照常顯示", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ error: { message: "一般 provider 錯誤" } }, { status: 500 }));
+    const response = await runHr({ hrSandboxUserId: undefined, toolKeys: [] });
+    expect(response.status).toBe(502);
+    expect(await response.text()).toContain("一般 provider 錯誤");
+  });
+
   it.each(["no-authorize", "target-override", "unbound"])("模型 %s 不得取得 HR 資料", async (failure) => {
     if (failure === "unbound") d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
     let stage = 0;

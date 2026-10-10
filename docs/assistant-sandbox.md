@@ -83,7 +83,7 @@ Sandbox 設定欄的「模擬員工本人」要求操作者具有系統 `admin` 
 
 選定員工的 user ID 只交給受權限保護的 Sandbox run 入口，模型工具不接受查詢對象。token 綁定 assistant、Sandbox HR scope、操作者、對話、run、LINE Login identity 與綁定版本，五分鐘到期並只保存在本輪執行記憶體中。與正式 LINE 共用 token 驗證及本人資料 view；每次工具查詢、DO 回應及 HTTP 回覆前均重驗操作者、員工綁定與有效授權。解除／替換綁定、停權、離職、撤銷管理角色或工具停用會立即阻擋。
 
-模擬員工本人不是另一個模式，而是 Sandbox run 上的一個設定：同一輪可以混用一般工具與 HR 工具、接在既有 session 後面多輪對話，也可以附圖。選了 HR 工具就必須一併提供 `hr_authorize`，沒有選定員工時 HR 工具不能送出；「開發中」工具可在 Sandbox 測試。問答、思考與工具參數照一般 Sandbox 保存在操作者自己的 session 與 Pi transcript，只有建立 session 的人讀得到；不寫 LINE backup，也不傳送 LINE 訊息。送出前才被撤銷授權的回合會從 transcript 移除，不會成為下一輪的上下文。同一個 session 換模擬對象時，先前回合查到的資料仍在上下文裡，system prompt 會要求模型不得沿用，換人前清除對話最乾淨。HTTP 回覆使用 `Cache-Control: no-store`。正式資料會送至所選模型服務，畫面在選定員工時提示這項邊界。
+模擬員工本人不是另一個模式，而是 Sandbox run 上的一個設定：同一輪可以混用一般工具與 HR 工具、接在既有 session 後面多輪對話，也可以附圖。選了 HR 工具就必須一併提供 `hr_authorize`，沒有選定員工時 HR 工具不能送出；「開發中」工具可在 Sandbox 測試。問答、思考與工具參數照一般 Sandbox 保存在操作者自己的 session 與 Pi transcript，只有建立 session 的人讀得到；不寫 LINE backup，也不傳送 LINE 訊息。送出前才被撤銷授權的回合會從 transcript 移除，不會成為下一輪的上下文。同一個 session 換模擬對象時，先前回合查到的資料仍在上下文裡，system prompt 會要求模型不得沿用，換人前清除對話最乾淨。帶模擬對象的回合，provider／transport 錯誤一律遮罩成固定句子，不把回顯的內容寫進畫面、Worker Logs 或 run 稽核；我們自己的授權錯誤（未綁定、已停權）照常顯示。HTTP 回覆使用 `Cache-Control: no-store`。正式資料會送至所選模型服務，畫面在選定員工時提示這項邊界。
 
 模擬員工本人只需既有的 `LINE_LIFF_CHANNEL_ID` 綁定 scope，不依賴 Messaging channel 開關或正式 LINE 對話的工具白名單。這讓管理者能在正式 LINE 開通前測試本人資料，但不代表正式 LINE 授權或 UID Provider 相容性已通過驗證。特休額度仍沿用本人補建規則，不會補建其他員工。
 
