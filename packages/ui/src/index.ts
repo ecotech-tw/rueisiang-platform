@@ -22,5 +22,21 @@ export { SortableHeader, type SortableHeaderProps } from "./SortableHeader.js";
 export { PageHeader, Panel } from "./Panel.js";
 export { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";
+export { OvertimeDayPicker, type OvertimePickerDay } from "./OvertimeDayPicker.js";
+export {
+  OVERTIME_HOUR_PRESETS,
+  OVERTIME_UNIT_MINUTES,
+  addMinutes,
+  buildOvertimeEntries,
+  hoursText,
+  isValidOvertimeMinutes,
+  minutesUntil,
+  monthRange,
+  nextDate,
+  parseHours,
+  selectedUnscheduledDates,
+  summarizeAssignments,
+  type OvertimeEntryDay,
+} from "./overtime-entry.js";
 export { DialogContext, type DialogCloseRef, type DialogCloseRequest, type DialogContextValue } from "./dialog-context.js";
 export { Icon, type IconName } from "./icons.js";

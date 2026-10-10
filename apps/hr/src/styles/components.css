@@ -581,6 +581,9 @@
 .hr-form-request-summary dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .hr-form-fields { display: grid; gap: 16px; }
 .hr-form-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hr-overtime-mode { margin-bottom: 16px; }
+.hr-overtime-note { margin: 0; font-size: 13px; line-height: 1.55; }
+.hr-form-review-all { justify-self: start; min-height: 44px; font-size: 13px; font-weight: 700; }
 .hr-form-actions,
 .hr-form-review-actions,
 .hr-form-request-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 18px; }
@@ -3791,6 +3794,7 @@
   .hr-form-back-bar { margin-inline: -14px; padding-inline: 14px; }
   .hr-form-page > .page-head { margin-top: 8px; }
   .hr-form-tabs button { min-height: 42px; padding-inline: 8px; font-size: 13px; }
+  .hr-form-tabs.hr-overtime-presets button { padding-inline: 4px; }
   .hr-form-filters { grid-template-columns: minmax(0, 1fr) 128px; gap: 8px; padding-top: 8px; }
   .hr-form-section,
   .hr-form-page > .panel { padding: 16px 14px; border-radius: 18px; box-shadow: 0 8px 24px --alpha(var(--color-ink) / 7%); }

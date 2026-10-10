@@ -181,7 +181,7 @@ describe("HR 申請中心", () => {
     const adminCreatedBody = await adminCreated.json() as { id: string };
 
     const employeeCreated = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-01-07T18:00", requestedEnd: "2026-01-07T20:00", settlementKind: "compensatory", reason: "",
+      requestedStart: "2026-01-07T18:00", requestedEnd: "2026-01-07T20:00", settlementKind: "pay", reason: "",
     }, employeeCookie);
     expect(employeeCreated.status, await employeeCreated.clone().text()).toBe(201);
     const employeeCreatedBody = await employeeCreated.json() as { id: string };
@@ -237,6 +237,56 @@ describe("HR 申請中心", () => {
     expect((await request("/hr/requests/overtime/batch", "POST", { employeeUserId: "employee", settlementKind: "pay", reason: "", entries: [{ requestedStart: "2026-01-12T18:00", requestedEnd: "2026-01-12T19:00" }] }, employeeCookie)).status).toBe(403);
     const afterInvalid = await (await request("/hr/requests")).json() as { overtime: unknown[] };
     expect(afterInvalid.overtime).toHaveLength(2);
+  });
+
+  it("員工一次送出多天加班：每天一筆待審，審核者整批只收到一則通知", async () => {
+    await assignEmployeeSupervisor();
+    const mine = (payload: Record<string, unknown>, cookie = employeeCookie) => request("/hr/me/overtime/batch", "POST", { settlementKind: "pay", reason: "月底補登", ...payload }, cookie);
+    const created = await mine({ entries: [
+      { requestedStart: "2026-01-10T18:00", requestedEnd: "2026-01-10T20:00" },
+      { requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T19:00" },
+      { requestedStart: "2026-01-07T18:00", requestedEnd: "2026-01-07T19:00" },
+    ] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { ids } = await created.json() as { ids: string[] };
+    expect(ids).toHaveLength(3);
+
+    const inbox = await (await request("/hr/me/overtime", "GET", undefined, adminCookie)).json() as { reviewRequests: Array<{ request: { id: string; status: string; actualStart: string | null; approverUserId: string }; employeeUserId: string }> };
+    expect(inbox.reviewRequests).toHaveLength(3);
+    expect(inbox.reviewRequests.every((item) => item.employeeUserId === "employee" && item.request.status === "pending" && item.request.actualStart === null && item.request.approverUserId === "admin")).toBe(true);
+
+    const notifications = await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json() as { notifications: Array<{ entityId: string; kind: string; title: string; body: string }>; unreadCount: number };
+    expect(notifications.unreadCount).toBe(1);
+    // 通知掛在最早那一天的申請上，內文列出整批的日期。
+    expect(notifications.notifications[0]).toMatchObject({ entityId: ids[0], kind: "request_submitted", title: "有 3 筆新的加班申請待審核" });
+    expect(notifications.notifications[0]!.body).toContain("2026-01-06、2026-01-07、2026-01-10");
+
+    const days = await request("/hr/me/overtime-days?startsOn=2026-01-05&endsOn=2026-01-08", "GET", undefined, employeeCookie);
+    expect(days.status, await days.clone().text()).toBe(200);
+    expect((await days.json() as { days: Array<{ date: string; existing: unknown[] }> }).days.map((day) => [day.date, day.existing.length])).toEqual([["2026-01-05", 0], ["2026-01-06", 1], ["2026-01-07", 1]]);
+
+    // 撞到自己既有的申請時整批不建，也不多發通知。
+    const blocked = await mine({ entries: [
+      { requestedStart: "2026-01-08T18:00", requestedEnd: "2026-01-08T19:00" },
+      { requestedStart: "2026-01-07T18:30", requestedEnd: "2026-01-07T19:30" },
+    ] });
+    expect(blocked.status).toBe(409);
+    expect(await blocked.text()).toContain("2026-01-07");
+    // 員工只能替自己申請：帶別人的 ID 會被忽略，帶支援人員 ID 直接拒絕。
+    // 本人入口一律付薪：選補休整批拒絕；待審的付薪申請也不能改成補休。
+    expect((await mine({ settlementKind: "compensatory", entries: [{ requestedStart: "2026-01-14T18:00", requestedEnd: "2026-01-14T19:00" }] })).status).toBe(400);
+    expect((await request("/hr/me/overtime", "POST", { requestedStart: "2026-01-14T18:00", requestedEnd: "2026-01-14T19:00", settlementKind: "compensatory", reason: "" }, employeeCookie)).status).toBe(400);
+    expect((await request(`/hr/me/overtime/${ids[0]}`, "PATCH", { requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T19:30", settlementKind: "compensatory", reason: "", revision: 1 }, employeeCookie)).status).toBe(400);
+    const forged = await mine({ employeeUserId: "admin", entries: [{ requestedStart: "2026-01-12T18:00", requestedEnd: "2026-01-12T19:00" }] });
+    expect(forged.status, await forged.clone().text()).toBe(201);
+    expect((await mine({ workerId: "worker-1", entries: [{ requestedStart: "2026-01-13T18:00", requestedEnd: "2026-01-13T19:00" }] })).status).toBe(400);
+    const after = await (await request("/hr/me/overtime", "GET", undefined, employeeCookie)).json() as { requests: unknown[] };
+    expect(after.requests).toHaveLength(4);
+    const adminOwn = await (await request("/hr/me/overtime", "GET", undefined, adminCookie)).json() as { requests: unknown[] };
+    expect(adminOwn.requests).toHaveLength(0);
+    const afterNotifications = await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json() as { notifications: Array<{ title: string }>; unreadCount: number };
+    expect(afterNotifications.unreadCount).toBe(2);
+    expect(afterNotifications.notifications.some((item) => item.title === "有新的加班申請待審核")).toBe(true);
   });
 
   it("加班日曆帶出每天的下班時間與已存在的申請", async () => {
@@ -307,7 +357,7 @@ describe("HR 申請中心", () => {
     const pendingLeaveBody = await pendingLeave.json() as { id: string };
 
     const pendingOvertime = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "compensatory", reason: "本人加班測試",
+      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "pay", reason: "本人加班測試",
     }, employeeCookie);
     expect(pendingOvertime.status, await pendingOvertime.clone().text()).toBe(201);
     const pendingOvertimeBody = await pendingOvertime.json() as { id: string };
@@ -377,7 +427,7 @@ describe("HR 申請中心", () => {
     }, employeeCookie)).status).toBe(409);
 
     const overtime = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-02-10T18:00", requestedEnd: "2026-02-10T20:00", settlementKind: "compensatory", reason: "主管手機簽核",
+      requestedStart: "2026-02-10T18:00", requestedEnd: "2026-02-10T20:00", settlementKind: "pay", reason: "主管手機簽核",
     }, employeeCookie);
     expect(overtime.status, await overtime.clone().text()).toBe(201);
     const overtimeId = (await overtime.json() as { id: string }).id;
@@ -471,7 +521,7 @@ describe("HR 申請中心", () => {
     await assignEmployee();
 
     const pending = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "compensatory", reason: "待審更新測試",
+      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "pay", reason: "待審更新測試",
     }, employeeCookie);
     expect(pending.status, await pending.clone().text()).toBe(201);
     const pendingId = (await pending.json() as { id: string }).id;
@@ -517,7 +567,7 @@ describe("HR 申請中心", () => {
     await assignEmployee();
 
     const pending = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "compensatory", reason: "待審取消測試",
+      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "pay", reason: "待審取消測試",
     }, employeeCookie);
     expect(pending.status, await pending.clone().text()).toBe(201);
     const pendingId = (await pending.json() as { id: string }).id;

@@ -725,6 +725,11 @@ export const hr = new Hono<AppEnv>()
     return c.json({ requests: await listHrOvertimeRequests(c.get("db"), user.id), reviewRequests: await listHrOvertimeReviewRequests(c.get("db"), user.id, allowAny) });
   })
   .post("/me/overtime", async (c) => c.json(await createHrOvertimeRequest(c.get("db"), overtimeInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .post("/me/overtime/batch", async (c) => c.json(await createHrOvertimeRequests(c.get("db"), overtimeBatchInput(await body(c), c.get("user").id), c.get("user")), 201))
+  .get("/me/overtime-days", async (c) => {
+    const query = { startsOn: c.req.query("startsOn"), endsOn: c.req.query("endsOn") };
+    return c.json({ days: await listHrOvertimeDays(c.get("db"), { employeeUserId: c.get("user").id, startsOn: date(query, "startsOn")!, endsOn: date(query, "endsOn")! }) });
+  })
   .patch("/me/overtime/:id", async (c) => c.json(await updateHrOvertimeRequest(c.get("db"), c.req.param("id"), overtimeInput(await body(c), c.get("user").id), c.get("user"))))
   .post("/me/overtime/:id/cancel", async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"))))
   .post("/me/overtime/:id/review", async (c) => {
