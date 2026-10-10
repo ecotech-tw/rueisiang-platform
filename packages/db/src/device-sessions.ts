@@ -7,11 +7,14 @@ import {
   parseDeviceToken,
   type DeviceToken,
 } from "@rueisiang/auth";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import type { LineAccountIdentity } from "./line-liff.js";
 import { authDeviceSessions } from "./schema/auth.js";
 
 const USER_AGENT_MAX_LENGTH = 200;
+
+export type DeviceSessionAuthMethod = "device" | "line_liff";
 
 function secondsLater(now: Date, seconds: number): string {
   return new Date(now.getTime() + seconds * 1000).toISOString();
@@ -22,22 +25,45 @@ export async function createDeviceSession(
   db: Database,
   userId: string,
   userAgent: string,
-  now = new Date(),
+  options: { now?: Date } = {},
 ): Promise<DeviceToken> {
+  const now = options.now ?? new Date();
   const token = newDeviceToken();
   await db.insert(authDeviceSessions).values({
     id: token.id,
     userId,
     tokenHash: await hashDeviceSecret(token.secret),
     userAgent: userAgent.slice(0, USER_AGENT_MAX_LENGTH),
+    authMethod: "device",
     rotatedAt: now.toISOString(),
     expiresAt: secondsLater(now, DEVICE_SESSION_IDLE_SECONDS),
   });
   return token;
 }
 
+/** 發證與目前 LINE 關聯在同一 SQL 判定，避免解除／替換完成後舊請求補發憑證。 */
+export async function createLineLiffSession(
+  db: Database,
+  userId: string,
+  userAgent: string,
+  identity: LineAccountIdentity,
+  now = new Date(),
+): Promise<DeviceToken | null> {
+  const token = newDeviceToken();
+  const tokenHash = await hashDeviceSecret(token.secret);
+  const rows = await db.all<{ id: string }>(sql`INSERT INTO auth_device_sessions
+    (id, user_id, token_hash, user_agent, auth_method, rotated_at, expires_at)
+    SELECT ${token.id}, ${userId}, ${tokenHash}, ${userAgent.slice(0, USER_AGENT_MAX_LENGTH)}, 'line_liff',
+      ${now.toISOString()}, ${secondsLater(now, DEVICE_SESSION_IDLE_SECONDS)}
+    WHERE EXISTS (SELECT 1 FROM auth_line_account_links
+      WHERE user_id = ${userId} AND channel_id = ${identity.channelId} AND line_user_id = ${identity.lineUserId})
+    RETURNING id`);
+  return rows.length ? token : null;
+}
+
 export interface DeviceSessionUse {
   userId: string;
+  authMethod: DeviceSessionAuthMethod;
   /** 這次換了新的 secret 時才有值，呼叫端要把它寫回 cookie。 */
   renewed: DeviceToken | null;
 }
@@ -69,7 +95,7 @@ export async function useDeviceSession(
   const sinceRotation = (now.getTime() - Date.parse(row.rotatedAt)) / 1000;
 
   if (hash === row.tokenHash) {
-    if (sinceRotation < DEVICE_SESSION_ROTATE_SECONDS) return { userId: row.userId, renewed: null };
+    if (sinceRotation < DEVICE_SESSION_ROTATE_SECONDS) return { userId: row.userId, authMethod: row.authMethod, renewed: null };
 
     const renewed = newDeviceToken();
     /*
@@ -87,11 +113,11 @@ export async function useDeviceSession(
       })
       .where(and(eq(authDeviceSessions.id, row.id), eq(authDeviceSessions.tokenHash, hash)))
       .returning({ id: authDeviceSessions.id });
-    return { userId: row.userId, renewed: updated.length ? { id: row.id, secret: renewed.secret } : null };
+    return { userId: row.userId, authMethod: row.authMethod, renewed: updated.length ? { id: row.id, secret: renewed.secret } : null };
   }
 
   if (hash === row.previousTokenHash && sinceRotation <= DEVICE_SESSION_REUSE_GRACE_SECONDS) {
-    return { userId: row.userId, renewed: null };
+    return { userId: row.userId, authMethod: row.authMethod, renewed: null };
   }
 
   // 過了緩衝還拿舊值來，代表有兩個地方持有同一台裝置的憑證：整台撤銷，逼真正的主人重新登入。

@@ -55,6 +55,8 @@ export interface Env {
   CYBERBIZ_REPORT_INGEST_TOKEN?: string;
   /** Shared secret used by the read-only CYBERBIZ reports MCP endpoint. */
   CYBERBIZ_REPORT_MCP_TOKEN?: string;
+  /** LINE Login channel used to verify LIFF ID tokens and scope linked LINE subjects. */
+  LINE_LIFF_CHANNEL_ID?: string;
   /** LINE Messaging API 憑證；只由 webhook 與回覆 transport 使用。 */
   LINE_CHANNEL_SECRET?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
@@ -117,5 +119,7 @@ export interface AppEnv {
     user: AuthUser;
     /** 由 requireSelfAuth 放入：這次是靠「記住這台手機」而不是 12 小時 session 認出來的。 */
     deviceSession: boolean;
+    /** LINE LIFF 裝置憑證只授權本人 HR API，打卡來源與 GPS 規則由此判定。 */
+    lineLiffSession: boolean;
   };
 }

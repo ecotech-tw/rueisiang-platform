@@ -305,11 +305,14 @@ export { GLOBAL_SCOPE, type Role, type User, type UserRole } from "./schema/auth
 export { countOtherActiveAdmins, loadAuthUser, recordLogin, updateProfile } from "./users.js";
 export {
   createDeviceSession,
+  createLineLiffSession,
   revokeDeviceSession,
   revokeUserDeviceSessions,
   useDeviceSession,
+  type DeviceSessionAuthMethod,
   type DeviceSessionUse,
 } from "./device-sessions.js";
+export { findUserByLineIdentity, getLineAccountLink, linkLineAccount, replaceLineAccount, unlinkLineAccount, type LineAccountIdentity } from "./line-liff.js";
 export { syncSystemRoles } from "./seed.js";
 export {
   acceptInvitation,

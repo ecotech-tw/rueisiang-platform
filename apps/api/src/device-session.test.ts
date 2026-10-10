@@ -152,15 +152,15 @@ describe("裝置 token 的延長與輪替", () => {
   it("一天內不換值；閒置超過七天就失效", async () => {
     const id = await seedUser("idle@ecotech.tw");
     const start = new Date("2026-09-01T00:00:00Z");
-    const token = await createDeviceSession(db(), id, "", start);
-    expect(await useDeviceSession(db(), raw(token), new Date(start.getTime() + 12 * HOUR))).toEqual({ userId: id, renewed: null });
+    const token = await createDeviceSession(db(), id, "", { now: start });
+    expect(await useDeviceSession(db(), raw(token), new Date(start.getTime() + 12 * HOUR))).toEqual({ userId: id, authMethod: "device", renewed: null });
     expect(await useDeviceSession(db(), raw(token), new Date(start.getTime() + 8 * 24 * HOUR))).toBeNull();
   });
 
   it("每天用就一直延長，不會在第七天被登出", async () => {
     const id = await seedUser("daily@ecotech.tw");
     let now = new Date("2026-09-01T00:00:00Z");
-    let current = await createDeviceSession(db(), id, "", now);
+    let current = await createDeviceSession(db(), id, "", { now });
     for (let day = 0; day < 30; day += 1) {
       now = new Date(now.getTime() + 25 * HOUR);
       const used = await useDeviceSession(db(), raw(current), now);
@@ -172,13 +172,13 @@ describe("裝置 token 的延長與輪替", () => {
   it("換值後舊值在緩衝內還能用；超過緩衝拿舊值來就整台撤銷", async () => {
     const id = await seedUser("stolen@ecotech.tw");
     const start = new Date("2026-09-01T00:00:00Z");
-    const original = await createDeviceSession(db(), id, "", start);
+    const original = await createDeviceSession(db(), id, "", { now: start });
     const rotatedAt = new Date(start.getTime() + 25 * HOUR);
 
     const rotated = await useDeviceSession(db(), raw(original), rotatedAt);
     expect(rotated?.renewed).toBeTruthy();
     // 同一頁同時發出的請求：第二個不應該再換一次，也不應該被踢掉。
-    expect(await useDeviceSession(db(), raw(original), new Date(rotatedAt.getTime() + 30_000))).toEqual({ userId: id, renewed: null });
+    expect(await useDeviceSession(db(), raw(original), new Date(rotatedAt.getTime() + 30_000))).toEqual({ userId: id, authMethod: "device", renewed: null });
 
     expect(await useDeviceSession(db(), raw(original), new Date(rotatedAt.getTime() + 10 * 60_000))).toBeNull();
     expect(await useDeviceSession(db(), raw(rotated!.renewed!), new Date(rotatedAt.getTime() + 11 * 60_000))).toBeNull();

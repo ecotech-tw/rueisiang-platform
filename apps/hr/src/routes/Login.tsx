@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
+import { useSession } from "../auth/session.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
 import { Button, TextField } from "../ui/index.js";
 import { API_BASE_URL } from "../config.js";
@@ -18,6 +19,7 @@ function safeReturnTo(value: string | null): string {
 export function Login() {
   usePageTitle("登入");
   const [params] = useSearchParams();
+  const { error: sessionError } = useSession();
   const returnTo = safeReturnTo(params.get("returnTo"));
   const googleReturnTo = `${window.location.origin}${returnTo}`;
   const [email, setEmail] = useState("");
@@ -56,7 +58,7 @@ export function Login() {
         <h1>內部系統</h1>
         <p className="muted">用公司的 Google 帳號，或邀請信裡設定的密碼登入。</p>
 
-        {error ? <p className="login-error" role="alert">{error}</p> : null}
+        {error || sessionError ? <p className="login-error" role="alert">{error ?? (sessionError instanceof Error ? sessionError.message : "讀取登入狀態失敗，請重新載入。")}</p> : null}
 
         <a className="login-button" href={`${API_BASE_URL}/auth/google/start?returnTo=${encodeURIComponent(googleReturnTo)}`}>
           使用 Google 帳號登入

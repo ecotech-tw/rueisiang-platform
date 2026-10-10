@@ -262,6 +262,7 @@ export interface HrClockEventInput {
   idempotencyKey: string;
   latitudeE7: number | null;
   longitudeE7: number | null;
+  sourceKind?: "portal" | "line";
 }
 
 export interface HrClockLocationCheck {
@@ -681,11 +682,11 @@ function nearestLocation(assignments: Awaited<ReturnType<typeof currentAttendanc
   })).sort((left, right) => left.distance - right.distance)[0];
 }
 
-export async function checkHrClockLocation(db: Database, userId: string, latitudeE7: number | null, longitudeE7: number | null): Promise<HrClockLocationCheck> {
+export async function checkHrClockLocation(db: Database, userId: string, latitudeE7: number | null, longitudeE7: number | null, options: { requireGeolocation?: boolean } = {}): Promise<HrClockLocationCheck> {
   const employment = await currentEmployment(db, userId);
   const assignments = employment ? await currentClockAssignments(db, employment.id) : [];
   const names = locationNames(assignments);
-  const requiresLocation = geolocationRequired(assignments);
+  const requiresLocation = Boolean(options.requireGeolocation) || geolocationRequired(assignments);
   if (!employment) return { available: false, withinRadius: false, locationName: null, locationNames: [], distanceMeters: null, radiusMeters: null, geolocationRequired: false, message: "目前沒有活動員工資料，暫時無法打卡。" };
   if (!assignments.length) return { available: false, withinRadius: false, locationName: null, locationNames: [], distanceMeters: null, radiusMeters: null, geolocationRequired: false, message: "尚未指派目前辦公位置，請聯絡管理者。" };
   if (!requiresLocation) return { available: true, withinRadius: true, locationName: names.join("、"), locationNames: names, distanceMeters: null, radiusMeters: null, geolocationRequired: false, message: null };
@@ -717,12 +718,12 @@ export async function getHrClockMapCenters(db: Database, userId: string) {
   }));
 }
 
-export async function getHrClockStatus(db: Database, userId: string) {
+export async function getHrClockStatus(db: Database, userId: string, options: { requireGeolocation?: boolean } = {}) {
   const [events, latest] = await Promise.all([todayClockEvents(db, userId), latestClockEvent(db, userId)]);
   const employment = await currentEmployment(db, userId);
   const assignments = employment ? await currentClockAssignments(db, employment.id) : [];
   const names = locationNames(assignments);
-  const requiresLocation = geolocationRequired(assignments);
+  const requiresLocation = Boolean(options.requireGeolocation) || geolocationRequired(assignments);
   const canClock = Boolean(employment && assignments.length);
   return {
     canClock,
@@ -791,7 +792,7 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   const assignments = await currentClockAssignments(db, employment.id, serverNow.date);
   if (!assignments.length) throw new HrError(400, "尚未指派目前辦公位置，暫時無法打卡。");
 
-  const requiresLocation = geolocationRequired(assignments);
+  const requiresLocation = input.sourceKind === "line" || geolocationRequired(assignments);
   const latitudeE7 = requiresLocation ? input.latitudeE7 : null;
   const longitudeE7 = requiresLocation ? input.longitudeE7 : null;
   if (requiresLocation && (latitudeE7 === null || longitudeE7 === null)) {
@@ -820,7 +821,7 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   try {
     await writeHrMutation(db, sql`INSERT INTO hr_clock_events
       (id, employee_user_id, employment_id, attendance_location_id, scope_id, source_kind, idempotency_key, event_kind, latitude_e7, longitude_e7, distance_meters, location_name_snapshot, scope_name_snapshot, recorded_by, manual_reason, time_anomaly_kind, expected_start_minute, expected_end_minute, tolerance_minutes, occurred_at, received_at)
-      SELECT ${id}, ${input.userId}, ${employment.id}, ${assignment.locationId}, ${assignment.scopeId}, 'portal', ${input.idempotencyKey}, ${eventKind},
+      SELECT ${id}, ${input.userId}, ${employment.id}, ${assignment.locationId}, ${assignment.scopeId}, ${input.sourceKind ?? "portal"}, ${input.idempotencyKey}, ${eventKind},
         ${latitudeE7}, ${longitudeE7}, ${distance}, ${assignment.locationName}, ${assignment.scopeName ?? ""}, ${actor.id}, '', ${timeAnomalyKind}, ${schedule?.startMinute ?? null}, ${schedule?.endMinute ?? null}, ${schedule?.toleranceMinutes ?? null}, ${serverNow.occurredAt}, ${serverNow.occurredAt}
       WHERE EXISTS (SELECT 1 FROM hr_employments
         WHERE id=${employment.id} AND employee_user_id=${input.userId} AND archived_at IS NULL)

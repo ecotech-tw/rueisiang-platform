@@ -21,6 +21,18 @@
 - 地理位置要求依辦公地點設定驗證；定位無法取得時依該地點規則回應，不由前端繞過。
 - 打卡成功後保存事件與驗證結果；驗證異常不代表打卡失敗。
 
+### LINE LIFF 打卡（第一階段）
+
+- LIFF 只提供打卡入口，不包含請假、加班、補打卡申請或對話式申請。
+- 員工首次先用既有平台密碼或 Google OAuth 登入 HR，再明確確認要綁定的公司帳號；之後 LINE Login subject 才可自動認證。
+- 前端只送 `liff.getIDToken()`；API 向 LINE verify endpoint 驗證 issuer、channel audience、有效期限與 subject。不得採信前端提供的 LINE UID、profile 或 access token。
+- 帳號關聯以 LINE Login channel + subject 唯一；一個平台帳號只能綁一組 LINE 身分，一組 LINE 身分也不能同時綁多個平台帳號。
+- 後續 LIFF 登入只簽發 HR 本人範圍的裝置 session，且只允許打卡狀態、辦公位置地圖、定位檢查與打卡事件 API；不能用來讀薪資、通知或其他申請資料。只有活動員工可換取此 session。
+- LIFF 打卡一律要求當次 GPS 座標，沿用伺服器的辦公位置座標與半徑驗證；即使一般入口允許免定位，LIFF 也不能略過。位置未設定座標時不得打卡。
+- 打卡事件來源保存為 `line`，仍使用現有伺服器時間、狀態切換、地理圍欄與 idempotency 規則。
+
+正式設定需使用已部署的 HTTPS HR 網址作 LIFF endpoint，LINE Login channel 必須啟用 `openid`；前端建置設定 `VITE_LIFF_ID`，API Worker 設定同一 LINE Login channel 的 `LINE_LIFF_CHANNEL_ID`。
+
 ## 4. 排班班別時段驗證
 
 排班制員工的預期時段由排班月曆所選班別提供：

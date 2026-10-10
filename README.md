@@ -67,7 +67,9 @@ UPSTASH_REDIS_REST_URL=https://xxx.upstash.io
 UPSTASH_REDIS_REST_TOKEN=你的token
 ```
 
-HR 員工站本機可使用 `apps/hr/.env.local` 覆寫 `VITE_API_BASE_URL` 與 `VITE_MAPLIBRE_STYLE_URL`；預設會透過 Vite proxy 呼叫本機 API，地圖使用不需 token 的 OpenFreeMap style。正式部署由 GitHub repository variable `HR_API_BASE_URL` 注入 API origin（未設定時使用 `https://platform.rueisiang.com/api`）；圖磚 attribution 必須保留。
+HR 員工站本機可使用 `apps/hr/.env.local` 覆寫 `VITE_API_BASE_URL`、`VITE_MAPLIBRE_STYLE_URL` 與 `VITE_LIFF_ID`；本機預設不啟用 LIFF，因 LINE LIFF 必須使用 LINE Developers 登記的 HTTPS endpoint。正式部署由 GitHub repository variables `HR_API_BASE_URL` 與 `HR_LIFF_ID` 注入 API origin 與 LIFF app ID（未設定時分別使用 `https://platform.rueisiang.com/api` 與停用 LIFF）；圖磚 attribution 必須保留。
+
+啟用 LIFF 時，LINE Developers 的 LINE Login channel 必須啟用 `openid` scope，LIFF endpoint 設為 `https://hr.rueisiang.com/`；Cloudflare API Worker 另設非機密變數 `LINE_LIFF_CHANNEL_ID` 為同一 LINE Login channel ID。LINE ID token 由 API 即時向 LINE 驗證，前端不可用 profile 或自行提供的 UID 代替。
 
 Upstash 只影響 CYBERBIZ 商品目錄查詢的速度：沒設定的話用 SKU 連結品項或定時鏡像時
 會直接翻官網商品目錄，功能是好的，只是要等幾秒。
@@ -113,6 +115,7 @@ smoke test 的功能只能標記為「可合併」，不能標記為「已上線
 - [ ] 完成勞健保年度同步、差異預覽、人工更新與失敗提醒。
 - [ ] 完成 HR 管理頁面的權限、異常導向、responsive UI 與 API／migration 回歸測試。
 - [ ] 完成 `hr.rueisiang.com` 正式 DNS／OAuth redirect／CI 變數設定，並執行 Edge、Chrome 與手機 smoke test。
+- [ ] 建立 LINE Login channel／LIFF app、啟用 `openid`、登記 HR HTTPS endpoint，設定 GitHub `HR_LIFF_ID` 與 Cloudflare `LINE_LIFF_CHANNEL_ID`；以 LINE 內建瀏覽器完成首次平台登入、綁定、後續自動登入與 GPS 打卡 smoke test。
 - [ ] 完成至少兩個完整月份的平行計薪對帳，再正式啟用薪資結算。
 - [ ] 完成 0.5 小時加班單位、固定加班金額、30 日制與相關給薪規則的法遵確認。
 - [ ] 加班法定計算依平日、休息日、國定假日分別套用倍率；跨午夜的連續加班視為同一個工作日累計。

@@ -6,6 +6,7 @@ export * from "./assistant.js";
 export {
   GLOBAL_SCOPE,
   authDeviceSessions,
+  authLineAccountLinks,
   permissions,
   roles,
   users,
