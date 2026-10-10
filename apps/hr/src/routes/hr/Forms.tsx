@@ -377,6 +377,8 @@ export function HrForms() {
   function selectTab(tab: FormTab) {
     const next = new URLSearchParams(params);
     next.set("tab", tab);
+    // 從通知帶進來的篩選只屬於原本那個分頁；留著的話別的分頁會說「這批申請已全部處理」。
+    for (const name of ["review", "reviewBatch", "batch"]) next.delete(name);
     setParams(next, { replace: true });
   }
 

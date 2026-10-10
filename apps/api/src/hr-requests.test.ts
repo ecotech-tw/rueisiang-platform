@@ -352,20 +352,27 @@ describe("HR 申請中心", () => {
     expect(mine.requests.every((item) => item.request.status === "approved" && item.request.batchId === null)).toBe(true);
   });
 
-  it("通知內文超過上限時留下最新的內容，不會因為長度寫不進去", async () => {
+  it("通知內文超過上限時整行捨棄最舊的，每一行的日期都留著", async () => {
     await assignEmployeeSupervisor();
-    const created = await request("/hr/me/overtime/batch", "POST", { settlementKind: "pay", reason: "", entries: [6, 7].map((day) => ({ requestedStart: `2026-01-0${day}T18:00`, requestedEnd: `2026-01-0${day}T19:00` })) }, employeeCookie);
+    const created = await request("/hr/me/overtime/batch", "POST", { settlementKind: "pay", reason: "", entries: [6, 7, 8].map((day) => ({ requestedStart: `2026-01-0${day}T18:00`, requestedEnd: `2026-01-0${day}T19:00` })) }, employeeCookie);
     const { ids } = await created.json() as { ids: string[] };
-    const longComment = `${"長".repeat(600)}😀結尾`;
-    for (const id of ids) expect((await request(`/hr/me/overtime/${id}/review`, "POST", { decision: "approved", comment: longComment }, adminCookie)).status).toBe(200);
-    const mine = await (await request("/hr/me/notifications", "GET", undefined, employeeCookie)).json() as { notifications: Array<{ body: string }> };
-    expect(mine.notifications).toHaveLength(1);
-    const body = mine.notifications[0]!.body;
-    expect([...body].length).toBe(1000);
-    expect(body.startsWith("…")).toBe(true);
-    // 截掉的是最舊的部分；最新一筆的結尾與 emoji 完整留著。
-    expect(body.endsWith("😀結尾")).toBe(true);
-    expect(body).toContain("2026-01-07 已核准：");
+    const review = (id: string, comment: string) => request(`/hr/me/overtime/${id}/review`, "POST", { decision: "approved", comment }, adminCookie);
+    const body = async () => (await (await request("/hr/me/notifications", "GET", undefined, employeeCookie)).json() as { notifications: Array<{ body: string }> }).notifications[0]!.body;
+
+    // 意見長度就是上限：單獨一行也放不下時截的是意見，日期前綴完整。
+    const maxComment = `${"長".repeat(996)}😀結尾`;
+    expect([...maxComment].length).toBe(999);
+    expect((await review(ids[0]!, maxComment)).status).toBe(200);
+    const first = await body();
+    expect([...first].length).toBeLessThanOrEqual(1000);
+    expect(first.startsWith("2026-01-06 已核准：長")).toBe(true);
+    expect(first.endsWith("…")).toBe(true);
+
+    // 再接兩行就超過上限：最舊的那一行整行捨棄，不留沒有日期的殘段。
+    expect((await review(ids[1]!, "😀短意見")).status).toBe(200);
+    expect(await body()).toBe("…\n2026-01-07 已核准：😀短意見");
+    expect((await review(ids[2]!, "")).status).toBe(200);
+    expect(await body()).toBe("…\n2026-01-07 已核准：😀短意見\n2026-01-08 已核准。");
   });
 
   it("加班日曆帶出每天的下班時間與已存在的申請", async () => {

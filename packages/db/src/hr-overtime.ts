@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, hrEmployeeName, isHrAdministrator, writeHrMutation, type HrActor } from "./hr-people.js";
-import { appendHrNotification, insertHrNotification, overtimeBatchSourceKey } from "./hr-notifications.js";
+import { appendHrNotification, insertHrNotification, notificationLine, overtimeBatchSourceKey } from "./hr-notifications.js";
 import { hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrOvertimeRequests, hrScheduleVersions, hrScheduleWorkerEntries, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
@@ -503,11 +503,13 @@ export async function cancelHrOvertimeRequest(db: Database, id: string, actor: H
   const approverUserId = current.personKind === "employee" ? current.request.approverUserId : null;
   const batchId = current.personKind === "employee" ? current.request.batchId : null;
   const cancelledDate = taipeiDate(stamp(request.requestedStart));
-  const cancelNotice = { userId: approverUserId ?? "", kind: "request_cancelled", entityKind: "overtime", title: "加班申請已取消", body: `申請人已取消 ${cancelledDate} 的待審加班申請。` } as const;
-  const cancelNotification = request.status !== "pending" || !approverUserId ? null
+  const cancelNotification = request.status === "pending" && approverUserId ? (() => {
+    const notice = { userId: approverUserId, kind: "request_cancelled", entityKind: "overtime", title: "加班申請已取消", body: `申請人已取消 ${cancelledDate} 的待審加班申請。` } as const;
     // 整批逐筆取消時只留一則，每取消一天接一行。
-    : batchId ? appendHrNotification({ ...cancelNotice, sourceKey: overtimeBatchSourceKey(batchId, "cancelled"), entityId: batchId })
-      : insertHrNotification({ ...cancelNotice, sourceKey: `overtime-request:${id}:cancelled`, entityId: id });
+    return batchId
+      ? appendHrNotification({ ...notice, sourceKey: overtimeBatchSourceKey(batchId, "cancelled"), entityId: batchId })
+      : insertHrNotification({ ...notice, sourceKey: `overtime-request:${id}:cancelled`, entityId: id });
+  })() : null;
   const mutations = cancelNotification ? [deletion, cancelNotification] : deletion;
   return writeHrMutation(db, mutations, id, actor, "overtime_request_cancelled", "加班申請已變更或完成處理，請重新整理。 ", {
     activity: { entityLabel: current.employeeName, payload: eventPayload, summary: "加班申請已取消並刪除" },
@@ -603,7 +605,7 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
       // 駁回各有各的理由、員工要個別處理，仍然一筆一則。
       ? appendHrNotification({
         userId: current.employeeUserId!, sourceKey: overtimeBatchSourceKey(batchId, "approved"), kind: "request_reviewed", entityKind: "overtime", entityId: batchId,
-        title: "加班申請已核准", body: `${taipeiDate(stamp(current.requestedStart))} 已核准${comment.trim() ? `：${comment.trim()}` : "。"}`,
+        title: "加班申請已核准", body: comment.trim() ? notificationLine(`${taipeiDate(stamp(current.requestedStart))} 已核准：`, comment.trim()) : `${taipeiDate(stamp(current.requestedStart))} 已核准。`,
       })
       : insertHrNotification({
         userId: current.employeeUserId!, sourceKey: `overtime-request:${id}:reviewed:${decision}`, kind: "request_reviewed", entityKind: "overtime", entityId: id,

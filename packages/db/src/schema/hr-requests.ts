@@ -8,10 +8,10 @@ const timestamps = () => ({
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
-/** 申請保存具體欄位而非任意 JSON，讓補打卡審核與後續出勤計算能沿用同一份資料。 */
 /** 通知內文上限；CHECK 與寫入端的截斷都讀這一個值。 */
 export const HR_NOTIFICATION_BODY_LIMIT = 1000;
 
+/** 申請保存具體欄位而非任意 JSON，讓補打卡審核與後續出勤計算能沿用同一份資料。 */
 export const hrNotifications = sqliteTable("hr_notifications", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),

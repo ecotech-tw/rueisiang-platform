@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "add9d854-4d84-4de9-a87b-b48642bfa678",
+  "id": "218e5c77-c8e4-4f8c-afb8-09491f204bb4",
   "prevId": "a69e77d9-f1e6-411f-a3de-7aa910cd08fc",
   "tables": {
     "auth_device_sessions": {
@@ -8597,13 +8597,6 @@
           "columns": [
             "employment_id",
             "requested_start"
-          ],
-          "isUnique": false
-        },
-        "idx_hr_overtime_batch": {
-          "name": "idx_hr_overtime_batch",
-          "columns": [
-            "batch_id"
           ],
           "isUnique": false
         },

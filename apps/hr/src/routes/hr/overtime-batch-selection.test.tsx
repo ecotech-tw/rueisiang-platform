@@ -59,7 +59,7 @@ describe("多日加班的選擇狀態", () => {
     expect(latest.complete).toBe(false);
   });
 
-  it("重抓班表後變成已有申請的日子會移出送出內容並回報", async () => {
+  it("重抓班表後變成已有申請的日子會移出送出內容並回報，之後那天空出來也不會自己回來", async () => {
     await render([scheduled("2026-09-03"), scheduled("2026-09-04")], 60);
     await act(async () => { latest.toggleDay("2026-09-03"); latest.toggleDay("2026-09-04"); });
     expect(latest.entries).toHaveLength(2);
@@ -69,6 +69,17 @@ describe("多日加班的選擇狀態", () => {
     expect(latest.entries).toEqual([{ requestedStart: "2026-09-03T18:00", requestedEnd: "2026-09-03T19:00" }]);
     expect(latest.summary.days).toBe(1);
     expect(latest.complete).toBe(true);
+
+    // 對方取消了那筆申請：這一天要使用者自己再點才算，提示也還在。
+    await render([scheduled("2026-09-03"), scheduled("2026-09-04")], 60);
+    expect(latest.entries).toHaveLength(1);
+    expect(latest.assigned["2026-09-04"]).toBeUndefined();
+    expect(latest.takenDates).toEqual(["2026-09-04"]);
+
+    // 繼續選日期就代表看過提示了。
+    await act(async () => { latest.toggleDay("2026-09-04"); });
+    expect(latest.takenDates).toEqual([]);
+    expect(latest.entries).toHaveLength(2);
   });
 
   it("選了未排班的日子但沒填開始時間不能送出，填了才完整", async () => {

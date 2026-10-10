@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { OvertimePickerDay } from "./OvertimeDayPicker.js";
 import { buildOvertimeEntries, isValidOvertimeMinutes, selectedUnscheduledDates, summarizeAssignments } from "./overtime-entry.js";
 
@@ -12,10 +12,20 @@ export function useOvertimeBatchSelection(days: readonly OvertimePickerDay[], mi
   const [picked, setPicked] = useState<Record<string, number>>({});
   const [unscheduledStartTime, setUnscheduledStartTime] = useState("");
 
+  const [removedDates, setRemovedDates] = useState<string[]>([]);
+
   // 送出被擋下（409）後重抓的班表，可能把選好的日子變成「已有申請」。那一格已經點不掉，
   // 留在送出內容裡會每次重送都再被擋，所以選擇一律以最新的班表為準。
-  const takenDates = useMemo(() => days.filter((day) => day.hasExisting && picked[day.date] !== undefined).map((day) => day.date), [days, picked]);
-  const assigned = useMemo(() => Object.fromEntries(Object.entries(picked).filter(([date]) => !takenDates.includes(date))), [picked, takenDates]);
+  const taken = useMemo(() => days.filter((day) => day.hasExisting && picked[day.date] !== undefined).map((day) => day.date), [days, picked]);
+  const assigned = useMemo(() => Object.fromEntries(Object.entries(picked).filter(([date]) => !taken.includes(date))), [picked, taken]);
+  // 移出就是真的移出：只在算 assigned 時濾掉的話，對方之後取消那筆申請，這一天會帶著當初的時數
+  // 自己回到送出內容，而使用者已經照剩下的天數調整過了。
+  useEffect(() => {
+    if (!taken.length) return;
+    setPicked((current) => Object.fromEntries(Object.entries(current).filter(([date]) => !taken.includes(date))));
+    setRemovedDates((current) => [...new Set([...current, ...taken])].sort());
+  }, [taken]);
+  const takenDates = useMemo(() => [...new Set([...removedDates, ...taken])].sort(), [removedDates, taken]);
   const entries = buildOvertimeEntries(days, assigned, unscheduledStartTime);
   const summary = summarizeAssignments(assigned);
   const unscheduledDates = selectedUnscheduledDates(days, assigned);
@@ -24,6 +34,8 @@ export function useOvertimeBatchSelection(days: readonly OvertimePickerDay[], mi
 
   const toggleDay = useCallback((date: string) => {
     if (!isValidOvertimeMinutes(minutes)) return;
+    // 使用者繼續選日期就代表看過提示了。
+    setRemovedDates([]);
     setPicked((current) => {
       const next = { ...current };
       if (next[date] === minutes) delete next[date];
@@ -35,6 +47,7 @@ export function useOvertimeBatchSelection(days: readonly OvertimePickerDay[], mi
   /** 換對象或換月份後，選好的日子屬於上一份班表，留著會送出畫面上看不到的時段。 */
   const reset = useCallback(() => {
     setPicked({});
+    setRemovedDates([]);
     setUnscheduledStartTime("");
   }, []);
 

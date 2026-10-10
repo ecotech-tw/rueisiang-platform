@@ -346,6 +346,8 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
         onPendingChange(false);
         // 被擋下多半是別人先建了其中一天；重抓班表，已有申請的日期才會從選擇裡移出並提示。
         void dayQuery.refetch();
+        // 選擇可能跟著變，關掉確認框讓人先看到被移出的日期與新的小計；留著的話再按一次會送出沒看過的內容。
+        setShowUnscheduledConfirmation(false);
       },
     });
   }
