@@ -302,6 +302,79 @@ export async function calculateHrLeaveDuration(db: Database, input: HrLeaveDurat
   };
 }
 
+/** 與上面兩個 breakdown 對班表的解讀一致：班次扣掉無薪休息、一般辦公扣掉午休。 */
+function leaveWorkSegments(schedules: LeaveScheduleRow[], scheduled: boolean, startsOn: string, endsOn: string) {
+  const segments: Array<[number, number]> = scheduled
+    ? schedules.flatMap((row): Array<[number, number]> => {
+      try {
+        const window = scheduleWindow(row);
+        return [[window.scheduleStart, window.unpaidStart], [window.unpaidEnd, window.scheduleEnd]];
+      } catch (cause) {
+        // 這裡掃的是往後 31 天；三週後一筆壞掉的班次不該擋住今天的一小時。真的落在請假區間內的，下面的正向驗算會照實回報。
+        if (cause instanceof HrError) return [];
+        throw cause;
+      }
+    })
+    : datesBetween(startsOn, endsOn).flatMap((date) => [
+      [canonicalTaipeiTime(date, STANDARD_WORKDAY_START, "一般辦公開始時間"), canonicalTaipeiTime(date, STANDARD_LUNCH_START, "一般辦公午休開始時間")],
+      [canonicalTaipeiTime(date, STANDARD_LUNCH_END, "一般辦公午休結束時間"), canonicalTaipeiTime(date, STANDARD_WORKDAY_END, "一般辦公結束時間")],
+    ]);
+  return segments.filter(([start, end]) => end > start).sort((a, b) => a[0] - b[0]);
+}
+
+export interface HrLeaveEndInput {
+  employeeUserId: string;
+  startsAt: string;
+  durationMinutes: number;
+}
+
+/**
+ * 「從幾點開始請幾小時」反推結束時間。請假時數只算工作時間，所以不能在前端用開始時間直接加：
+ * 跨午休、跨班次或跨日時，結束時間會比「開始＋時數」晚。
+ */
+export async function calculateHrLeaveEnd(db: Database, input: HrLeaveEndInput) {
+  if (!Number.isSafeInteger(input.durationMinutes) || input.durationMinutes < HALF_HOUR_MINUTES || input.durationMinutes % HALF_HOUR_MINUTES !== 0) {
+    throw new HrError(400, "請假時數必須是 0.5 小時的倍數，且至少 0.5 小時。");
+  }
+  const startMs = stamp(input.startsAt, "請假開始時間");
+  const limitMs = startMs + MAX_LEAVE_MINUTES * 60_000;
+  const startsOn = formatTaipeiDate(startMs);
+  const endsOn = nextTaipeiDate(formatTaipeiDate(limitMs));
+  const employmentId = await ensureEmploymentForPeriod(db, input.employeeUserId, startsOn, endsOn);
+  const { schedules } = await loadWorkdaySchedules(db, employmentId, startsOn, endsOn);
+  // 正向算法是看「請假區間內」有沒有班表來決定用班表還是標準工時，而區間要先有結束時間才知道。
+  // 所以兩種都推一次，只留正向驗算後時數相符的，再取最早結束的那個：
+  // 31 天內零星的一筆班次不會把結束時間拉到那一天，排班制也不會被標準工時多拖到隔天早上。
+  const candidates = [false, true]
+    .map((scheduled) => leaveEndFromSegments(leaveWorkSegments(schedules, scheduled, startsOn, endsOn), startMs, input.durationMinutes))
+    .filter((endMs): endMs is number => endMs !== null && endMs <= limitMs)
+    .sort((a, b) => a - b);
+  for (const endMs of candidates) {
+    try {
+      const interval = await calculateHrLeaveDuration(db, { employeeUserId: input.employeeUserId, startsAt: input.startsAt, endsAt: new Date(endMs).toISOString().slice(0, 19).replace("T", " ") });
+      if (interval.durationMinutes === input.durationMinutes) return interval;
+    } catch (cause) {
+      // 400 是「這個結束時間算出來的時數不合」，換下一個候選；409 是班表或工時設定有問題，要讓使用者看到真正的原因。
+      if (!(cause instanceof HrError) || cause.status !== 400) throw cause;
+    }
+  }
+  throw new HrError(400, candidates.length
+    ? "這個時數無法依班表換算出結束時間，請直接填寫結束時間。"
+    : "從這個開始時間起 31 天內的工作時間不足這個時數，請調整開始時間或時數。");
+}
+
+function leaveEndFromSegments(segments: Array<[number, number]>, startMs: number, durationMinutes: number) {
+  let remainingMs = durationMinutes * 60_000;
+  for (const [segmentStart, segmentEnd] of segments) {
+    const from = Math.max(segmentStart, startMs);
+    if (segmentEnd <= from) continue;
+    const endMs = Math.min(segmentEnd, from + remainingMs);
+    remainingMs -= endMs - from;
+    if (remainingMs === 0) return endMs;
+  }
+  return null;
+}
+
 function leaveCredit(entitlement: { id: string; periodStart: string; periodEnd: string; entitledHalfHours: number; balanceHalfHours: number }): HrLeaveCredit {
   return {
     entitlementId: entitlement.id,

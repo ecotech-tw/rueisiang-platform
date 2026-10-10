@@ -390,6 +390,16 @@ describe("HR 申請中心", () => {
     expect(duration.status, await duration.clone().text()).toBe(200);
     expect((await duration.json() as { durationMinutes: number }).durationMinutes).toBe(180);
 
+    // 2026-02-05 11:00 起 3 小時：午休不算，所以是 15:00 而不是 14:00。
+    const sameDayEnd = await request("/hr/me/leave-end", "POST", { startsAt: "2026-02-05T11:00", durationMinutes: 180 }, employeeCookie);
+    expect(sameDayEnd.status, await sameDayEnd.clone().text()).toBe(200);
+    expect(await sameDayEnd.json()).toMatchObject({ endsAt: "2026-02-05 07:00:00", durationMinutes: 180 });
+    // 16:00 起 4 小時：當天只剩 2 小時，其餘接到隔天早上。
+    const nextDayEnd = await request("/hr/me/leave-end", "POST", { startsAt: "2026-02-05T16:00", durationMinutes: 240 }, employeeCookie);
+    expect(await nextDayEnd.json()).toMatchObject({ endsAt: "2026-02-06 03:00:00", durationMinutes: 240 });
+    expect((await request("/hr/me/leave-end", "POST", { startsAt: "2026-02-05T09:00", durationMinutes: 45 }, employeeCookie)).status).toBe(400);
+    expect((await request("/hr/me/leave-end", "POST", { startsAt: "2026-02-05T09:00", durationMinutes: 44_640 }, employeeCookie)).status).toBe(400);
+
     const created = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "本人狀態測試" }, employeeCookie);
     expect(created.status, await created.clone().text()).toBe(201);
     const requestId = (await created.json() as { id: string }).id;
@@ -401,6 +411,50 @@ describe("HR 申請中心", () => {
     expect(cancelled.status, await cancelled.clone().text()).toBe(200);
     const afterCancel = await request("/hr/me/leave-requests", "GET", undefined, employeeCookie);
     expect((await afterCancel.json() as { requests: Array<{ request: { id: string; status: string } }> }).requests.find((item) => item.request.id === requestId)?.request.status).toBe("cancelled");
+  });
+
+  it("時數反推結束時間：排班制照班次與無薪休息走，零星班次不會把一般辦公的結束時間拉走", async () => {
+    await assignEmployee();
+    const end = async (startsAt: string, durationMinutes: number) => {
+      const response = await request("/hr/me/leave-end", "POST", { startsAt, durationMinutes }, employeeCookie);
+      return { status: response.status, ...(await response.json() as { endsAt?: string; durationMinutes?: number }) };
+    };
+    const db = createDatabase(d1 as never);
+    const employment = d1.sqlite.prepare("SELECT id FROM hr_employments WHERE employee_user_id=? AND archived_at IS NULL").get("employee") as { id: string };
+    await db.insert(scopes).values({ id: "scope-counter", sourceType: "manual", scopeKind: "store", name: "測試櫃點", normalizedName: "測試櫃點" });
+    await db.insert(hrShiftTemplates).values({ id: "leave-shift", code: "leave-shift", name: "請假測試班", createdBy: "admin" });
+    await db.insert(hrShiftVersions).values({ id: "leave-shift-v1", shiftTemplateId: "leave-shift", dayType: "weekday", versionNumber: 1, startSecond: 11 * 3600, endSecond: 20 * 3600, standardMinutes: 480, breakMinutes: 60, createdBy: "admin" });
+    await db.insert(hrScheduleVersions).values({ id: "leave-schedule-2026-03", periodStart: "2026-03-01", periodEnd: "2026-04-01", versionNumber: 1, status: "published", submittedBy: "admin", approvedBy: "admin" });
+    const entry = (id: string, workDate: string, from: string, to: string, standardMinutes: number, breakMinutes: number) => ({ id, scheduleVersionId: "leave-schedule-2026-03", employmentId: employment.id, scopeId: "scope-counter", shiftVersionId: "leave-shift-v1", workDate, startsAt: `${workDate} ${from}`, endsAt: `${workDate} ${to}`, standardMinutes, breakMinutes, createdBy: "admin" });
+    await db.insert(hrScheduleEntries).values([
+      entry("leave-entry-10", "2026-03-10", "11:00:00", "20:00:00", 480, 60),
+      entry("leave-entry-12", "2026-03-12", "11:00:00", "20:00:00", 480, 60),
+      entry("leave-entry-28", "2026-03-28", "10:00:00", "14:00:00", 240, 0),
+    ]);
+
+    // 班次 11:00–20:00、午休 12:00–13:00：17:00 起 3 小時停在當天 20:00，不會被標準工時拖到隔天早上。
+    expect(await end("2026-03-10T17:00", 180)).toMatchObject({ status: 200, endsAt: "2026-03-10 12:00:00", durationMinutes: 180 });
+    // 跨無薪休息。
+    expect(await end("2026-03-10T11:30", 60)).toMatchObject({ status: 200, endsAt: "2026-03-10 05:30:00", durationMinutes: 60 });
+    // 11 日沒有班次，當天班次用完後接到 12 日。
+    expect(await end("2026-03-10T19:00", 120)).toMatchObject({ status: 200, endsAt: "2026-03-12 04:00:00", durationMinutes: 120 });
+    // 16 日前後都沒有班次，照標準工時算；28 日那筆零星班次不能把結束時間拉過去。
+    expect(await end("2026-03-16T11:00", 180)).toMatchObject({ status: 200, endsAt: "2026-03-16 07:00:00", durationMinutes: 180 });
+
+    // 遠處一筆壞掉的班次（時間不是有效時刻）不擋今天的換算；請假區間碰到那一天才回報設定錯誤。
+    await db.insert(hrScheduleEntries).values([entry("leave-entry-30", "2026-03-30", "25:00:00", "26:00:00", 60, 0)]);
+    expect(await end("2026-03-10T17:00", 180)).toMatchObject({ status: 200, endsAt: "2026-03-10 12:00:00" });
+    expect((await end("2026-03-29T09:00", 60)).status).toBe(409);
+
+    // 同一天班次重疊時正向算法會把重疊的一小時算兩次；反推回傳的時數必須跟正向算出來的一樣。
+    await db.insert(hrScheduleEntries).values([
+      entry("leave-entry-20a", "2026-03-20", "09:00:00", "18:00:00", 540, 0),
+      entry("leave-entry-20b", "2026-03-20", "10:00:00", "11:00:00", 60, 0),
+    ]);
+    const overlapping = await end("2026-03-20T09:00", 570);
+    expect(overlapping).toMatchObject({ status: 200, endsAt: "2026-03-20 09:30:00", durationMinutes: 570 });
+    const forward = await request("/hr/me/leave-duration", "POST", { startsAt: "2026-03-20T09:00", endsAt: "2026-03-20T17:30" }, employeeCookie);
+    expect((await forward.json() as { durationMinutes: number }).durationMinutes).toBe(570);
   });
 
   it("請假與加班待審可由指定主管處理，修改版本受控並通知雙方", async () => {
