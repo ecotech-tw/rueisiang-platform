@@ -225,6 +225,7 @@ export interface HrPayslipDetailResponse {
     lines: PayrollLine[];
   };
 }
+export interface HrOvertimeDay { date: string; shiftEnd: string | null; existing: Array<{ requestedStart: string; requestedEnd: string; status: string }> }
 export interface OvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; approverUserId: string | null; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; revision: number; createdAt: string }; employeeUserId: string; employeeName: string | null }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

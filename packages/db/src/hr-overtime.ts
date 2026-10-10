@@ -352,11 +352,13 @@ export async function createHrOvertimeRequests(db: Database, input: HrOvertimeBa
   const statements = entries.map((entry, index) => target.employmentId
     ? insertOvertimeRequest(ids[index]!, target.employmentId, entry, actor, autoApprove, approverUserId)
     : insertWorkerOvertimeRequest(ids[index]!, target.workerId!, entry, actor, autoApprove));
+  // 月底一次送整個月時，一筆一則會把審核者的通知洗掉；整批只發一則，掛在最早那筆上讓通知點得進待審清單。
   const mutations = approverUserId
-    ? statements.flatMap((statement, index) => [statement, insertHrNotification({
-      userId: approverUserId, sourceKey: `overtime-request:${ids[index]}:submitted`, kind: "request_submitted", entityKind: "overtime", entityId: ids[index]!,
-      title: "有新的加班申請待審核", body: `申請日期：${taipeiDate(stamp(entries[index]!.requestedStart))}，請開啟待審清單處理。`,
-    })])
+    ? [...statements, insertHrNotification({
+      userId: approverUserId, sourceKey: `overtime-request:${ids[0]}:submitted`, kind: "request_submitted", entityKind: "overtime", entityId: ids[0]!,
+      title: entries.length > 1 ? `有 ${entries.length} 筆新的加班申請待審核` : "有新的加班申請待審核",
+      body: `申請日期：${entries.map(dateOf).join("、")}，請開啟待審清單處理。`,
+    })]
     : statements;
   try {
     await writeHrMutation(db, mutations, ids[0]!, actor, "overtime_requests_created", CREATE_CONFLICT_MESSAGE, { activity: { payload: { requestIds: ids } } });

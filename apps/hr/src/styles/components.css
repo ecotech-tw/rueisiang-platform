@@ -581,6 +581,9 @@
 .hr-form-request-summary dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .hr-form-fields { display: grid; gap: 16px; }
 .hr-form-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hr-overtime-mode { margin-bottom: 16px; }
+.hr-overtime-note { margin: 0; font-size: 13px; line-height: 1.55; }
+.hr-form-review-all { justify-self: start; min-height: 44px; font-size: 13px; font-weight: 700; }
 .hr-form-actions,
 .hr-form-review-actions,
 .hr-form-request-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 18px; }
