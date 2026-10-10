@@ -57,8 +57,6 @@ export interface Env {
   CYBERBIZ_REPORT_MCP_TOKEN?: string;
   /** LINE Login channel used to verify LIFF ID tokens and scope linked LINE subjects. */
   LINE_LIFF_CHANNEL_ID?: string;
-  /** HR 私訊唯一允許的 assistant channel key；設定前須確認 Messaging 與 LIFF channel 同 provider。 */
-  HR_ASSISTANT_CHANNEL_KEY?: string;
   /** LINE Messaging API 憑證；只由 webhook 與回覆 transport 使用。 */
   LINE_CHANNEL_SECRET?: string;
   LINE_CHANNEL_ACCESS_TOKEN?: string;
