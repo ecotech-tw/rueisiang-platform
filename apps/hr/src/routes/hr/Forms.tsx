@@ -213,7 +213,7 @@ function LeaveReviewDialog({ item, changed, onClose }: { item: LeaveRequest; cha
   </>}>
     <div className="hr-form-request-summary"><dl><dt>請假期間</dt><dd>{leavePeriod(item)}</dd><dt>假別</dt><dd>{item.request.leaveType}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
-    {changed ? <Alert tone="warning">申請人在你開啟之後修改了這筆申請。下面是最新的內容，請確認後再處理。</Alert> : null}
+    {changed ? <Alert tone="warning">申請人在你開啟之後修改了這筆申請。上面已經換成最新的內容，請確認後再處理。</Alert> : null}
     {error ? <Alert tone="danger">{error}</Alert> : null}
   </Dialog>;
 }
@@ -244,7 +244,7 @@ function OvertimeReviewDialog({ item, changed, onClose }: { item: OvertimeReques
   </>}>
     <div className="hr-form-request-summary"><dl><dt>加班期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算方式</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
-    {changed ? <Alert tone="warning">申請人在你開啟之後修改了這筆申請。下面是最新的內容，請確認後再處理。</Alert> : null}
+    {changed ? <Alert tone="warning">申請人在你開啟之後修改了這筆申請。上面已經換成最新的內容，請確認後再處理。</Alert> : null}
     {error ? <Alert tone="danger">{error}</Alert> : null}
   </Dialog>;
 }
