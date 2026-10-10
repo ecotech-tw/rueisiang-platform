@@ -9,10 +9,15 @@ describe("pageDirection", () => {
     expect(pageDirection(sections, "/notifications", "/forms")).toBe("back");
   });
 
-  it("跨區時看選單位置，不看深度", () => {
+  it("跨區落在區首頁時看選單位置，不看來源的深度", () => {
     expect(pageDirection(sections, "/payroll/run/emp", "/profile")).toBe("forward");
     expect(pageDirection(sections, "/forms/leave", "/clock")).toBe("forward");
-    expect(pageDirection(sections, "/clock/calendar", "/forms/new")).toBe("back");
+    expect(pageDirection(sections, "/payroll/run/emp", "/forms")).toBe("back");
+  });
+
+  it("跨區點進深一層的頁面一律是 forward", () => {
+    expect(pageDirection(sections, "/clock/calendar", "/forms/new")).toBe("forward");
+    expect(pageDirection(sections, "/clock/calendar", "/forms/leave")).toBe("forward");
   });
 
   it("同一區往深處是 forward，回上層是 back", () => {

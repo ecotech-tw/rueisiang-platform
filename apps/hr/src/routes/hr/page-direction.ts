@@ -10,7 +10,12 @@ function depth(pathname: string): number {
 // 換掉 animation-name 會讓還在畫面上的頁面重播一次進場。
 export function pageDirection(sections: readonly string[], from: string, to: string): SlideDirection | null {
   const sectionOf = (pathname: string) => sections.findIndex((section) => pathname === section || pathname.startsWith(`${section}/`));
-  const delta = sectionOf(to) - sectionOf(from) || depth(to) - depth(from);
+  const fromSection = sectionOf(from);
+  const toSection = sectionOf(to);
+  // 跨區卻不是落在區首頁，是從別處「點進去」（月曆開請假表單），不是切選單；
+  // 照選單位置算的話，表單會從左邊進來，演成返回。
+  if (fromSection !== toSection && to !== sections[toSection]) return "forward";
+  const delta = toSection - fromSection || depth(to) - depth(from);
   return delta === 0 ? null : delta > 0 ? "forward" : "back";
 }
 
