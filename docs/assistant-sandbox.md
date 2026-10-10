@@ -69,11 +69,11 @@ CRM、WMS 與報表工具共用 provider-neutral `ToolContract`；目前這些�
 
 每次 Sandbox 與 LINE 執行都會注入可信的 `Asia/Taipei` 日期與時間，模型可以用它把「今天」轉成 CRM tool 的 `date`、`fromDate` 與 `toDate`。消費工具查不到連結資料時會明確回報，不會用姓名猜測客戶或捏造訂單。
 
-HR 本人工具先依可信 LINE 私訊的 Messaging UID，在 `LINE_LIFF_CHANNEL_ID` scope 下查現有員工綁定、啟用帳號及在職狀態。LINE Login channel 與小香 Messaging API channel 必須屬於同一個 LINE Provider；部署另以 `HR_ASSISTANT_CHANNEL_KEY` 明確開通唯一 channel，未設定時 fail closed。每輪授權 token 綁定 assistant、channel、私訊對話、session generation、run、LINE identity 與綁定版本，五分鐘到期且只留在該次 Pi 執行記憶體中。每次 HR 查詢重驗 token 並回 D1 重讀綁定、員工狀態與工具授權，解除／替換綁定會撤銷舊 token。
+HR 本人工具先依可信 LINE 私訊的 Messaging UID，在 `LINE_LIFF_CHANNEL_ID` scope 下查現有員工綁定、啟用帳號及在職狀態。LINE Login channel 與小香 Messaging API channel 必須屬於同一個 LINE Provider；HR 工具直接沿用既有小香 channel，不需要額外的 HR channel key。每輪授權 token 綁定 assistant、channel、私訊對話、session generation、run、LINE identity 與綁定版本，五分鐘到期且只留在該次 Pi 執行記憶體中。每次 HR 查詢重驗 token 並回 D1 重讀綁定、員工狀態與工具授權，解除／替換綁定會撤銷舊 token。
 
 假單查詢只回本人必要欄位，pending 未指定日期時不設日期下限，其他未指定日期預設台北最近 30 天；每頁 20 筆，日期區間最多 366 天。特休查詢沿用本人年度額度及台帳，回報週期、到期日、分鐘／天數與待審時數，待審申請不扣餘額；額度補建只限定該員工。HR 回答與模型 tool-call transcript 不寫入 Pi Durable Object、LINE reply backup 或回答 log；Reply／Push 送出前重新確認有效綁定與授權期限。
 
-開通時先由 CI 套用新增 `link_version` 欄位的 migration，再設定 `LINE_LIFF_CHANNEL_ID` 與 `HR_ASSISTANT_CHANNEL_KEY`，並在既有小香 channel 工具授權中勾選三個 HR 工具（不自動擴張既有 channel 授權）。實機 smoke 必須包含本人／他人隔離、未綁定、離職／停權、查詢後解除綁定、群組與多人聊天室。回滾先移除 `HR_ASSISTANT_CHANNEL_KEY` 或停用三個工具，再回退 Worker；保留新增欄位與綁定版本，不刪資料、不反向重建表。
+開通時先由 CI 套用新增 `link_version` 欄位的 migration，再設定 `LINE_LIFF_CHANNEL_ID`，並在既有小香 channel 工具授權中勾選三個 HR 工具。實機 smoke 必須包含本人／他人隔離、未綁定、離職／停權、查詢後解除綁定、群組與多人聊天室。回滾時停用三個工具，再回退 Worker；保留新增欄位與綁定版本，不刪資料、不反向重建表。
 
 Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calling，不是公司的知識來源，也不應被視為正式內部問答能力。後續 WMS、CRM 與公司文件搜尋會以同一個 `ToolContract` 介面接入，MCP adapter 會放在這層之下。
 

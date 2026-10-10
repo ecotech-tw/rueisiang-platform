@@ -161,7 +161,7 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 
 ### 小香：HR 本人查詢上線開通
 
-- [ ] 確認 LINE Login／LIFF 與小香 Messaging API channel 位於同一 LINE Provider；在 Cloudflare 設定 `HR_ASSISTANT_CHANNEL_KEY` 為小香 LINE channel key，並以 LINE 私訊驗證本人假單、當期特休、解除綁定及群組不可查詢。
+- [ ] 確認 LINE Login／LIFF 與小香 Messaging API channel 位於同一 LINE Provider，並以 LINE 私訊驗證本人假單、當期特休、解除綁定及群組不可查詢。
 
 ### 小香：MCP tools
 

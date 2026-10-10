@@ -59,7 +59,7 @@ beforeEach(async () => {
     lineGroupId: "U-alice", sourceType: "user", contextGeneration: "", webhookEventId: "event", runId: "run",
     model: "gpt-5.4-mini", systemPrompt: "測試", userText: "查我自己的假", toolKeys: HR_KEYS,
   };
-  env = { DB: d1, AUTH_SESSION_SECRET: "hr-test-secret", LINE_LIFF_CHANNEL_ID: LOGIN_CHANNEL, HR_ASSISTANT_CHANNEL_KEY: channel.channelKey } as never;
+  env = { DB: d1, AUTH_SESSION_SECRET: "hr-test-secret", LINE_LIFF_CHANNEL_ID: LOGIN_CHANNEL } as never;
 });
 
 afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); });
@@ -96,11 +96,13 @@ describe("小香 HR 本人授權", () => {
     await expect(PLATFORM_TOOL_MAP.get("hr_authorize")!.execute({}, { surface: "line", lineSourceType: sourceType })).rejects.toThrow("僅限 LINE 本人私訊");
   });
 
-  it("未指定可信 HR channel 或 LINE Login channel 時不查綁定", async () => {
-    const database = db(); const select = vi.spyOn(database, "select");
-    expect(() => new LineHrSelfService(database, { ...env, HR_ASSISTANT_CHANNEL_KEY: undefined }, input)).toThrow("尚未開通");
-    expect(() => new LineHrSelfService(database, { ...env, LINE_LIFF_CHANNEL_ID: undefined }, input)).toThrow("尚未開通");
-    expect(select).not.toHaveBeenCalled();
+  it("使用既有小香 channel，不需要額外 HR channel key；LINE Login 未設定時仍 fail closed", async () => {
+    const database = db();
+    const select = vi.spyOn(database, "select");
+    const hrSelf = new LineHrSelfService(database, env, input);
+    await expect(hrSelf.authorize()).resolves.toMatchObject({ authorized: true });
+    expect(() => new LineHrSelfService(database, { ...env, LINE_LIFF_CHANNEL_ID: undefined }, input)).toThrow("LINE HR 員工登入尚未設定");
+    expect(select).toHaveBeenCalled();
   });
 
   it("不能把 Messaging channel ID 當成 LINE Login 的綁定 scope", async () => {
