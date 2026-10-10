@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useResolvedPath, type NavLinkProps } from "react-router";
-import { Button, Dialog } from "../ui/index.js";
+import { Button, Dialog, DialogScope, useDialogScope } from "../ui/index.js";
 
 /**
  * 「有未儲存的變更就先問一聲」。
@@ -22,11 +22,21 @@ interface Pending {
   resolve: (allow: boolean) => void;
   /** 開啟當下的訊息快照。不在 render 期間讀 ref：那在 concurrent 下不安全，而且開啟後就不會更新。 */
   message: string;
+  scope: string;
+}
+
+/**
+ * 一頁登記的未儲存變更。scope 是那一頁所在的對話框樣式範圍：確認框掛在 shell 層、不在任何
+ * 版面的 DialogScope 底下，要跟頁面同一套樣式就得由登記的那一頁告訴它。
+ */
+interface DirtyEntry {
+  message: string;
+  scope: string;
 }
 
 interface UnsavedChangesValue {
   isDirty: () => boolean;
-  setDirty: (key: string, message: string | null) => void;
+  setDirty: (key: string, entry: DirtyEntry | null) => void;
   /** 想離開時呼叫；回傳 true 代表可以走。沒有未儲存的變更就直接放行，不彈視窗。 */
   confirmLeave: () => Promise<boolean>;
   /** 使用者已經確認要走了：接下來那一次 document unload 不要再攔。 */
@@ -41,8 +51,8 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
    * 用 state 的話每次髒／乾淨切換都要讓整個側邊欄跟著重繪一次。
    * 彈不彈視窗另外用 pending 這個 state 控制。
    */
-  const dirtyRef = useRef<string | null>(null);
-  const keysRef = useRef(new Map<string, string>());
+  const dirtyRef = useRef<DirtyEntry | null>(null);
+  const keysRef = useRef(new Map<string, DirtyEntry>());
   const [pending, setPending] = useState<Pending | null>(null);
   /** 與 pending 同步的 ref，讓「收掉上一個」這件事不必寫在 state updater 裡。 */
   const pendingRef = useRef<Pending | null>(null);
@@ -56,9 +66,9 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
    */
   const leavingRef = useRef(false);
 
-  const setDirty = useCallback((key: string, message: string | null) => {
-    if (message === null) keysRef.current.delete(key);
-    else keysRef.current.set(key, message);
+  const setDirty = useCallback((key: string, entry: DirtyEntry | null) => {
+    if (entry === null) keysRef.current.delete(key);
+    else keysRef.current.set(key, entry);
     // 同時有兩個髒頁面是不可能的（一次只開一頁），取第一個就好。
     dirtyRef.current = keysRef.current.values().next().value ?? null;
   }, []);
@@ -67,8 +77,8 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
   const beginLeaving = useCallback(() => { leavingRef.current = true; }, []);
 
   const confirmLeave = useCallback(() => {
-    const message = dirtyRef.current;
-    if (!message) return Promise.resolve(true);
+    const dirty = dirtyRef.current;
+    if (!dirty) return Promise.resolve(true);
     /*
      * 已經有一個在等了就先讓它以「不要走」收掉。
      *
@@ -81,7 +91,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
      */
     return new Promise<boolean>((resolve) => {
       pendingRef.current?.resolve(false);
-      const next = { resolve, message };
+      const next = { resolve, message: dirty.message, scope: dirty.scope };
       pendingRef.current = next;
       setPending(next);
     });
@@ -124,7 +134,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
 
   return <UnsavedChangesContext.Provider value={{ isDirty, setDirty, confirmLeave, beginLeaving }}>
     {children}
-    {pending ? <Dialog
+    {pending ? <DialogScope className={pending.scope}><Dialog
       title="還有未儲存的變更"
       onClose={() => answer(false)}
       closeLabel="留在這一頁"
@@ -136,7 +146,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
       {/* 講清楚捨棄的是什麼，不要只說「有未儲存的變更」——那句話沒有幫使用者做決定。 */}
       <p>{pending.message}</p>
       <p className="muted">離開之後這些變更就找不回來了。</p>
-    </Dialog> : null}
+    </Dialog></DialogScope> : null}
   </UnsavedChangesContext.Provider>;
 }
 
@@ -155,10 +165,11 @@ function useUnsavedContext() {
 export function useUnsavedChanges(dirty: boolean, message: string) {
   const { setDirty } = useUnsavedContext();
   const key = useId();
+  const scope = useDialogScope();
   useEffect(() => {
-    setDirty(key, dirty ? message : null);
+    setDirty(key, dirty ? { message, scope } : null);
     return () => setDirty(key, null);
-  }, [dirty, message, key, setDirty]);
+  }, [dirty, message, key, scope, setDirty]);
 }
 
 /**

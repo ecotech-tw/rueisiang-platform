@@ -123,19 +123,31 @@ function assertTarget(input: Pick<HrOvertimeInput, "employeeUserId" | "workerId"
   if (hasEmployee === hasWorker) throw new HrError(400, "加班申請必須指定一位正式員工或支援人員。 ");
 }
 
-async function ensureScope(db: Database, employmentId: string, scopeId: string | null, start: string, end: string) {
-  if (!scopeId) return;
-  const startDate = taipeiDate(stamp(start));
-  const endDate = taipeiDate(stamp(end) - 1000);
-  const [row] = await db.select({ id: hrEmployeeScopes.id }).from(hrEmployeeScopes)
+interface ScopeAssignment { scopeId: string; validFrom: string; validTo: string | null }
+
+/** 員工在這些據點上仍然有效的指派。整批核准一次查完，不必每一天各查一次。 */
+async function listScopeAssignments(db: Database, employmentId: string, scopeIds: string[]): Promise<ScopeAssignment[]> {
+  if (!scopeIds.length) return [];
+  return db.select({ scopeId: hrEmployeeScopes.scopeId, validFrom: hrEmployeeScopes.validFrom, validTo: hrEmployeeScopes.validTo }).from(hrEmployeeScopes)
     .innerJoin(scopes, eq(scopes.id, hrEmployeeScopes.scopeId))
     .where(and(
-      eq(hrEmployeeScopes.employmentId, employmentId), eq(hrEmployeeScopes.scopeId, scopeId),
+      eq(hrEmployeeScopes.employmentId, employmentId), inArray(hrEmployeeScopes.scopeId, scopeIds),
       eq(scopes.active, 1), eq(scopes.scopeKind, "store"), sql`${scopes.sourceType} <> 'shopee'`,
-      sql`${hrEmployeeScopes.validFrom} <= ${startDate}`,
-      sql`(${hrEmployeeScopes.validTo} IS NULL OR ${hrEmployeeScopes.validTo} > ${endDate})`,
-    )).limit(1);
-  if (!row) throw new HrError(400, "加班指定的營運據點不在員工有效 Scope 指派內。 ");
+    ));
+}
+
+function scopeCoversInterval(assignments: readonly ScopeAssignment[], scopeId: string | null, start: string, end: string) {
+  if (!scopeId) return true;
+  const startDate = taipeiDate(stamp(start));
+  const endDate = taipeiDate(stamp(end) - 1000);
+  return assignments.some((row) => row.scopeId === scopeId && row.validFrom <= startDate && (row.validTo === null || row.validTo > endDate));
+}
+
+const SCOPE_NOT_ASSIGNED_MESSAGE = "加班指定的營運據點不在員工有效 Scope 指派內。 ";
+
+async function ensureScope(db: Database, employmentId: string, scopeId: string | null, start: string, end: string) {
+  if (!scopeId) return;
+  if (!scopeCoversInterval(await listScopeAssignments(db, employmentId, [scopeId]), scopeId, start, end)) throw new HrError(400, SCOPE_NOT_ASSIGNED_MESSAGE);
 }
 
 function validateOvertimeInput(input: HrOvertimeInput) {
@@ -558,12 +570,93 @@ export async function cancelHrOvertimeRequests(db: Database, ids: string[], acto
   return { ids, count: ids.length };
 }
 
-export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval, options: { allowAny?: boolean } = {}) {
+/**
+ * 審核一筆員工加班的 UPDATE，逐筆與整批都用這一句，守門條件才不會只改到一邊。
+ *
+ * revision 一起守：讀出來之後申請人改過時段的話這句不會命中，writeHrMutation 會把整個 D1 batch
+ * 退回。少了它，核定時段會寫在申請人已經不主張的時段上，而薪資算的是核定時段。
+ */
+function reviewEmployeeOvertimeStatement(row: { id: string; revision: number }, decision: "approved" | "rejected", actual: HrOvertimeActualInterval | null, comment: string, actor: HrActor, allowAny: boolean) {
+  return sql`UPDATE hr_overtime_requests SET
+    status=${decision}, actual_start=${actual?.start ?? null}, actual_end=${actual?.end ?? null}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, decision_reason=${comment.trim()}
+    WHERE id=${row.id} AND status='pending' AND revision=${row.revision} AND ${allowAny ? sql`1=1` : sql`approver_user_id=${actor.id}`} AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND employee_user_id <> ${actor.id}) RETURNING id`;
+}
+
+/**
+ * 同一批的核准通知只留一則，每次核准接一行；一次核准多天時那幾天寫在同一行。
+ * 駁回各有各的理由、員工要個別處理，不走這裡，仍然一筆一則。
+ */
+function batchApprovedNotification(employeeUserId: string, batchId: string, requestedStarts: readonly string[], comment: string) {
+  const dates = requestedStarts.map((start) => taipeiDate(stamp(start))).join("、");
+  return appendHrNotification({
+    userId: employeeUserId, sourceKey: overtimeBatchSourceKey(batchId, "approved"), kind: "request_reviewed", entityKind: "overtime", entityId: batchId,
+    title: "加班申請已核准", body: comment.trim() ? notificationLine(`${dates} 已核准：`, comment.trim()) : `${dates} 已核准。`,
+  });
+}
+
+const BATCH_CHANGED_MESSAGE = "這一批加班申請在你確認之後有變動，請看過最新的內容再核准。 ";
+
+/**
+ * 一次核准同一批裡還在待審的加班。只有核准：駁回每筆要各自的理由，仍然逐筆處理。
+ *
+ * `expected` 是審核者在確認框裡看到的那幾筆與它們的版本。伺服器只核准「跟畫面一模一樣」的集合——
+ * 審核者看著確認框的時候申請人改了某一天的時數，或有人先審掉幾筆，都回 409 讓他重新確認，
+ * 不會核准他沒看過的內容。整批全有或全無。
+ */
+type BatchExpectation = ReadonlyArray<{ id: string; revision: number }>;
+
+async function listPendingBatchRows(db: Database, batchId: string, actor: HrActor, allowAny: boolean) {
+  return db.select({ id: hrOvertimeRequests.id, revision: hrOvertimeRequests.revision, employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
+    .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId))
+    .where(and(eq(hrOvertimeRequests.batchId, batchId), eq(hrOvertimeRequests.status, "pending"), allowAny ? undefined : eq(hrOvertimeRequests.approverUserId, actor.id)))
+    .orderBy(asc(hrOvertimeRequests.requestedStart));
+}
+
+function matchesBatchExpectation(rows: ReadonlyArray<{ id: string; revision: number }>, expected: BatchExpectation) {
+  const revisions = new Map(expected.map((row) => [row.id, row.revision]));
+  return rows.length === expected.length && rows.every((row) => revisions.get(row.id) === row.revision);
+}
+
+export async function approveHrOvertimeBatch(db: Database, batchId: string, expected: BatchExpectation, comment: string, actor: HrActor, options: { allowAny?: boolean } = {}) {
+  if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
+  if (!expected.length || expected.length > MAX_OVERTIME_BATCH_ENTRIES || new Set(expected.map((row) => row.id)).size !== expected.length) throw new HrError(400, "整批核准的申請清單格式不正確。 ");
+  const allowAny = options.allowAny === true;
+  const rows = await listPendingBatchRows(db, batchId, actor, allowAny);
+  const employeeUserId = rows[0]?.employeeUserId;
+  if (!employeeUserId) throw new HrError(404, "找不到指定給你的待審加班申請，這一批可能已經處理完了。 ");
+  if (employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的加班申請。 ");
+  if (!matchesBatchExpectation(rows, expected)) throw new HrError(409, BATCH_CHANGED_MESSAGE);
+
+  // 與逐筆核准同一組檢查。同一批是同一個人、同一份任職，任職查一次；據點指派一次查完再逐日比對。
+  const employmentId = rows[0]!.employmentId;
+  if (rows.some((row) => row.employmentId !== employmentId) || await employmentIdFor(db, employeeUserId, employmentId) !== employmentId) throw new HrError(400, "核定加班實際時段的員工資料不一致。 ");
+  const assignments = await listScopeAssignments(db, employmentId, [...new Set(rows.flatMap((row) => row.scopeId ? [row.scopeId] : []))]);
+  const uncovered = rows.filter((row) => !scopeCoversInterval(assignments, row.scopeId, row.requestedStart, row.requestedEnd));
+  // 講出是哪幾天：三十天的批次只說「據點不在指派內」，審核者只能一筆一筆試。
+  if (uncovered.length) throw new HrError(400, `${uncovered.map((row) => taipeiDate(stamp(row.requestedStart))).join("、")} 指定的營運據點已不在員工的有效指派內，整批都沒有核准；請逐筆處理這幾天。 `);
+
+  const updates = rows.map((row) => reviewEmployeeOvertimeStatement(row, "approved", { start: row.requestedStart, end: row.requestedEnd }, comment, actor, allowAny));
+  const ids = rows.map((row) => row.id);
+  try {
+    await writeHrMutation(db, [...updates, batchApprovedNotification(employeeUserId, batchId, rows.map((row) => row.requestedStart), comment)], ids[0]!, actor, "overtime_requests_reviewed", BATCH_CHANGED_MESSAGE, {
+      // 每一筆各留一筆活動紀錄：之後拿任何一天的申請 ID 都查得到是誰在何時核准的。
+      activity: { payload: { batchId, requestIds: ids }, summary: `整批核准 ${ids.length} 筆加班申請`, alsoEntityIds: ids.slice(1) },
+    });
+  } catch (error) {
+    if (!(error instanceof HrError) || error.status !== 409) throw error;
+    // 寫入被擋下不一定是內容變了。內容其實沒變卻叫審核者「看過最新的內容再核准」，他重看、重按只會一直撞同一個錯。
+    if (matchesBatchExpectation(await listPendingBatchRows(db, batchId, actor, allowAny), expected)) throw new HrError(409, "整批核准沒有寫入，但這一批的內容沒有變動。請稍後再試；一直發生的話請改用逐筆審核並通知系統管理者。 ");
+    throw error;
+  }
+  return { ids, status: "approved" as const };
+}
+
+export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval, options: { allowAny?: boolean; expectedRevision?: number } = {}) {
   if (!["approved", "rejected", "cancelled"].includes(decision)) throw new HrError(400, "加班審核結果不正確。 ");
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
   if (decision === "cancelled") return cancelHrOvertimeRequest(db, id, actor, { allowAny: options.allowAny });
   if (decision === "rejected" && !comment.trim()) throw new HrError(400, "駁回加班申請時必須填寫審核意見。 ");
-  const [employeeCurrent] = await db.select({ employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, status: hrOvertimeRequests.status, approverUserId: hrOvertimeRequests.approverUserId, batchId: hrOvertimeRequests.batchId, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
+  const [employeeCurrent] = await db.select({ employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, status: hrOvertimeRequests.status, approverUserId: hrOvertimeRequests.approverUserId, batchId: hrOvertimeRequests.batchId, revision: hrOvertimeRequests.revision, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
     .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);
   const current = employeeCurrent
     ? { ...employeeCurrent, personKind: "employee" as const, workerId: undefined }
@@ -576,6 +669,9 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
   if (current.personKind === "employee" && current.employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的加班申請。 ");
   if (!options.allowAny && (current.personKind === "worker" || current.approverUserId !== actor.id)) throw new HrError(404, "找不到指定給你的待審加班申請。 ");
   if (current.status !== "pending") throw new HrError(409, "加班申請不存在或已完成處理。 ");
+  // 審核者下決定時看到的版本。只拿剛讀出來的版本去守 UPDATE 的話，擋得住的只有讀寫之間那一瞬間；
+  // 審核者開著對話框的那幾十秒裡申請人改了時數，照樣會被核准。
+  if (options.expectedRevision !== undefined && current.personKind === "employee" && current.revision !== options.expectedRevision) throw new HrError(409, "這筆加班申請在你開啟之後被申請人修改過，請看過最新的內容再審核。 ");
 
   let actualStart: string | null = null;
   let actualEnd: string | null = null;
@@ -592,27 +688,19 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
     }
   }
   const update = current.personKind === "employee"
-    ? sql`UPDATE hr_overtime_requests SET
-      status=${decision}, actual_start=${actualStart}, actual_end=${actualEnd}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, decision_reason=${comment.trim()}
-      WHERE id=${id} AND status='pending' AND ${options.allowAny ? sql`1=1` : sql`approver_user_id=${actor.id}`} AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND employee_user_id <> ${actor.id}) RETURNING id`
+    ? reviewEmployeeOvertimeStatement({ id, revision: current.revision }, decision, actualStart && actualEnd ? { start: actualStart, end: actualEnd } : null, comment, actor, options.allowAny === true)
     : sql`UPDATE hr_worker_overtime_requests SET
       status=${decision}, actual_start=${actualStart}, actual_end=${actualEnd}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, decision_reason=${comment.trim()}
       WHERE id=${id} AND status='pending' AND ${options.allowAny ? 1 : 0}=1 RETURNING id`;
   const batchId = current.personKind === "employee" ? current.batchId : null;
   const reviewNotification = current.personKind !== "employee" ? null
-    : batchId && decision === "approved"
-      // 審核者只能一筆一筆核准；同一批的核准合成一則，每核准一天接一行，各自帶那一筆的審核意見。
-      // 駁回各有各的理由、員工要個別處理，仍然一筆一則。
-      ? appendHrNotification({
-        userId: current.employeeUserId!, sourceKey: overtimeBatchSourceKey(batchId, "approved"), kind: "request_reviewed", entityKind: "overtime", entityId: batchId,
-        title: "加班申請已核准", body: comment.trim() ? notificationLine(`${taipeiDate(stamp(current.requestedStart))} 已核准：`, comment.trim()) : `${taipeiDate(stamp(current.requestedStart))} 已核准。`,
-      })
+    : batchId && decision === "approved" ? batchApprovedNotification(current.employeeUserId!, batchId, [current.requestedStart], comment)
       : insertHrNotification({
         userId: current.employeeUserId!, sourceKey: `overtime-request:${id}:reviewed:${decision}`, kind: "request_reviewed", entityKind: "overtime", entityId: id,
         title: decision === "approved" ? "加班申請已核准" : "加班申請已駁回",
         body: comment.trim() || (decision === "approved" ? "你的加班申請已完成核准。" : "請開啟申請紀錄查看處理結果。"),
       });
   const mutations = reviewNotification ? [update, reviewNotification] : update;
-  await writeHrMutation(db, mutations, id, actor, "overtime_request_reviewed", "加班申請不存在、申請人不可自審或已完成處理。 ");
+  await writeHrMutation(db, mutations, id, actor, "overtime_request_reviewed", "加班申請不存在、申請人不可自審、內容已被修改或已完成處理，請重新整理。 ");
   return { id, status: decision };
 }

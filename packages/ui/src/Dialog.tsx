@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useId, useRef, useState, type FormHTMLAttributes, type ReactNode } from "react";
+import { useCallback, useContext, useEffect, useId, useRef, useState, type FormHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./Button.js";
-import { DialogContext, type DialogCloseRef } from "./dialog-context.js";
+import { DialogContext, DialogScopeContext, type DialogCloseRef } from "./dialog-context.js";
 
 interface DialogProps {
   title: ReactNode;
@@ -108,14 +108,13 @@ export function Dialog({
    * 那個祖先就會變成 fixed 的定位基準，對話框會被關進頁面容器裡（HRIS 的玻璃效果與
    * 頁面轉場都會造成這件事）。掛到 body 底下就不受版面結構影響。
    *
-   * HRIS 的樣式是用 .hr-system 開頭寫的，移出去之後會全部失效；所以在 HRIS 頁面開啟時
-   * 用一層 display: contents 的殼把 hr-system 補回來。不能直接加在遮罩上——.hr-system
-   * 自己帶著 grid-template-rows 與 align-content: stretch，會把遮罩的垂直置中蓋掉。
-   *
-   * 員工 HR 站的語意色寫在 .hr-module-self 底下，是同一個問題：不補回來的話，對話框裡的
-   * hr-action-*／add-action 全部落回品牌紅，核准跟旁邊的駁回（深紅）分不出來。
+   * 站台的語意色與玻璃效果是寫在範圍 class 底下的（管理介面 .hr-system、員工 HR 站
+   * .hr-module-self），移出去之後會全部失效——核准會落回品牌紅，跟旁邊的駁回分不出來。
+   * 所以用一層 display: contents 的殼把範圍補回來，範圍由站台透過 DialogScope 提供。
+   * 不能直接加在遮罩上——.hr-system 自己帶著 grid-template-rows 與 align-content: stretch，
+   * 會把遮罩的垂直置中蓋掉。
    */
-  const scopeClass = typeof document === "undefined" ? "" : [".hr-system", ".hr-module-self"].find((selector) => document.querySelector(selector))?.slice(1) ?? "";
+  const scopeClass = useContext(DialogScopeContext);
   const backdropClassNameValue = ["modal-backdrop", backdropClassName, closing ? "closing" : ""].filter(Boolean).join(" ");
   const bodyClassNameValue = ["modal-body", bodyClassName].filter(Boolean).join(" ");
   const actionFooter = actions ? <div className="modal-actions">{actions}</div> : null;
@@ -169,4 +168,14 @@ export function Dialog({
 
   // 測試用 renderToStaticMarkup 時沒有 document，直接回傳原本的結構。
   return portal && typeof document !== "undefined" ? createPortal(dialog, document.body) : dialog;
+}
+
+/** 目前所在的對話框範圍。給「自己不在範圍裡、但要替範圍裡的頁面開對話框」的元件記下來用。 */
+export function useDialogScope() {
+  return useContext(DialogScopeContext);
+}
+
+/** 放在站台版面的根節點：這個範圍裡開的對話框 portal 出去後會帶回 `className`。 */
+export function DialogScope({ className, children }: { className: string; children: ReactNode }) {
+  return <DialogScopeContext.Provider value={className}>{children}</DialogScopeContext.Provider>;
 }

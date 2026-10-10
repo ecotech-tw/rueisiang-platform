@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router";
+import { DialogScope } from "../../ui/index.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { useHrQuery, type HrNotificationsResponse } from "./api.js";
 import { pageDirection, type SlideDirection } from "./page-direction.js";
@@ -40,12 +41,12 @@ export function HrLayout() {
   const isClockHome = pathname === "/clock";
   const current = pathname.startsWith("/scheduling") ? "據點排班" : pathname.startsWith("/forms") ? "表單申請" : pathname.startsWith("/payroll") ? "薪資袋" : pathname.startsWith("/notifications") ? "通知" : pathname.startsWith("/profile") ? "個人中心" : "打卡";
 
-  return <div className="hr-module hr-module-self" data-page-direction={direction}>
+  return <DialogScope className="hr-module-self"><div className="hr-module hr-module-self" data-page-direction={direction}>
     {isClockHome ? <PersonalNav className="hr-personal-nav hr-clock-personal-nav" /> : <header className="hr-module-header">
       <div className="hr-module-title"><span className="hr-module-current">{current}</span></div>
       <PersonalNav className="hr-personal-nav hr-personal-top-nav" />
     </header>}
     <PersonalNav className="hr-personal-bottom-nav" />
     <Outlet />
-  </div>;
+  </div></DialogScope>;
 }

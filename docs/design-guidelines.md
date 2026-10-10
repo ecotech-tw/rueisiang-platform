@@ -87,7 +87,7 @@ HRIS 語意 class 一覽（都是加在 `Button` 的 `className`，`variant` 照
 | 刪除、駁回、撤回、停用 | `variant="danger"` | 深紅 | `--color-brand-dark` |
 | 取消、返回、保留 | `variant="secondary"` | 中性 | — |
 
-這些 class 的樣式都寫在站的範圍底下（管理介面 `.hr-system`、員工 HR 站 `.hr-module-self`）。`Dialog` portal 到 `body` 之後會離開那個範圍，所以共用的 `Dialog` 會用一層 `display: contents` 的殼把範圍 class 補回來。對話框裡的語意色沒生效時，去修 `Dialog` 補回的範圍，**不要另外寫一條不帶範圍的樣式**——那會讓同一個 class 在兩個站有兩份定義。
+這些 class 的樣式都寫在站的範圍底下（管理介面 `.hr-system`、員工 HR 站 `.hr-module-self`）。`Dialog` portal 到 `body` 之後會離開那個範圍，所以共用的 `Dialog` 會用一層 `display: contents` 的殼把範圍 class 補回來。範圍由站台提供：版面根節點包一層 `<DialogScope className="…">`（管理介面與員工 HR 站的 `HrLayout` 都有），`Dialog` 不需要知道有哪些站。對話框裡的語意色沒生效時，先確認那個對話框是不是在 `DialogScope` 裡面開的——掛在 shell 層的對話框（例如未儲存變更的確認框）要自己包一層。**不要另外寫一條不帶範圍的樣式**，那會讓同一個 class 在兩個站有兩份定義。
 - `loading` 時由元件負責 disabled 與 `aria-busy`；不要在 route 另做一顆「處理中」按鈕。
 - filter chip 用 `selected`，不要在頁面手寫 `aria-pressed` 與 selected class 的同步邏輯。
 - 除非連續操作會被縮放干擾，保留按下 `scale: .96`；停用時才使用 `static`。
