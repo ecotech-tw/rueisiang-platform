@@ -73,7 +73,7 @@ export function HrPayslipDetail() {
   const lines = query.data?.detail.lines ?? [];
   return <div className="page hr-payroll-history-page hr-payslip-page">
     <div className="hr-form-back-bar">
-      <Button variant="link" icon="chevronLeft" className="hr-form-back-button" onClick={() => navigate("/payroll", { state: { transition: "back" } })}>返回薪資袋</Button>
+      <Button variant="link" icon="chevronLeft" className="hr-form-back-button" onClick={() => navigate("/payroll")}>返回薪資袋</Button>
     </div>
     <PageHeader title="薪資明細" description={record ? `${periodLabel(record.periodKey)}・${dateLabel(record.payDate)}` : "查看已發放薪資項目。"} className="hr-payslip-head" />
     {query.isPending ? <p className="muted">載入薪資明細…</p> : null}
