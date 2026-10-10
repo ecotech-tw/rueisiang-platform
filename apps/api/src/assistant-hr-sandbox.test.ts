@@ -106,13 +106,18 @@ describe("管理者限定的 HR 模擬本人", () => {
     await expect(assertHrSandboxDeliveryAuthorized(db(), env, input, authorization)).rejects.toThrow("已過期");
   });
 
-  it("非 HR 工具、session、附件、缺少 authorize 或錯誤 generation 一律拒絕", async () => {
+  it("可以跟一般工具、session 與附件混用；沒選員工或缺少 authorize 仍拒絕", async () => {
     for (const patch of [
-      { toolKeys: [...HR_KEYS, "crm_search_customers"] }, { sandboxSessionId: "normal-session" },
-      { toolKeys: ["hr_get_my_annual_leave"] }, { contextGeneration: "old" }, { conversationId: "shared" },
-      { attachments: [{ key: "sensitive-image" }] },
-    ]) await expect(assertHrSandboxRunAllowed(db(), env, { ...input, ...patch } as PiSandboxAgentRunRequest)).rejects.toThrow("獨立單輪");
+      { toolKeys: [...HR_KEYS, "crm_search_customers"] }, { toolKeys: ["crm_search_customers"] },
+      { sandboxSessionId: "session", conversationId: "session", contextGeneration: "created-at" },
+      { attachments: [{ key: "image" }] },
+    ]) await expect(assertHrSandboxRunAllowed(db(), env, { ...input, ...patch } as PiSandboxAgentRunRequest)).resolves.toBeUndefined();
+    await expect(assertHrSandboxRunAllowed(db(), env, { ...input, toolKeys: ["hr_get_my_annual_leave"] })).rejects.toThrow("hr_authorize");
+    await expect(assertHrSandboxRunAllowed(db(), env, { ...input, hrSandboxUserId: " " })).rejects.toThrow("選擇要模擬的員工");
     await expect(assertHrSandboxRunAllowed(db(), { ...env, LINE_LIFF_CHANNEL_ID: undefined }, input)).rejects.toThrow("LINE Login channel");
+    // 沒帶 HR 工具就用不到綁定，選了員工也不該整輪失敗。
+    await expect(assertHrSandboxRunAllowed(db(), { ...env, LINE_LIFF_CHANNEL_ID: undefined }, { ...input, toolKeys: ["crm_search_customers"] })).resolves.toBeUndefined();
+    await expect(SandboxHrSelfService.create(db(), { ...env, LINE_LIFF_CHANNEL_ID: undefined }, { ...input, toolKeys: [] })).rejects.toThrow("LINE Login channel");
   });
 
   it("開發中 HR 工具可在 Sandbox 測試，不需授權或啟用正式 LINE 對話", async () => {

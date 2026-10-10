@@ -58,7 +58,7 @@ function lineAgentName(input: PiLineAgentContext): string {
 }
 
 function sandboxAgentName(input: PiSandboxAgentRunRequest): string {
-  return [input.assistantKey, input.hrSandboxUserId ? "hr-sandbox" : "sandbox", input.actorUserId, input.hrSandboxUserId ? input.runId : input.conversationId].join(":");
+  return [input.assistantKey, "sandbox", input.actorUserId, input.conversationId].join(":");
 }
 
 function agentStub(env: AppEnv["Bindings"], name: string): DurableObjectStub {
@@ -99,6 +99,14 @@ export async function runPiSandboxAgent(
   input: PiSandboxAgentRunRequest,
 ): Promise<PiSandboxAgentRunResponse> {
   return requestAgent<PiSandboxAgentRunResponse>(env, sandboxAgentName(input), "/run", input);
+}
+
+/** 回答已經存進 transcript、卻在送出前被撤銷時用；不拿掉的話同一個 session 的下一輪會把它當上下文。 */
+export async function discardPiSandboxRun(
+  env: AppEnv["Bindings"],
+  input: PiSandboxAgentRunRequest,
+): Promise<void> {
+  await requestAgent<{ discarded: boolean }>(env, sandboxAgentName(input), "/discard-run", { runId: input.runId });
 }
 
 export async function resetPiLineAgent(

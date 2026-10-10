@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HrSandboxTester } from "./HrSandboxTester.js";
+import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Alert, Button, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
@@ -18,6 +18,7 @@ import {
   type SandboxToolCall,
   type PromptRevision,
   type SandboxAttachment,
+  type HrSandboxEmployee,
 } from "./api.js";
 
 function formatDate(value: string): string {
@@ -84,7 +85,7 @@ export function Sandbox() {
   const [sessionId, setSessionId] = useState("");
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [hrMode, setHrMode] = useState(false);
+  const [employee, setEmployee] = useState<HrSandboxEmployee | null>(null);
   const [revisionsOpen, setRevisionsOpen] = useState(false);
   const [failedRun, setFailedRun] = useState<{ runId?: string; toolCalls: SandboxToolCall[] } | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
@@ -143,6 +144,14 @@ export function Sandbox() {
   const fallbackReady = !fallbackModel || Boolean(selectedFallbackModel?.supported && selectedFallbackModel.configured);
   const currentSession = session.data?.session;
   const sessionOpen = currentSession?.status === "open";
+  // HR 工具要「有模擬對象、綁定設好、授權工具沒停用」三件都成立才送得出去；
+  // 少一件就整組不送，勾選狀態留著，條件齊了自動生效。只擋其中一個的話送出鈕會卡死在使用者解不開的狀態。
+  const hrToolKeys = new Set(data.hrSandbox.toolKeys);
+  const hrAuthorizeStatus = data.tools.find((tool) => tool.key === "hr_authorize")?.status ?? "disabled";
+  const hrAuthorizeDisabled = hrToolKeys.size > 0 && hrAuthorizeStatus === "disabled";
+  const hrToolsUsable = Boolean(employee) && data.hrSandbox.bindingConfigured && !hrAuthorizeDisabled;
+  const activeToolKeys = toolKeys.filter((key) => hrToolsUsable || !hrToolKeys.has(key));
+  const hrAuthorizeMissing = activeToolKeys.some((key) => hrToolKeys.has(key)) && !activeToolKeys.includes("hr_authorize");
 
   function selectRevision(revision: PromptRevision) {
     setPromptId(revision.id);
@@ -176,11 +185,14 @@ export function Sandbox() {
   function submitRun() {
     const submittedInput = input.trim();
     const submittedAttachments = attachments;
-    if (!promptId || !modelReady || (!submittedInput && !submittedAttachments.length) || !sessionId || !sessionOpen || uploadAttachment.isPending) return;
+    if (!promptId || !modelReady || hrAuthorizeMissing || (!submittedInput && !submittedAttachments.length) || !sessionId || !sessionOpen || uploadAttachment.isPending) return;
     setPendingSessionId(sessionId);
     setFailedRun(null);
     run.mutate(
-      { sessionId, model, promptRevisionId: promptId, toolKeys, input: submittedInput, attachments: submittedAttachments },
+      {
+        sessionId, model, promptRevisionId: promptId, toolKeys: activeToolKeys, input: submittedInput, attachments: submittedAttachments,
+        ...(employee ? { hrSandboxUserId: employee.userId } : {}),
+      },
       {
         onSuccess: () => {
           setPendingSessionId(null);
@@ -229,25 +241,12 @@ export function Sandbox() {
     closeSession.mutate(sessionId, { onSuccess: createFreshSession });
   }
 
-  if (hrMode && data.hrSandbox.available) return (
-    <div className="page assistant-sandbox-page">
-      <PageHeader title="小香助理 Sandbox" description="管理者限定的 HR 模擬本人單輪測試，與一般對話及正式 LINE 隔離。" />
-      <HrSandboxTester config={data} onExit={() => setHrMode(false)} />
-    </div>
-  );
-
   return (
     <div className="page assistant-sandbox-page">
       <PageHeader
         title="小香助理 Sandbox"
         description="在接上 LINE 前，先用同一套 prompt、模型與工具執行流程測試回答品質。"
       />
-
-      {data.hrSandbox.available ? (
-        <div className="assistant-actions">
-          <Button variant="secondary" disabled={run.isPending} onClick={() => setHrMode(true)}>HR 模擬員工本人</Button>
-        </div>
-      ) : null}
 
       {!data.providers.codex ? (
         <Alert tone="danger">尚未完成 ChatGPT／Codex OAuth credential 設定，GPT 模型目前不可執行。</Alert>
@@ -313,17 +312,28 @@ export function Sandbox() {
                 </div>
                 <Button variant="secondary" icon="widgets" className="assistant-tool-config-button" onClick={() => setToolsOpen(true)}>
                   設定 tools
-                  <span className="assistant-tool-count">{toolKeys.length}</span>
+                  <span className="assistant-tool-count">{activeToolKeys.length}</span>
                 </Button>
               </div>
               <div className="assistant-selection-summary">
-                {toolKeys.length
-                  ? data.tools.filter((tool) => toolKeys.includes(tool.key)).map((tool) => (
+                {activeToolKeys.length
+                  ? data.tools.filter((tool) => activeToolKeys.includes(tool.key)).map((tool) => (
                     <span className="status status-active" key={tool.key}>{tool.label}</span>
                   ))
                   : <span className="muted">尚未選擇 tools</span>}
               </div>
+              {hrAuthorizeMissing ? <Alert tone="danger">HR 查詢工具要連同「hr_authorize」一起勾選才能送出。</Alert> : null}
+              {employee && hrAuthorizeDisabled ? <Alert tone="danger">「hr_authorize」目前已停用，這一輪不會送出 HR 工具；請先到小香設定頁啟用。</Alert> : null}
             </div>
+
+            {data.hrSandbox.available ? (
+              <HrImpersonation
+                employee={employee}
+                bindingConfigured={data.hrSandbox.bindingConfigured}
+                disabled={run.isPending}
+                onChange={setEmployee}
+              />
+            ) : null}
 
             <div className="assistant-subsection assistant-prompt-section">
               <div className="assistant-subsection-head">
@@ -516,7 +526,7 @@ export function Sandbox() {
               <Button
                 loading={run.isPending}
                 loadingLabel="小香思考中…"
-                disabled={!modelReady || (!input.trim() && !attachments.length) || !sessionOpen || uploadAttachment.isPending}
+                disabled={!modelReady || hrAuthorizeMissing || (!input.trim() && !attachments.length) || !sessionOpen || uploadAttachment.isPending}
                 onClick={submitRun}
               >
                 送出
@@ -529,7 +539,7 @@ export function Sandbox() {
         <div className="assistant-actions assistant-composer-note">
           <span className="form-hint">
             {sessionOpen
-              ? `目前使用 Revision ${activeRevision?.revision ?? "—"}、${selectedModel?.label ?? model}。`
+              ? `目前使用 Revision ${activeRevision?.revision ?? "—"}、${selectedModel?.label ?? model}${employee ? `，模擬 ${employee.displayName}（${employee.employeeNumber}）本人` : ""}。`
               : "請先建立一個新的 session；關閉的 session 只能查看歷史，不能繼續對話。"}
           </span>
         </div>
@@ -573,7 +583,10 @@ export function Sandbox() {
           onClose={() => setToolsOpen(false)}
           actions={<Button type="button" onClick={() => setToolsOpen(false)}>完成</Button>}
         >
-              <p className="muted">勾選後會在下一次 Sandbox 執行時送給模型；「開發中」工具只可在 Sandbox 使用。</p>
+              <p className="muted">
+                勾選後會在下一次 Sandbox 執行時送給模型；「開發中」工具只可在 Sandbox 使用。
+                {hrToolKeys.size ? "HR 工具要先在「模擬員工本人」選一位員工、平台設好 LINE Login 綁定才會生效。" : ""}
+              </p>
               <div className="assistant-tool-list">
                 {data.tools.map((tool) => (
                   <label className="assistant-tool" key={tool.key}>
@@ -581,7 +594,7 @@ export function Sandbox() {
                       <input
                         type="checkbox"
                         checked={toolKeys.includes(tool.key)}
-                        disabled={tool.status === "disabled"}
+                        disabled={tool.status === "disabled" || (hrToolKeys.has(tool.key) && !hrToolsUsable)}
                         onChange={() => toggleTool(tool.key)}
                       />
                       <Icon name="widgets" />

@@ -24,7 +24,6 @@ export function AssistantSettings() {
   if (!data) return null;
   const activeModel = data.models.find((model) => model.id === data.activeModel);
   const fallbackModel = data.fallbackModel ? data.models.find((model) => model.id === data.fallbackModel) : undefined;
-  const tools = [...data.tools, ...data.hrSandbox.tools];
 
   function submitCredential() {
     const value = credential.trim();
@@ -81,7 +80,7 @@ export function AssistantSettings() {
       <Panel title="Tools" description="已啟用才可在線上 channel 使用；開發中只能在 Sandbox 測試；已停用不會提供給模型。">
 
         <div className="assistant-tool-list">
-          {tools.map((tool) => (
+          {data.tools.map((tool) => (
             <div className="assistant-tool" key={tool.key}>
               <Icon name="widgets" />
                 <span>
