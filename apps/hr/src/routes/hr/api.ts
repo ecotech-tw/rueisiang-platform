@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { API_BASE_URL } from "../../config.js";
 
 export interface Employee {
@@ -136,10 +136,10 @@ export interface LeaveTypeOption {
   credits: LeaveCredit[];
 }
 export interface LeaveTypesResponse { leaveTypes: LeaveTypeOption[] }
-export interface AnnualLeavePeriod extends LeaveCredit { usedHalfHours: number }
+export interface AnnualLeavePeriod extends LeaveCredit { usedHalfHours: number; grantedHalfHours: number }
 export interface AnnualLeaveResponse { periods: AnnualLeavePeriod[] }
 export interface LeaveMonth { month: string; totalMinutes: number; leaveTypes: Array<{ id: string; name: string; minutes: number }> }
-export interface LeaveMonthsResponse { year: number; firstYear: number; lastYear: number; months: LeaveMonth[] }
+export interface LeaveMonthsResponse { year: number; currentYear: number; firstYear: number; lastYear: number; months: LeaveMonth[] }
 export interface HrLeaveDurationResponse {
   startsAt: string;
   endsAt: string;
@@ -235,8 +235,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) throw new Error(result.error ?? `操作失敗（${response.status}）`);
   return result;
 }
-export function useHrQuery<T>(path: string, enabled = true) {
-  return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false });
+/** keepPrevious：換 path（例如切換年份）時先留著上一份資料，依賴它的控制項才不會閃掉；用 isPlaceholderData 判斷是不是舊的。 */
+export function useHrQuery<T>(path: string, enabled = true, keepPrevious = false) {
+  return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false, placeholderData: keepPrevious ? keepPreviousData : undefined });
 }
 export function useHrLeaveDuration(input: { startsAt: string; endsAt: string } | null) {
   const signature = input ? JSON.stringify(input) : "disabled";

@@ -742,7 +742,9 @@ export const hr = new Hono<AppEnv>()
   })
   .get("/me/annual-leave", async (c) => c.json({ periods: await listHrSelfAnnualLeave(c.get("db"), c.get("user").id) }))
   .get("/me/leave-months", async (c) => {
-    const year = calendarNumber(c.req.query("year"), currentTaipeiYearMonth().year, "年份", 1900, 9999);
+    // 沒帶年份時不在這裡補「今年」：台北時間的今年由 packages/db 決定，只留一個來源。
+    const rawYear = c.req.query("year");
+    const year = rawYear === undefined ? undefined : calendarNumber(rawYear, 0, "年份", 1900, 9999);
     return c.json(await getHrSelfLeaveMonths(c.get("db"), c.get("user").id, { year }));
   })
   .get("/me/leave-requests", async (c) => {

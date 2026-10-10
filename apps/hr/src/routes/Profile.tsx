@@ -5,12 +5,7 @@ import { Icon, type IconName } from "../shell/icons.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
 import { Alert, Button, ConfirmDialog, EmptyState, PageHeader, Panel, StatusBadge } from "../ui/index.js";
 import { useHrQuery, type Employment, type Profile as HrProfile } from "./hr/api.js";
-
-function dateLabel(value: string | null | undefined) {
-  if (!value) return "未設定";
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-  return match ? `${match[1]}/${Number(match[2])}/${Number(match[3])}` : value;
-}
+import { dateLabel } from "./hr/format.js";
 
 function userStatusLabel(status: HrProfile["employee"]["userStatus"]) {
   if (status === "active") return "帳號啟用中";
@@ -47,7 +42,7 @@ function AssignmentCard({ name, from, to, primary }: { name: string; from: strin
       <strong>{name}</strong>
       {primary ? <StatusBadge tone="info">主要位置</StatusBadge> : null}
     </header>
-    <div className="hr-profile-date-range"><div><span>起始日</span><strong>{dateLabel(from)}</strong></div><div><span>結束日（不含）</span><strong>{dateLabel(to)}</strong></div></div>
+    <div className="hr-profile-date-range"><div><span>起始日</span><strong>{dateLabel(from)}</strong></div><div><span>結束日（不含）</span><strong>{dateLabel(to, "未設定")}</strong></div></div>
   </article>;
 }
 
