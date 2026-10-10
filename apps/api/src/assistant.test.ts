@@ -2209,6 +2209,36 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect((await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/hr/employees?page=0")).status).toBe(400);
   });
 
+  it("設定 API 可停用、開發中測試及重新啟用 HR 工具，且不擴張一般 Sandbox 目錄", async () => {
+    let stage = 0;
+    const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }] : [{ text: "HR 本人授權可測試。" }];
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    for (const status of ["disabled", "development", "enabled"] as const) {
+      for (const key of keys) {
+        const saved = await as("admin", "admin@ecotech.tw", `/api/assistant/tools/${key}`, { method: "PATCH", body: JSON.stringify({ status }) });
+        expect(saved.status).toBe(200);
+        expect(await saved.json()).toMatchObject({ key, status });
+      }
+      const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as {
+        tools: { key: string }[]; hrSandbox: { tools: { key: string; status: string }[] };
+      };
+      expect(config.hrSandbox.tools.map((tool) => ({ key: tool.key, status: tool.status }))).toEqual(keys.map((key) => ({ key, status })));
+      expect(config.tools.some((tool) => keys.includes(tool.key))).toBe(false);
+      expect((await runHr({ hrSandboxUserId: undefined })).status).toBe(400);
+      stage = 0;
+      const response = await runHr();
+      if (status === "disabled") {
+        expect(response.status).toBe(400);
+        expect(fetch).not.toHaveBeenCalled();
+      } else {
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({ privateHrRun: true, text: "HR 本人授權可測試。", toolCalls: [{ toolKey: "hr_authorize", status: "success" }] });
+      }
+    }
+  });
+
   it("session、圖片、非 HR 工具、缺少授權與空目標不能進入模型", async () => {
     const fetch = vi.spyOn(globalThis, "fetch");
     for (const patch of [

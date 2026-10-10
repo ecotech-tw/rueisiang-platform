@@ -79,7 +79,7 @@ Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calli
 
 ## HR 模擬本人模式
 
-Sandbox 的 HR 模擬入口要求操作者具有系統 `admin` 角色及 `assistant:sandbox:write` 權限。員工選擇器可搜尋姓名、員工編號並分頁，只回必要名稱、帳號狀態及目前 `LINE_LIFF_CHANNEL_ID` 下的綁定狀態，不回 LINE UID 或綁定版本。未啟用或未綁定的在職員工仍可選擇，用來測試授權拒絕；真正查詢仍要求啟用帳號、在職狀態及現有綁定。
+Sandbox 的 HR 模擬入口要求操作者具有系統 `admin` 角色及 `assistant:sandbox:write` 權限。員工選擇器可搜尋姓名、員工編號並分頁，只回必要名稱、帳號狀態及目前 `LINE_LIFF_CHANNEL_ID` 下的綁定狀態，不回 LINE UID 或綁定版本。未啟用或未綁定的在職員工仍可選擇，用來測試授權拒絕；真正查詢仍要求啟用帳號、在職狀態及現有綁定。HR 工具的啟用、開發中與停用由小香設定頁統一管理；設定頁合併一般及 HR 兩組目錄，一般 Sandbox 的可呼叫目錄仍排除 HR。
 
 選定員工的 user ID 只交給受權限保護的 Sandbox run 入口，模型工具不接受查詢對象。每輪使用獨立 `hr-sandbox` DO 名稱，token 綁定 assistant、Sandbox HR scope、操作者、run、LINE Login identity 與綁定版本，五分鐘到期並只保存在本輪執行記憶體中。與正式 LINE 共用 token 驗證及本人資料 view；每次工具查詢、DO 回應及 HTTP 回覆前均重驗操作者、員工綁定與有效授權。解除／替換綁定、停權、離職、撤銷管理角色或工具停用會立即阻擋。
 
