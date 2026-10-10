@@ -115,7 +115,7 @@ smoke test 的功能只能標記為「可合併」，不能標記為「已上線
 - [ ] 完成勞健保年度同步、差異預覽、人工更新與失敗提醒。
 - [ ] 完成 HR 管理頁面的權限、異常導向、responsive UI 與 API／migration 回歸測試。
 - [ ] 完成 `hr.rueisiang.com` 正式 DNS／OAuth redirect／CI 變數設定，並執行 Edge、Chrome 與手機 smoke test。
-- [ ] 建立 LINE Login channel／LIFF app、啟用 `openid`、登記 HR HTTPS endpoint，設定 GitHub `HR_LIFF_ID` 與 Cloudflare `LINE_LIFF_CHANNEL_ID`；以 LINE 內建瀏覽器完成首次平台登入、綁定、後續自動登入與 GPS 打卡 smoke test。
+- [ ] 建立 LINE Login channel／LIFF app、啟用 `openid`、登記 HR HTTPS endpoint，設定 GitHub `HR_LIFF_ID` 與 Cloudflare `LINE_LIFF_CHANNEL_ID`；以 LINE 內建瀏覽器完成首次平台登入、綁定成功轉場、後續自動登入、本人導覽／申請／薪資／通知與 GPS 打卡 smoke test。
 - [ ] 完成至少兩個完整月份的平行計薪對帳，再正式啟用薪資結算。
 - [ ] 完成 0.5 小時加班單位、固定加班金額、30 日制與相關給薪規則的法遵確認。
 - [ ] 加班法定計算依平日、休息日、國定假日分別套用倍率；跨午夜的連續加班視為同一個工作日累計。

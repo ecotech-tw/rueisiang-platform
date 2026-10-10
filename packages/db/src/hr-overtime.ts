@@ -538,7 +538,7 @@ export async function cancelHrOvertimeRequests(db: Database, ids: string[], acto
 export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval, options: { allowAny?: boolean } = {}) {
   if (!["approved", "rejected", "cancelled"].includes(decision)) throw new HrError(400, "加班審核結果不正確。 ");
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
-  if (decision === "cancelled") return cancelHrOvertimeRequest(db, id, actor, { allowAny: true });
+  if (decision === "cancelled") return cancelHrOvertimeRequest(db, id, actor, { allowAny: options.allowAny });
   if (decision === "rejected" && !comment.trim()) throw new HrError(400, "駁回加班申請時必須填寫審核意見。 ");
   const [employeeCurrent] = await db.select({ employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, status: hrOvertimeRequests.status, approverUserId: hrOvertimeRequests.approverUserId, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
     .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);
@@ -551,7 +551,7 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
     })();
   if (!current) throw new HrError(404, "找不到加班申請。 ");
   if (current.personKind === "employee" && current.employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的加班申請。 ");
-  if (current.personKind === "employee" && !options.allowAny && current.approverUserId !== actor.id) throw new HrError(404, "找不到指定給你的待審加班申請。 ");
+  if (!options.allowAny && (current.personKind === "worker" || current.approverUserId !== actor.id)) throw new HrError(404, "找不到指定給你的待審加班申請。 ");
   if (current.status !== "pending") throw new HrError(409, "加班申請不存在或已完成處理。 ");
 
   let actualStart: string | null = null;
@@ -574,7 +574,7 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
       WHERE id=${id} AND status='pending' AND ${options.allowAny ? sql`1=1` : sql`approver_user_id=${actor.id}`} AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND employee_user_id <> ${actor.id}) RETURNING id`
     : sql`UPDATE hr_worker_overtime_requests SET
       status=${decision}, actual_start=${actualStart}, actual_end=${actualEnd}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, decision_reason=${comment.trim()}
-      WHERE id=${id} AND status='pending' RETURNING id`;
+      WHERE id=${id} AND status='pending' AND ${options.allowAny ? 1 : 0}=1 RETURNING id`;
   const mutations = current.personKind === "employee" ? [update, insertHrNotification({
     userId: current.employeeUserId!, sourceKey: `overtime-request:${id}:reviewed:${decision}`, kind: "request_reviewed", entityKind: "overtime", entityId: id,
     title: decision === "approved" ? "加班申請已核准" : "加班申請已駁回",

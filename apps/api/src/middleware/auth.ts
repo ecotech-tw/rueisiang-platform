@@ -69,20 +69,6 @@ export function clearDeviceCookie(): string {
   return clearCookie(DEVICE_SESSION_COOKIE, DEVICE_COOKIE_PATH);
 }
 
-function isLineClockRequest(method: string, path: string): boolean {
-  return (method === "GET" && [
-    "/api/hr/me/session",
-    "/api/hr/me/clock-events",
-    "/api/hr/me/attendance-map/locations",
-    "/api/hr/me/attendance-map",
-  ].includes(path))
-    || (method === "POST" && [
-      "/api/hr/me/attendance-location/check",
-      "/api/hr/me/clock-events",
-    ].includes(path))
-    || (method === "DELETE" && ["/api/hr/me/device", "/api/hr/me/liff-link"].includes(path));
-}
-
 /**
  * 員工本人入口（`/api/hr/me/*`）用：「記住這台手機」或 12 小時 session 都認。
  *
@@ -113,9 +99,6 @@ export const requireSelfAuth = createMiddleware<AppEnv>(async (c, next) => {
       await revokeDeviceSession(c.get("db"), rawDevice);
       c.header("Set-Cookie", clearDeviceCookie(), { append: true });
       throw new HTTPException(403, { message: "LINE 打卡僅限在職員工使用。" });
-    }
-    if (device.authMethod === "line_liff" && !isLineClockRequest(c.req.method, c.req.path)) {
-      throw new HTTPException(403, { message: "LINE 打卡登入僅能使用打卡與定位功能。" });
     }
     c.set("deviceSession", true);
     c.set("lineLiffSession", device.authMethod === "line_liff");

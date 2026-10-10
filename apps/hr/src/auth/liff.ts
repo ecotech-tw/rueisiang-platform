@@ -22,9 +22,13 @@ export async function initializeLiff(): Promise<void> {
   await initPromise;
 }
 
+export function isLiffClient(): boolean {
+  return Boolean(liffId && initialized && liff.isInClient());
+}
+
 /** 不回傳 profile；伺服器只接受 ID token 並向 LINE 驗證其 subject。 */
 export function getLiffIdToken(): string | null {
-  if (!liffId || !initialized || !liff.isInClient()) return null;
+  if (!isLiffClient()) return null;
   if (!liff.isLoggedIn()) throw new Error("請先在 LINE 中完成登入，再使用 HR 打卡。");
   const token = liff.getIDToken();
   if (!token) throw new Error("LINE 未提供身分驗證憑證，請確認 LIFF 已啟用 openid 權限並重新開啟。");
