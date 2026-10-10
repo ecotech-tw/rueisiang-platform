@@ -4,7 +4,6 @@ export interface AssistantModel {
   id: string;
   label: string;
   category: string;
-  quota: { rpm: number; tpm: number; rpd: number; usedRpm?: number; usedTpm?: number; usedRpd?: number };
   provider: "openai-codex" | "google";
   supported: boolean;
   configured: boolean;
@@ -38,6 +37,7 @@ export interface SandboxConfig {
   providers: { codex: boolean; gemini: boolean };
   defaultModel: string;
   activeModel: string;
+  modelNotice?: string;
   fallbackModel: string | null;
   activeModelUpdatedAt: string | null;
   credentialStatus: { codex: "unconfigured" | "ready" | "needs_reauth"; codexLastErrorAt: number | null };

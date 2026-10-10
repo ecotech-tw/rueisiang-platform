@@ -9,7 +9,7 @@ import type {
   PiSandboxAgentRunResponse,
 } from "./pi-agent-contract.js";
 
-export const DEFAULT_PI_CODEX_MODEL = "gpt-5.4-mini";
+export const DEFAULT_PI_CODEX_MODEL = "gpt-6-luna";
 
 export class PiAgentStaleSessionError extends Error {
   constructor(message: string) {

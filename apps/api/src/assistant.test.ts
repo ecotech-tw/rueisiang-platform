@@ -205,11 +205,12 @@ class TestAssistantAgentNamespace {
           const isCodexRequest = String(input).includes("/codex/responses");
           let forwardedInit = init;
           if (isCodexRequest) {
+            const bytes = typeof init?.body === "string" ? undefined : new Uint8Array(await new Response(init?.body as BodyInit).arrayBuffer());
             const requestBodyText = typeof init?.body === "string"
               ? init.body
-              : init?.body instanceof Uint8Array
-                ? zstdDecompressSync(init.body).toString("utf8")
-                : "";
+              : new Headers(init?.headers).get("content-encoding") === "zstd"
+                ? zstdDecompressSync(bytes!).toString("utf8")
+                : new TextDecoder().decode(bytes);
             const requestBody = JSON.parse(requestBodyText) as Record<string, unknown>;
             forwardedInit = {
               ...init,
@@ -529,9 +530,9 @@ describe("AI 助理 Sandbox", () => {
       activePrompt: { revision: number; isActive: boolean };
     };
     expect(result.configured).toBe(true);
-    expect(result.activeModel).toBe("gpt-5.4-mini");
+    expect(result.activeModel).toBe("gpt-6-luna");
     expect(result.models).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: "gpt-5.4-mini", provider: "openai-codex", configured: false }),
+      expect.objectContaining({ id: "gpt-6-luna", provider: "openai-codex", configured: false }),
       expect.objectContaining({ id: "gemini-3.6-flash", provider: "google", configured: true }),
     ]));
     expect(result.tools.map((tool) => tool.key)).toEqual([
@@ -570,6 +571,75 @@ describe("AI 助理 Sandbox", () => {
       requiredPermissions: ["crm:order:read"],
     });
     expect(result.activePrompt).toMatchObject({ revision: 1, isActive: true });
+  });
+
+  it("新模型使用 Pi 目錄且不回傳過期配額，不提供非一般對話模型", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    const fetch = vi.spyOn(globalThis, "fetch");
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as {
+      models: { id: string; supported: boolean; configured: boolean }[];
+    };
+    for (const id of ["gpt-6-astra", "gpt-6.1-sol", "gemini-3.8-flash", "gemini-3.1-pro-preview"]) {
+      expect(config.models.find((model) => model.id === id)).toMatchObject({ id, supported: true, configured: id.startsWith("gemini-") });
+    }
+    expect(JSON.stringify(config.models)).not.toMatch(/quota|usedRpm|usedTpm|usedRpd/);
+    for (const model of ["gemini-3.1-flash-lite-image", "gemini-3.1-flash-live-preview", "deep-research-preview-04-2026", "gpt-5.4-mini", "unknown-model"]) {
+      expect(config.models.some((entry) => entry.id === model)).toBe(false);
+      expect((await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+        method: "POST", body: JSON.stringify({ model, toolKeys: [], input: "不能執行" }),
+      })).status).toBe(400);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("退役的正式模型回落到新預設並提示，但不覆寫原設定；重新儲存後提示消失", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(assistantConfigs).values({ assistantKey: "rueisiang-xiaoxiang", activeModel: "gpt-5.4-mini", updatedBy: "test", updatedAt: new Date().toISOString() });
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activeModel: string; modelNotice?: string };
+    expect(config.activeModel).toBe("gpt-6-luna");
+    expect(config.modelNotice).toContain("gpt-5.4-mini");
+    expect(config.modelNotice).toContain("gpt-6-luna");
+    expect((await db().select().from(assistantConfigs))[0]!.activeModel).toBe("gpt-5.4-mini");
+    expect((await as("admin", "admin@ecotech.tw", "/api/assistant/config", { method: "PATCH", body: JSON.stringify({ model: "gemini-3.8-flash" }) })).status).toBe(200);
+    const updated = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activeModel: string; modelNotice?: string };
+    expect(updated.activeModel).toBe("gemini-3.8-flash");
+    expect(updated.modelNotice).toBeUndefined();
+  });
+
+  it("退役的 fallback 會明示暫停，不改寫仍可用的正式模型設定", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(assistantConfigs).values({ assistantKey: "rueisiang-xiaoxiang", activeModel: "gemini-3.6-flash", fallbackModel: "gpt-5.4-mini", updatedBy: "test", updatedAt: new Date().toISOString() });
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activeModel: string; fallbackModel: string | null; modelNotice?: string };
+    expect(config.activeModel).toBe("gemini-3.6-flash");
+    expect(config.fallbackModel).toBeNull();
+    expect(config.modelNotice).toContain("原備援模型 gpt-5.4-mini");
+    expect(config.modelNotice).toContain("暫停使用");
+    expect((await db().select().from(assistantConfigs))[0]).toMatchObject({ activeModel: "gemini-3.6-flash", fallbackModel: "gpt-5.4-mini" });
+  });
+
+  it.each(["gpt-6-luna", "gpt-6.1-sol"])("新模型 %s 仍使用現有 NAS relay 的 POST／SSE contract", async (model) => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    env.PI_OPENAI_CODEX_RELAY_URL = "https://relay.example.test";
+    env.PI_OPENAI_CODEX_RELAY_TOKEN = "relay-test-token";
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
+    };
+    const bodies: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      expect(String(input)).toBe("https://relay.example.test/codex/responses");
+      expect(init?.method).toBe("POST");
+      expect(new Headers(init?.headers).get("x-codex-relay-token")).toBe("relay-test-token");
+      expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${CODEX_ACCESS_TOKEN}`);
+      bodies.push(await new Response(init?.body as BodyInit).text());
+      const parts = bodies.length === 1 ? [{ functionCall: { name: "crm_search_customers", args: { search: "張三" } } }] : [{ text: "新 GPT 經既有 relay 完成工具查詢。" }];
+      return Response.json({ candidates: [{ content: { parts } }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 } });
+    });
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", { method: "POST", body: JSON.stringify({ model, toolKeys: ["crm_search_customers"], input: "查張三" }) });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ model, text: "新 GPT 經既有 relay 完成工具查詢。", toolCalls: [{ toolKey: "crm_search_customers", status: "success" }] });
+    expect(bodies).toHaveLength(2);
+    expect(JSON.parse(bodies[0]!).model).toBe(model);
+    expect(bodies[1]).toContain("張三");
   });
 
   it("Sandbox 圖片會把 bytes 放在 NAS、metadata 留在 D1，並受使用者權限保護", async () => {
@@ -644,7 +714,7 @@ describe("AI 助理 Sandbox", () => {
     }
   });
 
-  it("Pi catalog 有但 Sandbox 清單沒有的模型會回落到可執行的 Codex 預設值", async () => {
+  it("Sandbox、LINE 與執行解析共用 provider 目錄，保留已儲存的可用模型別名", async () => {
     env.PI_AGENT_MODEL = "gemini-flash-latest";
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     await db().insert(assistantConfigs).values({
@@ -661,9 +731,10 @@ describe("AI 助理 Sandbox", () => {
       activeModel: string;
       models: Array<{ id: string }>;
     };
-    expect(result.defaultModel).toBe("gpt-5.4-mini");
-    expect(result.activeModel).toBe("gpt-5.4-mini");
-    expect(result.models.some((model) => model.id === "gemini-flash-latest")).toBe(false);
+    expect(result.defaultModel).toBe("gemini-flash-latest");
+    expect(result.activeModel).toBe("gemini-flash-latest");
+    expect(result.models.some((model) => model.id === "gemini-flash-latest")).toBe(true);
+    expect((await db().select().from(assistantConfigs))[0]!.activeModel).toBe("gemini-flash-latest");
   });
 
   it("GPT Sandbox 需要 Codex OAuth，設定後會 dispatch 到同一個 Pi Agent", async () => {
@@ -673,7 +744,7 @@ describe("AI 助理 Sandbox", () => {
     env.ASSISTANT_CREDENTIAL_VAULT = undefined;
     const unavailable = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: [], input: "測試 Codex" }),
+      body: JSON.stringify({ model: "gpt-6-luna", toolKeys: [], input: "測試 Codex" }),
     });
     expect(unavailable.status).toBe(503);
     env.ASSISTANT_CREDENTIAL_VAULT = credentialVault;
@@ -692,7 +763,7 @@ describe("AI 助理 Sandbox", () => {
           dispatchedBody = await request.json() as Record<string, unknown>;
           return Response.json({
             sessionId: "pi-sandbox-session",
-            model: "gpt-5.4-mini",
+            model: "gpt-6-luna",
             result: {
               text: "Codex 已透過 Pi 回覆。",
               thoughts: "",
@@ -706,18 +777,18 @@ describe("AI 助理 Sandbox", () => {
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
-      body: JSON.stringify({ model: "gpt-5.4-mini", toolKeys: [], input: "測試 Codex" }),
+      body: JSON.stringify({ model: "gpt-6-luna", toolKeys: [], input: "測試 Codex" }),
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      model: "gpt-5.4-mini",
+      model: "gpt-6-luna",
       text: "Codex 已透過 Pi 回覆。",
     });
     expect(dispatchedName).toMatch(/^rueisiang-xiaoxiang:sandbox:admin:/u);
     expect(dispatchedBody).toMatchObject({
       assistantKey: "rueisiang-xiaoxiang",
       actorUserId: "admin",
-      model: "gpt-5.4-mini",
+      model: "gpt-6-luna",
       userText: "測試 Codex",
     });
   });
@@ -967,12 +1038,12 @@ describe("AI 助理 Sandbox", () => {
 
     const saved = await as("admin", "admin@ecotech.tw", "/api/assistant/config", {
       method: "PATCH",
-      body: JSON.stringify({ model: "gemini-3.6-flash", fallbackModel: "gpt-5.4-mini" }),
+      body: JSON.stringify({ model: "gemini-3.6-flash", fallbackModel: "gpt-6-luna" }),
     });
     expect(saved.status).toBe(200);
     expect(await saved.json()).toMatchObject({
       activeModel: "gemini-3.6-flash",
-      fallbackModel: "gpt-5.4-mini",
+      fallbackModel: "gpt-6-luna",
     });
 
     const requests: string[] = [];
@@ -1000,7 +1071,7 @@ describe("AI 助理 Sandbox", () => {
     });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
-      model: "gpt-5.4-mini",
+      model: "gpt-6-luna",
       text: "GPT fallback 回覆",
     });
     expect(requests.some((url) => url.includes("generativelanguage"))).toBe(true);
@@ -1896,7 +1967,7 @@ describe("AI 助理 Sandbox", () => {
       body: JSON.stringify({ sessionId: created.session.id, model: "gemini-3.6-flash", promptRevisionId: config.activePrompt.id, toolKeys: [], input: "第二輪問題" }),
     });
     expect(secondRun.status).toBe(200);
-    expect(await secondRun.json()).toMatchObject({ sessionId: created.session.id, text: "第二輪回答" });
+    expect(await secondRun.json()).toMatchObject({ sessionId: created.session.id, text: "第二輪回答", thoughts: "", usage: { totalTokens: 3 } });
     expect(geminiBodies[1]).toContain("第一輪問題");
     expect(geminiBodies[1]).toContain("第一輪回答");
 
@@ -2076,7 +2147,7 @@ describe("AI 助理 Sandbox", () => {
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
     const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
       method: "POST",
-      body: JSON.stringify({ model: "gpt-5.4-mini", promptRevisionId: config.activePrompt.id }),
+      body: JSON.stringify({ model: "gpt-6-luna", promptRevisionId: config.activePrompt.id }),
     })).json() as { session: { id: string } };
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
       const requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
@@ -2091,7 +2162,7 @@ describe("AI 助理 Sandbox", () => {
       method: "POST",
       body: JSON.stringify({
         sessionId: created.session.id,
-        model: "gpt-5.4-mini",
+        model: "gpt-6-luna",
         promptRevisionId: config.activePrompt.id,
         toolKeys: [],
         input: "建立舊 session",
@@ -2106,7 +2177,7 @@ describe("AI 助理 Sandbox", () => {
     }));
 
     await expect(assistantAgents!.alarm(agentName)).resolves.toBeUndefined();
-    expect(assistantAgents!.model(agentName)).toBe("gpt-5.4-mini");
+    expect(assistantAgents!.model(agentName)).toBe("gpt-6-luna");
   });
 
   it("Sandbox compact 遇到 HTML provider error 時不把整頁回傳給 UI", async () => {
@@ -2259,8 +2330,8 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     return created.session.id;
   }
 
-  it.each(["gemini-3.6-flash", "gpt-5.4-mini"])("%s 在同一個 session 混用一般工具與模擬本人：授權→本人假單→特休，對話留在 session，不串到其他員工", async (model) => {
-    if (model === "gpt-5.4-mini") env.ASSISTANT_CREDENTIAL_VAULT = {
+  it.each(["gemini-3.6-flash", "gpt-6-luna", "gemini-3.8-flash", "gpt-6.1-sol"])("%s 在同一個 session 混用一般工具與模擬本人：授權→本人假單→特休，對話留在 session，不串到其他員工", async (model) => {
+    if (model.startsWith("gpt-")) env.ASSISTANT_CREDENTIAL_VAULT = {
       getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
     };
     const sessionId = await openSession(model);

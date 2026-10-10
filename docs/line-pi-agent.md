@@ -40,9 +40,11 @@ GPT／Codex 路徑不使用 `OPENAI_API_KEY`，因此不走 OpenAI API 的 usage
 - 全平台共用一個 credential-vault Durable Object，集中旋轉 refresh token，避免多個對話
   同時 refresh 後互相覆蓋。credential 在 vault SQLite 內以 AES-GCM 加密。
 
-Pi 0.84.2 的 `AgentHarness` durable methods 尚未實作，因此目前使用完整可運作的 `Agent`，
-外加 Cloudflare persistence adapter。這仍保留 Pi 的 context/tool-loop 語意，也不需要另外付費
-運行 Node container；Pi CLI 本身依賴 filesystem/process，不適合直接塞進 Workers runtime。
+目前使用 Pi `Agent` 與 compaction helpers，外加 Cloudflare persistence adapter，沿用既有
+Queue、DO 與 session generation 邊界，不另建 durable harness。Pi 1.0 已移除 agent-core 的
+compaction helpers；升級到該介面需要另行遷移，因此單純更新模型目錄仍採相容的 SDK 系列。
+Pi SDK 打包在 Worker 執行，不在 NAS；Pi CLI 本身依賴 filesystem/process，不適合直接塞進
+Workers runtime。NAS Codex relay 只是 HTTP／SSE 轉送服務，不因模型目錄更新而需要安裝 Pi。
 
 SQLite Durable Objects 可使用 Cloudflare Workers Free plan；部署時的 DO migration 會建立
 class，不需要到 Dashboard 手動建立 instance。限制與計價以
@@ -65,9 +67,13 @@ CPU time、subrequest、DO storage 與 Queue retry，不能把「可部署」視
 
 ## 模型與延遲設定
 
-小香初始模型是 `gpt-5.4-mini`。管理者在 Sandbox 儲存的 active model 同時套用到 Sandbox 與
-LINE；只有資料庫還沒有 assistant 設定時才讀 Worker var `PI_AGENT_MODEL`。Sandbox 模型選單
-列出目前 Pi catalog 支援的 Codex 與 Gemini 模型，並分別檢查 OAuth credential 與 API key。
+小香初始模型是 `gpt-6-luna`。管理者在 Sandbox 儲存的 active model 同時套用到 Sandbox 與
+LINE；可用的既有設定不會因更新 SDK 自動覆寫。未設定或設定的模型已不在執行目錄時，依既有
+解析規則使用 Worker var `PI_AGENT_MODEL` 或程式預設值。設定頁與 Sandbox 會提示主模型回落
+或退役 fallback 暫停使用，管理者可重新選擇並儲存；讀取設定不會改寫資料庫。
+Sandbox、LINE 與 DO 的模型解析共用 Pi provider catalog；Google 目錄排除圖片生成、Live、
+研究與 computer-use 專用模型，只提供一般文字／圖片輸入對話。OAuth credential 或 API key
+已設定不等於目前帳號已取得所有模型權限，實際請求仍以 provider 的回應為準。
 為優先守住 LINE reply token，LINE 執行固定採用：
 
 - minimal reasoning、low verbosity；

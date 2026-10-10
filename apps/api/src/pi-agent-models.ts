@@ -3,7 +3,7 @@ import { streamSimple as streamGoogle } from "@earendil-works/pi-ai/api/google-g
 import { streamSimple as streamOpenAICodex } from "@earendil-works/pi-ai/api/openai-codex-responses";
 import { GOOGLE_MODELS } from "@earendil-works/pi-ai/providers/google.models";
 import { OPENAI_CODEX_MODELS } from "@earendil-works/pi-ai/providers/openai-codex.models";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { createAssistantMessageEventStream, normalizeContext } from "@earendil-works/pi-ai";
 import type {
   Api,
   AssistantMessage,
@@ -105,9 +105,17 @@ export function isPiCodexModel(modelId: string | undefined | null): modelId is s
     && Object.values(OPENAI_CODEX_MODELS).some((model) => model.id === modelId);
 }
 
+export function piGeminiModels(): Model<Api>[] {
+  // catalog 也包含圖片、Live、研究與 computer-use 專用模型；一般小香工具迴圈不使用這些協定。
+  return Object.values(GOOGLE_MODELS).filter((model) => model.api === "google-generative-ai"
+    && model.input.includes("text")
+    && /^(gemini|gemma)-/.test(model.id)
+    && !/(?:^|-)(?:image|live|audio|tts|computer-use)(?:-|$)/.test(model.id));
+}
+
 export function isPiGeminiModel(modelId: string | undefined | null): modelId is string {
   return typeof modelId === "string"
-    && Object.values(GOOGLE_MODELS).some((model) => model.id === modelId);
+    && piGeminiModels().some((model) => model.id === modelId);
 }
 
 export function isPiAssistantModel(modelId: string | undefined | null): modelId is string {
@@ -129,7 +137,7 @@ export function piCodexModel(modelId: string): Model<Api> {
 }
 
 export function piGeminiModel(modelId: string): Model<Api> {
-  const model = Object.values(GOOGLE_MODELS).find((candidate) => candidate.id === modelId);
+  const model = piGeminiModels().find((candidate) => candidate.id === modelId);
   if (!model) throw new Error(`Pi Google provider 不支援模型 ${modelId}。`);
   return model;
 }
@@ -152,7 +160,7 @@ function streamPiCodex(
     const apiKey = await resolveAccessToken(options.signal);
     options.signal?.throwIfAborted();
     if (model.api !== "openai-codex-responses") throw new Error(`不支援的 Pi API：${model.api}`);
-    return streamOpenAICodex(model as Model<"openai-codex-responses">, context, {
+    return streamOpenAICodex(model as Model<"openai-codex-responses">, normalizeContext(context), {
       ...options,
       apiKey,
       ...(relay ? { fetch: createPiCodexRelayFetch(relay) } : {}),
@@ -172,7 +180,7 @@ function streamPiGemini(
     if (model.api !== "google-generative-ai") throw new Error(`不支援的 Pi API：${model.api}`);
     const credential = apiKey.trim();
     if (!credential) throw new Error("平台尚未設定 GEMINI_API_KEY。");
-    return streamGoogle(model as Model<"google-generative-ai">, context, { ...options, apiKey: credential });
+    return streamGoogle(model as Model<"google-generative-ai">, normalizeContext(context), { ...options, apiKey: credential });
   });
 }
 
