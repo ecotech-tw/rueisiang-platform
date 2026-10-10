@@ -1217,7 +1217,7 @@ describe("LINE channel 後台設定", () => {
 });
 
 describe("LINE HR 敏感回答 delivery", () => {
-  it.each(["reply", "push", "quota-revoked"])("%s 不保存回答或 thought，Push 前再次查核綁定", async (mode) => {
+  it.each(["reply", "push", "push-error", "quota-revoked"])("%s 不保存回答或 thought，Push 前再次查核綁定", async (mode) => {
     const group = await enableLineConversation(userEvent({ webhookEventId: "hr-delivery-seed" }));
     await db().insert(hrEmployments).values({ id: "hr-admin", employeeUserId: "admin", employeeNumber: "HR-ADMIN" });
     await linkLineAccount(db(), "admin", { channelId: "hr-login", lineUserId: "user-1" });
@@ -1238,7 +1238,7 @@ describe("LINE HR 敏感回答 delivery", () => {
     piAgentResponse.hrAuthorization = hrSelf.authorization;
     piAgentResponse.result.thoughts = "HR-機密thought";
     piAgentResponse.result.toolCalls = [{ toolKey: "hr_authorize", status: "success", durationMs: 1 }];
-    const logs = vi.spyOn(console, "info");
+    const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
     const requests: Array<{ url: string; body: string }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
       requests.push({ url: String(url), body: String(init?.body ?? "") });
@@ -1246,6 +1246,7 @@ describe("LINE HR 敏感回答 delivery", () => {
         if (mode === "quota-revoked") await unlinkLineAccount(db(), "admin");
         return Response.json({ totalUsage: 0 });
       }
+      if (mode === "push-error" && String(url).endsWith("/message/push")) return new Response("HR-機密假單回答 HR-機密thought", { status: 400 });
       return new Response(null, { status: 200 });
     });
     const delivery = processLineAssistantQueueMessage({
@@ -1258,12 +1259,12 @@ describe("LINE HR 敏感回答 delivery", () => {
     }
     const sent = requests.filter((request) => /\/message\/(reply|push)$/.test(request.url));
     if (mode === "quota-revoked") expect(sent).toHaveLength(0);
-    else expect(sent).toEqual([expect.objectContaining({ url: expect.stringContaining(`/message/${mode}`), body: expect.stringContaining("HR-機密假單回答") })]);
+    else expect(sent).toEqual([expect.objectContaining({ url: expect.stringContaining(`/message/${mode === "reply" ? "reply" : "push"}`), body: expect.stringContaining("HR-機密假單回答") })]);
     expect(await db().select().from(assistantLineReplyBackups).where(eq(assistantLineReplyBackups.runId, runId))).toEqual([]);
     for (const rows of [await db().select().from(assistantRuns), await db().select().from(assistantToolCalls), await db().select().from(assistantLineMessages)]) {
       expect(JSON.stringify(rows)).not.toMatch(/HR-機密假單回答|HR-機密thought|linkVersion/);
     }
-    expect(JSON.stringify(logs.mock.calls)).not.toMatch(/HR-機密假單回答|HR-機密thought|linkVersion/);
+    expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/HR-機密假單回答|HR-機密thought|linkVersion/);
   });
 });
 

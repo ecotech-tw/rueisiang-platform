@@ -784,7 +784,7 @@ describe("AI 助理 Sandbox", () => {
     expect(contents.match(/這次問題/g)).toHaveLength(1);
   });
 
-  it("HR 本人回答不進 Pi transcript 或 completed cache，後續輪次不沿用敏感結果", async () => {
+  it.each(["success", "provider-error"])("HR %s 不進 Pi transcript 或 completed cache，後續輪次不沿用敏感結果", async (outcome) => {
     const keys = ["hr_authorize", "hr_get_my_leave_requests"];
     await seedUser("hr-self", "hr-self@example.test", "role-admin");
     await db().insert(hrEmployments).values({ id: "hr-self-employment", employeeUserId: "hr-self", employeeNumber: "HR-SELF" });
@@ -810,8 +810,13 @@ describe("AI 助理 Sandbox", () => {
     };
     let stage = 0;
     const requests: string[] = [];
+    const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
       requests.push(String(init?.body));
+      if (outcome === "provider-error" && stage === 2) {
+        stage++;
+        return Response.json({ error: { message: "敏感本人假單回答 sensitive-leave-id" } }, { status: 500 });
+      }
       const parts = stage++ === 0
         ? [{ functionCall: { name: "hr_authorize", args: {} } }]
         : stage === 2
@@ -820,11 +825,17 @@ describe("AI 助理 Sandbox", () => {
       return Response.json({ candidates: [{ content: { parts } }] });
     });
     const response = await agent.fetch(new Request("https://assistant-agent.internal/run", { method: "POST", body: JSON.stringify(input) }));
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ privateHrRun: true, result: { text: "敏感本人假單回答" } });
+    if (outcome === "success") {
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ privateHrRun: true, result: { text: "敏感本人假單回答" } });
+    } else {
+      expect(response.status).toBe(503);
+      expect(await response.text()).not.toMatch(/敏感本人假單回答|sensitive-leave-id/);
+    }
+    expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/敏感本人假單回答|sensitive-leave-id/);
     expect(requests.at(-1)).toContain("sensitive-leave-id");
     expect(requests.join("")).not.toMatch(/linkVersion|expiresAt|U-private/);
-    expect(assistantAgents!.runStorage(name, input.runId)).toEqual({ messages: [], run: { status: "completed", response_json: "" } });
+    expect(assistantAgents!.runStorage(name, input.runId)).toEqual({ messages: [], run: { status: outcome === "success" ? "completed" : "failed", response_json: "" } });
 
     const next = await agent.fetch(new Request("https://assistant-agent.internal/run", { method: "POST", body: JSON.stringify({ ...input, runId: "hr-next-run", webhookEventId: "hr-next-event", userText: "你好", toolKeys: [] }) }));
     expect(next.status).toBe(200);

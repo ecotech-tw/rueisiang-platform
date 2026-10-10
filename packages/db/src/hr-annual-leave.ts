@@ -10,7 +10,6 @@ export const ANNUAL_LEAVE_HALF_HOUR_MINUTES = 30;
 export const ANNUAL_LEAVE_POLICY_KEY = "annual_leave";
 
 export interface HrAnnualLeaveBackfillOptions {
-  employeeUserId?: string;
   /** 測試與批次回填可固定觀察日；正式呼叫預設採 UTC 日期。 */
   asOfDate?: string;
   createdBy?: string | null;

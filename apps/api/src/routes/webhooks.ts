@@ -267,10 +267,12 @@ async function deliverLinePush(input: {
   sourceType: "group" | "room" | "user";
   text: string;
   beforeSend?: () => Promise<void>;
+  redactMessageErrors?: boolean;
   /** Queue outbox 建立時間；超過 LINE retry-key 的 24 小時 dedupe 保證後不可自動 Push。 */
   queueCreatedAt?: string;
 }): Promise<LinePushOutcome> {
   const lineLogContext: LineLogContext = {
+    ...(input.redactMessageErrors ? { redactMessageErrors: true } : {}),
     runId: input.runId,
     webhookEventId: input.webhookEventId,
     channelKey: input.channelKey,
@@ -484,7 +486,7 @@ async function runLineAssistant(input: {
     replyAttempt = (async () => {
       if (reason === "final") await checkHrDelivery();
       try {
-        await replyLineMessage(input.accessToken, input.replyToken, text, trace);
+        await replyLineMessage(input.accessToken, input.replyToken, text, { ...trace, ...(privateHrRun ? { redactMessageErrors: true } : {}) });
         replyKind = reason;
         assistantLog("info", "line.reply.completed", {
           ...trace,
@@ -655,7 +657,7 @@ async function runLineAssistant(input: {
           messageId: input.messageId,
           sourceType: input.sourceType,
           text: result.text,
-          ...(privateHrRun ? { beforeSend: checkHrDelivery } : {}),
+          ...(privateHrRun ? { beforeSend: checkHrDelivery, redactMessageErrors: true } : {}),
           queueCreatedAt: input.queueCreatedAt,
         });
       } else {
