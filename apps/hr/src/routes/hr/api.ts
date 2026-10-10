@@ -136,11 +136,10 @@ export interface LeaveTypeOption {
   credits: LeaveCredit[];
 }
 export interface LeaveTypesResponse { leaveTypes: LeaveTypeOption[] }
-export interface LeaveSummaryResponse {
-  year: number;
-  annualLeave: Array<LeaveCredit & { usedHalfHours: number }>;
-  months: Array<{ month: string; totalMinutes: number; leaveTypes: Array<{ name: string; minutes: number }> }>;
-}
+export interface AnnualLeavePeriod extends LeaveCredit { usedHalfHours: number }
+export interface AnnualLeaveResponse { periods: AnnualLeavePeriod[] }
+export interface LeaveMonth { month: string; totalMinutes: number; leaveTypes: Array<{ id: string; name: string; minutes: number }> }
+export interface LeaveMonthsResponse { year: number; firstYear: number; lastYear: number; months: LeaveMonth[] }
 export interface HrLeaveDurationResponse {
   startsAt: string;
   endsAt: string;

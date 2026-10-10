@@ -91,11 +91,11 @@ function formLabel(request: FormRequest) {
   return `${request.correctionDate} ${request.requestedEventKind === "clock_in" ? "上班" : "下班"}補打卡`;
 }
 
-function formatHours(minutes: number) {
+export function formatHours(minutes: number) {
   return `${(minutes / 60).toFixed(1)} 小時`;
 }
 
-function dateBefore(value: string) {
+export function dateBefore(value: string) {
   const date = new Date(`${value}T00:00:00.000Z`);
   if (Number.isNaN(date.getTime())) return value;
   date.setUTCDate(date.getUTCDate() - 1);
