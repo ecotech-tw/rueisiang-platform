@@ -58,6 +58,8 @@ interface PiSandboxAgentContext {
 }
 
 export interface PiSandboxAgentRunRequest extends PiSandboxAgentContext {
+  /** 管理者限定的單輪 HR 模式；只由後端指定，不是模型工具參數。 */
+  hrSandboxUserId?: string;
   runId: string;
   model: string;
   /** 主要模型回傳 error 時使用的備援模型；未設定時不切換。 */

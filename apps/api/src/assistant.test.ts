@@ -10,6 +10,11 @@ import {
   assistantLineMessages,
   assistantSandboxMessages,
   hrEmployments,
+  hrCompensationVersions,
+  hrEmploymentServicePeriods,
+  hrAnnualLeaveEntitlements,
+  assistantRuns,
+  assistantToolCalls,
   hrLeaveRequests,
   hrLeaveTypes,
   crmCustomerTags,
@@ -2156,5 +2161,194 @@ describe("AI 助理 Sandbox", () => {
     const result = await response.json() as { text: string };
     expect(response.status).toBe(200);
     expect(result.text).toBe("不應該執行到主回答");
+  });
+});
+
+describe("小香 HR 模擬本人 Sandbox", () => {
+  const keys = ["hr_authorize", "hr_get_my_leave_requests", "hr_get_my_annual_leave"];
+  beforeEach(async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await seedUser("alice", "alice@example.test", "role-staff");
+    await seedUser("bob", "bob@example.test", "role-staff");
+    env.LINE_LIFF_CHANNEL_ID = "sandbox-login";
+    await db().insert(hrLeaveTypes).values({ id: "sandbox-leave-type", name: "測試假", leaveKind: "other", createdBy: "admin" });
+    for (const id of ["alice", "bob"]) {
+      await db().insert(hrEmployments).values({ id: `sandbox-employment-${id}`, employeeUserId: id, employeeNumber: id });
+      await db().insert(hrEmploymentServicePeriods).values({ employmentId: `sandbox-employment-${id}`, serviceStartOn: "2024-01-01" });
+      await db().insert(hrCompensationVersions).values({ id: `sandbox-salary-${id}`, employmentId: `sandbox-employment-${id}`, versionNumber: 1, validFrom: "2024-01-01", payBasis: "monthly", baseAmountMinor: 3_000_000, createdBy: "admin" });
+      await db().insert(hrLeaveRequests).values({
+        id: `敏感假單-${id}`, employmentId: `sandbox-employment-${id}`, leaveTypeId: "sandbox-leave-type", leaveType: "測試假",
+        status: "pending", startsAt: "2026-01-01 01:00:00", endsAt: "2026-01-01 09:00:00", startsOn: "2026-01-01", endsOn: "2026-01-02",
+        durationMinutes: 480, createdBy: id,
+      });
+      await linkLineAccount(db(), id, { channelId: "sandbox-login", lineUserId: `U-private-${id}` });
+    }
+  });
+
+  function runHr(patch: Record<string, unknown> = {}, id = "admin", email = "admin@ecotech.tw") {
+    return as(id, email, "/api/assistant/sandbox/run", { method: "POST", body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: keys, input: "敏感本人測試問題", hrSandboxUserId: "alice", ...patch }) });
+  }
+
+  it("管理者得到獨立 HR 目錄；一般 Sandbox 目錄與非管理者不開放", async () => {
+    await db().insert(rolePermissionGrants).values([
+      { roleId: "role-staff", permission: "assistant:sandbox:read" }, { roleId: "role-staff", permission: "assistant:sandbox:write" },
+    ]);
+    const admin = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[]; hrSandbox: { available: boolean; tools: { key: string }[] } };
+    expect(admin.hrSandbox.available).toBe(true);
+    expect(admin.hrSandbox.tools.map((tool) => tool.key)).toEqual(keys);
+    expect(admin.tools.map((tool) => tool.key)).not.toEqual(expect.arrayContaining(keys));
+    const staff = await (await as("alice", "alice@example.test", "/api/assistant/sandbox/config")).json() as { hrSandbox: { available: boolean; tools: unknown[] } };
+    expect(staff.hrSandbox).toMatchObject({ available: false, tools: [] });
+    expect((await as("alice", "alice@example.test", "/api/assistant/sandbox/hr/employees")).status).toBe(403);
+    expect((await runHr({}, "alice", "alice@example.test")).status).toBe(403);
+    const employees = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/hr/employees?search=alice");
+    expect(employees.status).toBe(200);
+    expect(employees.headers.get("cache-control")).toBe("no-store");
+    const result = await employees.json() as { employees: { userId: string; lineBound: boolean }[] };
+    expect(result.employees).toEqual([expect.objectContaining({ userId: "alice", lineBound: true })]);
+    expect(JSON.stringify(result)).not.toMatch(/U-private|linkVersion|expiresAt/);
+    expect((await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/hr/employees?page=0")).status).toBe(400);
+  });
+
+  it("session、圖片、非 HR 工具、缺少授權與空目標不能進入模型", async () => {
+    const fetch = vi.spyOn(globalThis, "fetch");
+    for (const patch of [
+      { sessionId: "normal-session" }, { attachments: [{ key: "image" }] }, { hrSandboxUserId: "" }, { hrSandboxUserId: null },
+      { toolKeys: ["crm_search_customers", ...keys] }, { toolKeys: ["hr_get_my_annual_leave"] },
+    ]) expect((await runHr(patch)).status).toBe(400);
+    expect((await runHr({ hrSandboxUserId: undefined })).status).toBe(400);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["gemini-3.6-flash", "gpt-5.4-mini"])("%s 真正 tool loop 授權→本人假單→特休；不留存，不串到其他員工或一般 Sandbox", async (model) => {
+    if (model === "gpt-5.4-mini") env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
+    };
+    let stage = 0;
+    const requests: string[] = [];
+    const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      expect(String(url)).not.toContain("api.line.me");
+      requests.push(String(init?.body));
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }]
+        : stage === 2 ? [{ functionCall: { name: "hr_get_my_annual_leave", args: {} } }]
+        : [{ text: "不應保存的 HR 思考", thought: true }, { text: "敏感員工本人回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }], usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 } });
+    });
+    const response = await runHr({ model });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    const result = await response.json() as { runId: string; toolCalls: { toolKey: string }[] };
+    expect(result).toMatchObject({ privateHrRun: true, sessionId: null, text: "敏感員工本人回答", thoughts: "" });
+    expect(result.toolCalls.map((call) => call.toolKey)).toEqual(keys);
+    expect(JSON.stringify(result)).not.toMatch(/linkVersion|hrAuthorization|U-private|args|不應保存的 HR 思考/);
+    expect(requests.at(-1)).toContain("敏感假單-alice");
+    expect(requests.join("\n")).not.toMatch(/敏感假單-bob|linkVersion|U-private/);
+    const name = `rueisiang-xiaoxiang:hr-sandbox:admin:${result.runId}`;
+    expect(assistantAgents!.runStorage(name, result.runId)).toEqual({ messages: [], run: { status: "completed", response_json: "" } });
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
+    expect((await db().select().from(hrAnnualLeaveEntitlements)).every((row) => row.employmentId === "sandbox-employment-alice")).toBe(true);
+    const audit = await db().select().from(activityEvents);
+    expect(audit.find((event) => event.eventType === "hr_sandbox_started")).toMatchObject({ actorId: "admin", entityId: result.runId });
+    expect(audit.find((event) => event.eventType === "hr_sandbox_started")!.payloadJson).toContain('"subjectUserId":"alice"');
+    const stored = JSON.stringify([await db().select().from(assistantRuns), await db().select().from(assistantToolCalls), audit]);
+    expect(stored).not.toMatch(/敏感本人測試問題|敏感員工本人回答|不應保存的 HR 思考|敏感假單|U-private|linkVersion/);
+    expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/敏感本人測試問題|敏感員工本人回答|敏感假單|不應保存的 HR 思考/);
+
+    stage = 0; requests.length = 0;
+    const bob = await runHr({ model, hrSandboxUserId: "bob" });
+    expect(bob.status).toBe(200);
+    expect(requests.at(-1)).toContain("敏感假單-bob");
+    expect(requests.join("\n")).not.toMatch(/敏感假單-alice|敏感員工本人回答/);
+    requests.length = 0;
+    const ordinary = await runHr({ model, hrSandboxUserId: undefined, toolKeys: [], input: "一般對話" });
+    expect(ordinary.status).toBe(200);
+    expect(requests.join("\n")).not.toMatch(/敏感本人測試問題|敏感假單|不應保存的 HR 思考/);
+  });
+
+  it.each(["before-authorize", "after-query", "transport"])("provider %s 敏感錯誤回顯不進 UI、logs、audit 或 DO", async (failure) => {
+    let stage = 0;
+    const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      if ((failure === "before-authorize" && stage === 0) || stage === 2) {
+        if (failure === "transport") throw new Error("敏感本人測試問題 敏感假單-alice");
+        return Response.json({ error: { message: "敏感本人測試問題 敏感假單-alice" } }, { status: 500, headers: { "x-request-id": "敏感本人測試問題" } });
+      }
+      const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }] : [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }];
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const response = await runHr();
+    expect(response.status).toBe(502);
+    const result = await response.json() as { runId: string };
+    expect(JSON.stringify(result)).not.toMatch(/敏感本人測試問題|敏感假單|args/);
+    expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/敏感本人測試問題|敏感假單/);
+    expect(JSON.stringify(await db().select().from(assistantRuns))).not.toMatch(/敏感本人測試問題|敏感假單/);
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
+    expect(assistantAgents!.runStorage(`rueisiang-xiaoxiang:hr-sandbox:admin:${result.runId}`, result.runId)).toEqual({ messages: [], run: { status: "failed", response_json: "" } });
+  });
+
+  it.each(["no-authorize", "target-override", "unbound"])("模型 %s 不得取得 HR 資料，失敗參數不留存", async (failure) => {
+    if (failure === "unbound") d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
+    let stage = 0;
+    const requests: string[] = [];
+    const queries: string[] = [];
+    const prepare = d1.prepare.bind(d1);
+    vi.spyOn(d1, "prepare").mockImplementation((query) => { queries.push(query); return prepare(query); });
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(String(init?.body));
+      const parts = failure !== "no-authorize" && stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage < (failure === "no-authorize" ? 1 : 2) ? [{ functionCall: { name: "hr_get_my_leave_requests", args: failure === "target-override" ? { userId: "bob", privateNote: "不得保存的工具參數" } : { status: "pending" } } }]
+        : [{ text: "授權或查詢參數未通過，無法查詢。" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const response = await runHr();
+    expect(response.status).toBe(200);
+    const result = await response.json() as { runId: string; toolCalls: { status: string }[] };
+    expect(result.toolCalls.some((call) => call.status === "failed")).toBe(true);
+    expect(JSON.stringify(result)).not.toMatch(/敏感假單|不得保存的工具參數|args/);
+    expect(requests.join("\n")).not.toMatch(/敏感假單-alice|敏感假單-bob/);
+    expect(queries.filter((query) => /select.*hr_leave_requests/i.test(query))).toHaveLength(0);
+    expect(JSON.stringify(await db().select().from(assistantToolCalls))).not.toMatch(/不得保存的工具參數|privateNote/);
+  });
+
+  it("DO 完成後才撤銷綁定，HTTP 送出前仍重驗，不能回傳敏感回答", async () => {
+    env.ASSISTANT_CHAT_AGENT = {
+      getByName: (name: string) => ({ fetch: async (request: Request) => {
+        const response = await assistantAgents!.getByName(name).fetch(request);
+        d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
+        return response;
+      } }),
+    };
+    let stage = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 2 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "HTTP 前撤銷不得送出的敏感回答" }];
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const response = await runHr();
+    expect(response.status).toBe(502);
+    expect(await response.text()).not.toContain("HTTP 前撤銷不得送出的敏感回答");
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
+    expect((await db().select().from(assistantRuns))[0]?.status).toBe("failed");
+  });
+
+  it.each(["actor-disabled", "role-revoked", "binding-revoked"])("查詢後 %s，最後回答不得送回管理者", async (change) => {
+    let stage = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      if (stage === 2) {
+        if (change === "actor-disabled") d1.sqlite.prepare("UPDATE users SET status='disabled' WHERE id='admin'").run();
+        if (change === "role-revoked") d1.sqlite.prepare("DELETE FROM user_role_assignments WHERE user_id='admin'").run();
+        if (change === "binding-revoked") d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
+      }
+      const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 2 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "撤銷後不得送出的敏感回答" }];
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const response = await runHr();
+    expect(response.status).toBe(502);
+    expect(await response.text()).not.toContain("撤銷後不得送出的敏感回答");
   });
 });

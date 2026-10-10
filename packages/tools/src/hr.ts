@@ -9,7 +9,10 @@ export interface HrSelfToolService {
 }
 
 function service(context?: ToolContext): HrSelfToolService {
-  if (context?.surface !== "line" || context.lineSourceType !== "user") throw new AssistantError("HR 工具僅限 LINE 本人私訊。" );
+  if (!context || (context.surface !== "sandbox" && (context.surface !== "line" || context.lineSourceType !== "user"))) {
+    throw new AssistantError("HR 工具僅限 LINE 本人私訊。" );
+  }
+  // Sandbox 不從登入者推測本人；只有管理者隔離測試入口會注入受控的 hrSelf service。
   const value = context.services?.hrSelf;
   if (!value || typeof value !== "object" || !("authorize" in value) || typeof value.authorize !== "function") {
     throw new AssistantError("HR 本人授權服務不可用。" );
@@ -26,7 +29,7 @@ function inputObject(input: unknown, allowed: readonly string[]): Record<string,
 
 const common = {
   defaultStatus: "enabled",
-  surfaces: ["line"],
+  surfaces: ["line", "sandbox"],
   lineSourceTypes: ["user"],
 } as const;
 
@@ -34,7 +37,7 @@ export const HR_TOOL_DEFINITIONS: readonly ToolContract[] = [
   {
     ...common,
     key: "hr_authorize", label: "HR 本人授權",
-    description: "每輪查詢本人 HR 資料前先呼叫。只由可信 LINE 私訊與現有員工綁定辨識本人，不能指定他人；token 由執行環境保管，不會回傳給模型。未綁定請引導使用既有 LINE HR 綁定頁，不接受姓名或員工編號驗證。",
+    description: "每輪查詢本人 HR 資料前先呼叫。由可信 LINE 私訊或管理者限定的 HR 模擬本人模式，搭配現有員工綁定辨識本人，不能指定他人；token 由執行環境保管，不會回傳給模型。未綁定請引導使用既有 LINE HR 綁定頁，不接受姓名或員工編號驗證。",
     parameters: { type: "object", properties: {} },
     async execute(input, context) {
       inputObject(input, []);

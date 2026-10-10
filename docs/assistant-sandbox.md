@@ -44,7 +44,7 @@ pnpm dev
 - 選擇要傳給模型的 tool。目前內建唯讀工具預設為「已啟用」；管理者仍可切換成「開發中」或「已停用」。
 - 輸入測試內容、看到模型回答、tool 呼叫結果、延遲與 provider usage metadata。
 - 模型提供的 thought summary 會在 Sandbox 以收合區塊顯示；正式回答不會重複渲染，LINE 也只傳送正式回答。
-- 每次 Sandbox run 與 tool call 都會寫入 D1，欄位已預留給後續 LINE channel 與分析頁使用。
+- 每次 Sandbox run 與 tool call 的狀態及用量都會寫入 D1；一般模式保存對話，HR 模擬本人模式只保存不含回答或工具參數的稽核。
 - 長對話由 Pi transcript 計算上下文；約 48,000 tokens 後透過 DO alarm compact，超過 80,000 tokens 時會在下一輪前強制 compact。D1 仍保留完整 user/model 訊息作 UI 與稽核投影，不是模型 context 的 source of truth。
 - `小香助理 → LINE 前台` 可以設定 Channel ID、Channel Secret、Channel Access Token、channel 開關、Webhook URL 與對話授權。
 - Channel Secret 與 Channel Access Token 透過後台輸入後會使用 `AUTH_SESSION_SECRET` 以 AES-GCM 加密保存，不會把原值回傳到瀏覽器。`LINE_CHANNEL_SECRET` 與 `LINE_CHANNEL_ACCESS_TOKEN` 仍可作為既有部署的環境變數 fallback。
@@ -56,12 +56,12 @@ pnpm dev
 
 ## 共用 Tool Contract：唯讀工具
 
-CRM、WMS 與報表工具共用 provider-neutral `ToolContract`；目前這些唯讀工具都註冊在 Sandbox、LINE 與未來 MCP。小香 HR 本人查詢是 LINE 私訊限定的另一組唯讀工具；它不提供員工識別參數，群組與多人聊天室的工具目錄與執行入口都會排除 HR 工具。內建唯讀工具預設為「已啟用」，因此小香建立 channel 後即可使用完整工具集合；管理者仍可在後台把個別工具切換成「開發中」或「已停用」，LINE webhook 會尊重這個狀態。Sandbox 會依各工具宣告的 permission 檢查使用者權限。
+CRM、WMS 與報表工具共用 provider-neutral `ToolContract`；目前這些唯讀工具都註冊在 Sandbox、LINE 與未來 MCP。小香 HR 本人查詢在正式 LINE 僅限私訊，Sandbox 則僅開放管理者隔離的模擬本人模式；它不提供員工識別參數，群組與多人聊天室的工具目錄與執行入口都會排除 HR 工具。內建唯讀工具預設為「已啟用」，因此小香建立 channel 後即可使用完整工具集合；管理者仍可在後台把個別工具切換成「開發中」或「已停用」，LINE webhook 會尊重這個狀態。Sandbox 會依各工具宣告的 permission 檢查使用者權限。
 
 - `crm_search_customers`：依關鍵字、來源、狀態、標籤與 `YYYY-MM-DD` 日期搜尋客戶；`dateField=createdAt` 代表當天新增，`dateField=updatedAt` 代表當天更新。
 - `crm_get_customer`：依客戶 ID 取得客戶資料、標籤、同步狀態、最近操作紀錄與可選的消費摘要。
 - `crm_get_orders`：即時查詢 CYBERBIZ 訂單，支援 customer ID、order ID、訂單編號、日期、狀態、排序與 limit；需要 `crm:order:read`。
-- `hr_authorize`、`hr_get_my_leave_requests`、`hr_get_my_annual_leave`：LINE 一對一私訊限定的本人 HR 授權、假單狀態與當期特休查詢。群組及多人聊天室不提供此工具，亦不進入 HR 綁定或員工查核。
+- `hr_authorize`、`hr_get_my_leave_requests`、`hr_get_my_annual_leave`：本人 HR 授權、假單狀態與當期特休查詢。正式 LINE 僅限一對一私訊，群組及多人聊天室不提供此工具，亦不進入 HR 綁定或員工查核；一般 Sandbox 目錄也不包含 HR，只有管理者隔離測試入口可使用。
 - `list_report_scopes`：列出啟用中的報表據點正式名稱與 scopeId；單一據點報表查詢遇到簡稱或不確定名稱時，先用它取得正式 `scopeName`。
 - `query_sales_report`、`query_payout_report`：依月份、據點與篩選條件查詢已匯入 D1 的商品銷售或出金資料；需要 `reports:cyberbiz:read`。
 
@@ -77,9 +77,19 @@ HR 本人工具先依可信 LINE 私訊的 Messaging UID，在 `LINE_LIFF_CHANNE
 
 Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calling，不是公司的知識來源，也不應被視為正式內部問答能力。後續 WMS、CRM 與公司文件搜尋會以同一個 `ToolContract` 介面接入，MCP adapter 會放在這層之下。
 
+## HR 模擬本人模式
+
+Sandbox 的 HR 模擬入口要求操作者具有系統 `admin` 角色及 `assistant:sandbox:write` 權限。員工選擇器可搜尋姓名、員工編號並分頁，只回必要名稱、帳號狀態及目前 `LINE_LIFF_CHANNEL_ID` 下的綁定狀態，不回 LINE UID 或綁定版本。未啟用或未綁定的在職員工仍可選擇，用來測試授權拒絕；真正查詢仍要求啟用帳號、在職狀態及現有綁定。
+
+選定員工的 user ID 只交給受權限保護的 Sandbox run 入口，模型工具不接受查詢對象。每輪使用獨立 `hr-sandbox` DO 名稱，token 綁定 assistant、Sandbox HR scope、操作者、run、LINE Login identity 與綁定版本，五分鐘到期並只保存在本輪執行記憶體中。與正式 LINE 共用 token 驗證及本人資料 view；每次工具查詢、DO 回應及 HTTP 回覆前均重驗操作者、員工綁定與有效授權。解除／替換綁定、停權、離職、撤銷管理角色或工具停用會立即阻擋。
+
+HR 模式是獨立單輪，只接受三個未停用的 HR 工具，且必須提供 `hr_authorize`；「開發中」工具可在 Sandbox 測試。它不接受 session 或圖片，不載入一般對話，不寫 D1 對話、Pi transcript、summary、completed 回答快取或 LINE backup，也不傳送 LINE 訊息。回答與思考內容不進 logs；provider／transport 錯誤回顯遮罩，工具稽核不含參數。瀏覽器僅在目前頁面的記憶體顯示結果，離開模式或切換員工清除結果，HTTP 回覆使用 `Cache-Control: no-store`。正式資料仍會送至所選模型服務，畫面明確提示這項邊界。
+
+此模式只需既有的 `LINE_LIFF_CHANNEL_ID` 綁定 scope，不使用 `HR_ASSISTANT_CHANNEL_KEY`、Messaging channel 開關或正式 LINE 對話的工具白名單。這讓管理者能在正式 LINE 開通前測試本人資料，但不代表正式 LINE 授權或 UID Provider 相容性已通過驗證。特休額度仍沿用本人補建規則，不會補建其他員工。
+
 ## 錯誤診斷與 Cloudflare logs
 
-每次 Sandbox 執行都會產生一個診斷編號；run、tool 執行、耗時與錯誤會寫入 D1，Pi Agent 與 tool 的執行錯誤也會寫到 Worker Logs。Sandbox 只顯示 tool 的實際參數；credential、完整 prompt 與完整對話不會寫入 Worker log。
+每次 Sandbox 執行都會產生一個診斷編號；run、tool 執行、耗時與錯誤會寫入 D1，Pi Agent 與 tool 的執行錯誤也會寫到 Worker Logs。HR 模式僅保留無敏感內容的狀態與用量，另以操作者 ID、目標員工 ID 及 run ID 稽核模擬操作；不保存回答、思考、工具參數或未遮罩的錯誤。Sandbox 只顯示 tool 的實際參數；credential、完整 prompt 與完整對話不會寫入 Worker log。
 
 每一則模型回覆的「工具調用」都可以展開查看參數；如果 provider 在工具執行後的下一輪請求失敗，Sandbox 也會在錯誤下方保留該次失敗前的工具調用，方便比對模型送出的參數。
 
@@ -133,7 +143,9 @@ Sandbox runs support multi-turn Pi sessions. D1 keeps the selected model, prompt
 - `GET /api/assistant/sandbox/sessions/:id`、`POST /api/assistant/sandbox/sessions/:id/close`：查看或關閉 session。
 - `POST /api/assistant/sandbox/run`：帶入 `sessionId` 時，會 dispatch 到該 session 專屬 Pi DO；第一次使用既有 session 時會從 D1 匯入最近 100 則訊息，之後由 Pi transcript 接續。若指定 `model`，會套用到本輪並更新開啟中的 session。
 
-- `GET /api/assistant/sandbox/config`：模型、tool、active prompt 與 revision history。
+- `GET /api/assistant/sandbox/config`：模型、一般 tool、active prompt 與 revision history；`hrSandbox` 另提供管理者模擬入口與 HR 工具目錄。
+- `GET /api/assistant/sandbox/hr/employees`：管理者限定的模擬員工清單，支援 `search` 與 `page`，每頁 25 筆。
+- `POST /api/assistant/sandbox/run` 的 `hrSandboxUserId`：管理者限定的 HR 模擬本人模式，不接受 `sessionId` 或圖片；回應 `privateHrRun: true`，不回傳 token、LINE UID 或內部授權資料。
 - `POST /api/assistant/codex-credential`：由具備設定寫入權限的管理者匯入 Pi／Codex `auth.json`；只回傳 vault 狀態，不回傳 credential 原值。
 - `POST /api/assistant/sandbox/attachments`、`GET /api/assistant/sandbox/attachments?key=...`：
   上傳或讀取 Sandbox session 的圖片附件；bytes 存 NAS，D1 保存授權與 expiry metadata。
