@@ -31,6 +31,8 @@ export interface HrRequestCenterRow {
   requestedStart: string | null;
   requestedEnd: string | null;
   settlementKind: "pay" | "compensatory" | null;
+  /** 審核者看到的版本；送審核時帶回來，伺服器才能擋下「看的時候被申請人改掉」的內容。補打卡待審後不能修改，沒有版本。 */
+  revision: number | null;
   correctionDate: string | null;
   requestedEventKind: "clock_in" | "clock_out" | null;
   requestedAt: string | null;
@@ -60,6 +62,7 @@ interface HrRequestCenterDbRow {
   requested_start: string | null;
   requested_end: string | null;
   settlement_kind: "pay" | "compensatory" | null;
+  revision: number | null;
   correction_date: string | null;
   requested_event_kind: "clock_in" | "clock_out" | null;
   requested_at: string | null;
@@ -84,6 +87,7 @@ function requestCenterCte() {
       NULL AS requested_start,
       NULL AS requested_end,
       NULL AS settlement_kind,
+      leave_request.revision AS revision,
       NULL AS correction_date,
       NULL AS requested_event_kind,
       NULL AS requested_at,
@@ -130,6 +134,7 @@ function requestCenterCte() {
       overtime_request.requested_start AS requested_start,
       overtime_request.requested_end AS requested_end,
       overtime_request.settlement_kind AS settlement_kind,
+      overtime_request.revision AS revision,
       NULL AS correction_date,
       NULL AS requested_event_kind,
       NULL AS requested_at,
@@ -173,6 +178,7 @@ function requestCenterCte() {
       worker_overtime_request.requested_start AS requested_start,
       worker_overtime_request.requested_end AS requested_end,
       worker_overtime_request.settlement_kind AS settlement_kind,
+      worker_overtime_request.revision AS revision,
       NULL AS correction_date,
       NULL AS requested_event_kind,
       NULL AS requested_at,
@@ -213,6 +219,7 @@ function requestCenterCte() {
       NULL AS requested_start,
       NULL AS requested_end,
       NULL AS settlement_kind,
+      NULL AS revision,
       form_request.correction_date AS correction_date,
       form_request.requested_event_kind AS requested_event_kind,
       form_request.requested_at AS requested_at,
@@ -258,7 +265,7 @@ export async function listHrRequestCenterPage(db: Database, query: HrRequestCent
     SELECT
       kind, id, employee_name, employee_number, status, reason, created_at,
       starts_at, ends_at, starts_on, ends_on, leave_type, duration_minutes,
-      requested_start, requested_end, settlement_kind,
+      requested_start, requested_end, settlement_kind, revision,
       correction_date, requested_event_kind, requested_at
     FROM request_rows
     WHERE ${requestCenterWhere(query)}
@@ -282,6 +289,7 @@ export async function listHrRequestCenterPage(db: Database, query: HrRequestCent
       requestedStart: row.requested_start,
       requestedEnd: row.requested_end,
       settlementKind: row.settlement_kind,
+      revision: row.revision,
       correctionDate: row.correction_date,
       requestedEventKind: row.requested_event_kind,
       requestedAt: row.requested_at,

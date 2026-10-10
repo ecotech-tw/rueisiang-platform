@@ -661,7 +661,7 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
   const current = employeeCurrent
     ? { ...employeeCurrent, personKind: "employee" as const, workerId: undefined }
     : await (async () => {
-      const [worker] = await db.select({ workerId: hrWorkerOvertimeRequests.workerId, status: hrWorkerOvertimeRequests.status, requestedStart: hrWorkerOvertimeRequests.requestedStart, requestedEnd: hrWorkerOvertimeRequests.requestedEnd })
+      const [worker] = await db.select({ workerId: hrWorkerOvertimeRequests.workerId, status: hrWorkerOvertimeRequests.status, revision: hrWorkerOvertimeRequests.revision, requestedStart: hrWorkerOvertimeRequests.requestedStart, requestedEnd: hrWorkerOvertimeRequests.requestedEnd })
         .from(hrWorkerOvertimeRequests).where(eq(hrWorkerOvertimeRequests.id, id)).limit(1);
       return worker ? { ...worker, personKind: "worker" as const, employeeUserId: undefined, employmentId: undefined, scopeId: null } : null;
     })();
@@ -671,7 +671,7 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
   if (current.status !== "pending") throw new HrError(409, "加班申請不存在或已完成處理。 ");
   // 審核者下決定時看到的版本。只拿剛讀出來的版本去守 UPDATE 的話，擋得住的只有讀寫之間那一瞬間；
   // 審核者開著對話框的那幾十秒裡申請人改了時數，照樣會被核准。
-  if (options.expectedRevision !== undefined && current.personKind === "employee" && current.revision !== options.expectedRevision) throw new HrError(409, "這筆加班申請在你開啟之後被申請人修改過，請看過最新的內容再審核。 ");
+  if (options.expectedRevision !== undefined && current.revision !== options.expectedRevision) throw new HrError(409, "這筆加班申請在你開啟之後被申請人修改過，請看過最新的內容再審核。 ");
 
   let actualStart: string | null = null;
   let actualEnd: string | null = null;
@@ -691,7 +691,7 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
     ? reviewEmployeeOvertimeStatement({ id, revision: current.revision }, decision, actualStart && actualEnd ? { start: actualStart, end: actualEnd } : null, comment, actor, options.allowAny === true)
     : sql`UPDATE hr_worker_overtime_requests SET
       status=${decision}, actual_start=${actualStart}, actual_end=${actualEnd}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, decision_reason=${comment.trim()}
-      WHERE id=${id} AND status='pending' AND ${options.allowAny ? 1 : 0}=1 RETURNING id`;
+      WHERE id=${id} AND status='pending' AND revision=${current.revision} AND ${options.allowAny ? 1 : 0}=1 RETURNING id`;
   const batchId = current.personKind === "employee" ? current.batchId : null;
   const reviewNotification = current.personKind !== "employee" ? null
     : batchId && decision === "approved" ? batchApprovedNotification(current.employeeUserId!, batchId, [current.requestedStart], comment)

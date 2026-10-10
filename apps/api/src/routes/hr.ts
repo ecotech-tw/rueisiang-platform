@@ -373,6 +373,10 @@ function optionalDateTimeValue(input: Record<string, unknown>, key: string, labe
   if (input[key] === undefined || input[key] === null || input[key] === "") return undefined;
   return dateTimeValue(input, key, label);
 }
+/** 審核者畫面上那一筆申請的版本。沒送就不比對（沒有畫面的呼叫端沒有「看到舊內容」的問題）。 */
+function reviewerRevision(input: Record<string, unknown>) {
+  return input.revision === undefined || input.revision === null ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER);
+}
 function reviewComment(input: Record<string, unknown>) {
   return input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
 }
@@ -768,8 +772,7 @@ export const hr = new Hono<AppEnv>()
     const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "加班審核結果不正確。" });
     const comment = reviewComment(input);
-    const expectedRevision = input.revision === undefined ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER);
-    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), undefined, { allowAny: can(c.get("user"), "hr:request:review"), expectedRevision }));
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), undefined, { allowAny: can(c.get("user"), "hr:request:review"), expectedRevision: reviewerRevision(input) }));
   })
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), undefined, true) }))
   .get("/me/leave-types", async (c) => {
@@ -806,7 +809,7 @@ export const hr = new Hono<AppEnv>()
     const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "請假審核結果不正確。" });
     const comment = reviewComment(input);
-    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: can(c.get("user"), "hr:request:review") }));
+    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: can(c.get("user"), "hr:request:review"), expectedRevision: reviewerRevision(input) }));
   })
   .get("/leave-types", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
@@ -928,14 +931,14 @@ export const hr = new Hono<AppEnv>()
     const actualStart = optionalDateTimeValue(input, "actualStart", "實際加班開始");
     const actualEnd = optionalDateTimeValue(input, "actualEnd", "實際加班結束");
     if ((actualStart === undefined) !== (actualEnd === undefined)) throw new HTTPException(400, { message: "實際加班開始與結束時間必須一起填寫。" });
-    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true }));
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true, expectedRevision: reviewerRevision(input) }));
   })
   .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "請假審核結果不正確。" });
     const comment = reviewComment(input);
-    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: true }));
+    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: true, expectedRevision: reviewerRevision(input) }));
   })
   .post("/requests/leave/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
   .post("/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
@@ -946,7 +949,7 @@ export const hr = new Hono<AppEnv>()
     const actualStart = optionalDateTimeValue(input, "actualStart", "實際加班開始");
     const actualEnd = optionalDateTimeValue(input, "actualEnd", "實際加班結束");
     if ((actualStart === undefined) !== (actualEnd === undefined)) throw new HTTPException(400, { message: "實際加班開始與結束時間必須一起填寫。" });
-    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true }));
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true, expectedRevision: reviewerRevision(input) }));
   })
   .get("/me/form-approvers", async (c) => c.json(await listHrFormApprovers(c.get("db"), c.get("user").id)))
   .get("/me/form-requests", async (c) => c.json(await listHrFormRequests(c.get("db"), c.get("user").id, can(c.get("user"), "hr:request:review"))))

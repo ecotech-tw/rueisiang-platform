@@ -746,7 +746,7 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
     RETURNING id`], id, actor, "leave_request_cancelled", "請假申請已變更、額度反向紀錄已存在或無法取消，請重新整理。 ");
 }
 
-export async function reviewHrLeaveRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, options: { allowAny?: boolean } = {}) {
+export async function reviewHrLeaveRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, options: { allowAny?: boolean; expectedRevision?: number } = {}) {
   if (!comment.trim() && decision === "rejected") throw new HrError(400, "駁回請假申請時必須填寫審核意見。 ");
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
   const [current] = await db.select({
@@ -754,6 +754,7 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
     employmentId: hrLeaveRequests.employmentId,
     status: hrLeaveRequests.status,
     approverUserId: hrLeaveRequests.approverUserId,
+    revision: hrLeaveRequests.revision,
     leaveKind: hrLeaveTypes.leaveKind,
     startsOn: hrLeaveRequests.startsOn,
     endsOn: hrLeaveRequests.endsOn,
@@ -766,6 +767,9 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
   if (current.employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的請假申請。 ");
   if (!options.allowAny && current.approverUserId !== actor.id) throw new HrError(404, "找不到指定給你的待審請假申請。 ");
   if (current.status !== "pending") throw new HrError(409, "請假申請不存在或已完成處理。 ");
+  // 審核者下決定時看到的版本。待審的請假申請人可以改日期與時數；不比對的話，
+  // 審核者開著對話框的那段時間裡被改掉的內容會照樣核准，特休也照新的時數扣。
+  if (options.expectedRevision !== undefined && current.revision !== options.expectedRevision) throw new HrError(409, "這筆請假申請在你開啟之後被申請人修改過，請看過最新的內容再審核。 ");
   if (decision === "approved") {
     if (!current.employeeUserId) throw new HrError(409, "支援人員不能使用正式員工請假流程。 ");
     await ensureEmploymentForPeriod(db, current.employeeUserId, current.startsOn, current.endsOn);
@@ -780,7 +784,7 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
     : null;
   const updateStatement = sql`UPDATE hr_leave_requests SET
     status=${decision}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, review_comment=${comment.trim()}
-    WHERE id=${id} AND status='pending'
+    WHERE id=${id} AND status='pending' AND revision=${current.revision}
       AND EXISTS (
         SELECT 1 FROM hr_employments
         WHERE id=hr_leave_requests.employment_id
@@ -795,6 +799,8 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
         INNER JOIN hr_employments AS employment ON employment.id=request.employment_id
         WHERE request.id=${id}
           AND request.status='pending'
+          -- 扣多少是用讀到的那一版時數算的；版本對不上就不扣，整個 batch 跟著退回。
+          AND request.revision=${current.revision}
           AND employment.employee_user_id <> ${actor.id}
       )
       AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${annualAllocation.entitlementId}), 0) >= ${annualAllocation.durationHalfHours}
@@ -806,5 +812,5 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
       body: comment.trim() || (decision === "approved" ? "你的請假申請已完成核准。" : "請開啟申請紀錄查看處理結果。"),
     })]
     : Array.isArray(statements) ? statements : [statements];
-  return writeHrMutation(db, mutations, id, actor, "leave_request_reviewed", "請假申請不存在、申請人不可自審、特休額度不足或已完成處理。 ");
+  return writeHrMutation(db, mutations, id, actor, "leave_request_reviewed", "請假申請不存在、申請人不可自審、特休額度不足、內容已被修改或已完成處理，請重新整理。 ");
 }

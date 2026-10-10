@@ -195,7 +195,8 @@ function LeaveReviewDialog({ item, onClose }: { item: LeaveRequest; onClose: () 
     }
     setError("");
     try {
-      await review.mutateAsync({ path: `/me/leave-requests/${item.request.id}/review`, method: "POST", values: { decision, comment: comment.trim() } });
+      // 帶上對話框開啟時的版本：申請人在這期間改了日期或時數的話，伺服器會擋下來，不會核准審核者沒看過的內容。
+      await review.mutateAsync({ path: `/me/leave-requests/${item.request.id}/review`, method: "POST", values: { decision, comment: comment.trim(), revision: item.request.revision } });
       (closeRequestRef.current ?? onClose)();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "審核失敗，請稍後再試。");

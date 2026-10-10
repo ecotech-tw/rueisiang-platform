@@ -190,6 +190,7 @@ export interface HrRequestCenterRow {
   requestedStart: string | null;
   requestedEnd: string | null;
   settlementKind: "pay" | "compensatory" | null;
+  revision: number | null;
   correctionDate: string | null;
   requestedEventKind: "clock_in" | "clock_out" | null;
   requestedAt: string | null;

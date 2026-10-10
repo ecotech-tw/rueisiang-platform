@@ -32,6 +32,8 @@ interface RequestRow {
   createdAt: string;
   requestedStart?: string;
   requestedEnd?: string;
+  /** 列表載入時的版本；補打卡待審後不能修改，沒有版本。 */
+  revision?: number;
 }
 
 const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
@@ -117,6 +119,7 @@ function toRequestRow(row: HrRequestCenterRow): RequestRow {
       reason: row.reason || "—",
       status: row.status,
       createdAt: row.createdAt,
+      revision: row.revision ?? undefined,
     };
   }
   if (row.kind === "overtime") {
@@ -132,6 +135,7 @@ function toRequestRow(row: HrRequestCenterRow): RequestRow {
       createdAt: row.createdAt,
       requestedStart: row.requestedStart ?? undefined,
       requestedEnd: row.requestedEnd ?? undefined,
+      revision: row.revision ?? undefined,
     };
   }
   return {
@@ -201,7 +205,8 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
     const path = isCancellation
       ? row.kind === "leave" ? `/requests/leave/${row.id}/cancel` : `/requests/overtime/${row.id}/cancel`
       : row.kind === "leave" ? `/requests/leave/${row.id}/review` : row.kind === "overtime" ? `/requests/overtime/${row.id}/review` : `/me/form-requests/${row.id}/review`;
-    const values: Record<string, unknown> = isCancellation ? {} : { decision, comment };
+    // 帶上列表載入時的版本：審核對話框開著的時候申請人改了內容，伺服器會擋下來，不會照沒看過的內容核准。
+    const values: Record<string, unknown> = isCancellation ? {} : { decision, comment, ...(row.revision === undefined ? {} : { revision: row.revision }) };
     if (row.kind === "overtime" && decision === "approved") { values.actualStart = actualStart; values.actualEnd = actualEnd; }
     review.mutate({ path, method: "POST", values }, { onSuccess: () => { onDone(); (closeRequestRef.current ?? onClose)(); } });
   }
