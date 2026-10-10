@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { useNavigate } from "react-router";
 import { useSignOut } from "../auth/session.js";
 import { Icon, type IconName } from "../shell/icons.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
@@ -53,6 +54,7 @@ function AssignmentCard({ name, from, to, primary }: { name: string; from: strin
 function ProfileDetails({ profile }: { profile: HrProfile }) {
   const employee = profile.employee;
   const employeeName = employee.legalName.trim() || employee.displayName || "員工";
+  const navigate = useNavigate();
   return <>
     <Panel className="hr-profile-overview">
       <div className="hr-profile-overview-main">
@@ -66,6 +68,10 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
     </Panel>
 
     <div className="hr-profile-sections">
+      <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="calendar">我的假勤</ProfileSectionTitle>} description="可用特休、到期日與各月請假時數。">
+        <Button variant="secondary" onClick={() => navigate("/profile/leave")}>查看假勤</Button>
+      </Panel>
+
       <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="person">帳號資訊</ProfileSectionTitle>} description="與目前登入帳號連結的資訊。">
         <ProfileInfoRows rows={[
           { label: "Google 帳號名稱", value: employee.accountName || "未提供" },

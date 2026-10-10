@@ -6,6 +6,7 @@ import { Login } from "./routes/Login.js";
 import { HrProfile } from "./routes/Profile.js";
 import { HrClock, HrClockCalendar, HrClockLogs } from "./routes/hr/Clock.js";
 import { HrClockCorrectionForm, HrForms, HrLeaveForm, HrOvertimeForm } from "./routes/hr/Forms.js";
+import { HrLeaveSummary } from "./routes/hr/Leave.js";
 import { HrNotifications } from "./routes/hr/Notifications.js";
 import { HrPayrollHistory, HrPayslipDetail } from "./routes/hr/Payroll.js";
 import { HrLayout } from "./routes/hr/HrLayout.js";
@@ -61,6 +62,7 @@ export function App() {
         <Route path="forms/overtime" element={<HrOvertimeForm />} />
         <Route path="forms/leave" element={<HrLeaveForm />} />
         <Route path="profile" element={<HrProfile />} />
+        <Route path="profile/leave" element={<HrLeaveSummary />} />
       </Route>
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />

@@ -328,6 +328,97 @@ export async function listHrSelfLeaveTypeOptions(db: Database, employeeUserId: s
   return leaveTypes.map((leaveType) => ({ ...leaveType, credits: leaveType.leaveKind === "annual" ? credits : [] }));
 }
 
+export interface HrSelfLeaveSummary {
+  year: number;
+  annualLeave: HrSelfAnnualLeavePeriod[];
+  months: Array<{ month: string; totalMinutes: number; leaveTypes: Array<{ name: string; minutes: number }> }>;
+}
+
+export interface HrSelfAnnualLeavePeriod extends HrLeaveCredit {
+  usedHalfHours: number;
+}
+
+type ApprovedLeaveSpan = { employmentId: string; startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number };
+
+/**
+ * durationMinutes 是核准當下凍結的總時數；班表事後可能被改，所以跨月時只拿目前班表決定各月比例，
+ * 總和仍等於凍結值。舊資料沒有 startsAt、或班表已對不出工時時，整筆記在起始月。
+ */
+async function leaveMinutesByMonth(db: Database, leave: ApprovedLeaveSpan) {
+  const firstMonth = leave.startsOn.slice(0, 7);
+  const lastMonth = shiftTaipeiDate(leave.endsOn, -1).slice(0, 7);
+  if (firstMonth === lastMonth || !leave.startsAt) return new Map([[firstMonth, leave.durationMinutes]]);
+
+  const breakdown = await calculateLeaveWorkdayBreakdown(db, leave.employmentId, stamp(leave.startsAt, "請假開始時間"), stamp(leave.endsAt, "請假結束時間"), leave.startsOn, leave.endsOn);
+  const workMinutes = new Map<string, number>();
+  for (const [date, day] of breakdown) workMinutes.set(date.slice(0, 7), (workMinutes.get(date.slice(0, 7)) ?? 0) + day.workMinutes);
+  const total = [...workMinutes.values()].reduce((sum, minutes) => sum + minutes, 0);
+  if (total <= 0) return new Map([[firstMonth, leave.durationMinutes]]);
+
+  const months = [...workMinutes.keys()].sort();
+  const result = new Map<string, number>();
+  let remaining = leave.durationMinutes;
+  for (const [index, month] of months.entries()) {
+    const minutes = index === months.length - 1 ? remaining : Math.round(leave.durationMinutes * workMinutes.get(month)! / total);
+    result.set(month, minutes);
+    remaining -= minutes;
+  }
+  return result;
+}
+
+/** 本人假勤總覽：目前可用的特休週期，加上指定年度（台北時間）各月已核准的請假時數。 */
+export async function getHrSelfLeaveSummary(db: Database, employeeUserId: string, options: { year: number; asOfDate?: string }): Promise<HrSelfLeaveSummary> {
+  const asOfDate = options.asOfDate ?? formatTaipeiDate(Date.now());
+  const entitlements = await listHrAnnualLeaveEntitlements(db, { employeeUserId, asOfDate });
+  const annualLeave = entitlements
+    // 已過期但尚未隨薪資結算的週期不能再請，不算「可用」。
+    .filter((entitlement) => entitlement.status === "open" && entitlement.periodEnd > asOfDate)
+    .map((entitlement) => ({
+      entitlementId: entitlement.id,
+      periodStart: entitlement.periodStart,
+      periodEnd: entitlement.periodEnd,
+      entitledHalfHours: entitlement.entitledHalfHours,
+      usedHalfHours: entitlement.usedHalfHours,
+      balanceHalfHours: entitlement.balanceHalfHours,
+    }));
+
+  const yearPrefix = String(options.year).padStart(4, "0");
+  const leaves = await db.select({
+    employmentId: hrLeaveRequests.employmentId,
+    leaveType: hrLeaveRequests.leaveType,
+    startsAt: hrLeaveRequests.startsAt,
+    endsAt: hrLeaveRequests.endsAt,
+    startsOn: hrLeaveRequests.startsOn,
+    endsOn: hrLeaveRequests.endsOn,
+    durationMinutes: hrLeaveRequests.durationMinutes,
+  }).from(hrLeaveRequests)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+    .where(and(
+      eq(hrEmployments.employeeUserId, employeeUserId),
+      eq(hrLeaveRequests.status, "approved"),
+      sql`${hrLeaveRequests.startsOn} < ${`${String(options.year + 1).padStart(4, "0")}-01-01`}`,
+      sql`${hrLeaveRequests.endsOn} > ${`${yearPrefix}-01-01`}`,
+    ));
+
+  const minutesByMonth = new Map<string, Map<string, number>>();
+  for (const leave of leaves) {
+    for (const [month, minutes] of await leaveMinutesByMonth(db, leave)) {
+      if (!month.startsWith(yearPrefix) || minutes <= 0) continue;
+      const leaveTypes = minutesByMonth.get(month) ?? new Map<string, number>();
+      leaveTypes.set(leave.leaveType, (leaveTypes.get(leave.leaveType) ?? 0) + minutes);
+      minutesByMonth.set(month, leaveTypes);
+    }
+  }
+  const months = [...minutesByMonth.entries()]
+    .sort(([left], [right]) => right.localeCompare(left))
+    .map(([month, leaveTypes]) => ({
+      month,
+      totalMinutes: [...leaveTypes.values()].reduce((sum, minutes) => sum + minutes, 0),
+      leaveTypes: [...leaveTypes.entries()].map(([name, minutes]) => ({ name, minutes })).sort((left, right) => left.name.localeCompare(right.name, "zh-Hant")),
+    }));
+  return { year: options.year, annualLeave, months };
+}
+
 export async function listHrLeaveRequests(db: Database, employeeUserId?: string) {
   return db.select(requestFields).from(hrLeaveRequests)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
