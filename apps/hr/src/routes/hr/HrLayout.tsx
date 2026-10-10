@@ -1,5 +1,4 @@
 import { NavLink, Outlet, useLocation } from "react-router";
-import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { useHrQuery, type HrNotificationsResponse } from "./api.js";
 
@@ -12,11 +11,9 @@ const personalLinks: { to: string; label: string; icon: IconName; center?: boole
 ];
 
 function PersonalNav({ className }: { className: string }) {
-  const { user } = useSession();
-  const notifications = useHrQuery<HrNotificationsResponse>("/me/notifications", !user?.lineLiffAuthenticated);
-  const links = user?.lineLiffAuthenticated ? personalLinks.filter((link) => link.to === "/clock") : personalLinks;
+  const notifications = useHrQuery<HrNotificationsResponse>("/me/notifications");
   return <nav className={className} aria-label="本人 HR 功能">
-    {links.map((link) => <NavLink
+    {personalLinks.map((link) => <NavLink
       key={link.to}
       to={link.to}
       end={link.to === "/clock"}

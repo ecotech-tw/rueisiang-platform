@@ -587,7 +587,8 @@ export const hr = new Hono<AppEnv>()
     const link = await getLineAccountLink(c.get("db"), userId);
     const channelId = c.env.LINE_LIFF_CHANNEL_ID?.trim() ?? "";
     const intent = await readLineLinkIntent(readCookie(c.req.header("Cookie"), LINE_LIFF_INTENT_COOKIE), c.env.AUTH_SESSION_SECRET, channelId);
-    return c.json({ linked: Boolean(link), pending: Boolean(intent) });
+    const replaceRequired = Boolean(link && intent && (await findUserByLineIdentity(c.get("db"), intent)) !== userId);
+    return c.json({ linked: Boolean(link), pending: Boolean(intent), replaceRequired });
   })
   .post("/liff/link", async (c) => {
     const input = await body(c);

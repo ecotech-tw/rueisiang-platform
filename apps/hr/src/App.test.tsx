@@ -9,7 +9,11 @@ import { fetchSession } from "./auth/session.js";
 
 const liff = vi.hoisted(() => ({ token: null as string | null }));
 vi.mock("./auth/liff.js", () => ({ isLiffConfigured: () => true, getLiffIdToken: () => liff.token }));
-vi.mock("./routes/hr/Clock.js", () => ({ HrClock: () => <p>打卡入口</p>, HrClockCalendar: () => null, HrClockLogs: () => null }));
+vi.mock("./routes/hr/Clock.js", () => ({ HrClock: () => <p>打卡入口</p>, HrClockCalendar: () => <p>出勤日曆入口</p>, HrClockLogs: () => <p>打卡紀錄入口</p> }));
+vi.mock("./routes/hr/Forms.js", () => ({ HrForms: () => <p>表單申請入口</p>, HrClockCorrectionForm: () => null, HrLeaveForm: () => null, HrOvertimeForm: () => null }));
+vi.mock("./routes/hr/Payroll.js", () => ({ HrPayrollHistory: () => <p>薪資袋入口</p>, HrPayslipDetail: () => null }));
+vi.mock("./routes/hr/Notifications.js", () => ({ HrNotifications: () => <p>通知入口</p> }));
+vi.mock("./routes/Profile.js", () => ({ HrProfile: () => <p>個人中心入口</p> }));
 vi.mock("./routes/hr/HrLayout.js", async () => {
   const { Outlet } = await import("react-router");
   return { HrLayout: () => <Outlet /> };
@@ -24,7 +28,9 @@ let root: Root;
 let client: QueryClient;
 let intentPending: boolean;
 let linked: boolean;
+let replaceRequired: boolean;
 let lineAuthenticated: boolean;
+let sessionReadDelay: Promise<void> | null;
 let intentFailure: "network" | "server" | null;
 let platformOnly: boolean;
 let expired: boolean;
@@ -36,7 +42,9 @@ beforeEach(() => {
   notifyManager.setScheduler(queueMicrotask);
   intentPending = false;
   linked = false;
+  replaceRequired = false;
   lineAuthenticated = false;
+  sessionReadDelay = null;
   intentFailure = null;
   platformOnly = false;
   expired = false;
@@ -55,6 +63,7 @@ beforeEach(() => {
       return Response.json({ linked });
     }
     if (path.endsWith("/me/session")) {
+      if (lineAuthenticated && sessionReadDelay) await sessionReadDelay;
       if (!sessionAuthorized) return Response.json({ error: "請先登入。" }, { status: 401 });
       return Response.json({ ...user, deviceRemembered: !platformOnly || lineAuthenticated, lineLiffAuthenticated: lineAuthenticated });
     }
@@ -72,7 +81,7 @@ beforeEach(() => {
         intentPending = false;
         return Response.json({ linked: true });
       }
-      return Response.json({ linked, pending: intentPending });
+      return Response.json({ linked, pending: intentPending, replaceRequired });
     }
     if (path.endsWith("/me/device")) return Response.json({ ok: true });
     throw new Error(`未預期請求：${path}`);
@@ -90,8 +99,8 @@ afterEach(async () => {
   notifyManager.setScheduler((callback) => setTimeout(callback, 0));
 });
 
-async function renderApp() {
-  await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/clock"]}><App /></MemoryRouter></QueryClientProvider>));
+async function renderApp(path = "/clock") {
+  await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>));
 }
 async function expectText(text: string) {
   await vi.waitFor(async () => {
@@ -169,9 +178,55 @@ describe("LIFF 與一般 HR 登入流程", () => {
     await renderApp();
     await expectText("綁定 LINE 打卡");
     expect(client.getQueryData(["session"])).toMatchObject({ lineLiffAuthenticated: false, lineLinkRequired: true });
-    await clickButton("解除舊綁定並改綁目前 LINE");
+    expect(container.textContent).not.toContain("已綁定另一個 LINE 帳號");
+    await clickButton("確認並綁定這個帳號");
     await expectText("打卡入口");
     expect(client.getQueryData(["session"])).toMatchObject({ lineLiffAuthenticated: true, lineLinkRequired: false });
+  });
+
+  it("只有伺服器確認為不同 LINE 身分時才提示替換", async () => {
+    platformOnly = true;
+    intentPending = true;
+    linked = true;
+    replaceRequired = true;
+    await renderApp();
+    await expectText("已綁定另一個 LINE 帳號");
+    await clickButton("解除舊綁定並改綁目前 LINE");
+    await expectText("打卡入口");
+  });
+
+  it("綁定成功但 session 尚未讀回時保持處理中，不閃逾時或改綁警告", async () => {
+    platformOnly = true;
+    intentPending = true;
+    await renderApp();
+    await expectText("綁定 LINE 打卡");
+    let resume!: () => void;
+    sessionReadDelay = new Promise<void>((resolve) => { resume = resolve; });
+    try {
+      await clickButton("確認並綁定這個帳號");
+      await expectText("驗證並綁定中…");
+      const submittedAt = requested.indexOf("POST /api/hr/liff/link");
+      expect(requested.slice(submittedAt + 1)).not.toContain("GET /api/hr/liff/link");
+      // 模擬背景重抓已清除 intent 的綁定狀態，也不能在成功轉場中顯示錯誤。
+      await act(async () => { await client.invalidateQueries({ queryKey: ["hr"] }); });
+      expect(container.textContent).not.toContain("驗證已逾時");
+      expect(container.textContent).not.toContain("已綁定另一個 LINE 帳號");
+      expect([...container.querySelectorAll("button")].find((button) => button.textContent === "驗證並綁定中…")?.disabled).toBe(true);
+    } finally {
+      await act(async () => { resume(); });
+    }
+    await expectText("打卡入口");
+    expect(container.textContent).not.toContain("綁定 LINE 打卡");
+  });
+
+  it.each([
+    ["/clock/calendar", "出勤日曆入口"], ["/clock/logs", "打卡紀錄入口"], ["/forms", "表單申請入口"],
+    ["/payroll", "薪資袋入口"], ["/notifications", "通知入口"], ["/profile", "個人中心入口"],
+  ])("LINE 登入可開啟 %s，不被導回打卡", async (path, label) => {
+    lineAuthenticated = true;
+    await renderApp(path);
+    await expectText(label);
+    expect(container.textContent).not.toContain("打卡入口");
   });
 
   it("綁定逾時 POST 400 後的 query refetch 不卸載綁定頁，保留錯誤與恢復入口", async () => {

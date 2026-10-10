@@ -1,7 +1,7 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import { createDatabase, findUserByLineIdentity, linkLineAccount, replaceLineAccount, unlinkLineAccount, syncSystemRoles } from "@rueisiang/db";
-import { authDeviceSessions, hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmployments, users } from "@rueisiang/db/schema";
+import { authDeviceSessions, hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmployments, hrNotifications, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -140,9 +140,66 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     expect(await session.json()).toMatchObject({ id: employee.id, deviceRemembered: true, lineLiffAuthenticated: true });
     expect((await call("/api/auth/me", { headers: requestHeaders(deviceCookie) })).status).toBe(401);
     expect((await call("/api/hr/overview", { headers: requestHeaders(deviceCookie) })).status).toBe(401);
-    expect((await call("/api/hr/me/payroll-history", { headers: requestHeaders(deviceCookie) })).status).toBe(403);
-    expect((await call("/api/hr/me/notifications", { headers: requestHeaders(deviceCookie) })).status).toBe(403);
+    expect((await call("/api/hr/me/payroll-history", { headers: requestHeaders(deviceCookie) })).status).toBe(200);
+    expect((await call("/api/hr/me/notifications", { headers: requestHeaders(deviceCookie) })).status).toBe(200);
     expect((await db().select().from(authDeviceSessions)).map((row) => row.authMethod)).toEqual(["line_liff"]);
+  });
+
+  it("LINE 登入沿用本人 HR 讀取入口，但不能取得平台或管理端認證", async () => {
+    const employee = await seedEmployee("line-self-service@ecotech.tw");
+    await linkLineAccount(db(), employee.id, { channelId: CHANNEL_ID, lineUserId: "U-line-alice" });
+    const deviceCookie = asCookie(cookieFrom(await bootstrap("line-alice"), DEVICE_SESSION_COOKIE));
+    for (const path of ["", "/attendance-calendar", "/leave-types", "/leave-requests", "/overtime", "/form-requests"]) {
+      expect((await call(`/api/hr/me${path}`, { headers: requestHeaders(deviceCookie) })).status).toBe(200);
+    }
+    expect((await call("/api/hr/liff/link", { headers: requestHeaders(deviceCookie) })).status).toBe(401);
+    expect((await call("/api/hr/employees", { headers: requestHeaders(deviceCookie) })).status).toBe(401);
+    expect((await call("/api/hr/me/device", { method: "POST", headers: requestHeaders(deviceCookie) })).status).toBe(200);
+    expect((await db().select().from(authDeviceSessions)).map((row) => row.authMethod)).toEqual(["line_liff"]);
+  });
+
+  it("LINE 登入的通知、薪資與申請仍以伺服器身分為準，不能讀寫他人的資料", async () => {
+    const alice = await seedEmployee("line-self-alice@ecotech.tw");
+    const bob = await seedEmployee("line-self-bob@ecotech.tw");
+    const supervisor = await seedEmployee("line-self-supervisor@ecotech.tw");
+    await db().update(hrEmployments).set({ supervisorUserId: supervisor.id }).where(eq(hrEmployments.id, alice.employmentId));
+    await linkLineAccount(db(), alice.id, { channelId: CHANNEL_ID, lineUserId: "U-line-alice" });
+    await linkLineAccount(db(), bob.id, { channelId: CHANNEL_ID, lineUserId: "U-line-bob" });
+    const aliceCookie = asCookie(cookieFrom(await bootstrap("line-alice"), DEVICE_SESSION_COOKIE));
+    const bobCookie = asCookie(cookieFrom(await bootstrap("line-bob"), DEVICE_SESSION_COOKIE));
+    await db().insert(hrNotifications).values({
+      id: "alice-notification", userId: alice.id, sourceKey: "alice-source", kind: "request_reviewed",
+      entityKind: "overtime", entityId: "example-request", title: "Alice 的通知", body: "本人通知內容",
+    });
+    const aliceNotifications = await call("/api/hr/me/notifications", { headers: requestHeaders(aliceCookie) });
+    expect(await aliceNotifications.json()).toMatchObject({ unreadCount: 1, notifications: [{ id: "alice-notification" }] });
+    const bobNotifications = await call(`/api/hr/me/notifications?userId=${encodeURIComponent(alice.id)}`, { headers: requestHeaders(bobCookie) });
+    expect(await bobNotifications.json()).toEqual({ unreadCount: 0, notifications: [] });
+    expect((await call("/api/hr/me/notifications/alice-notification/read", { method: "POST", headers: requestHeaders(bobCookie) })).status).toBe(404);
+    expect((await call("/api/hr/me/notifications/alice-notification/read", { method: "POST", headers: requestHeaders(aliceCookie) })).status).toBe(200);
+    expect((await call(`/api/hr/me/payroll-history/unknown-run/${alice.employmentId}`, { headers: requestHeaders(bobCookie) })).status).toBe(404);
+
+    const created = await call("/api/hr/me/overtime", {
+      method: "POST", headers: { ...requestHeaders(aliceCookie), "Content-Type": "application/json" },
+      body: JSON.stringify({ employeeUserId: bob.id, requestedStart: "2026-09-03 18:00", requestedEnd: "2026-09-03 20:00", settlementKind: "pay", reason: "LINE 手機申請" }),
+    });
+    expect(created.status).toBe(201);
+    const { id } = await created.json() as { id: string };
+    const aliceRequests = await call("/api/hr/me/overtime", { headers: requestHeaders(aliceCookie) });
+    expect(await aliceRequests.json()).toMatchObject({ requests: [{ request: { id }, employeeUserId: alice.id }] });
+    const bobRequests = await call("/api/hr/me/overtime", { headers: requestHeaders(bobCookie) });
+    expect(await bobRequests.json()).toMatchObject({ requests: [] });
+    expect((await call(`/api/hr/me/overtime/${id}/cancel`, { method: "POST", headers: requestHeaders(bobCookie) })).status).toBe(404);
+    expect((await call(`/api/hr/me/overtime/${id}/cancel`, { method: "POST", headers: requestHeaders(aliceCookie) })).status).toBe(200);
+  });
+
+  it.each(["same", "different", "expired"] as const)("已有 LINE 關聯且 intent 為 %s 時，伺服器準確回報是否需要替換", async (kind) => {
+    const employee = await seedEmployee(`line-replace-hint-${kind}@ecotech.tw`);
+    await linkLineAccount(db(), employee.id, { channelId: CHANNEL_ID, lineUserId: "U-line-alice" });
+    const intent = await createLineLinkIntentCookie({ channelId: CHANNEL_ID, lineUserId: kind === "different" ? "U-line-new" : "U-line-alice" }, SECRET,
+      kind === "expired" ? Date.now() - LINE_LIFF_INTENT_TTL_SECONDS * 1000 - 1000 : Date.now());
+    const response = await call("/api/hr/liff/link", { headers: requestHeaders(`${await sessionCookie(employee.id, employee.email)}; ${asCookie(intent)}`) });
+    expect(await response.json()).toEqual({ linked: true, pending: kind !== "expired", replaceRequired: kind === "different" });
   });
 
   it("未綁定時保存短效、簽章的身分意圖；必須用平台 session 明確確認後才建立關聯", async () => {
@@ -156,7 +213,7 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     expect(cookieFrom(bootstrapResponse, DEVICE_SESSION_COOKIE)).toContain("Max-Age=0");
 
     const status = await call("/api/hr/liff/link", { headers: requestHeaders(`${platformSession}; ${asCookie(intent)}`) });
-    expect(await status.json()).toEqual({ linked: false, pending: true });
+    expect(await status.json()).toEqual({ linked: false, pending: true, replaceRequired: false });
 
     const unauthorized = await call("/api/hr/liff/link", {
       method: "POST",
@@ -199,7 +256,7 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     const deviceCookie = asCookie(cookieFrom(retry, DEVICE_SESSION_COOKIE));
     const session = await call("/api/hr/me/session", { headers: requestHeaders(`${platformSession}; ${deviceCookie}`) });
     expect(await session.json()).toMatchObject({ id: employee.id, lineLiffAuthenticated: true });
-    expect((await call("/api/hr/me/payroll-history", { headers: requestHeaders(deviceCookie) })).status).toBe(403);
+    expect((await call("/api/hr/me/payroll-history", { headers: requestHeaders(deviceCookie) })).status).toBe(200);
   });
 
   it("不接受 LINE 驗證回傳的錯誤 audience，也不會由前端 body 指定 LINE UID", async () => {
