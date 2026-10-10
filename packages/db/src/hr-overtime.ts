@@ -1,7 +1,7 @@
-import { and, asc, count, eq, inArray, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError, hrEmployeeName, isHrAdministrator, writeHrMutation, type HrActor } from "./hr-people.js";
-import { insertHrNotification, upsertHrNotification } from "./hr-notifications.js";
+import { appendHrNotification, insertHrNotification, overtimeBatchSourceKey } from "./hr-notifications.js";
 import { hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrOvertimeRequests, hrScheduleVersions, hrScheduleWorkerEntries, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
@@ -359,14 +359,15 @@ export async function createHrOvertimeRequests(db: Database, input: HrOvertimeBa
     ? await requestApprover(db, target.employmentId, input.employeeUserId!)
     : null;
   const ids = entries.map(() => crypto.randomUUID());
-  const batchId = target.employmentId && entries.length > 1 ? crypto.randomUUID() : null;
+  // 只有本人送出、需要審核的批次才帶批次鍵；後台代登直接核准，沒有通知要合併。
+  const batchId = approverUserId && entries.length > 1 ? crypto.randomUUID() : null;
   const statements = entries.map((entry, index) => target.employmentId
     ? insertOvertimeRequest(ids[index]!, target.employmentId, entry, actor, autoApprove, approverUserId, batchId)
     : insertWorkerOvertimeRequest(ids[index]!, target.workerId!, entry, actor, autoApprove));
   // 月底一次送整個月時，一筆一則會把審核者的通知洗掉；整批只發一則，掛在批次鍵上，待審清單用同一個鍵列出整批。
   const mutations = approverUserId
     ? [...statements, insertHrNotification({
-      userId: approverUserId, sourceKey: batchId ? `overtime-batch:${batchId}:submitted` : `overtime-request:${ids[0]}:submitted`, kind: "request_submitted", entityKind: "overtime", entityId: batchId ?? ids[0]!,
+      userId: approverUserId, sourceKey: batchId ? overtimeBatchSourceKey(batchId, "submitted") : `overtime-request:${ids[0]}:submitted`, kind: "request_submitted", entityKind: "overtime", entityId: batchId ?? ids[0]!,
       title: entries.length > 1 ? `有 ${entries.length} 筆新的加班申請待審核` : "有新的加班申請待審核",
       body: `申請日期：${entries.map(dateOf).join("、")}，請開啟待審清單處理。`,
     })]
@@ -478,12 +479,6 @@ export async function updateHrOvertimeRequest(db: Database, id: string, input: H
  * 不會再有人處理的資料。誰在什麼時候取消了哪一筆，由稽核事件的快照保存。
  * 快照放整列：核定的實際時段與審核資訊刪掉之後就只剩這裡查得到，薪資算的是實際時段。
  */
-async function countPendingInBatch(db: Database, batchId: string, exceptId: string) {
-  const [row] = await db.select({ count: count() }).from(hrOvertimeRequests)
-    .where(and(eq(hrOvertimeRequests.batchId, batchId), eq(hrOvertimeRequests.status, "pending"), ne(hrOvertimeRequests.id, exceptId)));
-  return row?.count ?? 0;
-}
-
 export async function cancelHrOvertimeRequest(db: Database, id: string, actor: HrActor, options: HrOvertimeCancellationOptions = {}) {
   const [employeeCurrent] = await db.select({ request: hrOvertimeRequests, employeeUserId: hrEmployments.employeeUserId, employeeName: hrEmployeeName })
     .from(hrOvertimeRequests)
@@ -508,17 +503,11 @@ export async function cancelHrOvertimeRequest(db: Database, id: string, actor: H
   const approverUserId = current.personKind === "employee" ? current.request.approverUserId : null;
   const batchId = current.personKind === "employee" ? current.request.batchId : null;
   const cancelledDate = taipeiDate(stamp(request.requestedStart));
+  const cancelNotice = { userId: approverUserId ?? "", kind: "request_cancelled", entityKind: "overtime", title: "加班申請已取消", body: `申請人已取消 ${cancelledDate} 的待審加班申請。` } as const;
   const cancelNotification = request.status !== "pending" || !approverUserId ? null
-    : batchId
-      // 整批逐筆取消時只留一則，內文帶還剩幾筆，審核者不用自己數。
-      ? upsertHrNotification({
-        userId: approverUserId, sourceKey: `overtime-batch:${batchId}:cancelled`, kind: "request_cancelled", entityKind: "overtime", entityId: batchId,
-        title: "加班申請已取消", body: `申請人已取消 ${cancelledDate} 的待審加班申請；同一批還有 ${await countPendingInBatch(db, batchId, id)} 筆待審。`,
-      })
-      : insertHrNotification({
-        userId: approverUserId, sourceKey: `overtime-request:${id}:cancelled`, kind: "request_cancelled", entityKind: "overtime", entityId: id,
-        title: "加班申請已取消", body: `申請人已取消 ${cancelledDate} 的待審加班申請。`,
-      });
+    // 整批逐筆取消時只留一則，每取消一天接一行。
+    : batchId ? appendHrNotification({ ...cancelNotice, sourceKey: overtimeBatchSourceKey(batchId, "cancelled"), entityId: batchId })
+      : insertHrNotification({ ...cancelNotice, sourceKey: `overtime-request:${id}:cancelled`, entityId: id });
   const mutations = cancelNotification ? [deletion, cancelNotification] : deletion;
   return writeHrMutation(db, mutations, id, actor, "overtime_request_cancelled", "加班申請已變更或完成處理，請重新整理。 ", {
     activity: { entityLabel: current.employeeName, payload: eventPayload, summary: "加班申請已取消並刪除" },
@@ -567,17 +556,6 @@ export async function cancelHrOvertimeRequests(db: Database, ids: string[], acto
   return { ids, count: ids.length };
 }
 
-const NOTIFICATION_BODY_LIMIT = 1000;
-
-async function approvedBatchBody(db: Database, batchId: string, approvingStart: string, comment: string) {
-  const approved = await db.select({ requestedStart: hrOvertimeRequests.requestedStart }).from(hrOvertimeRequests)
-    .where(and(eq(hrOvertimeRequests.batchId, batchId), eq(hrOvertimeRequests.status, "approved")));
-  const dates = [...approved.map((row) => row.requestedStart), approvingStart].sort().map((start) => taipeiDate(stamp(start)));
-  const body = `已核准 ${dates.length} 筆：${dates.join("、")}。${comment ? `審核意見：${comment}` : ""}`;
-  // hr_notifications 的 body 有長度 CHECK；一整個月的日期加上長意見會超過。
-  return body.length > NOTIFICATION_BODY_LIMIT ? `${body.slice(0, NOTIFICATION_BODY_LIMIT - 1)}…` : body;
-}
-
 export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval, options: { allowAny?: boolean } = {}) {
   if (!["approved", "rejected", "cancelled"].includes(decision)) throw new HrError(400, "加班審核結果不正確。 ");
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
@@ -621,10 +599,11 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
   const batchId = current.personKind === "employee" ? current.batchId : null;
   const reviewNotification = current.personKind !== "employee" ? null
     : batchId && decision === "approved"
-      // 審核者只能一筆一筆核准；同一批的核准合成一則，內文列出目前為止核准的日期。駁回各有各的理由，仍然一筆一則。
-      ? upsertHrNotification({
-        userId: current.employeeUserId!, sourceKey: `overtime-batch:${batchId}:reviewed:approved`, kind: "request_reviewed", entityKind: "overtime", entityId: batchId,
-        title: "加班申請已核准", body: await approvedBatchBody(db, batchId, current.requestedStart, comment.trim()),
+      // 審核者只能一筆一筆核准；同一批的核准合成一則，每核准一天接一行，各自帶那一筆的審核意見。
+      // 駁回各有各的理由、員工要個別處理，仍然一筆一則。
+      ? appendHrNotification({
+        userId: current.employeeUserId!, sourceKey: overtimeBatchSourceKey(batchId, "approved"), kind: "request_reviewed", entityKind: "overtime", entityId: batchId,
+        title: "加班申請已核准", body: `${taipeiDate(stamp(current.requestedStart))} 已核准${comment.trim() ? `：${comment.trim()}` : "。"}`,
       })
       : insertHrNotification({
         userId: current.employeeUserId!, sourceKey: `overtime-request:${id}:reviewed:${decision}`, kind: "request_reviewed", entityKind: "overtime", entityId: id,

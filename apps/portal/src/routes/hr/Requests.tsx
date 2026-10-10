@@ -342,7 +342,11 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
         toast.show(mode === "single" ? "加班申請成功，已回到申請紀錄。" : `已建立 ${entries.length} 筆加班申請，已回到申請紀錄。`, "success");
         onDone();
       },
-      onError: () => onPendingChange(false),
+      onError: () => {
+        onPendingChange(false);
+        // 被擋下多半是別人先建了其中一天；重抓班表，已有申請的日期才會從選擇裡移出並提示。
+        void dayQuery.refetch();
+      },
     });
   }
   function submit(event: React.FormEvent) {

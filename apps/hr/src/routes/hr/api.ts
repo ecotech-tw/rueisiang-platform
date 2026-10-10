@@ -198,6 +198,8 @@ export interface HrNotification {
   id: string;
   kind: "request_submitted" | "request_reviewed" | "request_cancelled";
   entityKind: "leave" | "overtime" | "clock_correction";
+  /** batch 時 entityId 是整批加班的批次鍵，不是申請 ID。 */
+  entityScope: "request" | "batch";
   entityId: string;
   title: string;
   body: string;

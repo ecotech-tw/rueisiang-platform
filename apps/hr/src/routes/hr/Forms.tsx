@@ -322,12 +322,16 @@ export function HrForms() {
   const leave = useHrQuery<{ requests: LeaveRequest[]; reviewRequests: LeaveRequest[] }>("/me/leave-requests");
   const data = query.data;
   const reviewTargetId = params.get("review");
+  // 整批加班的通知帶的是批次鍵：審核者用 reviewBatch 看整批待審，申請人用 batch 看那一批的結果。
+  const reviewBatchId = params.get("reviewBatch");
+  const recordBatchId = params.get("batch");
+  const reviewFiltered = Boolean(reviewTargetId || reviewBatchId);
   const reviewForms = (data?.reviewRequests ?? []).filter((request) => !reviewTargetId || request.id === reviewTargetId);
   const reviewLeaves = (leave.data?.reviewRequests ?? []).filter((item) => !reviewTargetId || item.request.id === reviewTargetId);
-  const reviewOvertime = (overtime.data?.reviewRequests ?? []).filter((item) => !reviewTargetId || item.request.id === reviewTargetId || item.request.batchId === reviewTargetId);
+  const reviewOvertime = (overtime.data?.reviewRequests ?? []).filter((item) => reviewBatchId ? item.request.batchId === reviewBatchId : !reviewTargetId || item.request.id === reviewTargetId);
   const reviewTotal = activeTab === "leave" ? leave.data?.reviewRequests.length ?? 0 : activeTab === "overtime" ? overtime.data?.reviewRequests.length ?? 0 : data?.reviewRequests.length ?? 0;
   const reviewShown = activeTab === "leave" ? reviewLeaves.length : activeTab === "overtime" ? reviewOvertime.length : reviewForms.length;
-  const reviewTargetMissing = Boolean(reviewTargetId && (
+  const reviewTargetMissing = Boolean(reviewFiltered && (
     (activeTab === "leave" && leave.data && !leave.isPending && reviewLeaves.length === 0)
     || (activeTab === "overtime" && overtime.data && !overtime.isPending && reviewOvertime.length === 0)
     || (activeTab === "clock_correction" && data && !query.isPending && reviewForms.length === 0)
@@ -339,12 +343,12 @@ export function HrForms() {
     search,
     statusFilter,
   )), [leave.data?.requests, search, statusFilter]);
-  const filteredOvertime = useMemo(() => (overtime.data?.requests ?? []).filter((item) => matchesRequest(
-    `${item.request.id} ${item.request.batchId ?? ""} ${formatTaipei(item.request.requestedStart)} ${formatTaipei(item.request.requestedEnd)} ${item.request.settlementKind === "pay" ? "付薪" : "補休"} ${item.request.reason} ${requestStatusLabel(item.request.status)}`,
+  const filteredOvertime = useMemo(() => (overtime.data?.requests ?? []).filter((item) => (!recordBatchId || item.request.batchId === recordBatchId) && matchesRequest(
+    `${item.request.id} ${formatTaipei(item.request.requestedStart)} ${formatTaipei(item.request.requestedEnd)} ${item.request.settlementKind === "pay" ? "付薪" : "補休"} ${item.request.reason} ${requestStatusLabel(item.request.status)}`,
     item.request.status,
     search,
     statusFilter,
-  )), [overtime.data?.requests, search, statusFilter]);
+  )), [overtime.data?.requests, recordBatchId, search, statusFilter]);
   const filteredCorrections = useMemo(() => (data?.requests ?? []).filter((request) => matchesRequest(
     `${request.id} ${formLabel(request)} ${request.approverName ?? ""} ${request.reason} ${requestStatusLabel(request.status)}`,
     request.status,
@@ -376,9 +380,9 @@ export function HrForms() {
     setParams(next, { replace: true });
   }
 
-  function showAllReviews() {
+  function clearParams(...names: string[]) {
     const next = new URLSearchParams(params);
-    next.delete("review");
+    for (const name of names) next.delete(name);
     setParams(next, { replace: true });
   }
 
@@ -428,9 +432,10 @@ export function HrForms() {
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
     {leave.error ? <Alert tone="danger">{leave.error.message}</Alert> : null}
-    {reviewTargetMissing ? <Alert tone="info">這筆申請已處理，或不在你目前的待審清單。</Alert> : null}
+    {reviewTargetMissing ? <Alert tone="info">{reviewBatchId ? "這批申請已全部處理，或不在你目前的待審清單。" : "這筆申請已處理，或不在你目前的待審清單。"}</Alert> : null}
     {/* 從通知點進來只會看到那一筆（或那一批）；待審清單還有別的時要有路回到全部。 */}
-    {reviewTargetId && reviewTotal > reviewShown ? <Button variant="link" className="hr-form-review-all" onClick={showAllReviews}>查看全部 {reviewTotal} 筆待審</Button> : null}
+    {reviewFiltered && reviewTotal > reviewShown ? <Button variant="link" className="hr-form-review-all" onClick={() => clearParams("review", "reviewBatch")}>查看全部 {reviewTotal} 筆待審</Button> : null}
+    {recordBatchId && activeTab === "overtime" ? <Button variant="link" className="hr-form-review-all" onClick={() => clearParams("batch")}>目前只顯示同一批送出的加班，改看全部</Button> : null}
     <div className="hr-form-sticky-controls">
       <div className="hr-form-tabs-shell">
         <SegmentedControl className="hr-form-tabs" aria-label="申請表單類型" options={tabOptions} value={activeTab} onChange={(value) => selectTab(formTab(value))} />
