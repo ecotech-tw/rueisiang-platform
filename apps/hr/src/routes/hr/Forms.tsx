@@ -6,6 +6,7 @@ import { Alert, Button, ConfirmDialog, Dialog, Field, PageHeader, Panel, SelectF
 import { useHrLeaveDuration, useHrLeaveEnd, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type HrOvertimeDay, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
 import { dateBefore, formatHours } from "./format.js";
 import { hoursToMinutes } from "./hours-entry.js";
+import { emptyRecordsMessage } from "./notification-link.js";
 import { swipeTarget, type SlideDirection } from "./page-direction.js";
 
 const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "info" | "success" | "danger" }> = {
@@ -324,7 +325,8 @@ export function HrForms() {
   const reviewTargetId = params.get("review");
   // 整批加班的通知帶的是批次鍵：審核者用 reviewBatch 看整批待審，申請人用 batch 看那一批的結果。
   const reviewBatchId = params.get("reviewBatch");
-  const recordBatchId = params.get("batch");
+  // 批次鍵只有加班有；別的分頁帶著它（手改網址、tab 值不合法落回請假）時當作沒有。
+  const recordBatchId = activeTab === "overtime" ? params.get("batch") : null;
   // 從審核結果通知點進來：只列通知提到的那一筆。
   const focusId = params.get("focus");
   const recordsFiltered = Boolean(focusId || recordBatchId);
@@ -358,6 +360,14 @@ export function HrForms() {
     search,
     statusFilter,
   )), [data?.requests, focusId, search, statusFilter]);
+  const focusExists = activeTab === "leave" ? leave.data?.requests.some((item) => item.request.id === focusId)
+    : activeTab === "overtime" ? overtime.data?.requests.some((item) => item.request.id === focusId)
+      : data?.requests.some((request) => request.id === focusId);
+  const emptyMessage = emptyRecordsMessage({
+    target: focusId ? "request" : recordBatchId ? "batch" : null,
+    targetExists: Boolean(focusId ? focusExists : overtime.data?.requests.some((item) => item.request.batchId === recordBatchId)),
+    narrowed: Boolean(search || statusFilter !== "all"),
+  });
   const activeCount = activeTab === "leave" ? filteredLeaves.length : activeTab === "overtime" ? filteredOvertime.length : filteredCorrections.length;
   const activeError = activeTab === "leave" ? leave.error : activeTab === "overtime" ? overtime.error : query.error;
   const isLoading = query.isPending || overtime.isPending || leave.isPending;
@@ -450,21 +460,22 @@ export function HrForms() {
         <SelectField aria-label="狀態" value={statusFilter} options={REQUEST_STATUS_OPTIONS} onChange={(event) => setStatusFilter(event.target.value as RequestStatusFilter)} />
       </div>
     </div>
-    {activeTab === "clock_correction" && reviewForms.length ? <Panel className="hr-form-section hr-form-review-panel">
+    {/* 從審核結果通知進來時先收起待審面板：身兼審核者的人，通知提到的那一筆會被一長串待審擠到要捲才看得到。 */}
+    {!recordsFiltered && activeTab === "clock_correction" && reviewForms.length ? <Panel className="hr-form-section hr-form-review-panel">
       <div className="panel-head"><div><h2>待我審核</h2><p className="muted">只顯示指定你為審核者、且尚未完成處理的申請。</p></div></div>
       <div className="hr-form-request-list">{reviewForms.map((request) => <article className="hr-form-request-card review" key={request.id}>
         <RequestSummary request={request} reviewer />
         <div className="hr-form-review-actions"><Button className="hr-action-info" onClick={() => setReviewing(request)}>審核</Button></div>
       </article>)}</div>
     </Panel> : null}
-    {activeTab === "leave" && reviewLeaves.length ? <Panel className="hr-form-section hr-form-review-panel">
+    {!recordsFiltered && activeTab === "leave" && reviewLeaves.length ? <Panel className="hr-form-section hr-form-review-panel">
       <div className="panel-head"><div><h2>待我審核</h2><p className="muted">請假申請只有指定主管或 HR 管理者可以處理。</p></div></div>
       <div className="hr-form-request-list">{reviewLeaves.map((item) => <article className="hr-form-request-card review" key={item.request.id}>
         <div className="hr-form-request-summary"><div className="hr-form-request-title"><strong>{item.employeeName ?? item.employeeUserId}・{item.request.leaveType}</strong><StatusBadge tone="info">申請中</StatusBadge></div><dl><dt>期間</dt><dd>{leavePeriod(item)}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
         <div className="hr-form-review-actions"><Button className="hr-action-info" onClick={() => setReviewingLeave(item)}>審核</Button></div>
       </article>)}</div>
     </Panel> : null}
-    {activeTab === "overtime" && reviewOvertime.length ? <Panel className="hr-form-section hr-form-review-panel">
+    {!recordsFiltered && activeTab === "overtime" && reviewOvertime.length ? <Panel className="hr-form-section hr-form-review-panel">
       <div className="panel-head"><div><h2>待我審核</h2><p className="muted">加班申請由指定主管或 HR 管理者處理。</p></div></div>
       <div className="hr-form-request-list">{reviewOvertime.map((item) => <article className="hr-form-request-card review" key={item.request.id}>
         <div className="hr-form-request-summary"><div className="hr-form-request-title"><strong>{item.employeeName ?? item.employeeUserId}・{formatTaipei(item.request.requestedStart)}</strong><StatusBadge tone="info">申請中</StatusBadge></div><dl><dt>期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
@@ -481,7 +492,7 @@ export function HrForms() {
           <Button variant="secondary" onClick={() => setCorrectionAction({ request, mode: "cancel" })}>取消申請</Button>
         </div> : null}
       </article>)}</div>}
-      {!isLoading && !activeError && activeCount === 0 ? <div className="hr-form-empty-state"><strong>{recordsFiltered ? "這筆申請已經不在紀錄裡" : search || statusFilter !== "all" ? "找不到符合條件的申請" : "目前沒有申請紀錄"}</strong><p className="muted">{recordsFiltered ? "它可能已被取消。點上方「改看全部」回到完整清單。" : search || statusFilter !== "all" ? "請調整搜尋文字或狀態篩選。" : "點＋開始新增申請。"}</p></div> : null}
+      {!isLoading && !activeError && activeCount === 0 ? <div className="hr-form-empty-state"><strong>{emptyMessage.title}</strong><p className="muted">{emptyMessage.hint}</p></div> : null}
       {hasMore ? <div ref={sentinelRef} className="hr-form-load-sentinel" aria-live="polite">載入更多申請…</div> : activeCount > 0 ? <div className="hr-form-list-end">已顯示全部申請</div> : null}
     </Panel>
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
