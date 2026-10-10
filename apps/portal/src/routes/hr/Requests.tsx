@@ -9,7 +9,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
-import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, addMinutes, buildOvertimeEntries, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, selectedUnscheduledDates, summarizeAssignments } from "@rueisiang/ui";
+import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, useOvertimeBatchSelection } from "@rueisiang/ui";
 import { buildOvertimeSubmission } from "./overtime-entry.js";
 
 type RequestKind = "leave" | "overtime" | "clock_correction";
@@ -290,10 +290,8 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
   const [month, setMonth] = useState(() => taipeiToday().slice(0, 7));
   /** null 代表還沒手動改過，開始時間跟著班表的下班時間走。 */
   const [manualStart, setManualStart] = useState<string | null>(null);
-  const [unscheduledStartTime, setUnscheduledStartTime] = useState("");
   const [showUnscheduledConfirmation, setShowUnscheduledConfirmation] = useState(false);
   const [hours, setHours] = useState("1");
-  const [assigned, setAssigned] = useState<Record<string, number>>({});
   const [settlementKind, setSettlementKind] = useState<"pay" | "compensatory">("pay");
   const [reason, setReason] = useState("");
   const toast = useToast();
@@ -322,28 +320,19 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
   const startHint = !targetId ? "選了申請對象會自動帶入下班時間" : daysLoading ? "查詢班表中…" : suggestedStart ? (startEdited ? `班表下班時間是 ${suggestedStart}` : "已帶入班表的下班時間") : singleDay ? "這天沒有可帶入的下班時間，請自行填寫" : undefined;
 
   const pickerDays = useMemo(() => days.map((day) => ({ date: day.date, startAt: day.startAt, hasExisting: day.existing.length > 0 })), [days]);
-  const entries = mode === "multiple" ? buildOvertimeEntries(days, assigned, unscheduledStartTime) : [];
-  const summary = summarizeAssignments(assigned);
+  const batch = useOvertimeBatchSelection(pickerDays, minutes);
+  const { assigned, summary, takenDates, unscheduledStartTime, setUnscheduledStartTime, toggleDay } = batch;
+  const entries = mode === "multiple" ? batch.entries : [];
   const unscheduledDates = mode === "single"
     ? singleDay?.startAt === null ? [date] : []
-    : selectedUnscheduledDates(days, assigned);
+    : batch.unscheduledDates;
   const scheduleLoaded = Boolean(targetId && !daysLoading && dayQuery.data);
-  const canSubmit = Boolean(targetId && scheduleLoaded && !dayQuery.error) && (mode === "single" ? Boolean(start) && minutesValid : entries.length > 0 && entries.length === summary.days);
+  const canSubmit = Boolean(targetId && scheduleLoaded && !dayQuery.error) && (mode === "single" ? Boolean(start) && minutesValid : batch.complete);
 
   // 換員工或換日期後，原本帶入的下班時間與選好的日子都屬於上一個班表，留著會送出錯的時段。
   function resetDayDefaults() {
     setManualStart(null);
-    setUnscheduledStartTime("");
-    setAssigned({});
-  }
-  function toggleDay(day: string) {
-    if (!isValidOvertimeMinutes(minutes)) return;
-    setAssigned((current) => {
-      const next = { ...current };
-      if (next[day] === minutes) delete next[day];
-      else next[day] = minutes;
-      return next;
-    });
+    batch.reset();
   }
   function createRequests() {
     onPendingChange(true);
@@ -397,6 +386,7 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
         : dayQuery.error ? <Alert tone="danger">{dayQuery.error.message}</Alert>
         : daysLoading ? <p className="muted table-note">載入班表…</p>
         : <OvertimeDayPicker days={pickerDays} assigned={assigned} disabled={write.isPending || !minutesValid} onToggle={toggleDay} />}
+      {takenDates.length ? <Alert tone="info">{takenDates.join("、")} 已經有加班申請，已從這次的選擇移除。</Alert> : null}
       {unscheduledDates.length ? <TextField label="未排班日開始時間（台北）" type="time" step={1800} required value={unscheduledStartTime} disabled={write.isPending} hint="所有已選未排班日期都從這個時間開始；有排班日期仍沿用班表下班時間。" onChange={(event) => setUnscheduledStartTime(event.target.value)} /> : null}
       <p className="hr-overtime-summary" aria-live="polite">{summary.days ? <>已選 <strong>{summary.days} 天、共 {hoursText(summary.totalMinutes)} 小時</strong>（{summary.breakdown}）</> : "還沒選任何一天。"}</p>
     </>}

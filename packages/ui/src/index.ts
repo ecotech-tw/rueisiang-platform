@@ -38,5 +38,6 @@ export {
   summarizeAssignments,
   type OvertimeEntryDay,
 } from "./overtime-entry.js";
+export { useOvertimeBatchSelection } from "./useOvertimeBatchSelection.js";
 export { DialogContext, type DialogCloseRef, type DialogCloseRequest, type DialogContextValue } from "./dialog-context.js";
 export { Icon, type IconName } from "./icons.js";

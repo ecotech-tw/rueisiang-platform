@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, addMinutes, buildOvertimeEntries, hoursText, isValidOvertimeMinutes, monthRange, parseHours, selectedUnscheduledDates, summarizeAssignments } from "@rueisiang/ui";
+import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, useOvertimeBatchSelection } from "@rueisiang/ui";
 import { Alert, Button, ConfirmDialog, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrLeaveEnd, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type HrOvertimeDay, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
 import { dateBefore, formatHours } from "./format.js";
@@ -324,7 +324,7 @@ export function HrForms() {
   const reviewTargetId = params.get("review");
   const reviewForms = (data?.reviewRequests ?? []).filter((request) => !reviewTargetId || request.id === reviewTargetId);
   const reviewLeaves = (leave.data?.reviewRequests ?? []).filter((item) => !reviewTargetId || item.request.id === reviewTargetId);
-  const reviewOvertime = (overtime.data?.reviewRequests ?? []).filter((item) => !reviewTargetId || item.request.id === reviewTargetId);
+  const reviewOvertime = (overtime.data?.reviewRequests ?? []).filter((item) => !reviewTargetId || item.request.id === reviewTargetId || item.request.batchId === reviewTargetId);
   const reviewTotal = activeTab === "leave" ? leave.data?.reviewRequests.length ?? 0 : activeTab === "overtime" ? overtime.data?.reviewRequests.length ?? 0 : data?.reviewRequests.length ?? 0;
   const reviewShown = activeTab === "leave" ? reviewLeaves.length : activeTab === "overtime" ? reviewOvertime.length : reviewForms.length;
   const reviewTargetMissing = Boolean(reviewTargetId && (
@@ -340,7 +340,7 @@ export function HrForms() {
     statusFilter,
   )), [leave.data?.requests, search, statusFilter]);
   const filteredOvertime = useMemo(() => (overtime.data?.requests ?? []).filter((item) => matchesRequest(
-    `${item.request.id} ${formatTaipei(item.request.requestedStart)} ${formatTaipei(item.request.requestedEnd)} ${item.request.settlementKind === "pay" ? "付薪" : "補休"} ${item.request.reason} ${requestStatusLabel(item.request.status)}`,
+    `${item.request.id} ${item.request.batchId ?? ""} ${formatTaipei(item.request.requestedStart)} ${formatTaipei(item.request.requestedEnd)} ${item.request.settlementKind === "pay" ? "付薪" : "補休"} ${item.request.reason} ${requestStatusLabel(item.request.status)}`,
     item.request.status,
     search,
     statusFilter,
@@ -429,7 +429,7 @@ export function HrForms() {
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
     {leave.error ? <Alert tone="danger">{leave.error.message}</Alert> : null}
     {reviewTargetMissing ? <Alert tone="info">這筆申請已處理，或不在你目前的待審清單。</Alert> : null}
-    {/* 整批加班只發一則通知、只帶最早那筆的 ID；沒有這顆鈕，審核者會以為只有一筆要審。 */}
+    {/* 從通知點進來只會看到那一筆（或那一批）；待審清單還有別的時要有路回到全部。 */}
     {reviewTargetId && reviewTotal > reviewShown ? <Button variant="link" className="hr-form-review-all" onClick={showAllReviews}>查看全部 {reviewTotal} 筆待審</Button> : null}
     <div className="hr-form-sticky-controls">
       <div className="hr-form-tabs-shell">
@@ -495,8 +495,6 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
   const navigate = useNavigate();
   const [month, setMonth] = useState(() => taipeiInputNow().date.slice(0, 7));
   const [hours, setHours] = useState("1");
-  const [picked, setPicked] = useState<Record<string, number>>({});
-  const [unscheduledStartTime, setUnscheduledStartTime] = useState("");
   const [confirmingUnscheduled, setConfirmingUnscheduled] = useState(false);
   const save = useHrWrite<{ ids: string[] }>();
   const range = monthRange(month);
@@ -508,25 +506,9 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
 
   const minutes = parseHours(hours);
   const minutesValid = isValidOvertimeMinutes(minutes);
-  // 送出被擋下（409）後重抓的班表，可能把選好的日子變成「已有申請」。那一格已經點不掉，
-  // 留在送出內容裡會每次重送都再被擋，所以選擇一律以最新的班表為準。
-  const takenDates = useMemo(() => days.filter((day) => day.hasExisting && picked[day.date] !== undefined).map((day) => day.date), [days, picked]);
-  const assigned = useMemo(() => Object.fromEntries(Object.entries(picked).filter(([date]) => !takenDates.includes(date))), [picked, takenDates]);
-  const entries = buildOvertimeEntries(days, assigned, unscheduledStartTime);
-  const summary = summarizeAssignments(assigned);
-  const unscheduledDates = selectedUnscheduledDates(days, assigned);
-  const missingUnscheduledStart = unscheduledDates.length > 0 && entries.length !== summary.days;
-  const canSubmit = !save.isPending && Boolean(dayQuery.data) && !dayQuery.error && summary.days > 0 && entries.length === summary.days;
+  const { assigned, entries, summary, takenDates, unscheduledDates, unscheduledStartTime, setUnscheduledStartTime, missingUnscheduledStart, complete, toggleDay, reset } = useOvertimeBatchSelection(days, minutes);
+  const canSubmit = !save.isPending && Boolean(dayQuery.data) && !dayQuery.error && complete;
 
-  function toggleDay(day: string) {
-    if (!isValidOvertimeMinutes(minutes)) return;
-    setPicked((current) => {
-      const next = { ...current };
-      if (next[day] === minutes) delete next[day];
-      else next[day] = minutes;
-      return next;
-    });
-  }
   function send() {
     onPendingChange(true);
     save.mutate({ path: "/me/overtime/batch", method: "POST", values: { settlementKind: SELF_SERVICE_SETTLEMENT_KIND, reason, entries } }, {
@@ -545,8 +527,7 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
   return <>
     <div className="hr-form-fields">
       <div className="hr-form-field-row">
-        {/* 換月份後選好的日子屬於上一個班表，留著會送出畫面上看不到的時段。 */}
-        <TextField label="月份" type="month" required value={month} disabled={save.isPending} onChange={(event) => { setMonth(event.target.value); setPicked({}); setUnscheduledStartTime(""); }} />
+        <TextField label="月份" type="month" required value={month} disabled={save.isPending} onChange={(event) => { setMonth(event.target.value); reset(); }} />
         <TextField label="每天加班時數（小時）" type="number" inputMode="decimal" min={0.5} max={24} step={0.5} required value={hours} disabled={save.isPending} error={hours.trim() && !minutesValid ? "時數要以 0.5 小時為單位，最多 24 小時。" : undefined} onChange={(event) => setHours(event.target.value)} />
       </div>
       <SegmentedControl className="hr-form-tabs hr-overtime-presets" aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={save.isPending} onChange={setHours} />

@@ -27,6 +27,18 @@ export function insertHrNotification(input: HrNotificationInsert) {
     RETURNING id`;
 }
 
+/**
+ * 同一個 sourceKey 只留一則，後來的蓋掉先前的並重新標成未讀。
+ * 給「同一批申請被逐筆處理」用：逐筆各發一則會把收件人的通知洗掉。
+ */
+export function upsertHrNotification(input: HrNotificationInsert) {
+  return sql`INSERT INTO hr_notifications
+    (id, user_id, source_key, kind, entity_kind, entity_id, title, body)
+    VALUES (${crypto.randomUUID()}, ${input.userId}, ${input.sourceKey}, ${input.kind}, ${input.entityKind}, ${input.entityId}, ${input.title}, ${input.body})
+    ON CONFLICT(source_key) DO UPDATE SET title=excluded.title, body=excluded.body, read_at=NULL, created_at=CURRENT_TIMESTAMP
+    RETURNING id`;
+}
+
 export async function listHrNotifications(db: Database, userId: string, limit = 50) {
   const safeLimit = Math.min(100, Math.max(1, Math.floor(limit)));
   const [notifications, [unread]] = await Promise.all([

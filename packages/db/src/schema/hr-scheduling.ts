@@ -336,10 +336,13 @@ export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   reviewedBy: text("reviewed_by").references(() => users.id, { onDelete: "restrict" }),
   reviewedAt: text("reviewed_at"),
   decisionReason: text("decision_reason").notNull().default(""),
+  /** 本人一次送出多天時同一批共用的鍵；通知掛在這個鍵上，批裡任何一筆被取消或先審掉都不會讓通知失效。單筆申請留空。 */
+  batchId: text("batch_id"),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
   ...timestamps(),
 }, (table) => [
   index("idx_hr_overtime_employment_start").on(table.employmentId, table.requestedStart),
+  index("idx_hr_overtime_batch").on(table.batchId),
   // 只管仍然有效的申請：被駁回的那一列留著當紀錄，但不可以佔住時段讓人無法重新申請。
   uniqueIndex("idx_hr_overtime_unique_request").on(table.employmentId, table.requestedStart, table.requestedEnd).where(sql`${table.status} IN ('draft', 'pending', 'approved')`),
   index("idx_hr_overtime_status").on(table.status, table.requestedStart),
