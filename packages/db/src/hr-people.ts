@@ -60,6 +60,18 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
 
 export { write as writeHrMutation };
 
+/**
+ * 審核的寫入被擋下之後，依重讀到的現況講出原因。請假與加班共用，兩邊才不會各自長出不同的分類。
+ *
+ * 寫入被擋的原因不只一種；併成一句的話審核者分不出是該重看內容、還是這筆已經被處理掉，
+ * 只會對著同一個錯一直重按。分不出來的才回原本的錯誤。
+ */
+export function reviewWriteConflict(original: HrError, latest: { status: string; revision: number } | undefined, read: { revision: number }, messages: { gone: string; changed: string }) {
+  if (!latest || latest.status !== "pending") return new HrError(409, messages.gone);
+  if (latest.revision !== read.revision) return new HrError(409, messages.changed);
+  return original;
+}
+
 export async function isHrAdministrator(db: Database, userId: string): Promise<boolean> {
   const [row] = await db.select({ userId: userRoleAssignments.userId }).from(userRoleAssignments)
     .innerJoin(roles, eq(roles.id, userRoleAssignments.roleId))

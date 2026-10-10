@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, useOvertimeBatchSelection } from "@rueisiang/ui";
+import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
 import { Alert, Button, ConfirmDialog, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrLeaveEnd, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type HrOvertimeDay, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
 import { dateBefore, formatHours, taipeiDay, taipeiTimeRange, utcStampDate } from "./format.js";
@@ -183,11 +183,20 @@ function LeaveRequestCard({ item, onEdit, onReapply, onCancel }: { item: LeaveRe
   </article>;
 }
 
-function LeaveReviewDialog({ item, onClose }: { item: LeaveRequest; onClose: () => void }) {
+/**
+ * 逐筆審核對話框。`item` 是開啟當下的快照，`latest` 是最新待審清單裡的同一筆。
+ *
+ * 兩者不同時不自動換內容，只鎖住核准與駁回並請審核者自己載入：自動換會清掉他打到一半的意見，
+ * 也會在處理成功、對話框正在關的那一瞬間把它重新開回來。
+ */
+function LeaveReviewDialog({ item, latest, onReload, onClose }: { item: LeaveRequest; latest: LeaveRequest | undefined; onReload: (latest: LeaveRequest) => void; onClose: () => void }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const review = useHrWrite();
   const closeRequestRef = useRef<(() => void) | null>(null);
+  // 自己剛處理完的那一筆也會從清單消失；那是正在關閉，不是被別人處理掉。
+  const snapshot = review.isSuccess ? "current" : reviewSnapshotState(item.request, latest?.request);
+  const locked = review.isPending || snapshot !== "current";
   async function submit(decision: "approved" | "rejected") {
     if (decision === "rejected" && !comment.trim()) {
       setError("駁回時請填寫審核意見。");
@@ -195,28 +204,34 @@ function LeaveReviewDialog({ item, onClose }: { item: LeaveRequest; onClose: () 
     }
     setError("");
     try {
-      await review.mutateAsync({ path: `/me/leave-requests/${item.request.id}/review`, method: "POST", values: { decision, comment: comment.trim() } });
+      // 帶上畫面上這一版的版本：申請人在這期間改了內容的話，伺服器會擋下來，不會處理審核者沒看過的內容。
+      await review.mutateAsync({ path: `/me/leave-requests/${item.request.id}/review`, method: "POST", values: { decision, comment: comment.trim(), revision: item.request.revision } });
       (closeRequestRef.current ?? onClose)();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "審核失敗，請稍後再試。");
     }
   }
   return <Dialog title="審核請假申請" titleMeta={item.employeeName ?? item.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={review.isPending} actions={<>
-    <Button variant="secondary" disabled={review.isPending} onClick={onClose}>取消</Button>
-    <Button variant="danger" disabled={review.isPending} onClick={() => { void submit("rejected"); }}>駁回</Button>
-    <Button className="hr-action-approve" loading={review.isPending} onClick={() => { void submit("approved"); }}>核准</Button>
+    <Button variant="secondary" disabled={review.isPending} onClick={onClose}>{snapshot === "gone" ? "關閉" : "取消"}</Button>
+    <Button variant="danger" disabled={locked} onClick={() => { void submit("rejected"); }}>駁回</Button>
+    <Button className="hr-action-approve" loading={review.isPending} disabled={locked} onClick={() => { void submit("approved"); }}>核准</Button>
   </>}>
     <div className="hr-form-request-summary"><dl><dt>請假期間</dt><dd>{leavePeriod(item)}</dd><dt>假別</dt><dd>{item.request.leaveType}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
-    {error ? <Alert tone="danger">{error}</Alert> : null}
+    {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : error ? <Alert tone="danger">{error}</Alert> : null}
+    {/* 打到一半的審核意見留著：只換上面的申請內容。 */}
+    {snapshot === "changed" && latest ? <Button variant="secondary" className="hr-action-update hr-review-reload" onClick={() => { setError(""); onReload(latest); }}>載入最新內容</Button> : null}
   </Dialog>;
 }
 
-function OvertimeReviewDialog({ item, onClose }: { item: OvertimeRequest; onClose: () => void }) {
+function OvertimeReviewDialog({ item, latest, onReload, onClose }: { item: OvertimeRequest; latest: OvertimeRequest | undefined; onReload: (latest: OvertimeRequest) => void; onClose: () => void }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const review = useHrWrite();
   const closeRequestRef = useRef<(() => void) | null>(null);
+  // 自己剛處理完的那一筆也會從清單消失；那是正在關閉，不是被別人處理掉。
+  const snapshot = review.isSuccess ? "current" : reviewSnapshotState(item.request, latest?.request);
+  const locked = review.isPending || snapshot !== "current";
   async function submit(decision: "approved" | "rejected") {
     if (decision === "rejected" && !comment.trim()) {
       setError("駁回時請填寫審核意見。");
@@ -224,7 +239,7 @@ function OvertimeReviewDialog({ item, onClose }: { item: OvertimeRequest; onClos
     }
     setError("");
     try {
-      // 帶上對話框開啟時的版本：申請人在這期間改了時數的話，伺服器會擋下來，不會核准審核者沒看過的內容。
+      // 帶上畫面上這一版的版本：申請人在這期間改了內容的話，伺服器會擋下來，不會處理審核者沒看過的內容。
       await review.mutateAsync({ path: `/me/overtime/${item.request.id}/review`, method: "POST", values: { decision, comment: comment.trim(), revision: item.request.revision } });
       (closeRequestRef.current ?? onClose)();
     } catch (cause) {
@@ -232,13 +247,15 @@ function OvertimeReviewDialog({ item, onClose }: { item: OvertimeRequest; onClos
     }
   }
   return <Dialog title="審核加班申請" titleMeta={item.employeeName ?? item.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={review.isPending} actions={<>
-    <Button variant="secondary" disabled={review.isPending} onClick={onClose}>取消</Button>
-    <Button variant="danger" disabled={review.isPending} onClick={() => { void submit("rejected"); }}>駁回</Button>
-    <Button className="hr-action-approve" loading={review.isPending} onClick={() => { void submit("approved"); }}>核准</Button>
+    <Button variant="secondary" disabled={review.isPending} onClick={onClose}>{snapshot === "gone" ? "關閉" : "取消"}</Button>
+    <Button variant="danger" disabled={locked} onClick={() => { void submit("rejected"); }}>駁回</Button>
+    <Button className="hr-action-approve" loading={review.isPending} disabled={locked} onClick={() => { void submit("approved"); }}>核准</Button>
   </>}>
     <div className="hr-form-request-summary"><dl><dt>加班期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算方式</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
-    {error ? <Alert tone="danger">{error}</Alert> : null}
+    {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : error ? <Alert tone="danger">{error}</Alert> : null}
+    {/* 打到一半的審核意見留著：只換上面的申請內容。 */}
+    {snapshot === "changed" && latest ? <Button variant="secondary" className="hr-action-update hr-review-reload" onClick={() => { setError(""); onReload(latest); }}>載入最新內容</Button> : null}
   </Dialog>;
 }
 
@@ -539,8 +556,8 @@ export function HrForms() {
       {hasMore ? <div ref={sentinelRef} className="hr-form-load-sentinel" aria-live="polite">載入更多申請…</div> : activeCount > 0 ? <div className="hr-form-list-end">已顯示全部申請</div> : null}
     </Panel>
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
-    {reviewingLeave ? <LeaveReviewDialog item={reviewingLeave} onClose={() => setReviewingLeave(null)} /> : null}
-    {reviewingOvertime ? <OvertimeReviewDialog item={reviewingOvertime} onClose={() => setReviewingOvertime(null)} /> : null}
+    {reviewingLeave ? <LeaveReviewDialog item={reviewingLeave} latest={leave.data?.reviewRequests.find((item) => item.request.id === reviewingLeave.request.id)} onReload={setReviewingLeave} onClose={() => setReviewingLeave(null)} /> : null}
+    {reviewingOvertime ? <OvertimeReviewDialog item={reviewingOvertime} latest={overtime.data?.reviewRequests.find((item) => item.request.id === reviewingOvertime.request.id)} onReload={setReviewingOvertime} onClose={() => setReviewingOvertime(null)} /> : null}
     {approvingBatch ? <OvertimeBatchApproveDialog batchId={approvingBatch.batchId} {...batchDialogItems(overtime.data?.reviewRequests ?? [], approvingBatch)} onClose={() => setApprovingBatch(null)} /> : null}
     {cancelling ? <OvertimeCancelDialog item={cancelling} onClose={() => setCancelling(null)} /> : null}
     {cancellingLeave ? <LeaveCancelDialog item={cancellingLeave} onClose={() => setCancellingLeave(null)} /> : null}
