@@ -558,6 +558,40 @@ export async function cancelHrOvertimeRequests(db: Database, ids: string[], acto
   return { ids, count: ids.length };
 }
 
+/**
+ * 一次核准同一批裡所有還在待審的加班。只有核准：駁回每筆要各自的理由，仍然逐筆處理。
+ * 整批全有或全無——任何一筆在送出後被改掉或審掉，整個 D1 batch 一起退回，審核者重新整理後再決定。
+ */
+export async function approveHrOvertimeBatch(db: Database, batchId: string, comment: string, actor: HrActor, options: { allowAny?: boolean } = {}) {
+  if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
+  const rows = await db.select({ id: hrOvertimeRequests.id, employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
+    .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId))
+    .where(and(eq(hrOvertimeRequests.batchId, batchId), eq(hrOvertimeRequests.status, "pending"), options.allowAny ? undefined : eq(hrOvertimeRequests.approverUserId, actor.id)))
+    .orderBy(asc(hrOvertimeRequests.requestedStart));
+  if (!rows.length) throw new HrError(404, "找不到指定給你的待審加班申請，這一批可能已經處理完了。 ");
+  const employeeUserId = rows[0]!.employeeUserId;
+  if (!employeeUserId) throw new HrError(404, "找不到指定給你的待審加班申請，這一批可能已經處理完了。 ");
+  if (employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的加班申請。 ");
+  // 與逐筆核准同一組檢查：送出後任職或據點有變動的那幾天不能被整批帶過去。
+  await Promise.all(rows.map(async (row) => {
+    const employmentId = await employmentForInterval(db, employeeUserId, row.requestedStart, row.requestedEnd, row.employmentId);
+    if (employmentId !== row.employmentId) throw new HrError(400, "核定加班實際時段的員工資料不一致。 ");
+    await ensureScope(db, row.employmentId, row.scopeId, row.requestedStart, row.requestedEnd);
+  }));
+
+  const updates = rows.map((row) => sql`UPDATE hr_overtime_requests SET
+    status='approved', actual_start=${row.requestedStart}, actual_end=${row.requestedEnd}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, decision_reason=${comment.trim()}
+    WHERE id=${row.id} AND status='pending' AND ${options.allowAny ? sql`1=1` : sql`approver_user_id=${actor.id}`} AND EXISTS (SELECT 1 FROM hr_employments WHERE id=hr_overtime_requests.employment_id AND employee_user_id <> ${actor.id}) RETURNING id`);
+  const dates = rows.map((row) => taipeiDate(stamp(row.requestedStart))).join("、");
+  const notification = appendHrNotification({
+    userId: employeeUserId, sourceKey: overtimeBatchSourceKey(batchId, "approved"), kind: "request_reviewed", entityKind: "overtime", entityId: batchId,
+    title: "加班申請已核准", body: comment.trim() ? notificationLine(`${dates} 已核准：`, comment.trim()) : `${dates} 已核准。`,
+  });
+  const ids = rows.map((row) => row.id);
+  await writeHrMutation(db, [...updates, notification], ids[0]!, actor, "overtime_requests_reviewed", "這一批加班申請已變更或完成處理，請重新整理後再試。 ", { activity: { payload: { batchId, requestIds: ids }, summary: `整批核准 ${ids.length} 筆加班申請` } });
+  return { ids, status: "approved" as const };
+}
+
 export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval, options: { allowAny?: boolean } = {}) {
   if (!["approved", "rejected", "cancelled"].includes(decision)) throw new HrError(400, "加班審核結果不正確。 ");
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");

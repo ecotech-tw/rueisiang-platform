@@ -19,6 +19,19 @@ export function notificationTarget(notification: NotificationLink) {
 }
 
 /**
+ * 待審加班裡可以一次核准的批次：同一個批次鍵、而且還有兩筆以上待審。
+ * 只剩一筆時逐筆審核就好，不必再多一個入口。
+ */
+export function reviewableOvertimeBatches<T extends { request: { batchId: string | null } }>(items: readonly T[]) {
+  const groups = new Map<string, T[]>();
+  for (const item of items) {
+    if (!item.request.batchId) continue;
+    groups.set(item.request.batchId, [...(groups.get(item.request.batchId) ?? []), item]);
+  }
+  return [...groups.entries()].filter(([, group]) => group.length > 1).map(([batchId, group]) => ({ batchId, items: group }));
+}
+
+/**
  * 申請紀錄是空的時候要說什麼。通知提到的申請「真的不在了」與「還在、只是被搜尋或狀態篩掉」
  * 是兩件事：混在一起的話，使用者改一下狀態篩選就會被告知申請可能已被取消。
  */

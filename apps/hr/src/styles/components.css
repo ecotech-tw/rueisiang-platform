@@ -573,6 +573,13 @@
 .hr-form-request-list { display: grid; gap: 12px; }
 .hr-form-request-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-paper); }
 .hr-form-request-card.review { background: var(--color-canvas); }
+/* 整批核准的入口排在逐筆卡片上面，用成功色的細框跟單筆區分；逐筆卡片還在下面，要駁回個別幾筆走那裡。 */
+.hr-overtime-batch-list { margin-bottom: 12px; }
+.hr-form-request-card.review.batch { box-shadow: 0 0 0 1px --alpha(var(--color-ok) / 28%) inset; background: var(--color-ok-soft); }
+.hr-form-request-card.review.batch p { margin: 0; font-size: 13px; line-height: 1.55; font-variant-numeric: tabular-nums; }
+.hr-overtime-batch-days { display: grid; gap: 6px; max-height: 40vh; margin: 12px 0; padding: 0; overflow-y: auto; list-style: none; font-size: 13px; font-variant-numeric: tabular-nums; }
+.hr-overtime-batch-days li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-radius: 10px; background: var(--color-canvas); }
+.hr-overtime-batch-days li span:last-child { color: var(--color-muted); }
 .hr-form-request-summary { display: grid; gap: 10px; min-width: 0; }
 .hr-form-request-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .hr-form-request-title strong { font-size: 16px; }

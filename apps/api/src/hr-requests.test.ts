@@ -336,6 +336,41 @@ describe("HR 申請中心", () => {
     expect(inbox.unreadCount).toBe(1);
   });
 
+  it("審核者可以一次核准整批待審加班：全部核准、申請人只收到一行通知", async () => {
+    await assignEmployeeSupervisor();
+    const created = await request("/hr/me/overtime/batch", "POST", { settlementKind: "pay", reason: "月底補登", entries: [6, 7, 8, 9].map((day) => ({ requestedStart: `2026-01-0${day}T18:00`, requestedEnd: `2026-01-0${day}T19:00` })) }, employeeCookie);
+    const { ids } = await created.json() as { ids: string[] };
+    const batchId = ((await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json()) as { notifications: Array<{ entityId: string }> }).notifications[0]!.entityId;
+    const approve = (cookie: string, comment = "") => request(`/hr/me/overtime/batches/${batchId}/approve`, "POST", { comment }, cookie);
+
+    // 申請人自己不能核准自己的批次。
+    expect((await approve(employeeCookie)).status).toBe(404);
+
+    // 先逐筆駁回一天、核准一天，剩下兩天整批核准：只動還在待審的那兩筆。
+    expect((await request(`/hr/me/overtime/${ids[0]}/review`, "POST", { decision: "rejected", comment: "這天沒有加班紀錄" }, adminCookie)).status).toBe(200);
+    expect((await request(`/hr/me/overtime/${ids[1]}/review`, "POST", { decision: "approved", comment: "" }, adminCookie)).status).toBe(200);
+    const approved = await approve(adminCookie, "辛苦了");
+    expect(approved.status, await approved.clone().text()).toBe(200);
+    expect(await approved.json()).toEqual({ ids: [ids[2], ids[3]], status: "approved" });
+
+    const mine = await (await request("/hr/me/overtime", "GET", undefined, employeeCookie)).json() as { requests: Array<{ request: { id: string; status: string; actualStart: string | null; decisionReason: string } }> };
+    const byId = new Map(mine.requests.map((item) => [item.request.id, item.request]));
+    expect(byId.get(ids[0]!)?.status).toBe("rejected");
+    expect([ids[1], ids[2], ids[3]].every((id) => byId.get(id!)?.status === "approved" && byId.get(id!)?.actualStart)).toBe(true);
+    expect(byId.get(ids[2]!)?.decisionReason).toBe("辛苦了");
+
+    const notices = await (await request("/hr/me/notifications", "GET", undefined, employeeCookie)).json() as { notifications: Array<{ title: string; body: string; entityId: string }> };
+    const approvedNotice = notices.notifications.filter((item) => item.title === "加班申請已核准");
+    expect(approvedNotice).toHaveLength(1);
+    // 逐筆核准的那一天一行，整批核准的兩天合成一行。
+    expect(approvedNotice[0]).toMatchObject({ entityId: batchId, body: "2026-01-07 已核准。\n2026-01-08、2026-01-09 已核准：辛苦了" });
+
+    // 整批都處理完之後再按一次：沒有東西可核准。
+    expect((await approve(adminCookie)).status).toBe(404);
+    expect((await request("/hr/me/overtime/batches/not-a-batch/approve", "POST", { comment: "" }, adminCookie)).status).toBe(404);
+    expect((await (await request("/hr/me/overtime", "GET", undefined, adminCookie)).json() as { reviewRequests: unknown[] }).reviewRequests).toHaveLength(0);
+  });
+
   it("單筆申請與後台代登不帶批次鍵，通知維持一筆一則", async () => {
     await assignEmployeeSupervisor();
     const single = await request("/hr/me/overtime", "POST", { requestedStart: "2026-01-20T18:00", requestedEnd: "2026-01-20T19:00", settlementKind: "pay", reason: "" }, employeeCookie);

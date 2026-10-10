@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { emptyRecordsMessage, notificationTarget } from "./notification-link.js";
+import { emptyRecordsMessage, notificationTarget, reviewableOvertimeBatches } from "./notification-link.js";
 
 describe("通知導頁", () => {
   it("送出通知帶審核者去待審清單：單筆用 review，整批用 reviewBatch", () => {
@@ -13,6 +13,16 @@ describe("通知導頁", () => {
     const batch = notificationTarget({ kind: "request_reviewed", entityKind: "overtime", entityScope: "batch", entityId: "batch-1" });
     expect(batch).toBe("/forms?tab=overtime&status=all&batch=batch-1");
     for (const target of [single, batch]) expect(new URL(target, "https://hr.test").searchParams.has("search")).toBe(false);
+  });
+});
+
+describe("可以整批核准的待審加班", () => {
+  const item = (id: string, batchId: string | null) => ({ request: { id, batchId } });
+
+  it("同一個批次鍵還有兩筆以上待審才成一批；單筆申請與只剩一筆的批次不列", () => {
+    const batches = reviewableOvertimeBatches([item("a", "batch-1"), item("b", null), item("c", "batch-1"), item("d", "batch-2"), item("e", "batch-3"), item("f", "batch-3")]);
+    expect(batches.map((batch) => [batch.batchId, batch.items.map((entry) => entry.request.id)])).toEqual([["batch-1", ["a", "c"]], ["batch-3", ["e", "f"]]]);
+    expect(reviewableOvertimeBatches([item("a", null), item("b", "batch-1")])).toEqual([]);
   });
 });
 

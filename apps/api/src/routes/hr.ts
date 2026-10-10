@@ -13,7 +13,7 @@ import {
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_ATTENDANCE_STATUSES, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis, type HrScheduleAttendanceStatus,
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
-  cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, MAX_OVERTIME_CANCELLATION_ENTRIES, reviewHrOvertimeRequest, updateHrOvertimeRequest,
+  approveHrOvertimeBatch, cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, MAX_OVERTIME_CANCELLATION_ENTRIES, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
   calculateHrLeaveDuration, calculateHrLeaveEnd, cancelHrLeaveRequest, createHrLeaveRequest, getHrSelfLeaveMonths, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfAnnualLeave, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
@@ -746,6 +746,11 @@ export const hr = new Hono<AppEnv>()
   })
   .patch("/me/overtime/:id", async (c) => c.json(await updateHrOvertimeRequest(c.get("db"), c.req.param("id"), overtimeInput(await body(c), c.get("user").id), c.get("user"))))
   .post("/me/overtime/:id/cancel", async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"))))
+  .post("/me/overtime/batches/:batchId/approve", async (c) => {
+    const input = await body(c);
+    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    return c.json(await approveHrOvertimeBatch(c.get("db"), c.req.param("batchId"), comment, c.get("user"), { allowAny: can(c.get("user"), "hr:request:review") }));
+  })
   .post("/me/overtime/:id/review", async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
