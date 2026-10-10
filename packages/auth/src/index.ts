@@ -39,6 +39,7 @@ export {
 export { clearCookie, readCookie, serializeCookie, type CookieOptions } from "./cookies.js";
 
 export { signPayload, verifyPayload, type Expiring } from "./signed.js";
+export { signHrToolToken, verifyHrToolToken, HR_TOOL_TOKEN_TTL_SECONDS, type HrToolContext, type HrToolIdentity } from "./hr-tool-token.js";
 
 export {
   buildAuthorizeUrl,

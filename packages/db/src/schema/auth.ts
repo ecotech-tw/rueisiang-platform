@@ -100,6 +100,8 @@ export const authLineAccountLinks = sqliteTable("auth_line_account_links", {
   userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
   channelId: text("channel_id").notNull(),
   lineUserId: text("line_user_id").notNull(),
+  /** 每次建立或替換綁定旋轉；同秒解除再綁也不能讓舊授權復活。 */
+  linkVersion: text("link_version").notNull().default("legacy"),
   linkedAt: text("linked_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_auth_line_account_links_identity").on(table.channelId, table.lineUserId),

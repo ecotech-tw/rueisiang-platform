@@ -27,6 +27,7 @@ export interface AssistantTool {
   label: string;
   description: string;
   surfaces: Array<"sandbox" | "line" | "mcp">;
+  lineSourceTypes?: AssistantLineSourceType[];
   requiredPermissions: string[];
   status: "enabled" | "development" | "disabled";
 }

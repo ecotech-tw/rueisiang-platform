@@ -1,7 +1,7 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { ASSISTANT_REPORT_TOOL_ROUTING } from "@rueisiang/assistant";
 import { CRM_SEARCH_CUSTOMERS_TOOL_KEY, PLATFORM_TOOL_MAP } from "@rueisiang/tools";
-import { appendAssistantSandboxMessage, chunks, createDatabase, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
+import { appendAssistantSandboxMessage, chunks, createDatabase, ensureAssistantDefaults, ensureAssistantLineChannel, linkLineAccount, syncSystemRoles, updateAssistantSandboxContext } from "@rueisiang/db";
 import {
   activityEvents,
   assistantConfigs,
@@ -9,6 +9,9 @@ import {
   assistantLineGroups,
   assistantLineMessages,
   assistantSandboxMessages,
+  hrEmployments,
+  hrLeaveRequests,
+  hrLeaveTypes,
   crmCustomerTags,
   crmTags,
   crmCustomers,
@@ -302,6 +305,14 @@ class TestAssistantAgentNamespace {
     ).get() as { model?: string } | undefined)?.model;
   }
 
+  runStorage(name: string, runId: string) {
+    const sqlite = this.agents.get(name)!.sqlite;
+    return {
+      messages: sqlite.prepare("SELECT payload FROM assistant_agent_messages WHERE run_id=?").all(runId),
+      run: sqlite.prepare("SELECT status, response_json FROM assistant_agent_runs WHERE run_id=?").get(runId),
+    };
+  }
+
   close(): void {
     for (const entry of this.agents.values()) entry.sqlite.close();
     this.agents.clear();
@@ -397,10 +408,14 @@ describe("只有 LINE 權限的人", () => {
     const body = await response.json() as { tools: Array<{ key: string; surfaces: string[] }>; channelTools: string[] };
     expect(body.tools.length).toBeGreaterThan(0);
     expect(body.tools.every((tool) => tool.surfaces.includes("line"))).toBe(true);
+    expect(body.tools.find((tool) => tool.key === "hr_authorize")).toMatchObject({ lineSourceTypes: ["user"] });
     expect(body.channelTools.sort()).toEqual([
       "crm_get_customer",
       "crm_get_orders",
       "crm_search_customers",
+      "hr_authorize",
+      "hr_get_my_annual_leave",
+      "hr_get_my_leave_requests",
       "list_items",
       "list_report_scopes",
       "query_payout_report",
@@ -467,6 +482,16 @@ describe("LINE 群組的開通開關", () => {
     const body = await response.json() as { group: { enabled: boolean; displayName: string } };
     expect(body.group.enabled).toBe(true);
     expect(body.group.displayName).toBe("");
+  });
+
+  it("群組不可把 HR 本人工具加入自訂清單", async () => {
+    const id = await seedAdminAndGroup();
+    const response = await as("admin", "admin@ecotech.tw", `/api/assistant/line/groups/${id}/tools`, {
+      method: "PUT",
+      body: JSON.stringify({ toolMode: "custom", toolKeys: ["hr_authorize"] }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "群組與多人聊天室不得授權 HR 本人工具。" });
   });
 
   it("真的要改名時，空字串仍然擋下來", async () => {
@@ -757,6 +782,53 @@ describe("AI 助理 Sandbox", () => {
     const contents = JSON.stringify(requestBody?.contents);
     expect(contents).toContain("之前的問題");
     expect(contents.match(/這次問題/g)).toHaveLength(1);
+  });
+
+  it("HR 本人回答不進 Pi transcript 或 completed cache，後續輪次不沿用敏感結果", async () => {
+    const keys = ["hr_authorize", "hr_get_my_leave_requests"];
+    await seedUser("hr-self", "hr-self@example.test", "role-admin");
+    await db().insert(hrEmployments).values({ id: "hr-self-employment", employeeUserId: "hr-self", employeeNumber: "HR-SELF" });
+    await db().insert(hrLeaveTypes).values({ id: "hr-self-type", name: "測試假", leaveKind: "other", createdBy: "hr-self" });
+    await db().insert(hrLeaveRequests).values({
+      id: "sensitive-leave-id", employmentId: "hr-self-employment", leaveTypeId: "hr-self-type", leaveType: "測試假",
+      status: "pending", startsAt: "2026-01-01 01:00:00", endsAt: "2026-01-01 09:00:00",
+      startsOn: "2026-01-01", endsOn: "2026-01-02", durationMinutes: 480, createdBy: "hr-self",
+    });
+    await ensureAssistantDefaults(db(), { assistantKey: "hr-private", defaultModel: "gemini-3.6-flash", defaultPrompt: "測試", toolKeys: keys });
+    const channel = await ensureAssistantLineChannel(db(), { assistantKey: "hr-private", defaultToolKeys: keys });
+    d1.sqlite.prepare("UPDATE assistant_line_channels SET enabled=1 WHERE channel_key=?").run(channel.channelKey);
+    await db().insert(assistantLineGroups).values({ id: "hr-private-chat", channelKey: channel.channelKey, lineGroupId: "U-private", sourceType: "user", enabled: true });
+    await linkLineAccount(db(), "hr-self", { channelId: "login-channel", lineUserId: "U-private" });
+    env.LINE_LIFF_CHANNEL_ID = "login-channel";
+    env.HR_ASSISTANT_CHANNEL_KEY = channel.channelKey;
+    const name = `hr-private:${channel.channelKey}:user:U-private`;
+    const agent = assistantAgents!.getByName(name);
+    const input = {
+      assistantKey: "hr-private", channelKey: channel.channelKey, groupRowId: "hr-private-chat", lineGroupId: "U-private",
+      sourceType: "user", contextGeneration: "", webhookEventId: "hr-private-event", runId: "hr-private-run",
+      model: "gemini-3.6-flash", systemPrompt: "本人查詢", userText: "查我的待審假單", toolKeys: keys,
+    };
+    let stage = 0;
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(String(init?.body));
+      const parts = stage++ === 0
+        ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 2
+          ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }]
+          : [{ text: "敏感本人假單回答" }];
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const response = await agent.fetch(new Request("https://assistant-agent.internal/run", { method: "POST", body: JSON.stringify(input) }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ privateHrRun: true, result: { text: "敏感本人假單回答" } });
+    expect(requests.at(-1)).toContain("sensitive-leave-id");
+    expect(requests.join("")).not.toMatch(/linkVersion|expiresAt|U-private/);
+    expect(assistantAgents!.runStorage(name, input.runId)).toEqual({ messages: [], run: { status: "completed", response_json: "" } });
+
+    const next = await agent.fetch(new Request("https://assistant-agent.internal/run", { method: "POST", body: JSON.stringify({ ...input, runId: "hr-next-run", webhookEventId: "hr-next-event", userText: "你好", toolKeys: [] }) }));
+    expect(next.status).toBe(200);
+    expect(requests.at(-1)).not.toMatch(/sensitive-leave-id|敏感本人假單回答|查我的待審假單/);
   });
 
   it("Sandbox bootstrap 會略過既有摘要涵蓋的訊息，並由背景 compact 不阻塞主回答", async () => {

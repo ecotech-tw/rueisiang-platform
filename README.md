@@ -159,6 +159,10 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 - [ ] 有商家自行收款（貨到付款）的期間還沒遇過真檔案。parser 會擋下「拆分表少了那些
       訂單」並要求人工確認，等第一份出現再決定怎麼計入。
 
+### 小香：HR 本人查詢上線開通
+
+- [ ] 確認 LINE Login／LIFF 與小香 Messaging API channel 位於同一 LINE Provider；在 Cloudflare 設定 `HR_ASSISTANT_CHANNEL_KEY` 為小香 LINE channel key，並以 LINE 私訊驗證本人假單、當期特休、解除綁定及群組不可查詢。
+
 ### 小香：MCP tools
 
 `mcp` 目前只是 tool registry 上的 surface 標記，除了唯讀的

@@ -294,7 +294,7 @@ export function LineSettings() {
                   <LineGroupRow
                     key={group.id}
                     group={group}
-                    grantedCount={data.channelTools.length}
+                    grantedCount={lineTools.filter((tool) => data.channelTools.includes(tool.key) && (!tool.lineSourceTypes || tool.lineSourceTypes.includes(group.sourceType))).length}
                     onSave={saveGroup.mutate}
                     onOpenTools={() => setGroupToolsFor(group)}
                     saving={saveGroup.isPending && saveGroup.variables?.id === group.id}
@@ -366,7 +366,7 @@ export function LineSettings() {
       {groupToolsFor ? (
         <GroupToolsDialog
           group={groupToolsFor}
-          tools={lineTools.filter((tool) => data.channelTools.includes(tool.key))}
+          tools={lineTools.filter((tool) => data.channelTools.includes(tool.key) && (!tool.lineSourceTypes || tool.lineSourceTypes.includes(groupToolsFor.sourceType)))}
           onClose={() => setGroupToolsFor(null)}
         />
       ) : null}

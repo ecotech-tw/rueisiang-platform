@@ -18,6 +18,14 @@ export async function findUserByLineIdentity(db: Database, identity: LineAccount
   return link?.userId ?? null;
 }
 
+export async function findLineAccountBinding(db: Database, identity: LineAccountIdentity) {
+  const [link] = await db.select({ userId: authLineAccountLinks.userId, linkVersion: authLineAccountLinks.linkVersion })
+    .from(authLineAccountLinks)
+    .where(and(eq(authLineAccountLinks.channelId, identity.channelId), eq(authLineAccountLinks.lineUserId, identity.lineUserId)))
+    .limit(1);
+  return link ?? null;
+}
+
 export async function getLineAccountLink(db: Database, userId: string) {
   const [link] = await db.select({ channelId: authLineAccountLinks.channelId, linkedAt: authLineAccountLinks.linkedAt })
     .from(authLineAccountLinks)
@@ -32,6 +40,7 @@ export async function linkLineAccount(db: Database, userId: string, identity: Li
     userId,
     channelId: identity.channelId,
     lineUserId: identity.lineUserId,
+    linkVersion: crypto.randomUUID(),
   }).onConflictDoNothing().returning({ userId: authLineAccountLinks.userId });
   if (inserted.length) return "created";
 
@@ -71,7 +80,7 @@ export async function replaceLineAccount(db: Database, userId: string, identity:
     ));
   const [updated] = await db.batch([
     db.update(authLineAccountLinks)
-      .set({ channelId: identity.channelId, lineUserId: identity.lineUserId, linkedAt: sql`CURRENT_TIMESTAMP` })
+      .set({ channelId: identity.channelId, lineUserId: identity.lineUserId, linkVersion: crypto.randomUUID(), linkedAt: sql`CURRENT_TIMESTAMP` })
       .where(and(eq(authLineAccountLinks.userId, userId), notExists(conflictingIdentity)))
       .returning({ userId: authLineAccountLinks.userId }),
     lineSessionRevocation(db, userId, sql`changes() = 1`),

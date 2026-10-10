@@ -10,6 +10,7 @@ export const ANNUAL_LEAVE_HALF_HOUR_MINUTES = 30;
 export const ANNUAL_LEAVE_POLICY_KEY = "annual_leave";
 
 export interface HrAnnualLeaveBackfillOptions {
+  employeeUserId?: string;
   /** 測試與批次回填可固定觀察日；正式呼叫預設採 UTC 日期。 */
   asOfDate?: string;
   createdBy?: string | null;
@@ -326,10 +327,12 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
     periodStart: hrAnnualLeaveEntitlements.periodStart,
     periodEnd: hrAnnualLeaveEntitlements.periodEnd,
     entitledHalfHours: hrAnnualLeaveEntitlements.entitledHalfHours,
+    dailyMinutes: hrAnnualLeavePolicyVersions.dailyMinutes,
     status: hrAnnualLeaveEntitlements.status,
     settledAt: hrAnnualLeaveEntitlements.settledAt,
   }).from(hrAnnualLeaveEntitlements)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
+    .innerJoin(hrAnnualLeavePolicyVersions, eq(hrAnnualLeavePolicyVersions.id, hrAnnualLeaveEntitlements.policyVersionId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(and(
       isNull(hrEmployments.archivedAt),

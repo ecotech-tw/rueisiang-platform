@@ -1,0 +1,1 @@
+ALTER TABLE `auth_line_account_links` ADD `link_version` text DEFAULT 'legacy' NOT NULL;

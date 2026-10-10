@@ -1,3 +1,4 @@
+import type { HrDeliveryAuthorization } from "./assistant-hr.js";
 import type { AssistantRunResult } from "@rueisiang/assistant";
 import type { LineSourceType } from "./line-queue.js";
 
@@ -38,6 +39,9 @@ export interface PiLineAgentRunRequest extends PiLineAgentContext {
 }
 
 export interface PiLineAgentRunResponse {
+  /** HR 回答只在本輪使用，不寫 transcript、完成結果快取或 LINE backup。 */
+  privateHrRun?: boolean;
+  hrAuthorization?: HrDeliveryAuthorization;
   sessionId: string;
   model: string;
   result: AssistantRunResult;

@@ -53,7 +53,9 @@ import {
   runtimeContextInstruction,
   type AssistantRunResult,
 } from "@rueisiang/assistant";
-import { PLATFORM_TOOL_KEYS, toolsForSurface } from "@rueisiang/tools";
+import { PLATFORM_TOOL_KEYS, toolsForSurface, toolKeysForLineSource } from "@rueisiang/tools";
+import { assertHrLineDeliveryAuthorized, HrSelfToolError } from "../assistant-hr.js";
+import type { HrDeliveryAuthorization } from "../assistant-hr.js";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { forgetCatalog } from "../cyberbiz-catalog.js";
@@ -264,6 +266,7 @@ async function deliverLinePush(input: {
   messageId?: string;
   sourceType: "group" | "room" | "user";
   text: string;
+  beforeSend?: () => Promise<void>;
   /** Queue outbox 建立時間；超過 LINE retry-key 的 24 小時 dedupe 保證後不可自動 Push。 */
   queueCreatedAt?: string;
 }): Promise<LinePushOutcome> {
@@ -369,6 +372,7 @@ async function deliverLinePush(input: {
   }
 
   try {
+    await input.beforeSend?.();
     // retry key 與 Queue message 的 runId 相同；consumer 在 LINE 已收件、D1 尚未標 sent 時重試也不會重複計費。
     await pushLineMessage(input.accessToken, input.lineGroupId, input.text, input.runId, lineLogContext);
     await markAssistantLinePushDelivery(input.db, { runId: input.runId, status: "sent" });
@@ -418,6 +422,7 @@ async function deliverLinePush(input: {
       groupId: input.lineGroupId,
       error: assistantErrorDetails(error),
     });
+    if (error instanceof HrSelfToolError) throw error;
     return "failed";
   }
 }
@@ -463,6 +468,12 @@ async function runLineAssistant(input: {
   let replyFailureKind: "permanent" | "ambiguous" | undefined;
   let replyAttempt: Promise<boolean> | undefined;
   let resultForBackup: AssistantRunResult | undefined;
+  let privateHrRun = false;
+  let hrAuthorization: HrDeliveryAuthorization | undefined;
+  let hrToolKeys: string[] = [];
+  const checkHrDelivery = async () => {
+    if (hrAuthorization) await assertHrLineDeliveryAuthorized(input.db, input.env, input, hrAuthorization, hrToolKeys);
+  };
 
   const sendReplyOnce = async (text: string, reason: "final" | "deadline-fallback" | "error"): Promise<boolean> => {
     if (replyKind) return false;
@@ -471,6 +482,7 @@ async function runLineAssistant(input: {
       return false;
     }
     replyAttempt = (async () => {
+      if (reason === "final") await checkHrDelivery();
       try {
         await replyLineMessage(input.accessToken, input.replyToken, text, trace);
         replyKind = reason;
@@ -525,7 +537,7 @@ async function runLineAssistant(input: {
       throw new PiAgentStaleSessionError("這則工作屬於已重設的舊 session，已略過。");
     }
 
-    const [assistantConfig, prompt, allowedToolKeys] = await Promise.all([
+    const [assistantConfig, prompt, grantedToolKeys] = await Promise.all([
       getAssistantConfig(input.db, input.assistantKey),
       getActiveAssistantPrompt(input.db, input.assistantKey),
       resolveLineToolKeys(input.db, {
@@ -534,6 +546,7 @@ async function runLineAssistant(input: {
         toolMode: group.toolMode,
       }),
     ]);
+    const allowedToolKeys = toolKeysForLineSource(grantedToolKeys, input.sourceType);
     const configuredModel = resolvePiAssistantModelId(assistantConfig?.activeModel, defaultModel);
     const fallbackModel = isPiAssistantModel(assistantConfig?.fallbackModel)
       && assistantConfig?.fallbackModel !== configuredModel
@@ -583,9 +596,13 @@ async function runLineAssistant(input: {
       });
       modelId = piResponse.model;
       result = piResponse.result;
+      privateHrRun = piResponse.privateHrRun === true;
+      hrAuthorization = piResponse.hrAuthorization;
+      hrToolKeys = result.toolCalls.map((call) => call.toolKey);
     }
+    await checkHrDelivery();
     resultForBackup = result;
-    if (result.thoughts) {
+    if (result.thoughts && !privateHrRun) {
       assistantLog("info", "line.thoughts.recorded", {
         ...trace,
         thoughts: result.thoughts.slice(0, 12_000),
@@ -609,7 +626,7 @@ async function runLineAssistant(input: {
 
     if (!finalReplySent) {
       try {
-        await recordAssistantLineReplyBackup(input.db, {
+        if (!privateHrRun) await recordAssistantLineReplyBackup(input.db, {
           runId,
           channelKey: input.channelKey,
           groupId: input.groupRowId,
@@ -626,6 +643,7 @@ async function runLineAssistant(input: {
       }
 
       if (replyFailureKind !== "ambiguous") {
+        await checkHrDelivery();
         await deliverLinePush({
           db: input.db,
           accessToken: input.accessToken,
@@ -637,6 +655,7 @@ async function runLineAssistant(input: {
           messageId: input.messageId,
           sourceType: input.sourceType,
           text: result.text,
+          ...(privateHrRun ? { beforeSend: checkHrDelivery } : {}),
           queueCreatedAt: input.queueCreatedAt,
         });
       } else {
@@ -694,7 +713,7 @@ async function runLineAssistant(input: {
     } catch (recordError) {
       assistantLog("error", "line.run.record_failed", { ...trace, error: assistantErrorDetails(recordError) });
     }
-    if (resultForBackup && replyKind !== "final") {
+    if (resultForBackup && !privateHrRun && replyKind !== "final") {
       try {
         await recordAssistantLineReplyBackup(input.db, {
           runId,
@@ -721,6 +740,8 @@ async function runLineAssistant(input: {
       const errorReplySent = await sendReplyOnce("小香目前無法完成回答，請稍後再試。", "error");
       if (errorReplySent) return;
     }
+    // 授權撤銷／過期不能重試送出這份已產生的 HR 回答。
+    if (error instanceof HrSelfToolError) return;
     throw error;
   } finally {
     if (fallbackTimer) clearTimeout(fallbackTimer);

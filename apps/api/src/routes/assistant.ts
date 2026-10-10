@@ -12,6 +12,7 @@ import {
   PLATFORM_TOOL_DEFINITIONS,
   PLATFORM_TOOL_KEYS,
   PLATFORM_TOOL_MAP,
+  toolKeysForLineSource,
   type PlatformToolDefinition,
 } from "@rueisiang/tools";
 import {
@@ -300,6 +301,7 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
         label: tool.label,
         description: tool.description,
         surfaces: tool.surfaces,
+        lineSourceTypes: tool.lineSourceTypes,
         requiredPermissions: tool.requiredPermissions ?? [],
         status: configuredStatus && validToolStatus(configuredStatus) ? configuredStatus : tool.defaultStatus,
       };
@@ -314,7 +316,7 @@ async function lineConfig(c: { env: AppEnv["Bindings"]; req: { url: string }; ge
       pictureUrl: group.pictureUrl,
       enabled: group.enabled,
       toolMode: group.toolMode,
-      tools: chatToolKeys.get(group.id) ?? [],
+      tools: toolKeysForLineSource(chatToolKeys.get(group.id) ?? [], isAssistantLineSourceType(group.sourceType) ? group.sourceType : "group"),
       discoveredAt: group.discoveredAt,
       updatedAt: group.updatedAt,
     })),
@@ -747,9 +749,14 @@ export const assistant = new Hono<AppEnv>()
     const existing = await findAssistantLineGroup(c.get("db"), { channelKey: channel.channelKey, id });
     if (!existing) throw new HTTPException(404, { message: "找不到這個 LINE 對話。" });
 
+    const toolKeys = input.toolMode === "custom"
+      ? (input.toolKeys as unknown[]).filter((key): key is string => typeof key === "string") : [];
+    const sourceType = isAssistantLineSourceType(existing.sourceType) ? existing.sourceType : "group";
+    if (toolKeys.some((key) => LINE_TOOL_KEYS.has(key) && !toolKeysForLineSource([key], sourceType).includes(key))) {
+      throw new HTTPException(400, { message: "群組與多人聊天室不得授權 HR 本人工具。" });
+    }
     await setAssistantGroupToolMode(c.get("db"), { channelKey: channel.channelKey, id, toolMode: input.toolMode });
     if (input.toolMode === "custom") {
-      const toolKeys = (input.toolKeys as unknown[]).filter((key): key is string => typeof key === "string");
       await setAssistantChatTools(c.get("db"), {
         channelKey: channel.channelKey,
         groupId: id,
