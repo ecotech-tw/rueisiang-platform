@@ -50,7 +50,15 @@ export const hrCalendarDayScopes = sqliteTable("hr_calendar_day_scopes", {
   index("idx_hr_calendar_day_scopes_scope").on(table.scopeId, table.date),
 ]);
 
-/** 班次先做成版本；已發布的班表引用固定版本並保存工時快照，不會因為改名稱或工時而改歷史。 */
+/** 據點負責人獨立於全平台 RBAC；空值保留 revision，避免撤銷後重指派的 ABA 衝突。 */
+export const hrScheduleManagers = sqliteTable("hr_schedule_managers", {
+  scopeId: text("scope_id").primaryKey().references(() => scopes.id, { onDelete: "restrict" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "restrict" }),
+  updatedBy: text("updated_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  ...timestamps(),
+}, (table) => [index("idx_hr_schedule_managers_user").on(table.userId)]);
+
+/** 已發布班表保存工時快照，不會因班別設定改變而自動改寫歷史。 */
 export const hrShiftTemplates = sqliteTable("hr_shift_templates", {
   id: text("id").primaryKey(),
   code: text("code").notNull(),

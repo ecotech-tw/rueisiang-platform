@@ -117,24 +117,6 @@ async function latestScheduleVersion(db: Database, period: { start: string; end:
   return version;
 }
 
-async function getOrCreateScheduleVersion(db: Database, period: { start: string; end: string }, actor: HrActor) {
-  const current = await latestScheduleVersion(db, period);
-  if (current) return current;
-  const id = crypto.randomUUID();
-  const [created] = await db.insert(hrScheduleVersions).values({
-    id,
-    periodStart: period.start,
-    periodEnd: period.end,
-    versionNumber: 1,
-    status: "published",
-    submittedBy: actor.id,
-    approvedBy: actor.id,
-    decisionReason: "直接發布",
-  }).returning();
-  if (!created) throw new HrError(409, "排班版本建立失敗，請重新整理。 ");
-  return created;
-}
-
 async function runRawBatch(db: Database, statements: Array<{ sql: string; params: unknown[] }>, expectedUpdate: boolean, conflictMessage = "排班已被其他人修改或目前已鎖定，請重新整理。 ") {
   const prepared = statements.map((compiled) => db.$client.prepare(compiled.sql).bind(...compiled.params));
   const results = await db.$client.batch(prepared);
@@ -147,46 +129,64 @@ function compileStatements(statements: SQL[]) {
   return statements.map((statement) => dialect.sqlToQuery(statement));
 }
 
-async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor) {
+async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor, removed?: { employee: string[]; worker: string[]; scheduledOnlyIds?: string[] }, authorizedScopeId?: string, retainedGroups: Array<{ scopeId: string; shiftTemplateId: string; workDate: string; shiftGroupId: string | null }> = [], newPeriod?: { start: string; end: string }) {
   const nextRevision = version.revision + 1;
-  const guard = sql`EXISTS (SELECT 1 FROM hr_schedule_versions WHERE id=${version.id} AND revision=${nextRevision} AND locked_at IS NULL)`;
+  const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: "schedule_saved", summary: "排班已發布", actor });
+  // revision+1 可能是別人的更新；以本次獨有的稽核列守衛，CAS 失敗時後續 SQL 才會全部略過。
+  const guard = sql`EXISTS (SELECT 1 FROM activity_events WHERE id=${row.id})`;
   // 同班需求人力會決定分攤單位池，所以所有指派必須共用同一群組。
   // group id 不直接暴露給輸入端，由發布動作一次建立，避免前端偽造跨月或跨班別的群組。
-  const groupIds = new Map<string, string>();
+  const groupIds = new Map(retainedGroups.filter((entry) => entry.shiftGroupId).map((entry) => [`${entry.scopeId}:${entry.shiftTemplateId}:${entry.workDate}`, entry.shiftGroupId!]));
   const groupIdFor = (entry: EnrichedScheduleEntry) => {
-    const key = `${entry.scopeId}:${entry.shiftVersionId}:${entry.workDate}`;
+    const key = `${entry.scopeId}:${entry.shiftTemplateId}:${entry.workDate}`;
     const existing = groupIds.get(key);
     if (existing) return existing;
     const id = crypto.randomUUID();
     groupIds.set(key, id);
     return id;
   };
+  const personIds = JSON.stringify(entries.map((entry) => entry.personKind === "employee" ? entry.employmentId : entry.workerId));
+  const scopeIds = JSON.stringify([...new Set(entries.map((entry) => entry.scopeId))]);
+  const eligible = sql`NOT EXISTS (SELECT 1 FROM hr_employments WHERE id IN (SELECT value FROM json_each(${personIds})) AND archived_at IS NOT NULL)
+      AND NOT EXISTS (SELECT 1 FROM scopes WHERE id IN (SELECT value FROM json_each(${scopeIds})) AND (active<>1 OR scope_kind<>'store'))
+      ${removed ? sql`AND NOT EXISTS (SELECT 1 FROM hr_schedule_entries AS entry INNER JOIN hr_employments AS person ON person.id=entry.employment_id WHERE entry.id IN (SELECT value FROM json_each(${JSON.stringify(removed.employee)})) AND person.archived_at IS NOT NULL)
+        AND NOT EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS entry INNER JOIN hr_employments AS person ON person.id=entry.worker_id WHERE entry.id IN (SELECT value FROM json_each(${JSON.stringify(removed.worker)})) AND person.archived_at IS NOT NULL)` : sql``}
+      ${authorizedScopeId ? sql`AND EXISTS (SELECT 1 FROM hr_schedule_managers AS manager INNER JOIN users ON users.id=manager.user_id INNER JOIN hr_employments ON hr_employments.employee_user_id=users.id INNER JOIN scopes ON scopes.id=manager.scope_id WHERE manager.scope_id=${authorizedScopeId} AND manager.user_id=${actor.id} AND users.status='active' AND hr_employments.archived_at IS NULL AND scopes.active=1 AND scopes.scope_kind='store')` : sql``}
+      ${removed?.scheduledOnlyIds?.length ? sql`AND NOT EXISTS (SELECT 1 FROM hr_schedule_entries WHERE id IN (SELECT value FROM json_each(${JSON.stringify(removed.scheduledOnlyIds)})) AND attendance_status<>'scheduled')
+        AND NOT EXISTS (SELECT 1 FROM hr_schedule_worker_entries WHERE id IN (SELECT value FROM json_each(${JSON.stringify(removed.scheduledOnlyIds)})) AND attendance_status<>'scheduled')` : sql``}`;
+  // 首次發布也必須同批建立月份；守衛失敗或任何 INSERT 失敗都不能留下空的已發布版本。
+  const writeVersion = newPeriod
+    ? sql`INSERT INTO hr_schedule_versions (id, period_start, period_end, version_number, status, submitted_by, approved_by, decision_reason, revision)
+        SELECT ${version.id}, ${newPeriod.start}, ${newPeriod.end}, 1, 'published', ${actor.id}, ${actor.id}, '直接發布', ${nextRevision}
+        WHERE ${eligible} AND NOT EXISTS (SELECT 1 FROM hr_schedule_versions WHERE period_start=${newPeriod.start} AND period_end=${newPeriod.end} AND status='published')
+        ON CONFLICT DO NOTHING RETURNING id`
+    : sql`UPDATE hr_schedule_versions SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${version.id} AND revision=${version.revision} AND locked_at IS NULL AND ${eligible} RETURNING id`;
   const statements = [
-    sql`UPDATE hr_schedule_versions SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${version.id} AND revision=${version.revision} AND locked_at IS NULL RETURNING id`,
+    writeVersion,
+    sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
+      SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail} WHERE changes()=1`,
     // 已封存員工的排班是歷史快照；只替換仍可編輯的活動員工，避免儲存其他人時連帶刪除歷史。
     sql`DELETE FROM hr_schedule_entries
       WHERE schedule_version_id=${version.id}
         AND EXISTS (SELECT 1 FROM hr_employments AS employment WHERE employment.id=hr_schedule_entries.employment_id AND employment.archived_at IS NULL)
+        ${removed ? sql`AND id IN (SELECT value FROM json_each(${JSON.stringify(removed.employee)}))` : sql``}
         AND ${guard}`,
     // 封存支援人員的班表同樣是歷史薪資來源；保留其既有列，只替換活動支援人員的排班。
     sql`DELETE FROM hr_schedule_worker_entries
       WHERE schedule_version_id=${version.id}
         AND EXISTS (SELECT 1 FROM hr_employments AS worker WHERE worker.id=hr_schedule_worker_entries.worker_id AND worker.archived_at IS NULL)
+        ${removed ? sql`AND id IN (SELECT value FROM json_each(${JSON.stringify(removed.worker)}))` : sql``}
         AND ${guard}`,
-    ...entries.map((entry) => {
-      const shiftGroupId = groupIdFor(entry);
-      return entry.personKind === "employee"
-        ? sql`INSERT INTO hr_schedule_entries (id, schedule_version_id, employment_id, scope_id, shift_version_id, shift_group_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, required_headcount, attendance_status, created_by)
-            SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.employmentId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${shiftGroupId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${entry.standardMinutes}, ${entry.breakMinutes}, ${entry.requiredHeadcount}, ${entry.attendanceStatus}, ${actor.id} WHERE ${guard}`
-        : sql`INSERT INTO hr_schedule_worker_entries (id, schedule_version_id, worker_id, scope_id, shift_version_id, shift_group_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, required_headcount, attendance_status, created_by)
-            SELECT ${crypto.randomUUID()}, ${version.id}, ${entry.workerId!}, ${entry.scopeId}, ${entry.shiftVersionId}, ${shiftGroupId}, ${entry.workDate}, ${entry.startsAt}, ${entry.endsAt}, ${entry.standardMinutes}, ${entry.breakMinutes}, ${entry.requiredHeadcount}, ${entry.attendanceStatus}, ${actor.id} WHERE ${guard}`;
+    ...(["employee", "worker"] as const).map((kind) => {
+      const values = JSON.stringify(entries.filter((entry) => entry.personKind === kind).map((entry) => ({ ...entry, id: crypto.randomUUID(), shiftGroupId: groupIdFor(entry) })));
+      const table = kind === "employee" ? sql`hr_schedule_entries` : sql`hr_schedule_worker_entries`;
+      const personColumn = kind === "employee" ? sql`employment_id` : sql`worker_id`;
+      const personPath = kind === "employee" ? "$.employmentId" : "$.workerId";
+      // JSON 陣列每種人員只需一條 INSERT，避免單月上千筆耗盡 D1 每次請求的查詢額度。
+      return sql`INSERT INTO ${table} (id, schedule_version_id, ${personColumn}, scope_id, shift_version_id, shift_group_id, work_date, starts_at, ends_at, standard_minutes, break_minutes, required_headcount, attendance_status, created_by)
+        SELECT json_extract(value, '$.id'), ${version.id}, json_extract(value, ${personPath}), json_extract(value, '$.scopeId'), json_extract(value, '$.shiftVersionId'), json_extract(value, '$.shiftGroupId'), json_extract(value, '$.workDate'), json_extract(value, '$.startsAt'), json_extract(value, '$.endsAt'), json_extract(value, '$.standardMinutes'), json_extract(value, '$.breakMinutes'), json_extract(value, '$.requiredHeadcount'), json_extract(value, '$.attendanceStatus'), ${actor.id}
+        FROM json_each(${values}) WHERE ${guard}`;
     }),
-    (() => {
-      const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: "schedule_saved", summary: "排班已發布", actor });
-      return sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
-        SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}
-        WHERE ${guard}`;
-    })(),
   ];
   await runRawBatch(db, compileStatements(statements), true);
   return { id: version.id, revision: nextRevision };
@@ -316,14 +316,14 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
   ]);
   const selectedScopeId = scopeId && scopeId !== "all" ? scopeId : undefined;
   const [employeeEntries, workerEntries] = version ? await Promise.all([
-    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployments.employeeNumber, employeeName: hrEmployeeName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleEntries)
+    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployments.employeeNumber, employeeName: hrEmployeeName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name, shiftTemplateId: hrShiftTemplates.id }).from(hrScheduleEntries)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleEntries.scopeId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleEntries.shiftVersionId))
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
       .where(and(eq(hrScheduleEntries.scheduleVersionId, version.id), selectedScopeId ? eq(hrScheduleEntries.scopeId, selectedScopeId) : undefined)),
-    db.select({ entry: hrScheduleWorkerEntries, workerName: hrEmployments.legalName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleWorkerEntries)
+    db.select({ entry: hrScheduleWorkerEntries, workerName: hrEmployments.legalName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name, shiftTemplateId: hrShiftTemplates.id }).from(hrScheduleWorkerEntries)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkerEntries.workerId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleWorkerEntries.scopeId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleWorkerEntries.shiftVersionId))
@@ -345,8 +345,8 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
     employees,
     workers: workerRows,
     entries: [
-      ...employeeEntries.map(({ entry, employeeNumber, employeeName, archivedAt, scopeName, shiftName }) => ({ ...entry, personKind: "employee" as const, employeeNumber, personName: employeeName, archivedAt, scopeName, shiftName })),
-      ...workerEntries.map(({ entry, workerName, archivedAt, scopeName, shiftName }) => ({ ...entry, personKind: "worker" as const, employeeNumber: null, personName: workerName, archivedAt, scopeName, shiftName })),
+      ...employeeEntries.map(({ entry, employeeNumber, employeeName, archivedAt, scopeName, shiftName, shiftTemplateId }) => ({ ...entry, shiftTemplateId, personKind: "employee" as const, workerId: null, employeeNumber, personName: employeeName, archivedAt, scopeName, shiftName })),
+      ...workerEntries.map(({ entry, workerName, archivedAt, scopeName, shiftName, shiftTemplateId }) => ({ ...entry, shiftTemplateId, personKind: "worker" as const, employmentId: null, employeeNumber: null, personName: workerName, archivedAt, scopeName, shiftName })),
     ],
   };
 }
@@ -354,10 +354,61 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
 export async function saveHrSchedule(db: Database, input: SaveHrScheduleInput, actor: HrActor) {
   const period = monthPeriodFromKey(input.periodKey);
   const entries = await validateAndEnrichEntries(db, period, input.entries);
-  let version = input.scheduleVersionId ? (await db.select().from(hrScheduleVersions).where(eq(hrScheduleVersions.id, input.scheduleVersionId)).limit(1))[0] : await getOrCreateScheduleVersion(db, period, actor);
-  if (!version || version.periodStart !== period.start || version.periodEnd !== period.end || version.status !== "published") throw new HrError(404, "找不到指定月份的排班版本。 ");
-  if (input.revision !== undefined && input.revision !== version.revision) throw new HrError(409, "排班已被其他人修改，請重新整理。 ");
-  return saveEntriesAtomically(db, version, entries, actor);
+  const version = input.scheduleVersionId ? (await db.select().from(hrScheduleVersions).where(eq(hrScheduleVersions.id, input.scheduleVersionId)).limit(1))[0] : await latestScheduleVersion(db, period);
+  if (input.scheduleVersionId && !version || version && (version.periodStart !== period.start || version.periodEnd !== period.end || version.status !== "published")) throw new HrError(404, "找不到指定月份的排班版本。 ");
+  if (input.revision !== undefined && input.revision !== (version?.revision ?? 1)) throw new HrError(409, "排班已被其他人修改，請重新整理。 ");
+  return saveEntriesAtomically(db, version ?? { id: crypto.randomUUID(), revision: 1, lockedAt: null }, entries, actor, undefined, undefined, [], version ? undefined : period);
+}
+
+export interface HrScheduleChangesInput {
+  periodKey: string;
+  /** 未建立月份以 0 表示；已建立月份必須提供讀取到的 revision。 */
+  revision: number;
+  entries: ScheduleEntryInput[];
+  removedIds: string[];
+  refreshIds: string[];
+}
+
+export async function saveHrScheduleChanges(db: Database, input: HrScheduleChangesInput, actor: HrActor, authorizedScopeId?: string) {
+  const period = monthPeriodFromKey(input.periodKey);
+  if (!Number.isSafeInteger(input.revision) || input.revision < 0) throw new HrError(400, "排班版本不正確。 ");
+  for (const ids of [input.removedIds, input.refreshIds]) {
+    if (!Array.isArray(ids) || ids.length > 1000 || ids.some((id) => typeof id !== "string" || !id || id.length > 200) || new Set(ids).size !== ids.length) throw new HrError(400, "排班變更清單不正確。 ");
+  }
+  if (input.refreshIds.some((id) => input.removedIds.includes(id))) throw new HrError(400, "移除與重新套用不可指定同一筆排班。 ");
+  const current = await getHrSchedule(db, input.periodKey);
+  if ((current.version?.revision ?? 0) !== input.revision) throw new HrError(409, "排班已被其他人修改，請重新整理。 ");
+  if (current.version?.locked) throw new HrError(409, "排班目前已鎖定。 ");
+  const byId = new Map(current.entries.map((entry) => [entry.id, entry]));
+  const touchedIds = new Set([...input.removedIds, ...input.refreshIds]);
+  for (const id of touchedIds) {
+    const entry = byId.get(id);
+    if (!entry || entry.archivedAt) throw new HrError(409, "排班不存在或人員已封存，請重新整理。 ");
+    if (authorizedScopeId && entry.scopeId !== authorizedScopeId) throw new HrError(403, "只能修改負責據點的排班。 ");
+    if (authorizedScopeId && input.removedIds.includes(id) && entry.attendanceStatus !== "scheduled") throw new HrError(403, "已確認出勤狀態的排班不可移除，請聯絡 HR 調整。 ");
+  }
+  if (authorizedScopeId && input.entries.some((entry) => entry.scopeId !== authorizedScopeId || entry.attendanceStatus && entry.attendanceStatus !== "scheduled")) throw new HrError(403, "只能安排負責據點的排班，不能設定出勤狀態。 ");
+  const refreshed = input.refreshIds.map((id) => {
+    const entry = byId.get(id)!;
+    return { personKind: entry.personKind, employmentId: entry.employmentId ?? undefined, workerId: entry.workerId ?? undefined, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate, attendanceStatus: entry.attendanceStatus };
+  });
+  const enriched = await validateAndEnrichEntries(db, period, [...input.entries, ...refreshed]);
+  const retained = current.entries.filter((entry) => !touchedIds.has(entry.id));
+  for (const entry of enriched) {
+    for (const other of retained) {
+      if (other.scopeId !== entry.scopeId) continue;
+      const samePerson = entry.personKind === other.personKind && (entry.personKind === "employee" ? "employmentId" in other && other.employmentId === entry.employmentId : "workerId" in other && other.workerId === entry.workerId);
+      if (samePerson && entry.startsAt < other.endsAt && other.startsAt < entry.endsAt) throw new HrError(409, "同一人員在同一營運據點的排班時段重疊。 ");
+      if (!other.archivedAt && other.workDate === entry.workDate && other.shiftTemplateId === entry.shiftTemplateId && other.requiredHeadcount !== entry.requiredHeadcount) throw new HrError(409, "同班排班需求人力已變更，請一併重新套用該班的活動人員排班。 ");
+    }
+  }
+  if (!touchedIds.size && !enriched.length) throw new HrError(400, "沒有需要儲存的排班變更。 ");
+  const version = current.version ?? { id: crypto.randomUUID(), revision: 1, lockedAt: null };
+  return saveEntriesAtomically(db, { ...version, lockedAt: version.lockedAt }, enriched, actor, {
+    employee: [...touchedIds].filter((id) => byId.get(id)?.personKind === "employee"),
+    worker: [...touchedIds].filter((id) => byId.get(id)?.personKind === "worker"),
+    scheduledOnlyIds: authorizedScopeId ? input.removedIds : [],
+  }, authorizedScopeId, retained, current.version ? undefined : period);
 }
 
 export async function setHrScheduleLock(db: Database, periodKey: string, input: { revision: number; locked: boolean }, actor: HrActor) {

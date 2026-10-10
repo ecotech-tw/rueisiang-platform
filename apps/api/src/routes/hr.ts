@@ -9,6 +9,7 @@ import {
   approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollCandidateExclusions, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
+  listHrScheduleManagers, setHrScheduleManager, listHrManagedScheduleScopes, getHrManagedSchedule, saveHrManagedSchedule, saveHrScheduleChanges,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_ATTENDANCE_STATUSES, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis, type HrScheduleAttendanceStatus,
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
@@ -293,6 +294,9 @@ function scheduleEntries(input: Record<string, unknown>) {
     if (attendanceStatus !== undefined && !HR_SCHEDULE_ATTENDANCE_STATUSES.includes(attendanceStatus as HrScheduleAttendanceStatus)) throw new HTTPException(400, { message: `第 ${index + 1} 筆排班出勤狀態不正確。` });
     return { personKind, employmentId, workerId, scopeId: text(value, "scopeId", "營運據點"), shiftVersionId: text(value, "shiftVersionId", "班別版本"), workDate, attendanceStatus: attendanceStatus as HrScheduleAttendanceStatus | undefined } as const;
   });
+}
+function scheduleChangesInput(input: Record<string, unknown>) {
+  return { periodKey: periodKey(input), revision: integerValue(input, "revision", "排班版本", 0, Number.MAX_SAFE_INTEGER), entries: scheduleEntries(input), removedIds: stringArray(input, "removedIds", "移除排班", 1000), refreshIds: stringArray(input, "refreshIds", "重新套用排班", 1000) };
 }
 function specialWorkdayOvertimeRules(input: Record<string, unknown>) {
   const rawRules = input.overtimeRules;
@@ -672,6 +676,16 @@ export const hr = new Hono<AppEnv>()
     if (!canViewOverview || !await isHrAdministrator(c.get("db"), user.id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以檢視 HRIS 概覽。" });
     return c.json(await getHrOverview(c.get("db")));
   })
+  .get("/me/schedule-scopes", async (c) => c.json({ scopes: await listHrManagedScheduleScopes(c.get("db"), c.get("user").id) }))
+  .get("/me/schedules", async (c) => {
+    const key = c.req.query("periodKey") ?? "";
+    const scopeId = c.req.query("scopeId") ?? "";
+    return c.json(await getHrManagedSchedule(c.get("db"), c.get("user").id, key, scopeId));
+  })
+  .patch("/me/schedules", async (c) => {
+    const input = await body(c);
+    return c.json(await saveHrManagedSchedule(c.get("db"), text(input, "scopeId", "營運據點"), scheduleChangesInput(input), c.get("user")));
+  })
   .get("/me/clock-events", async (c) => c.json(await getHrClockStatus(c.get("db"), c.get("user").id, { requireGeolocation: c.get("lineLiffSession") })))
   .get("/me/attendance-calendar", async (c) => {
     const fallback = currentTaipeiYearMonth();
@@ -1022,6 +1036,12 @@ export const hr = new Hono<AppEnv>()
     const scopeId = c.req.query("scopeId");
     return c.json(await getHrSchedule(c.get("db"), rawPeriod, scopeId));
   })
+  .get("/schedule-managers", requirePermission("hr:schedule:read"), async (c) => c.json(await listHrScheduleManagers(c.get("db"))))
+  .put("/schedule-managers/:scopeId", requirePermission("hr:schedule:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await setHrScheduleManager(c.get("db"), c.req.param("scopeId"), { userId: nullableText(input, "userId", "排班負責人"), revision: integerValue(input, "revision", "版本", 0, Number.MAX_SAFE_INTEGER) }, c.get("user")));
+  })
+  .patch("/schedules", requirePermission("hr:schedule:write"), async (c) => c.json(await saveHrScheduleChanges(c.get("db"), scheduleChangesInput(await body(c)), c.get("user"))))
   .post("/schedules", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
     const scheduleVersionId = input.scheduleVersionId === undefined ? undefined : text(input, "scheduleVersionId", "排班版本");

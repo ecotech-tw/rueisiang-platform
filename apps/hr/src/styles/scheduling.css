@@ -1,0 +1,21 @@
+.hr-front-schedule-page { display: grid; gap: 16px; }
+.hr-front-schedule-tools { display: grid; gap: 12px; }
+.hr-front-schedule-calendar { overflow-x: auto; }
+.hr-front-schedule-grid { display: grid; grid-template-columns: repeat(7, minmax(86px, 1fr)); min-width: 602px; }
+.hr-front-schedule-grid.weekdays { text-align: center; color: var(--color-muted); padding-block: 12px; }
+.hr-front-schedule-day { min-height: 132px; padding: 6px; border-top: 1px solid var(--color-soft-line); }
+.hr-front-schedule-day.day-weekend, .hr-front-schedule-day.day-holiday { background: var(--color-canvas); }
+.hr-front-schedule-day.picked { background: var(--color-brand-soft); }
+.hr-front-schedule-date { display: grid; place-items: center; min-width: 44px; min-height: 44px; padding: 8px; border-radius: 999px; font-weight: 700; }
+.hr-front-schedule-date[aria-pressed="true"] { background: var(--color-brand-soft); color: var(--color-brand-dark); box-shadow: inset 0 0 0 2px var(--color-brand-dark); }
+.hr-front-schedule-date:hover:not(:disabled) { box-shadow: inset 0 0 0 44px --alpha(var(--color-brand) / 7%); }
+.hr-front-schedule-date:disabled { cursor: default; }
+.hr-front-schedule-date:focus-visible, .hr-front-schedule-entry button:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+.hr-front-schedule-day > small { display: block; font-size: 11px; color: var(--color-muted); }
+.hr-front-schedule-entry { position: relative; margin-top: 6px; padding: 8px 4px; border-radius: 10px; background: var(--color-canvas); overflow-wrap: anywhere; }
+.hr-front-schedule-entry.current { background: var(--color-brand-soft); color: var(--color-brand-dark); }
+.hr-front-schedule-entry span, .hr-front-schedule-entry small { display: block; }
+.hr-front-schedule-entry small { color: var(--color-muted); font-size: 11px; }
+.hr-front-schedule-entry button { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 999px; margin-left: auto; }
+.hr-front-schedule-entry button:hover:not(:disabled) { background: --alpha(var(--color-brand) / 7%); }
+@media (min-width: 900px) { .hr-front-schedule-tools { grid-template-columns: repeat(3, minmax(0, 1fr)); } .hr-front-schedule-tools > p, .hr-front-schedule-tools > .alert, .hr-front-schedule-tools > .button-row { grid-column: 1 / -1; } }

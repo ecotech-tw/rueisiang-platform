@@ -2,6 +2,7 @@
 @import "@rueisiang/ui/components.css" layer(components);
 @import "@rueisiang/ui/theme.css";
 @import "./styles/components.css" layer(components);
+@import "./styles/scheduling.css" layer(components);
 
 @layer base {
   html, body, #root { min-height: 100%; }

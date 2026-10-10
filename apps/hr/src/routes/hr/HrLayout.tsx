@@ -38,7 +38,7 @@ export function HrLayout() {
   const direction = slide.pathname === pathname ? slide.direction : pageDirection(personalSections, slide.pathname, pathname) ?? slide.direction;
   if (slide.pathname !== pathname) setSlide({ pathname, direction });
   const isClockHome = pathname === "/clock";
-  const current = pathname.startsWith("/forms") ? "表單申請" : pathname.startsWith("/payroll") ? "薪資袋" : pathname.startsWith("/notifications") ? "通知" : pathname.startsWith("/profile") ? "個人中心" : "打卡";
+  const current = pathname.startsWith("/scheduling") ? "據點排班" : pathname.startsWith("/forms") ? "表單申請" : pathname.startsWith("/payroll") ? "薪資袋" : pathname.startsWith("/notifications") ? "通知" : pathname.startsWith("/profile") ? "個人中心" : "打卡";
 
   return <div className="hr-module hr-module-self" data-page-direction={direction}>
     {isClockHome ? <PersonalNav className="hr-personal-nav hr-clock-personal-nav" /> : <header className="hr-module-header">
