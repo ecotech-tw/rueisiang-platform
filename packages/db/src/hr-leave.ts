@@ -305,9 +305,15 @@ export async function calculateHrLeaveDuration(db: Database, input: HrLeaveDurat
 /** 與上面兩個 breakdown 對班表的解讀一致：班次扣掉無薪休息、一般辦公扣掉午休。 */
 function leaveWorkSegments(schedules: LeaveScheduleRow[], scheduled: boolean, startsOn: string, endsOn: string) {
   const segments: Array<[number, number]> = scheduled
-    ? schedules.flatMap((row) => {
-      const window = scheduleWindow(row);
-      return [[window.scheduleStart, window.unpaidStart], [window.unpaidEnd, window.scheduleEnd]];
+    ? schedules.flatMap((row): Array<[number, number]> => {
+      try {
+        const window = scheduleWindow(row);
+        return [[window.scheduleStart, window.unpaidStart], [window.unpaidEnd, window.scheduleEnd]];
+      } catch (cause) {
+        // 這裡掃的是往後 31 天；三週後一筆壞掉的班次不該擋住今天的一小時。真的落在請假區間內的，下面的正向驗算會照實回報。
+        if (cause instanceof HrError) return [];
+        throw cause;
+      }
     })
     : datesBetween(startsOn, endsOn).flatMap((date) => [
       [canonicalTaipeiTime(date, STANDARD_WORKDAY_START, "一般辦公開始時間"), canonicalTaipeiTime(date, STANDARD_LUNCH_START, "一般辦公午休開始時間")],
@@ -348,7 +354,8 @@ export async function calculateHrLeaveEnd(db: Database, input: HrLeaveEndInput) 
       const interval = await calculateHrLeaveDuration(db, { employeeUserId: input.employeeUserId, startsAt: input.startsAt, endsAt: new Date(endMs).toISOString().slice(0, 19).replace("T", " ") });
       if (interval.durationMinutes === input.durationMinutes) return interval;
     } catch (cause) {
-      if (!(cause instanceof HrError)) throw cause;
+      // 400 是「這個結束時間算出來的時數不合」，換下一個候選；409 是班表或工時設定有問題，要讓使用者看到真正的原因。
+      if (!(cause instanceof HrError) || cause.status !== 400) throw cause;
     }
   }
   throw new HrError(400, candidates.length

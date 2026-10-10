@@ -441,6 +441,11 @@ describe("HR 申請中心", () => {
     // 16 日前後都沒有班次，照標準工時算；28 日那筆零星班次不能把結束時間拉過去。
     expect(await end("2026-03-16T11:00", 180)).toMatchObject({ status: 200, endsAt: "2026-03-16 07:00:00", durationMinutes: 180 });
 
+    // 遠處一筆壞掉的班次（時間不是有效時刻）不擋今天的換算；請假區間碰到那一天才回報設定錯誤。
+    await db.insert(hrScheduleEntries).values([entry("leave-entry-30", "2026-03-30", "25:00:00", "26:00:00", 60, 0)]);
+    expect(await end("2026-03-10T17:00", 180)).toMatchObject({ status: 200, endsAt: "2026-03-10 12:00:00" });
+    expect((await end("2026-03-29T09:00", 60)).status).toBe(409);
+
     // 同一天班次重疊時正向算法會把重疊的一小時算兩次；反推回傳的時數必須跟正向算出來的一樣。
     await db.insert(hrScheduleEntries).values([
       entry("leave-entry-20a", "2026-03-20", "09:00:00", "18:00:00", 540, 0),
