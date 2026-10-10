@@ -876,7 +876,7 @@ export const hr = new Hono<AppEnv>()
     const actualStart = optionalDateTimeValue(input, "actualStart", "實際加班開始");
     const actualEnd = optionalDateTimeValue(input, "actualEnd", "實際加班結束");
     if ((actualStart === undefined) !== (actualEnd === undefined)) throw new HTTPException(400, { message: "實際加班開始與結束時間必須一起填寫。" });
-    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined));
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true }));
   })
   .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
