@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, linkLineAccount, syncSystemRoles, unlinkLineAccount } from "@rueisiang/db";
 import { hrEmploymentAttendanceSettings, scopes, userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -63,6 +63,47 @@ describe("HR 扁平員工主檔", () => {
     expect(detail.employments[0]).toMatchObject({ id: result.employmentId, employeeNumber: "E001", position: "門市專員", archivedAt: null });
     expect((await (await request("/hr/candidates?search=self")).json() as { users: unknown[] }).users).toEqual([]);
     expect(d1.sqlite.prepare("SELECT display_name FROM users WHERE id='self'").get()).toEqual({ display_name: "self" });
+  });
+
+  it("員工與統一 roster 僅提供 LINE 綁定時間，解除後即時更新且保留分頁", async () => {
+    const db = createDatabase(d1 as never);
+    await assign("self", "E001");
+    await assign("other", "E002");
+    await assign("invited", "E003");
+    await linkLineAccount(db, "self", { channelId: "private-channel", lineUserId: "private-subject" });
+    await linkLineAccount(db, "invited", { channelId: "private-channel", lineUserId: "invited-subject" });
+    expect((await request("/hr/schedule-workers", "POST", { displayName: "支援人員" })).status).toBe(201);
+    for (const personKind of ["employee", "all"]) {
+      const response = await request(`/hr/employees?personKind=${personKind}&pageSize=10`, "GET", undefined, "self");
+      expect(response.status).toBe(200);
+      const text = await response.text();
+      expect(text).not.toMatch(/private-channel|private-subject|invited-subject|lineUserId|channelId/);
+      const result = JSON.parse(text) as { employees: Array<{ userId: string | null; lineLinkedAt: string | null }>; total: number; counts: { active: number } };
+      expect(result.total).toBe(personKind === "all" ? 4 : 3);
+      expect(result.counts.active).toBe(result.total);
+      expect(result.employees.find((row) => row.userId === "self")?.lineLinkedAt).toEqual(expect.any(String));
+      expect(result.employees.find((row) => row.userId === "other")?.lineLinkedAt).toBeNull();
+      expect(result.employees.find((row) => row.userId === "invited")?.lineLinkedAt).toEqual(expect.any(String));
+      if (personKind === "all") expect(result.employees.find((row) => row.userId === null)?.lineLinkedAt).toBeNull();
+    }
+    d1.sqlite.prepare("UPDATE users SET status='disabled' WHERE id='self'").run();
+    const disabled = await (await request("/hr/employees?status=disabled")).json() as { employees: Array<{ lineLinkedAt: string | null }> };
+    expect(disabled.employees[0]?.lineLinkedAt).toEqual(expect.any(String));
+    await unlinkLineAccount(db, "self");
+    const unlinked = await (await request("/hr/employees?search=E001")).json() as { employees: Array<{ lineLinkedAt: string | null }>; total: number };
+    expect(unlinked.total).toBe(1);
+    expect(unlinked.employees[0]?.lineLinkedAt).toBeNull();
+  });
+
+  it("未授權與未登入者不能讀取 LINE 綁定清單，辦公讀取權限沿用既有規則", async () => {
+    await assign("self");
+    for (const personKind of ["employee", "all", "worker"]) {
+      expect((await request(`/hr/employees?personKind=${personKind}`, "GET", undefined, "missing")).status).toBe(401);
+      await createDatabase(d1 as never).delete(userPermissionGrants).where(eq(userPermissionGrants.userId, "other"));
+      expect((await request(`/hr/employees?personKind=${personKind}`, "GET", undefined, "other")).status).toBe(403);
+    }
+    await createDatabase(d1 as never).insert(userPermissionGrants).values({ userId: "other", permission: "hr:office:read" });
+    expect((await request("/hr/employees", "GET", undefined, "other")).status).toBe(200);
   });
 
   it("員工清單依員工編號自然排序", async () => {

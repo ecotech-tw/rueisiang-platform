@@ -36,6 +36,14 @@ function dateTime(value: string): string {
   const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" });
 }
+export function HrLineBindingStatus({ employee }: { employee: Pick<Employee, "personKind" | "userId" | "lineLinkedAt"> }) {
+  if (employee.personKind === "worker" || employee.userId === null) return <span className="muted">不適用</span>;
+  if (employee.lineLinkedAt === undefined) return <span className="muted">狀態未提供</span>;
+  return <>
+    <StatusBadge tone={employee.lineLinkedAt === null ? "neutral" : "success"}>{employee.lineLinkedAt === null ? "未綁定" : "已綁定"}</StatusBadge>
+    {employee.lineLinkedAt ? <><br /><span className="muted">{dateTime(employee.lineLinkedAt)}</span></> : null}
+  </>;
+}
 function todayInTaipei(): string {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
@@ -348,6 +356,7 @@ export function HrEmployees() {
         <SearchFilterInput label="搜尋" placeholder="搜尋人員編號、姓名或 Email" value={filters.search} onSearch={(search) => update({ search })} />
         <FilterSelect label="帳號狀態" value={filters.status} onChange={(event) => update({ status: event.target.value })} options={[{ value: "all", label: "全部帳號" }, { value: "active", label: "啟用中" }, { value: "invited", label: "待啟用" }, { value: "disabled", label: "已停用" }]} />
       </FilterToolbar>
+      <p className="muted table-note">LINE 綁定與帳號啟用、在職狀態分開；已綁定不代表目前可登入或打卡。支援人員沒有平台帳號，不適用 LINE 綁定。</p>
       {employees.error ? <Alert tone="danger">{employees.error.message}</Alert> : null}
       {candidates.error ? <Alert tone="danger">{candidates.error.message}</Alert> : null}
       <DataTable><thead><tr>
@@ -355,13 +364,13 @@ export function HrEmployees() {
         <SortableHeader label="姓名" field="name" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} />
         <SortableHeader label="帳號" field="email" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} />
         <SortableHeader label="帳號狀態" field="status" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} />
-        <th>職位</th><th>主管</th><th>員工狀態</th>
+        <th>LINE 綁定</th><th>職位</th><th>主管</th><th>員工狀態</th>
         {canWrite ? <th>操作</th> : null}
       </tr></thead><tbody>
         {data?.employees.map((employee) => {
           const detailPath = employeeDetailPath(employee);
           const formalEmployee = employee.personKind === "employee" && employee.userId ? employee as FormalEmployee : null;
-          return <tr key={employee.employmentId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(detailPath)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(detailPath); } }}><td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}<br /><span className="muted">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? employee.supervisorUserId ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>{formalEmployee && canWrite ? <td data-label="操作"><Button variant="secondary" icon="edit" className="hr-action-update" onClick={(event) => { event.stopPropagation(); setManageEmployee(formalEmployee); }}>員工資料</Button></td> : canWrite ? <td data-label="操作"><span className="muted">由支援人員管理</span></td> : null}</tr>;
+          return <tr key={employee.employmentId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(detailPath)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(detailPath); } }}><td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}<br /><span className="muted">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="LINE 綁定"><HrLineBindingStatus employee={employee} /></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? employee.supervisorUserId ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>{formalEmployee && canWrite ? <td data-label="操作"><Button variant="secondary" icon="edit" className="hr-action-update" onClick={(event) => { event.stopPropagation(); setManageEmployee(formalEmployee); }}>員工資料</Button></td> : canWrite ? <td data-label="操作"><span className="muted">由支援人員管理</span></td> : null}</tr>;
         })}
       </tbody></DataTable>
       {employees.isPlaceholderData ? <p className="muted table-note">載入中…</p> : null}

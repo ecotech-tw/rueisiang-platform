@@ -7,7 +7,7 @@ import { hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./s
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests, hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
-import { roles, userRoleAssignments, users } from "./schema/auth.js";
+import { authLineAccountLinks, roles, userRoleAssignments, users } from "./schema/auth.js";
 
 export class HrError extends Error {
   constructor(public readonly status: 400 | 404 | 409, message: string) { super(message); }
@@ -97,6 +97,8 @@ const employeeFields = {
   revision: hrEmployments.revision,
 };
 
+const lineLinkedAt = sql<string | null>`(SELECT ${authLineAccountLinks.linkedAt} FROM ${authLineAccountLinks} WHERE ${authLineAccountLinks.userId} = ${hrEmployments.employeeUserId})`;
+
 const EMPLOYEE_SORT_COLUMNS = {
   employeeNumber: hrEmployments.employeeNumber,
   name: hrEmployeeName,
@@ -180,7 +182,7 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) 
   const orderColumns = query.sortField === "employeeNumber"
     ? hrEmployeeNumberOrder(query.sortDirection)
     : [query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn), asc(hrEmployments.employeeNumber)];
-  const selectFields = { ...employeeFields, employmentStatus: employmentStatusExpression() };
+  const selectFields = { ...employeeFields, lineLinkedAt, employmentStatus: employmentStatusExpression() };
   const baseConditions = conditions.filter((condition) => condition !== employmentStatusCondition);
   const activeWhere = and(...baseConditions, activeCondition);
   const inactiveWhere = and(...baseConditions, sql`NOT (${activeCondition})`);
@@ -215,6 +217,7 @@ const personnelFields = {
   archivedAt: hrEmployments.archivedAt,
   email: sql<string>`coalesce(${users.email}, '')`,
   userStatus: sql<"invited" | "active" | "disabled">`coalesce(${users.status}, 'disabled')`,
+  lineLinkedAt,
   revision: hrEmployments.revision,
 };
 

@@ -17,6 +17,8 @@ export interface Employee {
   supervisorUserId?: string | null;
   supervisorName?: string | null;
   userStatus: "invited" | "active" | "disabled";
+  /** 人員列表提供綁定時間；其他回應未提供時不可視為未綁定。 */
+  lineLinkedAt?: string | null;
   employmentStatus: "active" | "inactive";
   revision: number;
 }
