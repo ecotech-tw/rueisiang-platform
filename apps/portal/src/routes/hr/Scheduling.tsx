@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { outdatedScheduleIds, scheduleChanges } from "@rueisiang/db/schedule-draft";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -63,16 +64,7 @@ export function sameDayMultiScopeSchedules(entries: readonly Pick<ScheduleEntry,
 
 // 設定或日型改變不會自動改寫已發布快照；需要明確提示並允許沒有增刪人員時重新儲存。
 export function outdatedScheduleShiftCount(entries: readonly ScheduleEntry[], shifts: ScheduleShift[], calendar: readonly HrCalendarDay[]): number {
-  const dayTypes = new Map(calendar.map((day) => [day.date, day.dayType]));
-  const byVersion = new Map(shifts.map((shift) => [shift.versionId, shift]));
-  return entries.filter((entry) => {
-    if (entry.archivedAt || !entry.startsAt) return false;
-    const selected = byVersion.get(entry.shiftVersionId);
-    const dayType = dayTypes.get(entry.workDate);
-    if (!selected || !dayType) return false;
-    const applicable = pickShiftForDay(shifts.filter((shift) => shift.templateId === selected.templateId && shift.scopeId === entry.scopeId), dayType);
-    return applicable && (applicable.versionId !== entry.shiftVersionId || applicable.requiredHeadcount !== entry.requiredHeadcount);
-  }).length;
+  return outdatedScheduleIds(entries, shifts, [...calendar]).length;
 }
 
 /** 對話框與快速排班共用，避免兩種新增方式產生不同的日型、班別名稱與人力。 */
@@ -241,24 +233,24 @@ export function HrScheduling() {
   const schedule = useHrQuery<HrScheduleResponse>(`/schedules?periodKey=${key}`, canRead);
   const [scopeId, setScopeId] = useState("all");
   const [draftEntries, setDraftEntries] = useState<ScheduleEntry[]>([]);
+  const [baseline, setBaseline] = useState<HrScheduleResponse | null>(null);
   const [addingDay, setAddingDay] = useState<string | null>(null);
   const [quick, setQuick] = useState<QuickPick | null>(null);
   const [editingCalendar, setEditingCalendar] = useState(false);
   const toast = useToast();
   const confirmLeave = useConfirmLeave();
-  const save = useHrWrite();
+  const save = useHrWrite({ invalidate: false });
   const lock = useHrWrite();
   const data = schedule.data;
 
-  /*
-   * 只在「換了月份」或「排班版本真的動了」時才用伺服器版本重設草稿。
-   *
-   * 依賴一度掛的是 data.entries 這個陣列本身，於是任何一次 refetch 都會把未儲存的草稿
-   * 蓋掉。行事曆就是踩到這個：在排班頁標一個國定假日會 invalidate 整個 hr query，
-   * 回來的新陣列直接吃掉剛排好、還沒按儲存的那二十天，而且畫面上不會有任何提示。
-   * 存排班時 revision 一定會 +1，所以該更新的情境靠 revision 就夠。
-   */
-  useEffect(() => { if (data) setDraftEntries(data.entries); }, [data?.periodKey, data?.version?.id, data?.version?.revision]);
+  // 背景重抓保留草稿及其 revision，避免據點前台儲存後把後台的未儲存變更洗掉。
+  useEffect(() => {
+    if (!data || schedule.isPlaceholderData) return;
+    if (baseline?.periodKey !== data.periodKey || !diffEntries(draftEntries, baseline.entries).changed) {
+      setBaseline(data);
+      setDraftEntries(data.entries);
+    }
+  }, [data, schedule.isPlaceholderData, baseline, draftEntries]);
   // 換月份時的選擇留著只會誤導：日期格換了一批，畫面上的「已選 N 天」卻還是上個月的數字。
   useEffect(() => { setQuick(null); }, [key]);
   // 鎖定之後點日期不會有反應，快速排班條留在畫面上等於擺一個按了沒用的東西。
@@ -295,9 +287,10 @@ export function HrScheduling() {
    * 放在 return 之後的話，資料還在載入的那次 render 根本跑不到這個 hook，下一次 render
    * hook 數量就對不上，React 直接拋。所以這裡用 data?.entries ?? [] 而不是 data.entries。
    */
-  const { added, removed, changed } = diffEntries(draftEntries, data?.entries ?? []);
+  const { added, removed, changed } = diffEntries(draftEntries, baseline?.entries ?? []);
+  const stale = Boolean(data && baseline?.periodKey === data.periodKey && (baseline.version?.revision ?? 0) !== (data.version?.revision ?? 0));
   const switchMonth = async (delta: number) => {
-    if (!(await confirmLeave())) return;
+    if (save.isPending || !(await confirmLeave())) return;
     setMonth(new Date(Date.UTC(month.getUTCFullYear(), month.getUTCMonth() + delta, 1)));
   };
   /*
@@ -317,11 +310,11 @@ export function HrScheduling() {
   if (!canRead) return <Alert tone="danger">你沒有檢視排班的權限。</Alert>;
   if (schedule.isPending) return <HrPageSkeleton variant="calendar" />;
   if (schedule.error || !data) return <div className="page"><Alert tone="danger">{schedule.error?.message ?? "排班資料載入失敗。"}</Alert></div>;
-  const version = data.version;
+  const version = baseline?.periodKey === data.periodKey ? baseline.version : data.version;
   const defaultScope = scopeId === "all" ? data.scopes[0]?.id ?? "" : scopeId;
   // 換月份時 data 仍是上個月的，version 跟 key 對不上；這時點日期或按鎖定都會寫到錯的月份。
   const loading = schedule.isPlaceholderData;
-  const canEdit = canWrite && !version?.locked && !loading;
+  const canEdit = canWrite && !data.version?.locked && !loading && !save.isPending && !stale;
   const scheduledDatesByEmployment = new Map<string, Set<string>>();
   for (const entry of draftEntries) if (entry.personKind === "employee" && entry.employmentId) {
     const datesForEmployee = scheduledDatesByEmployment.get(entry.employmentId) ?? new Set<string>();
@@ -380,9 +373,10 @@ export function HrScheduling() {
   const today = taipeiToday();
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人；需求人力為薪資單位池上限，待確認與已出勤人員平均分配、明確未出勤者不計；跨據點同日排班會提醒但不阻擋，日薪依班別計薪單位累計。正式員工依排班出勤；支援人員日薪依排班單位、時薪依計薪時數計算，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={(!changed && !outdatedShiftCount) || Boolean(version?.locked) || loading} onClick={() => save.mutate({ path: "/schedules", method: "POST", values: { periodKey: key, ...(version ? { scheduleVersionId: version.id, revision: version.revision } : {}), entries: draftEntries.filter((entry) => !entry.archivedAt).map((entry) => ({ personKind: entry.personKind, employmentId: entry.employmentId, workerId: entry.workerId, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate, attendanceStatus: entry.attendanceStatus })) } }, { onSuccess: () => toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`) })}>儲存</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人；需求人力為薪資單位池上限，待確認與已出勤人員平均分配、明確未出勤者不計；跨據點同日排班會提醒但不阻擋，日薪依班別計薪單位累計。正式員工依排班出勤；支援人員日薪依排班單位、時薪依計薪時數計算，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={(!changed && !outdatedShiftCount) || Boolean(data.version?.locked) || loading || stale} onClick={() => save.mutate({ path: "/schedules", method: "PATCH", values: { periodKey: key, revision: version?.revision ?? 0, ...scheduleChanges(draftEntries, baseline?.entries ?? data.entries, outdatedScheduleIds(draftEntries, data.shifts, data.calendar)) } }, { onSuccess: async () => { toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`); const result = await schedule.refetch(); if (result.data && !result.isError) { setBaseline(result.data); setDraftEntries(result.data.entries); } } })}>儲存</Button></div> : undefined} />
     {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
     {outdatedShiftCount ? <Alert tone="warning">有 {outdatedShiftCount} 筆排班仍保存舊日型或需求人力。{version?.locked ? "請先開鎖，再按「儲存」重新發布。" : "按「儲存」可依目前行事曆及班別設定重新發布時段、工時與需求人力。"}未結帳的薪資需重新試算；已結帳薪資不會自動改寫。</Alert> : null}
+    {stale ? <Alert tone="warning">排班已被其他人修改，未儲存草稿仍保留。<Button variant="secondary" onClick={() => { void confirmLeave().then((confirmed) => { if (confirmed) { setBaseline(data); setDraftEntries(data.entries); } }); }}>放棄草稿並載入最新班表</Button></Alert> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
     {multiScopeSchedules.length ? <Alert tone="warning"><strong>同日跨據點排班提醒：</strong>{multiScopeSchedules.slice(0, 5).map((item) => `${item.personName}（${item.workDate}：${item.scopeNames.join("、")}）`).join("；")}{multiScopeSchedules.length > 5 ? `；另有 ${multiScopeSchedules.length - 5} 組` : ""}。仍可儲存；日薪依各班別排班單位計算。</Alert> : null}
     <Panel className="grows hr-calendar-panel">

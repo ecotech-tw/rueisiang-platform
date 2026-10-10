@@ -1,0 +1,90 @@
+// @vitest-environment jsdom
+import { QueryClient, QueryClientProvider, notifyManager } from "@tanstack/react-query";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { scheduleChanges, type HrScheduleResponse, type ScheduleEntry } from "@rueisiang/db/schedule-draft";
+import { HrScheduling } from "./Scheduling.js";
+
+const shift = { versionId: "weekday", templateId: "early", scopeId: "store", name: "早班", dayType: "weekday" as const, revision: 1, startSecond: 32400, endSecond: 64800, endDayOffset: 0, standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1 };
+const savedEntry: ScheduleEntry = { id: "saved", scheduleVersionId: "version", personKind: "employee", employmentId: "employee", workerId: null, scopeId: "store", shiftVersionId: "weekday", shiftGroupId: "group", workDate: "2026-02-06", startsAt: "2026-02-06 09:00:00", endsAt: "2026-02-06 18:00:00", standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1, attendanceStatus: "scheduled", employeeNumber: "E1", personName: "小明", archivedAt: null, scopeName: "門市", shiftName: "早班" };
+function data(locked = false): HrScheduleResponse {
+  return { periodKey: "2026-02", period: { start: "2026-02-01", end: "2026-03-01" }, version: { id: "version", revision: 2, status: "published", locked, lockedAt: locked ? "now" : null }, scopes: [{ id: "store", name: "門市" }], employees: [{ employmentId: "employee", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [], shifts: [shift, { ...shift, versionId: "weekend", dayType: "weekend", startSecond: 36000, endSecond: 68400, requiredHeadcount: 2 }], entries: [savedEntry], calendar: Array.from({ length: 28 }, (_, index) => ({ date: `2026-02-${String(index + 1).padStart(2, "0")}`, dayType: index === 6 ? "weekend" as const : "weekday" as const, name: "", specialKind: "none" as const, specialScopeIds: [], overridden: false })) };
+}
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
+
+async function renderPage(initial: HrScheduleResponse, mutationStatus = 200) {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  vi.setSystemTime(new Date("2026-02-01T00:00:00Z"));
+  notifyManager.setScheduler(queueMicrotask);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  client.setQueryData(["hr", "/me/schedule-scopes"], { scopes: [{ id: "store", name: "門市" }] });
+  client.setQueryData(["hr", "/me/schedules?periodKey=2026-02&scopeId=store"], initial);
+  const writes: Array<{ path: string; method: string; values: Record<string, unknown> }> = [];
+  vi.stubGlobal("fetch", async (path: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "PATCH") {
+      writes.push({ path: String(path), method: init.method, values: JSON.parse(String(init.body)) });
+      return Response.json(mutationStatus === 200 ? { id: "version", revision: 3 } : { error: "同一據點排班重疊，草稿仍保留" }, { status: mutationStatus });
+    }
+    return Response.json({ ...initial, version: { ...initial.version, revision: 3 } });
+  });
+  const container = document.createElement("div"); document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrScheduling /></QueryClientProvider></MemoryRouter>));
+  return { client, writes, clickDate: async (date: string) => { await act(async () => (container.querySelector(`[aria-label="${date} 排班"]`) as HTMLButtonElement).click()); }, save: async () => { await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === "儲存")!.click(); await new Promise((resolve) => setTimeout(resolve, 10)); }); }, cleanup: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
+}
+
+describe("HR 前台快速排班", () => {
+  it("點日期切換班表，儲存只送差異，週末使用對應版本", async () => {
+    const page = await renderPage(data());
+    try {
+      await page.clickDate("2026-02-07");
+      expect(document.body.textContent).toContain("尚未儲存：新增 1 筆、移除 0 筆");
+      await page.save();
+      expect(page.writes).toHaveLength(1);
+      expect(page.writes[0]).toMatchObject({ method: "PATCH", values: { revision: 2, scopeId: "store", entries: [{ employmentId: "employee", workDate: "2026-02-07", shiftVersionId: "weekend" }], removedIds: [], refreshIds: [] } });
+      expect((page.writes[0]!.values.entries as unknown[])).toHaveLength(1);
+      expect(document.body.textContent).toContain("排班已儲存並生效，不需送審");
+    } finally { await page.cleanup(); }
+  });
+
+  it("再次點選已排日期只送移除 ID，新增後取消不產生變更", async () => {
+    const page = await renderPage(data());
+    try {
+      await page.clickDate("2026-02-07"); await page.clickDate("2026-02-07");
+      expect(document.body.textContent).toContain("沒有未儲存變更");
+      await page.clickDate("2026-02-06"); await page.save();
+      expect(page.writes[0]!.values).toMatchObject({ entries: [], removedIds: ["saved"], refreshIds: [] });
+    } finally { await page.cleanup(); }
+  });
+
+  it("API 失敗或背景版本改變時保留草稿，不採用新 revision 覆蓋他人", async () => {
+    const page = await renderPage(data(), 409);
+    try {
+      await page.clickDate("2026-02-07"); await page.save();
+      expect(document.body.textContent).toContain("同一據點排班重疊");
+      expect(document.body.textContent).toContain("尚未儲存：新增 1 筆");
+      await act(async () => page.client.setQueryData(["hr", "/me/schedules?periodKey=2026-02&scopeId=store"], { ...data(), version: { ...data().version!, revision: 3 } }));
+      expect(document.body.textContent).toContain("排班已被其他人修改，草稿仍保留");
+      expect(document.querySelector('[aria-label="2026-02-07 排班"]')?.getAttribute("aria-pressed")).toBe("true");
+    } finally { await page.cleanup(); }
+  });
+
+  it("鎖定月份不可點日期或儲存", async () => {
+    const page = await renderPage(data(true));
+    try {
+      expect((document.querySelector('[aria-label="2026-02-07 排班"]') as HTMLButtonElement).disabled).toBe(true);
+      await page.clickDate("2026-02-07"); await page.save();
+      expect(page.writes).toHaveLength(0);
+    } finally { await page.cleanup(); }
+  });
+});
+
+describe("共用排班差異", () => {
+  it("忽略本機 ID 及陣列順序、保留封存列且不送整月", () => {
+    const archived = { ...savedEntry, id: "archived", archivedAt: "2026-01-01" };
+    expect(scheduleChanges([{ ...savedEntry, id: "local" }, archived], [archived, savedEntry])).toEqual({ entries: [], removedIds: [], refreshIds: [] });
+    expect(scheduleChanges([], [archived, savedEntry], ["saved", "archived"])).toEqual({ entries: [], removedIds: ["saved"], refreshIds: [] });
+  });
+});

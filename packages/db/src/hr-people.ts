@@ -10,7 +10,7 @@ import { scopes } from "./schema/reports.js";
 import { authLineAccountLinks, roles, userRoleAssignments, users } from "./schema/auth.js";
 
 export class HrError extends Error {
-  constructor(public readonly status: 400 | 404 | 409, message: string) { super(message); }
+  constructor(public readonly status: 400 | 403 | 404 | 409, message: string) { super(message); }
 }
 export interface HrActor { id: string; email: string }
 

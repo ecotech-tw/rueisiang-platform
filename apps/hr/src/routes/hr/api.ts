@@ -260,12 +260,12 @@ export function useHrLeaveEnd(input: { startsAt: string; durationMinutes: number
     retry: false,
   });
 }
-export function useHrWrite<T = { id: string }>(options: { onSuccess?: () => Promise<void> } = {}) {
+export function useHrWrite<T = { id: string }>(options: { onSuccess?: () => Promise<void>; invalidate?: boolean } = {}) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (input: { path: string; method: string; values: Record<string, unknown> }) => request<T>(input.path, { method: input.method, body: JSON.stringify(input.values) }),
     onSuccess: options.onSuccess,
     // 失敗也要重抓：409 幾乎都代表畫面上的資料已經過期（別人先審了、先取消了），不重抓的話同一顆按鈕會一直失敗。
-    onSettled: () => { void client.invalidateQueries({ queryKey: ["hr"] }); },
+    onSettled: () => { if (options.invalidate !== false) void client.invalidateQueries({ queryKey: ["hr"] }); },
   });
 }

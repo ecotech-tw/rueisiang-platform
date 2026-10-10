@@ -78,6 +78,9 @@ importers:
       '@line/liff':
         specifier: ^2.31.2
         version: 2.31.2(debug@4.4.3(supports-color@10.2.2))(supports-color@10.2.2)
+      '@rueisiang/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@rueisiang/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -145,6 +148,9 @@ importers:
       '@rueisiang/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@rueisiang/db':
+        specifier: workspace:*
+        version: link:../../packages/db
       '@rueisiang/ui':
         specifier: workspace:*
         version: link:../../packages/ui

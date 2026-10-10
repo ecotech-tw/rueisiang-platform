@@ -9,6 +9,7 @@ import { HrClockCorrectionForm, HrForms, HrLeaveForm, HrOvertimeForm } from "./r
 import { HrLeaveSummary } from "./routes/hr/Leave.js";
 import { HrNotifications } from "./routes/hr/Notifications.js";
 import { HrPayrollHistory, HrPayslipDetail } from "./routes/hr/Payroll.js";
+import { HrScheduling } from "./routes/hr/Scheduling.js";
 import { HrLayout } from "./routes/hr/HrLayout.js";
 
 function RequireSession({ children }: { children: React.ReactNode }) {
@@ -60,6 +61,7 @@ export function App() {
         <Route path="forms/new" element={<HrClockCorrectionForm />} />
         <Route path="forms/overtime" element={<HrOvertimeForm />} />
         <Route path="forms/leave" element={<HrLeaveForm />} />
+        <Route path="scheduling" element={<HrScheduling />} />
         <Route path="profile" element={<HrProfile />} />
         <Route path="profile/leave" element={<HrLeaveSummary />} />
       </Route>
