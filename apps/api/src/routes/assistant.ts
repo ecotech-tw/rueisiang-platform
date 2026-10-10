@@ -1040,7 +1040,13 @@ export const assistant = new Hono<AppEnv>()
         try {
           await assertHrSandboxDeliveryAuthorized(c.get("db"), c.env, piRequest, piResponse.hrAuthorization);
         } catch (error) {
-          await discardPiSandboxRun(c.env, piRequest);
+          // 清不掉也要把原本的授權錯誤丟出去；讓清理失敗蓋掉它，操作者就看不到真正被擋的原因。
+          await discardPiSandboxRun(c.env, piRequest).catch((discardError) => {
+            console.error("小香 Sandbox 無法移除已撤銷的回合", {
+              runId,
+              error: discardError instanceof Error ? discardError.message : String(discardError),
+            });
+          });
           throw error;
         }
       }

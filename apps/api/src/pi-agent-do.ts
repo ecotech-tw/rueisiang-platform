@@ -108,6 +108,8 @@ interface ImageMarker {
   expiresAt?: string | null;
 }
 
+const MASKED_HR_ERROR = "HR 本人查詢暫時無法完成，請重新查詢。";
+
 interface AgentStateRow extends Record<string, SqlStorageValue> {
   generation: string;
   session_id: string;
@@ -145,7 +147,7 @@ interface ToolExecutionContext {
   toolCalls: AssistantToolCall[];
   privateHrRun?: boolean;
   /**
-   * Sandbox 模擬本人的回合：對話照常留存，但錯誤一律遮罩。provider 報錯時常把送出的內容原樣回顯，
+   * 出現過模擬本人的 Sandbox 對話：內容照常留存，但錯誤一律遮罩。provider 報錯時常把送出的內容原樣回顯，
    * 而看得到 Worker Logs 與 run 稽核的人比看得到這個 session 的人多。
    */
   maskErrors?: boolean;
@@ -537,6 +539,7 @@ export class AssistantChatAgent {
           summary_tokens INTEGER NOT NULL DEFAULT 0,
           tokens_before INTEGER NOT NULL DEFAULT 0,
           model TEXT NOT NULL DEFAULT '',
+          mask_errors INTEGER NOT NULL DEFAULT 0,
           updated_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS assistant_agent_messages (
@@ -560,6 +563,9 @@ export class AssistantChatAgent {
       const columns = [...this.sql.exec<{ name: string }>("PRAGMA table_info(assistant_agent_state)")];
       if (!columns.some((column) => column.name === "source_type")) {
         this.sql.exec("ALTER TABLE assistant_agent_state ADD COLUMN source_type TEXT NOT NULL DEFAULT ''");
+      }
+      if (!columns.some((column) => column.name === "mask_errors")) {
+        this.sql.exec("ALTER TABLE assistant_agent_state ADD COLUMN mask_errors INTEGER NOT NULL DEFAULT 0");
       }
     });
   }
@@ -592,6 +598,7 @@ export class AssistantChatAgent {
          summary_tokens = 0,
          tokens_before = 0,
          model = '',
+         mask_errors = 0,
          updated_at = excluded.updated_at`,
       generation,
       sessionId,
@@ -608,6 +615,16 @@ export class AssistantChatAgent {
       tokens_before: 0,
       model: "",
     };
+  }
+
+  /**
+   * 這個 generation 出現過模擬本人的回合。HR 內容進了 transcript 就會跟著之後每一輪與 compaction 送給 provider，
+   * 所以遮罩要跟著對話走，不能只看當下這一輪有沒有帶模擬對象。換 generation（清除對話）才歸零。
+   */
+  private masksErrors(): boolean {
+    return [...this.sql.exec<{ mask_errors: number }>(
+      "SELECT mask_errors FROM assistant_agent_state WHERE singleton = 1 LIMIT 1",
+    )][0]?.mask_errors === 1;
   }
 
   private requireGeneration(generation: string): { state: AgentStateRow; rotated: boolean } {
@@ -914,7 +931,7 @@ export class AssistantChatAgent {
         ...options,
         timeoutMs: COMPACTION_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
-      }, diagnostics).result(),
+      }, diagnostics, undefined, () => this.masksErrors()).result(),
     } as Models;
   }
 
@@ -1257,9 +1274,10 @@ export class AssistantChatAgent {
       "minimal",
     );
     if (!summary.ok) {
-      const error = new Error(summary.error.message);
+      const message = this.masksErrors() ? MASKED_HR_ERROR : summary.error.message;
+      const error = new Error(message);
       throw new AgentExecutionError(
-        summary.error.message,
+        message,
         [],
         diagnostics?.lastResponse,
         serializePiError(error),
@@ -1308,6 +1326,10 @@ export class AssistantChatAgent {
     }
     const providerDiagnostics: PiProviderExecutionDiagnostics = { runId: input.runId };
     let { state } = this.requireGeneration(input.contextGeneration);
+    if (hrSandbox) {
+      this.sql.exec("UPDATE assistant_agent_state SET mask_errors = 1 WHERE singleton = 1 AND generation = ?", state.generation);
+    }
+    const maskErrors = this.masksErrors();
     const sourceType = isLineRunRequest(input) ? input.sourceType : "sandbox";
     if (state.source_type !== sourceType) {
       this.sql.exec(
@@ -1353,8 +1375,8 @@ export class AssistantChatAgent {
     if (this.estimatedStoredContextTokens(state) > COMPACT_AFTER_TOKENS) {
       await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);
     }
-    const toolContext: ToolExecutionContext = { request: input, toolCalls: [], maskErrors: hrSandbox };
-    const masked = () => toolContext.privateHrRun === true || hrSandbox;
+    const toolContext: ToolExecutionContext = { request: input, toolCalls: [], maskErrors };
+    const masked = () => toolContext.privateHrRun === true || maskErrors;
     const initialMessages = await this.contextMessages(state, INTERACTIVE_CONTEXT_TOKENS);
     const images = await this.inputImages(input.attachments);
     const agent = new Agent({
@@ -1394,7 +1416,7 @@ export class AssistantChatAgent {
       await agent.prompt(input.userText, images);
     } catch (error) {
       throw new AgentExecutionError(
-        masked() ? "HR 本人查詢暫時無法完成，請重新查詢。" : error instanceof Error ? error.message : "Pi agent 執行失敗。",
+        masked() ? MASKED_HR_ERROR : error instanceof Error ? error.message : "Pi agent 執行失敗。",
         toolContext.toolCalls,
         providerDiagnostics.lastResponse,
         masked() ? undefined : serializePiError(error),
@@ -1407,7 +1429,7 @@ export class AssistantChatAgent {
         Date.now(),
         input.runId,
       );
-      const message = masked() ? "HR 本人查詢暫時無法完成，請重新查詢。" : agent.state.errorMessage;
+      const message = masked() ? MASKED_HR_ERROR : agent.state.errorMessage;
       const error = new Error(message);
       throw new AgentExecutionError(
         message,
@@ -1506,11 +1528,12 @@ export class AssistantChatAgent {
       return Response.json({ error: "Pi agent request 格式不正確。" }, { status: 400 });
     } catch (error) {
       // HrSelfToolError 是我們自己寫的固定句子（未綁定、已停權…），操作者需要看到；其餘錯誤可能回顯內容。
-      const maskedSandbox = isRunRequest(payload) && isSandboxRunRequest(payload) && payload.hrSandboxUserId !== undefined;
-      const message = maskedSandbox && !(error instanceof HrSelfToolError)
-        ? "HR 本人查詢暫時無法完成，請重新查詢。"
-        : error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
-      const stale = message.includes("已重設的舊 session");
+      const rawMessage = error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
+      // 遮罩之前先判斷：stale 是我們自己的固定句子，遮掉之後呼叫端會收不到 409。
+      const stale = rawMessage.includes("已重設的舊 session");
+      const maskedSandbox = isRunRequest(payload) && isSandboxRunRequest(payload)
+        && (payload.hrSandboxUserId !== undefined || this.masksErrors());
+      const message = maskedSandbox && !stale && !(error instanceof HrSelfToolError) ? MASKED_HR_ERROR : rawMessage;
       if (!stale) {
         console.error("Pi chat agent 執行失敗", {
           runId: isRunRequest(payload) ? payload.runId : undefined,
@@ -1555,7 +1578,7 @@ export class AssistantChatAgent {
           runId,
           durationMs: Date.now() - startedAt,
           nextRetryAt,
-          error: serializePiError(error),
+          error: this.masksErrors() ? serializePiError(new Error(MASKED_HR_ERROR)) : serializePiError(error),
           ...(diagnostics.lastResponse ? { providerResponse: diagnostics.lastResponse } : {}),
         });
         await this.ctx.storage.setAlarm(nextRetryAt);
