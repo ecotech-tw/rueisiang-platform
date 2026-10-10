@@ -1,7 +1,7 @@
 export { Button } from "./Button.js";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog.js";
 export { DataTable } from "./DataTable.js";
-export { Dialog } from "./Dialog.js";
+export { Dialog, DialogScope } from "./Dialog.js";
 export { DropdownSelect } from "./DropdownSelect.js";
 export { EmptyState } from "./EmptyState.js";
 export { FilterToolbar } from "./FilterToolbar.js";

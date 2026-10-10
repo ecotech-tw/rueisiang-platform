@@ -1,6 +1,7 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
+import { DialogScope } from "../../ui/index.js";
 import { GuardedNavLink } from "../../shell/UnsavedChanges.js";
 import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
@@ -173,7 +174,7 @@ export function HrLayout() {
     return () => observer.disconnect();
   }, [placeThumb]);
 
-  return <div className="hr-module hr-system">
+  return <DialogScope className="hr-system"><div className="hr-module hr-system">
     <svg className="hr-liquid-defs" aria-hidden="true" focusable="false">
       <filter id="hr-liquid-glass-soft" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
         <feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="2" seed="7" result="noise" />
@@ -250,7 +251,7 @@ export function HrLayout() {
     <div className="hr-system-main">
       <HrPageTransition><Outlet /></HrPageTransition>
     </div>
-  </div>;
+  </div></DialogScope>;
 }
 
 export function HrLanding() {
