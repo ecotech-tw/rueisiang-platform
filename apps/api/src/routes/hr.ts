@@ -373,6 +373,18 @@ function optionalDateTimeValue(input: Record<string, unknown>, key: string, labe
   if (input[key] === undefined || input[key] === null || input[key] === "") return undefined;
   return dateTimeValue(input, key, label);
 }
+function reviewComment(input: Record<string, unknown>) {
+  return input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+}
+/** 審核者在確認框裡看到的那幾筆與版本；伺服器只核准跟這份一模一樣的集合。 */
+function overtimeBatchExpectation(input: Record<string, unknown>) {
+  if (!Array.isArray(input.requests)) throw new HTTPException(400, { message: "整批核准的申請清單格式不正確。" });
+  return input.requests.map((entry: unknown) => {
+    if (!entry || typeof entry !== "object") throw new HTTPException(400, { message: "整批核准的申請清單格式不正確。" });
+    const values = entry as Record<string, unknown>;
+    return { id: text(values, "id", "加班申請", 100), revision: integerValue(values, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER) };
+  });
+}
 function overtimeSettlementKind(input: Record<string, unknown>) {
   const settlementKind = input.settlementKind === "pay" || input.settlementKind === "compensatory" ? input.settlementKind : null;
   if (!settlementKind) throw new HTTPException(400, { message: "加班結算方式不正確。" });
@@ -748,14 +760,14 @@ export const hr = new Hono<AppEnv>()
   .post("/me/overtime/:id/cancel", async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"))))
   .post("/me/overtime/batches/:batchId/approve", async (c) => {
     const input = await body(c);
-    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
-    return c.json(await approveHrOvertimeBatch(c.get("db"), c.req.param("batchId"), comment, c.get("user"), { allowAny: can(c.get("user"), "hr:request:review") }));
+    const comment = reviewComment(input);
+    return c.json(await approveHrOvertimeBatch(c.get("db"), c.req.param("batchId"), overtimeBatchExpectation(input), comment, c.get("user"), { allowAny: can(c.get("user"), "hr:request:review") }));
   })
   .post("/me/overtime/:id/review", async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "加班審核結果不正確。" });
-    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    const comment = reviewComment(input);
     return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), undefined, { allowAny: can(c.get("user"), "hr:request:review") }));
   })
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), undefined, true) }))
@@ -792,7 +804,7 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "請假審核結果不正確。" });
-    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    const comment = reviewComment(input);
     return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: can(c.get("user"), "hr:request:review") }));
   })
   .get("/leave-types", requirePermission("hr:payroll:read"), async (c) => {
@@ -921,7 +933,7 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "請假審核結果不正確。" });
-    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    const comment = reviewComment(input);
     return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: true }));
   })
   .post("/requests/leave/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true })))
@@ -953,7 +965,7 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "審核結果不正確。" });
-    const comment = input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
+    const comment = reviewComment(input);
     if (decision === "rejected" && !comment.trim()) throw new HTTPException(400, { message: "駁回時請填寫審核意見。" });
     return c.json(await reviewHrFormRequest(c.get("db"), c.req.param("id"), c.get("user").id, decision, comment, can(c.get("user"), "hr:request:review"), c.get("user")));
   })

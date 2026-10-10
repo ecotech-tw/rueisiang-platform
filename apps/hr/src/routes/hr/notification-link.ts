@@ -26,7 +26,9 @@ export function reviewableOvertimeBatches<T extends { request: { batchId: string
   const groups = new Map<string, T[]>();
   for (const item of items) {
     if (!item.request.batchId) continue;
-    groups.set(item.request.batchId, [...(groups.get(item.request.batchId) ?? []), item]);
+    const group = groups.get(item.request.batchId);
+    if (group) group.push(item);
+    else groups.set(item.request.batchId, [item]);
   }
   return [...groups.entries()].filter(([, group]) => group.length > 1).map(([batchId, group]) => ({ batchId, items: group }));
 }

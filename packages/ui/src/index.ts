@@ -1,6 +1,6 @@
 export { Button } from "./Button.js";
 export { DataTable } from "./DataTable.js";
-export { Dialog, DialogScope } from "./Dialog.js";
+export { Dialog, DialogScope, useDialogScope } from "./Dialog.js";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog.js";
 export {
   DropdownSelect,

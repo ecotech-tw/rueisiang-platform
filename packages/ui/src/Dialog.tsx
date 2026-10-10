@@ -170,6 +170,11 @@ export function Dialog({
   return portal && typeof document !== "undefined" ? createPortal(dialog, document.body) : dialog;
 }
 
+/** 目前所在的對話框範圍。給「自己不在範圍裡、但要替範圍裡的頁面開對話框」的元件記下來用。 */
+export function useDialogScope() {
+  return useContext(DialogScopeContext);
+}
+
 /** 放在站台版面的根節點：這個範圍裡開的對話框 portal 出去後會帶回 `className`。 */
 export function DialogScope({ className, children }: { className: string; children: ReactNode }) {
   return <DialogScopeContext.Provider value={className}>{children}</DialogScopeContext.Provider>;

@@ -242,25 +242,45 @@ function OvertimeReviewDialog({ item, onClose }: { item: OvertimeRequest; onClos
 
 type OvertimeBatch = { batchId: string; items: OvertimeRequest[] };
 
-function taipeiDay(value: string) {
-  return formatTaipei(value).replace(/\s.*$/, "");
+const taipeiDayFormat = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium" });
+const taipeiTimeFormat = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", timeStyle: "short" });
+
+function utcStampDate(value: string) {
+  return new Date(`${value.replace(" ", "T")}Z`);
 }
 
-/** 月底一次送來的整批加班：逐筆開對話框核准二三十次不實際。駁回各有各的理由，仍然逐筆處理。 */
+function taipeiDay(value: string) {
+  const date = utcStampDate(value);
+  return Number.isNaN(date.getTime()) ? value : taipeiDayFormat.format(date);
+}
+
+/** 只有時間的區間；結束落在另一天時要講出來，不然 23:00～01:00 看不出跨日。 */
+function taipeiTimeRange(start: string, end: string) {
+  const [from, to] = [utcStampDate(start), utcStampDate(end)];
+  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return `${start}～${end}`;
+  return `${taipeiTimeFormat.format(from)}～${taipeiDayFormat.format(from) === taipeiDayFormat.format(to) ? "" : "隔日 "}${taipeiTimeFormat.format(to)}`;
+}
+
+/**
+ * 月底一次送來的整批加班：逐筆開對話框核准二三十次不實際。駁回各有各的理由，仍然逐筆處理。
+ *
+ * 送出的是畫面上列出的那幾筆與版本，伺服器只核准一模一樣的集合。`batch` 由上層從最新的待審清單
+ * 取，被擋下（409）重抓之後這裡會直接換成新的內容，審核者看到的永遠是按下去會核准的東西。
+ */
 function OvertimeBatchApproveDialog({ batch, onClose }: { batch: OvertimeBatch; onClose: () => void }) {
   const [comment, setComment] = useState("");
   const approve = useHrWrite<{ ids: string[] }>();
   const closeRequestRef = useRef<(() => void) | null>(null);
-  const totalMinutes = batch.items.reduce((total, item) => total + (Date.parse(`${item.request.requestedEnd.replace(" ", "T")}Z`) - Date.parse(`${item.request.requestedStart.replace(" ", "T")}Z`)) / 60_000, 0);
+  const totalMinutes = batch.items.reduce((total, item) => total + (utcStampDate(item.request.requestedEnd).getTime() - utcStampDate(item.request.requestedStart).getTime()) / 60_000, 0);
   function submit() {
-    approve.mutate({ path: `/me/overtime/batches/${encodeURIComponent(batch.batchId)}/approve`, method: "POST", values: { comment: comment.trim() } }, { onSuccess: () => (closeRequestRef.current ?? onClose)() });
+    approve.mutate({ path: `/me/overtime/batches/${encodeURIComponent(batch.batchId)}/approve`, method: "POST", values: { comment: comment.trim(), requests: batch.items.map((item) => ({ id: item.request.id, revision: item.request.revision })) } }, { onSuccess: () => (closeRequestRef.current ?? onClose)() });
   }
   return <Dialog title="整批核准加班申請" titleMeta={batch.items[0]?.employeeName ?? batch.items[0]?.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={approve.isPending} actions={<>
     <Button variant="secondary" disabled={approve.isPending} onClick={onClose}>取消</Button>
     <Button className="hr-action-approve" loading={approve.isPending} loadingLabel="核准中…" onClick={submit}>核准 {batch.items.length} 筆</Button>
   </>}>
     <p>會一次核准下面 {batch.items.length} 筆、共 {formatHours(totalMinutes)}。要駁回其中幾筆的話，請先回清單逐筆審核那幾筆。</p>
-    <ul className="hr-overtime-batch-days">{batch.items.map((item) => <li key={item.request.id}><span>{taipeiDay(item.request.requestedStart)}</span><span>{formatTaipei(item.request.requestedStart).replace(/^.*\s/, "")}～{formatTaipei(item.request.requestedEnd).replace(/^.*\s/, "")}</span></li>)}</ul>
+    <ul className="hr-overtime-batch-days">{batch.items.map((item) => <li key={item.request.id}><span>{taipeiDay(item.request.requestedStart)}</span><span>{taipeiTimeRange(item.request.requestedStart, item.request.requestedEnd)}</span></li>)}</ul>
     <Field label="審核意見（選填）" hint="會附在給申請人的通知裡。"><textarea maxLength={1000} rows={3} value={comment} disabled={approve.isPending} onChange={(event) => setComment(event.target.value)} /></Field>
     {approve.error ? <Alert tone="danger">{approve.error.message}</Alert> : null}
   </Dialog>;
@@ -361,7 +381,7 @@ export function HrForms() {
   const reviewForms = (data?.reviewRequests ?? []).filter((request) => !reviewTargetId || request.id === reviewTargetId);
   const reviewLeaves = (leave.data?.reviewRequests ?? []).filter((item) => !reviewTargetId || item.request.id === reviewTargetId);
   const reviewOvertime = (overtime.data?.reviewRequests ?? []).filter((item) => reviewBatchId ? item.request.batchId === reviewBatchId : !reviewTargetId || item.request.id === reviewTargetId);
-  const overtimeBatches = useMemo(() => reviewableOvertimeBatches(reviewOvertime), [reviewOvertime]);
+  const overtimeBatches = reviewableOvertimeBatches(reviewOvertime);
   const reviewTotal = activeTab === "leave" ? leave.data?.reviewRequests.length ?? 0 : activeTab === "overtime" ? overtime.data?.reviewRequests.length ?? 0 : data?.reviewRequests.length ?? 0;
   const reviewShown = activeTab === "leave" ? reviewLeaves.length : activeTab === "overtime" ? reviewOvertime.length : reviewForms.length;
   const reviewTargetMissing = Boolean(reviewFiltered && (
@@ -530,7 +550,8 @@ export function HrForms() {
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
     {reviewingLeave ? <LeaveReviewDialog item={reviewingLeave} onClose={() => setReviewingLeave(null)} /> : null}
     {reviewingOvertime ? <OvertimeReviewDialog item={reviewingOvertime} onClose={() => setReviewingOvertime(null)} /> : null}
-    {approvingBatch ? <OvertimeBatchApproveDialog batch={approvingBatch} onClose={() => setApprovingBatch(null)} /> : null}
+    {/* 清單重抓後用最新的那一批；整批都處理完、清單裡已經沒有它時沿用開啟時的內容，讓退場動畫跑完。 */}
+    {approvingBatch ? <OvertimeBatchApproveDialog batch={overtimeBatches.find((batch) => batch.batchId === approvingBatch.batchId) ?? approvingBatch} onClose={() => setApprovingBatch(null)} /> : null}
     {cancelling ? <OvertimeCancelDialog item={cancelling} onClose={() => setCancelling(null)} /> : null}
     {cancellingLeave ? <LeaveCancelDialog item={cancellingLeave} onClose={() => setCancellingLeave(null)} /> : null}
     {correctionAction ? <CorrectionActionDialog action={correctionAction} onClose={() => setCorrectionAction(null)} /> : null}

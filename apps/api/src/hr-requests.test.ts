@@ -336,20 +336,21 @@ describe("HR 申請中心", () => {
     expect(inbox.unreadCount).toBe(1);
   });
 
-  it("審核者可以一次核准整批待審加班：全部核准、申請人只收到一行通知", async () => {
+  it("審核者可以一次核准整批待審加班：只核准還在待審的，申請人只多一行通知", async () => {
     await assignEmployeeSupervisor();
     const created = await request("/hr/me/overtime/batch", "POST", { settlementKind: "pay", reason: "月底補登", entries: [6, 7, 8, 9].map((day) => ({ requestedStart: `2026-01-0${day}T18:00`, requestedEnd: `2026-01-0${day}T19:00` })) }, employeeCookie);
     const { ids } = await created.json() as { ids: string[] };
     const batchId = ((await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json()) as { notifications: Array<{ entityId: string }> }).notifications[0]!.entityId;
-    const approve = (cookie: string, comment = "") => request(`/hr/me/overtime/batches/${batchId}/approve`, "POST", { comment }, cookie);
+    const seen = (requestIds: string[], revision = 1) => requestIds.map((id) => ({ id, revision }));
+    const approve = (cookie: string, requests: Array<{ id: string; revision: number }>, comment = "") => request(`/hr/me/overtime/batches/${batchId}/approve`, "POST", { comment, requests }, cookie);
 
     // 申請人自己不能核准自己的批次。
-    expect((await approve(employeeCookie)).status).toBe(404);
+    expect((await approve(employeeCookie, seen(ids))).status).toBe(404);
 
     // 先逐筆駁回一天、核准一天，剩下兩天整批核准：只動還在待審的那兩筆。
     expect((await request(`/hr/me/overtime/${ids[0]}/review`, "POST", { decision: "rejected", comment: "這天沒有加班紀錄" }, adminCookie)).status).toBe(200);
     expect((await request(`/hr/me/overtime/${ids[1]}/review`, "POST", { decision: "approved", comment: "" }, adminCookie)).status).toBe(200);
-    const approved = await approve(adminCookie, "辛苦了");
+    const approved = await approve(adminCookie, seen([ids[2]!, ids[3]!]), "辛苦了");
     expect(approved.status, await approved.clone().text()).toBe(200);
     expect(await approved.json()).toEqual({ ids: [ids[2], ids[3]], status: "approved" });
 
@@ -366,9 +367,65 @@ describe("HR 申請中心", () => {
     expect(approvedNotice[0]).toMatchObject({ entityId: batchId, body: "2026-01-07 已核准。\n2026-01-08、2026-01-09 已核准：辛苦了" });
 
     // 整批都處理完之後再按一次：沒有東西可核准。
-    expect((await approve(adminCookie)).status).toBe(404);
-    expect((await request("/hr/me/overtime/batches/not-a-batch/approve", "POST", { comment: "" }, adminCookie)).status).toBe(404);
+    expect((await approve(adminCookie, seen([ids[2]!, ids[3]!]))).status).toBe(404);
+    expect((await request("/hr/me/overtime/batches/not-a-batch/approve", "POST", { comment: "", requests: seen([ids[2]!]) }, adminCookie)).status).toBe(404);
+    expect((await approve(adminCookie, [])).status).toBe(400);
     expect((await (await request("/hr/me/overtime", "GET", undefined, adminCookie)).json() as { reviewRequests: unknown[] }).reviewRequests).toHaveLength(0);
+  });
+
+  it("整批核准只核准審核者在確認框裡看到的內容：申請人中途改過或筆數不同都擋下，整批不動", async () => {
+    await assignEmployeeSupervisor();
+    const created = await request("/hr/me/overtime/batch", "POST", { settlementKind: "pay", reason: "", entries: [6, 7, 8].map((day) => ({ requestedStart: `2026-01-0${day}T18:00`, requestedEnd: `2026-01-0${day}T19:00` })) }, employeeCookie);
+    const { ids } = await created.json() as { ids: string[] };
+    const batchId = ((await (await request("/hr/me/notifications", "GET", undefined, adminCookie)).json()) as { notifications: Array<{ entityId: string }> }).notifications[0]!.entityId;
+    const approve = (requests: Array<{ id: string; revision: number }>) => request(`/hr/me/overtime/batches/${batchId}/approve`, "POST", { comment: "", requests }, adminCookie);
+    const pending = async () => (await (await request("/hr/me/overtime", "GET", undefined, adminCookie)).json() as { reviewRequests: Array<{ request: { id: string; revision: number; status: string; requestedStart: string; requestedEnd: string; actualStart: string | null; actualEnd: string | null } }> }).reviewRequests;
+
+    // 審核者打開確認框時看到三筆各 1 小時（revision 1）；申請人接著把 1/7 改成 4 小時。
+    const seen = (await pending()).map((item) => ({ id: item.request.id, revision: item.request.revision }));
+    const edited = await request(`/hr/me/overtime/${ids[1]}`, "PATCH", { requestedStart: "2026-01-07T18:00", requestedEnd: "2026-01-07T22:00", settlementKind: "pay", reason: "", revision: 1 }, employeeCookie);
+    expect(edited.status, await edited.clone().text()).toBe(200);
+
+    const stale = await approve(seen);
+    expect(stale.status).toBe(409);
+    expect(await stale.text()).toContain("有變動");
+    expect((await pending()).every((item) => item.request.status === "pending" && item.request.actualStart === null)).toBe(true);
+
+    // 少看一筆也不行：畫面寫「核准 N 筆」，就只能核准那 N 筆。
+    const latest = (await pending()).map((item) => ({ id: item.request.id, revision: item.request.revision }));
+    expect((await approve(latest.slice(0, 2))).status).toBe(409);
+    expect((await approve([...latest.slice(0, 2), { id: "not-in-batch", revision: 1 }])).status).toBe(409);
+    expect((await pending())).toHaveLength(3);
+
+    // 看過最新的內容再核准：核定時段等於改過之後的申請時段。
+    const approved = await approve(latest);
+    expect(approved.status, await approved.clone().text()).toBe(200);
+    const mine = await (await request("/hr/me/overtime", "GET", undefined, employeeCookie)).json() as { requests: Array<{ request: { id: string; status: string; requestedEnd: string; actualStart: string | null; actualEnd: string | null; requestedStart: string } }> };
+    const changed = mine.requests.find((item) => item.request.id === ids[1])!.request;
+    expect(changed).toMatchObject({ status: "approved", actualStart: changed.requestedStart, actualEnd: changed.requestedEnd });
+    expect((Date.parse(`${changed.actualEnd!.replace(" ", "T")}Z`) - Date.parse(`${changed.actualStart!.replace(" ", "T")}Z`)) / 3_600_000).toBe(4);
+  });
+
+  it("逐筆審核也守版本：申請人改過之後，用舊內容下的決定不會寫進去", async () => {
+    await assignEmployeeSupervisor();
+    const created = await request("/hr/me/overtime", "POST", { requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T19:00", settlementKind: "pay", reason: "" }, employeeCookie);
+    const id = (await created.json() as { id: string }).id;
+    const db = createDatabase(d1 as never);
+    const { reviewHrOvertimeRequest, HrError } = await import("@rueisiang/db");
+    const original = d1.sqlite.prepare("SELECT revision FROM hr_overtime_requests WHERE id=?").get(id) as { revision: number };
+    // 「審核函式讀完、寫入之前」申請人改了時段：寫入走 D1 batch，在它執行前先把那一列改掉。
+    const realBatch = d1.batch.bind(d1);
+    let edited = false;
+    d1.batch = ((statements: Parameters<typeof d1.batch>[0]) => {
+      if (!edited) {
+        edited = true;
+        d1.sqlite.prepare("UPDATE hr_overtime_requests SET revision=revision+1, requested_start='2026-01-06 12:00:00', requested_end='2026-01-06 14:00:00' WHERE id=?").run(id);
+      }
+      return realBatch(statements);
+    }) as typeof d1.batch;
+    await expect(reviewHrOvertimeRequest(db, id, "approved", "", { id: "admin", email: "admin@example.test" })).rejects.toBeInstanceOf(HrError);
+    const after = d1.sqlite.prepare("SELECT status, revision, actual_start FROM hr_overtime_requests WHERE id=?").get(id) as { status: string; revision: number; actual_start: string | null };
+    expect(after).toEqual({ status: "pending", revision: original.revision + 1, actual_start: null });
   });
 
   it("單筆申請與後台代登不帶批次鍵，通知維持一筆一則", async () => {
