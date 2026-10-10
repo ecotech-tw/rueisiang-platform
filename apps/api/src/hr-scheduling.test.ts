@@ -175,6 +175,21 @@ describe("排班差異儲存", () => {
     expect((await getHrSchedule(db, "2026-02")).entries).toEqual(original.entries);
   });
 
+  it("驗證後人員才封存，不會靜默略過移除或重新寫入歷史排班", async () => {
+    await changes({ entries: [entry("worker-1")] });
+    const original = await getHrSchedule(db, "2026-02");
+    const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementation(async (statements) => {
+      d1.sqlite.prepare("UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP WHERE id='worker-1'").run();
+      return batch(statements);
+    });
+    expect((await changes({ removedIds: [original.entries[0]!.id], entries: [entry("worker-2")] })).status).toBe(409);
+    const after = await getHrSchedule(db, "2026-02");
+    expect(after.entries).toHaveLength(1);
+    expect(after.entries[0]!.id).toBe(original.entries[0]!.id);
+    expect(after.version).toEqual(original.version);
+  });
+
   it("1000 筆排班以固定 6 條 SQL 批次寫入，不隨筆數逐筆查詢", async () => {
     const workers = Array.from({ length: 40 }, (_, index) => `bulk-${index}`);
     for (const id of workers) await db.insert(hrEmployments).values({ id, personKind: "worker", employeeNumber: id, legalName: id, position: "支援" });
