@@ -101,12 +101,12 @@ export async function runPiSandboxAgent(
   return requestAgent<PiSandboxAgentRunResponse>(env, sandboxAgentName(input), "/run", input);
 }
 
-/** 回答已經存進 transcript、卻在送出前被撤銷時用；不拿掉的話同一個 session 的下一輪會把它當上下文。 */
-export async function discardPiSandboxRun(
+/** 模擬本人的回合在路由重驗通過後才算進對話；沒呼叫到這裡的回合不會進任何一輪的上下文。 */
+export async function commitPiSandboxRun(
   env: AppEnv["Bindings"],
   input: PiSandboxAgentRunRequest,
 ): Promise<void> {
-  await requestAgent<{ discarded: boolean }>(env, sandboxAgentName(input), "/discard-run", { runId: input.runId });
+  await requestAgent<{ committed: boolean }>(env, sandboxAgentName(input), "/commit-run", { runId: input.runId });
 }
 
 export async function resetPiLineAgent(

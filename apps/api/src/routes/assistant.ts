@@ -66,7 +66,7 @@ import {
   piCodexCredentialConfigured,
   piCodexCredentialStatus,
   runPiSandboxAgent,
-  discardPiSandboxRun,
+  commitPiSandboxRun,
   savePiCodexCredential,
 } from "../pi-agent.js";
 import {
@@ -77,7 +77,7 @@ import {
   piCodexModels,
 } from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
-import { assertHrSandboxDeliveryAuthorized, HR_SANDBOX_CHANNEL_KEY, isHrSandboxActor } from "../assistant-hr.js";
+import { assertHrSandboxDeliveryAuthorized, HR_SANDBOX_CHANNEL_KEY, hrToolKeysProblem, isHrSandboxActor } from "../assistant-hr.js";
 import type { PiSandboxAgentRunRequest } from "../pi-agent-contract.js";
 import { isNasStorageKey, nasStorageClient } from "../nas-storage.js";
 
@@ -962,11 +962,8 @@ export const assistant = new Hono<AppEnv>()
     const configuredTools = await listAssistantToolConfigs(c.get("db"));
     const statusByKey = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
     const toolKeys = readToolKeys(input);
-    const hrToolKeys = toolKeys.filter(isHrToolKey);
-    if (hrToolKeys.length && !hrSandbox) throw new HTTPException(400, { message: "HR 工具需要先選擇要模擬的員工。" });
-    if (hrToolKeys.length && !hrToolKeys.includes("hr_authorize")) {
-      throw new HTTPException(400, { message: "HR 工具必須連同 hr_authorize 一起提供。" });
-    }
+    const hrToolProblem = hrToolKeysProblem(toolKeys, hrSandbox);
+    if (hrToolProblem) throw new HTTPException(400, { message: hrToolProblem });
     for (const key of toolKeys) {
       const status = statusByKey.get(key) ?? "disabled";
       if (status === "disabled") throw new HTTPException(400, { message: `工具「${key}」目前已停用。` });
@@ -1010,7 +1007,8 @@ export const assistant = new Hono<AppEnv>()
       })),
       ...(hrSandboxUserId ? { hrSandboxUserId } : {}),
     };
-    if (hrSandboxUserId) await recordActivity(c.get("db"), {
+    // 稽核的是「用這個人的身分碰 HR 資料」；只選了員工、沒帶 HR 工具的回合碰不到。
+    if (hrSandboxUserId && toolKeys.some(isHrToolKey)) await recordActivity(c.get("db"), {
       entityType: "assistant_hr_sandbox", entityId: runId, eventType: "hr_sandbox_started",
       source: "hr", summary: "小香 HR 模擬本人測試", actor: { id: c.get("user").id },
       payload: { assistantKey: piRequest.assistantKey, channelKey: HR_SANDBOX_CHANNEL_KEY, runId, subjectUserId: hrSandboxUserId },
@@ -1037,18 +1035,8 @@ export const assistant = new Hono<AppEnv>()
         toolCalls: result.toolCalls,
       });
       if (hrSandbox) {
-        try {
-          await assertHrSandboxDeliveryAuthorized(c.get("db"), c.env, piRequest, piResponse.hrAuthorization);
-        } catch (error) {
-          // 清不掉也要把原本的授權錯誤丟出去；讓清理失敗蓋掉它，操作者就看不到真正被擋的原因。
-          await discardPiSandboxRun(c.env, piRequest).catch((discardError) => {
-            console.error("小香 Sandbox 無法移除已撤銷的回合", {
-              runId,
-              error: discardError instanceof Error ? discardError.message : String(discardError),
-            });
-          });
-          throw error;
-        }
+        await assertHrSandboxDeliveryAuthorized(c.get("db"), c.env, piRequest, piResponse.hrAuthorization);
+        await commitPiSandboxRun(c.env, piRequest);
       }
       if (session) {
         await appendAssistantSandboxMessage(c.get("db"), {

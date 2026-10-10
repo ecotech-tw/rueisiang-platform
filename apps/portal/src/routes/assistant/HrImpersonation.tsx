@@ -24,7 +24,7 @@ export function HrImpersonation({ employee, bindingConfigured, disabled, onChang
       <div className="assistant-subsection-head">
         <div>
           <h3>模擬員工本人</h3>
-          <p className="muted">僅平台管理者可用。選了員工，HR 工具才會送給模型；不選就是一般 Sandbox。</p>
+          <p className="muted">僅平台管理者可用。選了員工，HR 工具才會送給模型；不選就是一般 Sandbox。切換或清除對話會取消選取。</p>
         </div>
         {employee ? <span className="status status-active">模擬中</span> : null}
       </div>
@@ -68,7 +68,7 @@ export function HrImpersonation({ employee, bindingConfigured, disabled, onChang
         {!bindingConfigured ? <Alert tone="danger">平台尚未設定 LINE_LIFF_CHANNEL_ID，無法驗證既有員工綁定；HR 工具不會送出，一般工具照常可用。</Alert> : null}
         {employee ? (
           <Alert>
-            模擬 {employee.displayName}（{employee.employeeNumber}）本人：使用正式員工資料，會送至所選模型服務，問答與工具結果會留在你的 Sandbox session 裡；不傳送 LINE 訊息。換人前建議先清除對話。
+            模擬 {employee.displayName}（{employee.employeeNumber}）本人：使用正式員工資料，會送至所選模型服務，問答與工具結果會留在你的 Sandbox session 裡；不傳送 LINE 訊息。同一段對話只能模擬一位員工，要換人請先清除對話。
           </Alert>
         ) : null}
       </div>

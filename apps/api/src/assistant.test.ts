@@ -2324,12 +2324,12 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect(requests.join("\n")).not.toMatch(/敏感假單-alice|撤銷後不得留存的回答/);
   });
 
-  it.each(["before-authorize", "after-query", "transport"])("provider %s 把內容回顯在錯誤裡時，不進 UI、logs 或 run 稽核", async (failure) => {
+  it.each(["after-query", "transport"])("provider %s 把內容回顯在錯誤裡時，不進 UI、logs 或 run 稽核", async (failure) => {
     const sessionId = await openSession();
     let stage = 0;
     const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-      if ((failure === "before-authorize" && stage === 0) || stage === 2) {
+      if (stage === 2) {
         if (failure === "transport") throw new Error("敏感本人測試問題 敏感假單-alice");
         return Response.json({ error: { message: "敏感本人測試問題 敏感假單-alice" } }, { status: 500, headers: { "x-request-id": "敏感本人測試問題" } });
       }
@@ -2369,27 +2369,60 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect(await fresh.text()).toContain("回顯上下文");
   });
 
-  it("撤銷後清不掉 transcript 時，仍回報原本的授權錯誤", async () => {
+  it("重驗通過但 commit 失敗時，回答不送出也不進下一輪的上下文", async () => {
+    const sessionId = await openSession();
+    let commitFails = true;
     env.ASSISTANT_CHAT_AGENT = {
       getByName: (name: string) => ({ fetch: async (request: Request) => {
-        if (new URL(request.url).pathname === "/discard-run") return Response.json({ error: "DO 暫時連不上" }, { status: 503 });
-        const response = await assistantAgents!.getByName(name).fetch(request);
-        d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
-        return response;
+        if (commitFails && new URL(request.url).pathname === "/commit-run") return Response.json({ error: "DO 暫時連不上" }, { status: 503 });
+        return assistantAgents!.getByName(name).fetch(request);
       } }),
     };
     let stage = 0;
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-      const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
-        : stage === 2 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "不得送出的回答" }];
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(String(init?.body));
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "還沒算數的回答" }];
+      stage++;
       return Response.json({ candidates: [{ content: { parts } }] });
     });
-    const response = await runHr();
+    const response = await runHr({ sessionId });
     expect(response.status).toBe(502);
-    const text = await response.text();
-    expect(text).toContain("帳號綁定");
-    expect(text).not.toMatch(/DO 暫時連不上|不得送出的回答/);
+    expect(await response.text()).not.toContain("還沒算數的回答");
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
+    commitFails = false; stage = 2; requests.length = 0;
+    expect((await runHr({ sessionId, toolKeys: [], input: "接著問" })).status).toBe(200);
+    expect(requests.join("\n")).not.toMatch(/敏感假單-alice|還沒算數的回答/);
+  });
+
+  it("同一段對話查過一位員工之後不能換人；清除對話後可以", async () => {
+    const sessionId = await openSession();
+    let stage = 0;
+    const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }] : [{ text: "回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    expect((await runHr({ sessionId })).status).toBe(200);
+    provider.mockClear();
+    const switched = await runHr({ sessionId, hrSandboxUserId: "bob" });
+    expect(switched.status).toBe(502);
+    expect(await switched.text()).toContain("請先清除對話再換人");
+    expect(provider).not.toHaveBeenCalled();
+    stage = 0;
+    expect((await runHr({ sessionId })).status).toBe(200);
+    stage = 0;
+    expect((await runHr({ sessionId: await openSession(), hrSandboxUserId: "bob" })).status).toBe(200);
+  });
+
+  it("只選了員工、沒跑 HR 工具的對話不遮罩也不寫模擬稽核", async () => {
+    const sessionId = await openSession();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ error: { message: "一般 provider 錯誤" } }, { status: 500 }));
+    const response = await runHr({ sessionId, toolKeys: ["crm_search_customers"] });
+    expect(response.status).toBe(502);
+    expect(await response.text()).toContain("一般 provider 錯誤");
+    expect((await db().select().from(activityEvents)).some((event) => event.eventType === "hr_sandbox_started")).toBe(false);
   });
 
   it("沒帶模擬對象的一般回合，provider 錯誤照常顯示", async () => {

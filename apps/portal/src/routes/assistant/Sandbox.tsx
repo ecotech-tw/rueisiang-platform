@@ -153,6 +153,12 @@ export function Sandbox() {
   const activeToolKeys = toolKeys.filter((key) => hrToolsUsable || !hrToolKeys.has(key));
   const hrAuthorizeMissing = activeToolKeys.some((key) => hrToolKeys.has(key)) && !activeToolKeys.includes("hr_authorize");
 
+  // 模擬對象跟著對話走：留著的話，切到別的 session 送出時會把這位員工的資料帶進一段不相干的對話。
+  function selectSession(id: string) {
+    setSessionId(id);
+    setEmployee(null);
+  }
+
   function selectRevision(revision: PromptRevision) {
     setPromptId(revision.id);
     setPrompt(revision.systemPrompt);
@@ -227,9 +233,7 @@ export function Sandbox() {
   function createFreshSession() {
     if (!modelReady || !promptId) return;
     createSession.mutate({ model, promptRevisionId: promptId }, {
-      onSuccess: ({ session: created }) => {
-        setSessionId(created.id);
-      },
+      onSuccess: ({ session: created }) => selectSession(created.id),
     });
   }
 
@@ -377,9 +381,7 @@ export function Sandbox() {
               className="assistant-session-select"
               label="選擇 Sandbox session"
               value={sessionId}
-              onChange={(event) => {
-                setSessionId(event.target.value);
-              }}
+              onChange={(event) => selectSession(event.target.value)}
               options={[
                 { value: "", label: "選擇 session" },
                 ...(sessions.data?.sessions ?? []).map((item) => ({
