@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
+import { swipeTarget, type SlideDirection } from "./page-direction.js";
 
 const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "info" | "success" | "danger" }> = {
   draft: { label: "草稿", tone: "neutral" },
@@ -41,6 +42,9 @@ const FORM_TAB_OPTIONS: readonly { value: FormTab; label: string }[] = [
   { value: "overtime", label: "加班" },
   { value: "clock_correction", label: "補打卡" },
 ];
+const FORM_TABS = FORM_TAB_OPTIONS.map((option) => option.value);
+const SWIPE_MIN_DISTANCE = 56;
+const SWIPE_EDGE_GUARD = 24;
 
 const REQUEST_STATUS_OPTIONS: readonly { value: RequestStatusFilter; label: string }[] = [
   { value: "all", label: "全部狀態" },
@@ -77,7 +81,7 @@ function FormPageHeader({ title, description, returnTo = "/forms" }: { title: st
   const navigate = useNavigate();
   return <>
     <div className="hr-form-back-bar">
-      <Button variant="link" icon="chevronLeft" className="hr-form-back-button" onClick={() => navigate(returnTo, { state: { transition: "back" } })}>返回表單</Button>
+      <Button variant="link" icon="chevronLeft" className="hr-form-back-button" onClick={() => navigate(returnTo)}>返回表單</Button>
     </div>
     <PageHeader title={title} description={description} />
   </>;
@@ -303,7 +307,6 @@ function ReviewDialog({ request, onClose }: { request: FormRequest; onClose: () 
 export function HrForms() {
   usePageTitle("表單申請");
   const navigate = useNavigate();
-  const location = useLocation();
   const [params, setParams] = useSearchParams();
   const [search, setSearch] = useState(() => params.get("search") ?? "");
   // 從草稿表單回來時網址會帶 status=draft；預設的「申請中」看不到草稿，使用者會以為它不見了。
@@ -316,9 +319,12 @@ export function HrForms() {
   const [reviewingOvertime, setReviewingOvertime] = useState<OvertimeRequest | null>(null);
   const [correctionAction, setCorrectionAction] = useState<CorrectionAction | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const hasMountedTabs = useRef(false);
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
   const activeTab = formTab(params.get("tab"));
-  const isBackNavigation = typeof location.state === "object" && location.state !== null && (location.state as { transition?: string }).transition === "back";
+  // direction 是 null 代表還沒切過分頁：第一次進頁面已經有整頁的進場，分頁不要再疊一次。
+  const [tabSlide, setTabSlide] = useState<{ tab: FormTab; direction: SlideDirection | null }>({ tab: activeTab, direction: null });
+  const tabDirection = tabSlide.tab === activeTab ? tabSlide.direction : FORM_TABS.indexOf(activeTab) > FORM_TABS.indexOf(tabSlide.tab) ? "forward" : "back";
+  if (tabSlide.tab !== activeTab) setTabSlide({ tab: activeTab, direction: tabDirection });
   const query = useHrQuery<{ requests: FormRequest[]; reviewRequests: FormRequest[] }>("/me/form-requests");
   const overtime = useHrQuery<{ requests: OvertimeRequest[]; reviewRequests: OvertimeRequest[] }>("/me/overtime");
   const leave = useHrQuery<{ requests: LeaveRequest[]; reviewRequests: LeaveRequest[] }>("/me/leave-requests");
@@ -357,10 +363,6 @@ export function HrForms() {
   const hasMore = visibleCount < activeCount;
 
   useEffect(() => {
-    hasMountedTabs.current = true;
-  }, []);
-
-  useEffect(() => {
     setVisibleCount(8);
   }, [activeTab, search, statusFilter]);
 
@@ -380,6 +382,30 @@ export function HrForms() {
     setParams(next, { replace: true });
   }
 
+  function startSwipe(event: TouchEvent<HTMLDivElement>) {
+    const touch = event.touches[0];
+    const target = event.target as Element;
+    // 對話框是 portal，React 的事件照樣會冒泡上來，所以要用 DOM 的包含關係再確認一次。
+    // 螢幕邊緣留給 iOS 的「滑動返回」，輸入框與分頁列留給它們自己的手勢。
+    const usable = touch && event.touches.length === 1
+      && event.currentTarget.contains(target)
+      && !target.closest("input, select, textarea, .hr-form-tabs")
+      && touch.clientX > SWIPE_EDGE_GUARD && touch.clientX < window.innerWidth - SWIPE_EDGE_GUARD;
+    swipeStart.current = usable ? { x: touch.clientX, y: touch.clientY } : null;
+  }
+
+  function endSwipe(event: TouchEvent<HTMLDivElement>) {
+    const start = swipeStart.current;
+    const touch = event.changedTouches[0];
+    swipeStart.current = null;
+    if (!start || !touch) return;
+    const deltaX = touch.clientX - start.x;
+    // 列表是直向捲動，橫向位移要明顯大於直向才算切分頁，不然捲到一半會被切走。
+    if (Math.abs(deltaX) < SWIPE_MIN_DISTANCE || Math.abs(deltaX) < Math.abs(touch.clientY - start.y) * 2) return;
+    const next = swipeTarget(FORM_TABS, activeTab, deltaX);
+    if (next) selectTab(next);
+  }
+
   function openNewForm() {
     navigate(activeTab === "leave" ? "/forms/leave" : activeTab === "overtime" ? "/forms/overtime" : "/forms/new");
   }
@@ -396,7 +422,7 @@ export function HrForms() {
     };
   });
 
-  return <div className={`page hr-forms-page hr-forms-index-page${isBackNavigation ? " hr-page-transition-back" : ""}`}>
+  return <div className="page hr-forms-page hr-forms-index-page" onTouchStart={startSwipe} onTouchEnd={endSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
     <PageHeader className="hr-forms-index-head" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><Button variant="icon" icon="plus" className="hr-form-add-button" aria-label="新增申請" onClick={openNewForm} /></Tooltip>} />
     {isLoading ? <p className="muted">載入申請紀錄…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
@@ -433,7 +459,7 @@ export function HrForms() {
         <div className="hr-form-review-actions"><Button className="hr-action-info" onClick={() => setReviewingOvertime(item)}>審核</Button></div>
       </article>)}</div>
     </Panel> : null}
-    <Panel key={activeTab} className={`hr-form-section hr-form-request-panel hr-form-request-panel-${activeTab}${hasMountedTabs.current ? " hr-form-tab-transition" : ""}`}>
+    <Panel key={activeTab} className={`hr-form-section hr-form-request-panel hr-form-request-panel-${activeTab}${tabDirection ? ` hr-form-tab-transition${tabDirection === "back" ? " back" : ""}` : ""}`}>
       {activeError ? null : activeTab === "leave" ? <div className="hr-form-request-list">{filteredLeaves.slice(0, visibleCount).map((item) => <LeaveRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/leave?request=${encodeURIComponent(request.request.id)}`)} onReapply={(request) => navigate(`/forms/leave?copy=${encodeURIComponent(request.request.id)}`)} onCancel={setCancellingLeave} />)}</div> : activeTab === "overtime" ? <div className="hr-form-request-list">{filteredOvertime.slice(0, visibleCount).map((item) => <OvertimeRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/overtime?request=${encodeURIComponent(request.request.id)}`)} onReapply={(request) => navigate(`/forms/overtime?copy=${encodeURIComponent(request.request.id)}`)} onCancel={setCancelling} />)}</div> : <div className="hr-form-request-list">{filteredCorrections.slice(0, visibleCount).map((request) => <article className="hr-form-request-card" key={request.id}>
         <RequestSummary request={request} />
         {request.status === "draft" ? <div className="hr-form-request-actions">
@@ -522,10 +548,10 @@ export function HrOvertimeForm() {
       setError("請填寫完整的加班開始與結束時間。");
       return;
     }
-    save.mutate({ path: editing ? `/me/overtime/${requestId}` : "/me/overtime", method: editing ? "PATCH" : "POST", values: { requestedStart: start, requestedEnd: end, settlementKind, reason, ...(editing ? { revision: loadedRevision?.revision } : {}) } }, { onSuccess: () => { if (!editing) sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true, state: { transition: "back" } }); }, onError: (cause) => setError(cause.message) });
+    save.mutate({ path: editing ? `/me/overtime/${requestId}` : "/me/overtime", method: editing ? "PATCH" : "POST", values: { requestedStart: start, requestedEnd: end, settlementKind, reason, ...(editing ? { revision: loadedRevision?.revision } : {}) } }, { onSuccess: () => { if (!editing) sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }, onError: (cause) => setError(cause.message) });
   }
 
-  return <div className="page hr-form-page"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => setStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></div><div className="hr-form-field-row"><SelectField label="結算方式" value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={disabled} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} /><p className="form-hint">{!(requestedMinutes > 0) ? "填寫開始與結束時間後顯示加班時數。" : requestedMinutes % 30 === 0 ? `加班時數：${formatHours(requestedMinutes)}` : "加班時數必須以 0.5 小時為單位，請調整開始或結束時間。"}</p></div><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=overtime", { state: { transition: "back" } })} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></Panel></div>;
+  return <div className="page hr-form-page"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => setStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></div><div className="hr-form-field-row"><SelectField label="結算方式" value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={disabled} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} /><p className="form-hint">{!(requestedMinutes > 0) ? "填寫開始與結束時間後顯示加班時數。" : requestedMinutes % 30 === 0 ? `加班時數：${formatHours(requestedMinutes)}` : "加班時數必須以 0.5 小時為單位，請調整開始或結束時間。"}</p></div><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></Panel></div>;
 }
 
 function leaveTypeLabel(leaveType: LeaveTypeOption) {
@@ -623,7 +649,7 @@ export function HrLeaveForm() {
     save.mutate({ path: editing ? `/me/leave-requests/${requestId}` : "/me/leave-requests", method: editing ? "PATCH" : "POST", values }, {
       onSuccess: () => {
         if (!editing) sessionStorage.removeItem("hr:leave-draft");
-        navigate("/forms?tab=leave", { replace: true, state: { transition: "back" } });
+        navigate("/forms?tab=leave", { replace: true });
       },
       onError: (cause) => setError(cause.message),
     });
@@ -662,7 +688,7 @@ export function HrLeaveForm() {
       {duration.error ? <Alert tone="danger">{duration.error.message}</Alert> : null}
       {selectedType?.leaveKind === "annual" && calculated && !hasEnoughCredit ? <Alert tone="warning">所選時段超過可用特休額度，請縮短時數或調整到其他額度週期。</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      <div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=leave", { state: { transition: "back" } })} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={!canSubmit}>{editing ? "更新請假申請" : copying ? "重新送出請假申請" : "送出請假申請"}</Button></div>
+      <div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=leave")} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={!canSubmit}>{editing ? "更新請假申請" : copying ? "重新送出請假申請" : "送出請假申請"}</Button></div>
     </Panel>
   </div>;
 }
@@ -723,7 +749,7 @@ export function HrClockCorrectionForm() {
       const saved = await save.mutateAsync({ path: requestId ? `/me/form-requests/${requestId}` : "/me/form-requests", method: requestId ? "PATCH" : "POST", values });
       savedId = saved.id;
       await save.mutateAsync({ path: `/me/form-requests/${saved.id}/submit`, method: "POST", values: {} });
-      navigate("/forms?tab=clock_correction", { replace: true, state: { from: location.pathname, transition: "back" } });
+      navigate("/forms?tab=clock_correction", { replace: true, state: { from: location.pathname } });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : "申請單儲存失敗，請稍後再試。");
       // 草稿已經存進去但送出失敗時，把網址換成那張草稿；不然再按一次會多建一張。
@@ -764,7 +790,7 @@ export function HrClockCorrectionForm() {
       {approvers.error ? <Alert tone="danger">{approvers.error.message}</Alert> : null}
       {localError ? <Alert tone="danger">{localError}</Alert> : null}
       <div className="hr-form-actions">
-        <Button variant="secondary" disabled={saving} onClick={() => navigate(returnTo, { state: { transition: "back" } })}>取消</Button>
+        <Button variant="secondary" disabled={saving} onClick={() => navigate(returnTo)}>取消</Button>
         <Button className="add-action" loading={saving} loadingLabel="送出中…" disabled={!approverUserId} onClick={() => { void submit(); }}>送出補打卡申請</Button>
       </div>
     </Panel>
