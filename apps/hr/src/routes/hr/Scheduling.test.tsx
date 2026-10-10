@@ -114,6 +114,24 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
+  it("儲存期間拒絕離頁；儲存成功後解除阻擋", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const page = await renderPage(data());
+    let finish!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", async (_path: RequestInfo | URL, init?: RequestInit) => init?.method === "PATCH" ? response : Response.json({ ...data(), version: { ...data().version!, revision: 3 } }));
+    try {
+      await page.clickDate("2026-02-07"); await page.save();
+      await act(async () => { await page.router.navigate(-1); });
+      expect(page.router.state.location.pathname).toBe("/scheduling");
+      expect(confirm).not.toHaveBeenCalled();
+      await act(async () => { finish(Response.json({ id: "version", revision: 3 })); await new Promise((resolve) => setTimeout(resolve, 10)); });
+      await act(async () => { await page.router.navigate(-1); });
+      expect(document.body.textContent).toContain("個人頁");
+      expect(confirm).not.toHaveBeenCalled();
+    } finally { await page.cleanup(); }
+  });
+
   it.each(["present", "absent"] as const)("已確認出勤 %s 的日期不可取消，卡片不提供移除", async (attendanceStatus) => {
     const page = await renderPage({ ...data(), entries: [{ ...savedEntry, attendanceStatus }] });
     try {
