@@ -3,6 +3,7 @@ import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrNotification, type HrNotificationsResponse } from "./api.js";
+import { notificationTarget } from "./notification-link.js";
 
 function formatTaipei(value: string) {
   const date = new Date(`${value.replace(" ", "T")}Z`);
@@ -12,16 +13,6 @@ function formatTaipei(value: string) {
 
 function notificationTone(notification: HrNotification) {
   return notification.kind === "request_reviewed" ? (notification.title.includes("駁回") ? "danger" : "success") : notification.kind === "request_submitted" ? "info" : "neutral";
-}
-
-function notificationTarget(notification: HrNotification) {
-  const tab = notification.entityKind === "leave" ? "leave" : notification.entityKind === "overtime" ? "overtime" : "clock_correction";
-  const batch = notification.entityScope === "batch";
-  const params = notification.kind === "request_submitted"
-    ? new URLSearchParams({ tab, [batch ? "reviewBatch" : "review"]: notification.entityId })
-    // 批次鍵不是使用者看得懂的東西，不能像申請編號那樣塞進搜尋框。
-    : new URLSearchParams(batch ? { tab, status: "all", batch: notification.entityId } : { tab, status: "all", search: notification.entityId });
-  return `/forms?${params.toString()}`;
 }
 
 export function HrNotifications() {

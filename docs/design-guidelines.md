@@ -69,11 +69,25 @@
 
 ### Button
 
-- `primary`：完成、建立、送出、核准等主要動作。
+- `primary`：完成、建立、送出等主要動作。**`primary` 的顏色兩個站不一樣**：HRIS 管理介面（`.hr-system`）是資訊藍，員工 HR 站是品牌紅。品牌紅與 `danger` 的深紅只差一點深淺，所以員工 HR 站不可以把沒有語意 class 的 `primary` 跟 `danger` 並排。
 - `secondary`：取消、返回、次要導覽或不具破壞性的輔助動作。
 - `danger`：刪除、撤回、停用等不可逆或高風險動作。
 - `icon`：表格列操作或純圖示控制；一定要有 `title` 與 `aria-label`。
 - HRIS 的新增／建立／加入動作加上 `add-action`，使用綠色成功語意；修改／更新使用 `hr-action-update`，查看／資訊使用 `hr-action-info`，兩者使用藍色資訊語意。刪除、撤回、停用仍使用 `danger`，不要用綠色或藍色取代危險語意。
+- 審核的「核准／通過」加上 `hr-action-approve`，使用綠色成功語意，與 `StatusBadge tone="success"` 的「已核准」同色；「駁回」使用 `danger`。兩個結果相反的動作並排時必須是不同色相，不能只差深淺。兩個站都照這條，不要各自挑色。
+
+HRIS 語意 class 一覽（都是加在 `Button` 的 `className`，`variant` 照常決定形狀）。`hr-action-approve` 是例外：核准是審核對話框的主要動作，只定義了 `primary` 的樣式，不要搭配 `secondary` 或 `icon`。它與 `add-action` 目前同色，分開命名是因為「核准」與「新增」是兩種語意，之後可以各自調整。
+
+| 動作 | class | 顏色 | token |
+|---|---|---|---|
+| 新增、建立、加入、送出新申請 | `add-action` | 綠 | `--color-ok` |
+| 核准、通過（只有 `primary`） | `hr-action-approve` | 綠 | `--color-ok` |
+| 修改、更新、重新送出 | `hr-action-update` | 藍 | `--color-info` |
+| 查看、進入審核 | `hr-action-info` | 藍 | `--color-info` |
+| 刪除、駁回、撤回、停用 | `variant="danger"` | 深紅 | `--color-brand-dark` |
+| 取消、返回、保留 | `variant="secondary"` | 中性 | — |
+
+這些 class 的樣式都寫在站的範圍底下（管理介面 `.hr-system`、員工 HR 站 `.hr-module-self`）。`Dialog` portal 到 `body` 之後會離開那個範圍，所以共用的 `Dialog` 會用一層 `display: contents` 的殼把範圍 class 補回來。對話框裡的語意色沒生效時，去修 `Dialog` 補回的範圍，**不要另外寫一條不帶範圍的樣式**——那會讓同一個 class 在兩個站有兩份定義。
 - `loading` 時由元件負責 disabled 與 `aria-busy`；不要在 route 另做一顆「處理中」按鈕。
 - filter chip 用 `selected`，不要在頁面手寫 `aria-pressed` 與 selected class 的同步邏輯。
 - 除非連續操作會被縮放干擾，保留按下 `scale: .96`；停用時才使用 `static`。
