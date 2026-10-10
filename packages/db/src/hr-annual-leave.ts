@@ -13,6 +13,8 @@ export interface HrAnnualLeaveBackfillOptions {
   /** 測試與批次回填可固定觀察日；正式呼叫預設採 UTC 日期。 */
   asOfDate?: string;
   createdBy?: string | null;
+  /** 只補建這位員工的週期；查單一員工時不需要為了一次讀取掃過全公司。 */
+  employeeUserId?: string;
 }
 
 export interface HrAnnualLeaveAllocationInput {
@@ -178,7 +180,7 @@ export async function ensureHrAnnualLeaveEntitlements(db: Database, options: HrA
     archivedAt: hrEmployments.archivedAt,
   }).from(hrEmployments)
     .leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
-    .where(lte(serviceStartOn, asOfDate));
+    .where(and(lte(serviceStartOn, asOfDate), options.employeeUserId ? eq(hrEmployments.employeeUserId, options.employeeUserId) : undefined));
 
   let created = 0;
   let grants = 0;
@@ -311,7 +313,7 @@ export async function allocateHrAnnualLeave(db: Database, input: HrAnnualLeaveAl
 
 export async function listHrAnnualLeaveEntitlements(db: Database, options: { employeeUserId?: string; asOfDate?: string } = {}) {
   const asOfDate = options.asOfDate ?? todayUtc();
-  await ensureHrAnnualLeaveEntitlements(db, { asOfDate });
+  await ensureHrAnnualLeaveEntitlements(db, { asOfDate, employeeUserId: options.employeeUserId });
   const annualLeaveStartOn = annualLeaveStartOnExpression();
   const rows = await db.select({
     id: hrAnnualLeaveEntitlements.id,
@@ -341,21 +343,25 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
     entitlementId: hrAnnualLeaveLedger.entitlementId,
     balanceHalfHours: sql<number>`coalesce(sum(${hrAnnualLeaveLedger.deltaHalfHours}), 0)`,
     debitHalfHours: sql<number>`coalesce(sum(case when ${hrAnnualLeaveLedger.deltaHalfHours} < 0 then -${hrAnnualLeaveLedger.deltaHalfHours} else 0 end), 0)`,
+    // 請假扣抵與取消返還都帶 leave_request_id；人工調整與薪資結算不帶，所以這一項才是「實際請掉的特休」。
+    leaveHalfHours: sql<number>`coalesce(sum(case when ${hrAnnualLeaveLedger.leaveRequestId} is not null then -${hrAnnualLeaveLedger.deltaHalfHours} else 0 end), 0)`,
   }).from(hrAnnualLeaveLedger)
     .where(inJsonArray(hrAnnualLeaveLedger.entitlementId, eligibleRows.map((row) => row.id)))
     .groupBy(hrAnnualLeaveLedger.entitlementId);
   const balanceById = new Map(balances.map((row) => [row.entitlementId, {
     balanceHalfHours: Number(row.balanceHalfHours ?? 0),
     debitHalfHours: Number(row.debitHalfHours ?? 0),
+    leaveHalfHours: Number(row.leaveHalfHours ?? 0),
   }]));
   return eligibleRows.map((row) => {
-    const balance = balanceById.get(row.id) ?? { balanceHalfHours: 0, debitHalfHours: 0 };
+    const balance = balanceById.get(row.id) ?? { balanceHalfHours: 0, debitHalfHours: 0, leaveHalfHours: 0 };
     return {
       ...row,
       annualLeaveStartOn: row.annualLeaveStartOn!,
       balanceHalfHours: balance.balanceHalfHours,
       usedHalfHours: Math.max(0, row.entitledHalfHours - balance.balanceHalfHours),
       debitHalfHours: balance.debitHalfHours,
+      leaveHalfHours: balance.leaveHalfHours,
     };
   });
 }

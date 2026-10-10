@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates, syncSystemRoles } from "@rueisiang/db";
-import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrEmployments, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { createDatabase, ensureHrAnnualLeaveEntitlements, getHrSelfLeaveMonths, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates, listHrSelfAnnualLeave, syncSystemRoles } from "@rueisiang/db";
+import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrEmployments, hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -403,5 +403,126 @@ describe("週年制特休額度", () => {
       employeeUserId: "employee", leaveTypeId, startsAt: "2026-03-02T09:00", endsAt: "2026-03-16T17:00", reason: "不可挪用上一期餘額",
     });
     expect(overbooked.status, await overbooked.clone().text()).toBe(409);
+  });
+
+  it("本人假勤列出現在可用的特休週期，並把已核准請假依月份與假別加總", async () => {
+    const compensation = await request(`/hr/employments/${await currentEmploymentId()}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "假勤總覽月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const annual = await request("/hr/leave-types", "POST", { name: "特休", leaveKind: "annual", defaultPayRatePpm: 1_000_000 });
+    const personal = await request("/hr/leave-types", "POST", { name: "事假", leaveKind: "other", defaultPayRatePpm: 0 });
+    const annualId = (await annual.json() as { id: string }).id;
+    const personalId = (await personal.json() as { id: string }).id;
+
+    const approvedIds: string[] = [];
+    for (const payload of [
+      { leaveTypeId: annualId, startsAt: "2025-09-01T09:00", endsAt: "2025-09-01T09:30", reason: "半小時特休" },
+      { leaveTypeId: personalId, startsAt: "2025-09-30T09:00", endsAt: "2025-10-01T18:00", reason: "跨月事假" },
+      { leaveTypeId: personalId, startsAt: "2026-01-05T09:00", endsAt: "2026-01-05T18:00", reason: "隔年事假" },
+    ]) {
+      const approved = await request("/hr/requests/leave", "POST", { employeeUserId: "employee", ...payload });
+      expect(approved.status, await approved.clone().text()).toBe(201);
+      approvedIds.push((await approved.json() as { id: string }).id);
+    }
+    const pending = await request("/hr/me/leave-requests", "POST", { leaveTypeId: personalId, startsAt: "2025-11-03T09:00", endsAt: "2025-11-03T18:00", reason: "尚未核准" }, employeeCookie);
+    expect(pending.status, await pending.clone().text()).toBe(201);
+
+    const db = createDatabase(d1 as never);
+    // 請假單會用請假日期預先建出之後的週期；那些還沒開始的週期不能算成現在可用。
+    await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
+    expect(await listHrSelfAnnualLeave(db, "employee", "2025-10-15")).toEqual([
+      expect.objectContaining({ periodStart: "2025-09-01", periodEnd: "2026-03-01", entitledHalfHours: 48, usedHalfHours: 1, balanceHalfHours: 47 }),
+    ]);
+    expect((await listHrSelfAnnualLeave(db, "employee", "2026-03-01")).map((period) => period.periodStart)).toEqual(["2026-03-01"]);
+    expect(await listHrSelfAnnualLeave(db, "admin", "2025-10-15")).toEqual([]);
+
+    const summary = await getHrSelfLeaveMonths(db, "employee", { year: 2025, asOfDate: "2025-10-15" });
+    expect({ firstYear: summary.firstYear, lastYear: summary.lastYear }).toEqual({ firstYear: 2025, lastYear: 2026 });
+    expect(summary.months.map((month) => ({ month: month.month, totalMinutes: month.totalMinutes }))).toEqual([
+      { month: "2025-10", totalMinutes: 480 },
+      { month: "2025-09", totalMinutes: 510 },
+    ]);
+    expect(summary.months[1]?.leaveTypes).toEqual(expect.arrayContaining([{ id: annualId, name: "特休", minutes: 30 }, { id: personalId, name: "事假", minutes: 480 }]));
+    expect((await getHrSelfLeaveMonths(db, "employee", { asOfDate: "2026-02-01" })).months).toEqual([
+      { month: "2026-01", totalMinutes: 480, leaveTypes: [{ id: personalId, name: "事假", minutes: 480 }] },
+    ]);
+    expect(await getHrSelfLeaveMonths(db, "admin", { year: 2025, asOfDate: "2025-10-15" })).toEqual({ year: 2025, currentYear: 2025, firstYear: 2025, lastYear: 2025, months: [] });
+
+    // 假別改名後仍是同一列；跨月請假的時間對不出班表時整筆記在起始月，而不是整頁讀不出來。
+    d1.sqlite.prepare("UPDATE hr_leave_types SET name='事假（無薪）' WHERE id=?").run(personalId);
+    d1.sqlite.prepare("UPDATE hr_leave_requests SET starts_at='無法解析' WHERE id=?").run(approvedIds[1]!);
+    const afterEdits = await getHrSelfLeaveMonths(db, "employee", { year: 2025, asOfDate: "2025-10-15" });
+    expect(afterEdits.months).toEqual([
+      { month: "2025-09", totalMinutes: 990, leaveTypes: expect.arrayContaining([{ id: personalId, name: "事假（無薪）", minutes: 960 }, { id: annualId, name: "特休", minutes: 30 }]) },
+    ]);
+    // 結束日壞掉丟的是 RangeError 不是 HrError，同樣不能讓整年讀不出來。
+    d1.sqlite.prepare("UPDATE hr_leave_requests SET ends_on='2026-13-01' WHERE id=?").run(approvedIds[2]!);
+    expect((await getHrSelfLeaveMonths(db, "employee", { year: 2026, asOfDate: "2026-02-01" })).months.map((month) => ({ month: month.month, totalMinutes: month.totalMinutes }))).toEqual([
+      { month: "2026-01", totalMinutes: 480 },
+    ]);
+  });
+
+  it("人工調整特休後，本人看到的給予、已使用、剩餘仍然對得起來", async () => {
+    const compensation = await request(`/hr/employments/${await currentEmploymentId()}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "人工調整月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const annual = await request("/hr/leave-types", "POST", { name: "特休", leaveKind: "annual", defaultPayRatePpm: 1_000_000 });
+    const annualId = (await annual.json() as { id: string }).id;
+    const approved = await request("/hr/requests/leave", "POST", { employeeUserId: "employee", leaveTypeId: annualId, startsAt: "2025-09-01T09:00", endsAt: "2025-09-01T10:00", reason: "一小時特休" });
+    expect(approved.status, await approved.clone().text()).toBe(201);
+
+    const db = createDatabase(d1 as never);
+    const [period] = await listHrSelfAnnualLeave(db, "employee", "2025-10-15");
+    expect(period).toEqual(expect.objectContaining({ grantedHalfHours: 48, usedHalfHours: 2, balanceHalfHours: 46 }));
+
+    for (const [deltaHalfHours, expected] of [
+      [8, { grantedHalfHours: 56, usedHalfHours: 2, balanceHalfHours: 54 }],
+      [-20, { grantedHalfHours: 36, usedHalfHours: 2, balanceHalfHours: 34 }],
+    ] as const) {
+      const adjusted = await request("/hr/annual-leave/adjustments", "POST", { entitlementId: period!.entitlementId, deltaHalfHours, reason: "人工調整測試" });
+      expect(adjusted.status, await adjusted.clone().text()).toBeLessThan(300);
+      expect((await listHrSelfAnnualLeave(db, "employee", "2025-10-15"))[0]).toEqual(expect.objectContaining(expected));
+    }
+  });
+
+  it("跨夜班的請假時數記在請假期間內的月份，不會落到請假開始之前", async () => {
+    const personal = await request("/hr/leave-types", "POST", { name: "事假", leaveKind: "other", defaultPayRatePpm: 0 });
+    const personalId = (await personal.json() as { id: string }).id;
+    const employmentId = await currentEmploymentId();
+    const db = createDatabase(d1 as never);
+    await db.insert(scopes).values({ id: "scope-night", sourceType: "manual", scopeKind: "store", name: "夜班櫃點", normalizedName: "夜班櫃點" });
+    await db.insert(hrShiftTemplates).values({ id: "night-shift", code: "night-shift", name: "夜班", createdBy: "admin" });
+    await db.insert(hrShiftVersions).values({ id: "night-shift-v1", shiftTemplateId: "night-shift", dayType: "weekday", versionNumber: 1, startSecond: 22 * 3600, endSecond: 6 * 3600, endDayOffset: 1, standardMinutes: 480, breakMinutes: 0, createdBy: "admin" });
+    await db.insert(hrScheduleVersions).values([
+      { id: "night-2026-01", periodStart: "2026-01-01", periodEnd: "2026-02-01", versionNumber: 1, status: "published", submittedBy: "admin", approvedBy: "admin" },
+      { id: "night-2026-03", periodStart: "2026-03-01", periodEnd: "2026-04-01", versionNumber: 1, status: "published", submittedBy: "admin", approvedBy: "admin" },
+    ]);
+    const entry = { employmentId, scopeId: "scope-night", shiftVersionId: "night-shift-v1", standardMinutes: 480, breakMinutes: 0, createdBy: "admin" };
+    await db.insert(hrScheduleEntries).values([
+      { ...entry, id: "night-entry-0131", scheduleVersionId: "night-2026-01", workDate: "2026-01-31", startsAt: "2026-01-31 22:00:00", endsAt: "2026-02-01 06:00:00" },
+      { ...entry, id: "night-entry-0301", scheduleVersionId: "night-2026-03", workDate: "2026-03-01", startsAt: "2026-03-01 09:00:00", endsAt: "2026-03-01 17:00:00" },
+    ]);
+
+    // 請假從 2/1 00:00 開始：1/31 那一班只有後六小時落在請假裡，而它的 workDate 是 1 月。
+    const approved = await request("/hr/requests/leave", "POST", { employeeUserId: "employee", leaveTypeId: personalId, startsAt: "2026-02-01T00:00", endsAt: "2026-03-02T00:00", reason: "跨夜班請假" });
+    expect(approved.status, await approved.clone().text()).toBe(201);
+
+    const summary = await getHrSelfLeaveMonths(db, "employee", { year: 2026, asOfDate: "2026-03-15" });
+    expect(summary.months.map((month) => ({ month: month.month, totalMinutes: month.totalMinutes }))).toEqual([
+      { month: "2026-03", totalMinutes: 480 },
+      { month: "2026-02", totalMinutes: 360 },
+    ]);
+  });
+
+  it("本人假勤 API 只回登入者自己的資料，年份不合法時拒絕", async () => {
+    const annual = await request("/hr/me/annual-leave", "GET", undefined, employeeCookie);
+    expect(annual.status, await annual.clone().text()).toBe(200);
+    expect(await annual.json()).toEqual({ periods: [] });
+    const months = await request("/hr/me/leave-months?year=2025", "GET", undefined, employeeCookie);
+    expect(months.status, await months.clone().text()).toBe(200);
+    expect(await months.json()).toEqual(expect.objectContaining({ year: 2025, months: [] }));
+    const defaulted = await (await request("/hr/me/leave-months", "GET", undefined, employeeCookie)).json() as { year: number; currentYear: number };
+    expect(defaulted.year).toBe(defaulted.currentYear);
+    expect((await request("/hr/me/leave-months?year=abc", "GET", undefined, employeeCookie)).status).toBe(400);
+    expect((await request("/hr/me/annual-leave", "GET", undefined, "")).status).toBe(401);
+    expect((await request("/hr/me/leave-months", "GET", undefined, "")).status).toBe(401);
   });
 });

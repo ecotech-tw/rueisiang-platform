@@ -2,6 +2,7 @@ import { useNavigate, useParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type HrPayrollHistoryRecord, type HrPayslipDetailResponse, type PayrollLine } from "./api.js";
+import { dateLabel } from "./format.js";
 
 function money(minor: number) {
   return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`;
@@ -12,11 +13,7 @@ function periodLabel(value: string) {
   return match ? `${match[1]} 年 ${Number(match[2])} 月` : value;
 }
 
-function dateLabel(value: string | null) {
-  if (!value) return "尚未提供發薪日";
-  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
-  return match ? `${match[1]}/${Number(match[2])}/${Number(match[3])}` : value;
-}
+const NO_PAY_DATE = "尚未提供發薪日";
 
 function lineLabel(line: PayrollLine) {
   const explanation = line.explanation;
@@ -53,7 +50,7 @@ export function HrPayrollHistory() {
       {query.isPending ? <p className="muted">載入薪資紀錄…</p> : null}
       {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
       {query.data?.records.length ? <div className="hr-payroll-history-list">{query.data.records.map((record) => <button className="hr-payroll-history-card" key={`${record.runId}:${record.employmentId}`} type="button" onClick={() => navigate(historyPath(record))}>
-        <div className="hr-payroll-history-card-head"><div><strong>{periodLabel(record.periodKey)}</strong><span>發薪日 {dateLabel(record.payDate)}</span></div><StatusBadge tone="success">已發放</StatusBadge></div>
+        <div className="hr-payroll-history-card-head"><div><strong>{periodLabel(record.periodKey)}</strong><span>發薪日 {dateLabel(record.payDate, NO_PAY_DATE)}</span></div><StatusBadge tone="success">已發放</StatusBadge></div>
         <div className="hr-payroll-history-card-total"><span>實領金額</span><strong>{money(record.netMinor)}</strong></div>
         <div className="hr-payroll-history-card-foot"><span>收入 {money(record.earningMinor)}</span><span>扣除 {money(record.deductionMinor)}</span><span>薪資版本 {record.versionNumber}</span></div>
       </button>)}</div> : !query.isPending && !query.error ? <div className="hr-form-empty-state"><strong>目前沒有已發放的薪資單</strong><p className="muted">完成薪資結帳後，紀錄會出現在這裡。</p></div> : null}
@@ -75,7 +72,7 @@ export function HrPayslipDetail() {
     <div className="hr-form-back-bar">
       <Button variant="link" icon="chevronLeft" className="hr-form-back-button" onClick={() => navigate("/payroll")}>返回薪資袋</Button>
     </div>
-    <PageHeader title="薪資明細" description={record ? `${periodLabel(record.periodKey)}・${dateLabel(record.payDate)}` : "查看已發放薪資項目。"} className="hr-payslip-head" />
+    <PageHeader title="薪資明細" description={record ? `${periodLabel(record.periodKey)}・${dateLabel(record.payDate, NO_PAY_DATE)}` : "查看已發放薪資項目。"} className="hr-payslip-head" />
     {query.isPending ? <p className="muted">載入薪資明細…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {record ? <Panel className="hr-payslip-panel">

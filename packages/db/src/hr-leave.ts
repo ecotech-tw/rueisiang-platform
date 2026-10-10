@@ -302,6 +302,16 @@ export async function calculateHrLeaveDuration(db: Database, input: HrLeaveDurat
   };
 }
 
+function leaveCredit(entitlement: { id: string; periodStart: string; periodEnd: string; entitledHalfHours: number; balanceHalfHours: number }): HrLeaveCredit {
+  return {
+    entitlementId: entitlement.id,
+    periodStart: entitlement.periodStart,
+    periodEnd: entitlement.periodEnd,
+    entitledHalfHours: entitlement.entitledHalfHours,
+    balanceHalfHours: entitlement.balanceHalfHours,
+  };
+}
+
 export async function listHrSelfLeaveTypeOptions(db: Database, employeeUserId: string, asOfDate?: string): Promise<HrSelfLeaveTypeOption[]> {
   const leaveTypes = await db.select({
     id: hrLeaveTypes.id,
@@ -318,14 +328,155 @@ export async function listHrSelfLeaveTypeOptions(db: Database, employeeUserId: s
   const entitlements = await listHrAnnualLeaveEntitlements(db, { employeeUserId, asOfDate });
   const credits = entitlements
     .filter((entitlement) => entitlement.status === "open")
-    .map((entitlement) => ({
-      entitlementId: entitlement.id,
-      periodStart: entitlement.periodStart,
-      periodEnd: entitlement.periodEnd,
-      entitledHalfHours: entitlement.entitledHalfHours,
-      balanceHalfHours: entitlement.balanceHalfHours,
-    }));
+    .map(leaveCredit);
   return leaveTypes.map((leaveType) => ({ ...leaveType, credits: leaveType.leaveKind === "annual" ? credits : [] }));
+}
+
+export interface HrSelfAnnualLeavePeriod extends HrLeaveCredit {
+  /** 實際請掉的特休；人工調整不算在這裡。 */
+  usedHalfHours: number;
+  /** 這一期可用的總額度（含人工調整）；恆等於 usedHalfHours + balanceHalfHours。 */
+  grantedHalfHours: number;
+}
+
+export interface HrSelfLeaveMonths {
+  year: number;
+  currentYear: number;
+  /** 可切換的年份範圍：有已核准請假的最早與最晚年份，至少涵蓋今年。 */
+  firstYear: number;
+  lastYear: number;
+  months: Array<{ month: string; totalMinutes: number; leaveTypes: Array<{ id: string; name: string; minutes: number }> }>;
+}
+
+/**
+ * 本人「現在」能用的特休週期。請假單的選單是依請假日期找週期，會連尚未開始的下一期一起建出來，
+ * 所以這裡要自己把還沒開始、以及已過期但尚未隨薪資結算的週期排除。
+ */
+export async function listHrSelfAnnualLeave(db: Database, employeeUserId: string, asOfDate = formatTaipeiDate(Date.now())): Promise<HrSelfAnnualLeavePeriod[]> {
+  const entitlements = await listHrAnnualLeaveEntitlements(db, { employeeUserId, asOfDate });
+  return entitlements
+    .filter((entitlement) => entitlement.status === "open" && entitlement.periodStart <= asOfDate && entitlement.periodEnd > asOfDate)
+    .map((entitlement) => ({
+      ...leaveCredit(entitlement),
+      usedHalfHours: entitlement.leaveHalfHours,
+      grantedHalfHours: entitlement.balanceHalfHours + entitlement.leaveHalfHours,
+    }));
+}
+
+type ApprovedLeaveSpan = { employmentId: string; startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number };
+
+/** 依權重把總量切成 unit 的整數倍，餘數給小數部分最大的幾份；總和一定等於 total，不會出現負值。 */
+function splitByWeight(total: number, unit: number, weights: readonly number[]) {
+  const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+  const exact = weights.map((weight) => total / unit * weight / weightSum);
+  const shares = exact.map(Math.floor);
+  let leftover = Math.round(total / unit) - shares.reduce((sum, share) => sum + share, 0);
+  for (const index of [...exact.keys()].sort((left, right) => (exact[right]! - shares[right]!) - (exact[left]! - shares[left]!))) {
+    if (leftover <= 0) break;
+    shares[index]! += 1;
+    leftover -= 1;
+  }
+  return shares.map((share) => share * unit);
+}
+
+/**
+ * durationMinutes 是核准當下凍結的總時數；班表事後可能被改，所以跨月時只拿目前班表決定各月比例，
+ * 總和仍等於凍結值。舊資料沒有 startsAt、班表已對不出工時、或日期與班表壞到無法解析時，整筆記在起始月——
+ * 這是唯讀的統計，不能因為一筆舊請假的資料壞掉就整頁讀不出來。
+ */
+async function leaveMinutesByMonth(db: Database, leave: ApprovedLeaveSpan) {
+  const firstMonth = leave.startsOn.slice(0, 7);
+  const wholeInFirstMonth = new Map([[firstMonth, leave.durationMinutes]]);
+
+  const workMinutes = new Map<string, number>();
+  try {
+    const lastDate = shiftTaipeiDate(leave.endsOn, -1);
+    if (firstMonth === lastDate.slice(0, 7) || !leave.startsAt) return wholeInFirstMonth;
+    const breakdown = await calculateLeaveWorkdayBreakdown(db, leave.employmentId, stamp(leave.startsAt, "請假開始時間"), stamp(leave.endsAt, "請假結束時間"), leave.startsOn, leave.endsOn);
+    for (const [workDate, day] of breakdown) {
+      if (day.workMinutes <= 0) continue;
+      // 班表的 workDate 是班次起算日：跨夜班會落在請假開始的前一天，不夾回請假區間的話，
+      // 那幾小時會被記到請假還沒開始的月份（跨年時則是哪一年都查不到）。
+      const month = (workDate < leave.startsOn ? leave.startsOn : workDate > lastDate ? lastDate : workDate).slice(0, 7);
+      workMinutes.set(month, (workMinutes.get(month) ?? 0) + day.workMinutes);
+    }
+  } catch (error) {
+    // 壞掉的日期字串會讓 Intl 丟 RangeError，不是 HrError。
+    if (!(error instanceof HrError || error instanceof RangeError)) throw error;
+    return wholeInFirstMonth;
+  }
+  if (!workMinutes.size) return wholeInFirstMonth;
+
+  const months = [...workMinutes.keys()].sort();
+  const unit = leave.durationMinutes % HALF_HOUR_MINUTES === 0 ? HALF_HOUR_MINUTES : 1;
+  const shares = splitByWeight(leave.durationMinutes, unit, months.map((month) => workMinutes.get(month)!));
+  return new Map(months.map((month, index) => [month, shares[index]!] as const));
+}
+
+/** 本人指定年度（台北時間，預設今年）各月已核准的請假時數。 */
+export async function getHrSelfLeaveMonths(db: Database, employeeUserId: string, options: { year?: number; asOfDate?: string } = {}): Promise<HrSelfLeaveMonths> {
+  const currentYear = Number((options.asOfDate ?? formatTaipeiDate(Date.now())).slice(0, 4));
+  const year = options.year ?? currentYear;
+  const yearPrefix = String(year).padStart(4, "0");
+  const ownApproved = and(eq(hrEmployments.employeeUserId, employeeUserId), eq(hrLeaveRequests.status, "approved"));
+
+  const rangeQuery = db.select({
+    first: sql<string | null>`min(${hrLeaveRequests.startsOn})`,
+    // endsOn 不含當日；只差一天的跨年會多開放一個空年份，比漏掉跨年請假好。
+    last: sql<string | null>`max(${hrLeaveRequests.endsOn})`,
+  }).from(hrLeaveRequests)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+    .where(ownApproved);
+
+  const leavesQuery = db.select({
+    employmentId: hrLeaveRequests.employmentId,
+    leaveTypeId: hrLeaveRequests.leaveTypeId,
+    leaveTypeSnapshot: hrLeaveRequests.leaveType,
+    leaveTypeName: hrLeaveTypes.name,
+    startsAt: hrLeaveRequests.startsAt,
+    endsAt: hrLeaveRequests.endsAt,
+    startsOn: hrLeaveRequests.startsOn,
+    endsOn: hrLeaveRequests.endsOn,
+    durationMinutes: hrLeaveRequests.durationMinutes,
+  }).from(hrLeaveRequests)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+    .leftJoin(hrLeaveTypes, eq(hrLeaveTypes.id, hrLeaveRequests.leaveTypeId))
+    .where(and(
+      ownApproved,
+      // 用當年最後一天當上界，不組「下一年」的字串：9999 的下一年是五位數，字典序比較會反轉。
+      sql`${hrLeaveRequests.startsOn} <= ${`${yearPrefix}-12-31`}`,
+      sql`${hrLeaveRequests.endsOn} > ${`${yearPrefix}-01-01`}`,
+    ));
+  const [[range], leaves] = await Promise.all([rangeQuery, leavesQuery]);
+  const monthsByLeave = await Promise.all(leaves.map((leave) => leaveMinutesByMonth(db, leave)));
+
+  const byMonth = new Map<string, Map<string, { id: string; name: string; minutes: number }>>();
+  for (const [index, leave] of leaves.entries()) {
+    // 假別改名後同一個假別仍要算在同一列；只有沒有主檔關聯的舊資料才退回用名稱快照分組。
+    const id = leave.leaveTypeId ?? `snapshot:${leave.leaveTypeSnapshot}`;
+    for (const [month, minutes] of monthsByLeave[index]!) {
+      if (!month.startsWith(yearPrefix) || minutes <= 0) continue;
+      const leaveTypes = byMonth.get(month) ?? new Map<string, { id: string; name: string; minutes: number }>();
+      const entry = leaveTypes.get(id) ?? { id, name: leave.leaveTypeName ?? leave.leaveTypeSnapshot, minutes: 0 };
+      entry.minutes += minutes;
+      leaveTypes.set(id, entry);
+      byMonth.set(month, leaveTypes);
+    }
+  }
+  const months = [...byMonth.entries()]
+    .sort(([left], [right]) => right.localeCompare(left))
+    .map(([month, leaveTypes]) => ({
+      month,
+      totalMinutes: [...leaveTypes.values()].reduce((sum, leaveType) => sum + leaveType.minutes, 0),
+      leaveTypes: [...leaveTypes.values()].sort((left, right) => left.name.localeCompare(right.name, "zh-Hant")),
+    }));
+  return {
+    year,
+    currentYear,
+    firstYear: Math.min(currentYear, range?.first ? Number(range.first.slice(0, 4)) : currentYear),
+    lastYear: Math.max(currentYear, range?.last ? Number(range.last.slice(0, 4)) : currentYear),
+    months,
+  };
 }
 
 export async function listHrLeaveRequests(db: Database, employeeUserId?: string) {

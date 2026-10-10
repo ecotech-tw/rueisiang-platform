@@ -14,7 +14,7 @@ import {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
   cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, MAX_OVERTIME_CANCELLATION_ENTRIES, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
-  calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest,
+  calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, getHrSelfLeaveMonths, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfAnnualLeave, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
@@ -739,6 +739,13 @@ export const hr = new Hono<AppEnv>()
     const asOfDate = c.req.query("asOfDate");
     if (asOfDate !== undefined) date({ date: asOfDate }, "date");
     return c.json({ leaveTypes: await listHrSelfLeaveTypeOptions(c.get("db"), c.get("user").id, asOfDate) });
+  })
+  .get("/me/annual-leave", async (c) => c.json({ periods: await listHrSelfAnnualLeave(c.get("db"), c.get("user").id) }))
+  .get("/me/leave-months", async (c) => {
+    // 沒帶年份時不在這裡補「今年」：台北時間的今年由 packages/db 決定，只留一個來源。
+    const rawYear = c.req.query("year");
+    const year = rawYear === undefined ? undefined : calendarNumber(rawYear, 0, "年份", 1900, 9999);
+    return c.json(await getHrSelfLeaveMonths(c.get("db"), c.get("user").id, { year }));
   })
   .get("/me/leave-requests", async (c) => {
     const user = c.get("user");
