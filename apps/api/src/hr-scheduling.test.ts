@@ -149,6 +149,31 @@ describe("排班差異儲存", () => {
     expect(after.entries.find((entry) => entry.workDate === "2026-02-09")).toEqual(before.entries.find((entry) => entry.workDate === "2026-02-09"));
   });
 
+  it("同班不同日型的人力不一致時拒絕部分更新，一併 refresh 後才發布", async () => {
+    await changes({ entries: [entry("worker-1")] });
+    const original = await getHrSchedule(db, "2026-02");
+    await request("/calendar/2026-02", "PUT", { days: [{ date: "2026-02-06", dayType: "weekend", name: "調整" }] });
+    const partial = await changes({ entries: [entry("worker-2")] });
+    expect(partial.status).toBe(409);
+    expect(await partial.text()).toContain("一併重新套用");
+    expect((await getHrSchedule(db, "2026-02")).entries).toEqual(original.entries);
+    expect((await changes({ entries: [entry("worker-2")], refreshIds: [original.entries[0]!.id] })).status).toBe(200);
+    const after = await getHrSchedule(db, "2026-02");
+    expect(after.entries.every((entry) => entry.requiredHeadcount === 2 && entry.startsAt === "2026-02-06 10:00:00")).toBe(true);
+    expect(new Set(after.entries.map((entry) => entry.shiftGroupId)).size).toBe(1);
+  });
+
+  it("不同日型的封存快照不阻擋活動人員的新設定，仍共用同班群組", async () => {
+    await changes({ entries: [entry("worker-1")] });
+    const original = (await getHrSchedule(db, "2026-02")).entries[0]!;
+    d1.sqlite.prepare("UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP WHERE id='worker-1'").run();
+    await request("/calendar/2026-02", "PUT", { days: [{ date: "2026-02-06", dayType: "weekend", name: "調整" }] });
+    expect((await changes({ entries: [entry("worker-2")] })).status).toBe(200);
+    const after = await getHrSchedule(db, "2026-02");
+    expect(after.entries.find((entry) => entry.workerId === "worker-1")).toMatchObject({ id: original.id, requiredHeadcount: 1 });
+    expect(after.entries.find((entry) => entry.workerId === "worker-2")).toMatchObject({ requiredHeadcount: 2, shiftGroupId: original.shiftGroupId });
+  });
+
   it("資料庫 CAS 過期時不會因為別人的 revision+1 而刪寫資料", async () => {
     await changes({ entries: [entry("worker-1")] });
     const original = await getHrSchedule(db, "2026-02");

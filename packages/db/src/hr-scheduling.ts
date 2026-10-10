@@ -148,16 +148,16 @@ function compileStatements(statements: SQL[]) {
   return statements.map((statement) => dialect.sqlToQuery(statement));
 }
 
-async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor, removed?: { employee: string[]; worker: string[] }, authorizedScopeId?: string, retainedGroups: Array<{ scopeId: string; shiftVersionId: string; workDate: string; shiftGroupId: string | null }> = []) {
+async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor, removed?: { employee: string[]; worker: string[] }, authorizedScopeId?: string, retainedGroups: Array<{ scopeId: string; shiftTemplateId: string; workDate: string; shiftGroupId: string | null }> = []) {
   const nextRevision = version.revision + 1;
   const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: "schedule_saved", summary: "排班已發布", actor });
   // revision+1 可能是別人的更新；以本次獨有的稽核列守衛，CAS 失敗時後續 SQL 才會全部略過。
   const guard = sql`EXISTS (SELECT 1 FROM activity_events WHERE id=${row.id})`;
   // 同班需求人力會決定分攤單位池，所以所有指派必須共用同一群組。
   // group id 不直接暴露給輸入端，由發布動作一次建立，避免前端偽造跨月或跨班別的群組。
-  const groupIds = new Map(retainedGroups.filter((entry) => entry.shiftGroupId).map((entry) => [`${entry.scopeId}:${entry.shiftVersionId}:${entry.workDate}`, entry.shiftGroupId!]));
+  const groupIds = new Map(retainedGroups.filter((entry) => entry.shiftGroupId).map((entry) => [`${entry.scopeId}:${entry.shiftTemplateId}:${entry.workDate}`, entry.shiftGroupId!]));
   const groupIdFor = (entry: EnrichedScheduleEntry) => {
-    const key = `${entry.scopeId}:${entry.shiftVersionId}:${entry.workDate}`;
+    const key = `${entry.scopeId}:${entry.shiftTemplateId}:${entry.workDate}`;
     const existing = groupIds.get(key);
     if (existing) return existing;
     const id = crypto.randomUUID();
@@ -326,14 +326,14 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
   ]);
   const selectedScopeId = scopeId && scopeId !== "all" ? scopeId : undefined;
   const [employeeEntries, workerEntries] = version ? await Promise.all([
-    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployments.employeeNumber, employeeName: hrEmployeeName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleEntries)
+    db.select({ entry: hrScheduleEntries, employeeNumber: hrEmployments.employeeNumber, employeeName: hrEmployeeName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name, shiftTemplateId: hrShiftTemplates.id }).from(hrScheduleEntries)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
       .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleEntries.scopeId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleEntries.shiftVersionId))
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
       .where(and(eq(hrScheduleEntries.scheduleVersionId, version.id), selectedScopeId ? eq(hrScheduleEntries.scopeId, selectedScopeId) : undefined)),
-    db.select({ entry: hrScheduleWorkerEntries, workerName: hrEmployments.legalName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name }).from(hrScheduleWorkerEntries)
+    db.select({ entry: hrScheduleWorkerEntries, workerName: hrEmployments.legalName, archivedAt: hrEmployments.archivedAt, scopeName: scopes.name, shiftName: hrShiftTemplates.name, shiftTemplateId: hrShiftTemplates.id }).from(hrScheduleWorkerEntries)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkerEntries.workerId))
       .innerJoin(scopes, eq(scopes.id, hrScheduleWorkerEntries.scopeId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleWorkerEntries.shiftVersionId))
@@ -355,8 +355,8 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
     employees,
     workers: workerRows,
     entries: [
-      ...employeeEntries.map(({ entry, employeeNumber, employeeName, archivedAt, scopeName, shiftName }) => ({ ...entry, personKind: "employee" as const, workerId: null, employeeNumber, personName: employeeName, archivedAt, scopeName, shiftName })),
-      ...workerEntries.map(({ entry, workerName, archivedAt, scopeName, shiftName }) => ({ ...entry, personKind: "worker" as const, employmentId: null, employeeNumber: null, personName: workerName, archivedAt, scopeName, shiftName })),
+      ...employeeEntries.map(({ entry, employeeNumber, employeeName, archivedAt, scopeName, shiftName, shiftTemplateId }) => ({ ...entry, shiftTemplateId, personKind: "employee" as const, workerId: null, employeeNumber, personName: employeeName, archivedAt, scopeName, shiftName })),
+      ...workerEntries.map(({ entry, workerName, archivedAt, scopeName, shiftName, shiftTemplateId }) => ({ ...entry, shiftTemplateId, personKind: "worker" as const, employmentId: null, employeeNumber: null, personName: workerName, archivedAt, scopeName, shiftName })),
     ],
   };
 }
@@ -408,7 +408,7 @@ export async function saveHrScheduleChanges(db: Database, input: HrScheduleChang
       if (other.scopeId !== entry.scopeId) continue;
       const samePerson = entry.personKind === other.personKind && (entry.personKind === "employee" ? "employmentId" in other && other.employmentId === entry.employmentId : "workerId" in other && other.workerId === entry.workerId);
       if (samePerson && entry.startsAt < other.endsAt && other.startsAt < entry.endsAt) throw new HrError(409, "同一人員在同一營運據點的排班時段重疊。 ");
-      if (other.workDate === entry.workDate && other.shiftVersionId === entry.shiftVersionId && other.requiredHeadcount !== entry.requiredHeadcount) throw new HrError(409, "同班排班需求人力已變更，請重新套用該班排班；已封存人員的歷史快照不可修改。 ");
+      if (!other.archivedAt && other.workDate === entry.workDate && other.shiftTemplateId === entry.shiftTemplateId && other.requiredHeadcount !== entry.requiredHeadcount) throw new HrError(409, "同班排班需求人力已變更，請一併重新套用該班的活動人員排班。 ");
     }
   }
   if (!touchedIds.size && !enriched.length) throw new HrError(400, "沒有需要儲存的排班變更。 ");

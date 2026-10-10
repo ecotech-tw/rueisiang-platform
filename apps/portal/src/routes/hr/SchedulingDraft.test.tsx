@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { type HrScheduleResponse } from "./api.js";
 import { HrScheduling } from "./Scheduling.js";
+import { useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 
 vi.mock("../../auth/session.js", () => ({ useSession: () => ({ permissions: new Set(["hr:schedule:read", "hr:schedule:write"]) }) }));
 vi.mock("../../shell/Toast.js", () => ({ useToast: () => ({ show: vi.fn() }) }));
@@ -16,7 +17,7 @@ function data(revision = 2): HrScheduleResponse {
   return { periodKey: "2026-02", period: { start: "2026-02-01", end: "2026-03-01" }, version: { id: "version", revision, status: "published", locked: false, lockedAt: null }, scopes: [{ id: "store", name: "門市" }], calendar: Array.from({ length: 28 }, (_, index) => ({ date: `2026-02-${String(index + 1).padStart(2, "0")}`, dayType: "weekday", name: "", specialKind: "none", specialScopeIds: [], overridden: false })), employees: [{ employmentId: "employee", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [], entries: [], shifts: [{ versionId: "shift", templateId: "early", scopeId: "store", name: "早班", dayType: "weekday", revision: 1, startSecond: 32400, endSecond: 64800, endDayOffset: 0, standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1 }] };
 }
 
-async function renderPage() {
+async function renderPage(getFailures = 0) {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.setSystemTime(new Date("2026-02-01T00:00:00Z")); notifyManager.setScheduler(queueMicrotask);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
@@ -24,6 +25,7 @@ async function renderPage() {
   const writes: Record<string, unknown>[] = [];
   vi.stubGlobal("fetch", async (_path: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === "PATCH") { writes.push(JSON.parse(String(init.body))); return Response.json({ id: "version", revision: 3 }); }
+    if (getFailures-- > 0) return Response.json({ error: "重新載入暫時失敗" }, { status: 500 });
     return Response.json(data(3));
   });
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
@@ -44,6 +46,33 @@ describe("後台排班差異草稿", () => {
       expect(page.dateButton().getAttribute("aria-pressed")).toBe("true");
       expect(page.dateButton().disabled).toBe(true);
       await page.click("儲存"); expect(page.writes).toHaveLength(0);
+    } finally { await page.cleanup(); }
+  });
+  it("PATCH 成功但 GET 失敗時清除未儲存警告，能重抓但不能重送差異", async () => {
+    const page = await renderPage(1);
+    try {
+      await page.click("儲存");
+      expect(document.body.textContent).toContain("排班已儲存並生效，但載入最新班表失敗");
+      expect(document.body.textContent).toContain("不需要再次儲存");
+      expect(vi.mocked(useUnsavedChanges).mock.calls.at(-1)?.[0]).toBe(false);
+      expect(page.writes).toHaveLength(1);
+      await page.click("重新載入班表");
+      expect(document.body.textContent).not.toContain("重新載入暫時失敗");
+      expect(document.body.textContent).not.toContain("尚未儲存");
+      expect(page.writes).toHaveLength(1);
+    } finally { await page.cleanup(); }
+  });
+  it("保存後 GET 失敗，但背景恢復取得已保存 revision 時會自動解除待重抓狀態", async () => {
+    const page = await renderPage(1);
+    try {
+      await page.click("儲存");
+      expect(document.body.textContent).toContain("載入最新班表失敗");
+      await act(async () => page.client.setQueryData(["hr", "/schedules?periodKey=2026-02"], data(3)));
+      expect(document.body.textContent).not.toContain("載入最新班表失敗");
+      expect(page.dateButton().disabled).toBe(false);
+      expect(page.writes).toHaveLength(1);
+      await act(async () => page.dateButton().click());
+      expect(document.body.textContent).toContain("尚未儲存");
     } finally { await page.cleanup(); }
   });
   it("儲存送出差異後更新基準，不把自己成功的變更誤當外部衝突", async () => {
