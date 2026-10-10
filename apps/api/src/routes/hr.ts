@@ -1420,8 +1420,8 @@ export const hr = new Hono<AppEnv>()
     const personKind = c.req.query("personKind") ?? "employee";
     if (personKind !== "all" && personKind !== "employee" && personKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
     return c.json(personKind === "employee"
-      ? await listHrEmployees(c.get("db"), { page, pageSize, search, status, employmentStatus, today: formatTaipeiDate(new Date()), sortField, sortDirection })
-      : await listHrPersonnel(c.get("db"), { page, pageSize, search, status, employmentStatus, today: formatTaipeiDate(new Date()), sortField, sortDirection, personKind }));
+      ? await listHrEmployees(c.get("db"), { page, pageSize, search, status, employmentStatus, today: formatTaipeiDate(new Date()), sortField, sortDirection, includeLineBinding: true })
+      : await listHrPersonnel(c.get("db"), { page, pageSize, search, status, employmentStatus, today: formatTaipeiDate(new Date()), sortField, sortDirection, personKind, includeLineBinding: true }));
   })
   .get("/supervisor-candidates", requirePermission("hr:employee:write"), async (c) => c.json({ users: await listHrSupervisorCandidates(c.get("db"), c.req.query("exclude") ?? c.get("user").id) }))
   .get("/employees/:id", requireAnyPermission("hr:employee:read", "hr:office:read"), async (c) => {

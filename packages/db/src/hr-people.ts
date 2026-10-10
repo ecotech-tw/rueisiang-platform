@@ -7,7 +7,7 @@ import { hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./s
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests, hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
-import { roles, userRoleAssignments, users } from "./schema/auth.js";
+import { authLineAccountLinks, roles, userRoleAssignments, users } from "./schema/auth.js";
 
 export class HrError extends Error {
   constructor(public readonly status: 400 | 404 | 409, message: string) { super(message); }
@@ -97,6 +97,8 @@ const employeeFields = {
   revision: hrEmployments.revision,
 };
 
+const lineLinkedAt = sql<string | null>`(SELECT ${authLineAccountLinks.linkedAt} FROM ${authLineAccountLinks} WHERE ${authLineAccountLinks.userId} = ${hrEmployments.employeeUserId})`;
+
 const EMPLOYEE_SORT_COLUMNS = {
   employeeNumber: hrEmployments.employeeNumber,
   name: hrEmployeeName,
@@ -119,6 +121,8 @@ export type HrEmploymentStatus = "active" | "inactive";
 export interface HrEmployeeListQuery {
   page: number;
   pageSize: number;
+  /** 共用清單也用於申請審核；綁定資訊只能由人事讀取入口明確啟用。 */
+  includeLineBinding?: boolean;
   search: string;
   status: "all" | "employable" | "active" | "invited" | "disabled";
   employmentStatus?: HrEmploymentStatus;
@@ -180,7 +184,7 @@ export async function listHrEmployees(db: Database, query: HrEmployeeListQuery) 
   const orderColumns = query.sortField === "employeeNumber"
     ? hrEmployeeNumberOrder(query.sortDirection)
     : [query.sortDirection === "asc" ? asc(sortColumn) : desc(sortColumn), asc(hrEmployments.employeeNumber)];
-  const selectFields = { ...employeeFields, employmentStatus: employmentStatusExpression() };
+  const selectFields = { ...employeeFields, ...(query.includeLineBinding ? { lineLinkedAt } : {}), employmentStatus: employmentStatusExpression() };
   const baseConditions = conditions.filter((condition) => condition !== employmentStatusCondition);
   const activeWhere = and(...baseConditions, activeCondition);
   const inactiveWhere = and(...baseConditions, sql`NOT (${activeCondition})`);
@@ -253,7 +257,7 @@ export async function listHrPersonnel(db: Database, query: HrPersonnelListQuery)
   const activeWhere = and(...baseConditions, activeCondition);
   const inactiveWhere = and(...baseConditions, sql`NOT (${activeCondition})`);
   const [employees, [totalRow], [activeRow], [inactiveRow]] = await Promise.all([
-    db.select(personnelFields).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    db.select({ ...personnelFields, ...(query.includeLineBinding ? { lineLinkedAt } : {}) }).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
       .where(where).orderBy(...orderColumns, asc(hrEmployments.id))
       .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
     db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(where),

@@ -1,11 +1,23 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { HrProfileDetails } from "./Employees.js";
+import { HrLineBindingStatus, HrProfileDetails } from "./Employees.js";
 import type { Profile } from "./api.js";
 
 const employee: Profile["employee"] = { userId: "e", employeeNumber: "E001", position: "一般職員", legalName: "測試員工", accountName: "Google 測試員工", displayName: "測試員工", email: "e@example.test", userStatus: "active", employmentStatus: "active", revision: 1 };
 
 describe("人事資料呈現", () => {
+  it("LINE 綁定呈現已綁定、未綁定、不適用與未提供狀態", () => {
+    const render = (patch: Partial<Profile["employee"]>) => renderToStaticMarkup(<HrLineBindingStatus employee={{ ...employee, ...patch }} />);
+    expect(render({ lineLinkedAt: null })).toContain("未綁定");
+    const linked = render({ lineLinkedAt: "2026-01-02 00:00:00", userStatus: "disabled" });
+    expect(linked).toContain("已綁定");
+    expect(linked).toContain("2026/1/2");
+    expect(linked).toContain("08:00:00");
+    expect(render({ personKind: "worker", userId: null, lineLinkedAt: null })).toContain("不適用");
+    expect(render({})).toContain("狀態未提供");
+    expect(render({})).not.toContain("未綁定");
+  });
+
   it("未任職與未指派都呈現明確空狀態", () => {
     const html = renderToStaticMarkup(<HrProfileDetails profile={{ employee, employments: [], assignments: [] }} />);
     expect(html).toContain("尚未建立員工資料");
