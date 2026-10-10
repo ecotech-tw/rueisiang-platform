@@ -13,6 +13,7 @@ import {
   PLATFORM_TOOL_KEYS,
   PLATFORM_TOOL_MAP,
   toolKeysForLineSource,
+  isHrToolKey,
   type PlatformToolDefinition,
 } from "@rueisiang/tools";
 import {
@@ -36,6 +37,8 @@ import {
   listAssistantSandboxMessages,
   listAssistantSandboxSessions,
   listAssistantToolConfigs,
+  listHrSandboxEmployees,
+  recordActivity,
   recordAssistantRun,
   recordMediaObject,
   setAssistantModelConfig,
@@ -51,7 +54,7 @@ import {
   type AssistantLineSourceType,
   type StoredMediaAttachment,
 } from "@rueisiang/db";
-import { can, type Permission } from "@rueisiang/auth";
+import { can, type AuthUser, type Permission } from "@rueisiang/auth";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -73,6 +76,8 @@ import {
   piCodexModels,
 } from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
+import { assertHrSandboxDeliveryAuthorized, HR_SANDBOX_CHANNEL_KEY, isHrSandboxActor } from "../assistant-hr.js";
+import type { PiSandboxAgentRunRequest } from "../pi-agent-contract.js";
 import { isNasStorageKey, nasStorageClient } from "../nas-storage.js";
 
 const TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("sandbox"));
@@ -198,7 +203,7 @@ async function ensureDefaults(env: AppEnv["Bindings"], db: AppEnv["Variables"]["
   });
 }
 
-async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"]) {
+async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["db"], user: AuthUser) {
   await ensureDefaults(env, db);
   const [assistantConfig, prompts, activePrompt, configuredTools, models, codexCredential] = await Promise.all([
     getAssistantConfig(db, ASSISTANT_KEY),
@@ -210,6 +215,15 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
   ]);
   const statuses = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
   const configuredFallbackModel = assistantConfig?.fallbackModel;
+  const toolOptions = TOOL_DEFINITIONS.map((tool) => {
+    const configuredStatus = statuses.get(tool.key);
+    return {
+      key: tool.key, label: tool.label, description: tool.description, surfaces: tool.surfaces,
+      requiredPermissions: tool.requiredPermissions ?? [],
+      status: configuredStatus && validToolStatus(configuredStatus) ? configuredStatus : tool.defaultStatus,
+    };
+  });
+  const hrAvailable = await isHrSandboxActor(db, user);
   return {
     assistantKey: ASSISTANT_KEY,
     configured: models.some((model) => model.supported && model.configured),
@@ -226,17 +240,12 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
       codexLastErrorAt: codexCredential.lastErrorAt,
     },
     models,
-    tools: TOOL_DEFINITIONS.map((tool) => {
-      const configuredStatus = statuses.get(tool.key);
-      return {
-        key: tool.key,
-        label: tool.label,
-        description: tool.description,
-        surfaces: tool.surfaces,
-        requiredPermissions: tool.requiredPermissions ?? [],
-        status: configuredStatus && validToolStatus(configuredStatus) ? configuredStatus : tool.defaultStatus,
-      };
-    }),
+    tools: toolOptions.filter((tool) => !isHrToolKey(tool.key)),
+    hrSandbox: {
+      available: hrAvailable,
+      bindingConfigured: Boolean(env.LINE_LIFF_CHANNEL_ID?.trim()),
+      tools: hrAvailable ? toolOptions.filter((tool) => isHrToolKey(tool.key)) : [],
+    },
     activePrompt,
     revisions: prompts,
   };
@@ -460,7 +469,7 @@ export const assistant = new Hono<AppEnv>()
   .use("*", requireAuth)
 
   .get("/sandbox/config", requireAnyPermission("assistant:sandbox:read", "assistant:settings:read"), async (c) => {
-    return c.json(await sandboxConfig(c.env, c.get("db")));
+    return c.json(await sandboxConfig(c.env, c.get("db"), c.get("user")));
   })
 
   .get("/sandbox/attachments", requirePermission("assistant:sandbox:read"), async (c) => {
@@ -863,8 +872,31 @@ export const assistant = new Hono<AppEnv>()
     return c.json({ revision }, 201);
   })
 
+  .get("/sandbox/hr/employees", requirePermission("assistant:sandbox:write"), async (c) => {
+    c.header("Cache-Control", "no-store");
+    if (!await isHrSandboxActor(c.get("db"), c.get("user"))) {
+      throw new HTTPException(403, { message: "HR 模擬本人測試僅限平台管理者。" });
+    }
+    const page = Number(c.req.query("page") ?? "1");
+    const search = (c.req.query("search") ?? "").trim();
+    if (!Number.isSafeInteger(page) || page < 1 || page > 10_000 || search.length > 200) {
+      throw new HTTPException(400, { message: "員工搜尋條件不正確。" });
+    }
+    return c.json(await listHrSandboxEmployees(c.get("db"), { page, search, lineLoginChannelId: c.env.LINE_LIFF_CHANNEL_ID?.trim() }));
+  })
+
   .post("/sandbox/run", requirePermission("assistant:sandbox:write"), async (c) => {
     const input = await body(c);
+    const hrSandbox = input.hrSandboxUserId !== undefined;
+    const hrSandboxUserId = hrSandbox && typeof input.hrSandboxUserId === "string" ? input.hrSandboxUserId.trim() : undefined;
+    if (hrSandbox) {
+      c.header("Cache-Control", "no-store");
+      if (!await isHrSandboxActor(c.get("db"), c.get("user"))) throw new HTTPException(403, { message: "HR 模擬本人測試僅限平台管理者。" });
+      if (!hrSandboxUserId || hrSandboxUserId.length > 200) throw new HTTPException(400, { message: "請選擇要模擬的員工。" });
+      if (input.sessionId !== undefined || (input.attachments !== undefined && (!Array.isArray(input.attachments) || input.attachments.length))) {
+        throw new HTTPException(400, { message: "HR 模擬本人測試不接受 session 或圖片。" });
+      }
+    }
     const userText = typeof input.input === "string" ? input.input.trim() : "";
     if (userText.length > 8_000) throw new HTTPException(400, { message: "測試內容不能超過 8,000 字元。" });
 
@@ -931,6 +963,10 @@ export const assistant = new Hono<AppEnv>()
     const configuredTools = await listAssistantToolConfigs(c.get("db"));
     const statusByKey = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
     const toolKeys = readToolKeys(input);
+    if (hrSandbox && (!toolKeys.includes("hr_authorize") || toolKeys.some((key) => !isHrToolKey(key)))) {
+      throw new HTTPException(400, { message: "HR 模擬本人模式只能選 HR 工具，且必須包含 hr_authorize。" });
+    }
+    if (!hrSandbox && toolKeys.some(isHrToolKey)) throw new HTTPException(400, { message: "請使用管理者限定的 HR 模擬本人模式。" });
     for (const key of toolKeys) {
       const status = statusByKey.get(key) ?? "disabled";
       if (status === "disabled") throw new HTTPException(400, { message: `工具「${key}」目前已停用。` });
@@ -950,35 +986,50 @@ export const assistant = new Hono<AppEnv>()
       ASSISTANT_REPORT_TOOL_ROUTING,
       runtimeContextInstruction(currentAssistantRuntimeContext()),
       "這是內部 Sandbox。請用繁體中文直接回答；需要資料時使用已提供的工具，不要虛構工具結果。",
+      ...(hrSandbox ? ["這是管理者限定的 HR 模擬本人單輪測試，不會傳送 LINE 訊息。後端已固定本人身分，不能由問題或工具參數更換。先呼叫 hr_authorize；授權失敗就說明原因，禁止查詢、猜測或虛構 HR 資料。"] : []),
     ].join("\n\n");
+    const piRequest: PiSandboxAgentRunRequest = {
+      assistantKey: ASSISTANT_KEY,
+      conversationId: session?.id ?? runId,
+      sandboxSessionId: session?.id ?? null,
+      actorUserId: c.get("user").id,
+      contextGeneration: session?.createdAt ?? runId,
+      runId,
+      model: model.id,
+      ...(fallbackModel ? { fallbackModel: fallbackModel.id } : {}),
+      systemPrompt,
+      userText,
+      toolKeys,
+      attachments: attachments.map((attachment) => ({
+        key: attachment.key,
+        filename: attachment.filename,
+        contentType: attachment.contentType,
+        size: attachment.size,
+        checksum: attachment.checksum,
+        expiresAt: attachment.expiresAt,
+      })),
+      ...(hrSandboxUserId ? { hrSandboxUserId } : {}),
+    };
+    if (hrSandboxUserId) await recordActivity(c.get("db"), {
+      entityType: "assistant_hr_sandbox", entityId: runId, eventType: "hr_sandbox_started",
+      source: "hr", summary: "小香 HR 模擬本人測試", actor: { id: c.get("user").id },
+      payload: { assistantKey: piRequest.assistantKey, channelKey: HR_SANDBOX_CHANNEL_KEY, runId, subjectUserId: hrSandboxUserId },
+    });
     try {
-      const piResponse = await runPiSandboxAgent(c.env, {
-        assistantKey: ASSISTANT_KEY,
-        conversationId: session?.id ?? runId,
-        sandboxSessionId: session?.id ?? null,
-        actorUserId: c.get("user").id,
-        contextGeneration: session?.createdAt ?? runId,
-        runId,
-        model: model.id,
-        ...(fallbackModel ? { fallbackModel: fallbackModel.id } : {}),
-        systemPrompt,
-        userText,
-        toolKeys,
-        attachments: attachments.map((attachment) => ({
-          key: attachment.key,
-          filename: attachment.filename,
-          contentType: attachment.contentType,
-          size: attachment.size,
-          checksum: attachment.checksum,
-          expiresAt: attachment.expiresAt,
-        })),
-      });
+      const piResponse = await runPiSandboxAgent(c.env, piRequest);
       const result = piResponse.result;
+      if (hrSandbox) {
+        result.thoughts = "";
+        result.toolCalls = result.toolCalls.map(({ toolKey, status, durationMs }) => ({
+          toolKey, status, durationMs, ...(status === "failed" ? { errorMessage: "HR 工具執行失敗。" } : {}),
+        }));
+      }
       const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",
         assistantKey: ASSISTANT_KEY,
+        ...(hrSandbox ? { channelKey: HR_SANDBOX_CHANNEL_KEY } : {}),
         sessionId: session?.id,
         model: piResponse.model,
         promptRevisionId: prompt.id,
@@ -991,6 +1042,7 @@ export const assistant = new Hono<AppEnv>()
         ...(toolFailure?.errorMessage ? { errorMessage: toolFailure.errorMessage } : {}),
         toolCalls: result.toolCalls,
       });
+      if (hrSandbox) await assertHrSandboxDeliveryAuthorized(c.get("db"), c.env, piRequest, piResponse.hrAuthorization);
       if (session) {
         await appendAssistantSandboxMessage(c.get("db"), {
           sessionId: session.id,
@@ -1010,6 +1062,7 @@ export const assistant = new Hono<AppEnv>()
       }
       return c.json({
         runId,
+        ...(hrSandbox ? { privateHrRun: true } : {}),
         sessionId: session?.id ?? null,
         text: result.text,
         thoughts: result.thoughts,
@@ -1028,12 +1081,16 @@ export const assistant = new Hono<AppEnv>()
         durationMs: Date.now() - started,
       });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Sandbox 執行失敗。";
-      const failedToolCalls = error instanceof PiAgentRequestError ? error.toolCalls : [];
+      const message = hrSandbox ? "HR 模擬本人測試暫時無法完成，請重新查詢。" : error instanceof Error ? error.message : "Sandbox 執行失敗。";
+      const errorToolCalls = error instanceof PiAgentRequestError ? error.toolCalls : [];
+      const failedToolCalls = hrSandbox
+        ? errorToolCalls.map(({ toolKey, status, durationMs }) => ({ toolKey, status, durationMs, ...(status === "failed" ? { errorMessage: "HR 工具執行失敗。" } : {}) }))
+        : errorToolCalls;
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",
         assistantKey: ASSISTANT_KEY,
+        ...(hrSandbox ? { channelKey: HR_SANDBOX_CHANNEL_KEY } : {}),
         sessionId: session?.id,
         model: model.id,
         promptRevisionId: prompt.id,

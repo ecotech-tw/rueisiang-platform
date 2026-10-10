@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { HrSandboxTester } from "./HrSandboxTester.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Alert, Button, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
@@ -83,6 +84,7 @@ export function Sandbox() {
   const [sessionId, setSessionId] = useState("");
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [hrMode, setHrMode] = useState(false);
   const [revisionsOpen, setRevisionsOpen] = useState(false);
   const [failedRun, setFailedRun] = useState<{ runId?: string; toolCalls: SandboxToolCall[] } | null>(null);
   const conversationRef = useRef<HTMLDivElement>(null);
@@ -227,12 +229,25 @@ export function Sandbox() {
     closeSession.mutate(sessionId, { onSuccess: createFreshSession });
   }
 
+  if (hrMode && data.hrSandbox.available) return (
+    <div className="page assistant-sandbox-page">
+      <PageHeader title="小香助理 Sandbox" description="管理者限定的 HR 模擬本人單輪測試，與一般對話及正式 LINE 隔離。" />
+      <HrSandboxTester config={data} onExit={() => setHrMode(false)} />
+    </div>
+  );
+
   return (
     <div className="page assistant-sandbox-page">
       <PageHeader
         title="小香助理 Sandbox"
         description="在接上 LINE 前，先用同一套 prompt、模型與工具執行流程測試回答品質。"
       />
+
+      {data.hrSandbox.available ? (
+        <div className="assistant-actions">
+          <Button variant="secondary" disabled={run.isPending} onClick={() => setHrMode(true)}>HR 模擬員工本人</Button>
+        </div>
+      ) : null}
 
       {!data.providers.codex ? (
         <Alert tone="danger">尚未完成 ChatGPT／Codex OAuth credential 設定，GPT 模型目前不可執行。</Alert>

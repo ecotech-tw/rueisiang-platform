@@ -17,6 +17,7 @@ import { activityEvents } from "./schema/activity.js";
 export type ActivityEntityType =
   | "customer"
   | "hr_personnel"
+  | "assistant_hr_sandbox"
   | "wms_zone"
   | "item"
   | "product_category"

@@ -58,7 +58,7 @@ function lineAgentName(input: PiLineAgentContext): string {
 }
 
 function sandboxAgentName(input: PiSandboxAgentRunRequest): string {
-  return [input.assistantKey, "sandbox", input.actorUserId, input.conversationId].join(":");
+  return [input.assistantKey, input.hrSandboxUserId ? "hr-sandbox" : "sandbox", input.actorUserId, input.hrSandboxUserId ? input.runId : input.conversationId].join(":");
 }
 
 function agentStub(env: AppEnv["Bindings"], name: string): DurableObjectStub {

@@ -35,7 +35,7 @@ import {
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
 import { isHrToolKey, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
-import { HrSelfToolError, LineHrSelfService } from "./assistant-hr.js";
+import { assertHrSandboxDeliveryAuthorized, assertHrSandboxRunAllowed, HrSelfToolError, LineHrSelfService, SandboxHrSelfService } from "./assistant-hr.js";
 import { Type, type TSchema } from "typebox";
 import type { AssistantRunResult, AssistantToolCall, JsonSchemaProperty } from "@rueisiang/assistant";
 import type { Env } from "./env.js";
@@ -144,7 +144,7 @@ interface ToolExecutionContext {
   request: PiAgentRunRequest;
   toolCalls: AssistantToolCall[];
   privateHrRun?: boolean;
-  hrSelf?: LineHrSelfService;
+  hrSelf?: LineHrSelfService | SandboxHrSelfService;
 }
 
 class AgentExecutionError extends Error {
@@ -229,8 +229,8 @@ function isAttachments(value: unknown): value is PiAgentAttachment[] {
 function isRunRequest(value: unknown): value is PiAgentRunRequest {
   const input = object(value);
   if (!input || !isRunFields(input)) return false;
-  if (isLineContext(input)) return nonEmptyString(input.webhookEventId);
-  return isSandboxContext(input);
+  if (isLineContext(input)) return input.hrSandboxUserId === undefined && nonEmptyString(input.webhookEventId);
+  return isSandboxContext(input) && (input.hrSandboxUserId === undefined || nonEmptyString(input.hrSandboxUserId));
 }
 
 function isResetRequest(value: unknown): value is PiLineAgentResetRequest {
@@ -855,7 +855,10 @@ export class AssistantChatAgent {
       maxTokens: options.maxTokens ?? MODEL_MAX_OUTPUT_TOKENS,
     };
     const onResponse = async (response: ProviderResponse, responseModel: Model<Api>) => {
-      const observed = providerResponseDiagnostic(responseModel, response);
+      const fullDiagnostic = providerResponseDiagnostic(responseModel, response);
+      const observed = privateHrRun?.()
+        ? { provider: fullDiagnostic.provider, model: fullDiagnostic.model, status: fullDiagnostic.status }
+        : fullDiagnostic;
       if (diagnostics) diagnostics.lastResponse = observed;
       console.info("Pi provider response", {
         ...(diagnostics?.runId ? { runId: diagnostics.runId } : {}),
@@ -937,9 +940,14 @@ export class AssistantChatAgent {
     return tool.execute(args, { surface: "line", lineSourceType: input.sourceType, db, env: this.env, services });
   }
 
-  private async authorizedSandboxTool(input: PiSandboxAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
+  private async authorizedSandboxTool(context: ToolExecutionContext, input: PiSandboxAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
     const db = createDatabase(this.env.DB);
-    const services = { cyberbizReports: lazyCyberbizReportService(db) };
+    if (isHrToolKey(toolKey)) {
+      if (!input.hrSandboxUserId) throw new HrSelfToolError("請使用管理者限定的 HR 模擬本人模式。" );
+      if (!context.hrSelf && toolKey !== "hr_authorize") throw new HrSelfToolError("請先呼叫 hr_authorize 取得本輪本人授權。" );
+      context.hrSelf ??= await SandboxHrSelfService.create(db, this.env, input);
+    }
+    const services = { cyberbizReports: lazyCyberbizReportService(db), ...(context.hrSelf ? { hrSelf: context.hrSelf } : {}) };
     const [user, configuredTools, session] = await Promise.all([
       loadAuthUser(db, { id: input.actorUserId }),
       listAssistantToolConfigs(db),
@@ -951,7 +959,7 @@ export class AssistantChatAgent {
         })
         : Promise.resolve(null),
     ]);
-    if (!user || user.status !== "active") throw new Error("Sandbox 使用者已停權或不存在。");
+    if (!user || !can(user, "assistant:sandbox:write")) throw new Error("Sandbox 使用者已停權、撤銷執行權限或不存在。");
     if (input.sandboxSessionId && (!session
       || session.status !== "open"
       || session.createdAt !== input.contextGeneration)) {
@@ -971,7 +979,7 @@ export class AssistantChatAgent {
     const input = context.request;
     return isLineRunRequest(input)
       ? this.authorizedLineTool(context, input, toolKey, args)
-      : this.authorizedSandboxTool(input, toolKey, args);
+      : this.authorizedSandboxTool(context, input, toolKey, args);
   }
 
   private tools(context: ToolExecutionContext): AgentTool[] {
@@ -1001,7 +1009,7 @@ export class AssistantChatAgent {
             context.toolCalls.push({
               toolKey: tool.key,
               status: "success",
-              args: args as Record<string, unknown>,
+              ...(!context.privateHrRun ? { args: args as Record<string, unknown> } : {}),
               durationMs: Date.now() - started,
             });
             return { content: [{ type: "text", text: result }], details: { toolKey: tool.key } };
@@ -1015,7 +1023,7 @@ export class AssistantChatAgent {
             context.toolCalls.push({
               toolKey: tool.key,
               status: "failed",
-              args: args as Record<string, unknown>,
+              ...(!context.privateHrRun ? { args: args as Record<string, unknown> } : {}),
               durationMs: Date.now() - started,
               errorMessage,
             });
@@ -1283,6 +1291,11 @@ export class AssistantChatAgent {
   }
 
   private async run(input: PiAgentRunRequest): Promise<PiAgentRunResponse> {
+    const hrSandbox = isSandboxRunRequest(input) && input.hrSandboxUserId !== undefined;
+    if (hrSandbox) await assertHrSandboxRunAllowed(createDatabase(this.env.DB), this.env, input);
+    if (isSandboxRunRequest(input) && !hrSandbox && input.toolKeys.some(isHrToolKey)) {
+      throw new HrSelfToolError("請使用管理者限定的 HR 模擬本人模式。" );
+    }
     const providerDiagnostics: PiProviderExecutionDiagnostics = { runId: input.runId };
     let { state } = this.requireGeneration(input.contextGeneration);
     const sourceType = isLineRunRequest(input) ? input.sourceType : "sandbox";
@@ -1299,7 +1312,7 @@ export class AssistantChatAgent {
     const fallbackModel = input.fallbackModel && input.fallbackModel !== model.id
       ? this.model(input.fallbackModel)
       : undefined;
-    const completed = this.completedRun(input.runId, state.generation);
+    const completed = hrSandbox ? undefined : this.completedRun(input.runId, state.generation);
     if (completed) return completed;
     // Queue 重送未完成的 run 時先移除殘留 transcript；tool 的外部冪等仍由各 provider 自己保證。
     this.sql.exec(
@@ -1320,7 +1333,7 @@ export class AssistantChatAgent {
        Date.now(),
      );
 
-    if (isSandboxRunRequest(input)) {
+    if (isSandboxRunRequest(input) && !hrSandbox) {
       await this.bootstrapSandboxTranscript(state, input, model);
       state = this.currentState()!;
     }
@@ -1329,8 +1342,8 @@ export class AssistantChatAgent {
     if (this.estimatedStoredContextTokens(state) > COMPACT_AFTER_TOKENS) {
       await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);
     }
-    const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
-    const initialMessages = await this.contextMessages(state, INTERACTIVE_CONTEXT_TOKENS);
+    const toolContext: ToolExecutionContext = { request: input, toolCalls: [], privateHrRun: hrSandbox };
+    const initialMessages = hrSandbox ? [] : await this.contextMessages(state, INTERACTIVE_CONTEXT_TOKENS);
     const images = await this.inputImages(input.attachments);
     const agent = new Agent({
       initialState: {
@@ -1397,6 +1410,7 @@ export class AssistantChatAgent {
     if (!finalText) throw new AgentExecutionError("Pi agent 沒有產生可顯示的文字回答。", toolContext.toolCalls);
 
     await toolContext.hrSelf?.assertStillAuthorized();
+    if (hrSandbox) await assertHrSandboxDeliveryAuthorized(createDatabase(this.env.DB), this.env, input, toolContext.hrSelf?.authorization);
     const response: PiAgentRunResponse = {
       ...(toolContext.privateHrRun ? { privateHrRun: true } : {}),
       ...(toolContext.hrSelf?.authorization ? { hrAuthorization: toolContext.hrSelf.authorization } : {}),
@@ -1455,15 +1469,18 @@ export class AssistantChatAgent {
       }
       return Response.json({ error: "Pi agent request 格式不正確。" }, { status: 400 });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
+      const privateSandbox = isRunRequest(payload) && isSandboxRunRequest(payload) && payload.hrSandboxUserId !== undefined;
+      const message = privateSandbox && !(error instanceof HrSelfToolError)
+        ? "HR 模擬本人測試暫時無法完成，請重新查詢。"
+        : error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
       const stale = message.includes("已重設的舊 session");
       if (!stale) {
         console.error("Pi chat agent 執行失敗", {
           runId: isRunRequest(payload) ? payload.runId : undefined,
-          error: error instanceof AgentExecutionError
+          error: privateSandbox ? serializePiError(new Error(message)) : error instanceof AgentExecutionError
             ? error.errorDiagnostic
             : serializePiError(error),
-          ...(error instanceof AgentExecutionError && error.providerResponse
+          ...(!privateSandbox && error instanceof AgentExecutionError && error.providerResponse
             ? { providerResponse: error.providerResponse }
             : {}),
           ...(error instanceof AgentExecutionError

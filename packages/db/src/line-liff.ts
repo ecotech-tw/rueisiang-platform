@@ -26,6 +26,15 @@ export async function findLineAccountBinding(db: Database, identity: LineAccount
   return link ?? null;
 }
 
+/** 僅供受權限保護的後端模擬服務使用，不可把 LINE identity 回傳到測試頁。 */
+export async function findLineAccountBindingByUser(db: Database, userId: string, channelId: string) {
+  const [link] = await db.select({ userId: authLineAccountLinks.userId, lineUserId: authLineAccountLinks.lineUserId, linkVersion: authLineAccountLinks.linkVersion })
+    .from(authLineAccountLinks)
+    .where(and(eq(authLineAccountLinks.userId, userId), eq(authLineAccountLinks.channelId, channelId)))
+    .limit(1);
+  return link ?? null;
+}
+
 export async function getLineAccountLink(db: Database, userId: string) {
   const [link] = await db.select({ channelId: authLineAccountLinks.channelId, linkedAt: authLineAccountLinks.linkedAt })
     .from(authLineAccountLinks)

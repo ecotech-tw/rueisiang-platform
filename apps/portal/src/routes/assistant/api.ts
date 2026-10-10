@@ -43,8 +43,26 @@ export interface SandboxConfig {
   credentialStatus: { codex: "unconfigured" | "ready" | "needs_reauth"; codexLastErrorAt: number | null };
   models: AssistantModel[];
   tools: AssistantTool[];
+  hrSandbox: { available: boolean; bindingConfigured: boolean; tools: AssistantTool[] };
   activePrompt: PromptRevision | null;
   revisions: PromptRevision[];
+}
+
+export interface HrSandboxEmployee {
+  userId: string;
+  displayName: string;
+  employeeNumber: string;
+  userStatus: string;
+  lineBound: boolean;
+}
+
+export function useHrSandboxEmployees(search: string, page: number) {
+  return useQuery({
+    queryKey: ["assistant", "sandbox", "hr-employees", search, page],
+    queryFn: () => request<{ employees: HrSandboxEmployee[]; page: number; hasMore: boolean }>(
+      `/api/assistant/sandbox/hr/employees?search=${encodeURIComponent(search)}&page=${page}`,
+    ),
+  });
 }
 
 export interface SandboxToolCall {
@@ -65,6 +83,7 @@ export interface SandboxAttachment {
 }
 
 export interface SandboxResult {
+  privateHrRun?: boolean;
   runId: string;
   sessionId: string | null;
   text: string;
@@ -384,13 +403,14 @@ export function useSaveAssistantGroupTools() {
 export function useRunSandbox() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { model: string; promptRevisionId: string; toolKeys: string[]; input: string; attachments: SandboxAttachment[]; sessionId?: string }) =>
+    gcTime: 0,
+    mutationFn: (input: { model: string; promptRevisionId: string; toolKeys: string[]; input: string; attachments: SandboxAttachment[]; sessionId?: string; hrSandboxUserId?: string }) =>
       request<SandboxResult>("/api/assistant/sandbox/run", {
         method: "POST",
         body: JSON.stringify(input),
       }),
     onMutate: async (input) => {
-      if (!input.sessionId) return undefined;
+      if (input.hrSandboxUserId || !input.sessionId) return undefined;
       const queryKey = ["assistant", "sandbox", "session", input.sessionId] as const;
       await client.cancelQueries({ queryKey });
       const previous = client.getQueryData<{ session: SandboxSession }>(queryKey);

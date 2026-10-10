@@ -1,10 +1,30 @@
-import { and, asc, count, desc, eq, gt, gte, lt, lte, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError } from "./hr-people.js";
+import { HrError, listHrEmployees } from "./hr-people.js";
+import { authLineAccountLinks } from "./schema/auth.js";
 import { listHrAnnualLeaveEntitlements } from "./hr-annual-leave.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
+
+export async function listHrSandboxEmployees(db: Database, input: { page: number; search: string; lineLoginChannelId?: string }) {
+  const result = await listHrEmployees(db, {
+    page: input.page, pageSize: 25, search: input.search, status: "all", employmentStatus: "active",
+    sortField: "employeeNumber", sortDirection: "asc",
+  });
+  const bindings = result.employees.length && input.lineLoginChannelId
+    ? await db.select({ userId: authLineAccountLinks.userId }).from(authLineAccountLinks)
+      .where(and(inArray(authLineAccountLinks.userId, result.employees.map((employee) => employee.userId)), eq(authLineAccountLinks.channelId, input.lineLoginChannelId)))
+    : [];
+  const linked = new Set(bindings.map((binding) => binding.userId));
+  return {
+    employees: result.employees.map((employee) => ({
+      userId: employee.userId, displayName: employee.displayName, employeeNumber: employee.employeeNumber,
+      userStatus: employee.userStatus, lineBound: linked.has(employee.userId),
+    })),
+    page: result.page, hasMore: result.hasMore,
+  };
+}
 
 export interface HrSelfLeaveQuery {
   status?: "all" | "draft" | "pending" | "approved" | "rejected" | "cancelled";
