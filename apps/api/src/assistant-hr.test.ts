@@ -176,6 +176,40 @@ describe("HR 本人假單與特休 view", () => {
     expect(leave.requests.map((row) => row.id)).toEqual(["inside"]);
   });
 
+  it("同日混合 SQLite 與 ISO UTC 格式依實際申請時間排序，保留毫秒精度", async () => {
+    await seedLeave("latest-sql", "alice", { createdAt: "2026-03-01 23:00:00" });
+    await seedLeave("z-later-iso", "alice", { createdAt: "2026-03-01T01:00:00.900Z" });
+    await seedLeave("a-earlier-iso", "alice", { createdAt: "2026-03-01T01:00:00.100Z" });
+    await seedLeave("earliest-sql", "alice", { createdAt: "2026-03-01 00:00:00" });
+
+    const result = await listHrSelfToolLeaveRequests(db(), "alice", {
+      status: "pending", dateField: "submitted", fromDate: "2026-03-01", toDate: "2026-03-02",
+    }, NOW);
+    expect(result.requests.map((row) => row.id)).toEqual(["latest-sql", "z-later-iso", "a-earlier-iso", "earliest-sql"]);
+    expect(result.requests.map((row) => row.submittedAt)).toEqual([
+      "2026-03-01 23:00:00", "2026-03-01T01:00:00.900Z", "2026-03-01T01:00:00.100Z", "2026-03-01 00:00:00",
+    ]);
+  });
+
+  it("混合格式的相同時刻以 id 穩定排序，跨頁不漏掉或重複本人假單", async () => {
+    const ids = Array.from({ length: 21 }, (_, index) => `same-${String(index).padStart(2, "0")}`);
+    for (const [index, id] of ids.toReversed().entries()) {
+      await seedLeave(id, "alice", { createdAt: index % 2 === 0 ? "2026-03-01 16:00:00" : "2026-03-01T16:00:00.000Z" });
+    }
+    await seedLeave("older", "alice", { createdAt: "2026-03-01T01:00:00.000Z" });
+    await seedLeave("bob-latest", "bob", { createdAt: "2026-03-01T23:00:00.000Z" });
+
+    const query = { status: "pending" as const };
+    const first = await listHrSelfToolLeaveRequests(db(), "alice", query, NOW);
+    const second = await listHrSelfToolLeaveRequests(db(), "alice", { ...query, page: 2 }, NOW);
+    expect(first).toMatchObject({ total: 22, page: 1, pageSize: 20, hasMore: true });
+    expect(second).toMatchObject({ total: 22, page: 2, hasMore: false });
+    expect(first.requests.map((row) => row.id)).toEqual(ids.slice(0, 20));
+    expect(second.requests.map((row) => row.id)).toEqual([ids[20], "older"]);
+    expect(new Set([...first.requests, ...second.requests].map((row) => row.id)).size).toBe(22);
+    expect((await listHrSelfToolLeaveRequests(db(), "alice", query, NOW)).requests.map((row) => row.id)).toEqual(ids.slice(0, 20));
+  });
+
   it("分頁限制與不合法日期不會退回全員或無界查詢", async () => {
     for (let index = 0; index < 22; index++) await seedLeave(`leave-${index}`);
     const first = await listHrSelfToolLeaveRequests(db(), "alice", {}, NOW);

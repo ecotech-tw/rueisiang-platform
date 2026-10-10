@@ -58,6 +58,8 @@ export async function listHrSelfToolLeaveRequests(db: Database, userId: string, 
   const [{ total } = { total: 0 }] = await db.select({ total: count() }).from(hrLeaveRequests)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId)).where(filter);
   const pageSize = 20;
+  // SQLite 與 ISO UTC 字串不能直接排序；julianday 也保留毫秒，避免同秒假單錯排。
+  const submittedOrder = sql<number>`julianday(${hrLeaveRequests.createdAt})`;
   const requests = await db.select({
     id: hrLeaveRequests.id,
     leaveType: hrLeaveRequests.leaveType,
@@ -70,7 +72,7 @@ export async function listHrSelfToolLeaveRequests(db: Database, userId: string, 
     submittedAt: hrLeaveRequests.createdAt,
     reviewedAt: hrLeaveRequests.reviewedAt,
   }).from(hrLeaveRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
-    .where(filter).orderBy(desc(hrLeaveRequests.createdAt), asc(hrLeaveRequests.id)).limit(pageSize).offset((page - 1) * pageSize);
+    .where(filter).orderBy(desc(submittedOrder), asc(hrLeaveRequests.id)).limit(pageSize).offset((page - 1) * pageSize);
   return {
     timeZone: "Asia/Taipei", timestampTimeZone: "UTC", asOfDate: today,
     filters: { status, dateField, fromDate: fromDate ?? null, toDate: toDate ?? null },
