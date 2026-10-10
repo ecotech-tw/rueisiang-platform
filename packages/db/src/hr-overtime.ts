@@ -251,6 +251,14 @@ function rethrowCreateConflict(error: unknown): never {
   throw error;
 }
 
+/**
+ * 員工自己送的加班一律付薪：補休不進薪資，而審核者改不了結算方式，選錯就是少領一筆沒人攔。
+ * 補休只能由 HR 後台代登（autoApprove）。
+ */
+function assertSelfServiceSettlement(settlementKind: HrOvertimeInput["settlementKind"]) {
+  if (settlementKind !== "pay") throw new HrError(400, "本人申請的加班一律付薪；需要補休請洽 HR。 ");
+}
+
 function assertNotSelfApproved(employeeUserId: string, actor: HrActor, autoApprove: boolean) {
   if (autoApprove && employeeUserId === actor.id) throw new HrError(409, "申請人不可透過後台直接核准自己的加班申請。 ");
 }
@@ -259,6 +267,7 @@ export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInp
   assertTarget(input);
   validateOvertimeInput(input);
   const autoApprove = options.autoApprove === true;
+  if (!autoApprove) assertSelfServiceSettlement(input.settlementKind);
   if (input.employeeUserId) {
     const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd);
     await ensureScope(db, employmentId, input.scopeId ?? null, input.requestedStart, input.requestedEnd);
@@ -320,6 +329,7 @@ export async function createHrOvertimeRequests(db: Database, input: HrOvertimeBa
   if (!input.entries.length) throw new HrError(400, "請至少選擇一天加班。 ");
   if (input.entries.length > MAX_OVERTIME_BATCH_ENTRIES) throw new HrError(400, `一次最多建立 ${MAX_OVERTIME_BATCH_ENTRIES} 筆加班申請。 `);
   const autoApprove = options.autoApprove === true;
+  if (!autoApprove) assertSelfServiceSettlement(input.settlementKind);
   if (input.employeeUserId) assertNotSelfApproved(input.employeeUserId, actor, autoApprove);
   const entries = input.entries
     .map((entry) => {
@@ -420,6 +430,7 @@ export async function updateHrOvertimeRequest(db: Database, id: string, input: H
     scopeId: hrOvertimeRequests.scopeId,
     status: hrOvertimeRequests.status,
     approverUserId: hrOvertimeRequests.approverUserId,
+    settlementKind: hrOvertimeRequests.settlementKind,
     revision: hrOvertimeRequests.revision,
     archivedAt: hrEmployments.archivedAt,
   }).from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(eq(hrOvertimeRequests.id, id)).limit(1);
@@ -429,6 +440,8 @@ export async function updateHrOvertimeRequest(db: Database, id: string, input: H
   if (current.revision !== input.revision) throw new HrError(409, "加班申請不存在或版本已過期，請重新整理。 ");
   if (current.archivedAt) throw new HrError(409, "員工任職已結束，無法修改加班申請。 ");
   if (input.employeeUserId !== current.employeeUserId) throw new HrError(400, "加班申請員工不可變更。 ");
+  // 既有的補休申請（HR 代登或規則上線前送的）改時間時可以維持補休，但不能從付薪改成補休。
+  if (input.settlementKind !== current.settlementKind) assertSelfServiceSettlement(input.settlementKind);
 
   const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd, current.employmentId);
   const scopeId = input.scopeId ?? current.scopeId;

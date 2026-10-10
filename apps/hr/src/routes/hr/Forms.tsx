@@ -515,7 +515,7 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
   const summary = summarizeAssignments(assigned);
   const unscheduledDates = selectedUnscheduledDates(days, assigned);
   const missingUnscheduledStart = unscheduledDates.length > 0 && entries.length !== summary.days;
-  const canSubmit = !save.isPending && Boolean(dayQuery.data) && !dayQuery.error && summary.days > 0 && !missingUnscheduledStart;
+  const canSubmit = !save.isPending && Boolean(dayQuery.data) && !dayQuery.error && summary.days > 0 && entries.length === summary.days;
 
   function toggleDay(day: string) {
     if (!isValidOvertimeMinutes(minutes)) return;
@@ -528,7 +528,12 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
   }
   function send() {
     onPendingChange(true);
-    save.mutate({ path: "/me/overtime/batch", method: "POST", values: { settlementKind: SELF_SERVICE_SETTLEMENT_KIND, reason, entries } }, { onSuccess: onDone, onSettled: () => onPendingChange(false) });
+    save.mutate({ path: "/me/overtime/batch", method: "POST", values: { settlementKind: SELF_SERVICE_SETTLEMENT_KIND, reason, entries } }, {
+      onSuccess: onDone,
+      // 失敗後班表會重抓、選擇可能跟著變；關掉確認框，讓人先看到被移除的日期與新的小計再決定要不要重送。
+      onError: () => setConfirmingUnscheduled(false),
+      onSettled: () => onPendingChange(false),
+    });
   }
   function submit() {
     if (!canSubmit) return;
@@ -557,7 +562,7 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
       </div>
       <Field label="加班原因（選填）" hint="所有選到的日期共用同一個原因。"><textarea maxLength={1000} rows={3} value={reason} disabled={save.isPending} onChange={(event) => onReasonChange(event.target.value)} /></Field>
     </div>
-    {save.error && !confirmingUnscheduled ? <Alert tone="danger">{save.error.message}</Alert> : null}
+    {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
     <div className="hr-form-actions">
       <Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={save.isPending}>取消</Button>
       <Button className="add-action" loading={save.isPending} onClick={submit} disabled={!canSubmit}>{summary.days ? `送出 ${summary.days} 筆加班申請` : "送出加班申請"}</Button>
@@ -565,7 +570,6 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
     {confirmingUnscheduled ? <ConfirmDialog title="確認未排班日加班" confirmLabel="確認送出申請" cancelLabel="返回修改" tone="primary" pending={save.isPending} onConfirm={send} onCancel={() => setConfirmingUnscheduled(false)}>
       <p>以下日期沒有排班，會從 {unscheduledStartTime} 開始計算；有排班的日期仍從下班時間起算。</p>
       <ul className="hr-overtime-unscheduled-dates">{unscheduledDates.map((day) => <li key={day}>{day}</li>)}</ul>
-      {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
     </ConfirmDialog> : null}
   </>;
 }
@@ -621,9 +625,10 @@ export function HrOvertimeForm() {
   }, [copying, editing]);
 
   useEffect(() => {
-    if (editing || copying || !restoredDraft.current) return;
+    // 多日模式不存草稿：存下來的時段是沒碰過的單日預設值，下次會配上多日打的原因一起被還原。
+    if (editing || copying || mode === "multiple" || !restoredDraft.current) return;
     sessionStorage.setItem("hr:overtime-draft", JSON.stringify({ start, end, reason }));
-  }, [copying, editing, end, reason, start]);
+  }, [copying, editing, end, mode, reason, start]);
 
   if ((editing || copying) && existing.isPending) return <div className="page hr-form-page"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="正在載入申請內容…" returnTo="/forms?tab=overtime" /><p className="muted">載入加班申請…</p></div>;
   if ((editing || copying) && existing.error) return <div className="page hr-form-page"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="無法載入這筆申請。" returnTo="/forms?tab=overtime" /><Alert tone="danger">{existing.error.message}</Alert></div>;

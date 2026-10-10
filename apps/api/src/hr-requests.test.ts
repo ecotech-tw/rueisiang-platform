@@ -181,7 +181,7 @@ describe("HR 申請中心", () => {
     const adminCreatedBody = await adminCreated.json() as { id: string };
 
     const employeeCreated = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-01-07T18:00", requestedEnd: "2026-01-07T20:00", settlementKind: "compensatory", reason: "",
+      requestedStart: "2026-01-07T18:00", requestedEnd: "2026-01-07T20:00", settlementKind: "pay", reason: "",
     }, employeeCookie);
     expect(employeeCreated.status, await employeeCreated.clone().text()).toBe(201);
     const employeeCreatedBody = await employeeCreated.json() as { id: string };
@@ -273,6 +273,10 @@ describe("HR 申請中心", () => {
     expect(blocked.status).toBe(409);
     expect(await blocked.text()).toContain("2026-01-07");
     // 員工只能替自己申請：帶別人的 ID 會被忽略，帶支援人員 ID 直接拒絕。
+    // 本人入口一律付薪：選補休整批拒絕；待審的付薪申請也不能改成補休。
+    expect((await mine({ settlementKind: "compensatory", entries: [{ requestedStart: "2026-01-14T18:00", requestedEnd: "2026-01-14T19:00" }] })).status).toBe(400);
+    expect((await request("/hr/me/overtime", "POST", { requestedStart: "2026-01-14T18:00", requestedEnd: "2026-01-14T19:00", settlementKind: "compensatory", reason: "" }, employeeCookie)).status).toBe(400);
+    expect((await request(`/hr/me/overtime/${ids[0]}`, "PATCH", { requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T19:30", settlementKind: "compensatory", reason: "", revision: 1 }, employeeCookie)).status).toBe(400);
     const forged = await mine({ employeeUserId: "admin", entries: [{ requestedStart: "2026-01-12T18:00", requestedEnd: "2026-01-12T19:00" }] });
     expect(forged.status, await forged.clone().text()).toBe(201);
     expect((await mine({ workerId: "worker-1", entries: [{ requestedStart: "2026-01-13T18:00", requestedEnd: "2026-01-13T19:00" }] })).status).toBe(400);
@@ -353,7 +357,7 @@ describe("HR 申請中心", () => {
     const pendingLeaveBody = await pendingLeave.json() as { id: string };
 
     const pendingOvertime = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "compensatory", reason: "本人加班測試",
+      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "pay", reason: "本人加班測試",
     }, employeeCookie);
     expect(pendingOvertime.status, await pendingOvertime.clone().text()).toBe(201);
     const pendingOvertimeBody = await pendingOvertime.json() as { id: string };
@@ -423,7 +427,7 @@ describe("HR 申請中心", () => {
     }, employeeCookie)).status).toBe(409);
 
     const overtime = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-02-10T18:00", requestedEnd: "2026-02-10T20:00", settlementKind: "compensatory", reason: "主管手機簽核",
+      requestedStart: "2026-02-10T18:00", requestedEnd: "2026-02-10T20:00", settlementKind: "pay", reason: "主管手機簽核",
     }, employeeCookie);
     expect(overtime.status, await overtime.clone().text()).toBe(201);
     const overtimeId = (await overtime.json() as { id: string }).id;
@@ -517,7 +521,7 @@ describe("HR 申請中心", () => {
     await assignEmployee();
 
     const pending = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "compensatory", reason: "待審更新測試",
+      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "pay", reason: "待審更新測試",
     }, employeeCookie);
     expect(pending.status, await pending.clone().text()).toBe(201);
     const pendingId = (await pending.json() as { id: string }).id;
@@ -563,7 +567,7 @@ describe("HR 申請中心", () => {
     await assignEmployee();
 
     const pending = await request("/hr/me/overtime", "POST", {
-      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "compensatory", reason: "待審取消測試",
+      requestedStart: "2026-02-06T18:00", requestedEnd: "2026-02-06T20:00", settlementKind: "pay", reason: "待審取消測試",
     }, employeeCookie);
     expect(pending.status, await pending.clone().text()).toBe(201);
     const pendingId = (await pending.json() as { id: string }).id;
