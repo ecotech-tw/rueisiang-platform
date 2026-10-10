@@ -249,6 +249,15 @@ export function useHrLeaveDuration(input: { startsAt: string; endsAt: string } |
     retry: false,
   });
 }
+export function useHrLeaveEnd(input: { startsAt: string; durationMinutes: number } | null) {
+  const signature = input ? JSON.stringify(input) : "disabled";
+  return useQuery({
+    queryKey: ["hr", "leave-end", signature],
+    queryFn: () => request<HrLeaveDurationResponse>("/me/leave-end", { method: "POST", body: JSON.stringify(input) }),
+    enabled: input !== null,
+    retry: false,
+  });
+}
 export function useHrWrite<T = { id: string }>(options: { onSuccess?: () => Promise<void> } = {}) {
   const client = useQueryClient();
   return useMutation({

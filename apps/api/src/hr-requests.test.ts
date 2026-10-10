@@ -390,6 +390,16 @@ describe("HR 申請中心", () => {
     expect(duration.status, await duration.clone().text()).toBe(200);
     expect((await duration.json() as { durationMinutes: number }).durationMinutes).toBe(180);
 
+    // 2026-02-05 11:00 起 3 小時：午休不算，所以是 15:00 而不是 14:00。
+    const sameDayEnd = await request("/hr/me/leave-end", "POST", { startsAt: "2026-02-05T11:00", durationMinutes: 180 }, employeeCookie);
+    expect(sameDayEnd.status, await sameDayEnd.clone().text()).toBe(200);
+    expect(await sameDayEnd.json()).toMatchObject({ endsAt: "2026-02-05 07:00:00", durationMinutes: 180 });
+    // 16:00 起 4 小時：當天只剩 2 小時，其餘接到隔天早上。
+    const nextDayEnd = await request("/hr/me/leave-end", "POST", { startsAt: "2026-02-05T16:00", durationMinutes: 240 }, employeeCookie);
+    expect(await nextDayEnd.json()).toMatchObject({ endsAt: "2026-02-06 03:00:00", durationMinutes: 240 });
+    expect((await request("/hr/me/leave-end", "POST", { startsAt: "2026-02-05T09:00", durationMinutes: 45 }, employeeCookie)).status).toBe(400);
+    expect((await request("/hr/me/leave-end", "POST", { startsAt: "2026-02-05T09:00", durationMinutes: 44_640 }, employeeCookie)).status).toBe(400);
+
     const created = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "本人狀態測試" }, employeeCookie);
     expect(created.status, await created.clone().text()).toBe(201);
     const requestId = (await created.json() as { id: string }).id;

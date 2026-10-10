@@ -14,7 +14,7 @@ import {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
   cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, MAX_OVERTIME_CANCELLATION_ENTRIES, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
-  calculateHrLeaveDuration, cancelHrLeaveRequest, createHrLeaveRequest, getHrSelfLeaveMonths, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfAnnualLeave, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest,
+  calculateHrLeaveDuration, calculateHrLeaveEnd, cancelHrLeaveRequest, createHrLeaveRequest, getHrSelfLeaveMonths, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfAnnualLeave, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
@@ -758,6 +758,14 @@ export const hr = new Hono<AppEnv>()
     return c.json({ requests: await listHrLeaveRequests(c.get("db"), user.id), reviewRequests: await listHrLeaveReviewRequests(c.get("db"), user.id, allowAny) });
   })
   .post("/me/leave-duration", async (c) => c.json(await calculateHrLeaveDuration(c.get("db"), leaveDurationInput(await body(c), c.get("user").id))))
+  .post("/me/leave-end", async (c) => {
+    const input = await body(c);
+    return c.json(await calculateHrLeaveEnd(c.get("db"), {
+      employeeUserId: c.get("user").id,
+      startsAt: leaveDateTimeValue(input, "startsAt", "startAt", "請假開始時間"),
+      durationMinutes: integerValue(input, "durationMinutes", "請假時數（分鐘）", 30, 44_640),
+    }));
+  })
   .post("/me/leave-requests", async (c) => c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(await body(c), c.get("user").id), c.get("user")), 201))
   .patch("/me/leave-requests/:id", async (c) => c.json(await updateHrLeaveRequest(c.get("db"), c.req.param("id"), leaveRequestInput(await body(c), c.get("user").id), c.get("user"))))
   .post("/me/leave-requests/:id/cancel", async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"))))

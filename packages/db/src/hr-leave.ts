@@ -302,6 +302,54 @@ export async function calculateHrLeaveDuration(db: Database, input: HrLeaveDurat
   };
 }
 
+/** 與上面兩個 breakdown 對班表的解讀一致：班次扣掉無薪休息、一般辦公扣掉午休。 */
+function leaveWorkSegments(schedules: LeaveScheduleRow[], scheduled: boolean, startsOn: string, endsOn: string) {
+  const segments: Array<[number, number]> = scheduled
+    ? schedules.flatMap((row) => {
+      const window = scheduleWindow(row);
+      return [[window.scheduleStart, window.unpaidStart], [window.unpaidEnd, window.scheduleEnd]];
+    })
+    : datesBetween(startsOn, endsOn).flatMap((date) => [
+      [canonicalTaipeiTime(date, STANDARD_WORKDAY_START, "一般辦公開始時間"), canonicalTaipeiTime(date, STANDARD_LUNCH_START, "一般辦公午休開始時間")],
+      [canonicalTaipeiTime(date, STANDARD_LUNCH_END, "一般辦公午休結束時間"), canonicalTaipeiTime(date, STANDARD_WORKDAY_END, "一般辦公結束時間")],
+    ]);
+  return segments.filter(([start, end]) => end > start).sort((a, b) => a[0] - b[0]);
+}
+
+export interface HrLeaveEndInput {
+  employeeUserId: string;
+  startsAt: string;
+  durationMinutes: number;
+}
+
+/**
+ * 「從幾點開始請幾小時」反推結束時間。請假時數只算工作時間，所以不能在前端用開始時間直接加：
+ * 跨午休、跨班次或跨日時，結束時間會比「開始＋時數」晚。
+ */
+export async function calculateHrLeaveEnd(db: Database, input: HrLeaveEndInput) {
+  if (!Number.isSafeInteger(input.durationMinutes) || input.durationMinutes < HALF_HOUR_MINUTES || input.durationMinutes % HALF_HOUR_MINUTES !== 0) {
+    throw new HrError(400, "請假時數必須是 0.5 小時的倍數，且至少 0.5 小時。");
+  }
+  const startMs = stamp(input.startsAt, "請假開始時間");
+  const limitMs = startMs + MAX_LEAVE_MINUTES * 60_000;
+  const startsOn = formatTaipeiDate(startMs);
+  const endsOn = nextTaipeiDate(formatTaipeiDate(limitMs));
+  const employmentId = await ensureEmploymentForPeriod(db, input.employeeUserId, startsOn, endsOn);
+  const { schedules, scheduled } = await loadWorkdaySchedules(db, employmentId, startsOn, endsOn);
+  let remainingMs = input.durationMinutes * 60_000;
+  for (const [segmentStart, segmentEnd] of leaveWorkSegments(schedules, scheduled, startsOn, endsOn)) {
+    const from = Math.max(segmentStart, startMs);
+    if (segmentEnd <= from) continue;
+    const endMs = Math.min(segmentEnd, from + remainingMs);
+    remainingMs -= endMs - from;
+    if (remainingMs > 0) continue;
+    if (endMs > limitMs) break;
+    // 回頭用正向的算法再算一次：回傳的時數永遠是送出時會被採用的那個數字。
+    return calculateHrLeaveDuration(db, { employeeUserId: input.employeeUserId, startsAt: input.startsAt, endsAt: new Date(endMs).toISOString().slice(0, 19).replace("T", " ") });
+  }
+  throw new HrError(400, "從這個開始時間起 31 天內的工作時間不足這個時數，請調整開始時間或時數。");
+}
+
 function leaveCredit(entitlement: { id: string; periodStart: string; periodEnd: string; entitledHalfHours: number; balanceHalfHours: number }): HrLeaveCredit {
   return {
     entitlementId: entitlement.id,
