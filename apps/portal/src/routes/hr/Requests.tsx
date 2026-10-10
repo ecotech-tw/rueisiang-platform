@@ -9,7 +9,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
-import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, useOvertimeBatchSelection } from "@rueisiang/ui";
+import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
 import { buildOvertimeSubmission } from "./overtime-entry.js";
 
 type RequestKind = "leave" | "overtime" | "clock_correction";
@@ -163,6 +163,7 @@ function toRequestRows(data: HrRequestCenterResponse | undefined): RequestRow[] 
     reason: request.reason || "—",
     status: request.status,
     createdAt: request.createdAt,
+    revision: request.revision,
   }));
   const overtime = (data?.overtime ?? []).map(({ request, employeeName, employeeNumber }: HrOvertimeRequest) => ({
     id: request.id,
@@ -176,6 +177,7 @@ function toRequestRows(data: HrRequestCenterResponse | undefined): RequestRow[] 
     createdAt: request.createdAt,
     requestedStart: request.requestedStart,
     requestedEnd: request.requestedEnd,
+    revision: request.revision,
   }));
   const clockCorrections = (data?.clockCorrections ?? []).map((request: FormRequest) => ({
     id: request.id,
@@ -192,15 +194,30 @@ function toRequestRows(data: HrRequestCenterResponse | undefined): RequestRow[] 
 }
 
 /**
- * `row` 由上層從最新的列表取，並以版本當 key：被擋下（409）重抓之後整個對話框會用新內容重建，
- * 核定時段也跟著重新預填。只換文字不重建的話，核定時段會停在舊的申請時段，再按一次就把申請縮短了。
+ * `row` 是開啟當下的快照，`latest` 是最新列表裡的同一筆。
+ *
+ * 兩者不同時不自動換內容，只鎖住操作並請審核者自己載入。自動換有三個問題：會清掉打到一半的意見；
+ * 狀態變了會讓審核框無聲變成「取消已核准」框；處理成功、對話框正在關的那一瞬間會把它重新開回來。
+ * 載入時核定時段跟著新的申請時段重新預填——停在舊的時段的話，再按一次核准就把申請縮短了。
  */
-function ReviewDialog({ row, changed, onClose, onDone }: { row: RequestRow; changed: boolean; onClose: () => void; onDone: () => void }) {
+function ReviewDialog({ row, latest, onReload, onClose, onDone }: { row: RequestRow; latest: RequestRow | undefined; onReload: (latest: RequestRow) => void; onClose: () => void; onDone: () => void }) {
   const [comment, setComment] = useState("");
   const [actualStart, setActualStart] = useState(() => row.kind === "overtime" ? taipeiInputValue(row.requestedStart ?? "") : "");
   const [actualEnd, setActualEnd] = useState(() => row.kind === "overtime" ? taipeiInputValue(row.requestedEnd ?? "") : "");
   const review = useHrWrite();
   const closeRequestRef = useRef<(() => void) | null>(null);
+  // 自己剛處理完的那一筆也會離開列表或換狀態；那是正在關閉，不是被別人處理掉。
+  const snapshot = review.isSuccess ? "current" : reviewSnapshotState(row, latest);
+  const locked = review.isPending || snapshot !== "current";
+  function reload() {
+    if (!latest) return;
+    if (latest.kind === "overtime") {
+      setActualStart(taipeiInputValue(latest.requestedStart ?? ""));
+      setActualEnd(taipeiInputValue(latest.requestedEnd ?? ""));
+    }
+    review.reset();
+    onReload(latest);
+  }
   const isApprovedCancellable = (row.kind === "leave" || row.kind === "overtime") && row.status === "approved";
   const canCancel = row.kind !== "clock_correction" && (row.status === "pending" || isApprovedCancellable);
   function decide(decision: "approved" | "rejected" | "cancelled") {
@@ -224,16 +241,16 @@ function ReviewDialog({ row, changed, onClose, onDone }: { row: RequestRow; chan
     closeDisabled={review.isPending}
     actions={<>
       <Button variant="secondary" onClick={onClose}>關閉</Button>
-      {canCancel ? <Button variant="secondary" loading={review.isPending} onClick={() => decide("cancelled")}>{isApprovedCancellable ? `取消已核准${REQUEST_KIND_LABEL[row.kind]}` : "取消申請"}</Button> : null}
-      {row.status === "pending" ? <><Button variant="danger" loading={review.isPending} onClick={() => decide("rejected")} disabled={!comment.trim()}>駁回</Button><Button className="hr-action-approve" loading={review.isPending} onClick={() => decide("approved")}>核准</Button></> : null}
+      {canCancel ? <Button variant="secondary" loading={review.isPending} disabled={locked} onClick={() => decide("cancelled")}>{isApprovedCancellable ? `取消已核准${REQUEST_KIND_LABEL[row.kind]}` : "取消申請"}</Button> : null}
+      {row.status === "pending" ? <><Button variant="danger" loading={review.isPending} onClick={() => decide("rejected")} disabled={locked || !comment.trim()}>駁回</Button><Button className="hr-action-approve" loading={review.isPending} disabled={locked} onClick={() => decide("approved")}>核准</Button></> : null}
     </>}
   >
     <dl><dt>申請期間</dt><dd>{row.period}</dd><dt>申請內容</dt><dd>{row.detail}</dd><dt>原因</dt><dd>{row.reason}</dd></dl>
     {row.kind === "overtime" && !isApprovedCancellable ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><input type="datetime-local" step="1800" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><input type="datetime-local" step="1800" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
     {isApprovedCancellable ? <p className="muted field-note">{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</p> : <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
     {row.kind === "overtime" && row.status === "pending" ? <p className="muted field-note">按「取消申請」會直接刪除這筆加班，不會留在申請紀錄。</p> : null}
-    {changed ? <Alert tone="warning">申請人在你開啟之後修改了這筆申請。上面已經換成最新的內容，請確認後再處理。</Alert> : null}
-    {review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
+    {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
+    {snapshot === "changed" ? <Button type="button" variant="secondary" className="hr-action-update" onClick={reload}>載入最新內容</Button> : null}
   </Dialog>;
 }
 
@@ -476,8 +493,6 @@ export function HrRequestCenter() {
   const requests = useHrQuery<HrRequestCenterResponse>(requestPath, canAccess);
   const cancelOvertime = useHrWrite<{ ids: string[]; count: number }>();
   const rows = useMemo(() => toRequestRows(requests.data), [requests.data]);
-  // 審核對話框顯示最新列表裡的那一筆；它已經不在這一頁時（被處理掉、換頁）沿用開啟時的內容，交給伺服器回覆。
-  const reviewingRow = (reviewing && rows.find((row) => row.kind === reviewing.kind && row.id === reviewing.id)) ?? reviewing!;
   const filteredRows = useMemo(() => {
     if (requests.data?.pagination) return rows;
     const term = filters.search.trim().toLocaleLowerCase("zh-TW");
@@ -603,7 +618,7 @@ export function HrRequestCenter() {
       {total ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => { setSelectedOvertimeIds([]); setFilters((current) => ({ ...current, page: nextPage })); }} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} workers={workers.data?.workers ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
-    {reviewing ? <ReviewDialog key={`${reviewingRow.id}:${reviewingRow.revision ?? ""}`} row={reviewingRow} changed={reviewingRow.revision !== reviewing.revision} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}
+    {reviewing ? <ReviewDialog row={reviewing} latest={rows.find((row) => row.kind === reviewing.kind && row.id === reviewing.id)} onReload={setReviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}
     {cancelSelectedOpen && selectedOvertimeRows.length ? <ConfirmDialog title={`取消並刪除 ${selectedOvertimeRows.length} 筆加班申請？`} confirmLabel={`取消並刪除 ${selectedOvertimeRows.length} 筆`} pending={cancelOvertime.isPending} onCancel={() => { if (!cancelOvertime.isPending) setCancelSelectedOpen(false); }} onConfirm={cancelSelectedOvertime}>
       <p>選取的都是已核准加班。取消後會從申請紀錄刪除，不再納入薪資計算；HR 稽核紀錄會保留每筆申請的完整快照。</p>
       {cancelOvertime.error ? <Alert tone="danger">{cancelOvertime.error.message}</Alert> : null}

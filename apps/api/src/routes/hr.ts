@@ -381,9 +381,29 @@ function reviewerRevision(input: Record<string, unknown>) {
   if (input.revision === undefined || input.revision === null) throw new HTTPException(400, { message: "請重新整理後再審核：審核時必須帶上申請的版本。" });
   return integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER);
 }
-/** 管理端代為取消時畫面上的版本。已核准的申請不能再被申請人修改，所以沒送就不比對；取消原本不帶 body，空的請求照樣接受。 */
+/** 管理端代為取消時畫面上的版本。已核准的申請不能再被申請人修改，所以沒送就不比對。 */
 function cancellationRevision(input: Record<string, unknown>) {
   return input.revision === undefined || input.revision === null ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER);
+}
+/** 管理端的 review 路由也接受 decision=cancelled：那是取消，不是審核，版本照取消的規則。 */
+function decisionRevision(decision: string, input: Record<string, unknown>) {
+  return decision === "cancelled" ? cancellationRevision(input) : reviewerRevision(input);
+}
+/**
+ * 取消原本不帶 body，所以空的請求要接受。但只有「空的」才算沒帶：格式壞掉的 JSON 照樣回 400，
+ * 不然一個被截斷的請求會悄悄變成不比對版本的取消。
+ */
+async function optionalBody(c: { req: { text: () => Promise<string> } }): Promise<Record<string, unknown>> {
+  const raw = await c.req.text();
+  if (!raw.trim()) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new HTTPException(400, { message: "請求內容不是有效的 JSON。" });
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new HTTPException(400, { message: "請求內容格式不正確。" });
+  return parsed as Record<string, unknown>;
 }
 function reviewComment(input: Record<string, unknown>) {
   return input.comment === undefined || input.comment === null || input.comment === "" ? "" : text(input, "comment", "審核意見", 1000);
@@ -930,7 +950,7 @@ export const hr = new Hono<AppEnv>()
     const query = { ...target, startsOn: c.req.query("startsOn"), endsOn: c.req.query("endsOn") };
     return c.json({ days: await listHrOvertimeDays(c.get("db"), { ...target, startsOn: date(query, "startsOn")!, endsOn: date(query, "endsOn")! }) });
   })
-  .post("/requests/overtime/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true, expectedRevision: cancellationRevision(await body(c).catch(() => ({}))) })))
+  .post("/requests/overtime/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrOvertimeRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true, expectedRevision: cancellationRevision(await optionalBody(c)) })))
   .post("/requests/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
@@ -939,16 +959,16 @@ export const hr = new Hono<AppEnv>()
     const actualStart = optionalDateTimeValue(input, "actualStart", "實際加班開始");
     const actualEnd = optionalDateTimeValue(input, "actualEnd", "實際加班結束");
     if ((actualStart === undefined) !== (actualEnd === undefined)) throw new HTTPException(400, { message: "實際加班開始與結束時間必須一起填寫。" });
-    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true, expectedRevision: decision === "cancelled" ? cancellationRevision(input) : reviewerRevision(input) }));
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true, expectedRevision: decisionRevision(decision, input) }));
   })
   .post("/requests/leave/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "請假審核結果不正確。" });
     const comment = reviewComment(input);
-    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: true, expectedRevision: decision === "cancelled" ? cancellationRevision(input) : reviewerRevision(input) }));
+    return c.json(await reviewHrLeaveRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), { allowAny: true, expectedRevision: decisionRevision(decision, input) }));
   })
-  .post("/requests/leave/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true, expectedRevision: cancellationRevision(await body(c).catch(() => ({}))) })))
+  .post("/requests/leave/:id/cancel", requirePermission("hr:request:review"), async (c) => c.json(await cancelHrLeaveRequest(c.get("db"), c.req.param("id"), c.get("user"), { allowAny: true, expectedRevision: cancellationRevision(await optionalBody(c)) })))
   .post("/overtime/:id/review", requirePermission("hr:request:review"), async (c) => {
     const input = await body(c);
     const decision = input.decision === "approved" || input.decision === "rejected" || input.decision === "cancelled" ? input.decision : null;
@@ -957,7 +977,7 @@ export const hr = new Hono<AppEnv>()
     const actualStart = optionalDateTimeValue(input, "actualStart", "實際加班開始");
     const actualEnd = optionalDateTimeValue(input, "actualEnd", "實際加班結束");
     if ((actualStart === undefined) !== (actualEnd === undefined)) throw new HTTPException(400, { message: "實際加班開始與結束時間必須一起填寫。" });
-    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true, expectedRevision: decision === "cancelled" ? cancellationRevision(input) : reviewerRevision(input) }));
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), actualStart && actualEnd ? { start: actualStart, end: actualEnd } : undefined, { allowAny: true, expectedRevision: decisionRevision(decision, input) }));
   })
   .get("/me/form-approvers", async (c) => c.json(await listHrFormApprovers(c.get("db"), c.get("user").id)))
   .get("/me/form-requests", async (c) => c.json(await listHrFormRequests(c.get("db"), c.get("user").id, can(c.get("user"), "hr:request:review"))))

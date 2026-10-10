@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, hrEmployeeName, isHrAdministrator, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, reviewWriteConflict, hrEmployeeName, isHrAdministrator, writeHrMutation, type HrActor } from "./hr-people.js";
 import { appendHrNotification, insertHrNotification, notificationLine, overtimeBatchSourceKey } from "./hr-notifications.js";
 import { hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { hrOvertimeRequests, hrScheduleVersions, hrScheduleWorkerEntries, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
@@ -488,13 +488,13 @@ export async function updateHrOvertimeRequest(db: Database, id: string, input: H
   }
 }
 
+const OVERTIME_CHANGED_MESSAGE = "這筆加班申請在你開啟之後被申請人修改過，請看過最新的內容再處理。 ";
+
 /**
  * 取消就是把申請刪掉，不留一列 cancelled：留著的列只會佔住時段、讓申請紀錄多出一堆
  * 不會再有人處理的資料。誰在什麼時候取消了哪一筆，由稽核事件的快照保存。
  * 快照放整列：核定的實際時段與審核資訊刪掉之後就只剩這裡查得到，薪資算的是實際時段。
  */
-const OVERTIME_CHANGED_MESSAGE = "這筆加班申請在你開啟之後被申請人修改過，請看過最新的內容再處理。 ";
-
 export async function cancelHrOvertimeRequest(db: Database, id: string, actor: HrActor, options: HrOvertimeCancellationOptions = {}) {
   const [employeeCurrent] = await db.select({ request: hrOvertimeRequests, employeeUserId: hrEmployments.employeeUserId, employeeName: hrEmployeeName })
     .from(hrOvertimeRequests)
@@ -516,7 +516,7 @@ export async function cancelHrOvertimeRequest(db: Database, id: string, actor: H
   if (options.expectedRevision !== undefined && current.personKind === "employee" && request.revision !== options.expectedRevision) throw new HrError(409, OVERTIME_CHANGED_MESSAGE);
   const tableName = current.personKind === "employee" ? "hr_overtime_requests" : "hr_worker_overtime_requests";
   const eventPayload = current.personKind === "employee" ? { employeeUserId: current.employeeUserId, ...request } : { workerId: current.workerId, ...request };
-  const deletion = sql`DELETE FROM ${sql.raw(tableName)} WHERE id=${id} AND status=${request.status} RETURNING id`;
+  const deletion = sql`DELETE FROM ${sql.raw(tableName)} WHERE id=${id} AND status=${request.status} AND revision=${request.revision} RETURNING id`;
   const approverUserId = current.personKind === "employee" ? current.request.approverUserId : null;
   const batchId = current.personKind === "employee" ? current.request.batchId : null;
   const cancelledDate = taipeiDate(stamp(request.requestedStart));
@@ -707,14 +707,12 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
       });
   const mutations = reviewNotification ? [update, reviewNotification] : update;
   try {
-    await writeHrMutation(db, mutations, id, actor, "overtime_request_reviewed", "加班申請沒有寫入：申請人不可自審，或資料不合法。 ");
+    await writeHrMutation(db, mutations, id, actor, "overtime_request_reviewed", "加班申請不存在、申請人不可自審或已完成處理。 ");
   } catch (error) {
+    // 支援人員的加班沒有版本可比，維持原本的訊息。
     if (!(error instanceof HrError) || error.status !== 409 || current.personKind !== "employee") throw error;
-    // 講出是該重看內容、還是這筆已經被處理掉；併成一句的話審核者只會對著同一個錯一直重按。
     const [latest] = await db.select({ status: hrOvertimeRequests.status, revision: hrOvertimeRequests.revision }).from(hrOvertimeRequests).where(eq(hrOvertimeRequests.id, id)).limit(1);
-    if (!latest || latest.status !== "pending") throw new HrError(409, "加班申請不存在或已完成處理。 ");
-    if (latest.revision !== current.revision) throw new HrError(409, OVERTIME_CHANGED_MESSAGE);
-    throw error;
+    throw reviewWriteConflict(error, latest, current, { gone: "加班申請不存在或已完成處理。 ", changed: OVERTIME_CHANGED_MESSAGE });
   }
   return { id, status: decision };
 }

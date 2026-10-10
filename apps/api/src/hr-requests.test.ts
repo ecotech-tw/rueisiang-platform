@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, HrError, reviewHrLeaveRequest, reviewHrOvertimeRequest, syncSystemRoles } from "@rueisiang/db";
+import { cancelHrLeaveRequest, cancelHrOvertimeRequest, createDatabase, HrError, reviewHrLeaveRequest, reviewHrOvertimeRequest, syncSystemRoles } from "@rueisiang/db";
 import { hrEmployments, hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -758,6 +758,46 @@ describe("HR 申請中心", () => {
       d1.batch = realBatch;
     }
     expect(d1.sqlite.prepare("SELECT status, revision FROM hr_leave_requests WHERE id=?").get(leaveId)).toEqual({ status: "pending", revision: 2 });
+  });
+
+  it("管理端代為取消的寫入也守版本；格式壞掉的請求不會變成不比對版本的取消", async () => {
+    await assignEmployeeSupervisor();
+    const leaveType = await request("/hr/leave-types", "POST", { name: "取消守門測試假", defaultPayRatePpm: 1_000_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+    const leaveId = (await (await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "" }, employeeCookie)).json() as { id: string }).id;
+    const overtimeId = (await (await request("/hr/me/overtime", "POST", { requestedStart: "2026-02-10T18:00", requestedEnd: "2026-02-10T19:00", settlementKind: "pay", reason: "" }, employeeCookie)).json() as { id: string }).id;
+    const db = createDatabase(d1 as never);
+    const admin = { id: "admin", email: "admin@example.test" };
+
+    // 取消函式讀完、D1 batch 寫入之前，申請人的修改落地（版本 +1）：取消不可以套在沒看過的內容上。
+    async function cancelWhileEdited(table: string, id: string, cancel: () => Promise<unknown>) {
+      const realBatch = d1.batch;
+      d1.batch = ((statements: Parameters<typeof d1.batch>[0]) => {
+        d1.batch = realBatch;
+        d1.sqlite.prepare(`UPDATE ${table} SET revision=revision+1 WHERE id=?`).run(id);
+        return realBatch.call(d1, statements);
+      }) as typeof d1.batch;
+      try {
+        return await cancel().then(() => null, (error: unknown) => error);
+      } finally {
+        d1.batch = realBatch;
+      }
+    }
+    expect(await cancelWhileEdited("hr_leave_requests", leaveId, () => cancelHrLeaveRequest(db, leaveId, admin, { allowAny: true }))).toBeInstanceOf(HrError);
+    expect(d1.sqlite.prepare("SELECT status, revision FROM hr_leave_requests WHERE id=?").get(leaveId)).toEqual({ status: "pending", revision: 2 });
+    expect(await cancelWhileEdited("hr_overtime_requests", overtimeId, () => cancelHrOvertimeRequest(db, overtimeId, admin, { allowAny: true }))).toBeInstanceOf(HrError);
+    // 加班的取消是刪除整列；被擋下時那一列還在。
+    expect(d1.sqlite.prepare("SELECT status, revision FROM hr_overtime_requests WHERE id=?").get(overtimeId)).toEqual({ status: "pending", revision: 2 });
+
+    // 只有空的 body 才算「沒帶版本」。被截斷的 JSON 要回 400，不能悄悄變成不比對的取消。
+    const malformed = (path: string) => app.fetch(new Request(`https://test.local/api${path}`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: adminCookie }, body: '{"revision": 1' }), { DB: d1, AUTH_SESSION_SECRET: SECRET, GOOGLE_OAUTH_CLIENT_ID: "test", GOOGLE_OAUTH_CLIENT_SECRET: "test" } as never);
+    expect((await malformed(`/hr/requests/leave/${leaveId}/cancel`)).status).toBe(400);
+    expect((await malformed(`/hr/requests/overtime/${overtimeId}/cancel`)).status).toBe(400);
+    expect(d1.sqlite.prepare("SELECT count(*) AS n FROM hr_overtime_requests WHERE id=?").get(overtimeId)).toEqual({ n: 1 });
+
+    // 沒有 body 的取消維持可用（本來就這樣呼叫），帶對版本的也可以。
+    expect((await request(`/hr/requests/overtime/${overtimeId}/cancel`, "POST")).status).toBe(200);
+    expect((await request(`/hr/requests/leave/${leaveId}/cancel`, "POST", { revision: 2 })).status).toBe(200);
   });
 
   it("請假與加班待審可由指定主管處理，修改版本受控並通知雙方", async () => {

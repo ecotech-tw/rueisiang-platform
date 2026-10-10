@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { HrError, hrEmployeeName, isHrAdministrator, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, reviewWriteConflict, hrEmployeeName, isHrAdministrator, writeHrMutation, type HrActor } from "./hr-people.js";
 import { insertHrNotification } from "./hr-notifications.js";
 import { allocateHrAnnualLeave, listHrAnnualLeaveEntitlements } from "./hr-annual-leave.js";
 import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
@@ -720,7 +720,7 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
 
   const update = sql`UPDATE hr_leave_requests SET
     status='cancelled', reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, review_comment='申請已取消'
-    WHERE id=${id} AND status=${current.status} RETURNING id`;
+    WHERE id=${id} AND status=${current.status} AND revision=${current.revision} RETURNING id`;
   if (current.status === "pending") {
     const mutations = current.approverUserId ? [update, insertHrNotification({
       userId: current.approverUserId, sourceKey: `leave-request:${id}:cancelled`, kind: "request_cancelled", entityKind: "leave", entityId: id,
@@ -820,13 +820,10 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
     })]
     : Array.isArray(statements) ? statements : [statements];
   try {
-    return await writeHrMutation(db, mutations, id, actor, "leave_request_reviewed", "請假申請沒有寫入：特休額度不足，或申請人不可自審。 ");
+    return await writeHrMutation(db, mutations, id, actor, "leave_request_reviewed", "請假申請不存在、申請人不可自審、特休額度不足或已完成處理。 ");
   } catch (error) {
     if (!(error instanceof HrError) || error.status !== 409) throw error;
-    // 寫入被擋的原因不只一種；審核者要知道是該重看內容、還是這筆已經被處理掉，才不會對著同一個錯一直重按。
     const [latest] = await db.select({ status: hrLeaveRequests.status, revision: hrLeaveRequests.revision }).from(hrLeaveRequests).where(eq(hrLeaveRequests.id, id)).limit(1);
-    if (!latest || latest.status !== "pending") throw new HrError(409, "請假申請不存在或已完成處理。 ");
-    if (latest.revision !== current.revision) throw new HrError(409, LEAVE_CHANGED_MESSAGE);
-    throw error;
+    throw reviewWriteConflict(error, latest, current, { gone: "請假申請不存在或已完成處理。 ", changed: LEAVE_CHANGED_MESSAGE });
   }
 }
