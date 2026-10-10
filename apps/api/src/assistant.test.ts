@@ -592,17 +592,21 @@ describe("AI 助理 Sandbox", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it("退役的正式模型回落到新預設並提示，但不覆寫原設定；重新儲存後提示消失", async () => {
+  it("退役的正式模型回落但不覆寫原設定；直接確認採用回落值後提示消失", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
+    };
     await db().insert(assistantConfigs).values({ assistantKey: "rueisiang-xiaoxiang", activeModel: "gpt-5.4-mini", updatedBy: "test", updatedAt: new Date().toISOString() });
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activeModel: string; modelNotice?: string };
-    expect(config.activeModel).toBe("gpt-6-luna");
+    expect(config).toMatchObject({ activeModel: "gpt-6-luna", activeModelNeedsSave: true, fallbackModelNeedsSave: false });
     expect(config.modelNotice).toContain("gpt-5.4-mini");
     expect(config.modelNotice).toContain("gpt-6-luna");
     expect((await db().select().from(assistantConfigs))[0]!.activeModel).toBe("gpt-5.4-mini");
-    expect((await as("admin", "admin@ecotech.tw", "/api/assistant/config", { method: "PATCH", body: JSON.stringify({ model: "gemini-3.8-flash" }) })).status).toBe(200);
+    expect((await as("admin", "admin@ecotech.tw", "/api/assistant/config", { method: "PATCH", body: JSON.stringify({ model: config.activeModel }) })).status).toBe(200);
     const updated = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activeModel: string; modelNotice?: string };
-    expect(updated.activeModel).toBe("gemini-3.8-flash");
+    expect(updated).toMatchObject({ activeModel: "gpt-6-luna", activeModelNeedsSave: false, fallbackModelNeedsSave: false });
+    expect((await db().select().from(assistantConfigs))[0]!.activeModel).toBe("gpt-6-luna");
     expect(updated.modelNotice).toBeUndefined();
   });
 
@@ -610,11 +614,26 @@ describe("AI 助理 Sandbox", () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
     await db().insert(assistantConfigs).values({ assistantKey: "rueisiang-xiaoxiang", activeModel: "gemini-3.6-flash", fallbackModel: "gpt-5.4-mini", updatedBy: "test", updatedAt: new Date().toISOString() });
     const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activeModel: string; fallbackModel: string | null; modelNotice?: string };
-    expect(config.activeModel).toBe("gemini-3.6-flash");
-    expect(config.fallbackModel).toBeNull();
+    expect(config).toMatchObject({ activeModel: "gemini-3.6-flash", fallbackModel: null, activeModelNeedsSave: false, fallbackModelNeedsSave: true });
     expect(config.modelNotice).toContain("原備援模型 gpt-5.4-mini");
     expect(config.modelNotice).toContain("暫停使用");
     expect((await db().select().from(assistantConfigs))[0]).toMatchObject({ activeModel: "gemini-3.6-flash", fallbackModel: "gpt-5.4-mini" });
+    expect((await as("admin", "admin@ecotech.tw", "/api/assistant/config", { method: "PATCH", body: JSON.stringify({ fallbackModel: null }) })).status).toBe(200);
+    const updated = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { modelNotice?: string };
+    expect(updated).toMatchObject({ activeModel: "gemini-3.6-flash", fallbackModel: null, activeModelNeedsSave: false, fallbackModelNeedsSave: false });
+    expect(updated.modelNotice).toBeUndefined();
+    expect((await db().select().from(assistantConfigs))[0]).toMatchObject({ activeModel: "gemini-3.6-flash", fallbackModel: null });
+  });
+
+  it("兩個模型都退役時，只清除 fallback 不會把主模型的回落值寫入 DB", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    await db().insert(assistantConfigs).values({ assistantKey: "rueisiang-xiaoxiang", activeModel: "gpt-5.4", fallbackModel: "gpt-5.4-mini", updatedBy: "test", updatedAt: new Date().toISOString() });
+    expect((await as("admin", "admin@ecotech.tw", "/api/assistant/config", { method: "PATCH", body: JSON.stringify({ fallbackModel: null }) })).status).toBe(200);
+    expect((await db().select().from(assistantConfigs))[0]).toMatchObject({ activeModel: "gpt-5.4", fallbackModel: null });
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { modelNotice?: string };
+    expect(config).toMatchObject({ activeModel: "gpt-6-luna", fallbackModel: null, activeModelNeedsSave: true, fallbackModelNeedsSave: false });
+    expect(config.modelNotice).toContain("原設定模型 gpt-5.4");
+    expect(config.modelNotice).not.toContain("原備援模型");
   });
 
   it.each(["gpt-6-luna", "gpt-6.1-sol"])("新模型 %s 仍使用現有 NAS relay 的 POST／SSE contract", async (model) => {

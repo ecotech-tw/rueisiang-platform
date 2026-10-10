@@ -142,6 +142,12 @@ export function Sandbox() {
   const fallbackOptions = [{ label: "不使用 fallback", value: "" }, ...modelOptions];
   const modelReady = Boolean(selectedModel?.supported && selectedModel.configured);
   const fallbackReady = !fallbackModel || Boolean(selectedFallbackModel?.supported && selectedFallbackModel.configured);
+  // 顯示值可能已回落／暫停，但 DB 仍保留退役設定；允許管理者明確確認同值或清除。
+  const canSaveModel = modelReady && model !== fallbackModel
+    && (model !== data.activeModel || data.activeModelNeedsSave === true);
+  const canSaveFallbackModel = fallbackReady
+    && (!fallbackModel || (fallbackModel !== data.activeModel && fallbackModel !== model))
+    && (fallbackModel !== (data.fallbackModel ?? "") || data.fallbackModelNeedsSave === true);
   const currentSession = session.data?.session;
   const sessionOpen = currentSession?.status === "open";
   // HR 工具要「有模擬對象、綁定設好、授權工具沒停用」三件都成立才送得出去；
@@ -177,12 +183,12 @@ export function Sandbox() {
   }
 
   function submitModel() {
-    if (!model || model === data.activeModel || model === fallbackModel) return;
+    if (!canSaveModel) return;
     saveModel.mutate(model);
   }
 
   function submitFallbackModel() {
-    if (!fallbackReady || (fallbackModel && (fallbackModel === data.activeModel || fallbackModel === model))) return;
+    if (!canSaveFallbackModel) return;
     saveFallbackModel.mutate(fallbackModel || null, {
       onSuccess: (result) => setFallbackModel(result.fallbackModel ?? ""),
     });
@@ -280,7 +286,7 @@ export function Sandbox() {
                   <Button
                     loading={saveModel.isPending}
                     loadingLabel="套用中…"
-                    disabled={!modelReady || model === data.activeModel}
+                    disabled={!canSaveModel}
                     onClick={submitModel}
                   >
                     儲存並套用到小香
@@ -299,7 +305,7 @@ export function Sandbox() {
                   <Button
                     loading={saveFallbackModel.isPending}
                     loadingLabel="儲存中…"
-                    disabled={!fallbackReady || fallbackModel === data.activeModel || fallbackModel === model || (fallbackModel || "") === (data.fallbackModel || "")}
+                    disabled={!canSaveFallbackModel}
                     onClick={submitFallbackModel}
                   >
                     儲存 fallback 設定

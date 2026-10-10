@@ -38,7 +38,7 @@ pnpm dev
 
 - 模型選單依 provider 分成 GPT／Codex（ChatGPT OAuth）與 Gemini／Gemma（API key），兩者都由目前安裝的 Pi provider catalog 提供，不另維護 AI Studio 模型／配額快照。一般對話不提供圖片生成、Live、研究或 computer-use 專用模型。credential 已設定只代表可嘗試請求，帳號權限、費用與配額以 provider 為準；`latest` 別名可能由上游更新。
 - 同一個 Sandbox session 可以在每一輪送出前切換模型；切換會在該輪送出時套用，session 與每則模型回覆都會記錄實際使用的 model。
-- Sandbox 選定模型後按「儲存並套用到小香」，會寫入 assistant 設定；Sandbox 與 LINE 後續沒有明確指定模型的執行都使用這個 active model。仍受支援的既有設定不自動變更；退役的主模型依既有規則回落、退役 fallback 暫停使用，兩者都會顯示提示，但讀取設定不改寫資料庫。
+- Sandbox 選定模型後按「儲存並套用到小香」，會寫入 assistant 設定；Sandbox 與 LINE 後續沒有明確指定模型的執行都使用這個 active model。仍受支援的既有設定不自動變更；退役的主模型依既有規則回落、退役 fallback 暫停使用，兩者都會顯示提示，但讀取設定不改寫資料庫。管理者可直接儲存畫面上的回落值或確認「不使用 fallback」，不必先切換到別的選項；只儲存其中一個不會代替另一個確認。
 - 編輯 system prompt；每次儲存會建立新 revision，並立即設為 active。
 - Revision history 與 Sandbox tools 選擇都在 Modal 中操作；左側設定欄可獨立捲動，頁面外層不會跟著捲動。
 - 選擇要傳給模型的 tool。目前內建唯讀工具預設為「已啟用」；管理者仍可切換成「開發中」或「已停用」。

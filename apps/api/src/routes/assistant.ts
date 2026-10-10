@@ -195,13 +195,16 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
     piCodexCredentialStatus(env),
   ]);
   const statuses = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
+  const configuredActiveModel = assistantConfig?.activeModel;
   const configuredFallbackModel = assistantConfig?.fallbackModel;
-  const activeModel = activeAssistantModel(env, assistantConfig?.activeModel);
+  const activeModel = activeAssistantModel(env, configuredActiveModel);
+  const activeModelNeedsSave = Boolean(configuredActiveModel && !isPiAssistantModel(configuredActiveModel.trim()));
+  const fallbackModelNeedsSave = Boolean(configuredFallbackModel && !isPiAssistantModel(configuredFallbackModel));
   const modelNotices: string[] = [];
-  if (assistantConfig?.activeModel && !isPiAssistantModel(assistantConfig.activeModel.trim())) {
-    modelNotices.push(`原設定模型 ${assistantConfig.activeModel} 已不在目前 Pi 目錄，暫時回落至 ${activeModel}；請重新選擇並儲存正式模型。`);
+  if (activeModelNeedsSave) {
+    modelNotices.push(`原設定模型 ${configuredActiveModel} 已不在目前 Pi 目錄，暫時回落至 ${activeModel}；請重新選擇並儲存正式模型。`);
   }
-  if (configuredFallbackModel && !isPiAssistantModel(configuredFallbackModel)) {
+  if (fallbackModelNeedsSave) {
     modelNotices.push(`原備援模型 ${configuredFallbackModel} 已不在目前 Pi 目錄，暫停使用；請重新選擇並儲存 fallback。`);
   }
   const toolOptions = TOOL_DEFINITIONS.map((tool) => {
@@ -222,6 +225,8 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
     },
     defaultModel: configuredAssistantModel(env),
     activeModel,
+    activeModelNeedsSave,
+    fallbackModelNeedsSave,
     ...(modelNotices.length ? { modelNotice: modelNotices.join("\n") } : {}),
     fallbackModel: isPiAssistantModel(configuredFallbackModel) ? configuredFallbackModel : null,
     activeModelUpdatedAt: assistantConfig?.updatedAt ?? null,

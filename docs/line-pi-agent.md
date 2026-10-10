@@ -70,7 +70,8 @@ CPU time、subrequest、DO storage 與 Queue retry，不能把「可部署」視
 小香初始模型是 `gpt-6-luna`。管理者在 Sandbox 儲存的 active model 同時套用到 Sandbox 與
 LINE；可用的既有設定不會因更新 SDK 自動覆寫。未設定或設定的模型已不在執行目錄時，依既有
 解析規則使用 Worker var `PI_AGENT_MODEL` 或程式預設值。設定頁與 Sandbox 會提示主模型回落
-或退役 fallback 暫停使用，管理者可重新選擇並儲存；讀取設定不會改寫資料庫。
+或退役 fallback 暫停使用，管理者可直接確認並儲存回落值、清除退役 fallback，或重新選擇
+模型；兩個設定的待確認旗標各自獨立，讀取設定不會改寫資料庫。
 Sandbox、LINE 與 DO 的模型解析共用 Pi provider catalog；Google 目錄排除圖片生成、Live、
 研究與 computer-use 專用模型，只提供一般文字／圖片輸入對話。OAuth credential 或 API key
 已設定不等於目前帳號已取得所有模型權限，實際請求仍以 provider 的回應為準。

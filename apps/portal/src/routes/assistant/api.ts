@@ -38,6 +38,8 @@ export interface SandboxConfig {
   defaultModel: string;
   activeModel: string;
   modelNotice?: string;
+  activeModelNeedsSave?: boolean;
+  fallbackModelNeedsSave?: boolean;
   fallbackModel: string | null;
   activeModelUpdatedAt: string | null;
   credentialStatus: { codex: "unconfigured" | "ready" | "needs_reauth"; codexLastErrorAt: number | null };
