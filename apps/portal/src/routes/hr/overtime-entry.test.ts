@@ -1,8 +1,8 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { OvertimeDayPicker } from "./OvertimeDayPicker.js";
-import { addMinutes, buildOvertimeEntries, buildOvertimeSubmission, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, selectedUnscheduledDates, summarizeAssignments } from "./overtime-entry.js";
+import { OvertimeDayPicker, addMinutes, buildOvertimeEntries, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, selectedUnscheduledDates, summarizeAssignments } from "@rueisiang/ui";
+import { buildOvertimeSubmission } from "./overtime-entry.js";
 
 describe("加班時數與結束時間互相換算", () => {
   it("由時數推出結束時間，跨午夜會進到隔天", () => {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "5265581e-7ca8-4a84-af40-fc63e7d70aa1",
+  "id": "218e5c77-c8e4-4f8c-afb8-09491f204bb4",
   "prevId": "a69e77d9-f1e6-411f-a3de-7aa910cd08fc",
   "tables": {
     "auth_device_sessions": {
@@ -139,14 +139,6 @@
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
-        },
-        "link_version": {
-          "name": "link_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false,
-          "default": "'legacy'"
         },
         "linked_at": {
           "name": "linked_at",
@@ -8559,6 +8551,13 @@
           "notNull": true,
           "autoincrement": false,
           "default": "''"
+        },
+        "batch_id": {
+          "name": "batch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
         },
         "created_by": {
           "name": "created_by",

@@ -2262,15 +2262,16 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(compensation.status, await compensation.clone().text()).toBe(201);
     const adminCookie = cookie;
     const employeeCookie = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id: "dev-chen@ecotech.tw", email: "chen@ecotech.tw", name: "陳美玲", pictureUrl: "" }), SECRET))}`;
-    for (const [requestedStart, requestedEnd, settlementKind] of [["2026-09-03 18:00", "2026-09-03 20:00", "compensatory"], ["2026-09-03 20:00", "2026-09-03 21:00", "pay"]]) {
-      cookie = employeeCookie;
-      const overtime = await request("/hr/me/overtime", "POST", { requestedStart, requestedEnd, settlementKind, reason: "補休與付薪加班同日測試" });
-      expect(overtime.status, await overtime.clone().text()).toBe(201);
-      const overtimeId = (await overtime.json() as { id: string }).id;
-      cookie = adminCookie;
-      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
-      expect(reviewed.status, await reviewed.clone().text()).toBe(200);
-    }
+    // 補休只能由 HR 後台代登（直接核准）；付薪那筆走本人申請再審核。
+    const compensatory = await request("/hr/requests/overtime", "POST", { employeeUserId: "dev-chen@ecotech.tw", requestedStart: "2026-09-03 18:00", requestedEnd: "2026-09-03 20:00", settlementKind: "compensatory", reason: "補休與付薪加班同日測試" });
+    expect(compensatory.status, await compensatory.clone().text()).toBe(201);
+    cookie = employeeCookie;
+    const overtime = await request("/hr/me/overtime", "POST", { requestedStart: "2026-09-03 20:00", requestedEnd: "2026-09-03 21:00", settlementKind: "pay", reason: "補休與付薪加班同日測試" });
+    expect(overtime.status, await overtime.clone().text()).toBe(201);
+    const overtimeId = (await overtime.json() as { id: string }).id;
+    cookie = adminCookie;
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-statutory-overtime-compensatory" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { employees: Array<{ lines: Array<{ lineKey: string; amountMinor: number; quantitySeconds?: number; explanation: Record<string, unknown> }> }> } };

@@ -1,0 +1,1 @@
+ALTER TABLE `hr_overtime_requests` ADD `batch_id` text;

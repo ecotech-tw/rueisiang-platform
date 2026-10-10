@@ -1158,45 +1158,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 /* 只是表單把按鈕 portal 進 footer 用的掛點，版面交給 .modal-actions。 */
 .hr-request-dialog-actions { display: contents; }
 .hr-request-dialog .hr-request-form { padding-top: 2px; }
-/* 多日加班的月曆：格子是可點的列，所以用膠囊以外的小元件圓角，選中走色調容器。 */
-.hr-overtime-presets { margin: 0; }
-.hr-overtime-summary { margin: 0; color: var(--color-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
-.hr-overtime-summary strong { color: var(--color-ink); font-weight: 700; }
-.hr-overtime-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
-.hr-overtime-weekday { padding-bottom: 2px; color: var(--color-muted); font-size: 12px; font-weight: 500; text-align: center; }
-.hr-overtime-day {
-  display: grid;
-  gap: 2px;
-  align-content: center;
-  justify-items: center;
-  min-height: 56px;
-  padding: 6px 2px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--color-paper);
-  box-shadow: 0 0 0 1px var(--color-soft-line) inset;
-  color: var(--color-ink);
-  font: inherit;
-  cursor: pointer;
-  transition-property: background-color, box-shadow, color, scale;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.hr-overtime-day strong { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.hr-overtime-day small { color: var(--color-muted); font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
-.hr-overtime-day:hover:not(:disabled) { background: --alpha(var(--color-brand) / 7%); }
-.hr-overtime-day:active:not(:disabled) { scale: .96; }
-.hr-overtime-day:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-overtime-day.selected { background: var(--color-brand-soft); box-shadow: 0 0 0 1px --alpha(var(--color-brand) / 28%) inset; color: var(--color-brand-dark); }
-.hr-overtime-day.selected small { color: var(--color-brand-dark); font-weight: 700; }
-.hr-overtime-day .hr-overtime-day-status { font-weight: 500; line-height: 1; }
-.hr-overtime-day:disabled { background: transparent; box-shadow: none; color: var(--color-muted); cursor: not-allowed; }
-.hr-system .hr-overtime-unscheduled-dates { display: grid; gap: 4px; margin: 8px 0 0; padding-inline-start: 20px; list-style: disc; }
-.hr-system .hr-overtime-unscheduled-dates li { font-variant-numeric: tabular-nums; }
-@media (prefers-reduced-motion: reduce) {
-  .hr-overtime-day { transition: none; }
-  .hr-overtime-day:active:not(:disabled) { scale: 1; }
-}
 .hr-request-toolbar .search-input { width: min(360px, 100%); }
 .hr-request-history-panel > .table-scroll { min-height: 0; }
 .hr-request-mobile-select-all { display: none; }
@@ -1249,10 +1210,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 @media (max-width: 620px) {
   .hr-request-page > * + * { margin-top: 14px; }
   .hr-request-dialog .modal-actions > .hr-request-dialog-actions > * { flex: 1; }
-  .hr-overtime-days { gap: 4px; }
-  .hr-overtime-day small { font-size: 10px; }
-  .hr-overtime-day-unit { display: none; }
-  .hr-overtime-presets button { padding-inline: 4px; white-space: nowrap; }
 }
 
 /* 假別是出勤主檔；保留足夠留白讓狀態與操作在窄螢幕仍可辨識。 */

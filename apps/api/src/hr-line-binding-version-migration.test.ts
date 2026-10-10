@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 const directory = fileURLToPath(new URL("../../../packages/db/migrations/", import.meta.url));
-const migration = "0227_redundant_zarek.sql";
+const migration = "0228_brief_psylocke.sql";
 
 function apply(sqlite: DatabaseSync, file: string) {
   sqlite.exec("BEGIN");
@@ -20,7 +20,7 @@ function apply(sqlite: DatabaseSync, file: string) {
   }
 }
 
-describe("0227 LINE HR 綁定版本 migration", () => {
+describe("0228 LINE HR 綁定版本 migration", () => {
   it("保留舊綁定並給予版本值；新綁定可用唯一版本值撤銷舊 token", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {

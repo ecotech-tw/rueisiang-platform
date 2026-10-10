@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
-import { useHrLeaveDuration, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
+import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, useOvertimeBatchSelection } from "@rueisiang/ui";
+import { Alert, Button, ConfirmDialog, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { useHrLeaveDuration, useHrLeaveEnd, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type HrOvertimeDay, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
 import { dateBefore, formatHours } from "./format.js";
+import { hoursToMinutes } from "./hours-entry.js";
 import { swipeTarget, type SlideDirection } from "./page-direction.js";
 
 const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "info" | "success" | "danger" }> = {
@@ -320,10 +322,16 @@ export function HrForms() {
   const leave = useHrQuery<{ requests: LeaveRequest[]; reviewRequests: LeaveRequest[] }>("/me/leave-requests");
   const data = query.data;
   const reviewTargetId = params.get("review");
+  // 整批加班的通知帶的是批次鍵：審核者用 reviewBatch 看整批待審，申請人用 batch 看那一批的結果。
+  const reviewBatchId = params.get("reviewBatch");
+  const recordBatchId = params.get("batch");
+  const reviewFiltered = Boolean(reviewTargetId || reviewBatchId);
   const reviewForms = (data?.reviewRequests ?? []).filter((request) => !reviewTargetId || request.id === reviewTargetId);
   const reviewLeaves = (leave.data?.reviewRequests ?? []).filter((item) => !reviewTargetId || item.request.id === reviewTargetId);
-  const reviewOvertime = (overtime.data?.reviewRequests ?? []).filter((item) => !reviewTargetId || item.request.id === reviewTargetId);
-  const reviewTargetMissing = Boolean(reviewTargetId && (
+  const reviewOvertime = (overtime.data?.reviewRequests ?? []).filter((item) => reviewBatchId ? item.request.batchId === reviewBatchId : !reviewTargetId || item.request.id === reviewTargetId);
+  const reviewTotal = activeTab === "leave" ? leave.data?.reviewRequests.length ?? 0 : activeTab === "overtime" ? overtime.data?.reviewRequests.length ?? 0 : data?.reviewRequests.length ?? 0;
+  const reviewShown = activeTab === "leave" ? reviewLeaves.length : activeTab === "overtime" ? reviewOvertime.length : reviewForms.length;
+  const reviewTargetMissing = Boolean(reviewFiltered && (
     (activeTab === "leave" && leave.data && !leave.isPending && reviewLeaves.length === 0)
     || (activeTab === "overtime" && overtime.data && !overtime.isPending && reviewOvertime.length === 0)
     || (activeTab === "clock_correction" && data && !query.isPending && reviewForms.length === 0)
@@ -335,12 +343,12 @@ export function HrForms() {
     search,
     statusFilter,
   )), [leave.data?.requests, search, statusFilter]);
-  const filteredOvertime = useMemo(() => (overtime.data?.requests ?? []).filter((item) => matchesRequest(
+  const filteredOvertime = useMemo(() => (overtime.data?.requests ?? []).filter((item) => (!recordBatchId || item.request.batchId === recordBatchId) && matchesRequest(
     `${item.request.id} ${formatTaipei(item.request.requestedStart)} ${formatTaipei(item.request.requestedEnd)} ${item.request.settlementKind === "pay" ? "付薪" : "補休"} ${item.request.reason} ${requestStatusLabel(item.request.status)}`,
     item.request.status,
     search,
     statusFilter,
-  )), [overtime.data?.requests, search, statusFilter]);
+  )), [overtime.data?.requests, recordBatchId, search, statusFilter]);
   const filteredCorrections = useMemo(() => (data?.requests ?? []).filter((request) => matchesRequest(
     `${request.id} ${formLabel(request)} ${request.approverName ?? ""} ${request.reason} ${requestStatusLabel(request.status)}`,
     request.status,
@@ -369,6 +377,14 @@ export function HrForms() {
   function selectTab(tab: FormTab) {
     const next = new URLSearchParams(params);
     next.set("tab", tab);
+    // 從通知帶進來的篩選只屬於原本那個分頁；留著的話別的分頁會說「這批申請已全部處理」。
+    for (const name of ["review", "reviewBatch", "batch"]) next.delete(name);
+    setParams(next, { replace: true });
+  }
+
+  function clearParams(...names: string[]) {
+    const next = new URLSearchParams(params);
+    for (const name of names) next.delete(name);
     setParams(next, { replace: true });
   }
 
@@ -418,7 +434,10 @@ export function HrForms() {
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
     {leave.error ? <Alert tone="danger">{leave.error.message}</Alert> : null}
-    {reviewTargetMissing ? <Alert tone="info">這筆申請已處理，或不在你目前的待審清單。</Alert> : null}
+    {reviewTargetMissing ? <Alert tone="info">{reviewBatchId ? "這批申請已全部處理，或不在你目前的待審清單。" : "這筆申請已處理，或不在你目前的待審清單。"}</Alert> : null}
+    {/* 從通知點進來只會看到那一筆（或那一批）；待審清單還有別的時要有路回到全部。 */}
+    {reviewFiltered && reviewTotal > reviewShown ? <Button variant="link" className="hr-form-review-all" onClick={() => clearParams("review", "reviewBatch")}>查看全部 {reviewTotal} 筆待審</Button> : null}
+    {recordBatchId && activeTab === "overtime" ? <Button variant="link" className="hr-form-review-all" onClick={() => clearParams("batch")}>目前只顯示同一批送出的加班，改看全部</Button> : null}
     <div className="hr-form-sticky-controls">
       <div className="hr-form-tabs-shell">
         <SegmentedControl className="hr-form-tabs" aria-label="申請表單類型" options={tabOptions} value={activeTab} onChange={(value) => selectTab(formTab(value))} />
@@ -471,6 +490,85 @@ export function HrForms() {
   </div>;
 }
 
+type OvertimeMode = "single" | "multiple";
+
+const OVERTIME_MODE_OPTIONS = [{ value: "single", label: "單日" }, { value: "multiple", label: "多日" }] as const;
+const OVERTIME_PRESET_OPTIONS = OVERTIME_HOUR_PRESETS.map((hours) => ({ value: String(hours), label: `${hours} 小時` }));
+/** 前台不讓員工選結算方式：選成補休薪資就不計這筆，而審核者改不了。補休由 HR 在後台代登。 */
+const SELF_SERVICE_SETTLEMENT_KIND = "pay";
+
+/** 櫃位人員月底一次補整個月：先選時數、再點日期，換個時數繼續點，一次送出。 */
+function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }: { reason: string; onReasonChange: (value: string) => void; onPendingChange: (pending: boolean) => void; onDone: () => void }) {
+  const navigate = useNavigate();
+  const [month, setMonth] = useState(() => taipeiInputNow().date.slice(0, 7));
+  const [hours, setHours] = useState("1");
+  const [confirmingUnscheduled, setConfirmingUnscheduled] = useState(false);
+  const save = useHrWrite<{ ids: string[] }>();
+  const range = monthRange(month);
+  const dayQuery = useHrQuery<{ days: HrOvertimeDay[] }>(range ? `/me/overtime-days?${new URLSearchParams(range).toString()}` : "", Boolean(range));
+  const days = useMemo(() => (dayQuery.data?.days ?? []).map((day) => {
+    const shiftEnd = day.shiftEnd ? taipeiInputFromUtc(day.shiftEnd) : null;
+    return { date: day.date, startAt: shiftEnd ? `${shiftEnd.date}T${shiftEnd.time}` : null, hasExisting: day.existing.length > 0 };
+  }), [dayQuery.data]);
+
+  const minutes = parseHours(hours);
+  const minutesValid = isValidOvertimeMinutes(minutes);
+  const { assigned, entries, summary, takenDates, unscheduledDates, unscheduledStartTime, setUnscheduledStartTime, missingUnscheduledStart, complete, toggleDay, reset } = useOvertimeBatchSelection(days, minutes);
+  const canSubmit = !save.isPending && Boolean(dayQuery.data) && !dayQuery.error && complete;
+
+  function send() {
+    onPendingChange(true);
+    save.mutate({ path: "/me/overtime/batch", method: "POST", values: { settlementKind: SELF_SERVICE_SETTLEMENT_KIND, reason, entries } }, {
+      onSuccess: onDone,
+      // 失敗後班表會重抓、選擇可能跟著變；關掉確認框，讓人先看到被移除的日期與新的小計再決定要不要重送。
+      onError: () => setConfirmingUnscheduled(false),
+      onSettled: () => onPendingChange(false),
+    });
+  }
+  function submit() {
+    if (!canSubmit) return;
+    if (unscheduledDates.length) setConfirmingUnscheduled(true);
+    else send();
+  }
+
+  return <>
+    <div className="hr-form-fields">
+      <div className="hr-form-field-row">
+        <TextField label="月份" type="month" required value={month} disabled={save.isPending} onChange={(event) => { setMonth(event.target.value); reset(); }} />
+        <TextField label="每天加班時數（小時）" type="number" inputMode="decimal" min={0.5} max={24} step={0.5} required value={hours} disabled={save.isPending} error={hours.trim() && !minutesValid ? "時數要以 0.5 小時為單位，最多 24 小時。" : undefined} onChange={(event) => setHours(event.target.value)} />
+      </div>
+      <SegmentedControl className="hr-form-tabs hr-overtime-presets" aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={save.isPending} onChange={setHours} />
+      <p className="muted hr-overtime-note">先選時數，再點日期；換個時數可以繼續點別天，再點一次同樣時數就取消。有排班的日期從下班時間起算。</p>
+      {dayQuery.error ? <Alert tone="danger">{dayQuery.error.message}</Alert>
+        : !range ? <p className="muted">請先選擇月份。</p>
+        : dayQuery.isPending ? <p className="muted">載入班表…</p>
+        : <OvertimeDayPicker days={days} assigned={assigned} disabled={save.isPending || !minutesValid} onToggle={toggleDay} />}
+      {takenDates.length ? <Alert tone="info">{takenDates.join("、")} 已經有加班申請，已從這次的選擇移除。</Alert> : null}
+      {unscheduledDates.length ? <TextField label="未排班日開始時間（台北）" type="time" step={1800} required value={unscheduledStartTime} disabled={save.isPending} hint="所有已選的未排班日期都從這個時間開始。" error={missingUnscheduledStart ? "選了未排班的日期，要先填開始時間才能送出。" : undefined} onChange={(event) => setUnscheduledStartTime(event.target.value)} /> : null}
+      <div className="hr-leave-duration-card" aria-live="polite">
+        <div><span>{summary.days ? `已選 ${summary.days} 天` : "還沒選任何一天"}</span><strong>{hoursText(summary.totalMinutes)} 小時</strong></div>
+        {summary.days ? <small>{summary.breakdown}；每一天會是一筆申請。</small> : null}
+      </div>
+      <Field label="加班原因（選填）" hint="所有選到的日期共用同一個原因。"><textarea maxLength={1000} rows={3} value={reason} disabled={save.isPending} onChange={(event) => onReasonChange(event.target.value)} /></Field>
+    </div>
+    {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
+    <div className="hr-form-actions">
+      <Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={save.isPending}>取消</Button>
+      <Button className="add-action" loading={save.isPending} onClick={submit} disabled={!canSubmit}>{summary.days ? `送出 ${summary.days} 筆加班申請` : "送出加班申請"}</Button>
+    </div>
+    {confirmingUnscheduled ? <ConfirmDialog title="確認未排班日加班" confirmLabel="確認送出申請" cancelLabel="返回修改" tone="primary" pending={save.isPending} onConfirm={send} onCancel={() => setConfirmingUnscheduled(false)}>
+      <p>以下日期沒有排班，會從 {unscheduledStartTime} 開始計算；有排班的日期仍從下班時間起算。</p>
+      <ul className="hr-overtime-unscheduled-dates">{unscheduledDates.map((day) => <li key={day}>{day}</li>)}</ul>
+    </ConfirmDialog> : null}
+  </>;
+}
+
+/** 單日的時數欄位與多日共用同一條規則：0.5 小時為單位、最多 24 小時。 */
+function overtimeMinutes(text: string) {
+  const minutes = parseHours(text);
+  return isValidOvertimeMinutes(minutes) ? minutes : null;
+}
+
 export function HrOvertimeForm() {
   const [params] = useSearchParams();
   const requestId = params.get("request");
@@ -482,9 +580,16 @@ export function HrOvertimeForm() {
   const initial = taipeiInputNow();
   const [start, setStart] = useState(`${initial.date}T18:00`);
   const [end, setEnd] = useState(`${initial.date}T20:00`);
-  const [settlementKind, setSettlementKind] = useState<"pay" | "compensatory">("pay");
+  // null 代表時數跟著開始與結束算；有值代表使用者正在填時數，這時改開始時間要連結束一起推。
+  // 欄位用 type="text"：type="number" 遇到瀏覽器不認的輸入會回空字串，檢查會被整個繞過。
+  const [hoursDraft, setHoursDraft] = useState<string | null>(null);
+  // 既有申請可能是補休（HR 後台代登或舊資料）。編輯是改同一筆，沿用原值並在畫面上講明；
+  // 重送是建立新申請，跟其他新申請一樣付薪。
+  const [settlementKind, setSettlementKind] = useState<"pay" | "compensatory">(SELF_SERVICE_SETTLEMENT_KIND);
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
+  const [mode, setMode] = useState<OvertimeMode>("single");
+  const [batchPending, setBatchPending] = useState(false);
   const [loadedRevision, setLoadedRevision] = useState<{ id: string; revision: number } | null>(null);
   const save = useHrWrite();
   const restoredDraft = useRef(false);
@@ -497,7 +602,7 @@ export function HrOvertimeForm() {
     const endInput = taipeiInputFromUtc(existingRequest.request.requestedEnd);
     setStart(`${startInput.date}T${startInput.time}`);
     setEnd(`${endInput.date}T${endInput.time}`);
-    setSettlementKind(existingRequest.request.settlementKind);
+    setSettlementKind(copying ? SELF_SERVICE_SETTLEMENT_KIND : existingRequest.request.settlementKind);
     setReason(existingRequest.request.reason);
     setLoadedRevision({ id: existingRequest.request.id, revision: existingRequest.request.revision });
   }, [existingRequest?.request.id]);
@@ -508,10 +613,9 @@ export function HrOvertimeForm() {
     try {
       const raw = sessionStorage.getItem("hr:overtime-draft");
       if (!raw) return;
-      const draft = JSON.parse(raw) as { start?: string; end?: string; settlementKind?: "pay" | "compensatory"; reason?: string };
+      const draft = JSON.parse(raw) as { start?: string; end?: string; reason?: string };
       if (draft.start) setStart(draft.start);
       if (draft.end) setEnd(draft.end);
-      if (draft.settlementKind) setSettlementKind(draft.settlementKind);
       if (draft.reason) setReason(draft.reason);
     } catch {
       sessionStorage.removeItem("hr:overtime-draft");
@@ -519,9 +623,10 @@ export function HrOvertimeForm() {
   }, [copying, editing]);
 
   useEffect(() => {
-    if (editing || copying || !restoredDraft.current) return;
-    sessionStorage.setItem("hr:overtime-draft", JSON.stringify({ start, end, settlementKind, reason }));
-  }, [copying, editing, end, reason, settlementKind, start]);
+    // 多日模式不存草稿：存下來的時段是沒碰過的單日預設值，下次會配上多日打的原因一起被還原。
+    if (editing || copying || mode === "multiple" || !restoredDraft.current) return;
+    sessionStorage.setItem("hr:overtime-draft", JSON.stringify({ start, end, reason }));
+  }, [copying, editing, end, mode, reason, start]);
 
   if ((editing || copying) && existing.isPending) return <div className="page hr-form-page"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="正在載入申請內容…" returnTo="/forms?tab=overtime" /><p className="muted">載入加班申請…</p></div>;
   if ((editing || copying) && existing.error) return <div className="page hr-form-page"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="無法載入這筆申請。" returnTo="/forms?tab=overtime" /><Alert tone="danger">{existing.error.message}</Alert></div>;
@@ -532,16 +637,33 @@ export function HrOvertimeForm() {
   const disabled = save.isPending || ((editing || copying) && existing.isPending) || (editing && loadedRevision?.id !== requestId);
   // 兩個欄位都是台北時間的牆上時刻，補 Z 當成同一個固定時區相減；用瀏覽器時區解析的話，裝置所在地有日光節約時會多或少一小時。
   const requestedMinutes = start && end ? (Date.parse(`${end}Z`) - Date.parse(`${start}Z`)) / 60_000 : 0;
+  const draftMinutes = hoursDraft === null ? null : overtimeMinutes(hoursDraft);
+  const hoursError = hoursDraft?.trim() && draftMinutes === null ? "時數要以 0.5 小時為單位，最多 24 小時。"
+    : requestedMinutes > 0 && requestedMinutes % 30 !== 0 ? "加班時數必須是 0.5 小時的倍數。"
+    : start && end && requestedMinutes <= 0 ? "結束時間必須晚於開始時間。" : undefined;
+  function changeStart(value: string) {
+    setStart(value);
+    if (draftMinutes !== null && value) setEnd(addMinutes(value, draftMinutes));
+  }
+  function changeHours(value: string) {
+    setHoursDraft(value);
+    const minutes = overtimeMinutes(value);
+    if (minutes !== null && start) setEnd(addMinutes(start, minutes));
+  }
   function submit() {
     setError("");
     if (!start || !end) {
       setError("請填寫完整的加班開始與結束時間。");
       return;
     }
+    if (hoursError) {
+      setError(hoursError);
+      return;
+    }
     save.mutate({ path: editing ? `/me/overtime/${requestId}` : "/me/overtime", method: editing ? "PATCH" : "POST", values: { requestedStart: start, requestedEnd: end, settlementKind, reason, ...(editing ? { revision: loadedRevision?.revision } : {}) } }, { onSuccess: () => { if (!editing) sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }, onError: (cause) => setError(cause.message) });
   }
 
-  return <div className="page hr-form-page"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => setStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => setEnd(event.target.value)} /></div><div className="hr-form-field-row"><SelectField label="結算方式" value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={disabled} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} /><p className="form-hint">{!(requestedMinutes > 0) ? "填寫開始與結束時間後顯示加班時數。" : requestedMinutes % 30 === 0 ? `加班時數：${formatHours(requestedMinutes)}` : "加班時數必須以 0.5 小時為單位，請調整開始或結束時間。"}</p></div><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></Panel></div>;
+  return <div className="page hr-form-page"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : mode === "multiple" ? "先選時數再點日期，每一天會建立一筆申請；選好的日期離開頁面後不會保留。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel>{editing || copying ? null : <SegmentedControl className="hr-form-tabs hr-overtime-mode" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending || batchPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} onPendingChange={setBatchPending} onDone={() => { sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }} /> : <><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => changeStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} /></div><TextField label="加班時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (requestedMinutes > 0 ? hoursText(requestedMinutes) : "")} disabled={disabled} onChange={(event) => changeHours(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint="填時數會自動換算結束時間。" error={hoursError} /><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{existingRequest?.request.settlementKind === "compensatory" ? <Alert tone="info">{editing ? "這筆申請的結算方式是補休，更新後仍是補休、不計加班費。要改成付薪請取消後重新申請。" : "原申請的結算方式是補休；重新送出會改為付薪。需要補休請洽 HR。"}</Alert> : null}{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></>}</Panel></div>;
 }
 
 function leaveTypeLabel(leaveType: LeaveTypeOption) {
@@ -578,6 +700,22 @@ export function HrLeaveForm() {
   const leaveTypesPath = leaveTypesAsOfDate ? `/me/leave-types?asOfDate=${encodeURIComponent(leaveTypesAsOfDate)}` : "/me/leave-types";
   const leaveTypes = useHrQuery<LeaveTypesResponse>(leaveTypesPath);
   const duration = useHrLeaveDuration(start && end ? { startsAt: start, endsAt: end } : null);
+  // null 代表時數跟著開始與結束算；有值代表使用者正在填時數，結束時間改由後端依班表反推。
+  const [hoursDraft, setHoursDraft] = useState<string | null>(null);
+  const draftMinutes = hoursDraft === null ? null : hoursToMinutes(hoursDraft);
+  const hoursInvalid = Boolean(hoursDraft?.trim()) && draftMinutes === null;
+  // 打「12」會先經過「1」；等輸入停下來才換算，中間值才不會先把結束時間改掉。
+  const [settledMinutes, setSettledMinutes] = useState<number | null>(null);
+  useEffect(() => {
+    if (draftMinutes === null) {
+      setSettledMinutes(null);
+      return;
+    }
+    const timer = window.setTimeout(() => setSettledMinutes(draftMinutes), 400);
+    return () => window.clearTimeout(timer);
+  }, [draftMinutes]);
+  const leaveEnd = useHrLeaveEnd(start && settledMinutes !== null ? { startsAt: start, durationMinutes: settledMinutes } : null);
+  const hoursPending = settledMinutes !== draftMinutes || leaveEnd.isFetching;
   const save = useHrWrite();
   const restoredDraft = useRef(false);
   const options = leaveTypes.data?.leaveTypes ?? [];
@@ -587,7 +725,8 @@ export function HrLeaveForm() {
   const credit = matchingLeaveCredit(selectedType, calculated);
   const hasEnoughCredit = selectedType?.leaveKind !== "annual" || Boolean(credit && credit.balanceHalfHours * 30 >= (calculated?.durationMinutes ?? Number.MAX_SAFE_INTEGER));
   const disabled = save.isPending || ((editing || copying) && existing.isPending) || (editing && loadedRevision?.id !== requestId);
-  const canSubmit = Boolean(selectedType && durationValid && hasEnoughCredit && !disabled && !leaveTypes.isPending && !duration.isPending && (!editing || existingRequest?.request.status === "pending") && (!copying || existingRequest?.request.status === "rejected"));
+  // 時數填錯、換算還在跑或失敗時，結束時間還是舊的；這時送出會送出跟畫面上時數對不起來的時段。
+  const canSubmit = Boolean(selectedType && durationValid && hasEnoughCredit && !disabled && !leaveTypes.isPending && !duration.isPending && !hoursInvalid && !hoursPending && !leaveEnd.error && (!editing || existingRequest?.request.status === "pending") && (!copying || existingRequest?.request.status === "rejected"));
 
   useEffect(() => {
     if (!existingRequest) return;
@@ -599,6 +738,12 @@ export function HrLeaveForm() {
     setReason(existingRequest.request.reason);
     setLoadedRevision({ id: existingRequest.request.id, revision: existingRequest.request.revision });
   }, [existingRequest?.request.id]);
+
+  useEffect(() => {
+    if (!leaveEnd.data) return;
+    const endInput = taipeiInputFromUtc(leaveEnd.data.endsAt);
+    setEnd(`${endInput.date}T${endInput.time}`);
+  }, [leaveEnd.data]);
 
   useEffect(() => {
     if (editing || copying || restoredDraft.current) return;
@@ -662,8 +807,9 @@ export function HrLeaveForm() {
         <SelectField label="假別" required value={leaveTypeId || NO_LEAVE_TYPE} options={leaveTypeOptions} disabled={leaveTypes.isPending || disabled} onChange={(event) => setLeaveTypeId(event.target.value === NO_LEAVE_TYPE ? "" : event.target.value)} hint={selectedType?.leaveKind === "annual" ? "特休額度以 0.5 小時為單位，且每個週期獨立計算。" : "此假別的給薪與額度依公司制度及審核結果處理。"} />
         <div className="hr-form-field-row">
           <TextField label="開始（台北時間）" type="datetime-local" step="1800" required value={start} disabled={disabled} onChange={(event) => { const value = event.target.value; setStart(value); if (end && end <= value) setEnd(""); }} />
-          <TextField label="結束（台北時間）" type="datetime-local" step="1800" required min={start} value={end} disabled={disabled} onChange={(event) => setEnd(event.target.value)} />
+          <TextField label="結束（台北時間）" type="datetime-local" step="1800" required min={start} value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} />
         </div>
+        <TextField label="請假時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (calculated && durationValid ? hoursText(calculated.durationMinutes) : "")} disabled={disabled} onChange={(event) => setHoursDraft(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint={hoursPending ? "換算結束時間中…" : "填時數會依班表與休息時間換算結束時間。"} error={hoursInvalid ? "請假時數必須是 0.5 小時的倍數，最多 744 小時。" : hoursPending ? undefined : leaveEnd.error?.message} />
         <div className="hr-leave-duration-card" aria-live="polite">
           <div><span>系統計算時數</span><strong>{duration.isPending ? "計算中…" : calculated && durationValid ? formatHours(calculated.durationMinutes) : "尚未完成計算"}</strong></div>
           {calculated ? <small>{calculated.startsOn}～{dateBefore(calculated.endsOn)}，依實際工作日與休息時間計算</small> : null}

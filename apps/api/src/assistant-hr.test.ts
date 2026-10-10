@@ -193,7 +193,7 @@ describe("HR 本人假單與特休 view", () => {
 
   it("混合格式的相同時刻以 id 穩定排序，跨頁不漏掉或重複本人假單", async () => {
     const ids = Array.from({ length: 21 }, (_, index) => `same-${String(index).padStart(2, "0")}`);
-    for (const [index, id] of ids.toReversed().entries()) {
+    for (const [index, id] of [...ids].reverse().entries()) {
       await seedLeave(id, "alice", { createdAt: index % 2 === 0 ? "2026-03-01 16:00:00" : "2026-03-01T16:00:00.000Z" });
     }
     await seedLeave("older", "alice", { createdAt: "2026-03-01T01:00:00.000Z" });
