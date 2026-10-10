@@ -335,19 +335,37 @@ export async function calculateHrLeaveEnd(db: Database, input: HrLeaveEndInput) 
   const startsOn = formatTaipeiDate(startMs);
   const endsOn = nextTaipeiDate(formatTaipeiDate(limitMs));
   const employmentId = await ensureEmploymentForPeriod(db, input.employeeUserId, startsOn, endsOn);
-  const { schedules, scheduled } = await loadWorkdaySchedules(db, employmentId, startsOn, endsOn);
-  let remainingMs = input.durationMinutes * 60_000;
-  for (const [segmentStart, segmentEnd] of leaveWorkSegments(schedules, scheduled, startsOn, endsOn)) {
+  const { schedules } = await loadWorkdaySchedules(db, employmentId, startsOn, endsOn);
+  // 正向算法是看「請假區間內」有沒有班表來決定用班表還是標準工時，而區間要先有結束時間才知道。
+  // 所以兩種都推一次，只留正向驗算後時數相符的，再取最早結束的那個：
+  // 31 天內零星的一筆班次不會把結束時間拉到那一天，排班制也不會被標準工時多拖到隔天早上。
+  const candidates = [false, true]
+    .map((scheduled) => leaveEndFromSegments(leaveWorkSegments(schedules, scheduled, startsOn, endsOn), startMs, input.durationMinutes))
+    .filter((endMs): endMs is number => endMs !== null && endMs <= limitMs)
+    .sort((a, b) => a - b);
+  for (const endMs of candidates) {
+    try {
+      const interval = await calculateHrLeaveDuration(db, { employeeUserId: input.employeeUserId, startsAt: input.startsAt, endsAt: new Date(endMs).toISOString().slice(0, 19).replace("T", " ") });
+      if (interval.durationMinutes === input.durationMinutes) return interval;
+    } catch (cause) {
+      if (!(cause instanceof HrError)) throw cause;
+    }
+  }
+  throw new HrError(400, candidates.length
+    ? "這個時數無法依班表換算出結束時間，請直接填寫結束時間。"
+    : "從這個開始時間起 31 天內的工作時間不足這個時數，請調整開始時間或時數。");
+}
+
+function leaveEndFromSegments(segments: Array<[number, number]>, startMs: number, durationMinutes: number) {
+  let remainingMs = durationMinutes * 60_000;
+  for (const [segmentStart, segmentEnd] of segments) {
     const from = Math.max(segmentStart, startMs);
     if (segmentEnd <= from) continue;
     const endMs = Math.min(segmentEnd, from + remainingMs);
     remainingMs -= endMs - from;
-    if (remainingMs > 0) continue;
-    if (endMs > limitMs) break;
-    // 回頭用正向的算法再算一次：回傳的時數永遠是送出時會被採用的那個數字。
-    return calculateHrLeaveDuration(db, { employeeUserId: input.employeeUserId, startsAt: input.startsAt, endsAt: new Date(endMs).toISOString().slice(0, 19).replace("T", " ") });
+    if (remainingMs === 0) return endMs;
   }
-  throw new HrError(400, "從這個開始時間起 31 天內的工作時間不足這個時數，請調整開始時間或時數。");
+  return null;
 }
 
 function leaveCredit(entitlement: { id: string; periodStart: string; periodEnd: string; entitledHalfHours: number; balanceHalfHours: number }): HrLeaveCredit {

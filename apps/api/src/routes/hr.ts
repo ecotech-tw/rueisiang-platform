@@ -763,7 +763,7 @@ export const hr = new Hono<AppEnv>()
     return c.json(await calculateHrLeaveEnd(c.get("db"), {
       employeeUserId: c.get("user").id,
       startsAt: leaveDateTimeValue(input, "startsAt", "startAt", "請假開始時間"),
-      durationMinutes: integerValue(input, "durationMinutes", "請假時數（分鐘）", 30, 44_640),
+      durationMinutes: integerValue(input, "durationMinutes", "請假時數（分鐘）", 1, Number.MAX_SAFE_INTEGER),
     }));
   })
   .post("/me/leave-requests", async (c) => c.json(await createHrLeaveRequest(c.get("db"), leaveRequestInput(await body(c), c.get("user").id), c.get("user")), 201))
