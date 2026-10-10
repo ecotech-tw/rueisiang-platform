@@ -3,7 +3,11 @@ import {
   ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS,
   claimAssistantLineQueueJob,
   createDatabase,
+  ensureAssistantDefaults,
+  setAssistantChannelTools,
   listPendingAssistantLineQueueJobs,
+  linkLineAccount,
+  unlinkLineAccount,
   recordAssistantRun,
   requeueStaleAssistantLineQueueJobs,
   listAssistantLineMessages,
@@ -21,6 +25,7 @@ import {
   assistantLineReplyBackups,
   assistantRuns,
   assistantToolCalls,
+  hrEmployments,
   mediaObjects,
   userRoleAssignments,
   users,
@@ -31,6 +36,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 import { lineQuestionText } from "./line.js";
+import { LineHrSelfService } from "./assistant-hr.js";
 import type { PiLineAgentRunRequest, PiLineAgentRunResponse } from "./pi-agent-contract.js";
 import { processLineAssistantQueueMessage } from "./routes/webhooks.js";
 
@@ -1207,6 +1213,58 @@ describe("LINE channel 後台設定", () => {
       contextGeneration: updated?.contextResetAt,
       lineGroupId: "user-1",
     });
+  });
+});
+
+describe("LINE HR 敏感回答 delivery", () => {
+  it.each(["reply", "push", "push-error", "quota-revoked"])("%s 不保存回答或 thought，Push 前再次查核綁定", async (mode) => {
+    const group = await enableLineConversation(userEvent({ webhookEventId: "hr-delivery-seed" }));
+    await db().insert(hrEmployments).values({ id: "hr-admin", employeeUserId: "admin", employeeNumber: "HR-ADMIN" });
+    await linkLineAccount(db(), "admin", { channelId: "hr-login", lineUserId: "user-1" });
+    await ensureAssistantDefaults(db(), { assistantKey: "rueisiang-xiaoxiang", defaultModel: "gpt-5.4-mini", defaultPrompt: "HR 測試", toolKeys: ["hr_authorize"] });
+    await setAssistantChannelTools(db(), { channelKey: "rueisiang-xiaoxiang", toolKeys: ["hr_authorize"], updatedBy: "admin" });
+    env.LINE_LIFF_CHANNEL_ID = "hr-login";
+    env.HR_ASSISTANT_CHANNEL_KEY = "rueisiang-xiaoxiang";
+    const runId = crypto.randomUUID();
+    const context = {
+      assistantKey: "rueisiang-xiaoxiang", channelKey: "rueisiang-xiaoxiang", groupRowId: group.id,
+      lineGroupId: "user-1", sourceType: "user" as const, contextGeneration: group.contextResetAt ?? "",
+      webhookEventId: "hr-delivery-event", runId,
+    };
+    const hrSelf = new LineHrSelfService(db(), env as never, { ...context, model: "gpt-5.4-mini", systemPrompt: "", userText: "查假", toolKeys: ["hr_authorize"] });
+    await hrSelf.authorize();
+    setPiAgentResponse("HR-機密假單回答");
+    piAgentResponse.privateHrRun = true;
+    piAgentResponse.hrAuthorization = hrSelf.authorization;
+    piAgentResponse.result.thoughts = "HR-機密thought";
+    piAgentResponse.result.toolCalls = [{ toolKey: "hr_authorize", status: "success", durationMs: 1 }];
+    const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
+    const requests: Array<{ url: string; body: string }> = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      requests.push({ url: String(url), body: String(init?.body ?? "") });
+      if (String(url).endsWith("/message/quota/consumption")) {
+        if (mode === "quota-revoked") await unlinkLineAccount(db(), "admin");
+        return Response.json({ totalUsage: 0 });
+      }
+      if (mode === "push-error" && String(url).endsWith("/message/push")) return new Response("HR-機密假單回答 HR-機密thought", { status: 400 });
+      return new Response(null, { status: 200 });
+    });
+    const delivery = processLineAssistantQueueMessage({
+      ...context, kind: "assistant", replyToken: "hr-reply", questionText: "查我的假單",
+      replyDeadlineAt: mode === "reply" ? Date.now() + 60_000 : Date.now() - 1,
+    }, env as never);
+    await delivery;
+    if (mode === "quota-revoked") {
+      expect(await db().select().from(assistantRuns).where(eq(assistantRuns.id, runId))).toEqual([expect.objectContaining({ status: "failed" })]);
+    }
+    const sent = requests.filter((request) => /\/message\/(reply|push)$/.test(request.url));
+    if (mode === "quota-revoked") expect(sent).toHaveLength(0);
+    else expect(sent).toEqual([expect.objectContaining({ url: expect.stringContaining(`/message/${mode === "reply" ? "reply" : "push"}`), body: expect.stringContaining("HR-機密假單回答") })]);
+    expect(await db().select().from(assistantLineReplyBackups).where(eq(assistantLineReplyBackups.runId, runId))).toEqual([]);
+    for (const rows of [await db().select().from(assistantRuns), await db().select().from(assistantToolCalls), await db().select().from(assistantLineMessages)]) {
+      expect(JSON.stringify(rows)).not.toMatch(/HR-機密假單回答|HR-機密thought|linkVersion/);
+    }
+    expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/HR-機密假單回答|HR-機密thought|linkVersion/);
   });
 });
 

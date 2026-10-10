@@ -3,6 +3,7 @@ export type ToolSurface = "sandbox" | "line" | "mcp";
 
 export interface ToolContext {
   surface: ToolSurface;
+  lineSourceType?: "user" | "group" | "room";
   db?: unknown;
   env?: unknown;
   user?: unknown;
@@ -34,6 +35,7 @@ export interface ToolContract {
   defaultStatus: ToolStatus;
   parameters: ToolJsonSchema;
   surfaces: readonly ToolSurface[];
+  lineSourceTypes?: readonly ("user" | "group" | "room")[];
   requiredPermissions?: readonly string[];
   execute(input: unknown, context?: ToolContext): Promise<string>;
 }

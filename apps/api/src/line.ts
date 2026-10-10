@@ -145,6 +145,8 @@ export interface LineLogContext {
   messageId?: string;
   quotedMessageId?: string;
   sequence?: number;
+  /** HR 回答送出失敗時，外部服務的 error body／transport error 也可能反射訊息內容。 */
+  redactMessageErrors?: boolean;
 }
 
 function lineText(value: string): string {
@@ -231,19 +233,20 @@ async function sendLineMessage(
       endpoint,
       timeoutMs: LINE_MESSAGE_TIMEOUT_MS,
       durationMs: Date.now() - started,
-      error: assistantErrorDetails(error),
+      error: context.redactMessageErrors ? { message: "HR 訊息傳送失敗。" } : assistantErrorDetails(error),
     });
     throw new LineMessageError({
       endpoint,
       ambiguous: true,
       retryable: endpoint === "push",
-      cause: error,
+      ...(context.redactMessageErrors ? {} : { cause: error }),
     });
   } finally {
     clearTimeout(timeout);
   }
   if (!response.ok) {
-    const responseBody = await responsePreview(response);
+    const responseBody = context.redactMessageErrors ? "[HR error response redacted]" : await responsePreview(response);
+    if (context.redactMessageErrors) await response.body?.cancel();
     assistantLog("error", "line.message.error", {
       ...context,
       status: response.status,

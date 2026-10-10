@@ -30,10 +30,12 @@ import {
   loadAuthUser,
   resolveLineToolKeys,
   createDatabase,
+  HrError,
   type Database,
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
-import { PLATFORM_TOOL_MAP } from "@rueisiang/tools";
+import { isHrToolKey, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
+import { HrSelfToolError, LineHrSelfService } from "./assistant-hr.js";
 import { Type, type TSchema } from "typebox";
 import type { AssistantRunResult, AssistantToolCall, JsonSchemaProperty } from "@rueisiang/assistant";
 import type { Env } from "./env.js";
@@ -141,6 +143,8 @@ interface SandboxBootstrapMessage {
 interface ToolExecutionContext {
   request: PiAgentRunRequest;
   toolCalls: AssistantToolCall[];
+  privateHrRun?: boolean;
+  hrSelf?: LineHrSelfService;
 }
 
 class AgentExecutionError extends Error {
@@ -276,6 +280,7 @@ function toolSchema(parameters: { properties: Record<string, JsonSchemaProperty>
 }
 
 function toolErrorMessage(error: unknown): string {
+  if (error instanceof HrSelfToolError || error instanceof HrError) return error.message;
   if (error instanceof Error && error.message.startsWith("CYBERBIZ API ")) return error.message.slice(0, 300);
   return "工具執行失敗。";
 }
@@ -841,6 +846,7 @@ export class AssistantChatAgent {
     options: ModelsSimpleStreamOptions = {},
     diagnostics?: PiProviderExecutionDiagnostics,
     fallbackModel?: Model<Api>,
+    privateHrRun?: () => boolean,
   ) {
     const shared = {
       ...options,
@@ -883,7 +889,7 @@ export class AssistantChatAgent {
           ...(diagnostics?.runId ? { runId: diagnostics.runId } : {}),
           primaryModel: model.id,
           fallbackModel: fallbackModel.id,
-          error: primary.errorMessage ?? "provider 回傳 error。",
+          error: privateHrRun?.() ? "HR 本輪 provider 執行失敗。" : primary.errorMessage ?? "provider 回傳 error。",
         })
         : undefined,
     );
@@ -900,9 +906,12 @@ export class AssistantChatAgent {
     } as Models;
   }
 
-  private async authorizedLineTool(input: PiLineAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
+  private async authorizedLineTool(context: ToolExecutionContext, input: PiLineAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
+    if (!toolKeysForLineSource([toolKey], input.sourceType).includes(toolKey)) throw new HrSelfToolError("這個工具不提供給此 LINE 來源。" );
+    if (context.privateHrRun && !isHrToolKey(toolKey)) throw new HrSelfToolError("HR 授權後本輪只能使用本人 HR 工具。" );
     const db = createDatabase(this.env.DB);
-    const services = { cyberbizReports: lazyCyberbizReportService(db) };
+    if (isHrToolKey(toolKey)) context.hrSelf ??= new LineHrSelfService(db, this.env, input);
+    const services = { cyberbizReports: lazyCyberbizReportService(db), ...(context.hrSelf ? { hrSelf: context.hrSelf } : {}) };
     const [channel, group] = await Promise.all([
       getAssistantLineChannel(db, input.assistantKey),
       findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.groupRowId }),
@@ -925,7 +934,7 @@ export class AssistantChatAgent {
     if (!allowed.includes(toolKey)) throw new Error("這個工具目前沒有授權給這個 LINE 對話。");
     const tool = PLATFORM_TOOL_MAP.get(toolKey);
     if (!tool || !tool.surfaces.includes("line")) throw new Error("找不到這個 LINE 工具。");
-    return tool.execute(args, { surface: "line", db, env: this.env, services });
+    return tool.execute(args, { surface: "line", lineSourceType: input.sourceType, db, env: this.env, services });
   }
 
   private async authorizedSandboxTool(input: PiSandboxAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
@@ -958,15 +967,19 @@ export class AssistantChatAgent {
     return tool.execute(args, { surface: "sandbox", db, env: this.env, user, services });
   }
 
-  private authorizedTool(input: PiAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
+  private authorizedTool(context: ToolExecutionContext, toolKey: string, args: unknown): Promise<string> {
+    const input = context.request;
     return isLineRunRequest(input)
-      ? this.authorizedLineTool(input, toolKey, args)
+      ? this.authorizedLineTool(context, input, toolKey, args)
       : this.authorizedSandboxTool(input, toolKey, args);
   }
 
   private tools(context: ToolExecutionContext): AgentTool[] {
     const surface = isLineRunRequest(context.request) ? "line" : "sandbox";
-    return [...new Set(context.request.toolKeys)].flatMap((toolKey) => {
+    const keys = isLineRunRequest(context.request)
+      ? toolKeysForLineSource(context.request.toolKeys, context.request.sourceType)
+      : context.request.toolKeys;
+    return [...new Set(keys)].flatMap((toolKey) => {
       const tool = PLATFORM_TOOL_MAP.get(toolKey);
       if (!tool || !tool.surfaces.includes(surface)) return [];
       const agentTool: AgentTool = {
@@ -979,7 +992,12 @@ export class AssistantChatAgent {
           const started = Date.now();
           signal?.throwIfAborted();
           try {
-            const result = await this.authorizedTool(context.request, tool.key, args);
+            if (isHrToolKey(tool.key)) {
+              context.privateHrRun = true;
+              // 第一個 HR 呼叫前的 tool-call message 也要移除，避免留下不完整或帶個資的 transcript。
+              this.sql.exec("DELETE FROM assistant_agent_messages WHERE run_id = ?", context.request.runId);
+            }
+            const result = await this.authorizedTool(context, tool.key, args);
             context.toolCalls.push({
               toolKey: tool.key,
               status: "success",
@@ -992,7 +1010,7 @@ export class AssistantChatAgent {
             console.error("Pi agent 工具執行失敗", {
               runId: context.request.runId,
               toolKey: tool.key,
-              error: serializePiError(error),
+              error: context.privateHrRun ? serializePiError(new Error(errorMessage)) : serializePiError(error),
             });
             context.toolCalls.push({
               toolKey: tool.key,
@@ -1328,7 +1346,7 @@ export class AssistantChatAgent {
         timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
         maxTokens: MODEL_MAX_OUTPUT_TOKENS,
-      }, providerDiagnostics, fallbackModel),
+      }, providerDiagnostics, fallbackModel, () => toolContext.privateHrRun === true),
       sessionId: state.session_id,
       transport: "sse",
       maxRetryDelayMs: 1_000,
@@ -1336,7 +1354,7 @@ export class AssistantChatAgent {
     });
     const persistAttachments = isLineRunRequest(input) ? input.persistAttachments !== false : true;
     agent.subscribe((event) => {
-      if (event.type === "message_end") {
+      if (event.type === "message_end" && !toolContext.privateHrRun) {
         this.storeMessage(
           state.generation,
           input.runId,
@@ -1351,10 +1369,10 @@ export class AssistantChatAgent {
       await agent.prompt(input.userText, images);
     } catch (error) {
       throw new AgentExecutionError(
-        error instanceof Error ? error.message : "Pi agent 執行失敗。",
+        toolContext.privateHrRun ? "HR 本人查詢暫時無法完成，請重新查詢。" : error instanceof Error ? error.message : "Pi agent 執行失敗。",
         toolContext.toolCalls,
         providerDiagnostics.lastResponse,
-        serializePiError(error),
+        toolContext.privateHrRun ? undefined : serializePiError(error),
       );
     }
     const newMessages = agent.state.messages.slice(initialMessages.length);
@@ -1364,9 +1382,10 @@ export class AssistantChatAgent {
         Date.now(),
         input.runId,
       );
-      const error = new Error(agent.state.errorMessage);
+      const message = toolContext.privateHrRun ? "HR 本人查詢暫時無法完成，請重新查詢。" : agent.state.errorMessage;
+      const error = new Error(message);
       throw new AgentExecutionError(
-        agent.state.errorMessage,
+        message,
         toolContext.toolCalls,
         providerDiagnostics.lastResponse,
         serializePiError(error),
@@ -1377,12 +1396,15 @@ export class AssistantChatAgent {
     const finalText = finalMessage ? textContent(finalMessage) : "";
     if (!finalText) throw new AgentExecutionError("Pi agent 沒有產生可顯示的文字回答。", toolContext.toolCalls);
 
+    await toolContext.hrSelf?.assertStillAuthorized();
     const response: PiAgentRunResponse = {
+      ...(toolContext.privateHrRun ? { privateHrRun: true } : {}),
+      ...(toolContext.hrSelf?.authorization ? { hrAuthorization: toolContext.hrSelf.authorization } : {}),
       sessionId: state.session_id,
       model: finalMessage?.model ?? model.id,
       result: {
         text: isLineRunRequest(input) ? boundedReply(finalText) : finalText,
-        thoughts: thoughtContent(newMessages),
+        thoughts: toolContext.privateHrRun ? "" : thoughtContent(newMessages),
         toolCalls: toolContext.toolCalls,
         usage: assistantUsage(newMessages),
       },
@@ -1395,7 +1417,7 @@ export class AssistantChatAgent {
     );
     this.sql.exec(
       `UPDATE assistant_agent_runs SET status = 'completed', response_json = ?, updated_at = ? WHERE run_id = ?`,
-      JSON.stringify(response),
+      toolContext.privateHrRun ? "" : JSON.stringify(response),
       Date.now(),
       input.runId,
     );

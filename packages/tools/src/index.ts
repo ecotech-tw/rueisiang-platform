@@ -31,6 +31,7 @@ import {
   listItems,
 } from "@rueisiang/db";
 import type { ToolContract, ToolContext, ToolSurface } from "./contract.js";
+import { HR_TOOL_DEFINITIONS } from "./hr.js";
 
 export type PlatformToolDefinition = ToolContract;
 
@@ -1345,6 +1346,7 @@ export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   listReportScopesTool,
   cyberbizQuerySalesReportTool,
   cyberbizQueryPayoutReportTool,
+  ...HR_TOOL_DEFINITIONS,
 ];
 
 export const PLATFORM_TOOL_KEYS = PLATFORM_TOOL_DEFINITIONS.map((tool) => tool.key);
@@ -1354,5 +1356,13 @@ export function toolsForSurface(surface: ToolSurface): PlatformToolDefinition[] 
   return PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes(surface)).slice();
 }
 
+export function toolKeysForLineSource(keys: readonly string[], sourceType: "user" | "group" | "room"): string[] {
+  return keys.filter((key) => {
+    const tool = PLATFORM_TOOL_MAP.get(key);
+    return tool?.surfaces.includes("line") && (!tool.lineSourceTypes || tool.lineSourceTypes.includes(sourceType));
+  });
+}
+
+export { HR_TOOL_DEFINITIONS, isHrToolKey, type HrSelfToolService } from "./hr.js";
 export { OPEN_METEO_TOOL_KEY };
 export type { ToolContract, ToolContext, ToolSurface } from "./contract.js";

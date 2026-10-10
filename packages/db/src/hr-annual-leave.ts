@@ -326,10 +326,12 @@ export async function listHrAnnualLeaveEntitlements(db: Database, options: { emp
     periodStart: hrAnnualLeaveEntitlements.periodStart,
     periodEnd: hrAnnualLeaveEntitlements.periodEnd,
     entitledHalfHours: hrAnnualLeaveEntitlements.entitledHalfHours,
+    dailyMinutes: hrAnnualLeavePolicyVersions.dailyMinutes,
     status: hrAnnualLeaveEntitlements.status,
     settledAt: hrAnnualLeaveEntitlements.settledAt,
   }).from(hrAnnualLeaveEntitlements)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrAnnualLeaveEntitlements.employmentId))
+    .innerJoin(hrAnnualLeavePolicyVersions, eq(hrAnnualLeavePolicyVersions.id, hrAnnualLeaveEntitlements.policyVersionId))
     .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(and(
       isNull(hrEmployments.archivedAt),
