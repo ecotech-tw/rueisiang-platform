@@ -183,7 +183,11 @@ function LeaveRequestCard({ item, onEdit, onReapply, onCancel }: { item: LeaveRe
   </article>;
 }
 
-function LeaveReviewDialog({ item, onClose }: { item: LeaveRequest; onClose: () => void }) {
+/**
+ * 逐筆審核對話框的 `item` 由上層從最新的待審清單取，並以版本當 key：被擋下（409）重抓之後
+ * 對話框用新內容重建，審核者看到的才是按下去會處理的那一版。
+ */
+function LeaveReviewDialog({ item, changed, onClose }: { item: LeaveRequest; changed: boolean; onClose: () => void }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const review = useHrWrite();
@@ -209,11 +213,12 @@ function LeaveReviewDialog({ item, onClose }: { item: LeaveRequest; onClose: () 
   </>}>
     <div className="hr-form-request-summary"><dl><dt>請假期間</dt><dd>{leavePeriod(item)}</dd><dt>假別</dt><dd>{item.request.leaveType}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
+    {changed ? <Alert tone="warning">申請人在你開啟之後修改了這筆申請。下面是最新的內容，請確認後再處理。</Alert> : null}
     {error ? <Alert tone="danger">{error}</Alert> : null}
   </Dialog>;
 }
 
-function OvertimeReviewDialog({ item, onClose }: { item: OvertimeRequest; onClose: () => void }) {
+function OvertimeReviewDialog({ item, changed, onClose }: { item: OvertimeRequest; changed: boolean; onClose: () => void }) {
   const [comment, setComment] = useState("");
   const [error, setError] = useState("");
   const review = useHrWrite();
@@ -239,6 +244,7 @@ function OvertimeReviewDialog({ item, onClose }: { item: OvertimeRequest; onClos
   </>}>
     <div className="hr-form-request-summary"><dl><dt>加班期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算方式</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
+    {changed ? <Alert tone="warning">申請人在你開啟之後修改了這筆申請。下面是最新的內容，請確認後再處理。</Alert> : null}
     {error ? <Alert tone="danger">{error}</Alert> : null}
   </Dialog>;
 }
@@ -374,6 +380,9 @@ export function HrForms() {
   const reviewLeaves = (leave.data?.reviewRequests ?? []).filter((item) => !reviewTargetId || item.request.id === reviewTargetId);
   const reviewOvertime = (overtime.data?.reviewRequests ?? []).filter((item) => reviewBatchId ? item.request.batchId === reviewBatchId : !reviewTargetId || item.request.id === reviewTargetId);
   const overtimeBatches = reviewableOvertimeBatches(reviewOvertime);
+  // 審核對話框顯示最新待審清單裡的那一筆；它已經不在清單裡時（被處理掉、被取消）沿用開啟時的內容，交給伺服器回覆。
+  const liveReviewingLeave = (reviewingLeave && leave.data?.reviewRequests.find((item) => item.request.id === reviewingLeave.request.id)) ?? reviewingLeave!;
+  const liveReviewingOvertime = (reviewingOvertime && overtime.data?.reviewRequests.find((item) => item.request.id === reviewingOvertime.request.id)) ?? reviewingOvertime!;
   const reviewTotal = activeTab === "leave" ? leave.data?.reviewRequests.length ?? 0 : activeTab === "overtime" ? overtime.data?.reviewRequests.length ?? 0 : data?.reviewRequests.length ?? 0;
   const reviewShown = activeTab === "leave" ? reviewLeaves.length : activeTab === "overtime" ? reviewOvertime.length : reviewForms.length;
   const reviewTargetMissing = Boolean(reviewFiltered && (
@@ -540,8 +549,8 @@ export function HrForms() {
       {hasMore ? <div ref={sentinelRef} className="hr-form-load-sentinel" aria-live="polite">載入更多申請…</div> : activeCount > 0 ? <div className="hr-form-list-end">已顯示全部申請</div> : null}
     </Panel>
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
-    {reviewingLeave ? <LeaveReviewDialog item={reviewingLeave} onClose={() => setReviewingLeave(null)} /> : null}
-    {reviewingOvertime ? <OvertimeReviewDialog item={reviewingOvertime} onClose={() => setReviewingOvertime(null)} /> : null}
+    {reviewingLeave ? <LeaveReviewDialog key={`${liveReviewingLeave.request.id}:${liveReviewingLeave.request.revision}`} item={liveReviewingLeave} changed={liveReviewingLeave.request.revision !== reviewingLeave.request.revision} onClose={() => setReviewingLeave(null)} /> : null}
+    {reviewingOvertime ? <OvertimeReviewDialog key={`${liveReviewingOvertime.request.id}:${liveReviewingOvertime.request.revision}`} item={liveReviewingOvertime} changed={liveReviewingOvertime.request.revision !== reviewingOvertime.request.revision} onClose={() => setReviewingOvertime(null)} /> : null}
     {approvingBatch ? <OvertimeBatchApproveDialog batchId={approvingBatch.batchId} {...batchDialogItems(overtime.data?.reviewRequests ?? [], approvingBatch)} onClose={() => setApprovingBatch(null)} /> : null}
     {cancelling ? <OvertimeCancelDialog item={cancelling} onClose={() => setCancelling(null)} /> : null}
     {cancellingLeave ? <LeaveCancelDialog item={cancellingLeave} onClose={() => setCancellingLeave(null)} /> : null}

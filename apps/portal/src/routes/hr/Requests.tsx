@@ -191,7 +191,11 @@ function toRequestRows(data: HrRequestCenterResponse | undefined): RequestRow[] 
   return [...leaves, ...overtime, ...clockCorrections].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
 
-function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () => void; onDone: () => void }) {
+/**
+ * `row` 由上層從最新的列表取，並以版本當 key：被擋下（409）重抓之後整個對話框會用新內容重建，
+ * 核定時段也跟著重新預填。只換文字不重建的話，核定時段會停在舊的申請時段，再按一次就把申請縮短了。
+ */
+function ReviewDialog({ row, changed, onClose, onDone }: { row: RequestRow; changed: boolean; onClose: () => void; onDone: () => void }) {
   const [comment, setComment] = useState("");
   const [actualStart, setActualStart] = useState(() => row.kind === "overtime" ? taipeiInputValue(row.requestedStart ?? "") : "");
   const [actualEnd, setActualEnd] = useState(() => row.kind === "overtime" ? taipeiInputValue(row.requestedEnd ?? "") : "");
@@ -206,9 +210,11 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
       ? row.kind === "leave" ? `/requests/leave/${row.id}/cancel` : `/requests/overtime/${row.id}/cancel`
       : row.kind === "leave" ? `/requests/leave/${row.id}/review` : row.kind === "overtime" ? `/requests/overtime/${row.id}/review` : `/me/form-requests/${row.id}/review`;
     // 帶上列表載入時的版本：審核對話框開著的時候申請人改了內容，伺服器會擋下來，不會照沒看過的內容核准。
-    const values: Record<string, unknown> = isCancellation ? {} : { decision, comment, ...(row.revision === undefined ? {} : { revision: row.revision }) };
+    const seen = row.revision === undefined ? {} : { revision: row.revision };
+    const values: Record<string, unknown> = isCancellation ? seen : { decision, comment, ...seen };
     if (row.kind === "overtime" && decision === "approved") { values.actualStart = actualStart; values.actualEnd = actualEnd; }
-    review.mutate({ path, method: "POST", values }, { onSuccess: () => { onDone(); (closeRequestRef.current ?? onClose)(); } });
+    // 失敗也要重抓列表：被擋下幾乎都代表畫面上的內容已經過期，不重抓的話關掉重開拿到的還是舊的版本。
+    review.mutate({ path, method: "POST", values }, { onSuccess: () => { onDone(); (closeRequestRef.current ?? onClose)(); }, onError: onDone });
   }
   return <Dialog
     title={isApprovedCancellable ? `取消已核准${REQUEST_KIND_LABEL[row.kind]}` : `審核${REQUEST_KIND_LABEL[row.kind]}申請`}
@@ -226,6 +232,7 @@ function ReviewDialog({ row, onClose, onDone }: { row: RequestRow; onClose: () =
     {row.kind === "overtime" && !isApprovedCancellable ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><input type="datetime-local" step="1800" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><input type="datetime-local" step="1800" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
     {isApprovedCancellable ? <p className="muted field-note">{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</p> : <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
     {row.kind === "overtime" && row.status === "pending" ? <p className="muted field-note">按「取消申請」會直接刪除這筆加班，不會留在申請紀錄。</p> : null}
+    {changed ? <Alert tone="warning">申請人在你開啟之後修改了這筆申請。下面是最新的內容，請確認後再處理。</Alert> : null}
     {review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
   </Dialog>;
 }
@@ -469,6 +476,8 @@ export function HrRequestCenter() {
   const requests = useHrQuery<HrRequestCenterResponse>(requestPath, canAccess);
   const cancelOvertime = useHrWrite<{ ids: string[]; count: number }>();
   const rows = useMemo(() => toRequestRows(requests.data), [requests.data]);
+  // 審核對話框顯示最新列表裡的那一筆；它已經不在這一頁時（被處理掉、換頁）沿用開啟時的內容，交給伺服器回覆。
+  const reviewingRow = (reviewing && rows.find((row) => row.kind === reviewing.kind && row.id === reviewing.id)) ?? reviewing!;
   const filteredRows = useMemo(() => {
     if (requests.data?.pagination) return rows;
     const term = filters.search.trim().toLocaleLowerCase("zh-TW");
@@ -594,7 +603,7 @@ export function HrRequestCenter() {
       {total ? <Pager page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => { setSelectedOvertimeIds([]); setFilters((current) => ({ ...current, page: nextPage })); }} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} workers={workers.data?.workers ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
-    {reviewing ? <ReviewDialog row={reviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}
+    {reviewing ? <ReviewDialog key={`${reviewingRow.id}:${reviewingRow.revision ?? ""}`} row={reviewingRow} changed={reviewingRow.revision !== reviewing.revision} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}
     {cancelSelectedOpen && selectedOvertimeRows.length ? <ConfirmDialog title={`取消並刪除 ${selectedOvertimeRows.length} 筆加班申請？`} confirmLabel={`取消並刪除 ${selectedOvertimeRows.length} 筆`} pending={cancelOvertime.isPending} onCancel={() => { if (!cancelOvertime.isPending) setCancelSelectedOpen(false); }} onConfirm={cancelSelectedOvertime}>
       <p>選取的都是已核准加班。取消後會從申請紀錄刪除，不再納入薪資計算；HR 稽核紀錄會保留每筆申請的完整快照。</p>
       {cancelOvertime.error ? <Alert tone="danger">{cancelOvertime.error.message}</Alert> : null}

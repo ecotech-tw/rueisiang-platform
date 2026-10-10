@@ -697,19 +697,26 @@ export async function updateHrLeaveRequest(db: Database, id: string, input: HrLe
 export interface HrLeaveCancellationOptions {
   /** 管理端可代為取消；本人入口只能取消自己建立的申請。 */
   allowAny?: boolean;
+  /** 管理端畫面上那一筆的版本；與目前不同就拒絕，跟核准、駁回守同一條。 */
+  expectedRevision?: number;
 }
+
+const LEAVE_CHANGED_MESSAGE = "這筆請假申請在你開啟之後被申請人修改過，請看過最新的內容再處理。 ";
 
 export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrActor, options: HrLeaveCancellationOptions = {}) {
   const [current] = await db.select({
     employeeUserId: hrEmployments.employeeUserId,
     status: hrLeaveRequests.status,
     approverUserId: hrLeaveRequests.approverUserId,
+    revision: hrLeaveRequests.revision,
   }).from(hrLeaveRequests)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
     .where(eq(hrLeaveRequests.id, id)).limit(1);
   if (!current) throw new HrError(404, "找不到請假申請。 ");
   if (!options.allowAny && current.employeeUserId !== actor.id) throw new HrError(404, "找不到可取消的請假申請。 ");
   if (current.status !== "pending" && current.status !== "approved") throw new HrError(409, "請假申請不存在或已完成處理。 ");
+  // 管理端替人取消也是「看著某一版內容下的決定」，跟核准、駁回守同一條。
+  if (options.expectedRevision !== undefined && current.revision !== options.expectedRevision) throw new HrError(409, LEAVE_CHANGED_MESSAGE);
 
   const update = sql`UPDATE hr_leave_requests SET
     status='cancelled', reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, review_comment='申請已取消'
@@ -769,7 +776,7 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
   if (current.status !== "pending") throw new HrError(409, "請假申請不存在或已完成處理。 ");
   // 審核者下決定時看到的版本。待審的請假申請人可以改日期與時數；不比對的話，
   // 審核者開著對話框的那段時間裡被改掉的內容會照樣核准，特休也照新的時數扣。
-  if (options.expectedRevision !== undefined && current.revision !== options.expectedRevision) throw new HrError(409, "這筆請假申請在你開啟之後被申請人修改過，請看過最新的內容再審核。 ");
+  if (options.expectedRevision !== undefined && current.revision !== options.expectedRevision) throw new HrError(409, LEAVE_CHANGED_MESSAGE);
   if (decision === "approved") {
     if (!current.employeeUserId) throw new HrError(409, "支援人員不能使用正式員工請假流程。 ");
     await ensureEmploymentForPeriod(db, current.employeeUserId, current.startsOn, current.endsOn);
@@ -812,5 +819,14 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
       body: comment.trim() || (decision === "approved" ? "你的請假申請已完成核准。" : "請開啟申請紀錄查看處理結果。"),
     })]
     : Array.isArray(statements) ? statements : [statements];
-  return writeHrMutation(db, mutations, id, actor, "leave_request_reviewed", "請假申請不存在、申請人不可自審、特休額度不足、內容已被修改或已完成處理，請重新整理。 ");
+  try {
+    return await writeHrMutation(db, mutations, id, actor, "leave_request_reviewed", "請假申請沒有寫入：特休額度不足，或申請人不可自審。 ");
+  } catch (error) {
+    if (!(error instanceof HrError) || error.status !== 409) throw error;
+    // 寫入被擋的原因不只一種；審核者要知道是該重看內容、還是這筆已經被處理掉，才不會對著同一個錯一直重按。
+    const [latest] = await db.select({ status: hrLeaveRequests.status, revision: hrLeaveRequests.revision }).from(hrLeaveRequests).where(eq(hrLeaveRequests.id, id)).limit(1);
+    if (!latest || latest.status !== "pending") throw new HrError(409, "請假申請不存在或已完成處理。 ");
+    if (latest.revision !== current.revision) throw new HrError(409, LEAVE_CHANGED_MESSAGE);
+    throw error;
+  }
 }

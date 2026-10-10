@@ -2226,7 +2226,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(overtime.status, await overtime.clone().text()).toBe(201);
     const overtimeId = (await overtime.json() as { id: string }).id;
     cookie = adminCookie;
-    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
     expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-item-overtime-basis" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
@@ -2246,7 +2246,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(overtime.status, await overtime.clone().text()).toBe(201);
     const overtimeId = (await overtime.json() as { id: string }).id;
     cookie = adminCookie;
-    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
     expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-statutory-overtime-tier" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
@@ -2270,7 +2270,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(overtime.status, await overtime.clone().text()).toBe(201);
     const overtimeId = (await overtime.json() as { id: string }).id;
     cookie = adminCookie;
-    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
     expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-statutory-overtime-compensatory" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
@@ -2299,7 +2299,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect(overtime.status, await overtime.clone().text()).toBe(201);
       const overtimeId = (await overtime.json() as { id: string }).id;
       cookie = adminCookie;
-      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
       expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     }
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-statutory-overtime-cumulative" });
@@ -2330,7 +2330,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(overtime.status, await overtime.clone().text()).toBe(201);
     const overtimeId = (await overtime.json() as { id: string }).id;
     cookie = adminCookie;
-    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
     expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-fixed-overtime-hourly" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
@@ -2354,7 +2354,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect(overtime.status, await overtime.clone().text()).toBe(201);
       const overtimeId = (await overtime.json() as { id: string }).id;
       cookie = adminCookie;
-      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
       expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     }
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-fixed-overtime-version-switch" });
@@ -2382,7 +2382,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(overtime.status, await overtime.clone().text()).toBe(201);
     const overtimeId = (await overtime.json() as { id: string }).id;
     cookie = adminCookie;
-    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
     expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-fixed-overtime-special-priority" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);
@@ -2412,7 +2412,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
       expect(overtime.status, await overtime.clone().text()).toBe(201);
       const overtimeId = (await overtime.json() as { id: string }).id;
       cookie = adminCookie;
-      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+      const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
       expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     }
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-overtime-rules" });
@@ -2441,7 +2441,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(overtime.status, await overtime.clone().text()).toBe(201);
     const overtimeId = (await overtime.json() as { id: string }).id;
     cookie = adminCookie;
-    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { decision: "approved", comment: "核准" });
+    const reviewed = await request(`/hr/overtime/${overtimeId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
     expect(reviewed.status, await reviewed.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-overtime-zero" });
     expect(payroll.status, await payroll.clone().text()).toBe(200);

@@ -256,7 +256,7 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     const deviceCookie = asCookie(cookieFrom(await bootstrap("line-alice"), DEVICE_SESSION_COOKIE));
     const review = (path: string) => call(`/api/hr${path}/${id}/review`, {
       method: "POST", headers: { ...requestHeaders(deviceCookie), "Content-Type": "application/json" },
-      body: JSON.stringify({ decision, comment: "支援人員審核測試" }),
+      body: JSON.stringify({ revision: 1, decision, comment: "支援人員審核測試" }),
     });
     expect((await review("/me/overtime")).status).toBe(404);
     expect((await db().select().from(hrWorkerOvertimeRequests))[0]).toMatchObject({ status: "pending", reviewedBy: null });
@@ -271,7 +271,7 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     });
     await db().delete(userRoleAssignments).where(eq(userRoleAssignments.userId, employee.id));
     const revoked = await call("/api/hr/me/overtime/worker-request-after-role-change/review", {
-      method: "POST", headers: { ...requestHeaders(deviceCookie), "Content-Type": "application/json" }, body: JSON.stringify({ decision, comment: "權限已撤銷" }),
+      method: "POST", headers: { ...requestHeaders(deviceCookie), "Content-Type": "application/json" }, body: JSON.stringify({ revision: 1, decision, comment: "權限已撤銷" }),
     });
     expect(revoked.status).toBe(404);
     expect((await db().select().from(hrWorkerOvertimeRequests).where(eq(hrWorkerOvertimeRequests.id, "worker-request-after-role-change")))[0]).toMatchObject({ status: "pending", reviewedBy: null });
@@ -289,7 +289,7 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     await linkLineAccount(db(), supervisor.id, { channelId: CHANNEL_ID, lineUserId: "U-line-alice" });
     const deviceCookie = asCookie(cookieFrom(await bootstrap("line-alice"), DEVICE_SESSION_COOKIE));
     const review = (id: string) => call(`/api/hr/me/overtime/${id}/review`, {
-      method: "POST", headers: { ...requestHeaders(deviceCookie), "Content-Type": "application/json" }, body: JSON.stringify({ decision: "approved" }),
+      method: "POST", headers: { ...requestHeaders(deviceCookie), "Content-Type": "application/json" }, body: JSON.stringify({ revision: 1, decision: "approved" }),
     });
     expect((await review("unassigned-request")).status).toBe(404);
     expect((await review("self-request")).status).toBe(409);
@@ -303,7 +303,7 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     const id = await seedPendingWorkerOvertime(admin.id);
     const response = await call(`/api/hr${path}/${id}/review`, {
       method: "POST", headers: { ...requestHeaders(await sessionCookie(admin.id, admin.email)), "Content-Type": "application/json" },
-      body: JSON.stringify({ decision: "approved" }),
+      body: JSON.stringify({ revision: 1, decision: "approved" }),
     });
     expect(response.status).toBe(200);
     expect((await db().select().from(hrWorkerOvertimeRequests))[0]).toMatchObject({ status: "approved", reviewedBy: admin.id });

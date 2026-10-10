@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, ensureHrAnnualLeaveEntitlements, getHrSelfLeaveMonths, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates, listHrSelfAnnualLeave, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, ensureHrAnnualLeaveEntitlements, getHrSelfLeaveMonths, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates, listHrSelfAnnualLeave, reviewHrLeaveRequest, syncSystemRoles } from "@rueisiang/db";
 import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrEmployments, hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq, sql } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -271,6 +271,46 @@ describe("週年制特休額度", () => {
     expect(await cancelled.json()).toMatchObject({ error: "特休已隨薪資結算，請使用薪資調整處理取消或更正。 " });
   });
 
+  it("特休核准的寫入守版本：讀到時數之後申請被改掉，不會扣一筆跟申請對不上的額度", async () => {
+    const created = await request("/hr/leave-types", "POST", { name: "特休", leaveKind: "annual", defaultPayRatePpm: 1_000_000 });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const leaveTypeId = (await created.json() as { id: string }).id;
+    const compensation = await request(`/hr/employments/${await currentEmploymentId()}/compensation`, "POST", { validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "特休版本測試月薪" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const db = createDatabase(d1 as never);
+    await ensureHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
+    const pending = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-03-01T09:00", endsAt: "2026-03-01T09:30", reason: "" }, employeeCookie);
+    expect(pending.status, await pending.clone().text()).toBe(201);
+    const pendingId = (await pending.json() as { id: string }).id;
+    const deductions = () => (d1.sqlite.prepare("SELECT count(*) AS n FROM hr_annual_leave_ledger WHERE leave_request_id=?").get(pendingId) as { n: number }).n;
+    const state = () => d1.sqlite.prepare("SELECT status, revision FROM hr_leave_requests WHERE id=?").get(pendingId);
+
+    // 扣多少是用審核函式讀到的時數算的。寫入走 D1 batch；在它執行前把版本往前推，模擬申請人在這中間改了申請。
+    const realBatch = d1.batch;
+    d1.batch = ((statements: Parameters<typeof d1.batch>[0]) => {
+      d1.batch = realBatch;
+      d1.sqlite.prepare("UPDATE hr_leave_requests SET revision=revision+1 WHERE id=?").run(pendingId);
+      return realBatch.call(d1, statements);
+    }) as typeof d1.batch;
+    let rejection: unknown = null;
+    try {
+      await reviewHrLeaveRequest(db, pendingId, "approved", "", { id: "admin", email: "admin@example.test" });
+    } catch (error) {
+      rejection = error;
+    } finally {
+      d1.batch = realBatch;
+    }
+    expect(rejection).toMatchObject({ status: 409 });
+    expect((rejection as Error).message).toContain("修改過");
+    // 扣除與核准在同一個 batch：版本對不上，兩句都沒有寫進去。
+    expect(deductions()).toBe(0);
+    expect(state()).toEqual({ status: "pending", revision: 2 });
+
+    const reviewed = await request(`/hr/requests/leave/${pendingId}/review`, "POST", { revision: 2, decision: "approved", comment: "核准" });
+    expect(reviewed.status, await reviewed.clone().text()).toBe(200);
+    expect(deductions()).toBe(1);
+  });
+
   it("核准待審請假前重新檢查任職期間，避免離職後仍生效", async () => {
     const leaveType = await request("/hr/leave-types", "POST", { name: "任職邊界測試假", defaultPayRatePpm: 1_000_000 });
     expect(leaveType.status, await leaveType.clone().text()).toBe(201);
@@ -282,7 +322,7 @@ describe("週年制特休額度", () => {
     const employmentId = profile.employments[0]!.id;
     const end = await request(`/hr/employments/${employmentId}/end`, "PATCH", { revision: 1 });
     expect(end.status, await end.clone().text()).toBe(200);
-    const reviewed = await request(`/hr/requests/leave/${requestId}/review`, "POST", { decision: "approved", comment: "核准" });
+    const reviewed = await request(`/hr/requests/leave/${requestId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
     expect(reviewed.status).toBe(400);
     expect((await reviewed.json() as { error: string }).error).toContain("請假日期不在有效任職期間內");
   });
@@ -368,7 +408,7 @@ describe("週年制特休額度", () => {
     const beforeReview = await listHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });
     expect(beforeReview.find((row) => row.periodStart === "2026-03-01")?.balanceHalfHours).toBe(112);
 
-    const reviewed = await request(`/hr/requests/leave/${pendingId}/review`, "POST", { decision: "approved", comment: "核准" });
+    const reviewed = await request(`/hr/requests/leave/${pendingId}/review`, "POST", { revision: 1, decision: "approved", comment: "核准" });
     expect(reviewed.status, await reviewed.clone().text()).toBe(200);
 
     const rows = await listHrAnnualLeaveEntitlements(db, { asOfDate: "2027-03-01" });

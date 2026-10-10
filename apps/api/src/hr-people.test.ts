@@ -359,7 +359,7 @@ describe("HR 扁平員工主檔", () => {
     expect((await request(`/hr/employments/${first.employmentId}/archive`, "POST", { revision: beforeArchive.employments[0]!.revision })).status).toBe(200);
     const overtime = await (await request("/hr/overtime")).json() as { requests: Array<{ request: { id: string } }> };
     expect(overtime.requests.map(({ request: item }) => item.id)).toContain("archived-overtime");
-    expect((await request("/hr/overtime/archived-overtime/review", "POST", { decision: "rejected", comment: "封存後仍完成審核" })).status).toBe(200);
+    expect((await request("/hr/overtime/archived-overtime/review", "POST", { revision: 1, decision: "rejected", comment: "封存後仍完成審核" })).status).toBe(200);
     const formRequests = await (await request("/hr/me/form-requests")).json() as { reviewRequests: Array<{ id: string }> };
     expect(formRequests.reviewRequests.map((item) => item.id)).toContain("archived-form");
     expect((await request("/hr/me/form-requests/archived-form/review", "POST", { decision: "rejected", comment: "封存後仍完成審核" })).status).toBe(200);
