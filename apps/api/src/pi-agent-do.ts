@@ -35,7 +35,7 @@ import {
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
 import { isHrToolKey, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
-import { assertHrSandboxDeliveryAuthorized, assertHrSandboxRunAllowed, hrToolKeysProblem, HrSelfToolError, LineHrSelfService, SandboxHrSelfService } from "./assistant-hr.js";
+import { assertHrSandboxDeliveryAuthorized, assertHrSandboxRunAllowed, assertHrSandboxSubjectStillAllowed, hrToolKeysProblem, HrSelfToolError, LineHrSelfService, SandboxHrSelfService } from "./assistant-hr.js";
 import { Type, type TSchema } from "typebox";
 import type { AssistantRunResult, AssistantToolCall, JsonSchemaProperty } from "@rueisiang/assistant";
 import type { Env } from "./env.js";
@@ -235,8 +235,9 @@ function isRunRequest(value: unknown): value is PiAgentRunRequest {
   return isSandboxContext(input) && (input.hrSandboxUserId === undefined || nonEmptyString(input.hrSandboxUserId));
 }
 
-function isCommitRunRequest(value: unknown): value is { runId: string } {
-  return typeof value === "object" && value !== null && nonEmptyString((value as { runId?: unknown }).runId);
+function isCommitRunRequest(value: unknown): value is { runId: string; hrSubject?: string } {
+  const input = object(value);
+  return Boolean(input && nonEmptyString(input.runId) && (input.hrSubject === undefined || nonEmptyString(input.hrSubject)));
 }
 
 function isResetRequest(value: unknown): value is PiLineAgentResetRequest {
@@ -613,8 +614,9 @@ export class AssistantChatAgent {
   }
 
   /**
-   * 這個 generation 跑過 HR 工具的那位員工。HR 內容進了 transcript 就會跟著之後每一輪與 compaction 送給 provider，
-   * 所以 provider 錯誤的遮罩要跟著對話走，不能只看當下這一輪；也用它擋「同一段對話換人」。換 generation（清除對話）才歸零。
+   * 這個 generation 的上下文裡有誰的 HR 資料：模擬回合通過送出前重驗、commit 進對話時才記，失敗的回合不算。
+   * HR 內容進了上下文就會跟著之後每一輪與 compaction 送給 provider，所以三件事都跟著它走，不看當下這一輪帶了什麼：
+   * 每一輪重驗操作者與這位員工、provider 錯誤遮罩、不准換人。換 generation（清除對話）才歸零。
    */
   private hrSubject(): string {
     return [...this.sql.exec<{ hr_subject: string }>(
@@ -972,8 +974,6 @@ export class AssistantChatAgent {
       if (problem) throw new HrSelfToolError(problem);
       if (!context.hrSelf && toolKey !== "hr_authorize") throw new HrSelfToolError("請先呼叫 hr_authorize 取得本輪本人授權。" );
       context.hrSelf ??= await SandboxHrSelfService.create(db, this.env, input);
-      // 綁定驗過、HR 工具真的要跑了才記：只選了員工但沒碰 HR 資料的對話，不該被當成含 HR 內容。
-      this.sql.exec("UPDATE assistant_agent_state SET hr_subject = ? WHERE singleton = 1 AND hr_subject = ''", input.hrSandboxUserId!);
     }
     const services = { cyberbizReports: lazyCyberbizReportService(db), ...(context.hrSelf ? { hrSelf: context.hrSelf } : {}) };
     const [user, configuredTools, session] = await Promise.all([
@@ -1047,7 +1047,7 @@ export class AssistantChatAgent {
             console.error("Pi agent 工具執行失敗", {
               runId: context.request.runId,
               toolKey: tool.key,
-              error: context.privateHrRun || this.masksErrors() ? serializePiError(new Error(errorMessage)) : serializePiError(error),
+              error: context.privateHrRun || context.hrSelf || this.masksErrors() ? serializePiError(new Error(errorMessage)) : serializePiError(error),
             });
             context.toolCalls.push({
               toolKey: tool.key,
@@ -1323,8 +1323,8 @@ export class AssistantChatAgent {
   private async run(input: PiAgentRunRequest): Promise<PiAgentRunResponse> {
     const hrSandbox = isSandboxRunRequest(input) && input.hrSandboxUserId !== undefined;
     if (hrSandbox) await assertHrSandboxRunAllowed(createDatabase(this.env.DB), this.env, input);
-    if (isSandboxRunRequest(input)) {
-      const problem = hrToolKeysProblem(input.toolKeys, hrSandbox);
+    if (isSandboxRunRequest(input) && !hrSandbox) {
+      const problem = hrToolKeysProblem(input.toolKeys, false);
       if (problem) throw new HrSelfToolError(problem);
     }
     const providerDiagnostics: PiProviderExecutionDiagnostics = { runId: input.runId };
@@ -1333,6 +1333,9 @@ export class AssistantChatAgent {
     const subject = this.hrSubject();
     if (hrSandbox && subject && subject !== input.hrSandboxUserId) {
       throw new HrSelfToolError("這段對話已經模擬過另一位員工，請先清除對話再換人。" );
+    }
+    if (isSandboxRunRequest(input) && subject) {
+      await assertHrSandboxSubjectStillAllowed(createDatabase(this.env.DB), this.env, input.actorUserId, subject);
     }
     const sourceType = isLineRunRequest(input) ? input.sourceType : "sandbox";
     if (state.source_type !== sourceType) {
@@ -1380,8 +1383,8 @@ export class AssistantChatAgent {
       await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);
     }
     const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
-    // 每次重讀：旗標是這一輪跑到 HR 工具時才立起來的。
-    const masked = () => toolContext.privateHrRun === true || this.masksErrors();
+    // hrSelf：這一輪自己剛查到 HR 資料，還沒 commit，hr_subject 還沒記。
+    const masked = () => toolContext.privateHrRun === true || toolContext.hrSelf !== undefined || this.masksErrors();
     const initialMessages = await this.contextMessages(state, INTERACTIVE_CONTEXT_TOKENS);
     const images = await this.inputImages(input.attachments);
     const agent = new Agent({
@@ -1450,6 +1453,10 @@ export class AssistantChatAgent {
 
     await toolContext.hrSelf?.assertStillAuthorized();
     if (hrSandbox) await assertHrSandboxDeliveryAuthorized(createDatabase(this.env.DB), this.env, input, toolContext.hrSelf?.authorization);
+    // 這一輪沒呼叫 HR 工具，模型也可能直接從上下文複述；回答算數之前再驗一次。
+    if (isSandboxRunRequest(input) && subject) {
+      await assertHrSandboxSubjectStillAllowed(createDatabase(this.env.DB), this.env, input.actorUserId, subject);
+    }
     const response: PiAgentRunResponse = {
       ...(toolContext.privateHrRun ? { privateHrRun: true } : {}),
       ...(toolContext.hrSelf?.authorization ? { hrAuthorization: toolContext.hrSelf.authorization } : {}),
@@ -1514,6 +1521,9 @@ export class AssistantChatAgent {
             Date.now(),
             payload.runId,
           );
+          if (payload.hrSubject) {
+            this.sql.exec("UPDATE assistant_agent_state SET hr_subject = ? WHERE singleton = 1 AND hr_subject = ''", payload.hrSubject);
+          }
           const state = this.currentState();
           if (state && this.estimatedStoredContextTokens(state) > COMPACT_AFTER_TOKENS) {
             await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);

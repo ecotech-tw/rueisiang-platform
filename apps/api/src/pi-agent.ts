@@ -101,12 +101,19 @@ export async function runPiSandboxAgent(
   return requestAgent<PiSandboxAgentRunResponse>(env, sandboxAgentName(input), "/run", input);
 }
 
-/** 模擬本人的回合在路由重驗通過後才算進對話；沒呼叫到這裡的回合不會進任何一輪的上下文。 */
+/**
+ * 模擬本人的回合在路由重驗通過後才算進對話；沒呼叫到這裡的回合不會進任何一輪的上下文。
+ * `hrSubject` 是這一輪真的授權查過 HR 資料的員工，DO 從此把這段對話當成含他的資料。
+ */
 export async function commitPiSandboxRun(
   env: AppEnv["Bindings"],
   input: PiSandboxAgentRunRequest,
+  hrSubject?: string,
 ): Promise<void> {
-  await requestAgent<{ committed: boolean }>(env, sandboxAgentName(input), "/commit-run", { runId: input.runId });
+  await requestAgent<{ committed: boolean }>(env, sandboxAgentName(input), "/commit-run", {
+    runId: input.runId,
+    ...(hrSubject ? { hrSubject } : {}),
+  });
 }
 
 export async function resetPiLineAgent(

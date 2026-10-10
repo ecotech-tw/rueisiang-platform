@@ -1036,7 +1036,7 @@ export const assistant = new Hono<AppEnv>()
       });
       if (hrSandbox) {
         await assertHrSandboxDeliveryAuthorized(c.get("db"), c.env, piRequest, piResponse.hrAuthorization);
-        await commitPiSandboxRun(c.env, piRequest);
+        await commitPiSandboxRun(c.env, piRequest, piResponse.hrAuthorization?.userId);
       }
       if (session) {
         await appendAssistantSandboxMessage(c.get("db"), {

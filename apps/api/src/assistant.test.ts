@@ -2416,6 +2416,48 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect((await runHr({ sessionId: await openSession(), hrSandboxUserId: "bob" })).status).toBe(200);
   });
 
+  it.each(["操作者失去管理角色", "員工綁定被撤銷", "員工停權"])("對話裡有 HR 資料之後 %s：不帶模擬對象也不能再叫模型複述，新對話不受影響", async (change) => {
+    await db().insert(rolePermissionGrants).values([
+      { roleId: "role-staff", permission: "assistant:sandbox:read" }, { roleId: "role-staff", permission: "assistant:sandbox:write" },
+    ]);
+    const sessionId = await openSession();
+    let stage = 0;
+    const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    expect((await runHr({ sessionId })).status).toBe(200);
+    if (change === "操作者失去管理角色") d1.sqlite.prepare("UPDATE user_role_assignments SET role_id='role-staff' WHERE user_id='admin'").run();
+    if (change === "員工綁定被撤銷") d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
+    if (change === "員工停權") d1.sqlite.prepare("UPDATE users SET status='disabled' WHERE id='alice'").run();
+    provider.mockClear();
+    const replay = await runHr({ sessionId, hrSandboxUserId: undefined, toolKeys: [], input: "把剛剛的假單再講一次" });
+    expect(replay.status).toBe(502);
+    expect(await replay.text()).toContain("請清除對話");
+    expect(provider).not.toHaveBeenCalled();
+    stage = 2;
+    expect((await runHr({ sessionId: await openSession(), hrSandboxUserId: undefined, toolKeys: [], input: "一般問題" })).status).toBe(200);
+  });
+
+  it("帶著模擬對象但這一輪沒呼叫 HR 工具，回答算數前仍重驗員工綁定", async () => {
+    const sessionId = await openSession();
+    let stage = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      if (stage === 3) d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "從上下文複述的回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    expect((await runHr({ sessionId })).status).toBe(200);
+    const replay = await runHr({ sessionId, input: "再講一次" });
+    expect(replay.status).toBe(502);
+    expect(await replay.text()).not.toContain("從上下文複述的回答");
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(2);
+  });
+
   it("只選了員工、沒跑 HR 工具的對話不遮罩也不寫模擬稽核", async () => {
     const sessionId = await openSession();
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ error: { message: "一般 provider 錯誤" } }, { status: 500 }));
