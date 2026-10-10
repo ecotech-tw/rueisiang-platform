@@ -603,19 +603,29 @@ const BATCH_CHANGED_MESSAGE = "這一批加班申請在你確認之後有變動�
  * 審核者看著確認框的時候申請人改了某一天的時數，或有人先審掉幾筆，都回 409 讓他重新確認，
  * 不會核准他沒看過的內容。整批全有或全無。
  */
-export async function approveHrOvertimeBatch(db: Database, batchId: string, expected: ReadonlyArray<{ id: string; revision: number }>, comment: string, actor: HrActor, options: { allowAny?: boolean } = {}) {
-  if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
-  if (!expected.length || expected.length > MAX_OVERTIME_BATCH_ENTRIES || new Set(expected.map((row) => row.id)).size !== expected.length) throw new HrError(400, "整批核准的申請清單格式不正確。 ");
-  const allowAny = options.allowAny === true;
-  const rows = await db.select({ id: hrOvertimeRequests.id, revision: hrOvertimeRequests.revision, employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
+type BatchExpectation = ReadonlyArray<{ id: string; revision: number }>;
+
+async function listPendingBatchRows(db: Database, batchId: string, actor: HrActor, allowAny: boolean) {
+  return db.select({ id: hrOvertimeRequests.id, revision: hrOvertimeRequests.revision, employeeUserId: hrEmployments.employeeUserId, employmentId: hrOvertimeRequests.employmentId, scopeId: hrOvertimeRequests.scopeId, requestedStart: hrOvertimeRequests.requestedStart, requestedEnd: hrOvertimeRequests.requestedEnd })
     .from(hrOvertimeRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId))
     .where(and(eq(hrOvertimeRequests.batchId, batchId), eq(hrOvertimeRequests.status, "pending"), allowAny ? undefined : eq(hrOvertimeRequests.approverUserId, actor.id)))
     .orderBy(asc(hrOvertimeRequests.requestedStart));
+}
+
+function matchesBatchExpectation(rows: ReadonlyArray<{ id: string; revision: number }>, expected: BatchExpectation) {
+  const revisions = new Map(expected.map((row) => [row.id, row.revision]));
+  return rows.length === expected.length && rows.every((row) => revisions.get(row.id) === row.revision);
+}
+
+export async function approveHrOvertimeBatch(db: Database, batchId: string, expected: BatchExpectation, comment: string, actor: HrActor, options: { allowAny?: boolean } = {}) {
+  if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
+  if (!expected.length || expected.length > MAX_OVERTIME_BATCH_ENTRIES || new Set(expected.map((row) => row.id)).size !== expected.length) throw new HrError(400, "整批核准的申請清單格式不正確。 ");
+  const allowAny = options.allowAny === true;
+  const rows = await listPendingBatchRows(db, batchId, actor, allowAny);
   const employeeUserId = rows[0]?.employeeUserId;
   if (!employeeUserId) throw new HrError(404, "找不到指定給你的待審加班申請，這一批可能已經處理完了。 ");
   if (employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的加班申請。 ");
-  const expectedRevisions = new Map(expected.map((row) => [row.id, row.revision]));
-  if (rows.length !== expected.length || rows.some((row) => expectedRevisions.get(row.id) !== row.revision)) throw new HrError(409, BATCH_CHANGED_MESSAGE);
+  if (!matchesBatchExpectation(rows, expected)) throw new HrError(409, BATCH_CHANGED_MESSAGE);
 
   // 與逐筆核准同一組檢查。同一批是同一個人、同一份任職，任職查一次；據點指派一次查完再逐日比對。
   const employmentId = rows[0]!.employmentId;
@@ -627,11 +637,21 @@ export async function approveHrOvertimeBatch(db: Database, batchId: string, expe
 
   const updates = rows.map((row) => reviewEmployeeOvertimeStatement(row, "approved", { start: row.requestedStart, end: row.requestedEnd }, comment, actor, allowAny));
   const ids = rows.map((row) => row.id);
-  await writeHrMutation(db, [...updates, batchApprovedNotification(employeeUserId, batchId, rows.map((row) => row.requestedStart), comment)], ids[0]!, actor, "overtime_requests_reviewed", BATCH_CHANGED_MESSAGE, { activity: { payload: { batchId, requestIds: ids }, summary: `整批核准 ${ids.length} 筆加班申請` } });
+  try {
+    await writeHrMutation(db, [...updates, batchApprovedNotification(employeeUserId, batchId, rows.map((row) => row.requestedStart), comment)], ids[0]!, actor, "overtime_requests_reviewed", BATCH_CHANGED_MESSAGE, {
+      // 每一筆各留一筆活動紀錄：之後拿任何一天的申請 ID 都查得到是誰在何時核准的。
+      activity: { payload: { batchId, requestIds: ids }, summary: `整批核准 ${ids.length} 筆加班申請`, alsoEntityIds: ids.slice(1) },
+    });
+  } catch (error) {
+    if (!(error instanceof HrError) || error.status !== 409) throw error;
+    // 寫入被擋下不一定是內容變了。內容其實沒變卻叫審核者「看過最新的內容再核准」，他重看、重按只會一直撞同一個錯。
+    if (matchesBatchExpectation(await listPendingBatchRows(db, batchId, actor, allowAny), expected)) throw new HrError(409, "整批核准沒有寫入，但這一批的內容沒有變動。請稍後再試；一直發生的話請改用逐筆審核並通知系統管理者。 ");
+    throw error;
+  }
   return { ids, status: "approved" as const };
 }
 
-export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval, options: { allowAny?: boolean } = {}) {
+export async function reviewHrOvertimeRequest(db: Database, id: string, decision: "approved" | "rejected" | "cancelled", comment: string, actor: HrActor, actual?: HrOvertimeActualInterval, options: { allowAny?: boolean; expectedRevision?: number } = {}) {
   if (!["approved", "rejected", "cancelled"].includes(decision)) throw new HrError(400, "加班審核結果不正確。 ");
   if (comment.length > 1000) throw new HrError(400, "審核意見不可超過 1000 字。 ");
   if (decision === "cancelled") return cancelHrOvertimeRequest(db, id, actor, { allowAny: options.allowAny });
@@ -649,6 +669,9 @@ export async function reviewHrOvertimeRequest(db: Database, id: string, decision
   if (current.personKind === "employee" && current.employeeUserId === actor.id) throw new HrError(409, "申請人不可審核自己的加班申請。 ");
   if (!options.allowAny && (current.personKind === "worker" || current.approverUserId !== actor.id)) throw new HrError(404, "找不到指定給你的待審加班申請。 ");
   if (current.status !== "pending") throw new HrError(409, "加班申請不存在或已完成處理。 ");
+  // 審核者下決定時看到的版本。只拿剛讀出來的版本去守 UPDATE 的話，擋得住的只有讀寫之間那一瞬間；
+  // 審核者開著對話框的那幾十秒裡申請人改了時數，照樣會被核准。
+  if (options.expectedRevision !== undefined && current.personKind === "employee" && current.revision !== options.expectedRevision) throw new HrError(409, "這筆加班申請在你開啟之後被申請人修改過，請看過最新的內容再審核。 ");
 
   let actualStart: string | null = null;
   let actualEnd: string | null = null;

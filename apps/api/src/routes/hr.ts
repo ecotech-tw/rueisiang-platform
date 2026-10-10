@@ -768,7 +768,8 @@ export const hr = new Hono<AppEnv>()
     const decision = input.decision === "approved" || input.decision === "rejected" ? input.decision : null;
     if (!decision) throw new HTTPException(400, { message: "加班審核結果不正確。" });
     const comment = reviewComment(input);
-    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), undefined, { allowAny: can(c.get("user"), "hr:request:review") }));
+    const expectedRevision = input.revision === undefined ? undefined : integerValue(input, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER);
+    return c.json(await reviewHrOvertimeRequest(c.get("db"), c.req.param("id"), decision, comment, c.get("user"), undefined, { allowAny: can(c.get("user"), "hr:request:review"), expectedRevision }));
   })
   .get("/overtime", requirePermission("hr:request:review"), async (c) => c.json({ requests: await listHrOvertimeRequests(c.get("db"), undefined, true) }))
   .get("/me/leave-types", async (c) => {

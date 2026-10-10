@@ -366,6 +366,11 @@ describe("HR 申請中心", () => {
     // 逐筆核准的那一天一行，整批核准的兩天合成一行。
     expect(approvedNotice[0]).toMatchObject({ entityId: batchId, body: "2026-01-07 已核准。\n2026-01-08、2026-01-09 已核准：辛苦了" });
 
+    // 整批核准的每一筆都查得到是誰核准的，不是只掛在第一筆上。
+    const events = d1.sqlite.prepare("SELECT entity_id, actor_id FROM activity_events WHERE event_type='overtime_requests_reviewed' ORDER BY entity_id").all() as Array<{ entity_id: string; actor_id: string }>;
+    expect(events.map((event) => event.entity_id).sort()).toEqual([ids[2], ids[3]].sort());
+    expect(events.every((event) => event.actor_id === "admin")).toBe(true);
+
     // 整批都處理完之後再按一次：沒有東西可核准。
     expect((await approve(adminCookie, seen([ids[2]!, ids[3]!]))).status).toBe(404);
     expect((await request("/hr/me/overtime/batches/not-a-batch/approve", "POST", { comment: "", requests: seen([ids[2]!]) }, adminCookie)).status).toBe(404);
@@ -406,26 +411,49 @@ describe("HR 申請中心", () => {
     expect((Date.parse(`${changed.actualEnd!.replace(" ", "T")}Z`) - Date.parse(`${changed.actualStart!.replace(" ", "T")}Z`)) / 3_600_000).toBe(4);
   });
 
-  it("逐筆審核也守版本：申請人改過之後，用舊內容下的決定不會寫進去", async () => {
+  it("逐筆審核只核准審核者看到的那一版：對話框開著時申請人改了時數，按下去會被擋", async () => {
+    await assignEmployeeSupervisor();
+    const created = await request("/hr/me/overtime", "POST", { requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T19:00", settlementKind: "pay", reason: "" }, employeeCookie);
+    const id = (await created.json() as { id: string }).id;
+    const review = (decision: string, revision: number | undefined, comment = "") => request(`/hr/me/overtime/${id}/review`, "POST", { decision, comment, ...(revision === undefined ? {} : { revision }) }, adminCookie);
+    const current = () => d1.sqlite.prepare("SELECT status, revision, actual_start, actual_end, requested_end FROM hr_overtime_requests WHERE id=?").get(id) as { status: string; revision: number; actual_start: string | null; actual_end: string | null; requested_end: string };
+
+    // 審核者打開對話框時看到 1 小時（revision 1）；申請人接著改成 4 小時。
+    const edited = await request(`/hr/me/overtime/${id}`, "PATCH", { requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T22:00", settlementKind: "pay", reason: "", revision: 1 }, employeeCookie);
+    expect(edited.status, await edited.clone().text()).toBe(200);
+
+    for (const decision of ["approved", "rejected"]) {
+      const stale = await review(decision, 1, "依照畫面上的內容決定");
+      expect(stale.status).toBe(409);
+      expect(await stale.text()).toContain("修改過");
+    }
+    expect(current()).toMatchObject({ status: "pending", revision: 2, actual_start: null });
+
+    // 看過最新的內容再核准：核定的是改過之後的 4 小時。
+    expect((await review("approved", 2)).status).toBe(200);
+    const approved = current();
+    expect(approved).toMatchObject({ status: "approved", actual_end: approved.requested_end });
+  });
+
+  it("審核的寫入也守版本：讀出來之後、寫進去之前被改掉的申請不會被核准", async () => {
     await assignEmployeeSupervisor();
     const created = await request("/hr/me/overtime", "POST", { requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T19:00", settlementKind: "pay", reason: "" }, employeeCookie);
     const id = (await created.json() as { id: string }).id;
     const db = createDatabase(d1 as never);
     const { reviewHrOvertimeRequest, HrError } = await import("@rueisiang/db");
-    const original = d1.sqlite.prepare("SELECT revision FROM hr_overtime_requests WHERE id=?").get(id) as { revision: number };
-    // 「審核函式讀完、寫入之前」申請人改了時段：寫入走 D1 batch，在它執行前先把那一列改掉。
-    const realBatch = d1.batch.bind(d1);
-    let edited = false;
+    // 寫入走 D1 batch；在它執行前先把那一列改掉，模擬兩個請求交錯。
+    const realBatch = d1.batch;
     d1.batch = ((statements: Parameters<typeof d1.batch>[0]) => {
-      if (!edited) {
-        edited = true;
-        d1.sqlite.prepare("UPDATE hr_overtime_requests SET revision=revision+1, requested_start='2026-01-06 12:00:00', requested_end='2026-01-06 14:00:00' WHERE id=?").run(id);
-      }
-      return realBatch(statements);
+      d1.batch = realBatch;
+      d1.sqlite.prepare("UPDATE hr_overtime_requests SET revision=revision+1, requested_start='2026-01-06 12:00:00', requested_end='2026-01-06 14:00:00' WHERE id=?").run(id);
+      return realBatch.call(d1, statements);
     }) as typeof d1.batch;
-    await expect(reviewHrOvertimeRequest(db, id, "approved", "", { id: "admin", email: "admin@example.test" })).rejects.toBeInstanceOf(HrError);
-    const after = d1.sqlite.prepare("SELECT status, revision, actual_start FROM hr_overtime_requests WHERE id=?").get(id) as { status: string; revision: number; actual_start: string | null };
-    expect(after).toEqual({ status: "pending", revision: original.revision + 1, actual_start: null });
+    try {
+      await expect(reviewHrOvertimeRequest(db, id, "approved", "", { id: "admin", email: "admin@example.test" })).rejects.toBeInstanceOf(HrError);
+    } finally {
+      d1.batch = realBatch;
+    }
+    expect(d1.sqlite.prepare("SELECT status, revision, actual_start FROM hr_overtime_requests WHERE id=?").get(id)).toEqual({ status: "pending", revision: 2, actual_start: null });
   });
 
   it("單筆申請與後台代登不帶批次鍵，通知維持一筆一則", async () => {

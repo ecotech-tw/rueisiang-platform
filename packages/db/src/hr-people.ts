@@ -17,11 +17,17 @@ export interface HrActor { id: string; email: string }
 /** 共用 HR 稽核預設只放操作種類與 ID；物理刪除需要保留名稱快照時由呼叫端顯式提供。 */
 interface HrMutationOptions {
   allowEmptyMutationIndexes?: ReadonlySet<number>;
-  activity?: { entityLabel?: string; payload?: unknown; summary?: string };
+  activity?: {
+    entityLabel?: string;
+    payload?: unknown;
+    summary?: string;
+    /** 同一次異動還動到的其他實體。每個各留一筆同樣的活動紀錄，用它們的 ID 查才查得到是誰在何時做的。 */
+    alsoEntityIds?: readonly string[];
+  };
 }
 
 async function write(db: Database, statement: SQL | SQL[], id: string, actor: HrActor, action: string, conflictMessage = "此使用者已是員工、員工編號已使用，或關聯資料不存在。", options: HrMutationOptions = {}) {
-  const row = activityRow({ entityType: "hr_personnel", entityId: id, entityLabel: options.activity?.entityLabel, payload: options.activity?.payload, source: "hr", eventType: action, summary: options.activity?.summary ?? "人事資料異動", actor });
+  const activityRows = [id, ...(options.activity?.alsoEntityIds ?? [])].map((entityId) => activityRow({ entityType: "hr_personnel", entityId, entityLabel: options.activity?.entityLabel, payload: options.activity?.payload, source: "hr", eventType: action, summary: options.activity?.summary ?? "人事資料異動", actor }));
   try {
     const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
     const mutations = Array.isArray(statement) ? statement : [statement];
@@ -29,8 +35,8 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
       mutation,
       sql`INSERT INTO hr_mutation_guards (id, ok) VALUES (${crypto.randomUUID()}, CASE WHEN changes() > 0 OR ${options.allowEmptyMutationIndexes?.has(index) ? 1 : 0} = 1 THEN 1 ELSE 0 END)`,
     ]);
-    const statements = [...guardStatements, sql`INSERT INTO activity_events (id, entity_type, entity_id, entity_label, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
-        VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.entityLabel}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson})`,
+    const statements = [...guardStatements, ...activityRows.map((row) => sql`INSERT INTO activity_events (id, entity_type, entity_id, entity_label, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
+        VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.entityLabel}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson})`),
       sql`DELETE FROM hr_mutation_guards`].map((query) => {
       const compiled = dialect.sqlToQuery(query);
       return db.$client.prepare(compiled.sql).bind(...compiled.params);

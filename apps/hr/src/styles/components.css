@@ -578,8 +578,10 @@
 .hr-form-request-card.review.batch { box-shadow: 0 0 0 1px --alpha(var(--color-ok) / 28%) inset; background: var(--color-ok-soft); }
 .hr-form-request-card.review.batch p { margin: 0; font-size: 13px; line-height: 1.55; font-variant-numeric: tabular-nums; }
 .hr-overtime-batch-days { display: grid; gap: 6px; max-height: 40vh; margin: 12px 0; padding: 0; overflow-y: auto; list-style: none; font-size: 13px; font-variant-numeric: tabular-nums; }
-.hr-overtime-batch-days li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-radius: 10px; background: var(--color-canvas); }
-.hr-overtime-batch-days li span:last-child { color: var(--color-muted); }
+.hr-overtime-batch-days li { display: grid; gap: 2px; padding: 8px 12px; border-radius: 10px; background: var(--color-canvas); }
+.hr-overtime-batch-days li > div { display: flex; justify-content: space-between; gap: 12px; }
+.hr-overtime-batch-days li > div span:last-child { color: var(--color-muted); }
+.hr-overtime-batch-days li small { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
 .hr-form-request-summary { display: grid; gap: 10px; min-width: 0; }
 .hr-form-request-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .hr-form-request-title strong { font-size: 16px; }

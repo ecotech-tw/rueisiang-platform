@@ -4,9 +4,10 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, useOvertimeBatchSelection } from "@rueisiang/ui";
 import { Alert, Button, ConfirmDialog, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrLeaveEnd, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type HrOvertimeDay, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
-import { dateBefore, formatHours } from "./format.js";
+import { dateBefore, formatHours, taipeiDay, taipeiTimeRange, utcStampDate } from "./format.js";
 import { hoursToMinutes } from "./hours-entry.js";
-import { emptyRecordsMessage, reviewableOvertimeBatches } from "./notification-link.js";
+import { emptyRecordsMessage } from "./notification-link.js";
+import { batchDialogItems, reviewableOvertimeBatches } from "./overtime-batch.js";
 import { swipeTarget, type SlideDirection } from "./page-direction.js";
 
 const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "info" | "success" | "danger" }> = {
@@ -19,7 +20,7 @@ const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "
 
 function formatTaipei(value: string | null) {
   if (!value) return "—";
-  const date = new Date(`${value.replace(" ", "T")}Z`);
+  const date = utcStampDate(value);
   if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(date);
 }
@@ -223,7 +224,8 @@ function OvertimeReviewDialog({ item, onClose }: { item: OvertimeRequest; onClos
     }
     setError("");
     try {
-      await review.mutateAsync({ path: `/me/overtime/${item.request.id}/review`, method: "POST", values: { decision, comment: comment.trim() } });
+      // 帶上對話框開啟時的版本：申請人在這期間改了時數的話，伺服器會擋下來，不會核准審核者沒看過的內容。
+      await review.mutateAsync({ path: `/me/overtime/${item.request.id}/review`, method: "POST", values: { decision, comment: comment.trim(), revision: item.request.revision } });
       (closeRequestRef.current ?? onClose)();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "審核失敗，請稍後再試。");
@@ -242,47 +244,36 @@ function OvertimeReviewDialog({ item, onClose }: { item: OvertimeRequest; onClos
 
 type OvertimeBatch = { batchId: string; items: OvertimeRequest[] };
 
-const taipeiDayFormat = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium" });
-const taipeiTimeFormat = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", timeStyle: "short" });
-
-function utcStampDate(value: string) {
-  return new Date(`${value.replace(" ", "T")}Z`);
-}
-
-function taipeiDay(value: string) {
-  const date = utcStampDate(value);
-  return Number.isNaN(date.getTime()) ? value : taipeiDayFormat.format(date);
-}
-
-/** 只有時間的區間；結束落在另一天時要講出來，不然 23:00～01:00 看不出跨日。 */
-function taipeiTimeRange(start: string, end: string) {
-  const [from, to] = [utcStampDate(start), utcStampDate(end)];
-  if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) return `${start}～${end}`;
-  return `${taipeiTimeFormat.format(from)}～${taipeiDayFormat.format(from) === taipeiDayFormat.format(to) ? "" : "隔日 "}${taipeiTimeFormat.format(to)}`;
-}
-
 /**
  * 月底一次送來的整批加班：逐筆開對話框核准二三十次不實際。駁回各有各的理由，仍然逐筆處理。
  *
- * 送出的是畫面上列出的那幾筆與版本，伺服器只核准一模一樣的集合。`batch` 由上層從最新的待審清單
- * 取，被擋下（409）重抓之後這裡會直接換成新的內容，審核者看到的永遠是按下去會核准的東西。
+ * 送出的是畫面上列出的那幾筆與版本，伺服器只核准一模一樣的集合。`items` 由上層從最新的待審清單取，
+ * 被擋下（409）重抓之後這裡會直接換成新的內容，審核者看到的永遠是按下去會核准的東西。
  */
-function OvertimeBatchApproveDialog({ batch, onClose }: { batch: OvertimeBatch; onClose: () => void }) {
+function OvertimeBatchApproveDialog({ batchId, items, settled, onClose }: { batchId: string; items: OvertimeRequest[]; settled: boolean; onClose: () => void }) {
   const [comment, setComment] = useState("");
   const approve = useHrWrite<{ ids: string[] }>();
   const closeRequestRef = useRef<(() => void) | null>(null);
-  const totalMinutes = batch.items.reduce((total, item) => total + (utcStampDate(item.request.requestedEnd).getTime() - utcStampDate(item.request.requestedStart).getTime()) / 60_000, 0);
+  const totalMinutes = items.reduce((total, item) => total + (utcStampDate(item.request.requestedEnd).getTime() - utcStampDate(item.request.requestedStart).getTime()) / 60_000, 0);
+  // 核准成功後清單也會清空；那是正在關閉，不是「已經被別人處理掉」。
+  const alreadyHandled = settled && !approve.isPending && !approve.isSuccess;
   function submit() {
-    approve.mutate({ path: `/me/overtime/batches/${encodeURIComponent(batch.batchId)}/approve`, method: "POST", values: { comment: comment.trim(), requests: batch.items.map((item) => ({ id: item.request.id, revision: item.request.revision })) } }, { onSuccess: () => (closeRequestRef.current ?? onClose)() });
+    approve.mutate({ path: `/me/overtime/batches/${encodeURIComponent(batchId)}/approve`, method: "POST", values: { comment: comment.trim(), requests: items.map((item) => ({ id: item.request.id, revision: item.request.revision })) } }, { onSuccess: () => (closeRequestRef.current ?? onClose)() });
   }
-  return <Dialog title="整批核准加班申請" titleMeta={batch.items[0]?.employeeName ?? batch.items[0]?.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={approve.isPending} actions={<>
-    <Button variant="secondary" disabled={approve.isPending} onClick={onClose}>取消</Button>
-    <Button className="hr-action-approve" loading={approve.isPending} loadingLabel="核准中…" onClick={submit}>核准 {batch.items.length} 筆</Button>
+  return <Dialog title="整批核准加班申請" titleMeta={items[0]?.employeeName ?? items[0]?.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={approve.isPending} actions={<>
+    <Button variant="secondary" disabled={approve.isPending} onClick={onClose}>{alreadyHandled ? "關閉" : "取消"}</Button>
+    <Button className="hr-action-approve" loading={approve.isPending} loadingLabel="核准中…" disabled={alreadyHandled} onClick={submit}>核准 {items.length} 筆</Button>
   </>}>
-    <p>會一次核准下面 {batch.items.length} 筆、共 {formatHours(totalMinutes)}。要駁回其中幾筆的話，請先回清單逐筆審核那幾筆。</p>
-    <ul className="hr-overtime-batch-days">{batch.items.map((item) => <li key={item.request.id}><span>{taipeiDay(item.request.requestedStart)}</span><span>{taipeiTimeRange(item.request.requestedStart, item.request.requestedEnd)}</span></li>)}</ul>
-    <Field label="審核意見（選填）" hint="會附在給申請人的通知裡。"><textarea maxLength={1000} rows={3} value={comment} disabled={approve.isPending} onChange={(event) => setComment(event.target.value)} /></Field>
-    {approve.error ? <Alert tone="danger">{approve.error.message}</Alert> : null}
+    {alreadyHandled
+      ? <Alert tone="info">這一批已經沒有待審的申請了，可能已被處理或取消。</Alert>
+      : <p>會一次核准下面 {items.length} 筆、共 {formatHours(totalMinutes)}。要駁回其中幾筆的話，請先回清單逐筆審核那幾筆。</p>}
+    {/* 原因與結算方式申請人可以逐筆改；只列日期時數的話，審核者會核准到沒看過的內容。 */}
+    <ul className="hr-overtime-batch-days">{items.map((item) => <li key={item.request.id}>
+      <div><span>{taipeiDay(item.request.requestedStart)}</span><span>{taipeiTimeRange(item.request.requestedStart, item.request.requestedEnd)}</span></div>
+      <small>{item.request.settlementKind === "pay" ? "付薪" : "補休"}・{item.request.reason || "未填寫原因"}</small>
+    </li>)}</ul>
+    <Field label="審核意見（選填）" hint="會附在給申請人的通知裡。"><textarea maxLength={1000} rows={3} value={comment} disabled={approve.isPending || alreadyHandled} onChange={(event) => setComment(event.target.value)} /></Field>
+    {approve.error && !alreadyHandled ? <Alert tone="danger">{approve.error.message}</Alert> : null}
   </Dialog>;
 }
 
@@ -550,8 +541,7 @@ export function HrForms() {
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
     {reviewingLeave ? <LeaveReviewDialog item={reviewingLeave} onClose={() => setReviewingLeave(null)} /> : null}
     {reviewingOvertime ? <OvertimeReviewDialog item={reviewingOvertime} onClose={() => setReviewingOvertime(null)} /> : null}
-    {/* 清單重抓後用最新的那一批；整批都處理完、清單裡已經沒有它時沿用開啟時的內容，讓退場動畫跑完。 */}
-    {approvingBatch ? <OvertimeBatchApproveDialog batch={overtimeBatches.find((batch) => batch.batchId === approvingBatch.batchId) ?? approvingBatch} onClose={() => setApprovingBatch(null)} /> : null}
+    {approvingBatch ? <OvertimeBatchApproveDialog batchId={approvingBatch.batchId} {...batchDialogItems(overtime.data?.reviewRequests ?? [], approvingBatch)} onClose={() => setApprovingBatch(null)} /> : null}
     {cancelling ? <OvertimeCancelDialog item={cancelling} onClose={() => setCancelling(null)} /> : null}
     {cancellingLeave ? <LeaveCancelDialog item={cancellingLeave} onClose={() => setCancellingLeave(null)} /> : null}
     {correctionAction ? <CorrectionActionDialog action={correctionAction} onClose={() => setCorrectionAction(null)} /> : null}
