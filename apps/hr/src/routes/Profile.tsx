@@ -95,9 +95,16 @@ export function HrProfile() {
   const signOut = useSignOut();
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [signOutPending, setSignOutPending] = useState(false);
-  function confirmSignOut() {
+  const [signOutError, setSignOutError] = useState<string | null>(null);
+  async function confirmSignOut() {
     setSignOutPending(true);
-    void signOut();
+    setSignOutError(null);
+    try {
+      await signOut();
+    } catch (error) {
+      setSignOutError(error instanceof Error ? error.message : "登出失敗，請稍後再試。");
+      setSignOutPending(false);
+    }
   }
   return <div className="page hr-profile-page">
     <PageHeader title="個人中心" description="查看你的帳號、任職與工作地點資料；如有錯誤，請聯絡管理者。" />
@@ -108,6 +115,7 @@ export function HrProfile() {
     <div className="hr-profile-signout"><Button variant="primary" className="hr-profile-signout-button" icon="logout" onClick={() => setShowSignOutConfirm(true)}>登出此裝置</Button></div>
     {showSignOutConfirm ? <ConfirmDialog title="確定要登出這台裝置？" confirmLabel="確認登出" cancelLabel="繼續使用" tone="primary" pending={signOutPending} onCancel={() => { if (!signOutPending) setShowSignOutConfirm(false); }} onConfirm={confirmSignOut}>
       <p>登出後會清除這台裝置的登入狀態，並返回登入頁。要繼續嗎？</p>
+      {signOutError ? <Alert tone="danger">{signOutError}</Alert> : null}
     </ConfirmDialog> : null}
   </div>;
 }

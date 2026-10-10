@@ -31,7 +31,16 @@ async function fetchPendingLineIntent(): Promise<boolean> {
   return Boolean(result.pending);
 }
 
+/** 只抑制主動登出後的登入頁；從 LINE 重新開啟 HR 不繼承此狀態。 */
+export function isSignedOutEntry(): boolean {
+  return window.location.pathname === "/login" && new URLSearchParams(window.location.search).get("signedOut") === "1";
+}
+
 export async function fetchSession(): Promise<SessionUser | null> {
+  if (isSignedOutEntry()) {
+    lineLinkRequired = false;
+    return null;
+  }
   const lineIdToken = getLiffIdToken();
   if (lineIdToken) {
     const lineSession = await fetch(`${API_BASE_URL}/hr/me/liff-session`, {
@@ -84,8 +93,10 @@ export function useSession() {
 export function useSignOut() {
   const client = useQueryClient();
   return async () => {
-    await fetch(`${API_BASE_URL}/hr/me/device`, { method: "DELETE", credentials: "include" }).catch(() => undefined);
+    const response = await fetch(`${API_BASE_URL}/hr/me/device`, { method: "DELETE", credentials: "include" });
+    if (!response.ok && response.status !== 401) throw await responseError(response, "登出失敗，請稍後再試。");
+    lineLinkRequired = false;
     client.clear();
-    window.location.assign("/login");
+    window.location.assign("/login?signedOut=1");
   };
 }

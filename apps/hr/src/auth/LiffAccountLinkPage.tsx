@@ -13,6 +13,18 @@ export function LiffAccountLinkPage({ replaceExisting = false, intentExpired = f
   // 先更新登入狀態再讓共用 mutation 重抓 HR，避免成功清除 intent 被誤判為逾時。
   const link = useHrWrite<{ linked: boolean }>({ onSuccess: () => client.invalidateQueries({ queryKey: ["session"] }) });
   const [error, setError] = useState<string | null>(null);
+  const [signOutPending, setSignOutPending] = useState(false);
+
+  async function switchAccount() {
+    setError(null);
+    setSignOutPending(true);
+    try {
+      await signOut();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "登出失敗，請稍後再試。");
+      setSignOutPending(false);
+    }
+  }
 
   async function confirmLink() {
     setError(null);
@@ -34,10 +46,10 @@ export function LiffAccountLinkPage({ replaceExisting = false, intentExpired = f
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {!link.isPending && intentExpired ? <Alert tone="danger">LINE 綁定驗證已逾時，請重新從 LINE 開啟打卡頁。若目前仍在 LINE 打卡頁，可重新載入驗證。</Alert> : null}
       {!link.isPending && intentExpired ? <Button variant="secondary" onClick={() => window.location.reload()}>重新載入驗證</Button> : null}
-      <Button variant="primary" className="hr-liff-link-confirm" disabled={intentExpired || !user?.isEmployee || link.isPending} onClick={() => void confirmLink()}>
+      <Button variant="primary" className="hr-liff-link-confirm" disabled={intentExpired || !user?.isEmployee || link.isPending || signOutPending} onClick={() => void confirmLink()}>
         {link.isPending ? "驗證並綁定中…" : replaceExisting ? "解除舊綁定並改綁目前 LINE" : "確認並綁定這個帳號"}
       </Button>
-      <Button variant="secondary" disabled={link.isPending} onClick={() => void signOut()}>不是這個帳號？登出後切換</Button>
+      <Button variant="secondary" disabled={link.isPending || signOutPending} onClick={() => void switchAccount()}>{signOutPending ? "登出中…" : "不是這個帳號？登出後切換"}</Button>
       <small>LINE 身分由伺服器向 LINE 驗證；不會使用前端自行提供的 LINE UID。</small>
     </Panel>
   </main>;

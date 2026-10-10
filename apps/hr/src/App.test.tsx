@@ -8,7 +8,7 @@ import { App } from "./App.js";
 import { fetchSession } from "./auth/session.js";
 
 const liff = vi.hoisted(() => ({ token: null as string | null }));
-vi.mock("./auth/liff.js", () => ({ isLiffConfigured: () => true, getLiffIdToken: () => liff.token }));
+vi.mock("./auth/liff.js", () => ({ isLiffConfigured: () => true, isLiffClient: () => Boolean(liff.token), getLiffIdToken: () => liff.token }));
 vi.mock("./routes/hr/Clock.js", () => ({ HrClock: () => <p>打卡入口</p>, HrClockCalendar: () => <p>出勤日曆入口</p>, HrClockLogs: () => <p>打卡紀錄入口</p> }));
 vi.mock("./routes/hr/Forms.js", () => ({ HrForms: () => <p>表單申請入口</p>, HrClockCorrectionForm: () => null, HrLeaveForm: () => null, HrOvertimeForm: () => null }));
 vi.mock("./routes/hr/Payroll.js", () => ({ HrPayrollHistory: () => <p>薪資袋入口</p>, HrPayslipDetail: () => null }));
@@ -32,6 +32,7 @@ let replaceRequired: boolean;
 let lineAuthenticated: boolean;
 let sessionReadDelay: Promise<void> | null;
 let intentFailure: "network" | "server" | null;
+let signOutFailure: boolean;
 let platformOnly: boolean;
 let expired: boolean;
 let sessionAuthorized: boolean;
@@ -46,6 +47,7 @@ beforeEach(() => {
   lineAuthenticated = false;
   sessionReadDelay = null;
   intentFailure = null;
+  signOutFailure = false;
   platformOnly = false;
   expired = false;
   sessionAuthorized = true;
@@ -83,7 +85,8 @@ beforeEach(() => {
       }
       return Response.json({ linked, pending: intentPending, replaceRequired });
     }
-    if (path.endsWith("/me/device")) return Response.json({ ok: true });
+    if (path.endsWith("/me/device")) return signOutFailure && init?.method === "DELETE"
+      ? Response.json({ error: "登出暫時失敗" }, { status: 503 }) : Response.json({ ok: true });
     throw new Error(`未預期請求：${path}`);
   }));
 });
@@ -93,6 +96,7 @@ afterEach(async () => {
   client.clear();
   container.remove();
   liff.token = null;
+  window.history.replaceState({}, "", "/");
   vi.stubGlobal("fetch", async () => Response.json({ ...user, lineLiffAuthenticated: true }));
   await fetchSession();
   vi.unstubAllGlobals();
@@ -100,6 +104,7 @@ afterEach(async () => {
 });
 
 async function renderApp(path = "/clock") {
+  window.history.replaceState({}, "", path);
   await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><App /></MemoryRouter></QueryClientProvider>));
 }
 async function expectText(text: string) {
@@ -118,6 +123,48 @@ async function clickButton(label: string) {
 }
 
 describe("LIFF 與一般 HR 登入流程", () => {
+  it("主動登出的 LINE 登入頁不 bootstrap 或導回打卡，並提供明確重新登入入口", async () => {
+    liff.token = "line-id-token";
+    linked = true;
+    lineAuthenticated = true;
+    await renderApp("/login?signedOut=1");
+    await expectText("使用 LINE 重新登入");
+    expect(container.textContent).toContain("LINE 綁定仍保留");
+    expect([...container.querySelectorAll("a")].find((link) => link.textContent === "使用 LINE 重新登入")?.getAttribute("href")).toBe("/");
+    expect(container.textContent).not.toContain("打卡入口");
+    expect(requested).toEqual([]);
+    await act(async () => { await client.invalidateQueries({ queryKey: ["session"] }); });
+    expect(requested).toEqual([]);
+    expect(container.textContent).toContain("使用 LINE 重新登入");
+  });
+
+  it.each(["/login?signedOut=1", "https://other.example.test/", "//other.example.test/"])("明確 LINE 重新登入不接受返回登入頁或外站的 returnTo：%s", async (returnTo) => {
+    liff.token = "line-id-token";
+    await renderApp(`/login?signedOut=1&returnTo=${encodeURIComponent(returnTo)}`);
+    await expectText("使用 LINE 重新登入");
+    expect([...container.querySelectorAll("a")].find((link) => link.textContent === "使用 LINE 重新登入")?.getAttribute("href")).toBe("/");
+    expect(requested).toEqual([]);
+  });
+
+  it("一般瀏覽器主動登出保留帳號密碼與 Google，不顯示不能使用的 LINE 入口", async () => {
+    await renderApp("/login?signedOut=1");
+    await expectText("使用 Google 帳號登入");
+    expect(container.textContent).toContain("或使用帳號密碼登入");
+    expect(container.textContent).not.toContain("使用 LINE 重新登入");
+    expect(requested).toEqual([]);
+  });
+
+  it("綁定頁登出失敗保留帳號與錯誤，按鈕可再次操作", async () => {
+    platformOnly = true;
+    intentPending = true;
+    await renderApp();
+    await expectText("綁定 LINE 打卡");
+    signOutFailure = true;
+    await clickButton("不是這個帳號？登出後切換");
+    await expectText("登出暫時失敗");
+    expect(client.getQueryData(["session"])).toMatchObject({ id: "employee", lineLinkRequired: true });
+    expect([...container.querySelectorAll("button")].find((button) => button.textContent === "不是這個帳號？登出後切換")?.disabled).toBe(false);
+  });
   it("啟用 LIFF 後只有一般裝置 cookie 仍能進打卡，不查要求平台登入的綁定 API", async () => {
     await renderApp();
     await expectText("打卡入口");

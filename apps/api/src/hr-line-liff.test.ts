@@ -1,7 +1,7 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import { createDatabase, findUserByLineIdentity, linkLineAccount, replaceLineAccount, unlinkLineAccount, syncSystemRoles } from "@rueisiang/db";
-import { authDeviceSessions, hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmployments, hrNotifications, hrOvertimeRequests, hrWorkerOvertimeRequests, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { authDeviceSessions, hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmployments, hrNotifications, hrOvertimeRequests, hrPayrollPeriods, hrPayrollRuns, hrPayslipLines, hrPayslips, hrWorkerOvertimeRequests, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -165,6 +165,53 @@ describe("HR LINE LIFF 登入與帳號綁定", () => {
     expect((await call("/api/hr/employees", { headers: requestHeaders(deviceCookie) })).status).toBe(401);
     expect((await call("/api/hr/me/device", { method: "POST", headers: requestHeaders(deviceCookie) })).status).toBe(200);
     expect((await db().select().from(authDeviceSessions)).map((row) => row.authMethod)).toEqual(["line_liff"]);
+  });
+
+  it("LINE 薪資袋只讀本人存在的已發放薪資與明細，不能用另一位員工的真實 ID 越權", async () => {
+    const alice = await seedEmployee("line-payslip-alice@ecotech.tw");
+    const bob = await seedEmployee("line-payslip-bob@ecotech.tw");
+    await linkLineAccount(db(), alice.id, { channelId: CHANNEL_ID, lineUserId: "U-line-alice" });
+    await linkLineAccount(db(), bob.id, { channelId: CHANNEL_ID, lineUserId: "U-line-bob" });
+    const aliceCookie = asCookie(cookieFrom(await bootstrap("line-alice"), DEVICE_SESSION_COOKIE));
+    const bobCookie = asCookie(cookieFrom(await bootstrap("line-bob"), DEVICE_SESSION_COOKIE));
+    await db().insert(hrPayrollPeriods).values({ id: "liff-payroll-period", periodKey: "2026-09", attendanceStart: "2026-09-01", attendanceEnd: "2026-10-01", createdBy: alice.id });
+    await db().insert(hrPayrollRuns).values({ id: "liff-payroll-run", payrollPeriodId: "liff-payroll-period", versionNumber: 1, requestId: "liff-payroll-request", inputRevision: 1,
+      engineVersion: "test-line-isolation", status: "ready", expectedCount: 2, completedCount: 2, createdBy: alice.id });
+    await db().insert(hrPayslips).values([
+      { id: "alice-payslip", payrollRunId: "liff-payroll-run", employmentId: alice.employmentId, employeeNumber: "E-1", employeeName: "Alice", earningMinor: 4_100_000, deductionMinor: 100_000, netMinor: 4_000_000 },
+      { id: "bob-payslip", payrollRunId: "liff-payroll-run", employmentId: bob.employmentId, employeeNumber: "E-2", employeeName: "Bob", earningMinor: 5_200_000, deductionMinor: 200_000, netMinor: 5_000_000 },
+    ]);
+    await db().insert(hrPayslipLines).values([
+      { id: "alice-earning", payslipId: "alice-payslip", lineKey: "base_salary", direction: "earning", amountMinor: 4_100_000, explanationJson: JSON.stringify({ payBasis: "monthly", itemName: "Alice 專屬薪資項目" }) },
+      { id: "alice-deduction", payslipId: "alice-payslip", lineKey: "tax", direction: "deduction", amountMinor: 100_000 },
+      { id: "bob-earning", payslipId: "bob-payslip", lineKey: "base_salary", direction: "earning", amountMinor: 5_200_000, explanationJson: JSON.stringify({ payBasis: "monthly", itemName: "Bob 專屬薪資項目" }) },
+      { id: "bob-deduction", payslipId: "bob-payslip", lineKey: "tax", direction: "deduction", amountMinor: 200_000 },
+    ]);
+    const beforeClose = await call("/api/hr/me/payroll-history", { headers: requestHeaders(aliceCookie) });
+    expect(await beforeClose.json()).toEqual({ records: [] });
+    expect((await call(`/api/hr/me/payroll-history/liff-payroll-run/${alice.employmentId}`, { headers: requestHeaders(aliceCookie) })).status).toBe(404);
+    await db().update(hrPayrollRuns).set({ status: "closed" }).where(eq(hrPayrollRuns.id, "liff-payroll-run"));
+    for (const [owner, other, cookie, earningMinor, deductionMinor, netMinor] of [
+      [alice, bob, aliceCookie, 4_100_000, 100_000, 4_000_000], [bob, alice, bobCookie, 5_200_000, 200_000, 5_000_000],
+    ] as const) {
+      const name = owner.id === alice.id ? "Alice" : "Bob";
+      const otherName = name === "Alice" ? "Bob" : "Alice";
+      const history = await call(`/api/hr/me/payroll-history?employeeUserId=${encodeURIComponent(other.id)}`, { headers: requestHeaders(cookie) });
+      expect(history.status).toBe(200);
+      expect(await history.json()).toMatchObject({ records: [{ runId: "liff-payroll-run", employmentId: owner.employmentId, employeeName: name, earningMinor, deductionMinor, netMinor }] });
+      const detail = await call(`/api/hr/me/payroll-history/liff-payroll-run/${owner.employmentId}`, { headers: requestHeaders(cookie) });
+      expect(detail.status).toBe(200);
+      const payload = await detail.json();
+      expect(payload).toMatchObject({ detail: { record: { employmentId: owner.employmentId, employeeName: name, netMinor }, lines: [
+        { lineKey: "base_salary", direction: "earning", amountMinor: earningMinor, explanation: { itemName: `${name} 專屬薪資項目` } },
+        { lineKey: "tax", direction: "deduction", amountMinor: deductionMinor },
+      ] } });
+      expect(JSON.stringify(payload)).not.toContain(`${otherName} 專屬薪資項目`);
+      expect(JSON.stringify(payload)).not.toContain(other.employmentId);
+      const forbidden = await call(`/api/hr/me/payroll-history/liff-payroll-run/${other.employmentId}`, { headers: requestHeaders(cookie) });
+      expect(forbidden.status).toBe(404);
+      expect(await forbidden.json()).toEqual({ error: "找不到已發放的薪資明細。" });
+    }
   });
 
   it("LINE 登入的通知、薪資與申請仍以伺服器身分為準，不能讀寫他人的資料", async () => {
