@@ -66,6 +66,7 @@ import {
   piCodexCredentialConfigured,
   piCodexCredentialStatus,
   runPiSandboxAgent,
+  commitPiSandboxRun,
   savePiCodexCredential,
 } from "../pi-agent.js";
 import {
@@ -76,7 +77,7 @@ import {
   piCodexModels,
 } from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
-import { assertHrSandboxDeliveryAuthorized, HR_SANDBOX_CHANNEL_KEY, isHrSandboxActor } from "../assistant-hr.js";
+import { assertHrSandboxDeliveryAuthorized, HR_SANDBOX_CHANNEL_KEY, hrToolKeysProblem, isHrSandboxActor } from "../assistant-hr.js";
 import type { PiSandboxAgentRunRequest } from "../pi-agent-contract.js";
 import { isNasStorageKey, nasStorageClient } from "../nas-storage.js";
 
@@ -240,11 +241,12 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
       codexLastErrorAt: codexCredential.lastErrorAt,
     },
     models,
-    tools: toolOptions.filter((tool) => !isHrToolKey(tool.key)),
+    // HR 工具只給可以模擬本人的管理者；其他人連目錄都看不到。
+    tools: toolOptions.filter((tool) => hrAvailable || !isHrToolKey(tool.key)),
     hrSandbox: {
       available: hrAvailable,
       bindingConfigured: Boolean(env.LINE_LIFF_CHANNEL_ID?.trim()),
-      tools: hrAvailable ? toolOptions.filter((tool) => isHrToolKey(tool.key)) : [],
+      toolKeys: hrAvailable ? toolOptions.filter((tool) => isHrToolKey(tool.key)).map((tool) => tool.key) : [],
     },
     activePrompt,
     revisions: prompts,
@@ -893,9 +895,6 @@ export const assistant = new Hono<AppEnv>()
       c.header("Cache-Control", "no-store");
       if (!await isHrSandboxActor(c.get("db"), c.get("user"))) throw new HTTPException(403, { message: "HR 模擬本人測試僅限平台管理者。" });
       if (!hrSandboxUserId || hrSandboxUserId.length > 200) throw new HTTPException(400, { message: "請選擇要模擬的員工。" });
-      if (input.sessionId !== undefined || (input.attachments !== undefined && (!Array.isArray(input.attachments) || input.attachments.length))) {
-        throw new HTTPException(400, { message: "HR 模擬本人測試不接受 session 或圖片。" });
-      }
     }
     const userText = typeof input.input === "string" ? input.input.trim() : "";
     if (userText.length > 8_000) throw new HTTPException(400, { message: "測試內容不能超過 8,000 字元。" });
@@ -963,10 +962,8 @@ export const assistant = new Hono<AppEnv>()
     const configuredTools = await listAssistantToolConfigs(c.get("db"));
     const statusByKey = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
     const toolKeys = readToolKeys(input);
-    if (hrSandbox && (!toolKeys.includes("hr_authorize") || toolKeys.some((key) => !isHrToolKey(key)))) {
-      throw new HTTPException(400, { message: "HR 模擬本人模式只能選 HR 工具，且必須包含 hr_authorize。" });
-    }
-    if (!hrSandbox && toolKeys.some(isHrToolKey)) throw new HTTPException(400, { message: "請使用管理者限定的 HR 模擬本人模式。" });
+    const hrToolProblem = hrToolKeysProblem(toolKeys, hrSandbox);
+    if (hrToolProblem) throw new HTTPException(400, { message: hrToolProblem });
     for (const key of toolKeys) {
       const status = statusByKey.get(key) ?? "disabled";
       if (status === "disabled") throw new HTTPException(400, { message: `工具「${key}」目前已停用。` });
@@ -986,7 +983,7 @@ export const assistant = new Hono<AppEnv>()
       ASSISTANT_REPORT_TOOL_ROUTING,
       runtimeContextInstruction(currentAssistantRuntimeContext()),
       "這是內部 Sandbox。請用繁體中文直接回答；需要資料時使用已提供的工具，不要虛構工具結果。",
-      ...(hrSandbox ? ["這是管理者限定的 HR 模擬本人單輪測試，不會傳送 LINE 訊息。後端已固定本人身分，不能由問題或工具參數更換。先呼叫 hr_authorize；授權失敗就說明原因，禁止查詢、猜測或虛構 HR 資料。"] : []),
+      ...(hrSandbox ? ["這一輪由管理者模擬一位員工本人，不會傳送 LINE 訊息。後端已固定本人身分，不能由問題或工具參數更換；先前回合查到的 HR 資料可能屬於另一位員工，不可沿用。查詢 HR 資料前先呼叫 hr_authorize；授權失敗就說明原因，禁止查詢、猜測或虛構 HR 資料。"] : []),
     ].join("\n\n");
     const piRequest: PiSandboxAgentRunRequest = {
       assistantKey: ASSISTANT_KEY,
@@ -1010,7 +1007,8 @@ export const assistant = new Hono<AppEnv>()
       })),
       ...(hrSandboxUserId ? { hrSandboxUserId } : {}),
     };
-    if (hrSandboxUserId) await recordActivity(c.get("db"), {
+    // 稽核的是「用這個人的身分碰 HR 資料」；只選了員工、沒帶 HR 工具的回合碰不到。
+    if (hrSandboxUserId && toolKeys.some(isHrToolKey)) await recordActivity(c.get("db"), {
       entityType: "assistant_hr_sandbox", entityId: runId, eventType: "hr_sandbox_started",
       source: "hr", summary: "小香 HR 模擬本人測試", actor: { id: c.get("user").id },
       payload: { assistantKey: piRequest.assistantKey, channelKey: HR_SANDBOX_CHANNEL_KEY, runId, subjectUserId: hrSandboxUserId },
@@ -1018,12 +1016,6 @@ export const assistant = new Hono<AppEnv>()
     try {
       const piResponse = await runPiSandboxAgent(c.env, piRequest);
       const result = piResponse.result;
-      if (hrSandbox) {
-        result.thoughts = "";
-        result.toolCalls = result.toolCalls.map(({ toolKey, status, durationMs }) => ({
-          toolKey, status, durationMs, ...(status === "failed" ? { errorMessage: "HR 工具執行失敗。" } : {}),
-        }));
-      }
       const toolFailure = result.toolCalls.find((toolCall) => toolCall.status === "failed");
       await recordAssistantRun(c.get("db"), {
         id: runId,
@@ -1042,7 +1034,10 @@ export const assistant = new Hono<AppEnv>()
         ...(toolFailure?.errorMessage ? { errorMessage: toolFailure.errorMessage } : {}),
         toolCalls: result.toolCalls,
       });
-      if (hrSandbox) await assertHrSandboxDeliveryAuthorized(c.get("db"), c.env, piRequest, piResponse.hrAuthorization);
+      if (hrSandbox) {
+        await assertHrSandboxDeliveryAuthorized(c.get("db"), c.env, piRequest, piResponse.hrAuthorization);
+        await commitPiSandboxRun(c.env, piRequest, piResponse.hrAuthorization?.userId);
+      }
       if (session) {
         await appendAssistantSandboxMessage(c.get("db"), {
           sessionId: session.id,
@@ -1062,7 +1057,6 @@ export const assistant = new Hono<AppEnv>()
       }
       return c.json({
         runId,
-        ...(hrSandbox ? { privateHrRun: true } : {}),
         sessionId: session?.id ?? null,
         text: result.text,
         thoughts: result.thoughts,
@@ -1081,11 +1075,8 @@ export const assistant = new Hono<AppEnv>()
         durationMs: Date.now() - started,
       });
     } catch (error) {
-      const message = hrSandbox ? "HR 模擬本人測試暫時無法完成，請重新查詢。" : error instanceof Error ? error.message : "Sandbox 執行失敗。";
-      const errorToolCalls = error instanceof PiAgentRequestError ? error.toolCalls : [];
-      const failedToolCalls = hrSandbox
-        ? errorToolCalls.map(({ toolKey, status, durationMs }) => ({ toolKey, status, durationMs, ...(status === "failed" ? { errorMessage: "HR 工具執行失敗。" } : {}) }))
-        : errorToolCalls;
+      const message = error instanceof Error ? error.message : "Sandbox 執行失敗。";
+      const failedToolCalls = error instanceof PiAgentRequestError ? error.toolCalls : [];
       await recordAssistantRun(c.get("db"), {
         id: runId,
         channel: "sandbox",

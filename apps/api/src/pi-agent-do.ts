@@ -35,7 +35,7 @@ import {
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
 import { isHrToolKey, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
-import { assertHrSandboxDeliveryAuthorized, assertHrSandboxRunAllowed, HrSelfToolError, LineHrSelfService, SandboxHrSelfService } from "./assistant-hr.js";
+import { assertHrSandboxDeliveryAuthorized, assertHrSandboxRunAllowed, assertHrSandboxSubjectStillAllowed, hrToolKeysProblem, HrSelfToolError, LineHrSelfService, SandboxHrSelfService } from "./assistant-hr.js";
 import { Type, type TSchema } from "typebox";
 import type { AssistantRunResult, AssistantToolCall, JsonSchemaProperty } from "@rueisiang/assistant";
 import type { Env } from "./env.js";
@@ -107,6 +107,8 @@ interface ImageMarker {
   size?: number;
   expiresAt?: string | null;
 }
+
+const MASKED_HR_ERROR = "HR 本人查詢暫時無法完成，請重新查詢。";
 
 interface AgentStateRow extends Record<string, SqlStorageValue> {
   generation: string;
@@ -231,6 +233,11 @@ function isRunRequest(value: unknown): value is PiAgentRunRequest {
   if (!input || !isRunFields(input)) return false;
   if (isLineContext(input)) return input.hrSandboxUserId === undefined && nonEmptyString(input.webhookEventId);
   return isSandboxContext(input) && (input.hrSandboxUserId === undefined || nonEmptyString(input.hrSandboxUserId));
+}
+
+function isCommitRunRequest(value: unknown): value is { runId: string; hrSubject?: string } {
+  const input = object(value);
+  return Boolean(input && nonEmptyString(input.runId) && (input.hrSubject === undefined || nonEmptyString(input.hrSubject)));
 }
 
 function isResetRequest(value: unknown): value is PiLineAgentResetRequest {
@@ -528,6 +535,7 @@ export class AssistantChatAgent {
           summary_tokens INTEGER NOT NULL DEFAULT 0,
           tokens_before INTEGER NOT NULL DEFAULT 0,
           model TEXT NOT NULL DEFAULT '',
+          hr_subject TEXT NOT NULL DEFAULT '',
           updated_at INTEGER NOT NULL
         );
         CREATE TABLE IF NOT EXISTS assistant_agent_messages (
@@ -551,6 +559,9 @@ export class AssistantChatAgent {
       const columns = [...this.sql.exec<{ name: string }>("PRAGMA table_info(assistant_agent_state)")];
       if (!columns.some((column) => column.name === "source_type")) {
         this.sql.exec("ALTER TABLE assistant_agent_state ADD COLUMN source_type TEXT NOT NULL DEFAULT ''");
+      }
+      if (!columns.some((column) => column.name === "hr_subject")) {
+        this.sql.exec("ALTER TABLE assistant_agent_state ADD COLUMN hr_subject TEXT NOT NULL DEFAULT ''");
       }
     });
   }
@@ -583,6 +594,7 @@ export class AssistantChatAgent {
          summary_tokens = 0,
          tokens_before = 0,
          model = '',
+         hr_subject = '',
          updated_at = excluded.updated_at`,
       generation,
       sessionId,
@@ -599,6 +611,21 @@ export class AssistantChatAgent {
       tokens_before: 0,
       model: "",
     };
+  }
+
+  /**
+   * 這個 generation 的上下文裡有誰的 HR 資料：模擬回合通過送出前重驗、commit 進對話時才記，失敗的回合不算。
+   * HR 內容進了上下文就會跟著之後每一輪與 compaction 送給 provider，所以三件事都跟著它走，不看當下這一輪帶了什麼：
+   * 每一輪重驗操作者與這位員工、provider 錯誤遮罩、不准換人。換 generation（清除對話）才歸零。
+   */
+  private hrSubject(): string {
+    return [...this.sql.exec<{ hr_subject: string }>(
+      "SELECT hr_subject FROM assistant_agent_state WHERE singleton = 1 LIMIT 1",
+    )][0]?.hr_subject ?? "";
+  }
+
+  private masksErrors(): boolean {
+    return this.hrSubject() !== "";
   }
 
   private requireGeneration(generation: string): { state: AgentStateRow; rotated: boolean } {
@@ -905,7 +932,7 @@ export class AssistantChatAgent {
         ...options,
         timeoutMs: COMPACTION_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
-      }, diagnostics).result(),
+      }, diagnostics, undefined, () => this.masksErrors()).result(),
     } as Models;
   }
 
@@ -943,7 +970,8 @@ export class AssistantChatAgent {
   private async authorizedSandboxTool(context: ToolExecutionContext, input: PiSandboxAgentRunRequest, toolKey: string, args: unknown): Promise<string> {
     const db = createDatabase(this.env.DB);
     if (isHrToolKey(toolKey)) {
-      if (!input.hrSandboxUserId) throw new HrSelfToolError("請使用管理者限定的 HR 模擬本人模式。" );
+      const problem = hrToolKeysProblem([toolKey, "hr_authorize"], Boolean(input.hrSandboxUserId));
+      if (problem) throw new HrSelfToolError(problem);
       if (!context.hrSelf && toolKey !== "hr_authorize") throw new HrSelfToolError("請先呼叫 hr_authorize 取得本輪本人授權。" );
       context.hrSelf ??= await SandboxHrSelfService.create(db, this.env, input);
     }
@@ -1000,7 +1028,8 @@ export class AssistantChatAgent {
           const started = Date.now();
           signal?.throwIfAborted();
           try {
-            if (isHrToolKey(tool.key)) {
+            // 只有正式 LINE 的 HR 回合不留存；Sandbox 模擬本人是管理者自己的測試對話，要留著才能多輪。
+            if (isHrToolKey(tool.key) && isLineRunRequest(context.request)) {
               context.privateHrRun = true;
               // 第一個 HR 呼叫前的 tool-call message 也要移除，避免留下不完整或帶個資的 transcript。
               this.sql.exec("DELETE FROM assistant_agent_messages WHERE run_id = ?", context.request.runId);
@@ -1018,7 +1047,7 @@ export class AssistantChatAgent {
             console.error("Pi agent 工具執行失敗", {
               runId: context.request.runId,
               toolKey: tool.key,
-              error: context.privateHrRun ? serializePiError(new Error(errorMessage)) : serializePiError(error),
+              error: context.privateHrRun || context.hrSelf || this.masksErrors() ? serializePiError(new Error(errorMessage)) : serializePiError(error),
             });
             context.toolCalls.push({
               toolKey: tool.key,
@@ -1247,9 +1276,10 @@ export class AssistantChatAgent {
       "minimal",
     );
     if (!summary.ok) {
-      const error = new Error(summary.error.message);
+      const message = this.masksErrors() ? MASKED_HR_ERROR : summary.error.message;
+      const error = new Error(message);
       throw new AgentExecutionError(
-        summary.error.message,
+        message,
         [],
         diagnostics?.lastResponse,
         serializePiError(error),
@@ -1293,11 +1323,20 @@ export class AssistantChatAgent {
   private async run(input: PiAgentRunRequest): Promise<PiAgentRunResponse> {
     const hrSandbox = isSandboxRunRequest(input) && input.hrSandboxUserId !== undefined;
     if (hrSandbox) await assertHrSandboxRunAllowed(createDatabase(this.env.DB), this.env, input);
-    if (isSandboxRunRequest(input) && !hrSandbox && input.toolKeys.some(isHrToolKey)) {
-      throw new HrSelfToolError("請使用管理者限定的 HR 模擬本人模式。" );
+    if (isSandboxRunRequest(input) && !hrSandbox) {
+      const problem = hrToolKeysProblem(input.toolKeys, false);
+      if (problem) throw new HrSelfToolError(problem);
     }
     const providerDiagnostics: PiProviderExecutionDiagnostics = { runId: input.runId };
     let { state } = this.requireGeneration(input.contextGeneration);
+    // 上下文裡還留著前一位員工的工具結果，模型會拿去回答下一位的問題；只靠 prompt 叮嚀擋不住，直接要求換一段對話。
+    const subject = this.hrSubject();
+    if (hrSandbox && subject && subject !== input.hrSandboxUserId) {
+      throw new HrSelfToolError("這段對話已經模擬過另一位員工，請先清除對話再換人。" );
+    }
+    if (isSandboxRunRequest(input) && subject) {
+      await assertHrSandboxSubjectStillAllowed(createDatabase(this.env.DB), this.env, input.actorUserId, subject);
+    }
     const sourceType = isLineRunRequest(input) ? input.sourceType : "sandbox";
     if (state.source_type !== sourceType) {
       this.sql.exec(
@@ -1312,6 +1351,7 @@ export class AssistantChatAgent {
     const fallbackModel = input.fallbackModel && input.fallbackModel !== model.id
       ? this.model(input.fallbackModel)
       : undefined;
+    // 模擬本人的回合不吃快取：快取的回答會跳過送出前的綁定與授權重驗。
     const completed = hrSandbox ? undefined : this.completedRun(input.runId, state.generation);
     if (completed) return completed;
     // Queue 重送未完成的 run 時先移除殘留 transcript；tool 的外部冪等仍由各 provider 自己保證。
@@ -1333,7 +1373,7 @@ export class AssistantChatAgent {
        Date.now(),
      );
 
-    if (isSandboxRunRequest(input) && !hrSandbox) {
+    if (isSandboxRunRequest(input)) {
       await this.bootstrapSandboxTranscript(state, input, model);
       state = this.currentState()!;
     }
@@ -1342,8 +1382,10 @@ export class AssistantChatAgent {
     if (this.estimatedStoredContextTokens(state) > COMPACT_AFTER_TOKENS) {
       await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);
     }
-    const toolContext: ToolExecutionContext = { request: input, toolCalls: [], privateHrRun: hrSandbox };
-    const initialMessages = hrSandbox ? [] : await this.contextMessages(state, INTERACTIVE_CONTEXT_TOKENS);
+    const toolContext: ToolExecutionContext = { request: input, toolCalls: [] };
+    // hrSelf：這一輪自己剛查到 HR 資料，還沒 commit，hr_subject 還沒記。
+    const masked = () => toolContext.privateHrRun === true || toolContext.hrSelf !== undefined || this.masksErrors();
+    const initialMessages = await this.contextMessages(state, INTERACTIVE_CONTEXT_TOKENS);
     const images = await this.inputImages(input.attachments);
     const agent = new Agent({
       initialState: {
@@ -1359,7 +1401,7 @@ export class AssistantChatAgent {
         timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
         maxTokens: MODEL_MAX_OUTPUT_TOKENS,
-      }, providerDiagnostics, fallbackModel, () => toolContext.privateHrRun === true),
+      }, providerDiagnostics, fallbackModel, masked),
       sessionId: state.session_id,
       transport: "sse",
       maxRetryDelayMs: 1_000,
@@ -1382,10 +1424,10 @@ export class AssistantChatAgent {
       await agent.prompt(input.userText, images);
     } catch (error) {
       throw new AgentExecutionError(
-        toolContext.privateHrRun ? "HR 本人查詢暫時無法完成，請重新查詢。" : error instanceof Error ? error.message : "Pi agent 執行失敗。",
+        masked() ? MASKED_HR_ERROR : error instanceof Error ? error.message : "Pi agent 執行失敗。",
         toolContext.toolCalls,
         providerDiagnostics.lastResponse,
-        toolContext.privateHrRun ? undefined : serializePiError(error),
+        masked() ? undefined : serializePiError(error),
       );
     }
     const newMessages = agent.state.messages.slice(initialMessages.length);
@@ -1395,7 +1437,7 @@ export class AssistantChatAgent {
         Date.now(),
         input.runId,
       );
-      const message = toolContext.privateHrRun ? "HR 本人查詢暫時無法完成，請重新查詢。" : agent.state.errorMessage;
+      const message = masked() ? MASKED_HR_ERROR : agent.state.errorMessage;
       const error = new Error(message);
       throw new AgentExecutionError(
         message,
@@ -1411,6 +1453,10 @@ export class AssistantChatAgent {
 
     await toolContext.hrSelf?.assertStillAuthorized();
     if (hrSandbox) await assertHrSandboxDeliveryAuthorized(createDatabase(this.env.DB), this.env, input, toolContext.hrSelf?.authorization);
+    // 這一輪沒呼叫 HR 工具，模型也可能直接從上下文複述；回答算數之前再驗一次。
+    if (isSandboxRunRequest(input) && subject) {
+      await assertHrSandboxSubjectStillAllowed(createDatabase(this.env.DB), this.env, input.actorUserId, subject);
+    }
     const response: PiAgentRunResponse = {
       ...(toolContext.privateHrRun ? { privateHrRun: true } : {}),
       ...(toolContext.hrSelf?.authorization ? { hrAuthorization: toolContext.hrSelf.authorization } : {}),
@@ -1429,9 +1475,13 @@ export class AssistantChatAgent {
       Date.now(),
       state.generation,
     );
+    // 模擬本人的回合先停在 awaiting_delivery：路由在 HTTP 送出前重驗過、呼叫 /commit-run 才算數。
+    // 在那之前它不是 completed，任何一輪的上下文與摘要都讀不到，所以撤銷不需要事後追著刪。
+    // response 帶著 hrAuthorization，而這份快取對模擬回合從不讀取，不存。
     this.sql.exec(
-      `UPDATE assistant_agent_runs SET status = 'completed', response_json = ?, updated_at = ? WHERE run_id = ?`,
-      toolContext.privateHrRun ? "" : JSON.stringify(response),
+      `UPDATE assistant_agent_runs SET status = ?, response_json = ?, updated_at = ? WHERE run_id = ?`,
+      hrSandbox ? "awaiting_delivery" : "completed",
+      toolContext.privateHrRun || hrSandbox ? "" : JSON.stringify(response),
       Date.now(),
       input.runId,
     );
@@ -1464,23 +1514,40 @@ export class AssistantChatAgent {
           throw error;
         }
       }
+      if (url.pathname === "/commit-run" && isCommitRunRequest(payload)) {
+        return Response.json(await this.serialized(async () => {
+          this.sql.exec(
+            "UPDATE assistant_agent_runs SET status = 'completed', updated_at = ? WHERE run_id = ? AND status = 'awaiting_delivery'",
+            Date.now(),
+            payload.runId,
+          );
+          if (payload.hrSubject) {
+            this.sql.exec("UPDATE assistant_agent_state SET hr_subject = ? WHERE singleton = 1 AND hr_subject = ''", payload.hrSubject);
+          }
+          const state = this.currentState();
+          if (state && this.estimatedStoredContextTokens(state) > COMPACT_AFTER_TOKENS) {
+            await this.ctx.storage.setAlarm(Date.now() + COMPACTION_CONTINUATION_DELAY_MS);
+          }
+          return { committed: true };
+        }));
+      }
       if (url.pathname === "/reset" && isResetRequest(payload)) {
         return Response.json(await this.serialized(() => this.reset(payload)));
       }
       return Response.json({ error: "Pi agent request 格式不正確。" }, { status: 400 });
     } catch (error) {
-      const privateSandbox = isRunRequest(payload) && isSandboxRunRequest(payload) && payload.hrSandboxUserId !== undefined;
-      const message = privateSandbox && !(error instanceof HrSelfToolError)
-        ? "HR 模擬本人測試暫時無法完成，請重新查詢。"
-        : error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
+      // HrSelfToolError 是我們自己寫的固定句子（未綁定、已停權…），操作者需要看到；其餘錯誤可能回顯內容。
+      // 這裡不遮罩：provider 回顯的內容在產生 AgentExecutionError 的地方就換掉了。
+      // 在這一層整包蓋掉，會連「圖片過期」「session 已關閉」這類我們自己寫、操作者看了能處理的訊息一起吃掉。
+      const message = error instanceof Error ? error.message : "Pi agent 暫時無法回應。";
       const stale = message.includes("已重設的舊 session");
       if (!stale) {
         console.error("Pi chat agent 執行失敗", {
           runId: isRunRequest(payload) ? payload.runId : undefined,
-          error: privateSandbox ? serializePiError(new Error(message)) : error instanceof AgentExecutionError
+          error: error instanceof AgentExecutionError
             ? error.errorDiagnostic
             : serializePiError(error),
-          ...(!privateSandbox && error instanceof AgentExecutionError && error.providerResponse
+          ...(error instanceof AgentExecutionError && error.providerResponse
             ? { providerResponse: error.providerResponse }
             : {}),
           ...(error instanceof AgentExecutionError
@@ -1518,7 +1585,7 @@ export class AssistantChatAgent {
           runId,
           durationMs: Date.now() - startedAt,
           nextRetryAt,
-          error: serializePiError(error),
+          error: this.masksErrors() ? serializePiError(new Error(MASKED_HR_ERROR)) : serializePiError(error),
           ...(diagnostics.lastResponse ? { providerResponse: diagnostics.lastResponse } : {}),
         });
         await this.ctx.storage.setAlarm(nextRetryAt);

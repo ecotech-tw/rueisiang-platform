@@ -119,31 +119,33 @@ export class LineHrSelfService extends HrSelfService {
   }
 }
 
+/** HR 工具能不能出現在這一輪的唯一規則：路由拿它回 400，DO 在執行前再用同一份擋一次。 */
+export function hrToolKeysProblem(toolKeys: readonly string[], hasSubject: boolean): string | null {
+  const hrToolKeys = toolKeys.filter(isHrToolKey);
+  if (!hrToolKeys.length) return null;
+  if (!hasSubject) return "HR 工具需要先選擇要模擬的員工。";
+  if (!hrToolKeys.includes("hr_authorize")) return "HR 工具必須連同 hr_authorize 一起提供。";
+  return null;
+}
+
+function requireLineLoginChannelId(env: Env): string {
+  const channelId = env.LINE_LIFF_CHANNEL_ID?.trim();
+  if (!channelId) throw new HrSelfToolError("平台尚未設定 LINE Login channel，無法測試既有員工綁定。" );
+  return channelId;
+}
+
 export async function isHrSandboxActor(db: Database, user: AuthUser): Promise<boolean> {
   return can(user, "assistant:sandbox:write") && await isHrAdministrator(db, user.id);
 }
 
-export async function assertHrSandboxRunAllowed(db: Database, env: Env, input: PiSandboxAgentRunRequest) {
-  // 操作者先過關，才允許碰任何目標員工或 LINE 綁定。
-  const actor = await loadAuthUser(db, { id: input.actorUserId });
+async function assertHrSandboxActor(db: Database, actorUserId: string) {
+  const actor = await loadAuthUser(db, { id: actorUserId });
   if (!actor || !await isHrSandboxActor(db, actor)) throw new HrSelfToolError("HR 模擬本人測試僅限啟用中的平台管理者。" );
-  if (!input.hrSandboxUserId?.trim() || input.sandboxSessionId !== null
-    || input.conversationId !== input.runId || input.contextGeneration !== input.runId
-    || input.attachments?.length || !input.toolKeys.includes("hr_authorize")
-    || input.toolKeys.some((key) => !isHrToolKey(key))) {
-    throw new HrSelfToolError("HR 模擬本人測試必須是獨立單輪，且只能使用 HR 工具，不接受 session 或圖片。" );
-  }
-  if (!env.LINE_LIFF_CHANNEL_ID?.trim()) throw new HrSelfToolError("平台尚未設定 LINE Login channel，無法測試既有員工綁定。" );
-  const tools = await listAssistantToolConfigs(db);
-  if (input.toolKeys.some((key) => !tools.some((tool) => tool.key === key && (tool.status === "enabled" || tool.status === "development")))) {
-    throw new HrSelfToolError("本輪 HR 測試工具已停用，請重新選擇。" );
-  }
 }
 
-async function authorizedSandboxIdentity(db: Database, env: Env, input: PiSandboxAgentRunRequest, expected?: HrToolIdentity) {
-  await assertHrSandboxRunAllowed(db, env, input);
-  const userId = input.hrSandboxUserId!;
-  const binding = await findLineAccountBindingByUser(db, userId, env.LINE_LIFF_CHANNEL_ID!.trim());
+/** 被模擬的那位員工此刻還能不能被查：有綁定、帳號啟用、在職。 */
+async function sandboxSubjectBinding(db: Database, env: Env, userId: string, expected?: HrToolIdentity) {
+  const binding = await findLineAccountBindingByUser(db, userId, requireLineLoginChannelId(env));
   if (!binding) throw new HrSelfToolError("這位員工尚未完成目前 LINE Login channel 的帳號綁定。" );
   if (expected && (binding.userId !== expected.userId || binding.linkVersion !== expected.linkVersion)) {
     throw new HrSelfToolError("員工綁定已變更，本輪 HR 授權失效，請重新查詢。" );
@@ -155,14 +157,50 @@ async function authorizedSandboxIdentity(db: Database, env: Env, input: PiSandbo
   return binding;
 }
 
+/**
+ * 一段對話查過某位員工之後，他的資料就留在上下文裡，之後每一輪都能被模型複述——不管那一輪有沒有帶模擬對象、
+ * 有沒有呼叫 HR 工具。所以只要對話裡有他，每一輪都用查詢當下的同一組條件重驗操作者與這位員工。
+ */
+export async function assertHrSandboxSubjectStillAllowed(db: Database, env: Env, actorUserId: string, subjectUserId: string) {
+  try {
+    await assertHrSandboxActor(db, actorUserId);
+    await sandboxSubjectBinding(db, env, subjectUserId);
+  } catch (error) {
+    if (!(error instanceof HrSelfToolError)) throw error;
+    throw new HrSelfToolError(`這段對話含模擬本人查到的 HR 資料，但授權已失效（${error.message}）請清除對話。`);
+  }
+}
+
+export async function assertHrSandboxRunAllowed(db: Database, env: Env, input: PiSandboxAgentRunRequest) {
+  // 操作者先過關，才允許碰任何目標員工或 LINE 綁定。
+  await assertHrSandboxActor(db, input.actorUserId);
+  if (!input.hrSandboxUserId?.trim()) throw new HrSelfToolError("請先選擇要模擬的員工。" );
+  // 模擬本人可以跟一般工具、session 與圖片混用；這裡只管 HR 工具自己的前提，一般工具由 authorizedSandboxTool 把關。
+  const problem = hrToolKeysProblem(input.toolKeys, true);
+  if (problem) throw new HrSelfToolError(problem);
+  const hrToolKeys = input.toolKeys.filter(isHrToolKey);
+  // 沒帶 HR 工具的回合用不到綁定；這時擋下來會讓只測一般工具的人整輪失敗。
+  if (!hrToolKeys.length) return;
+  requireLineLoginChannelId(env);
+  const tools = await listAssistantToolConfigs(db);
+  if (hrToolKeys.some((key) => !tools.some((tool) => tool.key === key && (tool.status === "enabled" || tool.status === "development")))) {
+    throw new HrSelfToolError("本輪 HR 測試工具已停用，請重新選擇。" );
+  }
+}
+
+async function authorizedSandboxIdentity(db: Database, env: Env, input: PiSandboxAgentRunRequest, expected?: HrToolIdentity) {
+  await assertHrSandboxRunAllowed(db, env, input);
+  return sandboxSubjectBinding(db, env, input.hrSandboxUserId!, expected);
+}
+
 export class SandboxHrSelfService extends HrSelfService {
   static async create(db: Database, env: Env, input: PiSandboxAgentRunRequest) {
     const binding = await authorizedSandboxIdentity(db, env, input);
     const context: HrToolContext = {
       surface: "sandbox", actorUserId: input.actorUserId,
       assistantKey: input.assistantKey, channelKey: HR_SANDBOX_CHANNEL_KEY,
-      conversationId: input.runId, contextGeneration: input.contextGeneration,
-      runId: input.runId, lineLoginChannelId: env.LINE_LIFF_CHANNEL_ID!.trim(), lineUserId: binding.lineUserId,
+      conversationId: input.conversationId, contextGeneration: input.contextGeneration,
+      runId: input.runId, lineLoginChannelId: requireLineLoginChannelId(env), lineUserId: binding.lineUserId,
     };
     return new SandboxHrSelfService(db, env, context, async (_keys, expected) => {
       const current = await authorizedSandboxIdentity(db, env, input, expected ?? binding);

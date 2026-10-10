@@ -43,7 +43,7 @@ export interface SandboxConfig {
   credentialStatus: { codex: "unconfigured" | "ready" | "needs_reauth"; codexLastErrorAt: number | null };
   models: AssistantModel[];
   tools: AssistantTool[];
-  hrSandbox: { available: boolean; bindingConfigured: boolean; tools: AssistantTool[] };
+  hrSandbox: { available: boolean; bindingConfigured: boolean; toolKeys: string[] };
   activePrompt: PromptRevision | null;
   revisions: PromptRevision[];
 }
@@ -83,7 +83,6 @@ export interface SandboxAttachment {
 }
 
 export interface SandboxResult {
-  privateHrRun?: boolean;
   runId: string;
   sessionId: string | null;
   text: string;
@@ -410,7 +409,7 @@ export function useRunSandbox() {
         body: JSON.stringify(input),
       }),
     onMutate: async (input) => {
-      if (input.hrSandboxUserId || !input.sessionId) return undefined;
+      if (!input.sessionId) return undefined;
       const queryKey = ["assistant", "sandbox", "session", input.sessionId] as const;
       await client.cancelQueries({ queryKey });
       const previous = client.getQueryData<{ session: SandboxSession }>(queryKey);

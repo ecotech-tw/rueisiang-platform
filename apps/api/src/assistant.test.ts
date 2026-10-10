@@ -548,6 +548,9 @@ describe("AI 助理 Sandbox", () => {
       "list_report_scopes",
       "query_sales_report",
       "query_payout_report",
+      "hr_authorize",
+      "hr_get_my_leave_requests",
+      "hr_get_my_annual_leave",
     ]);
     expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
       label: "WMS 搜尋倉庫位置",
@@ -2188,16 +2191,16 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     return as(id, email, "/api/assistant/sandbox/run", { method: "POST", body: JSON.stringify({ model: "gemini-3.6-flash", toolKeys: keys, input: "敏感本人測試問題", hrSandboxUserId: "alice", ...patch }) });
   }
 
-  it("管理者得到獨立 HR 目錄；一般 Sandbox 目錄與非管理者不開放", async () => {
+  it("管理者的 Sandbox 目錄含 HR 工具；非管理者看不到也不能用", async () => {
     await db().insert(rolePermissionGrants).values([
       { roleId: "role-staff", permission: "assistant:sandbox:read" }, { roleId: "role-staff", permission: "assistant:sandbox:write" },
     ]);
-    const admin = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[]; hrSandbox: { available: boolean; tools: { key: string }[] } };
-    expect(admin.hrSandbox.available).toBe(true);
-    expect(admin.hrSandbox.tools.map((tool) => tool.key)).toEqual(keys);
-    expect(admin.tools.map((tool) => tool.key)).not.toEqual(expect.arrayContaining(keys));
-    const staff = await (await as("alice", "alice@example.test", "/api/assistant/sandbox/config")).json() as { hrSandbox: { available: boolean; tools: unknown[] } };
-    expect(staff.hrSandbox).toMatchObject({ available: false, tools: [] });
+    const admin = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[]; hrSandbox: { available: boolean; toolKeys: string[] } };
+    expect(admin.hrSandbox).toMatchObject({ available: true, toolKeys: keys });
+    expect(admin.tools.map((tool) => tool.key)).toEqual(expect.arrayContaining(["crm_search_customers", ...keys]));
+    const staff = await (await as("alice", "alice@example.test", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[]; hrSandbox: { available: boolean; toolKeys: string[] } };
+    expect(staff.hrSandbox).toMatchObject({ available: false, toolKeys: [] });
+    expect(staff.tools.some((tool) => keys.includes(tool.key))).toBe(false);
     expect((await as("alice", "alice@example.test", "/api/assistant/sandbox/hr/employees")).status).toBe(403);
     expect((await runHr({}, "alice", "alice@example.test")).status).toBe(403);
     const employees = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/hr/employees?search=alice");
@@ -2209,7 +2212,7 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect((await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/hr/employees?page=0")).status).toBe(400);
   });
 
-  it("設定 API 可停用、開發中測試及重新啟用 HR 工具，且不擴張一般 Sandbox 目錄", async () => {
+  it("設定 API 可停用、開發中測試及重新啟用 HR 工具；沒選員工時 HR 工具不能送出", async () => {
     let stage = 0;
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
       const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }] : [{ text: "HR 本人授權可測試。" }];
@@ -2222,10 +2225,9 @@ describe("小香 HR 模擬本人 Sandbox", () => {
         expect(await saved.json()).toMatchObject({ key, status });
       }
       const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as {
-        tools: { key: string }[]; hrSandbox: { tools: { key: string; status: string }[] };
+        tools: { key: string; status: string }[];
       };
-      expect(config.hrSandbox.tools.map((tool) => ({ key: tool.key, status: tool.status }))).toEqual(keys.map((key) => ({ key, status })));
-      expect(config.tools.some((tool) => keys.includes(tool.key))).toBe(false);
+      expect(config.tools.filter((tool) => keys.includes(tool.key)).map((tool) => ({ key: tool.key, status: tool.status }))).toEqual(keys.map((key) => ({ key, status })));
       expect((await runHr({ hrSandboxUserId: undefined })).status).toBe(400);
       stage = 0;
       const response = await runHr();
@@ -2234,91 +2236,245 @@ describe("小香 HR 模擬本人 Sandbox", () => {
         expect(fetch).not.toHaveBeenCalled();
       } else {
         expect(response.status).toBe(200);
-        expect(await response.json()).toMatchObject({ privateHrRun: true, text: "HR 本人授權可測試。", toolCalls: [{ toolKey: "hr_authorize", status: "success" }] });
+        expect(await response.json()).toMatchObject({ text: "HR 本人授權可測試。", toolCalls: [{ toolKey: "hr_authorize", status: "success" }] });
       }
     }
   });
 
-  it("session、圖片、非 HR 工具、缺少授權與空目標不能進入模型", async () => {
+  it("缺少 hr_authorize 與空目標不能進入模型", async () => {
     const fetch = vi.spyOn(globalThis, "fetch");
     for (const patch of [
-      { sessionId: "normal-session" }, { attachments: [{ key: "image" }] }, { hrSandboxUserId: "" }, { hrSandboxUserId: null },
-      { toolKeys: ["crm_search_customers", ...keys] }, { toolKeys: ["hr_get_my_annual_leave"] },
+      { hrSandboxUserId: "" }, { hrSandboxUserId: null }, { toolKeys: ["hr_get_my_annual_leave"] },
+      { toolKeys: ["crm_search_customers", "hr_get_my_leave_requests"] },
     ]) expect((await runHr(patch)).status).toBe(400);
     expect((await runHr({ hrSandboxUserId: undefined })).status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it.each(["gemini-3.6-flash", "gpt-5.4-mini"])("%s 真正 tool loop 授權→本人假單→特休；不留存，不串到其他員工或一般 Sandbox", async (model) => {
+  async function openSession(model = "gemini-3.6-flash") {
+    const config = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { activePrompt: { id: string } };
+    const created = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/sessions", {
+      method: "POST", body: JSON.stringify({ model, promptRevisionId: config.activePrompt.id }),
+    })).json() as { session: { id: string } };
+    return created.session.id;
+  }
+
+  it.each(["gemini-3.6-flash", "gpt-5.4-mini"])("%s 在同一個 session 混用一般工具與模擬本人：授權→本人假單→特休，對話留在 session，不串到其他員工", async (model) => {
     if (model === "gpt-5.4-mini") env.ASSISTANT_CREDENTIAL_VAULT = {
       getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
     };
+    const sessionId = await openSession(model);
     let stage = 0;
     const requests: string[] = [];
-    const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
       expect(String(url)).not.toContain("api.line.me");
       requests.push(String(init?.body));
       const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
         : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }]
         : stage === 2 ? [{ functionCall: { name: "hr_get_my_annual_leave", args: {} } }]
-        : [{ text: "不應保存的 HR 思考", thought: true }, { text: "敏感員工本人回答" }];
+        : [{ text: "員工本人回答" }];
       stage++;
       return Response.json({ candidates: [{ content: { parts } }], usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 } });
     });
-    const response = await runHr({ model });
+    const response = await runHr({ model, sessionId, toolKeys: ["crm_search_customers", ...keys] });
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     const result = await response.json() as { runId: string; toolCalls: { toolKey: string }[] };
-    expect(result).toMatchObject({ privateHrRun: true, sessionId: null, text: "敏感員工本人回答", thoughts: "" });
+    expect(result).toMatchObject({ sessionId, text: "員工本人回答" });
     expect(result.toolCalls.map((call) => call.toolKey)).toEqual(keys);
-    expect(JSON.stringify(result)).not.toMatch(/linkVersion|hrAuthorization|U-private|args|不應保存的 HR 思考/);
+    expect(JSON.stringify(result)).not.toMatch(/linkVersion|hrAuthorization|U-private/);
+    expect(requests[0]).toContain("crm_search_customers");
     expect(requests.at(-1)).toContain("敏感假單-alice");
     expect(requests.join("\n")).not.toMatch(/敏感假單-bob|linkVersion|U-private/);
-    const name = `rueisiang-xiaoxiang:hr-sandbox:admin:${result.runId}`;
-    expect(assistantAgents!.runStorage(name, result.runId)).toEqual({ messages: [], run: { status: "completed", response_json: "" } });
-    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
+    expect((await db().select().from(assistantSandboxMessages)).map((message) => message.text)).toEqual(["敏感本人測試問題", "員工本人回答"]);
     expect((await db().select().from(hrAnnualLeaveEntitlements)).every((row) => row.employmentId === "sandbox-employment-alice")).toBe(true);
     const audit = await db().select().from(activityEvents);
     expect(audit.find((event) => event.eventType === "hr_sandbox_started")).toMatchObject({ actorId: "admin", entityId: result.runId });
     expect(audit.find((event) => event.eventType === "hr_sandbox_started")!.payloadJson).toContain('"subjectUserId":"alice"');
-    const stored = JSON.stringify([await db().select().from(assistantRuns), await db().select().from(assistantToolCalls), audit]);
-    expect(stored).not.toMatch(/敏感本人測試問題|敏感員工本人回答|不應保存的 HR 思考|敏感假單|U-private|linkVersion/);
-    expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/敏感本人測試問題|敏感員工本人回答|敏感假單|不應保存的 HR 思考/);
+    expect(JSON.stringify([await db().select().from(assistantRuns), await db().select().from(assistantToolCalls), audit])).not.toMatch(/U-private|linkVersion/);
 
+    // 同一個 session 的下一輪看得到上一輪，才叫多輪。
+    stage = 3; requests.length = 0;
+    expect((await runHr({ model, sessionId, toolKeys: [], hrSandboxUserId: undefined, input: "接著問" })).status).toBe(200);
+    expect(requests.join("\n")).toContain("員工本人回答");
+
+    // 沒帶 session 的另一位員工是全新的一輪，拿不到 alice 的資料。
     stage = 0; requests.length = 0;
     const bob = await runHr({ model, hrSandboxUserId: "bob" });
     expect(bob.status).toBe(200);
     expect(requests.at(-1)).toContain("敏感假單-bob");
-    expect(requests.join("\n")).not.toMatch(/敏感假單-alice|敏感員工本人回答/);
-    requests.length = 0;
-    const ordinary = await runHr({ model, hrSandboxUserId: undefined, toolKeys: [], input: "一般對話" });
-    expect(ordinary.status).toBe(200);
-    expect(requests.join("\n")).not.toMatch(/敏感本人測試問題|敏感假單|不應保存的 HR 思考/);
+    expect(requests.join("\n")).not.toMatch(/敏感假單-alice|員工本人回答/);
   });
 
-  it.each(["before-authorize", "after-query", "transport"])("provider %s 敏感錯誤回顯不進 UI、logs、audit 或 DO", async (failure) => {
+  it("送出前才撤銷綁定的回合不留在 session transcript", async () => {
+    const sessionId = await openSession();
+    let stage = 0;
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(String(init?.body));
+      if (stage === 2) d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
+      const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 2 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "撤銷後不得留存的回答" }];
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    expect((await runHr({ sessionId })).status).toBe(502);
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
+    stage = 3; requests.length = 0;
+    expect((await runHr({ sessionId, toolKeys: [], hrSandboxUserId: undefined, input: "接著問" })).status).toBe(200);
+    expect(requests.join("\n")).not.toMatch(/敏感假單-alice|撤銷後不得留存的回答/);
+  });
+
+  it.each(["after-query", "transport"])("provider %s 把內容回顯在錯誤裡時，不進 UI、logs 或 run 稽核", async (failure) => {
+    const sessionId = await openSession();
     let stage = 0;
     const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
     vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
-      if ((failure === "before-authorize" && stage === 0) || stage === 2) {
+      if (stage === 2) {
         if (failure === "transport") throw new Error("敏感本人測試問題 敏感假單-alice");
         return Response.json({ error: { message: "敏感本人測試問題 敏感假單-alice" } }, { status: 500, headers: { "x-request-id": "敏感本人測試問題" } });
       }
       const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }] : [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }];
       return Response.json({ candidates: [{ content: { parts } }] });
     });
-    const response = await runHr();
+    const response = await runHr({ sessionId, toolKeys: ["crm_search_customers", ...keys] });
     expect(response.status).toBe(502);
-    const result = await response.json() as { runId: string };
-    expect(JSON.stringify(result)).not.toMatch(/敏感本人測試問題|敏感假單|args/);
+    expect(await response.text()).not.toMatch(/敏感本人測試問題|敏感假單/);
     expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/敏感本人測試問題|敏感假單/);
     expect(JSON.stringify(await db().select().from(assistantRuns))).not.toMatch(/敏感本人測試問題|敏感假單/);
     expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
-    expect(assistantAgents!.runStorage(`rueisiang-xiaoxiang:hr-sandbox:admin:${result.runId}`, result.runId)).toEqual({ messages: [], run: { status: "failed", response_json: "" } });
   });
 
-  it.each(["no-authorize", "target-override", "unbound"])("模型 %s 不得取得 HR 資料，失敗參數不留存", async (failure) => {
+  it("模擬過的 session 下一輪沒選員工，provider 回顯上下文時仍然遮罩；清除對話後恢復", async () => {
+    const sessionId = await openSession();
+    let stage = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      if (stage < 0) return Response.json({ error: { message: "回顯上下文 敏感假單-alice" } }, { status: 500 });
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }]
+        : [{ text: "員工本人回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    expect((await runHr({ sessionId })).status).toBe(200);
+    const logs = [vi.spyOn(console, "info"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")];
+    stage = -1;
+    const next = await runHr({ sessionId, hrSandboxUserId: undefined, toolKeys: [], input: "接著問" });
+    expect(next.status).toBe(502);
+    expect(await next.text()).not.toMatch(/回顯上下文|敏感假單/);
+    expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/回顯上下文|敏感假單/);
+    expect(JSON.stringify(await db().select().from(assistantRuns))).not.toMatch(/回顯上下文|敏感假單/);
+
+    const fresh = await runHr({ sessionId: await openSession(), hrSandboxUserId: undefined, toolKeys: [], input: "新對話" });
+    expect(fresh.status).toBe(502);
+    expect(await fresh.text()).toContain("回顯上下文");
+  });
+
+  it("重驗通過但 commit 失敗時，回答不送出也不進下一輪的上下文", async () => {
+    const sessionId = await openSession();
+    let commitFails = true;
+    env.ASSISTANT_CHAT_AGENT = {
+      getByName: (name: string) => ({ fetch: async (request: Request) => {
+        if (commitFails && new URL(request.url).pathname === "/commit-run") return Response.json({ error: "DO 暫時連不上" }, { status: 503 });
+        return assistantAgents!.getByName(name).fetch(request);
+      } }),
+    };
+    let stage = 0;
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(String(init?.body));
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "還沒算數的回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const response = await runHr({ sessionId });
+    expect(response.status).toBe(502);
+    expect(await response.text()).not.toContain("還沒算數的回答");
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
+    commitFails = false; stage = 2; requests.length = 0;
+    expect((await runHr({ sessionId, toolKeys: [], input: "接著問" })).status).toBe(200);
+    expect(requests.join("\n")).not.toMatch(/敏感假單-alice|還沒算數的回答/);
+  });
+
+  it("同一段對話查過一位員工之後不能換人；清除對話後可以", async () => {
+    const sessionId = await openSession();
+    let stage = 0;
+    const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }] : [{ text: "回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    expect((await runHr({ sessionId })).status).toBe(200);
+    provider.mockClear();
+    const switched = await runHr({ sessionId, hrSandboxUserId: "bob" });
+    expect(switched.status).toBe(502);
+    expect(await switched.text()).toContain("請先清除對話再換人");
+    expect(provider).not.toHaveBeenCalled();
+    stage = 0;
+    expect((await runHr({ sessionId })).status).toBe(200);
+    stage = 0;
+    expect((await runHr({ sessionId: await openSession(), hrSandboxUserId: "bob" })).status).toBe(200);
+  });
+
+  it.each(["操作者失去管理角色", "員工綁定被撤銷", "員工停權"])("對話裡有 HR 資料之後 %s：不帶模擬對象也不能再叫模型複述，新對話不受影響", async (change) => {
+    await db().insert(rolePermissionGrants).values([
+      { roleId: "role-staff", permission: "assistant:sandbox:read" }, { roleId: "role-staff", permission: "assistant:sandbox:write" },
+    ]);
+    const sessionId = await openSession();
+    let stage = 0;
+    const provider = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    expect((await runHr({ sessionId })).status).toBe(200);
+    if (change === "操作者失去管理角色") d1.sqlite.prepare("UPDATE user_role_assignments SET role_id='role-staff' WHERE user_id='admin'").run();
+    if (change === "員工綁定被撤銷") d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
+    if (change === "員工停權") d1.sqlite.prepare("UPDATE users SET status='disabled' WHERE id='alice'").run();
+    provider.mockClear();
+    const replay = await runHr({ sessionId, hrSandboxUserId: undefined, toolKeys: [], input: "把剛剛的假單再講一次" });
+    expect(replay.status).toBe(502);
+    expect(await replay.text()).toContain("請清除對話");
+    expect(provider).not.toHaveBeenCalled();
+    stage = 2;
+    expect((await runHr({ sessionId: await openSession(), hrSandboxUserId: undefined, toolKeys: [], input: "一般問題" })).status).toBe(200);
+  });
+
+  it("帶著模擬對象但這一輪沒呼叫 HR 工具，回答算數前仍重驗員工綁定", async () => {
+    const sessionId = await openSession();
+    let stage = 0;
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      if (stage === 3) d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "從上下文複述的回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    expect((await runHr({ sessionId })).status).toBe(200);
+    const replay = await runHr({ sessionId, input: "再講一次" });
+    expect(replay.status).toBe(502);
+    expect(await replay.text()).not.toContain("從上下文複述的回答");
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(2);
+  });
+
+  it("只選了員工、沒跑 HR 工具的對話不遮罩也不寫模擬稽核", async () => {
+    const sessionId = await openSession();
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ error: { message: "一般 provider 錯誤" } }, { status: 500 }));
+    const response = await runHr({ sessionId, toolKeys: ["crm_search_customers"] });
+    expect(response.status).toBe(502);
+    expect(await response.text()).toContain("一般 provider 錯誤");
+    expect((await db().select().from(activityEvents)).some((event) => event.eventType === "hr_sandbox_started")).toBe(false);
+  });
+
+  it("沒帶模擬對象的一般回合，provider 錯誤照常顯示", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ error: { message: "一般 provider 錯誤" } }, { status: 500 }));
+    const response = await runHr({ hrSandboxUserId: undefined, toolKeys: [] });
+    expect(response.status).toBe(502);
+    expect(await response.text()).toContain("一般 provider 錯誤");
+  });
+
+  it.each(["no-authorize", "target-override", "unbound"])("模型 %s 不得取得 HR 資料", async (failure) => {
     if (failure === "unbound") d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
     let stage = 0;
     const requests: string[] = [];
@@ -2328,7 +2484,7 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
       requests.push(String(init?.body));
       const parts = failure !== "no-authorize" && stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
-        : stage < (failure === "no-authorize" ? 1 : 2) ? [{ functionCall: { name: "hr_get_my_leave_requests", args: failure === "target-override" ? { userId: "bob", privateNote: "不得保存的工具參數" } : { status: "pending" } } }]
+        : stage < (failure === "no-authorize" ? 1 : 2) ? [{ functionCall: { name: "hr_get_my_leave_requests", args: failure === "target-override" ? { userId: "bob" } : { status: "pending" } } }]
         : [{ text: "授權或查詢參數未通過，無法查詢。" }];
       stage++;
       return Response.json({ candidates: [{ content: { parts } }] });
@@ -2337,10 +2493,9 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect(response.status).toBe(200);
     const result = await response.json() as { runId: string; toolCalls: { status: string }[] };
     expect(result.toolCalls.some((call) => call.status === "failed")).toBe(true);
-    expect(JSON.stringify(result)).not.toMatch(/敏感假單|不得保存的工具參數|args/);
+    expect(JSON.stringify(result)).not.toMatch(/敏感假單/);
     expect(requests.join("\n")).not.toMatch(/敏感假單-alice|敏感假單-bob/);
     expect(queries.filter((query) => /select.*hr_leave_requests/i.test(query))).toHaveLength(0);
-    expect(JSON.stringify(await db().select().from(assistantToolCalls))).not.toMatch(/不得保存的工具參數|privateNote/);
   });
 
   it("DO 完成後才撤銷綁定，HTTP 送出前仍重驗，不能回傳敏感回答", async () => {
@@ -2362,6 +2517,39 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect(await response.text()).not.toContain("HTTP 前撤銷不得送出的敏感回答");
     expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
     expect((await db().select().from(assistantRuns))[0]?.status).toBe("failed");
+  });
+
+  it("DO 完成後才撤銷綁定：回答不留在 session transcript，下一輪看不到", async () => {
+    const sessionId = await openSession();
+    env.ASSISTANT_CHAT_AGENT = {
+      getByName: (name: string) => ({ fetch: async (request: Request) => {
+        const response = await assistantAgents!.getByName(name).fetch(request);
+        if (new URL(request.url).pathname === "/run") d1.sqlite.prepare("DELETE FROM auth_line_account_links WHERE user_id='alice'").run();
+        return response;
+      } }),
+    };
+    let stage = 0;
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(String(init?.body));
+      const parts = stage++ === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 2 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }] : [{ text: "HTTP 前撤銷不得留存的回答" }];
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    expect((await runHr({ sessionId })).status).toBe(502);
+    expect(await db().select().from(assistantSandboxMessages)).toHaveLength(0);
+    stage = 3; requests.length = 0;
+    expect((await runHr({ sessionId, toolKeys: [], hrSandboxUserId: undefined, input: "接著問" })).status).toBe(200);
+    expect(requests.join("\n")).not.toMatch(/敏感假單-alice|HTTP 前撤銷不得留存的回答/);
+  });
+
+  it("沒設 LINE Login 時，選了員工但只用一般工具的回合照常執行", async () => {
+    env.LINE_LIFF_CHANNEL_ID = "";
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ candidates: [{ content: { parts: [{ text: "一般回答" }] } }] }));
+    const response = await runHr({ toolKeys: ["crm_search_customers"] });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ text: "一般回答" });
+    expect((await runHr()).status).toBe(502);
   });
 
   it.each(["actor-disabled", "role-revoked", "binding-revoked"])("查詢後 %s，最後回答不得送回管理者", async (change) => {
