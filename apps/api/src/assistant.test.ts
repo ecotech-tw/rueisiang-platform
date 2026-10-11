@@ -2457,6 +2457,9 @@ describe("小香 HR 模擬本人 Sandbox", () => {
       card: "請假申請（尚未送出）\n假別：測試假\n開始：2026-01-06（週二）09:00\n結束：2026-01-06（週二）12:00\n時數：3 小時\n原因：看醫生",
     });
     expect(requests[0]).not.toContain("還沒完成的請假申請草稿");
+    // Sandbox 跟 LINE 給模型同一套「先存，再複述」的規則，才測得到 LINE 上的行為。
+    expect(requests[0]).toContain("不要先問「是不是這樣」等他回答才存");
+    expect(requests[0]).toContain("這段對話目前沒有進行中的申請草稿");
     // 只有一開始 seed 的那一筆待審假單；草稿沒有變成申請。
     expect((await db().select().from(hrLeaveRequests)).filter((row) => row.employmentId === "sandbox-employment-alice")).toHaveLength(1);
 

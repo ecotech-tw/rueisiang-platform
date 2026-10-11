@@ -59,7 +59,7 @@ import {
   type AssistantRunResult,
 } from "@rueisiang/assistant";
 import { PLATFORM_TOOL_DEFAULT_STATUSES, PLATFORM_TOOL_KEYS, toolsForSurface, toolKeysForLineSource } from "@rueisiang/tools";
-import { assertHrLineDeliveryAuthorized, hrRequestDraftConfirmationReply, hrRequestDraftPromptHint, HrSelfToolError, resolveLineHrRequestActor } from "../assistant-hr.js";
+import { assertHrLineDeliveryAuthorized, hrRequestDraftConfirmationReply, hrRequestDraftPromptRules, HrSelfToolError, resolveLineHrRequestActor } from "../assistant-hr.js";
 import type { HrDeliveryAuthorization } from "../assistant-hr.js";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -576,7 +576,9 @@ async function runLineAssistant(input: {
     // 只在這一輪真的拿得到讀草稿工具時才提：私訊、工具已啟用、這段對話有被授權。
     // 草稿要是「現在綁在這個 LINE 帳號上的那位員工」的才提：帳號換綁給別人之後，前一個人的草稿不該出現在他的提示裡。
     const lineLoginChannelId = input.env.LINE_LIFF_CHANNEL_ID?.trim();
-    const draftOwner = input.sourceType === "user" && lineLoginChannelId && allowedToolKeys.includes("hr_request_draft_get")
+    // 存草稿的工具拿得到，才值得每一輪告訴模型「先存再複述」的規則。
+    const draftToolsAvailable = input.sourceType === "user" && allowedToolKeys.includes("hr_request_draft_save");
+    const draftOwner = draftToolsAvailable && lineLoginChannelId && allowedToolKeys.includes("hr_request_draft_get")
       ? await findLineAccountBinding(input.db, { channelId: lineLoginChannelId, lineUserId: input.lineGroupId })
       : null;
     const draftHint = draftOwner
@@ -592,7 +594,7 @@ async function runLineAssistant(input: {
       ASSISTANT_REPORT_TOOL_ROUTING,
       runtimeContextInstruction(currentAssistantRuntimeContext()),
       "這是 LINE 內部助理。除非使用者要求詳細說明，請用繁體中文在六句內直接回答；不要輸出思考過程。",
-      ...hrRequestDraftPromptHint(draftHint),
+      ...hrRequestDraftPromptRules(draftToolsAvailable, draftHint),
     ].join("\n\n");
     let result: AssistantRunResult;
     if (savedBackup?.responseText) {

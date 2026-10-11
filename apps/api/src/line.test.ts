@@ -1357,6 +1357,9 @@ describe("LINE 申請草稿：確認卡片與按鈕", () => {
     expect(sent[0]!.body.messages).toHaveLength(1);
     const prompt = String(piAgentRequests.at(-1)!.payload.systemPrompt);
     expect(prompt).toContain("還沒完成的請假申請草稿");
+    // 每一輪都帶著「先存，再複述」的規則：模型不記得上一輪，沒存進草稿的東西下一輪就不見了。
+    expect(prompt).toContain("先呼叫 hr_request_draft_save 存進去，再回覆");
+    expect(prompt).toContain("不要先問「是不是這樣」等他回答才存");
     expect(prompt).not.toContain("看醫生");
     // 工具被停用後這個私訊就拿不到讀草稿的工具，也就不提醒。
     await setAssistantChannelTools(db(), { channelKey: "rueisiang-xiaoxiang", toolKeys: ["hr_authorize"], updatedBy: "admin" });
@@ -1405,11 +1408,27 @@ describe("LINE 申請草稿：確認卡片與按鈕", () => {
     await linkLineAccount(db(), "newcomer", { channelId: "hr-login", lineUserId: "user-1" });
     setPiAgentResponse("一般回答");
     await postLine(JSON.stringify({ events: [userEvent({ webhookEventId: "after-rebind", message: { id: "m-3", type: "text", text: "你好" } })] }));
-    expect(String(piAgentRequests.at(-1)!.payload.systemPrompt)).not.toContain("申請草稿");
+    const rebound = String(piAgentRequests.at(-1)!.payload.systemPrompt);
+    expect(rebound).not.toContain("還沒完成的");
+    expect(rebound).toContain("這段對話目前沒有進行中的申請草稿");
     sent = [];
     await press(`hr_draft:submit:${draft.id}:${draft.revision}`);
     expect(replies()[0]).toContain("已經不在了");
     expect(await leaves()).toHaveLength(0);
+  });
+
+  it("還沒有草稿的第一句話：規則已經在 system prompt 裡，模型才知道一開口就要先開草稿", async () => {
+    setPiAgentResponse("一般回答");
+    await postLine(JSON.stringify({ events: [userEvent({ webhookEventId: "first-turn", message: { id: "m-first", type: "text", text: "我想請假" } })] }));
+    const prompt = String(piAgentRequests.at(-1)!.payload.systemPrompt);
+    expect(prompt).toContain("員工一說要申請");
+    expect(prompt).toContain("只知道是哪一種申請也要存");
+    expect(prompt).toContain("這段對話目前沒有進行中的申請草稿");
+    // 群組拿不到草稿工具，也就不帶這段規則。
+    const group = mentionEvent({ webhookEventId: "group-turn" });
+    await enableLineConversation(group);
+    await postLine(JSON.stringify({ events: [mentionEvent({ webhookEventId: "group-turn-2", message: { id: "m-g2", type: "text", text: "@Rueisiang 小香 我想請假", mention: { mentionees: [{ isSelf: true }] } } })] }));
+    expect(String(piAgentRequests.at(-1)!.payload.systemPrompt)).not.toContain("申請草稿");
   });
 
   it("卡片與按鈕符合 LINE 的訊息限制：一千字的原因也送得出去", async () => {
