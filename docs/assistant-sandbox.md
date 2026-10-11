@@ -62,7 +62,7 @@ CRM、WMS 與報表工具共用 provider-neutral `ToolContract`；目前這些�
 - `crm_get_customer`：依客戶 ID 取得客戶資料、標籤、同步狀態、最近操作紀錄與可選的消費摘要。
 - `crm_get_orders`：即時查詢 CYBERBIZ 訂單，支援 customer ID、order ID、訂單編號、日期、狀態、排序與 limit；需要 `crm:order:read`。
 - `hr_authorize`、`hr_get_my_leave_requests`、`hr_get_my_annual_leave`、`hr_get_my_overtime_requests`、`hr_get_my_schedule`：本人 HR 授權、假單狀態、當期特休、加班申請與已發布班表查詢。正式 LINE 僅限一對一私訊，群組及多人聊天室不提供此工具，亦不進入 HR 綁定或員工查核；Sandbox 目錄只對管理者列出 HR 工具，沒有選定模擬員工時不能送出。
-- `hr_get_calendar`：公司行事曆上的國定假日、補班日與災防停班。不是個資，不需要 `hr_authorize`，群組與多人聊天室也能用；它不在本人 HR 工具的清單裡，所以不受「只限私訊、Sandbox 要先選模擬對象」限制。
+- `company_calendar`：公司行事曆上的國定假日、補班日與災防停班。不是個資，不需要 `hr_authorize`，群組與多人聊天室也能用；它不在本人 HR 工具的清單裡，所以不受「只限私訊、Sandbox 要先選模擬對象」限制。
 - `list_report_scopes`：列出啟用中的報表據點正式名稱與 scopeId；單一據點報表查詢遇到簡稱或不確定名稱時，先用它取得正式 `scopeName`。
 - `query_sales_report`、`query_payout_report`：依月份、據點與篩選條件查詢已匯入 D1 的商品銷售或出金資料；需要 `reports:cyberbiz:read`。
 
@@ -72,7 +72,7 @@ CRM、WMS 與報表工具共用 provider-neutral `ToolContract`；目前這些�
 
 HR 本人工具先依可信 LINE 私訊的 Messaging UID，在 `LINE_LIFF_CHANNEL_ID` scope 下查現有員工綁定、啟用帳號及在職狀態。LINE Login channel 與小香 Messaging API channel 必須屬於同一個 LINE Provider；HR 工具直接沿用既有小香 channel，不需要額外的 HR channel key。每輪授權 token 綁定 assistant、channel、私訊對話、session generation、run、LINE identity 與綁定版本，五分鐘到期且只留在該次 Pi 執行記憶體中。每次 HR 查詢重驗 token 並回 D1 重讀綁定、員工狀態與工具授權，解除／替換綁定會撤銷舊 token。
 
-加班申請查詢的條件與分頁跟假單相同（`dateField` 是 `submitted` 或 `work`），核定時段與申請時段分開回，不回申請原因。班表查詢預設今天起 14 天、最多 62 天，只讀同一期間最新的已發布版；每一天都回一列並帶 `schedulePublished`，整體帶 `attendanceMode`——「班表還沒發布」與「不是排班制」都不是休假，工具把這兩種情況明講出來，模型才不會把沒有班次說成放假。班表同時帶日型與假日名稱，因為 LINE 的 HR 回合呼叫過 HR 工具後不能再呼叫行事曆工具。這三個工具回給模型的時間都已轉成台北時間。
+加班申請查詢的條件與分頁跟假單相同（`dateField` 是 `submitted` 或 `work`），核定時段與申請時段分開回，不回申請原因。班表查詢預設今天起 14 天、最多 62 天，只讀同一期間最新的已發布版；每一天都回一列並帶 `scheduleStatus`，整體帶 `attendanceMode`。班表版本以期間為單位、不分據點，而且存檔就是發布，所以 `scheduleStatus` 分三種：`not_published`（那個月還沒有人發布）、`not_assigned`（發布了，但這位員工在最新已發布版裡一個班都沒有，判斷與 HR 總覽算「還沒排的人數」相同）、`assigned`（排到了，這時沒有班次才是真的沒排班）。前兩種與「不是排班制」都不是休假，工具把它們明講出來，模型才不會把沒有班次說成放假。每一天另外帶當天核准與待審的請假——核准的假不會刪掉班次，只看班次會答錯；也帶日型與假日名稱，因為 LINE 的 HR 回合呼叫過 HR 工具後不能再呼叫行事曆工具。這三個工具回給模型的時間都已轉成台北時間。
 
 假單查詢只回本人必要欄位，pending 未指定日期時不設日期下限，其他未指定日期預設台北最近 30 天；每頁 20 筆，日期區間最多 366 天。特休查詢沿用本人年度額度及台帳，回報週期、到期日、分鐘／天數與待審時數，待審申請不扣餘額；額度補建只限定該員工。HR 回答與模型 tool-call transcript 不寫入 Pi Durable Object、LINE reply backup 或回答 log；Reply／Push 送出前重新確認有效綁定與授權期限。
 

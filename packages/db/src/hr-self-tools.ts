@@ -220,9 +220,15 @@ export interface HrSelfScheduleQuery {
 /**
  * 本人已發布的班表，一天一列。
  *
- * 「這天沒有班」有三種完全不同的意思：排了休、班表還沒發布、這個人根本不是排班制。
- * 只回班次的話模型會把三種都講成「你那天休假」，所以每一天都帶 schedulePublished，整體再帶 attendanceMode。
- * 日型與假日名稱也一起給：LINE 的 HR 回合呼叫過 HR 工具後不能再呼叫別的工具，查不到行事曆。
+ * 「這天沒有班」有四種完全不同的意思：排了休、那個月還沒人發布班表、發布了但還沒排到這個人、這個人根本不是排班制。
+ * 只回班次的話模型會把四種都講成「你那天休假」，所以每一天都帶 scheduleStatus，整體再帶 attendanceMode。
+ *
+ * 班表版本以期間為單位、不分據點，而且存檔就是發布：別的據點先排好，整個月就有已發布的版本。
+ * 所以「有已發布的版本」不代表這個人被排過——要他在那個期間的最新已發布版裡至少有一個班才算，
+ * 跟 hr-overview 算「還有幾個人沒排」是同一個判斷。
+ *
+ * 日型、假日名稱與當天的請假也一起給：核准的假不會把班次刪掉，只看班次會回答成「明天 10 點上班」；
+ * 而 LINE 的 HR 回合呼叫過 HR 工具後不能再呼叫別的工具，查不到行事曆。
  */
 export async function listHrSelfToolSchedule(db: Database, userId: string, query: HrSelfScheduleQuery = {}, now = Date.now()) {
   employeeId(userId);
@@ -231,7 +237,8 @@ export async function listHrSelfToolSchedule(db: Database, userId: string, query
   const fromDate = range.fromDate!;
   const toDate = range.toDate!;
   const endExclusive = shiftDate(toDate, 1);
-  const [entries, publishedPeriods, calendar, settings] = await Promise.all([
+  const latestPublished = sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`;
+  const [entries, publishedPeriods, assignedPeriods, leaves, calendar, settings] = await Promise.all([
     db.select({
       workDate: hrScheduleEntries.workDate,
       startsAt: hrScheduleEntries.startsAt,
@@ -248,17 +255,36 @@ export async function listHrSelfToolSchedule(db: Database, userId: string, query
       .where(and(
         eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt), eq(hrScheduleVersions.status, "published"),
         // 同一期間重新發布會留下舊版；只認最新的已發布版，與出勤頁讀本人班表的條件一致。
-        sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
+        latestPublished,
         gte(hrScheduleEntries.workDate, fromDate), lt(hrScheduleEntries.workDate, endExclusive),
       )).orderBy(asc(hrScheduleEntries.workDate), asc(hrScheduleEntries.startsAt)),
     db.select({ periodStart: hrScheduleVersions.periodStart, periodEnd: hrScheduleVersions.periodEnd }).from(hrScheduleVersions)
       .where(and(eq(hrScheduleVersions.status, "published"), lt(hrScheduleVersions.periodStart, endExclusive), gt(hrScheduleVersions.periodEnd, fromDate))),
+    // 看整個期間而不是只看查詢的那幾天：只問「明天」時，明天沒班不代表這個月沒排到他。
+    db.selectDistinct({ periodStart: hrScheduleVersions.periodStart, periodEnd: hrScheduleVersions.periodEnd }).from(hrScheduleEntries)
+      .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
+      .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
+      .where(and(
+        eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt), eq(hrScheduleVersions.status, "published"), latestPublished,
+        lt(hrScheduleVersions.periodStart, endExclusive), gt(hrScheduleVersions.periodEnd, fromDate),
+      )),
+    db.select({
+      leaveType: hrLeaveRequests.leaveType, status: hrLeaveRequests.status,
+      startsOn: hrLeaveRequests.startsOn, endsOnExclusive: hrLeaveRequests.endsOn,
+      startsAt: hrLeaveRequests.startsAt, endsAt: hrLeaveRequests.endsAt,
+    }).from(hrLeaveRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+      .where(and(
+        eq(hrEmployments.employeeUserId, userId), inArray(hrLeaveRequests.status, ["approved", "pending"]),
+        lt(hrLeaveRequests.startsOn, endExclusive), gt(hrLeaveRequests.endsOn, fromDate),
+      )).orderBy(asc(hrLeaveRequests.startsAt)),
     listHrCalendarMonth(db, { start: fromDate, end: endExclusive }),
     db.select({ attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmploymentAttendanceSettings)
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmploymentAttendanceSettings.employmentId))
       .where(and(eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))),
   ]);
   const attendanceMode = settings.some((row) => row.attendanceMode === "scheduled") ? "scheduled" : settings.length ? "general" : "unknown";
+  const covers = (periods: Array<{ periodStart: string; periodEnd: string }>, date: string) =>
+    periods.some((period) => period.periodStart <= date && period.periodEnd > date);
   return {
     timeZone: "Asia/Taipei", asOfDate: today, fromDate, toDate, attendanceMode,
     days: calendar.map((day) => ({
@@ -266,7 +292,14 @@ export async function listHrSelfToolSchedule(db: Database, userId: string, query
       weekday: weekdayLabel(day.date),
       dayType: day.dayType,
       holidayName: day.name,
-      schedulePublished: publishedPeriods.some((period) => period.periodStart <= day.date && period.periodEnd > day.date),
+      scheduleStatus: covers(assignedPeriods, day.date) ? "assigned" as const
+        : covers(publishedPeriods, day.date) ? "not_assigned" as const : "not_published" as const,
+      leaves: leaves.filter((leave) => leave.startsOn <= day.date && leave.endsOnExclusive > day.date).map((leave) => ({
+        leaveType: leave.leaveType,
+        status: leave.status,
+        startsAt: taipeiMinuteFromUtcWallClock(leave.startsAt),
+        endsAt: taipeiMinuteFromUtcWallClock(leave.endsAt),
+      })),
       shifts: entries.filter((entry) => entry.workDate === day.date).map((entry) => ({
         scopeName: entry.scopeName,
         shiftName: entry.shiftName,
@@ -276,7 +309,7 @@ export async function listHrSelfToolSchedule(db: Database, userId: string, query
       })),
     })),
     note: attendanceMode === "scheduled"
-      ? "schedulePublished 為 false 的日期班表尚未發布，不能說成休假；為 true 且 shifts 是空的才是沒有排班。"
+      ? "scheduleStatus 是 assigned 而且 shifts 是空的，那天才是沒有排班；not_published 是那個月的班表還沒發布，not_assigned 是班表發布了但還沒排到這位員工，兩種都不能說成休假。leaves 是當天的請假，approved 的時段不用上班，pending 還沒核准。"
       : "這位員工不是排班制，平台沒有他的逐日班表；shifts 是空的不代表休假，上班時間請依公司規定或向主管確認。",
   };
 }

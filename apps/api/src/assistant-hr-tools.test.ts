@@ -1,9 +1,10 @@
 import { createDatabase, listHrSelfToolOvertimeRequests, listHrSelfToolSchedule, listHrToolCalendar, syncSystemRoles } from "@rueisiang/db";
 import {
-  hrCalendarDayScopes, hrCalendarDays, hrEmploymentAttendanceSettings, hrEmployments, hrOvertimeRequests,
+  hrCalendarDayScopes, hrCalendarDays, hrEmploymentAttendanceSettings, hrEmployments, hrLeaveRequests, hrLeaveTypes, hrOvertimeRequests,
   hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, users,
 } from "@rueisiang/db/schema";
 import { HR_TOOL_DEFINITIONS, isHrToolKey, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
+import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
@@ -11,6 +12,7 @@ import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 const NOW = Date.parse("2026-03-02T00:00:00Z");
 let d1: LocalD1;
 const db = () => createDatabase(d1 as never);
+const shiftDay = (date: string) => new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
 
 beforeEach(async () => {
   d1 = createLocalD1();
@@ -105,11 +107,11 @@ describe("小香 HR 工具：本人班表", () => {
     const result = await listHrSelfToolSchedule(db(), "alice", {}, NOW);
     expect(result).toMatchObject({ fromDate: "2026-03-02", toDate: "2026-03-15", attendanceMode: "scheduled" });
     expect(result.days).toHaveLength(14);
-    expect(result.days[0]).toEqual({ date: "2026-03-02", weekday: "週一", dayType: "weekday", holidayName: "", schedulePublished: true, shifts: [] });
+    expect(result.days[0]).toEqual({ date: "2026-03-02", weekday: "週一", dayType: "weekday", holidayName: "", scheduleStatus: "assigned", leaves: [], shifts: [] });
     // 03-03 只存在被取代的舊版裡。
     expect(result.days[1]!.shifts).toEqual([]);
     expect(result.days[2]).toEqual({
-      date: "2026-03-04", weekday: "週三", dayType: "holiday", holidayName: "測試假日", schedulePublished: true,
+      date: "2026-03-04", weekday: "週三", dayType: "holiday", holidayName: "測試假日", scheduleStatus: "assigned", leaves: [],
       shifts: [{ scopeName: "西門店", shiftName: "日班", startsAt: "2026-03-04 10:00", endsAt: "2026-03-04 18:00", breakMinutes: 60 }],
     });
     expect(result.days[5]).toMatchObject({ date: "2026-03-07", weekday: "週六", dayType: "weekend" });
@@ -117,8 +119,47 @@ describe("小香 HR 工具：本人班表", () => {
 
   it("還沒發布的期間標成未發布，草稿裡的班不會露出來", async () => {
     const result = await listHrSelfToolSchedule(db(), "alice", { fromDate: "2026-03-31", toDate: "2026-04-01" }, NOW);
-    expect(result.days.map((day) => [day.date, day.schedulePublished, day.shifts.length])).toEqual([["2026-03-31", true, 1], ["2026-04-01", false, 0]]);
-    expect(result.note).toContain("尚未發布");
+    expect(result.days.map((day) => [day.date, day.scheduleStatus, day.shifts.length])).toEqual([["2026-03-31", "assigned", 1], ["2026-04-01", "not_published", 0]]);
+    expect(result.note).toContain("還沒發布");
+  });
+
+  it("別的據點先發布、還沒排到本人的月份標成 not_assigned，不會被當成整個月沒班", async () => {
+    await db().insert(users).values({ id: "carol", email: "carol@example.test", displayName: "carol", status: "active" });
+    await db().insert(hrEmployments).values({ id: "employment-carol", employeeUserId: "carol", employeeNumber: "carol", legalName: "員工-carol" });
+    await db().insert(hrEmploymentAttendanceSettings).values({ employmentId: "employment-carol", attendanceMode: "scheduled" });
+    const carol = await listHrSelfToolSchedule(db(), "carol", { fromDate: "2026-03-02", toDate: "2026-03-03" }, NOW);
+    expect(carol.days.map((day) => day.scheduleStatus)).toEqual(["not_assigned", "not_assigned"]);
+    // alice 03-02、03-03 沒有班，但她這個月有被排到，所以是真的沒排班。
+    const alice = await listHrSelfToolSchedule(db(), "alice", { fromDate: "2026-03-02", toDate: "2026-03-03" }, NOW);
+    expect(alice.days.map((day) => [day.scheduleStatus, day.shifts.length])).toEqual([["assigned", 0], ["assigned", 0]]);
+    // 只存在被取代舊版裡的人，也算還沒排到。
+    await db().delete(hrScheduleEntries).where(eq(hrScheduleEntries.scheduleVersionId, "march-v2"));
+    expect((await listHrSelfToolSchedule(db(), "alice", { fromDate: "2026-03-03", toDate: "2026-03-03" }, NOW)).days[0]).toMatchObject({ scheduleStatus: "not_assigned", shifts: [] });
+  });
+
+  it("當天核准或待審的假跟班次一起回，駁回與別人的假不出現", async () => {
+    await db().insert(hrLeaveTypes).values({ id: "leave-type", name: "測試假", leaveKind: "other", createdBy: "admin" });
+    const leave = (id: string, employmentId: string, status: "approved" | "pending" | "rejected", day: string, next: string) => ({
+      id, employmentId, leaveTypeId: "leave-type", leaveType: "測試假", status,
+      // 台北當天 00:00 到隔天 00:00 的整天假。
+      startsAt: `${shiftDay(day)} 16:00:00`, endsAt: `${day} 16:00:00`, startsOn: day, endsOn: next,
+      durationMinutes: 480, createdBy: "admin", reason: "不應回傳的請假原因",
+    });
+    await db().insert(hrLeaveRequests).values([
+      leave("leave-approved", "employment-alice", "approved", "2026-03-04", "2026-03-05"),
+      leave("leave-pending", "employment-alice", "pending", "2026-03-05", "2026-03-06"),
+      leave("leave-rejected", "employment-alice", "rejected", "2026-03-06", "2026-03-07"),
+      leave("leave-bob", "employment-bob", "approved", "2026-03-06", "2026-03-07"),
+    ]);
+    const result = await listHrSelfToolSchedule(db(), "alice", { fromDate: "2026-03-04", toDate: "2026-03-06" }, NOW);
+    expect(result.days[0]).toMatchObject({
+      leaves: [{ leaveType: "測試假", status: "approved", startsAt: "2026-03-04 00:00", endsAt: "2026-03-05 00:00" }],
+      shifts: [{ startsAt: "2026-03-04 10:00" }],
+    });
+    expect(result.days[1]!.leaves).toEqual([{ leaveType: "測試假", status: "pending", startsAt: "2026-03-05 00:00", endsAt: "2026-03-06 00:00" }]);
+    expect(result.days[2]!.leaves).toEqual([]);
+    expect(result.note).toContain("approved 的時段不用上班");
+    expect(JSON.stringify(result)).not.toContain("不應回傳");
   });
 
   it("不是排班制的員工明講沒有逐日班表，也拿不到別人的班", async () => {
@@ -168,9 +209,9 @@ describe("小香 HR 工具：公司行事曆", () => {
   });
 
   it("不是本人工具：群組也能用、不需要授權服務，但一樣不接受多餘參數", async () => {
-    const tool = PLATFORM_TOOL_MAP.get("hr_get_calendar")!;
-    expect(isHrToolKey("hr_get_calendar")).toBe(false);
-    expect(toolKeysForLineSource(["hr_get_calendar", "hr_get_my_schedule", "hr_get_my_overtime_requests"], "group")).toEqual(["hr_get_calendar"]);
+    const tool = PLATFORM_TOOL_MAP.get("company_calendar")!;
+    expect(isHrToolKey("company_calendar")).toBe(false);
+    expect(toolKeysForLineSource(["company_calendar", "hr_get_my_schedule", "hr_get_my_overtime_requests"], "group")).toEqual(["company_calendar"]);
     const result = JSON.parse(await tool.execute({ fromDate: "2026-03-04", toDate: "2026-03-04" }, { surface: "line", lineSourceType: "group", db: db() }));
     expect(result.days).toHaveLength(1);
     await expect(tool.execute({ userId: "alice" }, { surface: "sandbox", db: db() })).rejects.toThrow("未定義的參數");

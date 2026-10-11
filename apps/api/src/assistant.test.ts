@@ -15,7 +15,7 @@ import {
   hrAnnualLeaveEntitlements,
   assistantRuns,
   assistantToolCalls,
-  hrLeaveRequests,
+  hrCalendarDays, hrLeaveRequests, hrOvertimeRequests,
   hrLeaveTypes,
   crmCustomerTags,
   crmTags,
@@ -416,11 +416,11 @@ describe("只有 LINE 權限的人", () => {
     expect(body.tools.every((tool) => tool.surfaces.includes("line"))).toBe(true);
     expect(body.tools.find((tool) => tool.key === "hr_authorize")).toMatchObject({ lineSourceTypes: ["user"] });
     expect(body.channelTools.sort()).toEqual([
+      "company_calendar",
       "crm_get_customer",
       "crm_get_orders",
       "crm_search_customers",
       "hr_authorize",
-      "hr_get_calendar",
       "hr_get_my_annual_leave",
       "hr_get_my_leave_requests",
       "hr_get_my_overtime_requests",
@@ -557,7 +557,7 @@ describe("AI 助理 Sandbox", () => {
       "hr_get_my_annual_leave",
       "hr_get_my_overtime_requests",
       "hr_get_my_schedule",
-      "hr_get_calendar",
+      "company_calendar",
     ]);
     expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
       label: "WMS 搜尋倉庫位置",
@@ -2400,6 +2400,55 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect(bob.status).toBe(200);
     expect(requests.at(-1)).toContain("敏感假單-bob");
     expect(requests.join("\n")).not.toMatch(/敏感假單-alice|員工本人回答/);
+  });
+
+  it("真正的 tool loop：授權→本人班表→本人加班，工具結果送回模型，只含這位員工的資料", async () => {
+    await db().insert(hrOvertimeRequests).values(["alice", "bob"].map((id) => ({
+      id: `敏感加班-${id}`, employmentId: `sandbox-employment-${id}`, requestedStart: "2026-01-05 10:00:00", requestedEnd: "2026-01-05 12:00:00",
+      settlementKind: "pay" as const, status: "pending" as const, createdBy: id,
+    })));
+    let stage = 0;
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(String(init?.body));
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_get_my_schedule", args: { fromDate: "2026-01-05", toDate: "2026-01-06" } } }]
+        : stage === 2 ? [{ functionCall: { name: "hr_get_my_overtime_requests", args: { status: "pending" } } }]
+        : [{ text: "班表與加班回答" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const toolKeys = ["hr_authorize", "hr_get_my_schedule", "hr_get_my_overtime_requests"];
+    const response = await runHr({ toolKeys });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { toolCalls: { toolKey: string; status: string }[] };
+    expect(result.toolCalls.map((call) => [call.toolKey, call.status])).toEqual(toolKeys.map((key) => [key, "success"]));
+    expect(requests[2]).toContain("scheduleStatus");
+    expect(requests.at(-1)).toContain("敏感加班-alice");
+    expect(requests.join("\n")).not.toContain("敏感加班-bob");
+    // 沒選模擬對象時，本人工具照舊不能送出。
+    expect((await runHr({ toolKeys, hrSandboxUserId: undefined })).status).toBe(400);
+  });
+
+  it("公司行事曆不是本人工具：不選模擬對象、沒有 HR 管理角色也能用", async () => {
+    await db().insert(rolePermissionGrants).values([
+      { roleId: "role-staff", permission: "assistant:sandbox:read" }, { roleId: "role-staff", permission: "assistant:sandbox:write" },
+    ]);
+    await db().insert(hrCalendarDays).values({ date: "2026-01-01", dayType: "holiday", name: "測試元旦", updatedBy: "admin" });
+    let stage = 0;
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(String(init?.body));
+      const parts = stage++ === 0 ? [{ functionCall: { name: "company_calendar", args: { fromDate: "2026-01-01", toDate: "2026-01-31" } } }] : [{ text: "行事曆回答" }];
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const response = await runHr({ toolKeys: ["company_calendar"], hrSandboxUserId: undefined }, "alice", "alice@example.test");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ toolCalls: [{ toolKey: "company_calendar", status: "success" }] });
+    expect(requests.at(-1)).toContain("測試元旦");
+    const config = await (await as("alice", "alice@example.test", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[] };
+    expect(config.tools.map((tool) => tool.key)).toContain("company_calendar");
+    expect(config.tools.some((tool) => tool.key.startsWith("hr_get_my_"))).toBe(false);
   });
 
   it("送出前才撤銷綁定的回合不留在 session transcript", async () => {

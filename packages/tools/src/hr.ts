@@ -101,7 +101,7 @@ export const HR_TOOL_DEFINITIONS: readonly ToolContract[] = [
   {
     ...common,
     key: "hr_get_my_schedule", label: "查詢本人班表",
-    description: "先 hr_authorize，再查本人已發布的班表：哪天上班、幾點到幾點、在哪個據點。不傳日期時查今天起 14 天；明天、下週請換算成明確日期再傳，最多涵蓋 62 天。每一天都會回傳，回答前先看兩個欄位：schedulePublished 為 false 代表那段期間班表還沒發布，要說「還沒發布」，不可以說成休假；attendanceMode 不是 scheduled 代表這位員工不是排班制，沒有逐日班表，也不可以說成休假。dayType 是 weekday／weekend／holiday，holidayName 是假日名稱。不得查他人；時間都是台北時間，不可使用舊對話猜測班表。",
+    description: "先 hr_authorize，再查本人已發布的班表：哪天上班、幾點到幾點、在哪個據點。不傳日期時查今天起 14 天；明天、下週請換算成明確日期再傳，最多涵蓋 62 天。每一天都會回傳，回答前先看三個欄位：scheduleStatus 是 assigned 而且 shifts 是空的，那天才是沒排班；not_published 代表那個月的班表還沒發布、not_assigned 代表班表發布了但還沒排到本人，都要照實說，不可以說成休假。attendanceMode 不是 scheduled 代表這位員工不是排班制，沒有逐日班表，也不可以說成休假。leaves 是當天的請假：有 approved 的請假時要一起說，那段時間不用上班；pending 是還沒核准，仍要照班表上班。dayType 是 weekday／weekend／holiday，holidayName 是假日名稱。不得查他人；時間都是台北時間，不可使用舊對話猜測班表。",
     parameters: { type: "object", properties: {
       fromDate: { type: "string", description: "台北日期 YYYY-MM-DD，與 toDate 一起傳入。" },
       toDate: { type: "string", description: "包含此台北日期 YYYY-MM-DD，最多涵蓋 62 天。" },
@@ -118,8 +118,9 @@ export const HR_TOOL_DEFINITIONS: readonly ToolContract[] = [
  * 公司行事曆不是個資，所以不走 hr_authorize，群組也能用，也刻意不放進 HR_TOOL_DEFINITIONS——
  * 那份清單決定「哪些工具只能本人私訊、Sandbox 要先選模擬對象」，放進去會把它一起鎖起來。
  */
-export const HR_CALENDAR_TOOL: ToolContract = {
-  key: "hr_get_calendar", label: "查詢公司行事曆",
+export const COMPANY_CALENDAR_TOOL: ToolContract = {
+  // 鍵值刻意不用 hr_ 開頭：那個前綴目前都是「本人、要授權」的工具，用了遲早有人照名字猜它也要授權。
+  key: "company_calendar", label: "查詢公司行事曆",
   description: "查公司行事曆上的國定假日、補班日與災防停班，回答「某個假期放幾天」「這週六要不要補班」「下個國定假日是哪天」。不傳日期時查今天起 60 天；請把連假、下個月換算成明確日期再傳，最多涵蓋 366 天。只會列出跟星期推算不同的日子：沒列出的週一到週五是平日、週六日是週末。makeupWorkday 為 true 是補班日；stopWork 是 all 代表全公司災防停班，是清單代表只有那些據點停班。note 有內容時代表該期間行事曆可能還沒設定，不可以回答成沒有假日。這是公司整體的行事曆，不代表個人班表；個人哪天上班要用本人班表工具。",
   defaultStatus: "enabled",
   surfaces: ["line", "sandbox"],
