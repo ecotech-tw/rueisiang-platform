@@ -56,7 +56,6 @@ export function HrProfilePhoto({ profile }: { profile: Profile }) {
     </div> : profile.photo && canWrite ? <Button variant="link" className="hr-profile-photo-remove" icon="trash" disabled={pending} onClick={() => { setExpectedRevision(profile.employee.revision); remove.reset(); setFeedback(""); setConfirmRemove(true); }}>移除大頭貼</Button> : null}
     {fileError ? <Alert tone="danger">{fileError}</Alert> : null}
     {failedPhoto === savedSrc && savedSrc ? <p className="hr-profile-photo-note">照片載入失敗，請重新整理或重新上傳。</p> : null}
-    {canWrite ? <p className="hr-profile-photo-note">只有你本人與 HR 管理者可查看</p> : null}
     {feedback ? <p role="status" className="hr-profile-photo-feedback">{feedback}</p> : null}
     {!canWrite ? <p className="hr-profile-photo-note">目前無法更新大頭貼，請聯絡管理者。</p> : null}
     {confirmRemove ? <ConfirmDialog title="移除我的大頭貼？" confirmLabel="移除大頭貼" pending={remove.isPending} closeRequestRef={closeRemove} onCancel={() => setConfirmRemove(false)} onConfirm={() => remove.mutate({ path: "/me/photo", method: "DELETE", values: { revision: expectedRevision } }, { onSuccess: () => { (closeRemove.current ?? ((afterClose?: () => void) => { setConfirmRemove(false); afterClose?.(); }))(() => setFeedback("大頭貼已移除")); } })}><p>移除目前的照片，不影響其他員工資料。</p>{remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}</ConfirmDialog> : null}

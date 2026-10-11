@@ -31,6 +31,11 @@ function stubImages() {
 }
 
 describe("員工端大頭貼", () => {
+  it("不顯示個人大頭貼的可見權限說明", () => {
+    const container = render(<HrProfilePhoto profile={profile()} />);
+    expect(container.textContent).not.toContain("只有你本人與 HR 管理者可查看");
+  });
+
   it("顯示本人私有照片並設定跨來源憑證", () => {
     const container = render(<><HrProfileAvatar name="測試員工" photo={{ id: "photo-1" }} /><HrProfileAvatar name="林小姐" photo={null} /></>);
     const images = container.querySelectorAll("img");
