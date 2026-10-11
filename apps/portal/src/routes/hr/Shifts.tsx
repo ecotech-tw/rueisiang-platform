@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { groupShiftsByTemplate, shiftTimeRange, useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrDayType, type HrShiftsResponse, type ScheduleScope, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -88,14 +88,15 @@ function timesPayload(row: ShiftRowDraft) {
  * 平日那一格永遠顯示，週末與國定假日預設沿用平日時段與需求人力；按下設定時間後，
  * 該日型才會變成獨立設定。這樣沿用狀態只有一個入口，也避免半列欄位無法對齊。
  */
-function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scope: ScheduleScope; groups: ShiftGroup[]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
+function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClose, onSaved }: { scope: ScheduleScope; groups: ShiftGroup[]; manager: ScheduleManagersResponse["scopes"][number]; candidates: ScheduleManagersResponse["candidates"]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
   const [rows, setRows] = useState(() => rowsFromGroups(groups));
+  const [managerUserId, setManagerUserId] = useState(manager.userId ?? "");
   const [removedRows, setRemovedRows] = useState<ShiftGroup[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
   const toast = useToast();
   const closeRequestRef = useRef<(() => void) | null>(null);
-  const hasChanges = removedRows.length > 0 || rows.length !== groups.length || rows.some(rowChanged);
+  const hasChanges = removedRows.length > 0 || rows.length !== groups.length || rows.some(rowChanged) || managerUserId !== (manager.userId ?? "");
 
   const updateRow = (key: string, patch: Partial<Pick<ShiftRowDraft, "name">>) => {
     setRows((current) => current.map((row) => row.key === key ? { ...row, ...patch } : row));
@@ -173,11 +174,14 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
           await save.mutateAsync({ path: "/shift-templates", method: "POST", values: { scopeId: scope.id, name, requiredHeadcount: row.times.weekday?.requiredHeadcount, times: timesPayload(row) } });
         }
       }
+      if (managerUserId !== (manager.userId ?? "")) {
+        await save.mutateAsync({ path: `/schedule-managers/${encodeURIComponent(scope.id)}`, method: "PUT", values: { userId: managerUserId || null, revision: manager.revision } });
+      }
       await onSaved();
-      toast.show("班別設定已儲存。");
+      toast.show("班別與排班負責人已儲存。");
       (closeRequestRef.current ?? onClose)();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "班別設定儲存失敗，請稍後再試。");
+      setMessage(error instanceof Error ? error.message : "設定儲存失敗，請稍後再試。");
     }
   };
 
@@ -189,6 +193,8 @@ function StoreShiftsDialog({ scope, groups, canWrite, onClose, onSaved }: { scop
     actions={canWrite ? <Button loading={save.isPending} disabled={!hasChanges} onClick={() => { void saveAll(); }}>儲存</Button> : undefined}
   >
     <div className="shift-items">
+      <span className="shift-items-label">排班負責人</span>
+      {canWrite ? <><SelectField label="排班負責人" searchable value={managerUserId} disabled={save.isPending} options={[{ value: "", label: "不指定" }, ...(manager.userId && !candidates.some((person) => person.userId === manager.userId) ? [{ value: manager.userId, label: "原負責人（已停用或封存）" }] : []), ...candidates.map((person) => ({ value: person.userId, label: `${person.employeeNumber}・${person.name}` }))]} onChange={(event) => { setManagerUserId(event.target.value); setMessage(null); }} /><p className="muted">每個據點指定一位在職員工，可從 HR 前台的個人中心進入快速排班；儲存直接生效。更換或移除負責人會立即撤銷原負責人的據點排班權限。</p></> : <p>{candidates.find((person) => person.userId === manager.userId)?.name ?? (manager.userId ? "已停用或封存" : "尚未指定")}</p>}
       <span className="shift-items-label">班別時段</span>
       {rows.map((row) => {
         const legacyOvernight = Boolean(row.original?.weekday.endDayOffset);
@@ -250,17 +256,6 @@ function groupSummary(group: ShiftGroup) {
 
 interface ScheduleManagersResponse { scopes: Array<ScheduleScope & { userId: string | null; revision: number }>; candidates: Array<{ userId: string; name: string; employeeNumber: string }> }
 
-function ScheduleManagerDialog({ scope, candidates, onClose }: { scope: ScheduleManagersResponse["scopes"][number]; candidates: ScheduleManagersResponse["candidates"]; onClose: () => void }) {
-  const [userId, setUserId] = useState(scope.userId ?? "");
-  const save = useHrWrite();
-  const toast = useToast();
-  return <Dialog title={`${scope.name} 排班負責人`} onClose={onClose} closeDisabled={save.isPending} actions={<Button disabled={userId === (scope.userId ?? "")} loading={save.isPending} onClick={() => save.mutate({ path: `/schedule-managers/${encodeURIComponent(scope.id)}`, method: "PUT", values: { userId: userId || null, revision: scope.revision } }, { onSuccess: () => { toast.show("排班負責人已更新。"); onClose(); } })}>儲存</Button>}>
-    <p>每個據點指定一位在職員工，可從 HR 前台的個人中心進入快速排班；儲存直接生效，不需送審。更換或移除負責人會立即撤銷原負責人的據點排班權限。</p>
-    <SelectField label="排班負責人" searchable value={userId} disabled={save.isPending} options={[{ value: "", label: "不指定" }, ...(scope.userId && !candidates.some((person) => person.userId === scope.userId) ? [{ value: scope.userId, label: "原負責人（已停用或封存）" }] : []), ...candidates.map((person) => ({ value: person.userId, label: `${person.employeeNumber}・${person.name}` }))]} onChange={(event) => setUserId(event.target.value)} />
-    {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
-  </Dialog>;
-}
-
 export function HrShifts() {
   usePageTitle("班別管理");
   const { permissions } = useSession();
@@ -270,7 +265,6 @@ export function HrShifts() {
   const [openScopeId, setOpenScopeId] = useState<string | null>(null);
   const data = shifts.data;
   const managers = useHrQuery<ScheduleManagersResponse>("/schedule-managers", canRead);
-  const [managerScopeId, setManagerScopeId] = useState<string | null>(null);
 
   const groupsByScope = useMemo(() => {
     const byScope = new Map<string, ScheduleShift[]>();
@@ -288,32 +282,31 @@ export function HrShifts() {
   return <div className="page fills">
     <PageHeader title="班別管理" description="每個班別可分別設定平日、週末與國定假日的時間與需求人力；沒設定的日型會沿用平日時段與需求人力。需求人力同時是薪資單位池上限；待確認與已出勤人員計入、明確未出勤排除，超額排班時由有效人員平均分配。" />
     <Panel className="grows">
-      <DataTable><thead><tr>
-        <th>營運據點</th><th className="numeric">班別數</th><th>班別</th><th>排班負責人</th>
-      </tr></thead><tbody>
+      <div className="shift-scope-list">
         {data.scopes.map((scope) => {
           const list = groupsByScope.get(scope.id) ?? [];
           const manager = managers.data?.scopes.find((item) => item.id === scope.id);
           const managerName = managers.data?.candidates.find((person) => person.userId === manager?.userId)?.name;
-          return <tr key={scope.id} className="clickable-row" role="button" tabIndex={0} aria-haspopup="dialog" onClick={() => setOpenScopeId(scope.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setOpenScopeId(scope.id); } }}>
-            <td data-label="營運據點"><span className="cell-strong">{scope.name}</span></td>
-            <td data-label="班別數" className="numeric">{list.length}</td>
-            {/* 沒有班別的店在排班月曆選不到任何班，所以要一眼看得出來，不是留一格空白。 */}
-            <td data-label="班別">{list.length ? list.map(groupSummary).join("、") : <span className="muted">尚未設定</span>}</td>
-            <td data-label="排班負責人"><span>{managerName ?? (manager?.userId ? "已停用或封存" : managers.isPending ? "載入中…" : "尚未指定")}</span>{canWrite ? <Button variant="icon" icon="edit" aria-label={`設定 ${scope.name} 排班負責人`} disabled={!managers.data} onClick={(event) => { event.stopPropagation(); setManagerScopeId(scope.id); }} onKeyDown={(event) => event.stopPropagation()} /> : null}</td>
-          </tr>;
+          return <section key={scope.id} className="shift-scope-card">
+            <div className="shift-scope-heading"><h2>{scope.name}</h2>{canWrite ? <Button variant="icon" icon="edit" aria-label={`編輯 ${scope.name} 的班別與排班負責人`} disabled={!manager || !managers.data} onClick={() => setOpenScopeId(scope.id)} /> : null}</div>
+            <div className="shift-scope-columns">
+              <div><span className="shift-scope-label">班別（{list.length}）</span>{/* 沒有班別的店在排班月曆選不到任何班，所以要一眼看得出來。 */}<p>{list.length ? list.map(groupSummary).join("、") : <span className="muted">尚未設定</span>}</p></div>
+              <div><span className="shift-scope-label">排班負責人</span><p>{managerName ?? (manager?.userId ? "已停用或封存" : managers.isPending ? "載入中…" : "尚未指定")}</p></div>
+            </div>
+          </section>;
         })}
-      </tbody></DataTable>
+      </div>
       {!data.scopes.length ? <p className="muted table-note">目前沒有啟用中的營運據點。</p> : null}
     </Panel>
     {managers.error ? <Alert tone="danger">{managers.error.message}</Alert> : null}
-    {managerScopeId && managers.data?.scopes.find((scope) => scope.id === managerScopeId) ? <ScheduleManagerDialog scope={managers.data.scopes.find((scope) => scope.id === managerScopeId)!} candidates={managers.data.candidates} onClose={() => setManagerScopeId(null)} /> : null}
-    {openScope ? <StoreShiftsDialog
+    {openScope && managers.data?.scopes.find((scope) => scope.id === openScope.id) ? <StoreShiftsDialog
       scope={openScope}
       groups={groupsByScope.get(openScope.id) ?? []}
+      manager={managers.data.scopes.find((scope) => scope.id === openScope.id)!}
+      candidates={managers.data.candidates}
       canWrite={canWrite}
       onClose={() => setOpenScopeId(null)}
-      onSaved={() => shifts.refetch()}
+      onSaved={() => Promise.all([shifts.refetch(), managers.refetch()])}
     /> : null}
   </div>;
 }
