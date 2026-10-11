@@ -52,7 +52,7 @@ let piAgentStatus = 503;
 function setPiAgentResponse(text: string, usage = { promptTokens: 1, candidateTokens: 2, totalTokens: 3 }): void {
   piAgentResponse = {
     sessionId: "test-session",
-    model: "gpt-5.4-mini",
+    model: "gpt-6-luna",
     result: { text, thoughts: "", toolCalls: [], usage },
   };
 }
@@ -1067,7 +1067,7 @@ describe("LINE channel 後台設定", () => {
     const agentRequest = piAgentRequests.find((request) => request.path === "/run");
     expect(agentRequest?.agentName).toBe("rueisiang-xiaoxiang:rueisiang-xiaoxiang:group:group-1");
     expect(agentRequest?.payload).toMatchObject({
-      model: "gpt-5.4-mini",
+      model: "gpt-6-luna",
       sourceType: "group",
       lineGroupId: "group-1",
     } satisfies Partial<PiLineAgentRunRequest>);
@@ -1080,7 +1080,7 @@ describe("LINE channel 後台設定", () => {
     expect(replyRequest?.body).toContain("已收到，我會依照群組內容協助處理。");
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ channel: "line", groupId: "group-1", model: "gpt-5.4-mini", status: "success", totalTokens: 18 });
+    expect(runs[0]).toMatchObject({ channel: "line", groupId: "group-1", model: "gpt-6-luna", status: "success", totalTokens: 18 });
   });
 
   it("LINE 設定失效時仍會記錄失敗並通知群組", async () => {
@@ -1108,7 +1108,7 @@ describe("LINE channel 後台設定", () => {
     ]);
     const runs = await db().select().from(assistantRuns).where(eq(assistantRuns.channel, "line"));
     expect(runs).toHaveLength(1);
-    expect(runs[0]).toMatchObject({ status: "failed", model: "gpt-5.4-mini" });
+    expect(runs[0]).toMatchObject({ status: "failed", model: "gpt-6-luna" });
   });
 
   it("Codex credential 設定錯誤時不消耗 Queue retry，直接通知群組", async () => {
@@ -1221,7 +1221,7 @@ describe("LINE HR 敏感回答 delivery", () => {
     const group = await enableLineConversation(userEvent({ webhookEventId: "hr-delivery-seed" }));
     await db().insert(hrEmployments).values({ id: "hr-admin", employeeUserId: "admin", employeeNumber: "HR-ADMIN" });
     await linkLineAccount(db(), "admin", { channelId: "hr-login", lineUserId: "user-1" });
-    await ensureAssistantDefaults(db(), { assistantKey: "rueisiang-xiaoxiang", defaultModel: "gpt-5.4-mini", defaultPrompt: "HR 測試", toolKeys: ["hr_authorize"] });
+    await ensureAssistantDefaults(db(), { assistantKey: "rueisiang-xiaoxiang", defaultModel: "gpt-6-luna", defaultPrompt: "HR 測試", toolKeys: ["hr_authorize"] });
     await setAssistantChannelTools(db(), { channelKey: "rueisiang-xiaoxiang", toolKeys: ["hr_authorize"], updatedBy: "admin" });
     env.LINE_LIFF_CHANNEL_ID = "hr-login";
     const runId = crypto.randomUUID();
@@ -1230,7 +1230,7 @@ describe("LINE HR 敏感回答 delivery", () => {
       lineGroupId: "user-1", sourceType: "user" as const, contextGeneration: group.contextResetAt ?? "",
       webhookEventId: "hr-delivery-event", runId,
     };
-    const hrSelf = new LineHrSelfService(db(), env as never, { ...context, model: "gpt-5.4-mini", systemPrompt: "", userText: "查假", toolKeys: ["hr_authorize"] });
+    const hrSelf = new LineHrSelfService(db(), env as never, { ...context, model: "gpt-6-luna", systemPrompt: "", userText: "查假", toolKeys: ["hr_authorize"] });
     await hrSelf.authorize();
     setPiAgentResponse("HR-機密假單回答");
     piAgentResponse.privateHrRun = true;

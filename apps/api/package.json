@@ -12,8 +12,8 @@
     "dry-run": "wrangler deploy --dry-run"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "0.84.2",
-    "@earendil-works/pi-ai": "0.84.2",
+    "@earendil-works/pi-agent-core": "0.99.2",
+    "@earendil-works/pi-ai": "0.99.2",
     "@rueisiang/assistant": "workspace:*",
     "@rueisiang/auth": "workspace:*",
     "@rueisiang/cyberbiz": "workspace:*",

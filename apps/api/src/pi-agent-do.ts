@@ -1,5 +1,6 @@
 import {
   Agent,
+  BACKGROUND_CONTEXT,
   convertToLlm,
   createCompactionSummaryMessage,
   estimateTokens,
@@ -514,8 +515,8 @@ function payloadWithOutputLimit(payload: unknown): unknown {
 }
 
 /**
- * Pi 0.84.2 的 AgentHarness durable API 尚未實作；這裡使用已完整可用的 Pi Agent，
- * transcript 由 chat 專屬 SQLite DO 保存，工具迴圈、訊息格式與 compaction 則沿用 Pi。
+ * 沿用 Cloudflare 的 Queue／DO persistence 與 session generation 邊界，不另建 durable harness。
+ * transcript 由 chat 專屬 SQLite DO 保存，工具迴圈、訊息格式與 compaction 則沿用 Pi Agent。
  */
 export class AssistantChatAgent {
   private readonly sql: SqlStorage;
@@ -1270,10 +1271,12 @@ export class AssistantChatAgent {
       this.summaryModels(diagnostics),
       model,
       4_096,
-      undefined,
       "保留內部助理需要的確認事實、使用者意圖、決策、限制、未解問題與重要工具結果；使用繁體中文。",
       state.summary || undefined,
       "minimal",
+      undefined,
+      undefined,
+      BACKGROUND_CONTEXT,
     );
     if (!summary.ok) {
       const message = this.masksErrors() ? MASKED_HR_ERROR : summary.error.message;
@@ -1408,8 +1411,12 @@ export class AssistantChatAgent {
       toolExecution: "sequential",
     });
     const persistAttachments = isLineRunRequest(input) ? input.persistAttachments !== false : true;
+    // Pi 會插入 system message，不能用舊陣列長度切本輪；只計算本輪事件，避免沿用歷史 thoughts／usage。
+    const newMessages: AgentMessage[] = [];
     agent.subscribe((event) => {
-      if (event.type === "message_end" && !toolContext.privateHrRun) {
+      if (event.type !== "message_end") return;
+      newMessages.push(event.message);
+      if (!toolContext.privateHrRun) {
         this.storeMessage(
           state.generation,
           input.runId,
@@ -1430,7 +1437,6 @@ export class AssistantChatAgent {
         masked() ? undefined : serializePiError(error),
       );
     }
-    const newMessages = agent.state.messages.slice(initialMessages.length);
     if (agent.state.errorMessage) {
       this.sql.exec(
         "UPDATE assistant_agent_runs SET status = 'failed', updated_at = ? WHERE run_id = ?",

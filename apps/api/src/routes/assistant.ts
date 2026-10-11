@@ -1,6 +1,5 @@
 import {
   ASSISTANT_KEY,
-  ASSISTANT_MODELS,
   ASSISTANT_REPORT_TOOL_ROUTING,
   DEFAULT_ASSISTANT_PROMPT,
   currentAssistantRuntimeContext,
@@ -71,10 +70,10 @@ import {
 } from "../pi-agent.js";
 import {
   isPiCodexModel,
-  isPiGeminiModel,
   isPiAssistantModel,
-  piAssistantModel,
   piCodexModels,
+  piGeminiModels,
+  resolvePiAssistantModelId,
 } from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
 import { assertHrSandboxDeliveryAuthorized, HR_SANDBOX_CHANNEL_KEY, hrToolKeysProblem, isHrSandboxActor } from "../assistant-hr.js";
@@ -106,28 +105,14 @@ function validToolStatus(value: string): value is AssistantToolStatus {
 }
 
 function configuredAssistantModel(env: AppEnv["Bindings"]): string {
-  return resolveSandboxAssistantModelId(env.PI_AGENT_MODEL, DEFAULT_PI_CODEX_MODEL);
+  return resolvePiAssistantModelId(env.PI_AGENT_MODEL, DEFAULT_PI_CODEX_MODEL);
 }
 
 function activeAssistantModel(
   env: AppEnv["Bindings"],
   activeModel: string | undefined | null,
 ): string {
-  return resolveSandboxAssistantModelId(activeModel, configuredAssistantModel(env));
-}
-
-function isExecutableSandboxModel(modelId: string | undefined | null): modelId is string {
-  return isPiCodexModel(modelId)
-    || (isPiGeminiModel(modelId)
-      && ASSISTANT_MODELS.some((model) => model.id === modelId && model.supported));
-}
-
-function resolveSandboxAssistantModelId(
-  modelId: string | undefined | null,
-  fallbackModelId: string,
-): string {
-  const normalizedModelId = typeof modelId === "string" ? modelId.trim() : modelId;
-  return isExecutableSandboxModel(normalizedModelId) ? normalizedModelId : fallbackModelId;
+  return resolvePiAssistantModelId(activeModel, configuredAssistantModel(env));
 }
 
 type SandboxModelProvider = "openai-codex" | "google";
@@ -136,7 +121,6 @@ interface SandboxModelOption {
   id: string;
   label: string;
   category: string;
-  quota: { rpm: number; tpm: number; rpd: number; usedRpm?: number; usedTpm?: number; usedRpd?: number };
   provider: SandboxModelProvider;
   supported: boolean;
   configured: boolean;
@@ -156,26 +140,22 @@ async function sandboxModelOptions(
     id: model.id,
     label: model.name,
     category: "GPT / Codex（ChatGPT OAuth）",
-    quota: { rpm: 0, tpm: 0, rpd: 0 },
     provider: "openai-codex",
     supported: true,
     configured: codexConfigured,
     supportsVision: model.input.includes("image"),
     note: "由 Pi Agent 透過 ChatGPT OAuth 使用 Codex credit；實際可用模型依 ChatGPT 帳號方案為準。",
   }));
-  const gemini = ASSISTANT_MODELS.map((model): SandboxModelOption => {
-    const supportedByPi = isPiGeminiModel(model.id);
-    return {
-      ...model,
-      provider: "google",
-      supported: model.supported && supportedByPi,
-      configured: geminiConfigured,
-      supportsVision: supportedByPi ? piAssistantModel(model.id).input.includes("image") : false,
-      ...(!supportedByPi && model.supported
-        ? { note: "目前安裝的 Pi Google model catalog 尚未提供這個模型。" }
-        : {}),
-    };
-  });
+  const gemini = piGeminiModels().map((model): SandboxModelOption => ({
+    id: model.id,
+    label: model.name,
+    category: "Gemini / Gemma（Google API key）",
+    provider: "google",
+    supported: true,
+    configured: geminiConfigured,
+    supportsVision: model.input.includes("image"),
+    note: "由 Pi Google catalog 提供；實際使用權限、配額及費用依 Google 專案為準。latest 別名會隨上游更新。",
+  }));
   return [...codex, ...gemini];
 }
 
@@ -215,7 +195,18 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
     piCodexCredentialStatus(env),
   ]);
   const statuses = new Map(configuredTools.map((tool) => [tool.key, tool.status]));
+  const configuredActiveModel = assistantConfig?.activeModel;
   const configuredFallbackModel = assistantConfig?.fallbackModel;
+  const activeModel = activeAssistantModel(env, configuredActiveModel);
+  const activeModelNeedsSave = Boolean(configuredActiveModel && !isPiAssistantModel(configuredActiveModel.trim()));
+  const fallbackModelNeedsSave = Boolean(configuredFallbackModel && !isPiAssistantModel(configuredFallbackModel));
+  const modelNotices: string[] = [];
+  if (activeModelNeedsSave) {
+    modelNotices.push(`原設定模型 ${configuredActiveModel} 已不在目前 Pi 目錄，暫時回落至 ${activeModel}；請重新選擇並儲存正式模型。`);
+  }
+  if (fallbackModelNeedsSave) {
+    modelNotices.push(`原備援模型 ${configuredFallbackModel} 已不在目前 Pi 目錄，暫停使用；請重新選擇並儲存 fallback。`);
+  }
   const toolOptions = TOOL_DEFINITIONS.map((tool) => {
     const configuredStatus = statuses.get(tool.key);
     return {
@@ -233,7 +224,10 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
       gemini: models.some((model) => model.provider === "google" && model.configured),
     },
     defaultModel: configuredAssistantModel(env),
-    activeModel: activeAssistantModel(env, assistantConfig?.activeModel),
+    activeModel,
+    activeModelNeedsSave,
+    fallbackModelNeedsSave,
+    ...(modelNotices.length ? { modelNotice: modelNotices.join("\n") } : {}),
     fallbackModel: isPiAssistantModel(configuredFallbackModel) ? configuredFallbackModel : null,
     activeModelUpdatedAt: assistantConfig?.updatedAt ?? null,
     credentialStatus: {

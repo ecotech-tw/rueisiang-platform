@@ -10,11 +10,28 @@ import {
 
 describe("Pi Codex model catalog", () => {
   it("預設低延遲模型存在於安裝版本的 openai-codex catalog", () => {
-    expect(piCodexModel("gpt-5.4-mini")).toMatchObject({
-      id: "gpt-5.4-mini",
+    expect(piCodexModel("gpt-6-luna")).toMatchObject({
+      id: "gpt-6-luna",
       provider: "openai-codex",
       api: "openai-codex-responses",
     });
+  });
+
+  it.each([
+    ["gpt-6-astra", "openai-codex"], ["gpt-6-luna", "openai-codex"], ["gpt-6.1-sol", "openai-codex"],
+    ["gemini-3.8-flash", "google"], ["gemini-flash-latest", "google"], ["gemini-3.1-pro-preview", "google"],
+  ])("新模型 %s 使用 catalog 的真正 ID 與 provider", (id, provider) => {
+    expect(isPiAssistantModel(id)).toBe(true);
+    expect(piAssistantModel(id)).toMatchObject({ id, provider });
+  });
+
+  it.each([
+    "gemini-3.1-flash-lite-image", "gemini-3.1-flash-live-preview", "gemini-2.5-computer-use-preview-10-2025",
+    "deep-research-preview-04-2026", "gemini-embedding-1", "gpt-6-not-a-model", "gpt-5.4", "gpt-5.4-mini",
+  ])("非一般文字對話或未知模型 %s 不進小香執行目錄", (id) => {
+    expect(isPiAssistantModel(id)).toBe(false);
+    expect(resolvePiAssistantModelId(id, "gpt-6-luna")).toBe("gpt-6-luna");
+    expect(() => piAssistantModel(id)).toThrow("不支援模型");
   });
 
   it("拒絕 catalog 以外的模型", () => {
@@ -22,7 +39,7 @@ describe("Pi Codex model catalog", () => {
   });
 
   it("同一個 Pi runtime 可解析 Codex 與 Gemini provider", () => {
-    expect(piAssistantModel("gpt-5.4-mini").provider).toBe("openai-codex");
+    expect(piAssistantModel("gpt-6-luna").provider).toBe("openai-codex");
     expect(piGeminiModel("gemini-3.6-flash")).toMatchObject({
       id: "gemini-3.6-flash",
       provider: "google",
@@ -31,11 +48,11 @@ describe("Pi Codex model catalog", () => {
   });
 
   it("provider-neutral resolver 只接受目前 catalog 內的模型", () => {
-    expect(isPiAssistantModel("gpt-5.4-mini")).toBe(true);
+    expect(isPiAssistantModel("gpt-6-luna")).toBe(true);
     expect(isPiAssistantModel("gemini-3.6-flash")).toBe(true);
     expect(isPiAssistantModel("removed-model")).toBe(false);
-    expect(resolvePiAssistantModelId(" gemini-3.6-flash ", "gpt-5.4-mini")).toBe("gemini-3.6-flash");
-    expect(resolvePiAssistantModelId("removed-model", "gpt-5.4-mini")).toBe("gpt-5.4-mini");
+    expect(resolvePiAssistantModelId(" gemini-3.6-flash ", "gpt-6-luna")).toBe("gemini-3.6-flash");
+    expect(resolvePiAssistantModelId("removed-model", "gpt-6-luna")).toBe("gpt-6-luna");
   });
 
   it("只把 Codex SSE 請求改送到固定 relay path 並加入 relay token", async () => {

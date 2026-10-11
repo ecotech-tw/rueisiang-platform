@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
 import test from "node:test";
+import * as zlib from "node:zlib";
 import {
   buildUpstreamUrl,
   createRelayServer,
@@ -101,6 +102,44 @@ test("health check and authenticated SSE proxy work without buffering the respon
     await closeServer(server);
   }
 });
+
+for (const compressed of [false, true]) {
+  test(`新 GPT 模型的${compressed ? " zstd" : " JSON"}請求由現有 relay 原樣轉送`, { skip: compressed && typeof zlib.zstdCompressSync !== "function" }, async () => {
+    const payload = Buffer.from(JSON.stringify({ model: "gpt-6.1-sol", stream: true, input: [{ role: "user", content: "不應進 log 的測試問題" }] }));
+    const wire = compressed ? zlib.zstdCompressSync(payload) : payload;
+    const logs = [];
+    const sse = 'data: {"type":"response.output_text.delta","delta":"新模型回答"}\n\ndata: [DONE]\n\n';
+    const server = createRelayServer({
+      token: "relay-secret",
+      logger: (event) => logs.push(event),
+      fetchImpl: async (input, init) => {
+        assert.equal(String(input), "https://chatgpt.com/backend-api/codex/responses");
+        const chunks = [];
+        for await (const chunk of init.body) chunks.push(Buffer.from(chunk));
+        assert.deepEqual(Buffer.concat(chunks), wire);
+        const headers = new Headers(init.headers);
+        assert.equal(headers.get("authorization"), "Bearer upstream-token");
+        assert.equal(headers.get("content-encoding"), compressed ? "zstd" : null);
+        assert.equal(headers.get("x-codex-relay-token"), null);
+        return new Response(sse, { headers: { "content-type": "text/event-stream" } });
+      },
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/codex/responses`, {
+        method: "POST",
+        headers: { "x-codex-relay-token": "relay-secret", authorization: "Bearer upstream-token", "content-type": "application/json", ...(compressed ? { "content-encoding": "zstd" } : {}) },
+        body: wire,
+      });
+      assert.equal(response.status, 200);
+      assert.equal(await response.text(), sse);
+      assert.doesNotMatch(JSON.stringify(logs), /不應進 log|upstream-token|relay-secret/);
+    } finally {
+      await closeServer(server);
+    }
+  });
+}
 
 test("relay timeout is distinguishable from a disconnected client", async () => {
   const logs = [];

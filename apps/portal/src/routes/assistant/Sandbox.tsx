@@ -142,6 +142,12 @@ export function Sandbox() {
   const fallbackOptions = [{ label: "不使用 fallback", value: "" }, ...modelOptions];
   const modelReady = Boolean(selectedModel?.supported && selectedModel.configured);
   const fallbackReady = !fallbackModel || Boolean(selectedFallbackModel?.supported && selectedFallbackModel.configured);
+  // 顯示值可能已回落／暫停，但 DB 仍保留退役設定；允許管理者明確確認同值或清除。
+  const canSaveModel = modelReady && model !== fallbackModel
+    && (model !== data.activeModel || data.activeModelNeedsSave === true);
+  const canSaveFallbackModel = fallbackReady
+    && (!fallbackModel || (fallbackModel !== data.activeModel && fallbackModel !== model))
+    && (fallbackModel !== (data.fallbackModel ?? "") || data.fallbackModelNeedsSave === true);
   const currentSession = session.data?.session;
   const sessionOpen = currentSession?.status === "open";
   // HR 工具要「有模擬對象、綁定設好、授權工具沒停用」三件都成立才送得出去；
@@ -177,12 +183,12 @@ export function Sandbox() {
   }
 
   function submitModel() {
-    if (!model || model === data.activeModel || model === fallbackModel) return;
+    if (!canSaveModel) return;
     saveModel.mutate(model);
   }
 
   function submitFallbackModel() {
-    if (!fallbackReady || (fallbackModel && (fallbackModel === data.activeModel || fallbackModel === model))) return;
+    if (!canSaveFallbackModel) return;
     saveFallbackModel.mutate(fallbackModel || null, {
       onSuccess: (result) => setFallbackModel(result.fallbackModel ?? ""),
     });
@@ -252,6 +258,7 @@ export function Sandbox() {
         description="在接上 LINE 前，先用同一套 prompt、模型與工具執行流程測試回答品質。"
       />
 
+      {data.modelNotice ? <Alert tone="danger">{data.modelNotice}</Alert> : null}
       {!data.providers.codex ? (
         <Alert tone="danger">尚未完成 ChatGPT／Codex OAuth credential 設定，GPT 模型目前不可執行。</Alert>
       ) : null}
@@ -270,6 +277,7 @@ export function Sandbox() {
                 <span>Pi 模型</span>
                 <DropdownSelect options={modelOptions} value={model} onChange={(event) => setModel(event.target.value)} aria-label="Pi 模型" />
                 <small>{selectedModel?.note ?? "GPT 使用 ChatGPT OAuth；Gemini 使用 Cloudflare secret 裡的 API key。"}</small>
+                <small>模型清單來自安裝的 Pi catalog；選擇模型只影響測試，按「儲存並套用到小香」才會更新正式設定。</small>
                 {selectedModel?.supportsVision ? <small>此模型支援圖片輸入，可在下方附加 JPEG、PNG、WebP 或 GIF。</small> : null}
                 <small>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</small>
                 {!sessionId ? <small>尚未選擇 session，建立新 session 時會使用目前小香的 active model 與 active revision。</small> : null}
@@ -278,7 +286,7 @@ export function Sandbox() {
                   <Button
                     loading={saveModel.isPending}
                     loadingLabel="套用中…"
-                    disabled={!modelReady || model === data.activeModel}
+                    disabled={!canSaveModel}
                     onClick={submitModel}
                   >
                     儲存並套用到小香
@@ -297,7 +305,7 @@ export function Sandbox() {
                   <Button
                     loading={saveFallbackModel.isPending}
                     loadingLabel="儲存中…"
-                    disabled={!fallbackReady || fallbackModel === data.activeModel || fallbackModel === model || (fallbackModel || "") === (data.fallbackModel || "")}
+                    disabled={!canSaveFallbackModel}
                     onClick={submitFallbackModel}
                   >
                     儲存 fallback 設定

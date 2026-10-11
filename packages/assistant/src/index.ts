@@ -5,7 +5,6 @@ export {
   runtimeContextInstruction,
   type AssistantRuntimeContext,
 } from "./runtime.js";
-export { ASSISTANT_MODELS, DEFAULT_ASSISTANT_MODEL, type AssistantModel, type GeminiQuota } from "./models.js";
 export { OPEN_METEO_TOOL_KEY, openMeteoTool } from "./open-meteo.js";
 export {
   AssistantError,

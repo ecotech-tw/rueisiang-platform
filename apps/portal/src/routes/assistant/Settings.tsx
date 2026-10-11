@@ -34,6 +34,7 @@ export function AssistantSettings() {
   return (
     <div className="page">
       <PageHeader title="小香助理設定" description="設定會直接影響之後的正式小香執行；Sandbox 仍可選其他可用模型做單次測試。" />
+      {data.modelNotice ? <Alert tone="danger">{data.modelNotice}</Alert> : null}
 
       <Panel title="目前模型">
         <p className="settings-summary">

@@ -35,10 +35,10 @@ beforeEach(async () => {
     startsAt: "2026-03-02 01:00:00", endsAt: "2026-03-02 09:00:00", startsOn: "2026-03-02", endsOn: "2026-03-03",
     durationMinutes: 480, createdBy: id, reason: `不應回傳-${id}`,
   })));
-  await ensureAssistantDefaults(db(), { assistantKey: "sandbox-test", defaultModel: "gpt-5.4-mini", defaultPrompt: "測試", toolKeys: HR_KEYS });
+  await ensureAssistantDefaults(db(), { assistantKey: "sandbox-test", defaultModel: "gpt-6-luna", defaultPrompt: "測試", toolKeys: HR_KEYS });
   input = {
     assistantKey: "sandbox-test", conversationId: "run", sandboxSessionId: null, actorUserId: "actor", contextGeneration: "run", runId: "run",
-    model: "gpt-5.4-mini", systemPrompt: "測試", userText: "查我的待審假單", toolKeys: HR_KEYS, hrSandboxUserId: "alice",
+    model: "gpt-6-luna", systemPrompt: "測試", userText: "查我的待審假單", toolKeys: HR_KEYS, hrSandboxUserId: "alice",
   };
   env = { DB: d1, AUTH_SESSION_SECRET: "sandbox-secret", LINE_LIFF_CHANNEL_ID: "login" } as never;
 });

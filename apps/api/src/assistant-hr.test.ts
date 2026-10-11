@@ -47,7 +47,7 @@ beforeEach(async () => {
     await db().insert(hrCompensationVersions).values({ id: `salary-${userId}`, employmentId: `employment-${userId}`, versionNumber: 1, validFrom: "2025-03-01", payBasis: "monthly", baseAmountMinor: 3_000_000, createdBy: userId });
   }
   await db().insert(hrLeaveTypes).values({ id: "annual-type", name: "測試特休", leaveKind: "annual", createdBy: "alice" });
-  await ensureAssistantDefaults(db(), { assistantKey: ASSISTANT, defaultModel: "gpt-5.4-mini", defaultPrompt: "測試", toolKeys: HR_KEYS });
+  await ensureAssistantDefaults(db(), { assistantKey: ASSISTANT, defaultModel: "gpt-6-luna", defaultPrompt: "測試", toolKeys: HR_KEYS });
   const channel = await ensureAssistantLineChannel(db(), { assistantKey: ASSISTANT, defaultToolKeys: HR_KEYS });
   await db().update(assistantLineChannels).set({ enabled: true }).where(eq(assistantLineChannels.channelKey, channel.channelKey));
   const conversation = await upsertAssistantLineGroup(db(), { channelKey: channel.channelKey, lineGroupId: "U-alice", sourceType: "user" });
@@ -57,7 +57,7 @@ beforeEach(async () => {
   input = {
     assistantKey: ASSISTANT, channelKey: channel.channelKey, groupRowId: conversation.id,
     lineGroupId: "U-alice", sourceType: "user", contextGeneration: "", webhookEventId: "event", runId: "run",
-    model: "gpt-5.4-mini", systemPrompt: "測試", userText: "查我自己的假", toolKeys: HR_KEYS,
+    model: "gpt-6-luna", systemPrompt: "測試", userText: "查我自己的假", toolKeys: HR_KEYS,
   };
   env = { DB: d1, AUTH_SESSION_SECRET: "hr-test-secret", LINE_LIFF_CHANNEL_ID: LOGIN_CHANNEL } as never;
 });
