@@ -56,6 +56,20 @@ describe("員工端大頭貼", () => {
     expect(String(url)).toContain("/hr/me/photo"); expect(init?.credentials).toBe("include"); expect(init?.body).toBeInstanceOf(FormData); expect((init?.body as FormData).get("revision")).toBe("7");
     expect(container.textContent).toContain("大頭貼已更新");
   });
+  it("改選無效檔時清除先前有效選檔與 Blob 預覽", async () => {
+    stubImages(); const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    const container = render(<HrProfilePhoto profile={profile()} />);
+    const input = container.querySelector('input[type="file"]')!;
+    const choose = async (file: File) => act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [file] }); input.dispatchEvent(new Event("change", { bubbles: true })); });
+    await choose(new File([new Uint8Array([1, 2, 3])], "good.png", { type: "image/png" }));
+    await vi.waitFor(() => expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("儲存大頭貼"))).toBe(true));
+    expect(container.querySelector(".hr-self-photo-preview img")?.getAttribute("src")).toBe("blob:employee-photo");
+    await choose(new File(["<svg/>"] , "bad.svg", { type: "image/svg+xml" }));
+    expect(container.querySelector(".hr-self-photo-preview img")).toBeNull();
+    expect(container.textContent).toContain("請選擇 5 MB 以內");
+    expect([...container.querySelectorAll("button")].some((button) => button.textContent?.includes("儲存大頭貼"))).toBe(false);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:employee-photo"); expect(fetchMock).not.toHaveBeenCalled();
+  });
   it("拒絕 MIME 不符的檔案而不送出請求", async () => {
     stubImages(); const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
     const container = render(<HrProfilePhoto profile={profile()} />);

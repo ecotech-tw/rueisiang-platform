@@ -24,7 +24,10 @@ export function useImageFilePreview({ types, maxBytes, maxPixels, maxSide }: { t
   }, [file, selection, maxPixels, maxSide]);
   function choose(selected?: File) {
     if (!selected) return false;
-    if (!types.includes(selected.type) || selected.size === 0 || selected.size > maxBytes) { setError("invalid_file"); setStatus("invalid"); return false; }
+    if (!types.includes(selected.type) || selected.size === 0 || selected.size > maxBytes) {
+      setFile(null); setPreview(""); setError("invalid_file"); setStatus("invalid");
+      return false;
+    }
     setFile(selected); setSelection((value) => value + 1); setStatus("checking"); setError(null); return true;
   }
   function clear() { setFile(null); setPreview(""); setStatus(null); setError(null); }
