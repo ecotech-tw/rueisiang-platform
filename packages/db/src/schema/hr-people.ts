@@ -75,6 +75,18 @@ export const hrEmployeePersonalData = sqliteTable("hr_employee_personal_data", {
   ...timestamps(),
 });
 
+/** 私有照片只保留目前版本；與任職分表，讓既有 roster consumer 不會取得照片資訊。 */
+export const hrEmployeePhotos = sqliteTable("hr_employee_photos", {
+  employmentId: text("employment_id").primaryKey().references(() => hrEmployments.id, { onDelete: "restrict" }),
+  id: text("id").notNull(),
+  objectKey: text("object_key").notNull(),
+  contentType: text("content_type", { enum: ["image/jpeg", "image/png", "image/webp"] }).notNull(),
+  ...timestamps(),
+}, (t) => [
+  uniqueIndex("idx_hr_employee_photos_object_key").on(t.objectKey),
+  check("ck_hr_employee_photos_content_type", sql`${t.contentType} IN ('image/jpeg', 'image/png', 'image/webp')`),
+]);
+
 export const hrEmploymentActions = sqliteTable("hr_employment_actions", {
   id: text("id").primaryKey(),
   employeeUserId: text("employee_user_id").notNull(),

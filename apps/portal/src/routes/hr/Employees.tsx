@@ -8,6 +8,7 @@ import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type Candidate, type CompensationVersion, type Employee, type Employment, type InsuranceVersion, type LeaveRequest, type NamedOption, type Profile } from "./api.js";
 import { EmployeeProfile } from "./EmployeeProfile.js";
+import { EmployeeSectionNav } from "./EmployeeSectionNav.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
 interface FieldDefinition { key: string; label: string; type?: "date" | "email"; options?: NamedOption[]; maxLength?: number }
@@ -59,7 +60,7 @@ function EmploymentHistoryTable({ employments }: { employments: Employment[] }) 
 
 function BasicSection({ profile }: { profile: Profile }) {
   const job = profile.employments.find((entry) => !entry.archivedAt) ?? profile.employments[0];
-  return <Panel title="基本資料"><dl className="hr-employee-profile-grid">
+  return <Panel id="employee-basic" title="基本資料"><dl className="hr-employee-profile-grid">
     <div><dt>姓名</dt><dd>{profile.employee.legalName}</dd></div><div><dt>員工編號</dt><dd>{profile.employee.employeeNumber}</dd></div><div><dt>職位</dt><dd>{job?.position ?? profile.employee.position}</dd></div><div><dt>員工狀態</dt><dd>{job?.archivedAt ? `未在職（${dateTime(job.archivedAt)}）` : job ? "在職" : "尚未建立員工資料"}</dd></div>
   </dl><p className="muted">員工不在職後仍保留資料，供薪資、出勤與稽核歷史追溯。</p>{profile.employee.personKind === "worker" ? <p className="muted">支援人員沒有平台帳號；人員與排班異動由支援人員管理維護。</p> : null}</Panel>;
 }
@@ -93,12 +94,12 @@ export function HrProfileDetails({ profile, includeBasic = true }: { profile: Pr
   const isWorker = profile.employee.personKind === "worker";
   return <>
     {includeBasic ? <BasicSection profile={profile} /> : null}
-    <Panel title="敘薪資料" description="保留每次異動的生效期間、本薪、加班設定與薪資項目；已撤回版本不參與計算。">
+    <Panel id="employee-compensation" title="敘薪資料" description="保留每次異動的生效期間、本薪、加班設定與薪資項目；已撤回版本不參與計算。">
       {profile.compensation ? <CompensationTable rows={profile.compensation} /> : <p className="muted">敘薪明細僅限全平台 HR 管理者查看。</p>}
     </Panel>
     {!isWorker ? <>
-      <Panel title="保險資料" description="勞保、健保的加退保、投保級距與眷屬異動歷史。">{profile.insurance ? <InsuranceTable rows={profile.insurance} /> : <p className="muted">勞健保明細僅限全平台 HR 管理者查看。</p>}</Panel>
-      <Panel title="出勤資料">
+      <Panel id="employee-insurance" title="保險資料" description="勞保、健保的加退保、投保級距與眷屬異動歷史。">{profile.insurance ? <InsuranceTable rows={profile.insurance} /> : <p className="muted">勞健保明細僅限全平台 HR 管理者查看。</p>}</Panel>
+      <Panel id="employee-attendance" title="出勤資料">
         <dl className="hr-employee-profile-grid"><div><dt>出勤方式</dt><dd>{job?.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</dd></div>{job?.attendanceMode === "scheduled" ? <div><dt>每月約定休假</dt><dd>{job.monthlyRestDays == null ? "未設定" : `${job.monthlyRestDays} 天`}</dd></div> : null}</dl>
         <h3>辦公位置</h3><AssignmentTable assignments={profile.attendanceAssignments ?? []} />
         <h3>營運據點歸屬</h3>
@@ -107,7 +108,7 @@ export function HrProfileDetails({ profile, includeBasic = true }: { profile: Pr
         <details className="hr-employee-record-details"><summary>請假紀錄</summary>{profile.leave ? <LeaveTable rows={profile.leave} /> : <p className="muted">請假明細僅限全平台 HR 管理者查看。</p>}</details>
       </Panel>
     </> : null}
-    {profile.employments.length > 1 ? <Panel title="歷史任職資料"><EmploymentHistoryTable employments={profile.employments} /></Panel> : null}
+    {profile.employments.length > 1 ? <Panel id="employee-history" title="歷史任職資料"><EmploymentHistoryTable employments={profile.employments} /></Panel> : null}
   </>;
 }
 
@@ -125,7 +126,8 @@ export function HrEmployeeDetail() {
   const profile = detail.data;
   const formalEmployee = profile.employee.personKind !== "worker" && profile.employee.userId !== null;
   return <div className="page hr-employee-detail-page">
-    <PageHeader title={`${profile.employee.employeeNumber} · ${profile.employee.legalName}`} description={formalEmployee ? "集中維護基本、公司與聯絡資料，查看敘薪、保險與出勤紀錄。" : "支援人員的人員與敘薪紀錄；異動由支援人員管理維護。"} actions={<Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回列表</Button>} />
+    <PageHeader title={`${profile.employee.employeeNumber} · ${profile.employee.legalName}`} description={formalEmployee ? "集中維護大頭貼、基本、聯絡與公司資料，查看敘薪、保險與出勤紀錄。" : "支援人員的人員與敘薪紀錄；異動由支援人員管理維護。"} actions={<Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回列表</Button>} />
+    <EmployeeSectionNav key={id} profile={profile} />
     {formalEmployee ? <EmployeeProfile key={profile.employee.userId} profile={profile} canWrite={canWrite} onSaved={() => void detail.refetch()} /> : <BasicSection profile={profile} />}
     <HrProfileDetails profile={profile} includeBasic={false} />
   </div>;
@@ -158,16 +160,16 @@ export function HrEmployees() {
       <FilterToolbar><SearchFilterInput label="搜尋" placeholder="搜尋人員編號、姓名或 Email" value={filters.search} onSearch={(search) => update({ search })} /><FilterSelect label="帳號狀態" value={filters.status} onChange={(event) => update({ status: event.target.value })} options={[{ value: "all", label: "全部帳號" }, { value: "active", label: "啟用中" }, { value: "invited", label: "待啟用" }, { value: "disabled", label: "已停用" }]} /></FilterToolbar>
       <p className="muted table-note">LINE 綁定、帳號啟用與在職狀態分開；已綁定不代表可登入或打卡。支援人員沒有平台帳號。</p>
       {employees.error ? <Alert tone="danger">{employees.error.message}</Alert> : null}{candidates.error ? <Alert tone="danger">{candidates.error.message}</Alert> : null}
-      <DataTable className="hr-employee-list-table"><colgroup><col className="hr-employee-number-column" /><col className="hr-employee-name-column" /><col className="hr-employee-account-column" /><col className="hr-employee-status-column" /><col className="hr-employee-line-column" /><col className="hr-employee-position-column" /><col className="hr-employee-supervisor-column" /><col className="hr-employee-status-column" /><col className="hr-employee-action-column" /></colgroup><thead><tr>
+      <DataTable className="hr-employee-list-table"><colgroup><col className="hr-employee-number-column" /><col className="hr-employee-name-column" /><col className="hr-employee-account-column" /><col className="hr-employee-status-column" /><col className="hr-employee-line-column" /><col className="hr-employee-position-column" /><col className="hr-employee-supervisor-column" /><col className="hr-employee-status-column" /></colgroup><thead><tr>
         <SortableHeader label="員工編號" field="employeeNumber" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={sort} />
         <SortableHeader label="姓名" field="name" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={sort} />
         <SortableHeader label="帳號" field="email" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={sort} />
         <SortableHeader label="帳號狀態" field="status" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={sort} />
-        <th>LINE 綁定</th><th>職位</th><th>主管</th><th>員工狀態</th><th>操作</th>
+        <th>LINE 綁定</th><th>職位</th><th>主管</th><th>員工狀態</th>
       </tr></thead><tbody>{data?.employees.map((employee) => {
         const path = employeeDetailPath(employee);
         return <tr key={employee.employmentId ?? employee.userId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(path)} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(path); } }}>
-          <td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}<br /><span className="cell-sub">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="LINE 綁定"><HrLineBindingStatus employee={employee} /></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td><td data-label="操作"><Button variant="secondary" className="hr-action-info" onClick={(event) => { event.stopPropagation(); navigate(path); }}>查看資料</Button></td>
+          <td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}<br /><span className="cell-sub">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="LINE 綁定"><HrLineBindingStatus employee={employee} /></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>
         </tr>;
       })}</tbody></DataTable>
       {employees.isPlaceholderData ? <p className="muted table-note">載入中…</p> : null}

@@ -1,0 +1,98 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
+import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import app from "./index.js";
+import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
+import { createLocalR2 } from "./local-d1/r2.js";
+
+const SECRET = "photo-test-secret-photo-test-secret";
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFh0AAAAASUVORK5CYII=", "base64");
+let d1: LocalD1;
+let uploads: ReturnType<typeof createLocalR2>;
+let directory: string;
+let cookies: Record<string, string>;
+let employmentId: string;
+const env = () => ({ DB: d1, UPLOADS: uploads, AUTH_SESSION_SECRET: SECRET, GOOGLE_OAUTH_CLIENT_ID: "test", GOOGLE_OAUTH_CLIENT_SECRET: "test" });
+const currentRevision = () => Number((d1.sqlite.prepare("SELECT revision FROM hr_employments WHERE id=?").get(employmentId) as { revision: number }).revision);
+const photoRow = () => d1.sqlite.prepare("SELECT id, object_key FROM hr_employee_photos WHERE employment_id=?").get(employmentId) as { id: string; object_key: string } | undefined;
+async function request(route: string, method = "GET", body?: BodyInit, actor = "admin", environment = env()) {
+  return app.fetch(new Request(`https://test.local/api/hr${route}`, { method, headers: { ...(cookies[actor] ? { Cookie: cookies[actor] } : {}), ...(typeof body === "string" ? { "Content-Type": "application/json" } : {}) }, ...(body === undefined ? {} : { body }) }), environment as never);
+}
+async function upload(expectedRevision = currentRevision(), content: Uint8Array = png, type = "image/png", actor = "admin") {
+  const body = new FormData(); body.set("file", new Blob([Uint8Array.from(content).buffer], { type }), "portrait.png"); body.set("revision", String(expectedRevision));
+  return request(`/employees/${employmentId}/photo`, "POST", body, actor);
+}
+async function remove(expectedRevision = currentRevision(), actor = "admin") { return request(`/employees/${employmentId}/photo`, "DELETE", JSON.stringify({ revision: expectedRevision }), actor); }
+
+beforeEach(async () => {
+  d1 = createTargetOnlyD1();
+  directory = mkdtempSync(path.join(tmpdir(), "hr-employee-photo-")); uploads = createLocalR2(directory);
+  const db = createDatabase(d1 as never); await syncSystemRoles(db); cookies = {};
+  for (const id of ["admin", "employee", "staff"]) {
+    await db.insert(users).values({ id, email: `${id}@example.test`, displayName: id, status: "active" });
+    cookies[id] = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id, email: `${id}@example.test`, name: id, pictureUrl: "" }), SECRET))}`;
+  }
+  await db.insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
+  await db.insert(userPermissionGrants).values([{ userId: "employee", permission: "hr:employee:read" }, { userId: "staff", permission: "hr:employee:read" }, { userId: "staff", permission: "hr:employee:write" }]);
+  const response = await request("/employees", "POST", JSON.stringify({ userId: "employee", legalName: "測試員工", employeeNumber: "E001", position: "一般職員" }));
+  expect(response.status).toBe(201); employmentId = (await response.json() as { employmentId: string }).employmentId;
+});
+afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); rmSync(directory, { recursive: true, force: true }); });
+
+describe("員工私有大頭貼", () => {
+  it("上傳、替換與移除沿用任職 revision，照片不暴露儲存 key", async () => {
+    const before = currentRevision(); expect((await upload()).status).toBe(201);
+    const first = photoRow()!; expect(currentRevision()).toBe(before + 1);
+    const read = await request(`/employees/employee/photo`);
+    expect(read.status).toBe(200); expect(read.headers.get("Cache-Control")).toBe("private, no-store"); expect(read.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(Buffer.from(await read.arrayBuffer())).toEqual(png);
+    const detail = await (await request(`/employees/${employmentId}`)).text(); expect(detail).toContain(first.id); expect(detail).not.toContain(first.object_key);
+    expect((await upload()).status).toBe(201); const second = photoRow()!; expect(second.id).not.toBe(first.id); expect(await uploads.head(first.object_key)).toBeNull(); expect(await uploads.head(second.object_key)).not.toBeNull();
+    expect((await remove()).status).toBe(200); expect(photoRow()).toBeUndefined(); expect(await uploads.head(second.object_key)).toBeNull(); expect(currentRevision()).toBe(before + 3);
+    expect((await request(`/employees/${employmentId}/photo`)).status).toBe(404);
+    expect(d1.sqlite.prepare("SELECT event_type FROM activity_events WHERE event_type LIKE 'employee_photo_%'").all()).toHaveLength(3);
+  });
+  it("未登入、一般員工與僅有員工寫入權限者不能讀寫照片；列表與本人回應不包含照片", async () => {
+    expect((await upload()).status).toBe(201);
+    for (const actor of ["employee", "staff", "missing"]) {
+      const status = actor === "missing" ? 401 : 403;
+      expect((await request(`/employees/${employmentId}/photo`, "GET", undefined, actor)).status).toBe(status);
+      expect((await upload(currentRevision(), png, "image/png", actor)).status).toBe(status);
+      expect((await remove(currentRevision(), actor)).status).toBe(status);
+    }
+    expect(await (await request(`/employees/${employmentId}`, "GET", undefined, "employee")).text()).not.toContain('"photo"');
+    expect(await (await request("/employees?personKind=all")).text()).not.toContain('"photo"');
+    expect(await (await request("/me", "GET", undefined, "employee")).text()).not.toContain('"photo"');
+  });
+  it("驗證檔案格式、大小、空檔與 revision，不改寫既有照片", async () => {
+    expect((await upload()).status).toBe(201); const first = photoRow(); const revision = currentRevision();
+    for (const [content, type] of [[Buffer.from("<svg onload=alert(1) />"), "image/svg+xml"], [Buffer.from("<html>fake</html>"), "image/png"], [png, "image/jpeg"], [new Uint8Array(), "image/png"]] as const) expect((await upload(revision, content, type)).status).toBe(400);
+    expect((await upload(revision, new Uint8Array(5 * 1024 * 1024 + 1))).status).toBe(400);
+    expect((await upload(revision, new Uint8Array(6 * 1024 * 1024))).status).toBe(413);
+    expect((await upload(0)).status).toBe(400); expect((await upload(revision - 1)).status).toBe(409); expect((await remove(revision - 1)).status).toBe(409);
+    expect(photoRow()).toEqual(first); expect(currentRevision()).toBe(revision);
+  });
+  it("R2 寫入失敗不切換參照；同時更新造成的 revision 衝突只回滾新檔", async () => {
+    expect((await upload()).status).toBe(201); const first = photoRow()!; const revision = currentRevision();
+    vi.spyOn(uploads, "put").mockRejectedValueOnce(new Error("R2 unavailable")); expect((await upload()).status).toBe(500); expect(photoRow()).toEqual(first); expect(currentRevision()).toBe(revision);
+    const put = vi.spyOn(uploads, "put"); put.mockClear(); const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementationOnce((statements) => { d1.sqlite.prepare("UPDATE hr_employments SET revision=revision+1 WHERE id=?").run(employmentId); return batch(statements); });
+    expect((await upload()).status).toBe(409); expect(photoRow()).toEqual(first); expect(put).toHaveBeenCalledOnce(); expect(await uploads.head(put.mock.calls[0]![0])).toBeNull(); expect(await uploads.head(first.object_key)).not.toBeNull();
+    expect(d1.sqlite.prepare("SELECT count(*) AS n FROM hr_mutation_guards").get()).toEqual({ n: 0 });
+  });
+  it("封存保留照片、禁止更新；復職沿用同一張照片", async () => {
+    expect((await upload()).status).toBe(201); const first = photoRow();
+    expect((await request(`/employments/${employmentId}/archive`, "POST", JSON.stringify({ revision: currentRevision() }))).status).toBe(200);
+    expect((await request(`/employees/${employmentId}/photo`)).status).toBe(200); expect((await upload()).status).toBe(409); expect((await remove()).status).toBe(409);
+    expect((await request("/employees", "POST", JSON.stringify({ userId: "employee", legalName: "測試員工", employeeNumber: "E001", position: "一般職員", revision: currentRevision() }))).status).toBe(201); expect(photoRow()).toEqual(first);
+  });
+  it("照片儲存未設定時顯示 503；舊檔刪除失敗不回復已移除的資料庫參照", async () => {
+    expect((await request(`/employees/${employmentId}/photo`, "DELETE", JSON.stringify({ revision: currentRevision() }), "admin", { ...env(), UPLOADS: undefined } as never)).status).toBe(503);
+    expect((await upload()).status).toBe(201); vi.spyOn(uploads, "delete").mockRejectedValueOnce(new Error("cleanup failed")); const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    expect((await remove()).status).toBe(200); expect(photoRow()).toBeUndefined(); expect(log).toHaveBeenCalled(); expect((await request(`/employees/${employmentId}/photo`)).status).toBe(404);
+  });
+});

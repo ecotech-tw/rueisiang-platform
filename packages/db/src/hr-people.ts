@@ -3,7 +3,7 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { inJsonArray } from "./sql-lists.js";
-import { hrEmployeePersonalData, hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
+import { hrEmployeePersonalData, hrEmployeePhotos, hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
 import { HR_PROFILE_FIELDS, emptyHrPersonalData, type HrPersonalData, type HrProfileField } from "./hr-profile-fields.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests, hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
@@ -389,8 +389,9 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     supervisorName: current.supervisorUserId ? supervisorNames.get(current.supervisorUserId) ?? null : null,
   };
   const [personalData] = options.includePersonalData ? await db.select().from(hrEmployeePersonalData).where(eq(hrEmployeePersonalData.employmentId, current.id)).limit(1) : [];
+  const photo = options.includePersonalData ? await findHrEmployeePhoto(db, current.id) : undefined;
   return {
-    ...(options.includePersonalData ? { personalData: personalData ?? emptyHrPersonalData() } : {}),
+    ...(options.includePersonalData ? { personalData: personalData ?? emptyHrPersonalData(), photo: photo ? { id: photo.id } : null } : {}),
     employee: employeeRecord,
     employments,
     ...(assignments ? { assignments } : {}), attendanceAssignments: withPrimary,
@@ -561,6 +562,21 @@ export async function updateHrEmployee(db: Database, userId: string, input: { le
   // 稽核只記異動欄位名稱，不複製身分證、地址與聯絡電話。
   const payload = { legalName, ...(personalData ? { personalFields: Object.keys(personalData) } : {}), ...(input.supervisorUserId === undefined ? {} : { supervisorUserId: input.supervisorUserId }), ...(serviceStartChanged ? { beforeServiceStartOn: current?.serviceStartOn ?? null, serviceStartOn: input.serviceStartOn } : {}) };
   return write(db, mutations, userId, actor, "employee_updated", "員工不存在、已是未在職或資料已變更，請重新整理後再試。", { activity: { payload, summary: "員工資料已更新" } });
+}
+
+export async function findHrEmployeePhoto(db: Database, employmentId: string) {
+  const [photo] = await db.select().from(hrEmployeePhotos).where(eq(hrEmployeePhotos.employmentId, employmentId)).limit(1);
+  return photo;
+}
+
+export async function updateHrEmployeePhoto(db: Database, employmentId: string, input: { revision: number; photo: { id: string; objectKey: string; contentType: "image/jpeg" | "image/png" | "image/webp" } | null }, actor: HrActor) {
+  const mutation = input.photo
+    ? db.insert(hrEmployeePhotos).values({ employmentId, ...input.photo }).onConflictDoUpdate({ target: hrEmployeePhotos.employmentId, set: { ...input.photo, updatedAt: sql`CURRENT_TIMESTAMP` } }).returning({ id: hrEmployeePhotos.employmentId }).getSQL()
+    : sql`DELETE FROM hr_employee_photos WHERE employment_id=${employmentId} RETURNING employment_id AS id`;
+  return write(db, [
+    sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${employmentId} AND person_kind='employee' AND archived_at IS NULL AND revision=${input.revision} RETURNING id`,
+    mutation,
+  ], employmentId, actor, input.photo ? "employee_photo_updated" : "employee_photo_removed", "員工已是未在職或資料已變更，請重新整理後再試。", { activity: { summary: input.photo ? "員工大頭貼已更新" : "員工大頭貼已移除" }, ...(input.photo ? {} : { allowEmptyMutationIndexes: new Set([1]) }) });
 }
 
 export function updateHrEmployeeSupervisor(db: Database, userId: string, input: { supervisorUserId: string | null; revision: number }, actor: HrActor) {

@@ -12,7 +12,7 @@ function apply(db: DatabaseSync, file: string) {
   catch (error) { db.exec("ROLLBACK"); throw error; }
 }
 
-describe("員工個資新增式 migration", () => {
+describe("員工個資與照片新增式 migration", () => {
   it("逐支交易升級保留既有任職與打卡，個資外鍵禁止刪除父表", () => {
     const db = new DatabaseSync(":memory:");
     try {
@@ -25,6 +25,13 @@ describe("員工個資新增式 migration", () => {
       db.exec("INSERT INTO hr_employee_personal_data(employment_id,mobile_phone) VALUES ('e','0912345678')");
       expect(db.prepare("SELECT english_name,birth_date,mobile_phone FROM hr_employee_personal_data").get()).toEqual({ english_name: "", birth_date: "", mobile_phone: "0912345678" });
       expect(() => db.exec("INSERT INTO hr_employee_personal_data(employment_id) VALUES ('missing')")).toThrow(/FOREIGN KEY/);
+      expect(() => db.exec("DELETE FROM hr_employments WHERE id='e'")).toThrow(/FOREIGN KEY/);
+      apply(db, "0231_lyrical_wendell_vaughn.sql");
+      expect(db.prepare("SELECT mobile_phone FROM hr_employee_personal_data WHERE employment_id='e'").get()).toEqual({ mobile_phone: "0912345678" });
+      expect(db.prepare("SELECT employment_id FROM hr_clock_events WHERE id='c'").get()).toEqual({ employment_id: "e" });
+      db.exec("INSERT INTO hr_employee_photos(employment_id,id,object_key,content_type) VALUES ('e','photo','hr/test/photo','image/png')");
+      expect(() => db.exec("INSERT INTO hr_employee_photos(employment_id,id,object_key,content_type) VALUES ('missing','p2','other','image/png')")).toThrow(/FOREIGN KEY/);
+      expect(() => db.exec("UPDATE hr_employee_photos SET content_type='image/svg+xml'")).toThrow(/CHECK/);
       expect(() => db.exec("DELETE FROM hr_employments WHERE id='e'")).toThrow(/FOREIGN KEY/);
       expect(db.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
     } finally { db.close(); }

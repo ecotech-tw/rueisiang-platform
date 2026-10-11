@@ -1,3 +1,6 @@
+export const HR_EMPLOYEE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+export const HR_EMPLOYEE_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+
 export interface HrProfileField {
   key: string;
   label: string;

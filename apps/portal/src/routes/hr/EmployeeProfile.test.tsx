@@ -9,6 +9,8 @@ vi.mock("./api.js", () => ({
   useHrWrite: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
 }));
 
+vi.mock("../../shell/Toast.js", () => ({ useToast: () => ({ show: vi.fn() }) }));
+
 const profile: Profile = {
   employee: { userId: "user", personKind: "employee", employeeNumber: "E001", legalName: "測試員工", accountName: "帳號姓名", displayName: "測試員工", email: "employee@example.test", position: "門市人員", userStatus: "active", employmentStatus: "active", revision: 1 },
   employments: [{ id: "employment", employeeUserId: "user", employeeNumber: "E001", position: "門市人員", supervisorUserId: null, serviceStartOn: "2026-01-01", archivedAt: null, revision: 1 }],
@@ -26,6 +28,11 @@ describe("員工內頁資料區", () => {
     expect(markup).not.toContain("<script>");
     expect(markup.match(/>編輯<\/button>/g)).toHaveLength(3);
     expect(markup).toContain("設為未在職");
+    expect(markup.indexOf('id="employee-basic"')).toBeLessThan(markup.indexOf('id="employee-contact"'));
+    expect(markup.indexOf('id="employee-contact"')).toBeLessThan(markup.indexOf('id="employee-company"'));
+    expect(markup.match(/hr-action-update/g)).toHaveLength(4);
+    expect(markup).toContain("上傳大頭貼");
+    expect(markup).toContain("尚未上傳大頭貼");
   });
 
   it("無寫入權限只顯示資料，不顯示編輯與封存入口", () => {
@@ -33,14 +40,24 @@ describe("員工內頁資料區", () => {
     expect(markup).not.toContain(">編輯</button>");
     expect(markup).not.toContain("設為未在職");
     expect(markup).not.toContain("恢復在職");
+    expect(markup).not.toContain("上傳大頭貼</button>");
   });
 
   it("個資未提供時顯示權限提示，不偽裝為空白可編輯欄位", () => {
     const markup = renderToStaticMarkup(<EmployeeProfile profile={{ ...profile, personalData: undefined }} canWrite onSaved={() => {}} />);
     expect(markup).toContain("聯絡資料僅限全平台 HR 管理者查看");
     expect(markup).not.toContain("身分證／居留證字號");
+    expect(markup).not.toContain("上傳大頭貼</button>");
+    expect(markup).toContain("員工大頭貼僅限全平台 HR 管理者查看");
     expect(markup).not.toContain("0912345678");
     expect(markup.match(/>編輯<\/button>/g)).toHaveLength(2);
+  });
+
+  it("照片只使用受權限保護的 API，顯示更換與移除入口", () => {
+    const markup = renderToStaticMarkup(<EmployeeProfile profile={{ ...profile, photo: { id: "photo-version" } }} canWrite onSaved={() => {}} />);
+    expect(markup).toContain("/api/hr/employees/employment/photo?v=photo-version");
+    expect(markup).toContain("更換大頭貼");
+    expect(markup).toContain("移除大頭貼");
   });
 
   it("未在職只提供恢復入口，保留個資與聯絡資料", () => {
