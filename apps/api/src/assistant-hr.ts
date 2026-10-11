@@ -1,8 +1,9 @@
 import { can, HR_TOOL_TOKEN_TTL_SECONDS, signHrToolToken, verifyHrToolToken, type AuthUser, type HrToolContext, type HrToolIdentity } from "@rueisiang/auth";
 import {
   findAssistantLineGroup, findLineAccountBinding, findLineAccountBindingByUser, getAssistantLineChannel, getHrSelfToolAnnualLeave,
-  isHrAdministrator, isHrEmployee, listAssistantToolConfigs, listHrSelfToolLeaveRequests, loadAuthUser, resolveLineToolKeys,
-  type Database, type HrSelfLeaveQuery,
+  isHrAdministrator, isHrEmployee, listAssistantToolConfigs, listHrSelfToolLeaveRequests, listHrSelfToolOvertimeRequests, listHrSelfToolSchedule,
+  loadAuthUser, resolveLineToolKeys,
+  type Database, type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery,
 } from "@rueisiang/db";
 import { isHrToolKey, type HrSelfToolService } from "@rueisiang/tools";
 import type { Env } from "./env.js";
@@ -84,7 +85,7 @@ class HrSelfService implements HrSelfToolService {
     this.token = await signHrToolToken(this.context, identity, this.env.AUTH_SESSION_SECRET, now);
     this.expiresAt = Math.floor(now / 1000) + HR_TOOL_TOKEN_TTL_SECONDS;
     this.identity = identity;
-    return { authorized: true, access: "本人假單與當期特休唯讀", expiresInSeconds: 300 };
+    return { authorized: true, access: "本人假單、特休、加班申請與班表唯讀", expiresInSeconds: 300 };
   }
 
   private async requireToken(key: string) {
@@ -103,6 +104,16 @@ class HrSelfService implements HrSelfToolService {
   async annualLeave() {
     const userId = await this.requireToken("hr_get_my_annual_leave");
     return getHrSelfToolAnnualLeave(this.db, userId);
+  }
+
+  async overtimeRequests(query: HrSelfOvertimeQuery) {
+    const userId = await this.requireToken("hr_get_my_overtime_requests");
+    return listHrSelfToolOvertimeRequests(this.db, userId, query);
+  }
+
+  async schedule(query: HrSelfScheduleQuery) {
+    const userId = await this.requireToken("hr_get_my_schedule");
+    return listHrSelfToolSchedule(this.db, userId, query);
   }
 
   async assertStillAuthorized() {

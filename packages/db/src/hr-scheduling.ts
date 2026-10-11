@@ -63,6 +63,17 @@ export interface SaveHrScheduleInput {
  * （多回 year 與 month）。兩份都私有時相安無事，但這一份要 export 出去給路由用，
  * 同名同輸入卻回不同東西的公開 API 遲早會被拿錯一個。
  */
+/**
+ * 讀已發布班表時要認哪一版：同一期間重新發布會留下舊的已發布版，一律只認版本號最大的那一個。
+ * 查詢要自己 join hr_schedule_versions。
+ */
+export function latestPublishedScheduleVersion() {
+  return and(
+    eq(hrScheduleVersions.status, "published"),
+    sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
+  );
+}
+
 export function monthPeriodFromKey(periodKey: string) {
   if (!PERIOD_KEY.test(periodKey)) throw new HrError(400, "排班月份格式不正確。 ");
   const [yearText, monthText] = periodKey.split("-");

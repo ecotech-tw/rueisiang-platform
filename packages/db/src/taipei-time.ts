@@ -64,3 +64,12 @@ export function taipeiDateFromUtcWallClock(value: string): string {
   const timestamp = Date.parse(normalized);
   return Number.isNaN(timestamp) ? value.slice(0, 10) : formatTaipeiDate(timestamp);
 }
+
+/** 將 canonical UTC wall-clock（或 ISO）timestamp 轉成 Taipei 的 `YYYY-MM-DD HH:mm`，給人讀的輸出用。 */
+export function taipeiMinuteFromUtcWallClock(value: string): string {
+  const timestamp = Date.parse(value.endsWith("Z") ? value : `${value.replace(" ", "T")}Z`);
+  if (Number.isNaN(timestamp)) return value;
+  const local = partsAt(timestamp);
+  const two = (part: number) => String(part).padStart(2, "0");
+  return `${local.year}-${two(local.month)}-${two(local.day)} ${two(local.hour)}:${two(local.minute)}`;
+}
