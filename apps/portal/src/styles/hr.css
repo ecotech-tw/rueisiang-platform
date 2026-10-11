@@ -432,6 +432,14 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   content: "";
   pointer-events: none;
 }
+.hr-employee-number {
+  display: block;
+  max-width: 10rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .hr-system .table-scroll .data-table thead th {
   background: --alpha(var(--color-paper) / 82%);
   -webkit-backdrop-filter: blur(14px) saturate(165%);
