@@ -307,15 +307,16 @@ export async function pushLineMessage(
 
 const HR_DRAFT_POSTBACK_PREFIX = "hr_draft";
 
-// Flex 只收色碼，讀不到 portal 的 CSS 變數：這幾個值抄自 packages/ui/theme.css 的同名 token，那邊改了這裡要跟著改。
+// Flex 只收色碼，Worker 也讀不到 CSS 變數：這幾個值抄自 packages/ui/theme.css 的同名 token。
+// 兩邊對不上時 line.test.ts 會失敗，所以 token 改了不會靜靜漂掉。
 const HR_DRAFT_CARD_COLORS = { brand: "#d5383b", brandDark: "#ad282c", brandSoft: "#fbe8e5", ink: "#351c1d", muted: "#806c69", softLine: "#f1e7e4" } as const;
 
 /**
  * 申請草稿的確認卡片：一張 Flex bubble，上面是標籤與值排成兩欄的申請內容，下面是「確認送出」「取消」。
  *
  * 不用 confirm template：它的文字上限 240 字（請假原因最多 1000 字），所以內容得另外拆成一則文字訊息，
- * 員工看到的是一段字加一個跟內容分開的小框，日期這種最該看清楚的東西反而埋在字裡。Flex 沒有那個上限，
- * 內容與按鈕在同一張卡上。主要動作用品牌色實心按鈕、取消用文字按鈕：兩顆長得一樣時最容易按錯。
+ * 員工看到的是一段字加一個跟內容分開的小框，日期這種最該看清楚的東西反而埋在字裡。Flex 的上限是整張
+ * bubble 30KB，一千字的原因放得下，內容與按鈕在同一張卡上。主要動作用品牌色實心按鈕、取消用文字按鈕：兩顆長得一樣時最容易按錯。
  *
  * 按鈕帶的是草稿 id 與版本——員工按的是哪一版的卡片，送出的就必須是那一版；草稿之後又被改過的話，
  * 這兩顆按鈕會失效，而不是送出他沒看過的內容。
@@ -344,7 +345,7 @@ export function lineHrDraftConfirmMessages(draft: { id: string; revision: number
             contents: [
               { type: "text", text: row.label, size: "sm", color: color.muted, flex: 2 },
               // Flex 的文字不能是空字串，整則訊息會被 LINE 拒收。
-              { type: "text", text: row.value || "—", size: "sm", color: color.ink, flex: 6, wrap: true },
+              { type: "text", text: row.value.trim() || "—", size: "sm", color: color.ink, flex: 6, wrap: true },
             ],
           })),
         },

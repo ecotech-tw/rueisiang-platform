@@ -36,6 +36,7 @@ import {
 } from "@rueisiang/db/schema";
 import type { AssistantToolCall } from "@rueisiang/assistant";
 import { eq } from "drizzle-orm";
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -1351,6 +1352,11 @@ describe("LINE 申請草稿：確認卡片與按鈕", () => {
     // 卡片上的每一列就是草稿算出來的那幾列，不是另外排的一份。
     expect(cardRowsOf(card)).toEqual(draft.cardRows);
     expect(cardRowsOf(card).map((row) => row.label)).toEqual(["假別", "開始", "結束", "時數", "原因"]);
+    // 色碼抄自共用的 theme token：那邊改了這裡沒跟，這個測試會擋下來。
+    const theme = readFileSync(new URL("../../../packages/ui/theme.css", import.meta.url), "utf8");
+    for (const name of ["brand", "brand-dark", "brand-soft", "ink", "muted", "soft-line"]) {
+      expect(JSON.stringify(card)).toContain(new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6})`).exec(theme)![1]);
+    }
     // 主要動作與取消長得不一樣，才不容易按錯。
     expect(cardButtonsOf(card)).toMatchObject([
       { style: "primary", action: { type: "postback", label: "確認送出", data: `hr_draft:submit:${draft.id}:${draft.revision}` } },
@@ -1358,6 +1364,20 @@ describe("LINE 申請草稿：確認卡片與按鈕", () => {
     ]);
     // 發卡片不等於送出。
     expect(await leaves()).toHaveLength(0);
+  });
+
+  it("給模型的草稿不帶 cardRows：內容跟 card 一樣，原因不必在工具結果裡出現兩次", async () => {
+    const context = {
+      assistantKey: "rueisiang-xiaoxiang", channelKey: "rueisiang-xiaoxiang", groupRowId: group.id,
+      lineGroupId: "user-1", sourceType: "user" as const, contextGeneration: group.contextResetAt ?? "",
+      webhookEventId: "draft-event-model", runId: crypto.randomUUID(),
+    };
+    const hrSelf = new LineHrSelfService(db(), env as never, { ...context, model: "gpt-6-luna", systemPrompt: "", userText: "請假", toolKeys: DRAFT_TOOLS });
+    await hrSelf.authorize();
+    const saved = (await hrSelf.saveRequestDraft(complete)).draft;
+    expect(saved).toMatchObject({ status: "ready", card: expect.stringContaining("原因：") });
+    expect(saved).not.toHaveProperty("cardRows");
+    expect((await hrSelf.requestDraft()).draft).not.toHaveProperty("cardRows");
   });
 
   it("Reply 來不及改走 Push 時，卡片與按鈕一樣跟著送", async () => {
