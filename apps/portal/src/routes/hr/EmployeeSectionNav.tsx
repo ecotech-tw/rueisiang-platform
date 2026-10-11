@@ -21,7 +21,7 @@ export function EmployeeSectionNav({ profile }: { profile: Profile }) {
   useEffect(() => {
     const root = nav.current?.closest(".hr-system-main");
     const update = () => {
-      const top = (root?.getBoundingClientRect().top ?? 0) + (nav.current?.offsetHeight ?? 56) + 24;
+      const top = (nav.current?.getBoundingClientRect().bottom ?? root?.getBoundingClientRect().top ?? 0) + 24;
       const passed = sections.filter(({ id }) => { const block = document.getElementById(id); return block && block.getBoundingClientRect().top <= top; });
       const bottom = root && root.scrollHeight > root.clientHeight && root.scrollHeight - root.scrollTop - root.clientHeight <= 2;
       setActive((bottom ? sections.at(-1)?.id : passed.at(-1)?.id) ?? sections[0]?.id ?? "");

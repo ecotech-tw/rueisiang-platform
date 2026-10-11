@@ -33,6 +33,7 @@ describe("員工內頁資料區", () => {
     expect(markup.match(/hr-action-update/g)).toHaveLength(4);
     expect(markup).toContain("上傳大頭貼");
     expect(markup).toContain("尚未上傳大頭貼");
+    expect(markup).toContain("靜態照片，最大 5 MB、800 萬像素、單邊 8192 px");
   });
 
   it("無寫入權限只顯示資料，不顯示編輯與封存入口", () => {

@@ -10,7 +10,9 @@ import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
 import { createLocalR2 } from "./local-d1/r2.js";
 
 const SECRET = "photo-test-secret-photo-test-secret";
-const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFh0AAAAASUVORK5CYII=", "base64");
+const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4AWJSdk3/D8JMDFAAAAAA///PlZhwAAAABklEQVQDAC5MA6EF8wd6AAAAAElFTkSuQmCC", "base64");
+const jpeg = Buffer.from("/9j/4AAQSkZJRgABAQAAAQABAAD/4gHYSUNDX1BST0ZJTEUAAQEAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADb/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAACAAIDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFAEBAAAAAAAAAAAAAAAAAAAABf/EABQRAQAAAAAAAAAAAAAAAAAAAAD/2gAMAwEAAhEDEQA/AJQAaEP/2Q==", "base64");
+const webp = Buffer.from("UklGRhYCAABXRUJQVlA4WAoAAAAgAAAAAQAAAQAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggKAAAAJABAJ0BKgIAAgABQCYliAJ0ugADmAD+9uYH2psVU87v0KNlEvmAAAA=", "base64");
 let d1: LocalD1;
 let uploads: ReturnType<typeof createLocalR2>;
 let directory: string;
@@ -56,6 +58,57 @@ describe("員工私有大頭貼", () => {
     expect((await request(`/employees/${employmentId}/photo`)).status).toBe(404);
     expect(d1.sqlite.prepare("SELECT event_type FROM activity_events WHERE event_type LIKE 'employee_photo_%'").all()).toHaveLength(3);
   });
+  it.each([[png, "image/png"], [jpeg, "image/jpeg"], [webp, "image/webp"]] as const)("完整解碼接受有效照片：%s", async (bytes, type) => {
+    expect((await upload(currentRevision(), bytes, type)).status).toBe(201);
+    expect((await request(`/employees/${employmentId}/photo`)).headers.get("Content-Type")).toBe(type);
+  });
+
+  it.each([
+    [png.subarray(0, 8), "image/png"], [png.subarray(0, png.length - 12), "image/png"],
+    [Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aFh0AAAAASUVORK5CYII=", "base64"), "image/png"],
+    [jpeg.subarray(0, 3), "image/jpeg"], [jpeg.subarray(0, jpeg.length - 2), "image/jpeg"],
+    [webp.subarray(0, 12), "image/webp"], [webp.subarray(0, webp.length - 4), "image/webp"],
+  ] as const)("拒絕只含檔頭／截斷／checksum 錯誤的圖片，保留照片與 revision：%s", async (bytes, type) => {
+    expect((await upload()).status).toBe(201); const before = photoRow()!; const revision = currentRevision();
+    const put = vi.spyOn(uploads, "put");
+    expect((await upload(revision, bytes, type)).status).toBe(400);
+    expect(put).not.toHaveBeenCalled(); expect(photoRow()).toEqual(before); expect(currentRevision()).toBe(revision); expect(await uploads.head(before.object_key)).not.toBeNull();
+  });
+
+  it.each([[4096, 4096], [9000, 1]])("拒絕宣告超出解碼尺寸限制的照片：%s×%s", async (width, height) => {
+    expect((await upload()).status).toBe(201); const before = photoRow(); const revision = currentRevision();
+    const oversized = Buffer.from(png); oversized.writeUInt32BE(width, 16); oversized.writeUInt32BE(height, 20);
+    let crc = 0xffffffff;
+    for (const value of oversized.subarray(12, 29)) { crc ^= value; for (let bit = 0; bit < 8; bit++) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0); }
+    oversized.writeUInt32BE((crc ^ 0xffffffff) >>> 0, 29);
+    const response = await upload(revision, oversized); expect(response.status).toBe(400); expect(await response.text()).toContain("解碼限制"); expect(photoRow()).toEqual(before); expect(currentRevision()).toBe(revision);
+  });
+
+  it("已提交但回應遺失時確認參照並回報成功，不刪除目前照片", async () => {
+    expect((await upload()).status).toBe(201); const before = photoRow()!; const revision = currentRevision();
+    const batch = d1.batch.bind(d1); const log = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => { await batch(statements); throw new Error("D1 response lost after commit"); });
+    expect((await upload()).status).toBe(201); const current = photoRow()!;
+    expect(current.id).not.toBe(before.id); expect(currentRevision()).toBe(revision + 1); expect(await uploads.head(current.object_key)).not.toBeNull(); expect(await uploads.head(before.object_key)).toBeNull(); expect((await request(`/employees/${employmentId}/photo`)).status).toBe(200); expect(log).toHaveBeenCalled();
+  });
+
+  it("提交與確認讀取均失敗時保留新檔，不誤刪已提交照片", async () => {
+    expect((await upload()).status).toBe(201); const before = photoRow()!; const batch = d1.batch.bind(d1);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => { await batch(statements); vi.spyOn(d1, "prepare").mockImplementationOnce(() => { throw new Error("D1 read unavailable"); }); throw new Error("D1 response lost"); });
+    expect((await upload()).status).toBe(500); const current = photoRow()!;
+    expect(current.id).not.toBe(before.id); expect(await uploads.head(current.object_key)).not.toBeNull(); expect(await uploads.head(before.object_key)).not.toBeNull(); expect((await request(`/employees/${employmentId}/photo`)).status).toBe(200); expect(log).toHaveBeenCalled();
+  });
+
+  it("未知錯誤但尚未提交時即使讀到舊參照仍保留新檔，稍後提交不會破圖", async () => {
+    expect((await upload()).status).toBe(201); const before = photoRow()!; const revision = currentRevision(); const batch = d1.batch.bind(d1);
+    const put = vi.spyOn(uploads, "put"); let deferred: Parameters<typeof d1.batch>[0] | undefined;
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => { deferred = statements; throw new Error("D1 outcome unknown"); });
+    expect((await upload()).status).toBe(500); expect(photoRow()).toEqual(before); expect(currentRevision()).toBe(revision); expect(await uploads.head(put.mock.calls[0]![0])).not.toBeNull();
+    await batch(deferred!); expect(photoRow()?.id).not.toBe(before.id); expect((await request(`/employees/${employmentId}/photo`)).status).toBe(200);
+  });
+
   it("未登入、一般員工與僅有員工寫入權限者不能讀寫照片；列表與本人回應不包含照片", async () => {
     expect((await upload()).status).toBe(201);
     for (const actor of ["employee", "staff", "missing"]) {

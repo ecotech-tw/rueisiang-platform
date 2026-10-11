@@ -21,9 +21,10 @@ import {
   formatTaipeiDate, taipeiWallClockToUtc,
   createDeviceSession, createLineLiffSession, findUserByLineIdentity, getLineAccountLink, isHrEmployee, linkLineAccount, loadAuthUser, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession, replaceLineAccount, unlinkLineAccount, useDeviceSession,
 } from "@rueisiang/db";
-import { HR_EMPLOYEE_PHOTO_MAX_BYTES, HR_EMPLOYEE_PHOTO_TYPES } from "@rueisiang/db/hr-profile-fields";
+import { HR_EMPLOYEE_PHOTO_MAX_BYTES } from "@rueisiang/db/hr-profile-fields";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
+import { validateEmployeePhoto } from "../employee-photo.js";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { enqueuePayrollJob } from "../payroll-queue.js";
@@ -32,13 +33,6 @@ import { DEVICE_COOKIE_PATH, clearDeviceCookie, deviceCookie, requireAnyPermissi
 import { sessionUserPayload } from "./auth.js";
 import { body, requireString } from "../request.js";
 import { clearLineLinkIntentCookie, createLineLinkIntentCookie, LINE_LIFF_INTENT_COOKIE, LineLiffError, readLineLinkIntent, verifyLineIdToken } from "../line-liff.js";
-
-function validEmployeePhoto(bytes: Uint8Array, type: string): type is typeof HR_EMPLOYEE_PHOTO_TYPES[number] {
-  if (type === "image/jpeg") return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  if (type === "image/png") return [137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value);
-  if (type === "image/webp") return bytes.length >= 12 && String.fromCharCode(...bytes.subarray(0, 4)) === "RIFF" && String.fromCharCode(...bytes.subarray(8, 12)) === "WEBP";
-  return false;
-}
 
 async function deleteEmployeePhotoObject(bucket: R2Bucket, objectKey: string) {
   try { await bucket.delete(objectKey); }
@@ -1556,8 +1550,7 @@ export const hr = new Hono<AppEnv>()
     if (!file || typeof file === "string" || Array.isArray(file)) throw new HTTPException(400, { message: "請選擇一張大頭貼。" });
     if (file.size === 0 || file.size > HR_EMPLOYEE_PHOTO_MAX_BYTES) throw new HTTPException(400, { message: "大頭貼必須是 5 MB 以內的非空圖片。" });
     const bytes = await file.arrayBuffer();
-    const contentType = file.type;
-    if (!validEmployeePhoto(new Uint8Array(bytes), contentType)) throw new HTTPException(400, { message: "只能上傳有效的 JPEG、PNG 或 WebP 圖片。" });
+    const contentType = await validateEmployeePhoto(new Uint8Array(bytes), file.type);
     const expectedRevision = revision({ revision: Number(form.revision) });
     const person = await getHrPerson(c.get("db"), c.req.param("id"));
     if (person.employee.personKind !== "employee" || person.employee.archivedAt || person.employee.revision !== expectedRevision) throw new HTTPException(409, { message: "員工已是未在職或資料已變更，請重新整理後再試。" });
@@ -1568,7 +1561,22 @@ export const hr = new Hono<AppEnv>()
     // 先存檔再切換目前版本；revision 衝突時只清理本次新檔，不動舊照片。
     await bucket.put(photo.objectKey, bytes, { httpMetadata: { contentType } });
     try { await updateHrEmployeePhoto(c.get("db"), employmentId, { revision: expectedRevision, photo }, c.get("user")); }
-    catch (error) { await deleteEmployeePhotoObject(bucket, photo.objectKey); throw error; }
+    catch (error) {
+      let current: Awaited<ReturnType<typeof findHrEmployeePhoto>>;
+      try { current = await findHrEmployeePhoto(c.get("db"), employmentId); }
+      catch {
+        console.error(JSON.stringify({ event: "hr.employee_photo_write_unconfirmed", employmentId, photoId: id }));
+        throw error;
+      }
+      if (current?.id === id) {
+        console.warn(JSON.stringify({ event: "hr.employee_photo_write_reconciled", employmentId, photoId: id }));
+      } else {
+        // 未知傳輸錯誤可能尚在提交；「現在沒參照」也不代表交易確定回滾。
+        if (error instanceof HrError && error.status === 409) await deleteEmployeePhotoObject(bucket, photo.objectKey);
+        else console.error(JSON.stringify({ event: "hr.employee_photo_write_unconfirmed", employmentId, photoId: id }));
+        throw error;
+      }
+    }
     if (previous) await deleteEmployeePhotoObject(bucket, previous.objectKey);
     return c.json({ id }, 201);
   })

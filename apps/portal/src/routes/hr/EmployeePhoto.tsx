@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { HR_EMPLOYEE_PHOTO_MAX_BYTES, HR_EMPLOYEE_PHOTO_TYPES } from "@rueisiang/db/hr-profile-fields";
+import { HR_EMPLOYEE_PHOTO_MAX_BYTES, HR_EMPLOYEE_PHOTO_MAX_PIXELS, HR_EMPLOYEE_PHOTO_MAX_SIDE, HR_EMPLOYEE_PHOTO_TYPES } from "@rueisiang/db/hr-profile-fields";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
@@ -11,6 +11,7 @@ export function EmployeePhoto({ employmentId, revision, name, photo, canWrite, d
   const closeRemove = useRef<((afterClose?: () => void) => void) | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
+  const [previewStatus, setPreviewStatus] = useState<"checking" | "valid" | "invalid" | null>(null);
   const [expectedRevision, setExpectedRevision] = useState(revision);
   const [validationError, setValidationError] = useState("");
   const [failedPhotoId, setFailedPhotoId] = useState<string | null>(null);
@@ -21,28 +22,37 @@ export function EmployeePhoto({ employmentId, revision, name, photo, canWrite, d
   const pending = upload.isPending || remove.isPending;
   useEffect(() => { onBusyChange(pending || Boolean(file) || confirmRemove); }, [pending, file, confirmRemove, onBusyChange]);
   useEffect(() => {
-    if (!file) { setPreview(""); return; }
+    if (!file) { setPreview(""); setPreviewStatus(null); return; }
     const url = URL.createObjectURL(file);
+    const image = new Image();
+    let cancelled = false;
     setPreview(url);
-    return () => URL.revokeObjectURL(url);
+    image.src = url;
+    void image.decode().then(() => {
+      if (cancelled) return;
+      if (image.naturalWidth * image.naturalHeight > HR_EMPLOYEE_PHOTO_MAX_PIXELS || image.naturalWidth > HR_EMPLOYEE_PHOTO_MAX_SIDE || image.naturalHeight > HR_EMPLOYEE_PHOTO_MAX_SIDE) {
+        setPreviewStatus("invalid"); setValidationError("大頭貼尺寸超出限制，請縮小到 800 萬像素、單邊 8192 px 以內後再上傳。");
+      } else setPreviewStatus("valid");
+    }).catch(() => { if (!cancelled) { setPreviewStatus("invalid"); setValidationError("照片損壞或無法解碼，請重新選擇圖片。"); } });
+    return () => { cancelled = true; image.src = ""; URL.revokeObjectURL(url); };
   }, [file]);
   const cancel = () => { setFile(null); setValidationError(""); upload.reset(); if (input.current) input.current.value = ""; };
   const choose = (selected?: File) => {
     if (!selected) return;
     if (!HR_EMPLOYEE_PHOTO_TYPES.some((type) => type === selected.type) || selected.size === 0 || selected.size > HR_EMPLOYEE_PHOTO_MAX_BYTES) { setValidationError("請選擇 5 MB 以內的 JPEG、PNG 或 WebP 圖片。"); if (input.current) input.current.value = ""; return; }
-    setFile(selected); setExpectedRevision(revision); setValidationError(""); upload.reset();
+    setFile(selected); setPreviewStatus("checking"); setExpectedRevision(revision); setValidationError(""); upload.reset();
   };
-  const src = preview || (photo && failedPhotoId !== photo.id ? `/api/hr/employees/${encodeURIComponent(employmentId)}/photo?v=${encodeURIComponent(photo.id)}` : "");
+  const src = file ? previewStatus === "valid" ? preview : "" : (photo && failedPhotoId !== photo.id ? `/api/hr/employees/${encodeURIComponent(employmentId)}/photo?v=${encodeURIComponent(photo.id)}` : "");
   return <div className="hr-employee-photo-block">
-    <div className="hr-employee-photo-preview">{src ? <img src={src} alt={`${name}的大頭貼${preview ? "預覽" : ""}`} onError={() => { if (!preview && photo) setFailedPhotoId(photo.id); }} /> : <Icon name="person" />}</div>
+    <div className="hr-employee-photo-preview">{src ? <img src={src} alt={`${name}的大頭貼${file ? "預覽" : ""}`} onError={() => { if (file) { setPreviewStatus("invalid"); setValidationError("照片損壞或無法解碼，請重新選擇圖片。"); } else if (photo) setFailedPhotoId(photo.id); }} /> : <Icon name="person" />}</div>
     <div className="hr-employee-photo-content">
-      <p>{file ? "預覽照片，儲存後才會更新員工檔案。" : photo ? failedPhotoId === photo.id ? "照片載入失敗，請重新整理或重新上傳。" : "員工檔案照片" : "尚未上傳大頭貼"}</p>
-      <p className="muted">JPEG、PNG 或 WebP，最大 5 MB；照片僅供全平台 HR 管理者查看。</p>
+      <p>{file ? previewStatus === "checking" ? "正在檢查照片…" : previewStatus === "invalid" ? "所選照片無法使用，請重新選擇。" : "預覽照片，儲存後才會更新員工檔案。" : photo ? failedPhotoId === photo.id ? "照片載入失敗，請重新整理或重新上傳。" : "員工檔案照片" : "尚未上傳大頭貼"}</p>
+      <p className="muted">JPEG、PNG 或 WebP 靜態照片，最大 5 MB、800 萬像素、單邊 8192 px；照片僅供全平台 HR 管理者查看。</p>
       {canWrite ? <>
         <input ref={input} type="file" accept={HR_EMPLOYEE_PHOTO_TYPES.join(",")} aria-label="選擇員工大頭貼" hidden disabled={disabled || pending} onChange={(event) => choose(event.target.files?.[0])} />
         <div className="hr-employee-photo-actions">
           <Button variant="secondary" className="hr-action-update" icon="edit" disabled={disabled || pending} onClick={() => input.current?.click()}>{file ? "重選照片" : photo ? "更換大頭貼" : "上傳大頭貼"}</Button>
-          {file ? <><Button variant="secondary" disabled={disabled || pending} onClick={cancel}>取消</Button><Button className="hr-action-update" icon="check" loading={upload.isPending} disabled={disabled || remove.isPending} onClick={() => {
+          {file ? <><Button variant="secondary" disabled={disabled || pending} onClick={cancel}>取消</Button><Button className="hr-action-update" icon="check" loading={upload.isPending} disabled={disabled || remove.isPending || previewStatus !== "valid"} onClick={() => {
             const formData = new FormData(); formData.set("file", file); formData.set("revision", String(expectedRevision));
             upload.mutate({ path: `/employees/${encodeURIComponent(employmentId)}/photo`, method: "POST", formData }, { onSuccess: () => { cancel(); toast.show("大頭貼已更新"); onSaved(); } });
           }}>儲存大頭貼</Button></> : photo ? <Button variant="secondary" disabled={disabled || pending} onClick={() => { remove.reset(); setExpectedRevision(revision); setConfirmRemove(true); }}>移除大頭貼</Button> : null}
