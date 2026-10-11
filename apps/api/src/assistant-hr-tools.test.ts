@@ -45,16 +45,36 @@ describe("小香 HR 工具：本人加班申請", () => {
 
   it("只回本人的申請，時間轉成台北時間，核定時段與申請時段分開，不回原因", async () => {
     const result = await listHrSelfToolOvertimeRequests(db(), "alice", {}, NOW);
-    expect(result.filters).toEqual({ status: "all", dateField: "work", fromDate: "2026-02-01", toDate: "2026-03-02" });
-    expect(result.requests.map((row) => row.id)).toEqual(["ot-alice-midnight", "ot-alice-approved"]);
-    expect(result.requests[1]).toMatchObject({
+    // 依加班日期查的預設區間是今天前後各 30 天：加班多半事前申請，未來的也要查得到。
+    expect(result.filters).toEqual({ status: "all", dateField: "work", fromDate: "2026-01-31", toDate: "2026-04-01" });
+    expect(result.requests.map((row) => row.id)).toEqual(["ot-alice-pending", "ot-alice-midnight", "ot-alice-approved"]);
+    expect(result.requests[2]).toMatchObject({
       status: "approved", settlementKind: "pay",
       requestedStart: "2026-02-20 18:00", requestedEnd: "2026-02-20 20:00", requestedMinutes: 120,
       approvedStart: "2026-02-20 18:00", approvedEnd: "2026-02-20 19:00", approvedMinutes: 60,
       reviewedAt: "2026-02-21 09:30",
     });
-    expect(result.requests[0]).toMatchObject({ approvedStart: null, approvedEnd: null, approvedMinutes: null, reviewedAt: null });
+    expect(result.requests[0]).toMatchObject({ status: "pending", requestedStart: "2026-03-03 18:00", approvedStart: null, approvedEnd: null, approvedMinutes: null, reviewedAt: null });
     expect(JSON.stringify(result)).not.toMatch(/ot-bob|不應回傳/);
+  });
+
+  it("未來已核准的加班不帶日期也查得到；依申請日期查時預設只回溯 30 天", async () => {
+    await db().insert(hrOvertimeRequests).values({
+      id: "ot-alice-saturday", employmentId: "employment-alice", requestedStart: "2026-03-07 02:00:00", requestedEnd: "2026-03-07 04:00:00",
+      actualStart: "2026-03-07 02:00:00", actualEnd: "2026-03-07 04:00:00", settlementKind: "compensatory", status: "approved", createdBy: "alice",
+    });
+    const approved = await listHrSelfToolOvertimeRequests(db(), "alice", { status: "approved" }, NOW);
+    expect(approved.requests.map((row) => row.id)).toEqual(["ot-alice-saturday", "ot-alice-approved"]);
+    const submitted = await listHrSelfToolOvertimeRequests(db(), "alice", { dateField: "submitted" }, Date.now());
+    expect(submitted.filters.toDate).toBe(submitted.asOfDate);
+    expect(submitted.total).toBe(4);
+  });
+
+  it("加班沒有 cancelled 與 draft：取消是直接刪掉，查這兩個狀態直接拒絕而不是回空的", async () => {
+    await expect(listHrSelfToolOvertimeRequests(db(), "alice", { status: "cancelled" as never }, NOW)).rejects.toThrow("查詢條件");
+    await expect(listHrSelfToolOvertimeRequests(db(), "alice", { status: "draft" as never }, NOW)).rejects.toThrow("查詢條件");
+    const schema = PLATFORM_TOOL_MAP.get("hr_get_my_overtime_requests")!.parameters.properties.status!;
+    expect(schema.enum).toEqual(["all", "pending", "approved", "rejected"]);
   });
 
   it("沒給日期的 pending 查全部待審，包含未來的加班", async () => {
@@ -107,11 +127,11 @@ describe("小香 HR 工具：本人班表", () => {
     const result = await listHrSelfToolSchedule(db(), "alice", {}, NOW);
     expect(result).toMatchObject({ fromDate: "2026-03-02", toDate: "2026-03-15", attendanceMode: "scheduled" });
     expect(result.days).toHaveLength(14);
-    expect(result.days[0]).toEqual({ date: "2026-03-02", weekday: "週一", dayType: "weekday", holidayName: "", scheduleStatus: "assigned", leaves: [], shifts: [] });
+    expect(result.days[0]).toEqual({ date: "2026-03-02", weekday: "週一", dayType: "weekday", holidayName: "", stopWork: null, scheduleStatus: "assigned", leaves: [], shifts: [] });
     // 03-03 只存在被取代的舊版裡。
     expect(result.days[1]!.shifts).toEqual([]);
     expect(result.days[2]).toEqual({
-      date: "2026-03-04", weekday: "週三", dayType: "holiday", holidayName: "測試假日", scheduleStatus: "assigned", leaves: [],
+      date: "2026-03-04", weekday: "週三", dayType: "holiday", holidayName: "測試假日", stopWork: null, scheduleStatus: "assigned", leaves: [],
       shifts: [{ scopeName: "西門店", shiftName: "日班", startsAt: "2026-03-04 10:00", endsAt: "2026-03-04 18:00", breakMinutes: 60 }],
     });
     expect(result.days[5]).toMatchObject({ date: "2026-03-07", weekday: "週六", dayType: "weekend" });
@@ -160,6 +180,11 @@ describe("小香 HR 工具：本人班表", () => {
     expect(result.days[2]!.leaves).toEqual([]);
     expect(result.note).toContain("approved 的時段不用上班");
     expect(JSON.stringify(result)).not.toContain("不應回傳");
+    // 離職回任：舊任職封存了，上面的假不該掛到現在的班表。
+    await db().update(hrEmployments).set({ archivedAt: "2026-03-01" }).where(eq(hrEmployments.id, "employment-alice"));
+    await db().insert(hrEmployments).values({ id: "employment-alice-2", employeeUserId: "alice", employeeNumber: "alice-2", legalName: "員工-alice" });
+    const rehired = await listHrSelfToolSchedule(db(), "alice", { fromDate: "2026-03-04", toDate: "2026-03-05" }, NOW);
+    expect(rehired.days.map((day) => day.leaves)).toEqual([[], []]);
   });
 
   it("不是排班制的員工明講沒有逐日班表，也拿不到別人的班", async () => {
@@ -168,7 +193,31 @@ describe("小香 HR 工具：本人班表", () => {
     expect(result.attendanceMode).toBe("general");
     expect(result.days[0]!.shifts).toEqual([]);
     expect(result.note).toContain("不是排班制");
-    expect((await listHrSelfToolSchedule(db(), "admin", {}, NOW)).attendanceMode).toBe("unknown");
+    const noEmployment = await listHrSelfToolSchedule(db(), "admin", {}, NOW);
+    expect(noEmployment.attendanceMode).toBe("no_active_employment");
+    expect(noEmployment.note).toContain("沒有在職的任職資料");
+  });
+
+  it("設定還是 general 但已發布班表裡有班的人算排班制；沒有設定列等同 general", async () => {
+    const bob = await listHrSelfToolSchedule(db(), "bob", { fromDate: "2026-03-04", toDate: "2026-03-04" }, NOW);
+    expect(bob.attendanceMode).toBe("scheduled");
+    expect(bob.days[0]).toMatchObject({ scheduleStatus: "assigned", shifts: [{ startsAt: "2026-03-04 10:00" }] });
+    expect(bob.note).not.toContain("不是排班制");
+    await db().delete(hrScheduleEntries);
+    await db().delete(hrEmploymentAttendanceSettings);
+    expect((await listHrSelfToolSchedule(db(), "bob", {}, NOW)).attendanceMode).toBe("general");
+  });
+
+  it("災防停班跟班次一起回：全公司是 all，指定據點時列出據點名稱", async () => {
+    await db().insert(hrCalendarDays).values([
+      { date: "2026-03-31", dayType: "weekday", name: "颱風", specialKind: "typhoon_stop", updatedBy: "admin" },
+      { date: "2026-03-30", dayType: "weekday", name: "颱風", specialKind: "typhoon_stop", updatedBy: "admin" },
+    ]);
+    await db().insert(hrCalendarDayScopes).values({ date: "2026-03-31", scopeId: "scope-ximen" });
+    const result = await listHrSelfToolSchedule(db(), "alice", { fromDate: "2026-03-29", toDate: "2026-03-31" }, NOW);
+    expect(result.days.map((day) => day.stopWork)).toEqual([null, "all", ["西門店"]]);
+    expect(result.days[2]).toMatchObject({ holidayName: "颱風", shifts: [{ scopeName: "西門店", startsAt: "2026-03-31 10:00" }] });
+    expect(result.note).toContain("災防停班");
   });
 
   it("封存的任職不再出現在班表，區間最多 62 天", async () => {
@@ -192,7 +241,7 @@ describe("小香 HR 工具：公司行事曆", () => {
 
   it("只列出跟星期推算不同的日子，補班日與停班據點分開標", async () => {
     const result = await listHrToolCalendar(db(), {}, NOW);
-    expect(result).toMatchObject({ fromDate: "2026-03-02", toDate: "2026-04-30", note: "" });
+    expect(result).toMatchObject({ fromDate: "2026-03-02", toDate: "2026-04-30", note: "", holidaysNotImportedYears: [] });
     expect(result.days).toEqual([
       { date: "2026-03-04", weekday: "週三", dayType: "holiday", name: "測試假日", makeupWorkday: false, stopWork: null },
       { date: "2026-03-07", weekday: "週六", dayType: "weekday", name: "補班", makeupWorkday: true, stopWork: null },
@@ -204,7 +253,16 @@ describe("小香 HR 工具：公司行事曆", () => {
   it("整段沒有設定時提醒可能還沒匯入，區間最多 366 天", async () => {
     const empty = await listHrToolCalendar(db(), { fromDate: "2027-01-01", toDate: "2027-12-31" }, NOW);
     expect(empty.days).toEqual([]);
+    expect(empty.holidaysNotImportedYears).toEqual(["2027"]);
     expect(empty.note).toContain("還沒匯入");
+    // 年度有匯入、只是這段本來就沒有假日：要答得出「沒有」。
+    const quiet = await listHrToolCalendar(db(), { fromDate: "2026-07-01", toDate: "2026-08-31" }, NOW);
+    expect(quiet).toMatchObject({ days: [], holidaysNotImportedYears: [], note: "" });
+    // 只有一筆颱風停班不能證明假日匯入過；跨年時兩個年度分開判斷。
+    await db().insert(hrCalendarDays).values({ date: "2027-01-05", dayType: "weekday", name: "颱風", specialKind: "typhoon_stop", updatedBy: "admin" });
+    const typhoonOnly = await listHrToolCalendar(db(), { fromDate: "2026-12-20", toDate: "2027-01-10" }, NOW);
+    expect(typhoonOnly.days.map((day) => day.date)).toEqual(["2027-01-05"]);
+    expect(typhoonOnly.holidaysNotImportedYears).toEqual(["2027"]);
     await expect(listHrToolCalendar(db(), { fromDate: "2026-01-01", toDate: "2027-01-02" }, NOW)).rejects.toThrow("366 天");
   });
 

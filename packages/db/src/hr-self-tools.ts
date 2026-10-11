@@ -3,11 +3,12 @@ import type { Database } from "./client.js";
 import { HrError, listHrEmployees } from "./hr-people.js";
 import { authLineAccountLinks } from "./schema/auth.js";
 import { listHrAnnualLeaveEntitlements } from "./hr-annual-leave.js";
-import { defaultDayType, listHrCalendarMonth } from "./hr-calendar.js";
+import { defaultDayType, listHrCalendarMonth, type HrCalendarDayView } from "./hr-calendar.js";
+import { latestPublishedScheduleVersion } from "./hr-scheduling.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
-import { hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions } from "./schema/hr-scheduling.js";
+import { hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
 import { inJsonArray } from "./sql-lists.js";
 import { formatTaipeiDate, taipeiMidnightUtc, taipeiMinuteFromUtcWallClock } from "./taipei-time.js";
@@ -74,14 +75,25 @@ function toolDateRange(query: { fromDate?: string; toDate?: string }, fallback: 
   return { fromDate, toDate };
 }
 
+const REQUEST_PAGE_SIZE = 20;
+
+/** 申請單查詢（假單、加班）共用的條件解析：狀態、依哪個日期篩、第幾頁。dateFields 的第一個是預設值。 */
+function requestListQuery<Status extends string, Field extends string>(
+  query: { status?: string; dateField?: string; page?: number },
+  statuses: readonly Status[], dateFields: readonly [Field, ...Field[]], message: string,
+) {
+  const status = query.status ?? "all";
+  const dateField = query.dateField ?? dateFields[0];
+  const page = query.page ?? 1;
+  if ((status !== "all" && !(statuses as readonly string[]).includes(status))
+    || !(dateFields as readonly string[]).includes(dateField)
+    || !Number.isSafeInteger(page) || page < 1 || page > 10_000) throw new HrError(400, message);
+  return { status: status as Status | "all", dateField: dateField as Field, page };
+}
+
 export async function listHrSelfToolLeaveRequests(db: Database, userId: string, query: HrSelfLeaveQuery = {}, now = Date.now()) {
   employeeId(userId);
-  const status = query.status ?? "all";
-  const dateField = query.dateField ?? "leave";
-  const page = query.page ?? 1;
-  if (!["all", "draft", "pending", "approved", "rejected", "cancelled"].includes(status)
-    || !["submitted", "leave"].includes(dateField)
-    || !Number.isSafeInteger(page) || page < 1 || page > 10_000) throw new HrError(400, "假單查詢條件不正確。" );
+  const { status, dateField, page } = requestListQuery(query, ["draft", "pending", "approved", "rejected", "cancelled"], ["leave", "submitted"], "假單查詢條件不正確。");
   const today = formatTaipeiDate(now);
   const { fromDate, toDate } = toolDateRange(query, status === "pending" ? null : { fromDate: shiftDate(today, -29), toDate: today }, 366);
   const submittedAt = sql<string>`datetime(${hrLeaveRequests.createdAt})`;
@@ -94,7 +106,7 @@ export async function listHrSelfToolLeaveRequests(db: Database, userId: string, 
   );
   const [{ total } = { total: 0 }] = await db.select({ total: count() }).from(hrLeaveRequests)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId)).where(filter);
-  const pageSize = 20;
+  const pageSize = REQUEST_PAGE_SIZE;
   // SQLite 與 ISO UTC 字串不能直接排序；julianday 也保留毫秒，避免同秒假單錯排。
   const submittedOrder = sql<number>`julianday(${hrLeaveRequests.createdAt})`;
   const requests = await db.select({
@@ -144,7 +156,7 @@ export async function getHrSelfToolAnnualLeave(db: Database, userId: string, now
 }
 
 export interface HrSelfOvertimeQuery {
-  status?: "all" | "draft" | "pending" | "approved" | "rejected" | "cancelled";
+  status?: "all" | "pending" | "approved" | "rejected";
   dateField?: "submitted" | "work";
   fromDate?: string;
   toDate?: string;
@@ -155,17 +167,22 @@ function minutesBetween(start: string, end: string) {
   return Math.round((Date.parse(`${end.replace(" ", "T")}Z`) - Date.parse(`${start.replace(" ", "T")}Z`)) / 60_000);
 }
 
-/** 本人的加班申請。查詢條件的形狀刻意跟假單一樣，模型不用學兩套；時間一律轉成台北時間再給。 */
+/**
+ * 本人的加班申請。查詢條件的形狀刻意跟假單一樣，模型不用學兩套；時間一律轉成台北時間再給。
+ *
+ * 跟假單不同的兩件事：
+ * - 狀態沒有 cancelled 也沒有 draft。加班取消是把那一列刪掉（見 hr-overtime 的 cancelHrOvertimeRequest），
+ *   也沒有任何流程會寫入 draft；留著這兩個選項只會永遠回空，讓模型答成「沒有取消過」。
+ * - 依加班日期查時，預設區間往前也往後各 30 天。加班多半是事前申請，只回溯到今天的話
+ *   「我這週六的加班核准了嗎」會查不到。
+ */
 export async function listHrSelfToolOvertimeRequests(db: Database, userId: string, query: HrSelfOvertimeQuery = {}, now = Date.now()) {
   employeeId(userId);
-  const status = query.status ?? "all";
-  const dateField = query.dateField ?? "work";
-  const page = query.page ?? 1;
-  if (!["all", "draft", "pending", "approved", "rejected", "cancelled"].includes(status)
-    || !["submitted", "work"].includes(dateField)
-    || !Number.isSafeInteger(page) || page < 1 || page > 10_000) throw new HrError(400, "加班查詢條件不正確。" );
+  const { status, dateField, page } = requestListQuery(query, ["pending", "approved", "rejected"], ["work", "submitted"], "加班查詢條件不正確。");
   const today = formatTaipeiDate(now);
-  const { fromDate, toDate } = toolDateRange(query, status === "pending" ? null : { fromDate: shiftDate(today, -29), toDate: today }, 366);
+  const { fromDate, toDate } = toolDateRange(query, status === "pending" ? null : dateField === "submitted"
+    ? { fromDate: shiftDate(today, -29), toDate: today }
+    : { fromDate: shiftDate(today, -30), toDate: shiftDate(today, 30) }, 366);
   const submittedAt = sql<string>`datetime(${hrOvertimeRequests.createdAt})`;
   const rangeStart = fromDate ? taipeiMidnightUtc(fromDate) : undefined;
   const rangeEnd = toDate ? taipeiMidnightUtc(shiftDate(toDate, 1)) : undefined;
@@ -178,7 +195,7 @@ export async function listHrSelfToolOvertimeRequests(db: Database, userId: strin
   );
   const [{ total } = { total: 0 }] = await db.select({ total: count() }).from(hrOvertimeRequests)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrOvertimeRequests.employmentId)).where(filter);
-  const pageSize = 20;
+  const pageSize = REQUEST_PAGE_SIZE;
   const rows = await db.select({
     id: hrOvertimeRequests.id,
     status: hrOvertimeRequests.status,
@@ -212,6 +229,21 @@ export async function listHrSelfToolOvertimeRequests(db: Database, userId: strin
   };
 }
 
+/** 行事曆上有指定停班據點的日子，把 scope ID 換成名字給模型看。 */
+async function calendarScopeNames(db: Database, days: readonly HrCalendarDayView[]) {
+  const scopeIds = [...new Set(days.flatMap((day) => day.specialScopeIds))];
+  const rows = scopeIds.length
+    ? await db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(inJsonArray(scopes.id, scopeIds))
+    : [];
+  return new Map(rows.map((row) => [row.id, row.name]));
+}
+
+/** 災防停班：null 是沒有停班，"all" 是全公司，否則是停班的據點名稱。班表與行事曆兩個工具用同一個形狀。 */
+function stopWorkOf(day: HrCalendarDayView, scopeNames: Map<string, string>): null | "all" | string[] {
+  if (day.specialKind !== "typhoon_stop") return null;
+  return day.specialScopeIds.length ? day.specialScopeIds.map((id) => scopeNames.get(id) ?? id) : "all";
+}
+
 export interface HrSelfScheduleQuery {
   fromDate?: string;
   toDate?: string;
@@ -223,12 +255,14 @@ export interface HrSelfScheduleQuery {
  * 「這天沒有班」有四種完全不同的意思：排了休、那個月還沒人發布班表、發布了但還沒排到這個人、這個人根本不是排班制。
  * 只回班次的話模型會把四種都講成「你那天休假」，所以每一天都帶 scheduleStatus，整體再帶 attendanceMode。
  *
+ * 讀哪一版跟出勤頁讀本人班表一樣：同一期間最新的已發布版（latestPublishedScheduleVersion）。
  * 班表版本以期間為單位、不分據點，而且存檔就是發布：別的據點先排好，整個月就有已發布的版本。
- * 所以「有已發布的版本」不代表這個人被排過——要他在那個期間的最新已發布版裡至少有一個班才算，
- * 跟 hr-overview 算「還有幾個人沒排」是同一個判斷。
+ * 所以「有已發布的版本」不代表這個人被排過——他在那一版裡至少有一個班才算 assigned。
+ * 這跟 hr-overview 的「還沒排的人數」是同一個想法，但不是同一條規則：總覽看的是版本號最大的那一版
+ * （不管狀態）而且只數排班制員工，那是給 HR 看進度用的；這裡要回答的是員工現在實際該照哪一版上班。
  *
- * 日型、假日名稱與當天的請假也一起給：核准的假不會把班次刪掉，只看班次會回答成「明天 10 點上班」；
- * 而 LINE 的 HR 回合呼叫過 HR 工具後不能再呼叫別的工具，查不到行事曆。
+ * 會讓「有班」變成「不用上班」的三件事也一起給：當天的請假（核准的假不會把班次刪掉）、國定假日、災防停班。
+ * LINE 的 HR 回合呼叫過 HR 工具後不能再呼叫別的工具，查不到行事曆，漏給就只能答成照常上班。
  */
 export async function listHrSelfToolSchedule(db: Database, userId: string, query: HrSelfScheduleQuery = {}, now = Date.now()) {
   employeeId(userId);
@@ -237,8 +271,8 @@ export async function listHrSelfToolSchedule(db: Database, userId: string, query
   const fromDate = range.fromDate!;
   const toDate = range.toDate!;
   const endExclusive = shiftDate(toDate, 1);
-  const latestPublished = sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`;
-  const [entries, publishedPeriods, assignedPeriods, leaves, calendar, settings] = await Promise.all([
+  const ownActiveEmployment = and(eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt));
+  const [entries, publishedPeriods, assignedPeriods, leaves, calendar, employments] = await Promise.all([
     db.select({
       workDate: hrScheduleEntries.workDate,
       startsAt: hrScheduleEntries.startsAt,
@@ -252,37 +286,33 @@ export async function listHrSelfToolSchedule(db: Database, userId: string, query
       .innerJoin(scopes, eq(scopes.id, hrScheduleEntries.scopeId))
       .innerJoin(hrShiftVersions, eq(hrShiftVersions.id, hrScheduleEntries.shiftVersionId))
       .innerJoin(hrShiftTemplates, eq(hrShiftTemplates.id, hrShiftVersions.shiftTemplateId))
-      .where(and(
-        eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt), eq(hrScheduleVersions.status, "published"),
-        // 同一期間重新發布會留下舊版；只認最新的已發布版，與出勤頁讀本人班表的條件一致。
-        latestPublished,
-        gte(hrScheduleEntries.workDate, fromDate), lt(hrScheduleEntries.workDate, endExclusive),
-      )).orderBy(asc(hrScheduleEntries.workDate), asc(hrScheduleEntries.startsAt)),
+      .where(and(ownActiveEmployment, latestPublishedScheduleVersion(), gte(hrScheduleEntries.workDate, fromDate), lt(hrScheduleEntries.workDate, endExclusive)))
+      .orderBy(asc(hrScheduleEntries.workDate), asc(hrScheduleEntries.startsAt)),
     db.select({ periodStart: hrScheduleVersions.periodStart, periodEnd: hrScheduleVersions.periodEnd }).from(hrScheduleVersions)
       .where(and(eq(hrScheduleVersions.status, "published"), lt(hrScheduleVersions.periodStart, endExclusive), gt(hrScheduleVersions.periodEnd, fromDate))),
     // 看整個期間而不是只看查詢的那幾天：只問「明天」時，明天沒班不代表這個月沒排到他。
     db.selectDistinct({ periodStart: hrScheduleVersions.periodStart, periodEnd: hrScheduleVersions.periodEnd }).from(hrScheduleEntries)
       .innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
       .innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleEntries.employmentId))
-      .where(and(
-        eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt), eq(hrScheduleVersions.status, "published"), latestPublished,
-        lt(hrScheduleVersions.periodStart, endExclusive), gt(hrScheduleVersions.periodEnd, fromDate),
-      )),
+      .where(and(ownActiveEmployment, latestPublishedScheduleVersion(), lt(hrScheduleVersions.periodStart, endExclusive), gt(hrScheduleVersions.periodEnd, fromDate))),
     db.select({
       leaveType: hrLeaveRequests.leaveType, status: hrLeaveRequests.status,
       startsOn: hrLeaveRequests.startsOn, endsOnExclusive: hrLeaveRequests.endsOn,
       startsAt: hrLeaveRequests.startsAt, endsAt: hrLeaveRequests.endsAt,
     }).from(hrLeaveRequests).innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
-      .where(and(
-        eq(hrEmployments.employeeUserId, userId), inArray(hrLeaveRequests.status, ["approved", "pending"]),
-        lt(hrLeaveRequests.startsOn, endExclusive), gt(hrLeaveRequests.endsOn, fromDate),
-      )).orderBy(asc(hrLeaveRequests.startsAt)),
+      // 封存的任職連同上面的假一起排除：離職回任的人，舊任職的假不該掛到現在的班表上。
+      .where(and(ownActiveEmployment, inArray(hrLeaveRequests.status, ["approved", "pending"]), lt(hrLeaveRequests.startsOn, endExclusive), gt(hrLeaveRequests.endsOn, fromDate)))
+      .orderBy(asc(hrLeaveRequests.startsAt)),
     listHrCalendarMonth(db, { start: fromDate, end: endExclusive }),
-    db.select({ attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmploymentAttendanceSettings)
-      .innerJoin(hrEmployments, eq(hrEmployments.id, hrEmploymentAttendanceSettings.employmentId))
-      .where(and(eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))),
+    db.select({ attendanceMode: hrEmploymentAttendanceSettings.attendanceMode }).from(hrEmployments)
+      .leftJoin(hrEmploymentAttendanceSettings, eq(hrEmploymentAttendanceSettings.employmentId, hrEmployments.id))
+      .where(ownActiveEmployment),
   ]);
-  const attendanceMode = settings.some((row) => row.attendanceMode === "scheduled") ? "scheduled" : settings.length ? "general" : "unknown";
+  const scopeNames = await calendarScopeNames(db, calendar);
+  // 設定是 scheduled，或已發布的班表裡真的有他的班，都算排班制——與請假算時數時的判斷一致（hr-leave 的 scheduled）。
+  // 只看設定的話，設定還停在 general 卻已經被排班的人會同時拿到班次與「你沒有班表」。沒有設定列等同 general。
+  const attendanceMode = !employments.length ? "no_active_employment" as const
+    : assignedPeriods.length || employments.some((row) => row.attendanceMode === "scheduled") ? "scheduled" as const : "general" as const;
   const covers = (periods: Array<{ periodStart: string; periodEnd: string }>, date: string) =>
     periods.some((period) => period.periodStart <= date && period.periodEnd > date);
   return {
@@ -292,6 +322,7 @@ export async function listHrSelfToolSchedule(db: Database, userId: string, query
       weekday: weekdayLabel(day.date),
       dayType: day.dayType,
       holidayName: day.name,
+      stopWork: stopWorkOf(day, scopeNames),
       scheduleStatus: covers(assignedPeriods, day.date) ? "assigned" as const
         : covers(publishedPeriods, day.date) ? "not_assigned" as const : "not_published" as const,
       leaves: leaves.filter((leave) => leave.startsOn <= day.date && leave.endsOnExclusive > day.date).map((leave) => ({
@@ -309,8 +340,10 @@ export async function listHrSelfToolSchedule(db: Database, userId: string, query
       })),
     })),
     note: attendanceMode === "scheduled"
-      ? "scheduleStatus 是 assigned 而且 shifts 是空的，那天才是沒有排班；not_published 是那個月的班表還沒發布，not_assigned 是班表發布了但還沒排到這位員工，兩種都不能說成休假。leaves 是當天的請假，approved 的時段不用上班，pending 還沒核准。"
-      : "這位員工不是排班制，平台沒有他的逐日班表；shifts 是空的不代表休假，上班時間請依公司規定或向主管確認。",
+      ? "scheduleStatus 是 assigned 而且 shifts 是空的，那天才是沒有排班；not_published 是那個月的班表還沒發布，not_assigned 是班表發布了但還沒排到這位員工，兩種都不能說成休假。leaves 是當天的請假，approved 的時段不用上班，pending 還沒核准。stopWork 不是 null 代表當天災防停班：all 是全公司，清單是停班的據點，班次的 scopeName 在清單裡才不用上班。"
+      : attendanceMode === "general"
+        ? "這位員工不是排班制，平台沒有他的逐日班表；shifts 是空的不代表休假，上班時間請依公司規定或向主管確認。leaves 是當天的請假，stopWork 不是 null 代表當天災防停班。"
+        : "這個帳號目前沒有在職的任職資料，查不到班表；請向 HR 確認，不要回答成休假。",
   };
 }
 
@@ -328,12 +361,17 @@ export async function listHrToolCalendar(db: Database, query: HrToolCalendarQuer
   const range = toolDateRange(query, { fromDate: today, toDate: shiftDate(today, 59) }, 366);
   const fromDate = range.fromDate!;
   const toDate = range.toDate!;
-  const days = (await listHrCalendarMonth(db, { start: fromDate, end: shiftDate(toDate, 1) })).filter((day) => day.overridden);
-  const scopeIds = [...new Set(days.flatMap((day) => day.specialScopeIds))];
-  const scopeRows = scopeIds.length
-    ? await db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(inJsonArray(scopes.id, scopeIds))
-    : [];
-  const scopeNames = new Map(scopeRows.map((row) => [row.id, row.name]));
+  const years = [...new Set([fromDate.slice(0, 4), toDate.slice(0, 4)])];
+  const [calendar, holidayYears] = await Promise.all([
+    listHrCalendarMonth(db, { start: fromDate, end: shiftDate(toDate, 1) }),
+    // 「沒有假日」跟「還沒匯入」要分得出來，而這只能看整個年度：一段本來就沒有假日的期間不該被當成沒匯入，
+    // 一筆颱風停班也不能證明假日匯入過。
+    db.selectDistinct({ year: sql<string>`substr(${hrCalendarDays.date}, 1, 4)` }).from(hrCalendarDays)
+      .where(and(eq(hrCalendarDays.dayType, "holiday"), gte(hrCalendarDays.date, `${years[0]}-01-01`), lte(hrCalendarDays.date, `${years.at(-1)}-12-31`))),
+  ]);
+  const days = calendar.filter((day) => day.overridden);
+  const scopeNames = await calendarScopeNames(db, days);
+  const missingYears = years.filter((year) => !holidayYears.some((row) => row.year === year));
   return {
     timeZone: "Asia/Taipei", asOfDate: today, fromDate, toDate,
     defaultRule: "沒有列出的日期依星期判斷：週一到週五是平日，週六、週日是週末。",
@@ -344,10 +382,9 @@ export async function listHrToolCalendar(db: Database, query: HrToolCalendarQuer
       name: day.name,
       // 週六日被設成平日，就是補班日。
       makeupWorkday: day.dayType === "weekday" && defaultDayType(day.date) === "weekend",
-      // 災防停班：null 是沒有停班，"all" 是全公司，否則是停班的據點名稱。
-      stopWork: day.specialKind !== "typhoon_stop" ? null
-        : day.specialScopeIds.length ? day.specialScopeIds.map((id) => scopeNames.get(id) ?? id) : "all",
+      stopWork: stopWorkOf(day, scopeNames),
     })),
-    note: days.length ? "" : "這段期間行事曆沒有任何設定，可能是該年度的國定假日還沒匯入；不要據此回答「沒有假日」。",
+    holidaysNotImportedYears: missingYears,
+    note: missingYears.length ? `${missingYears.join("、")} 年的行事曆沒有任何國定假日，應該是還沒匯入；這些年度的日期不要回答成「沒有假日」。` : "",
   };
 }

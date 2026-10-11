@@ -72,7 +72,13 @@ CRM、WMS 與報表工具共用 provider-neutral `ToolContract`；目前這些�
 
 HR 本人工具先依可信 LINE 私訊的 Messaging UID，在 `LINE_LIFF_CHANNEL_ID` scope 下查現有員工綁定、啟用帳號及在職狀態。LINE Login channel 與小香 Messaging API channel 必須屬於同一個 LINE Provider；HR 工具直接沿用既有小香 channel，不需要額外的 HR channel key。每輪授權 token 綁定 assistant、channel、私訊對話、session generation、run、LINE identity 與綁定版本，五分鐘到期且只留在該次 Pi 執行記憶體中。每次 HR 查詢重驗 token 並回 D1 重讀綁定、員工狀態與工具授權，解除／替換綁定會撤銷舊 token。
 
-加班申請查詢的條件與分頁跟假單相同（`dateField` 是 `submitted` 或 `work`），核定時段與申請時段分開回，不回申請原因。班表查詢預設今天起 14 天、最多 62 天，只讀同一期間最新的已發布版；每一天都回一列並帶 `scheduleStatus`，整體帶 `attendanceMode`。班表版本以期間為單位、不分據點，而且存檔就是發布，所以 `scheduleStatus` 分三種：`not_published`（那個月還沒有人發布）、`not_assigned`（發布了，但這位員工在最新已發布版裡一個班都沒有，判斷與 HR 總覽算「還沒排的人數」相同）、`assigned`（排到了，這時沒有班次才是真的沒排班）。前兩種與「不是排班制」都不是休假，工具把它們明講出來，模型才不會把沒有班次說成放假。每一天另外帶當天核准與待審的請假——核准的假不會刪掉班次，只看班次會答錯；也帶日型與假日名稱，因為 LINE 的 HR 回合呼叫過 HR 工具後不能再呼叫行事曆工具。這三個工具回給模型的時間都已轉成台北時間。
+加班申請查詢的條件與分頁跟假單相同（`dateField` 是 `work` 或 `submitted`），兩處不同：狀態沒有 `cancelled` 與 `draft`（加班取消是直接刪列，也沒有流程寫入草稿）；依加班日期查的預設區間是今天前後各 30 天，因為加班多半事前申請。核定時段與申請時段分開回，不回申請原因。
+
+班表查詢預設今天起 14 天、最多 62 天，讀的版本與出勤頁讀本人班表相同：同一期間最新的已發布版（`latestPublishedScheduleVersion`）。每一天都回一列並帶 `scheduleStatus`，整體帶 `attendanceMode`。班表版本以期間為單位、不分據點，而且存檔就是發布，所以 `scheduleStatus` 分三種：`not_published`（那個月還沒有人發布）、`not_assigned`（發布了，但這位員工在那一版裡一個班都沒有）、`assigned`（排到了，這時沒有班次才是真的沒排班）。`not_assigned` 與 HR 總覽的「還沒排的人數」是同一個想法但不是同一條規則：總覽看版本號最大的那一版（不管狀態）且只數排班制員工，是給 HR 看進度的；這裡回答的是員工實際該照哪一版上班。`attendanceMode` 是 `scheduled`（設定為排班制，或已發布班表裡真的有他的班，與請假算時數的判斷一致）、`general`（含沒有設定列）、`no_active_employment`。`scheduled` 以外與前兩種 `scheduleStatus` 都不是休假，工具把它們明講出來，模型才不會把沒有班次說成放假。
+
+會讓「有班」變成「不用上班」的三件事跟班次一起回：當天核准與待審的請假（核准的假不會刪掉班次；封存任職上的假不算）、日型與假日名稱、災防停班（`stopWork`，形狀與行事曆工具相同）。LINE 的 HR 回合呼叫過 HR 工具後不能再呼叫行事曆工具，漏給就只能答成照常上班。
+
+行事曆工具用 `holidaysNotImportedYears` 分辨「沒有假日」與「還沒匯入」：看的是涵蓋的年度有沒有任何國定假日列，不是查詢區間裡有沒有資料。這三個工具回給模型的時間都已轉成台北時間。
 
 假單查詢只回本人必要欄位，pending 未指定日期時不設日期下限，其他未指定日期預設台北最近 30 天；每頁 20 筆，日期區間最多 366 天。特休查詢沿用本人年度額度及台帳，回報週期、到期日、分鐘／天數與待審時數，待審申請不扣餘額；額度補建只限定該員工。HR 回答與模型 tool-call transcript 不寫入 Pi Durable Object、LINE reply backup 或回答 log；Reply／Push 送出前重新確認有效綁定與授權期限。
 

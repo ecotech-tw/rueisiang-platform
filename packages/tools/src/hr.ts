@@ -35,6 +35,20 @@ function stringFields<Key extends string>(value: Record<string, unknown>, keys: 
   }
 }
 
+const REQUEST_QUERY_KEYS = ["status", "dateField", "fromDate", "toDate", "page"] as const;
+
+/** 申請單查詢（假單、加班）共用的參數檢查；值域由 packages/db 的查詢把關，這裡只擋型別與多餘的鍵。 */
+function requestQueryInput<Query>(input: unknown, message: string): Query {
+  const value = inputObject(input, REQUEST_QUERY_KEYS);
+  stringFields(value, ["status", "dateField", "fromDate", "toDate"], message);
+  if (value.page !== undefined && typeof value.page !== "number") throw new AssistantError("頁數必須是整數。" );
+  return value as Query;
+}
+
+const DATE_RANGE_PARAMETERS = {
+  fromDate: { type: "string", description: "台北日期 YYYY-MM-DD，與 toDate 一起傳入。" },
+} as const;
+
 const common = {
   defaultStatus: "enabled",
   surfaces: ["line", "sandbox"],
@@ -59,15 +73,12 @@ export const HR_TOOL_DEFINITIONS: readonly ToolContract[] = [
     parameters: { type: "object", properties: {
       status: { type: "string", enum: ["all", "draft", "pending", "approved", "rejected", "cancelled"], description: "假單狀態，預設 all。" },
       dateField: { type: "string", enum: ["submitted", "leave"], description: "submitted 依申請日期，leave 依請假日期，預設 leave。" },
-      fromDate: { type: "string", description: "台北日期 YYYY-MM-DD，與 toDate 一起傳入。" },
+      ...DATE_RANGE_PARAMETERS,
       toDate: { type: "string", description: "包含此台北日期 YYYY-MM-DD，最多涵蓋 366 天。" },
       page: { type: "integer", description: "頁數從 1 開始，每頁最多 20 筆。" },
     } },
     async execute(input, context) {
-      const value = inputObject(input, ["status", "dateField", "fromDate", "toDate", "page"]);
-      stringFields(value, ["status", "dateField", "fromDate", "toDate"], "假單查詢參數格式不正確。");
-      if (value.page !== undefined && typeof value.page !== "number") throw new AssistantError("頁數必須是整數。" );
-      return JSON.stringify(await service(context).leaveRequests(value as HrSelfLeaveQuery));
+      return JSON.stringify(await service(context).leaveRequests(requestQueryInput<HrSelfLeaveQuery>(input, "假單查詢參數格式不正確。")));
     },
   },
   {
@@ -83,27 +94,24 @@ export const HR_TOOL_DEFINITIONS: readonly ToolContract[] = [
   {
     ...common,
     key: "hr_get_my_overtime_requests", label: "查詢本人加班申請",
-    description: "先 hr_authorize，再查本人的加班申請與核准狀態。還沒核准指 pending，不包含退回或取消；前幾天送出的用 submitted，加班日期用 work（區間重疊）。最近請傳明確日期；無日期的 pending 查全部待審，其餘預設最近 30 天。approvedStart／approvedEnd 是主管核定的實際時段，可能比申請的短，還沒核准是 null；settlementKind 的 pay 是領加班費、compensatory 是換補休。不得查他人；回傳時間都是台北時間。回答必須說明查詢區間與是否還有下一頁，不可使用舊對話猜測 HR 資料，也不要自己換算加班費金額。",
+    description: "先 hr_authorize，再查本人的加班申請與核准狀態。狀態只有 pending（還沒核准）、approved、rejected；取消的加班申請會直接刪除，查不到，不可以回答成「沒有取消過」。前幾天送出的用 submitted，加班日期用 work（區間重疊）。不傳日期時：pending 查全部待審；其餘依加班日期查今天前後各 30 天，依申請日期查最近 30 天。要查更早或更晚請傳明確日期。approvedStart／approvedEnd 是主管核定的實際時段，可能比申請的短，還沒核准是 null；settlementKind 的 pay 是領加班費、compensatory 是換補休。不得查他人；回傳時間都是台北時間。回答必須說明查詢區間與是否還有下一頁，不可使用舊對話猜測 HR 資料，也不要自己換算加班費金額。",
     parameters: { type: "object", properties: {
-      status: { type: "string", enum: ["all", "draft", "pending", "approved", "rejected", "cancelled"], description: "申請狀態，預設 all。" },
-      dateField: { type: "string", enum: ["submitted", "work"], description: "submitted 依申請日期，work 依加班日期，預設 work。" },
-      fromDate: { type: "string", description: "台北日期 YYYY-MM-DD，與 toDate 一起傳入。" },
+      status: { type: "string", enum: ["all", "pending", "approved", "rejected"], description: "申請狀態，預設 all。" },
+      dateField: { type: "string", enum: ["work", "submitted"], description: "work 依加班日期，submitted 依申請日期，預設 work。" },
+      ...DATE_RANGE_PARAMETERS,
       toDate: { type: "string", description: "包含此台北日期 YYYY-MM-DD，最多涵蓋 366 天。" },
       page: { type: "integer", description: "頁數從 1 開始，每頁最多 20 筆。" },
     } },
     async execute(input, context) {
-      const value = inputObject(input, ["status", "dateField", "fromDate", "toDate", "page"]);
-      stringFields(value, ["status", "dateField", "fromDate", "toDate"], "加班查詢參數格式不正確。");
-      if (value.page !== undefined && typeof value.page !== "number") throw new AssistantError("頁數必須是整數。" );
-      return JSON.stringify(await service(context).overtimeRequests(value as HrSelfOvertimeQuery));
+      return JSON.stringify(await service(context).overtimeRequests(requestQueryInput<HrSelfOvertimeQuery>(input, "加班查詢參數格式不正確。")));
     },
   },
   {
     ...common,
     key: "hr_get_my_schedule", label: "查詢本人班表",
-    description: "先 hr_authorize，再查本人已發布的班表：哪天上班、幾點到幾點、在哪個據點。不傳日期時查今天起 14 天；明天、下週請換算成明確日期再傳，最多涵蓋 62 天。每一天都會回傳，回答前先看三個欄位：scheduleStatus 是 assigned 而且 shifts 是空的，那天才是沒排班；not_published 代表那個月的班表還沒發布、not_assigned 代表班表發布了但還沒排到本人，都要照實說，不可以說成休假。attendanceMode 不是 scheduled 代表這位員工不是排班制，沒有逐日班表，也不可以說成休假。leaves 是當天的請假：有 approved 的請假時要一起說，那段時間不用上班；pending 是還沒核准，仍要照班表上班。dayType 是 weekday／weekend／holiday，holidayName 是假日名稱。不得查他人；時間都是台北時間，不可使用舊對話猜測班表。",
+    description: "先 hr_authorize，再查本人已發布的班表：哪天上班、幾點到幾點、在哪個據點。不傳日期時查今天起 14 天；明天、下週請換算成明確日期再傳，最多涵蓋 62 天。每一天都會回傳，回答前先看這幾個欄位：scheduleStatus 是 assigned 而且 shifts 是空的，那天才是沒排班；not_published 代表那個月的班表還沒發布、not_assigned 代表班表發布了但還沒排到本人，都要照實說，不可以說成休假。attendanceMode 是 general 代表這位員工不是排班制、沒有逐日班表，no_active_employment 代表查不到在職資料，兩種都不可以說成休假。leaves 是當天的請假：有 approved 的請假時要一起說，那段時間不用上班；pending 是還沒核准，仍要照班表上班。stopWork 不是 null 代表當天災防停班：all 是全公司，清單是停班的據點，班次的 scopeName 在清單裡才不用上班，有停班一定要講。dayType 是 weekday／weekend／holiday，holidayName 是假日名稱。不得查他人；時間都是台北時間，不可使用舊對話猜測班表。",
     parameters: { type: "object", properties: {
-      fromDate: { type: "string", description: "台北日期 YYYY-MM-DD，與 toDate 一起傳入。" },
+      ...DATE_RANGE_PARAMETERS,
       toDate: { type: "string", description: "包含此台北日期 YYYY-MM-DD，最多涵蓋 62 天。" },
     } },
     async execute(input, context) {
@@ -121,11 +129,11 @@ export const HR_TOOL_DEFINITIONS: readonly ToolContract[] = [
 export const COMPANY_CALENDAR_TOOL: ToolContract = {
   // 鍵值刻意不用 hr_ 開頭：那個前綴目前都是「本人、要授權」的工具，用了遲早有人照名字猜它也要授權。
   key: "company_calendar", label: "查詢公司行事曆",
-  description: "查公司行事曆上的國定假日、補班日與災防停班，回答「某個假期放幾天」「這週六要不要補班」「下個國定假日是哪天」。不傳日期時查今天起 60 天；請把連假、下個月換算成明確日期再傳，最多涵蓋 366 天。只會列出跟星期推算不同的日子：沒列出的週一到週五是平日、週六日是週末。makeupWorkday 為 true 是補班日；stopWork 是 all 代表全公司災防停班，是清單代表只有那些據點停班。note 有內容時代表該期間行事曆可能還沒設定，不可以回答成沒有假日。這是公司整體的行事曆，不代表個人班表；個人哪天上班要用本人班表工具。",
+  description: "查公司行事曆上的國定假日、補班日與災防停班，回答「某個假期放幾天」「這週六要不要補班」「下個國定假日是哪天」。不傳日期時查今天起 60 天；請把連假、下個月換算成明確日期再傳，最多涵蓋 366 天。只會列出跟星期推算不同的日子：沒列出的週一到週五是平日、週六日是週末。makeupWorkday 為 true 是補班日；stopWork 是 all 代表全公司災防停班，是清單代表只有那些據點停班。holidaysNotImportedYears 列出還沒匯入國定假日的年度：落在這些年度的日期不可以回答成沒有假日，要說行事曆還沒設定；清單是空的而 days 也是空的，才是這段期間真的沒有假日。這是公司整體的行事曆，不代表個人班表；個人哪天上班要用本人班表工具。",
   defaultStatus: "enabled",
   surfaces: ["line", "sandbox"],
   parameters: { type: "object", properties: {
-    fromDate: { type: "string", description: "台北日期 YYYY-MM-DD，與 toDate 一起傳入。" },
+    ...DATE_RANGE_PARAMETERS,
     toDate: { type: "string", description: "包含此台北日期 YYYY-MM-DD，最多涵蓋 366 天。" },
   } },
   async execute(input, context) {
