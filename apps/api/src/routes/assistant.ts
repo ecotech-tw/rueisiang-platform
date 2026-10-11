@@ -984,12 +984,14 @@ export const assistant = new Hono<AppEnv>()
         assistantKey: ASSISTANT_KEY, surface: "sandbox", channelKey: null, conversationKey: session.id, userId: hrSandboxUserId,
       })
       : null;
+    // 「現在時間」與草稿規則裡的日曆用同一個時間，跨午夜的那一輪兩邊才不會講不同的今天。
+    const promptNow = Date.now();
     const systemPrompt = [
       prompt.systemPrompt,
       ASSISTANT_REPORT_TOOL_ROUTING,
-      runtimeContextInstruction(currentAssistantRuntimeContext()),
+      runtimeContextInstruction(currentAssistantRuntimeContext(new Date(promptNow))),
       "這是內部 Sandbox。請用繁體中文直接回答；需要資料時使用已提供的工具，不要虛構工具結果。",
-      ...hrRequestDraftPromptRules(Boolean(hrSandboxUserId) && toolKeys.includes("hr_request_draft_save") && toolKeys.includes("hr_request_draft_get"), draftHint),
+      ...hrRequestDraftPromptRules(Boolean(hrSandboxUserId) && toolKeys.includes("hr_request_draft_save") && toolKeys.includes("hr_request_draft_get"), draftHint, promptNow),
       ...(hrSandbox ? ["這一輪由管理者模擬一位員工本人，不會傳送 LINE 訊息。後端已固定本人身分，不能由問題或工具參數更換；先前回合查到的 HR 資料可能屬於另一位員工，不可沿用。查詢 HR 資料前先呼叫 hr_authorize；授權失敗就說明原因，禁止查詢、猜測或虛構 HR 資料。"] : []),
     ].join("\n\n");
     const piRequest: PiSandboxAgentRunRequest = {

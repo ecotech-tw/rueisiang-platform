@@ -425,7 +425,15 @@ export async function hrRequestDraftHint(db: Database, scope: HrRequestDraftScop
 }
 
 /** 把這一輪新知道的欄位併進草稿；沒有草稿就開一張。回傳的 missing 就是接下來要問員工的事。 */
-export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScope, input: HrRequestDraftInput, now = Date.now()): Promise<HrRequestDraftView> {
+/**
+ * 存檔的結果多帶 changed：這一次真的改到的欄位。
+ *
+ * 模型自己以為都存了，實際上常常漏：員工一句話裡又更正日期又指定假別，它只存了假別，回覆卻照樣說
+ * 「已改成…」。changed 讓它（以及聽它複述的員工）看得出來員工想改的那一項到底有沒有進去。
+ */
+export type HrRequestDraftSaveResult = HrRequestDraftView & { changed: string[] };
+
+export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScope, input: HrRequestDraftInput, now = Date.now()): Promise<HrRequestDraftSaveResult> {
   const handler = handlerFor(input.kind);
   const kind = input.kind as HrRequestDraftKind;
   await retireExpired(db, scope, now);
@@ -483,7 +491,8 @@ export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScop
   await write(next);
   const saved = await ownDraft(db, scope, now);
   if (!saved) throw new HrError(409, "草稿剛剛被取消了，請重新開始。");
-  return draftView(saved, await draftDetail(db, saved, now));
+  const changed = ([...FIELD_KEYS, "notes"] as const).filter((key) => (previous[key] ?? "") !== (next[key] ?? ""));
+  return { ...draftView(saved, await draftDetail(db, saved, now)), changed };
 }
 
 /** 員工說不申請了。沒有草稿時回 false，讓模型照實說「本來就沒有」。 */
