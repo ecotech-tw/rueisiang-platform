@@ -310,10 +310,40 @@ export function hrRequestDraftConfirmationReply(outcome: HrRequestDraftConfirmat
  * 下一輪連員工講過 09:00–12:00 都不記得，對話永遠湊不齊。所以改成：聽到就存，存完把存進去的內容念給員工聽，
  * 請他有錯再更正——更正也只是再存一次。
  *
+ * 實機上另一種漏法是「一句話兩件事只做一件」：員工更正日期又指定假別，模型只存了假別，卻回覆「已改成…」，
+ * 錯的日期就這樣進了確認卡片。所以規則要它逐項列出來、看存檔回傳的 changed 自己核對，並明講哪些沒變；
+ * 日期則直接給一張這週與下週的日曆（hrRequestDraftCalendar），不讓它自己推算星期。
+ *
  * 放在 system prompt 而不只寫在工具說明：工具說明是「要用這個工具時怎麼用」，而這裡要的是模型在
  * 員工一開口說要申請時就知道該先開草稿。有沒有草稿只講「有」與種類，內容要模型自己用工具去讀。
  */
-export function hrRequestDraftPromptRules(available: boolean, hint: { kindLabel: string } | null): string[] {
+const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
+
+/**
+ * 這週與下週每一天是幾月幾號，直接列給模型查。
+ *
+ * 模型拿得到今天的日期與星期，但從那裡推「這週二」「下週四」是幾號很容易算錯，而算錯的日期會一路
+ * 進到確認卡片。週從週一算起：週一凌晨說的「這週二」是明天，不是八天後。
+ */
+export function hrRequestDraftCalendar(now = Date.now()): string {
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date(now));
+  const todayMs = Date.parse(`${today}T00:00:00Z`);
+  const mondayMs = todayMs - ((new Date(todayMs).getUTCDay() + 6) % 7) * 86_400_000;
+  const day = (offset: number) => {
+    const date = new Date(mondayMs + offset * 86_400_000);
+    const text = `${date.getUTCMonth() + 1}/${date.getUTCDate()}（週${WEEKDAY_LABELS[date.getUTCDay()]}）`;
+    return date.getTime() === todayMs ? `${text}今天` : text;
+  };
+  const week = (start: number) => Array.from({ length: 7 }, (_, index) => day(start + index)).join("、");
+  return [
+    `今天是 ${today}（週${WEEKDAY_LABELS[new Date(todayMs).getUTCDay()]}）。`,
+    `這週：${week(0)}`,
+    `下週：${week(7)}`,
+    "員工說「這週二」「下週四」「明天」「後天」時照上面查，不要自己推算星期；查不到的（更遠的日期）才自己算，並把算出來的幾月幾號星期幾念給他確認。",
+  ].join("\n");
+}
+
+export function hrRequestDraftPromptRules(available: boolean, hint: { kindLabel: string } | null, now = Date.now()): string[] {
   if (!available) return [];
   return [
     [
@@ -321,9 +351,12 @@ export function hrRequestDraftPromptRules(available: boolean, hint: { kindLabel:
       "1. 員工一說要申請（例如「我想請假」），就先呼叫 hr_authorize，再呼叫 hr_request_draft_save 開草稿；只知道是哪一種申請也要存。",
       "2. 之後每一輪，員工講到的任何內容（日期、時間、假別、原因）都先呼叫 hr_request_draft_save 存進去，再回覆。不要先問「是不是這樣」等他回答才存——等他回答時你已經不記得了。他同時問了別的事（例如特休剩幾天）也一樣：先存草稿，再去查。",
       "   欄位只收完整的日期加時間。他只講了一半（有日期沒時間、有時間沒日期），或 hr_request_draft_save 回了錯誤，就把他講的內容寫進 notes 存起來——放不進欄位不是不存的理由。",
-      "3. 存完之後，把你存進去的內容念給他聽（日期要講幾月幾號星期幾），請他有錯就直接說；他更正就再存一次。",
-      "4. 然後只問一件還缺的事。",
+      "3. 一句話裡常常不只一件事（「不是，是這週二才對。另外我想用特休」是兩件：改日期、選假別）。存之前把他這一輪講的每一件事列出來，全部放進同一次存檔，一件都不能漏。「不是」「才對」「改成」「我是說」都是在更正前面的內容，一定要存。只改日期時，原本的時間要跟著新日期一起重存（開始與結束都要）。",
+      "4. 存完看工具回傳的 changed：那是這一次真的改到的欄位。他想改的那一項不在裡面，就是你漏了，馬上再存一次。",
+      "5. 回覆時把草稿現在的內容念給他聽（日期要講幾月幾號星期幾），並明講這一輪改了什麼、哪些沒有變，請他有錯就直接說；他更正就再存一次。",
+      "6. 然後只問一件還缺的事。",
     ].join("\n"),
+    hrRequestDraftCalendar(now),
     hint
       ? `這位員工有一張還沒完成的${hint.kindLabel}申請草稿。回答前先呼叫 hr_authorize 與 hr_request_draft_get 讀出草稿，再處理他這一輪講的內容；員工如果想做別的事，提醒他這張草稿還在，問他要繼續還是取消。`
       : "這段對話目前沒有進行中的申請草稿。",

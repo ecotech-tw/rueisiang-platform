@@ -6,6 +6,7 @@ import { assistantHrRequestDrafts, hrEmployments, hrFormRequests, hrLeaveRequest
 import { HR_TOOL_DEFINITIONS, isHrToolKey, PLATFORM_TOOL_DEFAULT_STATUSES, PLATFORM_TOOL_KEYS, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { hrRequestDraftCalendar, hrRequestDraftPromptRules } from "./assistant-hr.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 // 台北 2026-03-02（週一）08:00。
@@ -47,8 +48,26 @@ describe("小香 HR 申請草稿", () => {
     const third = await saveHrRequestDraft(db(), scope, { kind: "leave", leaveTypeId: "leave-personal", reason: "  看醫生  " }, NOW);
     expect(third).toMatchObject({ id: first.id, status: "ready", missing: [], optional: [], leaveTypeOptions: [], problem: null });
     expect(third.card).toBe("請假申請（尚未送出）\n假別：事假\n開始：2026-03-03（週二）09:00\n結束：2026-03-03（週二）12:00\n時數：3 小時\n原因：看醫生");
-    expect(await getHrRequestDraft(db(), scope, NOW)).toEqual(third);
+    const { changed: _changed, ...thirdView } = third;
+    expect(await getHrRequestDraft(db(), scope, NOW)).toEqual(thirdView);
     expect((await db().select().from(assistantHrRequestDrafts))[0]).toMatchObject({ status: "open", revision: 3, userId: "alice", actorUserId: "admin", channelKey: null });
+  });
+
+  it("存檔回報這一次真的改到哪些欄位：模型漏存員工更正的那一項時看得出來", async () => {
+    expect((await saveHrRequestDraft(db(), scope, { kind: "leave" }, NOW)).changed).toEqual([]);
+    expect((await saveHrRequestDraft(db(), scope, complete, NOW)).changed).toEqual(["leaveTypeId", "startsAt", "endsAt", "reason"]);
+
+    // 員工說「不是，是週三才對，另外我想請病假」，模型只存了假別：日期不在 changed 裡。
+    const partial = await saveHrRequestDraft(db(), scope, { kind: "leave", leaveTypeId: "leave-sick" }, NOW);
+    expect(partial.changed).toEqual(["leaveTypeId"]);
+    expect(partial.fields).toMatchObject({ startsAt: "2026-03-03 09:00" });
+
+    // 帶了一樣的值不算改到；備註也算一個欄位。
+    expect((await saveHrRequestDraft(db(), scope, { kind: "leave", leaveTypeId: "leave-sick", reason: "看醫生" }, NOW)).changed).toEqual([]);
+    expect((await saveHrRequestDraft(db(), scope, { kind: "leave", startsAt: "2026-03-04 09:00", endsAt: "2026-03-04 12:00", notes: "改到週三" }, NOW)).changed)
+      .toEqual(["startsAt", "endsAt", "notes"]);
+    // 讀草稿不帶 changed：那是「這一次存檔」的事，不是草稿的內容。
+    expect(await getHrRequestDraft(db(), scope, NOW)).not.toHaveProperty("changed");
   });
 
   it("原因是選填，跟 HR 頁面的表單一樣：沒填也算齊，卡片上標明未填，送出的原因是空的", async () => {
@@ -547,6 +566,36 @@ describe("小香 HR 申請草稿：補打卡", () => {
     expect(await getHrRequestDraft(db(), line, NOW)).toMatchObject({ status: "collecting", card: null, problem: expect.stringContaining("直屬主管") });
     expect(await press(draft)).toMatchObject({ outcome: "not_ready", problem: expect.stringContaining("直屬主管") });
     expect(await forms()).toHaveLength(0);
+  });
+});
+
+describe("小香 HR 申請草稿：給模型的日曆與規則", () => {
+  it("列出這週與下週每一天是幾月幾號，週從週一算起，照台北的日期", () => {
+    expect(hrRequestDraftCalendar(NOW).split("\n").slice(0, 3)).toEqual([
+      "今天是 2026-03-02（週一）。",
+      "這週：3/2（週一）今天、3/3（週二）、3/4（週三）、3/5（週四）、3/6（週五）、3/7（週六）、3/8（週日）",
+      "下週：3/9（週一）、3/10（週二）、3/11（週三）、3/12（週四）、3/13（週五）、3/14（週六）、3/15（週日）",
+    ]);
+    // 週日還在「這週」裡，不會把隔天的週一當成這週的開頭。
+    const sunday = hrRequestDraftCalendar(NOW + 6 * 24 * HOUR);
+    expect(sunday).toContain("今天是 2026-03-08（週日）。");
+    expect(sunday).toContain("這週：3/2（週一）、");
+    expect(sunday).toContain("3/8（週日）今天");
+    // UTC 還在週日下午，台北已經是週一凌晨：照台北算。
+    expect(hrRequestDraftCalendar(Date.parse("2026-03-08T16:30:00Z"))).toContain("這週：3/9（週一）今天、");
+    // 跨月與跨年照實換。
+    expect(hrRequestDraftCalendar(Date.parse("2026-12-30T04:00:00Z"))).toContain("下週：1/4（週一）、");
+  });
+
+  it("拿得到草稿工具時每一輪都帶日曆與「逐項存、看 changed 核對」的規則；拿不到就什麼都不給", () => {
+    expect(hrRequestDraftPromptRules(false, null, NOW)).toEqual([]);
+    const rules = hrRequestDraftPromptRules(true, null, NOW).join("\n");
+    expect(rules).toContain("3/3（週二）");
+    expect(rules).toContain("不要自己推算星期");
+    expect(rules).toContain("全部放進同一次存檔");
+    expect(rules).toContain("changed");
+    expect(rules).toContain("這段對話目前沒有進行中的申請草稿");
+    expect(hrRequestDraftPromptRules(true, { kindLabel: "請假" }, NOW).join("\n")).toContain("還沒完成的請假申請草稿");
   });
 });
 
