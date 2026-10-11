@@ -587,6 +587,16 @@ async function requestApprover(db: Database, employmentId: string, employeeUserI
   throw new HrError(409, "目前找不到可用的申請審核者，請聯絡 HR 後再送出。");
 }
 
+/**
+ * 本人請假「送出前先看看行不行」：跑建立時會跑的檢查但不寫入——時段照班表算得出時數、找得到審核者。
+ * 時段重疊與特休額度要等真的寫入才知道（前者在 INSERT 裡由資料庫仲裁，後者在核准時才扣），這裡不重做一份。
+ */
+export async function checkHrSelfLeaveRequest(db: Database, input: HrLeaveDurationInput): Promise<{ durationMinutes: number }> {
+  const { employmentId, interval } = await resolveLeaveInterval(db, input);
+  await requestApprover(db, employmentId, input.employeeUserId);
+  return { durationMinutes: interval.durationMinutes };
+}
+
 export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestInput, actor: HrActor, options: HrLeaveRequestCreateOptions = {}) {
   if (input.reason.length > 1000) throw new HrError(400, "請假原因不可超過 1000 字。 ");
   const { employmentId, interval } = await resolveLeaveInterval(db, input);

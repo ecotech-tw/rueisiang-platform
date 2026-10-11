@@ -277,14 +277,32 @@ function assertNotSelfApproved(employeeUserId: string, actor: HrActor, autoAppro
   if (autoApprove && employeeUserId === actor.id) throw new HrError(409, "申請人不可透過後台直接核准自己的加班申請。 ");
 }
 
+/** 正式員工的加班在寫入前要對到哪一段任職、據點有沒有指派給他。建立與本人試算共用。 */
+async function employeeOvertimeEmployment(db: Database, input: HrOvertimeInput & { employeeUserId: string }) {
+  const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd);
+  await ensureScope(db, employmentId, input.scopeId ?? null, input.requestedStart, input.requestedEnd);
+  return employmentId;
+}
+
+/**
+ * 本人加班申請「送出前先看看行不行」：跑建立時會跑的同一組檢查（含找不找得到審核者），但不寫入。
+ * 重疊的時段要等真的寫入才知道（那個檢查在 INSERT 裡，由資料庫仲裁），這裡不重做一份。
+ */
+export async function checkHrSelfOvertimeRequest(db: Database, input: HrOvertimeInput & { employeeUserId: string }): Promise<{ durationMinutes: number }> {
+  assertTarget(input);
+  const { startMs, endMs } = validateOvertimeInput(input);
+  assertSelfServiceSettlement(input.settlementKind);
+  await requestApprover(db, await employeeOvertimeEmployment(db, input), input.employeeUserId);
+  return { durationMinutes: (endMs - startMs) / 60_000 };
+}
+
 export async function createHrOvertimeRequest(db: Database, input: HrOvertimeInput, actor: HrActor, options: HrOvertimeRequestCreateOptions = {}) {
   assertTarget(input);
   validateOvertimeInput(input);
   const autoApprove = options.autoApprove === true;
   if (!autoApprove) assertSelfServiceSettlement(input.settlementKind);
   if (input.employeeUserId) {
-    const employmentId = await employmentForInterval(db, input.employeeUserId, input.requestedStart, input.requestedEnd);
-    await ensureScope(db, employmentId, input.scopeId ?? null, input.requestedStart, input.requestedEnd);
+    const employmentId = await employeeOvertimeEmployment(db, { ...input, employeeUserId: input.employeeUserId });
     const id = crypto.randomUUID();
     assertNotSelfApproved(input.employeeUserId, actor, autoApprove);
     const approverUserId = autoApprove ? null : await requestApprover(db, employmentId, input.employeeUserId);

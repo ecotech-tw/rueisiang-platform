@@ -5,7 +5,7 @@
  *
  * 1. **只有 confirmHrRequestDraft 會建立 HR 申請，而且它不是給模型用的。** 模型拿到的 get／save／cancel
  *    只收集欄位、用 HR 既有的函式試算。送出是員工按下確認之後由程式呼叫，建立時用的是 HR 頁面的同一支函式：
- *    請假怎麼算時數、能不能請、送給誰審，規則只有 hr-leave 那一份。
+ *    怎麼算時數、能不能申請、送給誰審，規則只有 HR 模組那一份（hr-leave、hr-overtime）。
  * 2. **一段對話同時只有一張進行中的草稿。** 已經有一張時不會自動換掉：模型要回頭提醒員工
  *    「還有一張沒填完，要繼續還是取消」，由員工決定。靜靜換掉的話，員工以為兩張都還在。
  * 3. **存不進去的欄位不會留下一半。** 任何一個欄位不合法就整次不存，草稿維持上一次的樣子，
@@ -13,19 +13,19 @@
  */
 import { and, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { calculateHrLeaveDuration, createHrLeaveRequest, listHrSelfLeaveTypeOptions, type HrLeaveDurationInput } from "./hr-leave.js";
+import { checkHrSelfLeaveRequest, createHrLeaveRequest, listHrSelfLeaveTypeOptions, type HrLeaveDurationInput } from "./hr-leave.js";
+import { checkHrSelfOvertimeRequest, createHrOvertimeRequest, type HrOvertimeInput } from "./hr-overtime.js";
 import { HrError, type HrActor } from "./hr-people.js";
 import { assistantHrRequestDrafts, type ASSISTANT_HR_REQUEST_DRAFT_KINDS } from "./schema/assistant.js";
 import { formatTaipeiDate, taipeiMinuteFromUtcWallClock, taipeiWallClockToUtc } from "./taipei-time.js";
 
 export type HrRequestDraftKind = (typeof ASSISTANT_HR_REQUEST_DRAFT_KINDS)[number];
 
-/** 目前做得到的種類。加班與補打卡的表已經留了位置，還沒有對應的收集與送出邏輯。 */
-const SUPPORTED_KINDS: readonly HrRequestDraftKind[] = ["leave"];
 const KIND_LABELS: Record<HrRequestDraftKind, string> = { leave: "請假", overtime: "加班", clock_correction: "補打卡" };
 /** 草稿多久沒動就作廢。隔天再回來講「上午」，多半已經不是在講同一件事。 */
 const DRAFT_TTL_MS = 24 * 60 * 60 * 1000;
 const WEEKDAY_LABELS = ["週日", "週一", "週二", "週三", "週四", "週五", "週六"] as const;
+const NO_REASON = "（未填）";
 
 export interface HrRequestDraftScope {
   assistantKey: string;
@@ -39,24 +39,26 @@ export interface HrRequestDraftScope {
   actorUserId?: string | null;
 }
 
-export interface HrLeaveDraftFields {
+/** 草稿裡存的欄位。每一種申請只用到其中幾個；時間一律是員工講的台北時間 `YYYY-MM-DD HH:mm`。 */
+export interface HrRequestDraftFields {
+  /** 請假：假別。 */
   leaveTypeId?: string;
-  /** 台北時間 `YYYY-MM-DD HH:mm`。 */
+  /** 請假、加班：起訖。 */
   startsAt?: string;
   endsAt?: string;
   reason?: string;
 }
 
-export interface HrRequestDraftInput extends HrLeaveDraftFields {
+export interface HrRequestDraftInput extends HrRequestDraftFields {
   kind: string;
 }
 
 type DraftRow = typeof assistantHrRequestDrafts.$inferSelect;
 
-function parseFields(row: DraftRow): HrLeaveDraftFields {
+function parseFields(row: DraftRow): HrRequestDraftFields {
   try {
     const value = JSON.parse(row.payloadJson) as unknown;
-    return value && typeof value === "object" && !Array.isArray(value) ? value as HrLeaveDraftFields : {};
+    return value && typeof value === "object" && !Array.isArray(value) ? value as HrRequestDraftFields : {};
   } catch {
     return {};
   }
@@ -117,6 +119,14 @@ async function ownDraft(db: Database, scope: HrRequestDraftScope, now: number) {
   return row && row.userId === scope.userId ? row : null;
 }
 
+/**
+ * 資料表允許的種類比這裡做得到的多（值域先留了位置）。遇到一列沒有 handler 的草稿時，讀取、提醒與確認
+ * 都當作沒有這張，不丟例外——它還佔著這段對話的位置，所以存新草稿時仍會被提醒要先取消它，而取消不需要 handler。
+ */
+function readable(row: DraftRow | null): DraftRow | null {
+  return row && HANDLERS[row.kind] ? row : null;
+}
+
 /** 把這段對話所有還開著的草稿收掉，不管是誰的。重設對話、或對話換了人要開新草稿時用。 */
 export async function discardHrRequestDrafts(db: Database, scope: HrRequestDraftConversation, now = Date.now()): Promise<void> {
   await db.update(assistantHrRequestDrafts)
@@ -124,84 +134,212 @@ export async function discardHrRequestDrafts(db: Database, scope: HrRequestDraft
     .where(inConversation(scope));
 }
 
+/** 某一種申請現在的樣子：給模型看的欄位、還缺什麼，以及（齊了的話）卡片與送出的動作。 */
+interface DraftDetail {
+  fields: Record<string, unknown>;
+  missing: string[];
+  /**
+   * 可以不填、但還沒填的欄位。必填與選填照 HR 頁面那張表單走（請假與加班的原因是選填）：
+   * 這裡要求得比表單嚴，同一個人在兩個入口就會遇到兩套規則。模型問一次，員工說不用就不再問。
+   */
+  optional: string[];
+  /** 欄位都有了但照現在的規則不能申請（班表改了、任職無效…）時的原因。 */
+  problem: string | null;
+  leaveTypeOptions?: Array<{ id: string; name: string; remainingMinutes?: number }>;
+  /** 欄位齊全而且現在申請得了才有；卡片標題之後的每一行。 */
+  cardLines: string[] | null;
+  /**
+   * 建立 HR 申請。跟卡片出自同一次計算：員工看到什麼，送出的就是什麼，不會在送出時另外再推一次輸入。
+   * 只有 confirmHrRequestDraft 會呼叫它。
+   */
+  submit: ((actor: HrActor) => Promise<{ id: string }>) | null;
+}
+
+/** 一種申請怎麼收欄位、怎麼算。加一種申請就是加一個 handler，草稿的生命週期（搶佔、過期、換人）不用動。 */
+interface DraftKindHandler {
+  /** 把這一輪的輸入併進既有欄位並驗證；不合法就丟 HrError，呼叫端整次不存。 */
+  merge(db: Database, userId: string, previous: HrRequestDraftFields, input: HrRequestDraftInput, now: number): Promise<HrRequestDraftFields>;
+  detail(db: Database, userId: string, fields: HrRequestDraftFields, now: number): Promise<DraftDetail>;
+}
+
+function mergeInterval(next: HrRequestDraftFields, input: HrRequestDraftInput) {
+  if (input.startsAt !== undefined) { taipeiMinute(input.startsAt, "開始時間"); next.startsAt = input.startsAt; }
+  if (input.endsAt !== undefined) { taipeiMinute(input.endsAt, "結束時間"); next.endsAt = input.endsAt; }
+  return input.startsAt !== undefined || input.endsAt !== undefined;
+}
+
+function mergeReason(next: HrRequestDraftFields, input: HrRequestDraftInput, label: string) {
+  if (input.reason === undefined) return;
+  const reason = input.reason.trim();
+  if (reason.length > 1000) throw new HrError(400, `${label}原因不可超過 1000 字。`);
+  next.reason = reason;
+}
+
+/** HR 的試算丟出的規則錯誤當成「現在不能申請的原因」；其他錯誤照樣往外丟。 */
+async function problemOf<T>(check: () => Promise<T>): Promise<{ value: T | null; problem: string | null }> {
+  try {
+    return { value: await check(), problem: null };
+  } catch (error) {
+    if (!(error instanceof HrError)) throw error;
+    return { value: null, problem: error.message.trim() };
+  }
+}
+
 /**
- * 草稿裡的時間換成 HR 函式要的輸入，唯一的一處。
+ * 草稿裡的時間換成 HR 函式要的輸入，每一種申請各只有這一處。
  *
  * 草稿存的是員工講的台北時間（卡片也是照這個印），HR 的表與函式用的是 UTC wall-clock。
- * 試算與之後的送出都必須從這裡拿輸入：各自轉換的話，漏掉一次就是差八小時的假單。
+ * 試算與送出都必須從這裡拿輸入：各自轉換的話，漏掉一次就是差八小時的單。
  */
-function leaveInterval(userId: string, fields: HrLeaveDraftFields): HrLeaveDurationInput | null {
+function leaveInterval(userId: string, fields: HrRequestDraftFields): HrLeaveDurationInput | null {
   if (!fields.startsAt || !fields.endsAt) return null;
   return { employeeUserId: userId, startsAt: taipeiMinute(fields.startsAt, "開始時間"), endsAt: taipeiMinute(fields.endsAt, "結束時間") };
 }
 
-async function leaveView(db: Database, row: DraftRow, now: number) {
-  const fields = parseFields(row);
-  const leaveTypes = await listHrSelfLeaveTypeOptions(db, row.userId, formatTaipeiDate(now));
-  const leaveType = leaveTypes.find((option) => option.id === fields.leaveTypeId);
-  // 假別可能在草稿建立後被停用；當成還沒選，讓模型重新問，而不是到送出才失敗。
-  const leaveTypeId = leaveType ? fields.leaveTypeId : undefined;
-  let durationMinutes: number | null = null;
-  let problem: string | null = null;
-  const interval = leaveInterval(row.userId, fields);
-  if (interval) {
-    try {
-      durationMinutes = (await calculateHrLeaveDuration(db, interval)).durationMinutes;
-    } catch (error) {
-      // 班表在草稿存好之後改了，原本合法的時段可能變得不能請；講出原因讓員工改時間。
-      if (!(error instanceof HrError)) throw error;
-      problem = error.message.trim();
+function overtimeInput(userId: string, fields: HrRequestDraftFields): (HrOvertimeInput & { employeeUserId: string }) | null {
+  if (!fields.startsAt || !fields.endsAt) return null;
+  return {
+    employeeUserId: userId,
+    requestedStart: taipeiMinute(fields.startsAt, "開始時間"), requestedEnd: taipeiMinute(fields.endsAt, "結束時間"),
+    // 本人申請的加班一律付薪（hr-overtime 的 assertSelfServiceSettlement），所以不問員工，也不讓模型選。
+    settlementKind: "pay",
+    reason: fields.reason ?? "",
+  };
+}
+
+const leaveHandler: DraftKindHandler = {
+  async merge(db, userId, previous, input, now) {
+    const next = { ...previous };
+    if (input.leaveTypeId !== undefined) {
+      const options = await listHrSelfLeaveTypeOptions(db, userId, formatTaipeiDate(now));
+      if (!options.some((option) => option.id === input.leaveTypeId)) {
+        throw new HrError(400, `沒有這個假別。可以選的假別：${options.map((option) => `${option.name}（${option.id}）`).join("、") || "目前沒有啟用的假別"}。`);
+      }
+      next.leaveTypeId = input.leaveTypeId;
     }
-  }
-  const missing = [
-    ...(leaveTypeId ? [] : ["leaveTypeId"]),
-    ...(fields.startsAt ? [] : ["startsAt"]),
-    ...(fields.endsAt ? [] : ["endsAt"]),
-    ...(fields.reason?.trim() ? [] : ["reason"]),
-  ];
-  const ready = !missing.length && durationMinutes !== null;
+    const intervalChanged = mergeInterval(next, input);
+    mergeReason(next, input, "請假");
+    // 兩個時間都有了就立刻用 HR 的規則試算：不合法的時段（不在班表上、不是半小時的倍數、任職期間外）
+    // 與找不到審核者，在這裡就擋下來並把原因回給模型，不留到員工按下確認才失敗。
+    const interval = leaveInterval(userId, next);
+    if (interval && intervalChanged) await checkHrSelfLeaveRequest(db, interval);
+    return next;
+  },
+  async detail(db, userId, fields, now) {
+    const leaveTypes = await listHrSelfLeaveTypeOptions(db, userId, formatTaipeiDate(now));
+    // 假別可能在草稿建立後被停用；當成還沒選，讓模型重新問，而不是到送出才失敗。
+    const leaveType = leaveTypes.find((option) => option.id === fields.leaveTypeId);
+    const interval = leaveInterval(userId, fields);
+    // 班表在草稿存好之後改了，原本合法的時段可能變得不能請；講出原因讓員工改時間。
+    const { value, problem } = interval ? await problemOf(() => checkHrSelfLeaveRequest(db, interval)) : { value: null, problem: null };
+    const durationMinutes = value?.durationMinutes ?? null;
+    const reason = fields.reason?.trim() ?? "";
+    const missing = [
+      ...(leaveType ? [] : ["leaveTypeId"]),
+      ...(fields.startsAt ? [] : ["startsAt"]),
+      ...(fields.endsAt ? [] : ["endsAt"]),
+    ];
+    const ready = leaveType && interval && durationMinutes !== null
+      ? { leaveType, interval, durationMinutes, reason } : null;
+    return {
+      fields: {
+        leaveTypeId: leaveType?.id ?? null, leaveTypeName: leaveType?.name ?? null,
+        startsAt: fields.startsAt ?? null, endsAt: fields.endsAt ?? null, durationMinutes, reason: reason || null,
+      },
+      missing, optional: reason ? [] : ["reason"], problem,
+      // 只在還沒選假別時給選項：選好了就不用每一輪都把所有假別與特休餘額再送給模型一次。
+      leaveTypeOptions: leaveType ? [] : leaveTypes.map((option) => ({
+        id: option.id,
+        name: option.name,
+        ...(option.leaveKind === "annual" ? { remainingMinutes: option.credits.reduce((total, credit) => total + credit.balanceHalfHours * 30, 0) } : {}),
+      })),
+      cardLines: ready ? [
+        `假別：${ready.leaveType.name}`,
+        `開始：${withWeekday(fields.startsAt!)}`,
+        `結束：${withWeekday(fields.endsAt!)}`,
+        `時數：${hours(ready.durationMinutes)}`,
+        `原因：${ready.reason || NO_REASON}`,
+      ] : null,
+      submit: ready ? (actor) => createHrLeaveRequest(db, { ...ready.interval, leaveTypeId: ready.leaveType.id, reason: ready.reason }, actor) : null,
+    };
+  },
+};
+
+const overtimeHandler: DraftKindHandler = {
+  async merge(db, userId, previous, input) {
+    if (input.leaveTypeId !== undefined) throw new HrError(400, "加班申請沒有假別。");
+    const next = { ...previous };
+    const intervalChanged = mergeInterval(next, input);
+    mergeReason(next, input, "加班");
+    const request = overtimeInput(userId, next);
+    if (request && intervalChanged) await checkHrSelfOvertimeRequest(db, request);
+    return next;
+  },
+  async detail(db, userId, fields) {
+    const request = overtimeInput(userId, fields);
+    const { value, problem } = request ? await problemOf(() => checkHrSelfOvertimeRequest(db, request)) : { value: null, problem: null };
+    const durationMinutes = value?.durationMinutes ?? null;
+    const reason = fields.reason?.trim() ?? "";
+    const missing = [
+      ...(fields.startsAt ? [] : ["startsAt"]),
+      ...(fields.endsAt ? [] : ["endsAt"]),
+    ];
+    const ready = request && durationMinutes !== null ? { request: { ...request, reason }, durationMinutes, reason } : null;
+    return {
+      fields: { startsAt: fields.startsAt ?? null, endsAt: fields.endsAt ?? null, durationMinutes, settlement: "加班費", reason: reason || null },
+      missing, optional: reason ? [] : ["reason"], problem,
+      cardLines: ready ? [
+        `開始：${withWeekday(fields.startsAt!)}`,
+        `結束：${withWeekday(fields.endsAt!)}`,
+        `時數：${hours(ready.durationMinutes)}`,
+        "結算：加班費",
+        `原因：${ready.reason || NO_REASON}`,
+      ] : null,
+      submit: ready ? (actor) => createHrOvertimeRequest(db, ready.request, actor) : null,
+    };
+  },
+};
+
+/** 做得到的種類。補打卡的表已經留了位置，還沒有對應的收集與送出邏輯。 */
+const HANDLERS: Partial<Record<HrRequestDraftKind, DraftKindHandler>> = { leave: leaveHandler, overtime: overtimeHandler };
+const SUPPORTED_KIND_LABELS = (Object.keys(HANDLERS) as HrRequestDraftKind[]).map((kind) => KIND_LABELS[kind]).join("、");
+
+function handlerFor(kind: string): DraftKindHandler {
+  const handler = HANDLERS[kind as HrRequestDraftKind];
+  if (!handler) throw new HrError(400, `目前只能透過小香申請${SUPPORTED_KIND_LABELS}。`);
+  return handler;
+}
+
+async function draftDetail(db: Database, row: DraftRow, now: number) {
+  return handlerFor(row.kind).detail(db, row.userId, parseFields(row), now);
+}
+
+function draftView(row: DraftRow, detail: DraftDetail) {
+  const kindLabel = KIND_LABELS[row.kind];
   return {
     id: row.id,
     /** 確認按鈕帶著它：員工按的是哪一版的卡片，送出的就必須是哪一版。 */
     revision: row.revision,
     kind: row.kind,
-    kindLabel: KIND_LABELS[row.kind],
-    status: ready ? "ready" as const : "collecting" as const,
-    fields: {
-      leaveTypeId: leaveTypeId ?? null,
-      leaveTypeName: leaveType?.name ?? null,
-      startsAt: fields.startsAt ?? null,
-      endsAt: fields.endsAt ?? null,
-      durationMinutes,
-      reason: fields.reason?.trim() || null,
-    },
-    missing,
-    problem,
-    // 只在還沒選假別時給選項：選好了就不用每一輪都把所有假別與特休餘額再送給模型一次。
-    leaveTypeOptions: leaveTypeId ? [] : leaveTypes.map((option) => ({
-      id: option.id,
-      name: option.name,
-      ...(option.leaveKind === "annual" ? { remainingMinutes: option.credits.reduce((total, credit) => total + credit.balanceHalfHours * 30, 0) } : {}),
-    })),
-    card: ready ? [
-      "請假申請（尚未送出）",
-      `假別：${leaveType!.name}`,
-      `開始：${withWeekday(fields.startsAt!)}`,
-      `結束：${withWeekday(fields.endsAt!)}`,
-      `時數：${hours(durationMinutes!)}`,
-      `原因：${fields.reason!.trim()}`,
-    ].join("\n") : null,
+    kindLabel,
+    status: detail.cardLines ? "ready" as const : "collecting" as const,
+    fields: detail.fields,
+    missing: detail.missing,
+    optional: detail.optional,
+    problem: detail.problem,
+    ...(detail.leaveTypeOptions ? { leaveTypeOptions: detail.leaveTypeOptions } : {}),
+    card: detail.cardLines ? [`${kindLabel}申請（尚未送出）`, ...detail.cardLines].join("\n") : null,
     expiresAt: taipeiMinuteFromUtcWallClock(row.expiresAt),
     timeZone: "Asia/Taipei",
   };
 }
 
-export type HrRequestDraftView = Awaited<ReturnType<typeof leaveView>>;
+export type HrRequestDraftView = ReturnType<typeof draftView>;
 
 /** 讀這段對話進行中的草稿；沒有就是 null。 */
 export async function getHrRequestDraft(db: Database, scope: HrRequestDraftScope, now = Date.now()): Promise<HrRequestDraftView | null> {
-  const row = await ownDraft(db, scope, now);
-  return row ? leaveView(db, row, now) : null;
+  const row = readable(await ownDraft(db, scope, now));
+  return row ? draftView(row, await draftDetail(db, row, now)) : null;
 }
 
 /**
@@ -210,15 +348,13 @@ export async function getHrRequestDraft(db: Database, scope: HrRequestDraftScope
  */
 export async function hrRequestDraftHint(db: Database, scope: HrRequestDraftScope, now = Date.now()) {
   // 草稿不是這個人的就不提：提了等於告訴他「這段對話有別人的申請」。
-  const row = await ownDraft(db, scope, now);
+  const row = readable(await ownDraft(db, scope, now));
   return row ? { kind: row.kind, kindLabel: KIND_LABELS[row.kind] } : null;
 }
 
 /** 把這一輪新知道的欄位併進草稿；沒有草稿就開一張。回傳的 missing 就是接下來要問員工的事。 */
 export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScope, input: HrRequestDraftInput, now = Date.now()): Promise<HrRequestDraftView> {
-  if (!(SUPPORTED_KINDS as readonly string[]).includes(input.kind)) {
-    throw new HrError(400, `目前只能透過小香申請${SUPPORTED_KINDS.map((kind) => KIND_LABELS[kind]).join("、")}。`);
-  }
+  const handler = handlerFor(input.kind);
   const kind = input.kind as HrRequestDraftKind;
   await retireExpired(db, scope, now);
   const occupying = await activeDraft(db, scope, now);
@@ -229,26 +365,7 @@ export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScop
     throw new HrError(409, `已經有一張還沒完成的${KIND_LABELS[current.kind]}草稿。請先問員工要繼續那一張，還是取消它；取消後才能開始新的${KIND_LABELS[kind]}申請。`);
   }
 
-  const previous = current ? parseFields(current) : {};
-  const next: HrLeaveDraftFields = { ...previous };
-  if (input.leaveTypeId !== undefined) {
-    const options = await listHrSelfLeaveTypeOptions(db, scope.userId, formatTaipeiDate(now));
-    if (!options.some((option) => option.id === input.leaveTypeId)) {
-      throw new HrError(400, `沒有這個假別。可以選的假別：${options.map((option) => `${option.name}（${option.id}）`).join("、") || "目前沒有啟用的假別"}。`);
-    }
-    next.leaveTypeId = input.leaveTypeId;
-  }
-  if (input.startsAt !== undefined) { taipeiMinute(input.startsAt, "開始時間"); next.startsAt = input.startsAt; }
-  if (input.endsAt !== undefined) { taipeiMinute(input.endsAt, "結束時間"); next.endsAt = input.endsAt; }
-  if (input.reason !== undefined) {
-    const reason = input.reason.trim();
-    if (reason.length > 1000) throw new HrError(400, "請假原因不可超過 1000 字。");
-    next.reason = reason;
-  }
-  // 兩個時間都有了就立刻用 HR 的規則試算：不合法的時段（不在班表上、不是半小時的倍數、任職期間外）
-  // 在這裡就擋下來並把原因回給模型，不留到員工按下確認才失敗。
-  const interval = leaveInterval(scope.userId, next);
-  if (interval && (input.startsAt !== undefined || input.endsAt !== undefined)) await calculateHrLeaveDuration(db, interval);
+  const next = await handler.merge(db, scope.userId, current ? parseFields(current) : {}, input, now);
 
   const nowIso = new Date(now).toISOString();
   const expiresAt = new Date(now + DRAFT_TTL_MS).toISOString();
@@ -272,9 +389,9 @@ export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScop
       throw error;
     }
   }
-  const saved = await ownDraft(db, scope, now);
+  const saved = readable(await ownDraft(db, scope, now));
   if (!saved) throw new HrError(409, "草稿剛剛被取消了，請重新開始。");
-  return leaveView(db, saved, now);
+  return draftView(saved, await draftDetail(db, saved, now));
 }
 
 /** 員工說不申請了。沒有草稿時回 false，讓模型照實說「本來就沒有」。 */
@@ -340,21 +457,19 @@ export async function confirmHrRequestDraft(
     .returning({ id: assistantHrRequestDrafts.id });
 
   if (input.action === "cancel") return (await claim("cancelled")).length ? { outcome: "cancelled", kindLabel } : { outcome: "changed", kindLabel };
+  if (!readable(row)) return { outcome: "gone" };
 
   // 卡片發出去之後假別可能被停用、班表可能改了：送出前照現在的規則再算一次，不信卡片當時的樣子。
-  const view = await leaveView(db, row, now);
-  const fields = parseFields(row);
-  const interval = leaveInterval(row.userId, fields);
-  if (view.status !== "ready" || !view.card || !interval || !view.fields.leaveTypeId || !view.fields.reason) {
-    return { outcome: "not_ready", kindLabel, problem: view.problem };
-  }
+  const detail = await draftDetail(db, row, now);
+  const card = draftView(row, detail).card;
+  if (!detail.submit || !card) return { outcome: "not_ready", kindLabel, problem: detail.problem };
   if (!(await claim("submitted")).length) {
     const [latest] = await db.select({ status: assistantHrRequestDrafts.status }).from(assistantHrRequestDrafts).where(eq(assistantHrRequestDrafts.id, row.id)).limit(1);
     return latest?.status === "submitted" ? { outcome: "already_submitted", kindLabel } : { outcome: "changed", kindLabel };
   }
   let requestId: string;
   try {
-    requestId = (await createHrLeaveRequest(db, { ...interval, leaveTypeId: view.fields.leaveTypeId, reason: view.fields.reason }, input.actor)).id;
+    requestId = (await detail.submit(input.actor)).id;
   } catch (error) {
     // 退回 open 並把期限往後延：員工要有時間改。revision 已經在搶的時候加過，舊卡片上的按鈕因此失效。
     await db.update(assistantHrRequestDrafts)
@@ -365,5 +480,5 @@ export async function confirmHrRequestDraft(
   }
   // 申請已經建立，從這裡開始不能再讓任何失敗把草稿退回去。id 只是方便追查，記不上不影響結果。
   await db.update(assistantHrRequestDrafts).set({ submittedRequestId: requestId }).where(eq(assistantHrRequestDrafts.id, row.id)).catch(() => undefined);
-  return { outcome: "submitted", kindLabel, requestId, card: view.card };
+  return { outcome: "submitted", kindLabel, requestId, card };
 }
