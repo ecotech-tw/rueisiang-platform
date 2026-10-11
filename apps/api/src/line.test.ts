@@ -36,6 +36,7 @@ import {
 } from "@rueisiang/db/schema";
 import type { AssistantToolCall } from "@rueisiang/assistant";
 import { eq } from "drizzle-orm";
+import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
@@ -1325,30 +1326,65 @@ describe("LINE 申請草稿：確認卡片與按鈕", () => {
     await processLineAssistantQueueMessage({ ...context, kind: "assistant", replyToken: "draft-reply", questionText: "我要請假", replyDeadlineAt }, env as never);
   }
 
-  it("草稿存齊的那一輪：回覆後面接固定格式的卡片與兩顆按鈕，按鈕帶草稿 id 與版本", async () => {
+  type FlexText = { type: "text"; text: string };
+  type FlexCard = {
+    type: string; altText: string;
+    contents: {
+      type: string;
+      header: { contents: FlexText[] };
+      body: { contents: Array<{ contents: [FlexText, FlexText] }> };
+      footer: { contents: Array<{ type: string; style?: string; action?: { type: string; label: string; data: string } }> };
+    };
+  };
+  const cardRowsOf = (card: FlexCard) => card.contents.body.contents.map((row) => ({ label: row.contents[0].text, value: row.contents[1].text }));
+  const cardButtonsOf = (card: FlexCard) => card.contents.footer.contents.filter((item) => item.type === "button");
+
+  it("草稿存齊的那一輪：回覆後面接一張卡片，內容排成標籤與值，兩顆按鈕帶草稿 id 與版本", async () => {
     const draft = await saveHrRequestDraft(db(), scope(), complete);
     await runDraftTurn();
     expect(sent).toHaveLength(1);
-    const [text, card, confirm] = sent[0]!.body.messages;
-    expect(sent[0]!.body.messages).toHaveLength(3);
+    expect(sent[0]!.body.messages).toHaveLength(2);
+    const [text, card] = sent[0]!.body.messages as unknown as [{ type: string; text: string }, FlexCard];
     expect(text).toMatchObject({ type: "text", text: "請核對下面的卡片，沒問題就按確認送出。" });
-    expect(card).toEqual({ type: "text", text: draft.card });
-    expect(confirm).toMatchObject({
-      type: "template", altText: "請確認請假申請",
-      template: { type: "confirm", actions: [
-        { type: "postback", label: "確認送出", data: `hr_draft:submit:${draft.id}:${draft.revision}` },
-        { type: "postback", label: "取消", data: `hr_draft:cancel:${draft.id}:${draft.revision}` },
-      ] },
-    });
+    // 通知上只看得到替代文字，不能帶申請內容。
+    expect(card).toMatchObject({ type: "flex", altText: "請確認請假申請", contents: { type: "bubble" } });
+    expect(card.contents.header.contents.map((item) => item.text)).toEqual(["請假申請", "尚未送出"]);
+    // 卡片上的每一列就是草稿算出來的那幾列，不是另外排的一份。
+    expect(cardRowsOf(card)).toEqual(draft.cardRows);
+    expect(cardRowsOf(card).map((row) => row.label)).toEqual(["假別", "開始", "結束", "時數", "原因"]);
+    // 色碼抄自共用的 theme token：那邊改了這裡沒跟，這個測試會擋下來。
+    const theme = readFileSync(new URL("../../../packages/ui/theme.css", import.meta.url), "utf8");
+    for (const name of ["brand", "brand-dark", "brand-soft", "ink", "muted", "soft-line"]) {
+      expect(JSON.stringify(card)).toContain(new RegExp(`--color-${name}:\\s*(#[0-9a-f]{6})`).exec(theme)![1]);
+    }
+    // 主要動作與取消長得不一樣，才不容易按錯。
+    expect(cardButtonsOf(card)).toMatchObject([
+      { style: "primary", action: { type: "postback", label: "確認送出", data: `hr_draft:submit:${draft.id}:${draft.revision}` } },
+      { style: "link", action: { type: "postback", label: "取消", data: `hr_draft:cancel:${draft.id}:${draft.revision}` } },
+    ]);
     // 發卡片不等於送出。
     expect(await leaves()).toHaveLength(0);
+  });
+
+  it("給模型的草稿不帶 cardRows：內容跟 card 一樣，原因不必在工具結果裡出現兩次", async () => {
+    const context = {
+      assistantKey: "rueisiang-xiaoxiang", channelKey: "rueisiang-xiaoxiang", groupRowId: group.id,
+      lineGroupId: "user-1", sourceType: "user" as const, contextGeneration: group.contextResetAt ?? "",
+      webhookEventId: "draft-event-model", runId: crypto.randomUUID(),
+    };
+    const hrSelf = new LineHrSelfService(db(), env as never, { ...context, model: "gpt-6-luna", systemPrompt: "", userText: "請假", toolKeys: DRAFT_TOOLS });
+    await hrSelf.authorize();
+    const saved = (await hrSelf.saveRequestDraft(complete)).draft;
+    expect(saved).toMatchObject({ status: "ready", card: expect.stringContaining("原因：") });
+    expect(saved).not.toHaveProperty("cardRows");
+    expect((await hrSelf.requestDraft()).draft).not.toHaveProperty("cardRows");
   });
 
   it("Reply 來不及改走 Push 時，卡片與按鈕一樣跟著送", async () => {
     await saveHrRequestDraft(db(), scope(), complete);
     await runDraftTurn(Date.now() - 1);
     const push = sent.find((request) => request.url.endsWith("/message/push"));
-    expect(push!.body.messages.map((message) => message.type)).toEqual(["text", "text", "template"]);
+    expect(push!.body.messages.map((message) => message.type)).toEqual(["text", "flex"]);
   });
 
   it("草稿還沒齊就不發卡片；有草稿而且拿得到讀草稿的工具時，下一輪的 system prompt 會提醒", async () => {
@@ -1444,14 +1480,19 @@ describe("LINE 申請草稿：確認卡片與按鈕", () => {
   it("卡片與按鈕符合 LINE 的訊息限制：一千字的原因也送得出去", async () => {
     const draft = await saveHrRequestDraft(db(), scope(), { ...complete, reason: "長".repeat(1000) });
     await runDraftTurn();
-    const messages = sent[0]!.body.messages as Array<{ type: string; text?: string; template?: { text: string; actions: Array<{ label: string; data: string }> } }>;
+    const messages = sent[0]!.body.messages;
     expect(messages.length).toBeLessThanOrEqual(5);
-    expect(messages[1]!.text).toBe(draft.card);
-    expect(messages[1]!.text!.length).toBeLessThanOrEqual(5000);
-    expect(messages[2]!.template!.text.length).toBeLessThanOrEqual(240);
-    for (const action of messages[2]!.template!.actions) {
-      expect(action.label.length).toBeLessThanOrEqual(20);
-      expect(action.data.length).toBeLessThanOrEqual(300);
+    const card = messages[1] as unknown as FlexCard;
+    expect(cardRowsOf(card).at(-1)).toEqual({ label: "原因", value: "長".repeat(1000) });
+    expect(card.altText.length).toBeLessThanOrEqual(400);
+    // 一張 bubble 的 JSON 上限是 30KB（照位元組算，中文一個字三個位元組）。
+    expect(new TextEncoder().encode(JSON.stringify(card.contents)).length).toBeLessThanOrEqual(30_000);
+    // Flex 的文字不能是空字串，有一個就整則被拒收。
+    expect(JSON.stringify(card)).not.toContain('"text":""');
+    expect(draft.cardRows!.every((row) => row.value.length > 0)).toBe(true);
+    for (const button of cardButtonsOf(card)) {
+      expect(button.action!.label.length).toBeLessThanOrEqual(20);
+      expect(button.action!.data.length).toBeLessThanOrEqual(300);
     }
   });
 

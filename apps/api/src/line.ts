@@ -307,27 +307,56 @@ export async function pushLineMessage(
 
 const HR_DRAFT_POSTBACK_PREFIX = "hr_draft";
 
+// Flex 只收色碼，Worker 也讀不到 CSS 變數：這幾個值抄自 packages/ui/theme.css 的同名 token。
+// 兩邊對不上時 line.test.ts 會失敗，所以 token 改了不會靜靜漂掉。
+const HR_DRAFT_CARD_COLORS = { brand: "#d5383b", brandDark: "#ad282c", brandSoft: "#fbe8e5", ink: "#351c1d", muted: "#806c69", softLine: "#f1e7e4" } as const;
+
 /**
- * 申請草稿的確認卡片：一則固定格式的文字，加一則只有兩顆按鈕的 confirm template。
+ * 申請草稿的確認卡片：一張 Flex bubble，上面是標籤與值排成兩欄的申請內容，下面是「確認送出」「取消」。
  *
- * 卡片內容放在文字訊息而不是 template 裡：template 的文字上限是 240 字，而請假原因最多 1000 字。
+ * 不用 confirm template：它的文字上限 240 字（請假原因最多 1000 字），所以內容得另外拆成一則文字訊息，
+ * 員工看到的是一段字加一個跟內容分開的小框，日期這種最該看清楚的東西反而埋在字裡。Flex 的上限是整張
+ * bubble 30KB，一千字的原因放得下，內容與按鈕在同一張卡上。主要動作用品牌色實心按鈕、取消用文字按鈕：兩顆長得一樣時最容易按錯。
+ *
  * 按鈕帶的是草稿 id 與版本——員工按的是哪一版的卡片，送出的就必須是那一版；草稿之後又被改過的話，
  * 這兩顆按鈕會失效，而不是送出他沒看過的內容。
  */
-export function lineHrDraftConfirmMessages(draft: { id: string; revision: number; kindLabel: string; card: string }): LineExtraMessage[] {
+export function lineHrDraftConfirmMessages(draft: { id: string; revision: number; kindLabel: string; cardRows: ReadonlyArray<{ label: string; value: string }> }): LineExtraMessage[] {
   const data = (action: "submit" | "cancel") => `${HR_DRAFT_POSTBACK_PREFIX}:${action}:${draft.id}:${draft.revision}`;
+  const color = HR_DRAFT_CARD_COLORS;
   return [
-    { type: "text", text: lineText(draft.card) },
     {
-      type: "template",
+      type: "flex",
+      // 通知與聊天列表只看得到這一行，不放申請內容：鎖定畫面上不該出現請假原因。
       altText: `請確認${draft.kindLabel}申請`,
-      template: {
-        type: "confirm",
-        text: "以上內容正確嗎？按「確認送出」才會送出申請。",
-        actions: [
-          { type: "postback", label: "確認送出", data: data("submit"), displayText: "確認送出" },
-          { type: "postback", label: "取消", data: data("cancel"), displayText: "取消申請" },
-        ],
+      contents: {
+        type: "bubble",
+        header: {
+          type: "box", layout: "vertical", backgroundColor: color.brandSoft, paddingAll: "16px", spacing: "xs",
+          contents: [
+            { type: "text", text: `${draft.kindLabel}申請`, weight: "bold", size: "lg", color: color.ink },
+            { type: "text", text: "尚未送出", size: "sm", color: color.brandDark },
+          ],
+        },
+        body: {
+          type: "box", layout: "vertical", paddingAll: "16px", spacing: "md",
+          contents: draft.cardRows.map((row) => ({
+            type: "box", layout: "baseline", spacing: "md",
+            contents: [
+              { type: "text", text: row.label, size: "sm", color: color.muted, flex: 2 },
+              // Flex 的文字不能是空字串，整則訊息會被 LINE 拒收。
+              { type: "text", text: row.value.trim() || "—", size: "sm", color: color.ink, flex: 6, wrap: true },
+            ],
+          })),
+        },
+        footer: {
+          type: "box", layout: "vertical", paddingAll: "16px", spacing: "sm",
+          contents: [
+            { type: "separator", color: color.softLine },
+            { type: "button", style: "primary", color: color.brand, height: "sm", margin: "md", action: { type: "postback", label: "確認送出", data: data("submit"), displayText: "確認送出" } },
+            { type: "button", style: "link", color: color.muted, height: "sm", action: { type: "postback", label: "取消", data: data("cancel"), displayText: "取消申請" } },
+          ],
+        },
       },
     },
   ];

@@ -130,12 +130,12 @@ class HrSelfService implements HrSelfToolService {
 
   async requestDraft() {
     const userId = await this.requireToken("hr_request_draft_get");
-    return { draft: await getHrRequestDraft(this.db, this.draftScope(userId)) };
+    return { draft: draftForModel(await getHrRequestDraft(this.db, this.draftScope(userId))) };
   }
 
   async saveRequestDraft(input: HrRequestDraftInput) {
     const userId = await this.requireToken("hr_request_draft_save");
-    return { draft: await saveHrRequestDraft(this.db, this.draftScope(userId), input) };
+    return { draft: draftForModel(await saveHrRequestDraft(this.db, this.draftScope(userId), input)) };
   }
 
   async cancelRequestDraft() {
@@ -320,6 +320,13 @@ export function hrRequestDraftConfirmationReply(outcome: HrRequestDraftConfirmat
  * 放在 system prompt 而不只寫在工具說明：工具說明是「要用這個工具時怎麼用」，而這裡要的是模型在
  * 員工一開口說要申請時就知道該先開草稿。有沒有草稿只講「有」與種類，內容要模型自己用工具去讀。
  */
+/** cardRows 是排 LINE 卡片用的，內容跟 card 一模一樣：不回給模型，一千字的原因不必在工具結果裡出現兩次。 */
+function draftForModel<T extends { cardRows: unknown }>(draft: T | null) {
+  if (!draft) return null;
+  const { cardRows: _cardRows, ...rest } = draft;
+  return rest;
+}
+
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
 
 /**
