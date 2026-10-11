@@ -975,13 +975,13 @@ span.filter-chip {
   text-decoration: underline;
 }
 
-.link-button.with-icon {
+.link-button:where(.with-icon) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.link-button.with-icon svg {
+.link-button:where(.with-icon) svg {
   width: 18px;
   height: 18px;
   flex: none;
