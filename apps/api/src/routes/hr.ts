@@ -3,7 +3,7 @@ import {
   HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
   cancelHrFormRequest, createHrCompensationVersion, deleteHrFormRequestDraft, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview, getHrPerson,
   createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
-  isHrAdministrator, findHrEmployeePhoto, updateHrEmployeePhoto,
+  isHrAdministrator, requireHrSelfEmployment,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests, listHrPersonnel,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
   approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollCandidateExclusions, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
@@ -21,10 +21,8 @@ import {
   formatTaipeiDate, taipeiWallClockToUtc,
   createDeviceSession, createLineLiffSession, findUserByLineIdentity, getLineAccountLink, isHrEmployee, linkLineAccount, loadAuthUser, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession, replaceLineAccount, unlinkLineAccount, useDeviceSession,
 } from "@rueisiang/db";
-import { HR_EMPLOYEE_PHOTO_MAX_BYTES } from "@rueisiang/db/hr-profile-fields";
 import { Hono } from "hono";
-import { bodyLimit } from "hono/body-limit";
-import { validateEmployeePhoto } from "../employee-photo.js";
+import { employeePhotoBodyLimit, readEmployeePhoto, uploadEmployeePhoto, removeEmployeePhoto } from "../employee-photo-storage.js";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { enqueuePayrollJob } from "../payroll-queue.js";
@@ -33,11 +31,6 @@ import { DEVICE_COOKIE_PATH, clearDeviceCookie, deviceCookie, requireAnyPermissi
 import { sessionUserPayload } from "./auth.js";
 import { body, requireString } from "../request.js";
 import { clearLineLinkIntentCookie, createLineLinkIntentCookie, LINE_LIFF_INTENT_COOKIE, LineLiffError, readLineLinkIntent, verifyLineIdToken } from "../line-liff.js";
-
-async function deleteEmployeePhotoObject(bucket: R2Bucket, objectKey: string) {
-  try { await bucket.delete(objectKey); }
-  catch (error) { console.error(JSON.stringify({ event: "hr.employee_photo_cleanup_failed", error: error instanceof Error ? error.message : "unknown" })); }
-}
 
 function text(input: Record<string, unknown>, key: string, label: string, max = 100) {
   const value = requireString(input, key, label);
@@ -722,6 +715,15 @@ export const hr = new Hono<AppEnv>()
   })
   // 本人資格來自員工關聯而不是手動授權；requireAuth 仍每次檢查帳號是否啟用。
   .get("/me", async (c) => c.json({ profile: await getHrSelf(c.get("db"), c.get("user").id) }))
+  .get("/me/photo", async (c) => {
+    const employee = await requireHrSelfEmployment(c.get("db"), c.get("user").id);
+    return readEmployeePhoto(c, employee.employmentId);
+  })
+  .post("/me/photo", employeePhotoBodyLimit, async (c) => uploadEmployeePhoto(c, await requireHrSelfEmployment(c.get("db"), c.get("user").id)))
+  .delete("/me/photo", async (c) => {
+    const employee = await requireHrSelfEmployment(c.get("db"), c.get("user").id);
+    return removeEmployeePhoto(c, employee.employmentId, revision(await body(c)));
+  })
   .get("/overview", async (c) => {
     const user = c.get("user");
     const canViewOverview = (["hr:employee:read", "hr:office:read", "hr:schedule:read", "hr:payroll:read", "hr:bonus:read"] as const).some((permission) => can(user, permission));
@@ -1534,65 +1536,17 @@ export const hr = new Hono<AppEnv>()
   .get("/employees/:id/photo", requirePermission("hr:employee:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以查看員工大頭貼。" });
     const person = await getHrPerson(c.get("db"), c.req.param("id"));
-    const photo = await findHrEmployeePhoto(c.get("db"), person.employee.employmentId);
-    if (!photo) throw new HTTPException(404, { message: "員工尚未上傳大頭貼。" });
-    if (!c.env.UPLOADS) throw new HTTPException(503, { message: "尚未設定照片儲存空間。" });
-    const object = await c.env.UPLOADS.get(photo.objectKey);
-    if (!object) throw new HTTPException(404, { message: "找不到大頭貼檔案，請重新上傳。" });
-    return new Response(object.body, { headers: { "Content-Type": photo.contentType, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "default-src 'none'; sandbox" } });
+    return readEmployeePhoto(c, person.employee.employmentId);
   })
-  .post("/employees/:id/photo", requirePermission("hr:employee:write"), bodyLimit({ maxSize: HR_EMPLOYEE_PHOTO_MAX_BYTES + 64 * 1024, onError: () => { throw new HTTPException(413, { message: "大頭貼不能超過 5 MB。" }); } }), async (c) => {
+  .post("/employees/:id/photo", requirePermission("hr:employee:write"), employeePhotoBodyLimit, async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理員工大頭貼。" });
-    const bucket = c.env.UPLOADS;
-    if (!bucket) throw new HTTPException(503, { message: "尚未設定照片儲存空間。" });
-    const form = await c.req.parseBody();
-    const file = form.file;
-    if (!file || typeof file === "string" || Array.isArray(file)) throw new HTTPException(400, { message: "請選擇一張大頭貼。" });
-    if (file.size === 0 || file.size > HR_EMPLOYEE_PHOTO_MAX_BYTES) throw new HTTPException(400, { message: "大頭貼必須是 5 MB 以內的非空圖片。" });
-    const bytes = await file.arrayBuffer();
-    const contentType = await validateEmployeePhoto(new Uint8Array(bytes), file.type);
-    const expectedRevision = revision({ revision: Number(form.revision) });
-    const person = await getHrPerson(c.get("db"), c.req.param("id"));
-    if (person.employee.personKind !== "employee" || person.employee.archivedAt || person.employee.revision !== expectedRevision) throw new HTTPException(409, { message: "員工已是未在職或資料已變更，請重新整理後再試。" });
-    const employmentId = person.employee.employmentId;
-    const previous = await findHrEmployeePhoto(c.get("db"), employmentId);
-    const id = crypto.randomUUID();
-    const photo = { id, objectKey: `hr/employee-photos/${employmentId}/${id}`, contentType };
-    // 先存檔再切換目前版本；revision 衝突時只清理本次新檔，不動舊照片。
-    await bucket.put(photo.objectKey, bytes, { httpMetadata: { contentType } });
-    try { await updateHrEmployeePhoto(c.get("db"), employmentId, { revision: expectedRevision, photo }, c.get("user")); }
-    catch (error) {
-      let current: Awaited<ReturnType<typeof findHrEmployeePhoto>>;
-      try { current = await findHrEmployeePhoto(c.get("db"), employmentId); }
-      catch {
-        console.error(JSON.stringify({ event: "hr.employee_photo_write_unconfirmed", employmentId, photoId: id }));
-        throw error;
-      }
-      if (current?.id === id) {
-        console.warn(JSON.stringify({ event: "hr.employee_photo_write_reconciled", employmentId, photoId: id }));
-      } else {
-        // 未知傳輸錯誤可能尚在提交；「現在沒參照」也不代表交易確定回滾。
-        if (error instanceof HrError && error.status === 409) await deleteEmployeePhotoObject(bucket, photo.objectKey);
-        else console.error(JSON.stringify({ event: "hr.employee_photo_write_unconfirmed", employmentId, photoId: id }));
-        throw error;
-      }
-    }
-    if (previous) await deleteEmployeePhotoObject(bucket, previous.objectKey);
-    return c.json({ id }, 201);
+    return uploadEmployeePhoto(c, (await getHrPerson(c.get("db"), c.req.param("id"))).employee);
   })
   .delete("/employees/:id/photo", requirePermission("hr:employee:write"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理員工大頭貼。" });
-    const bucket = c.env.UPLOADS;
-    if (!bucket) throw new HTTPException(503, { message: "尚未設定照片儲存空間。" });
-    const expectedRevision = revision(await body(c));
     const person = await getHrPerson(c.get("db"), c.req.param("id"));
     if (person.employee.personKind !== "employee") throw new HTTPException(404, { message: "找不到正式員工資料。" });
-    const employmentId = person.employee.employmentId;
-    const previous = await findHrEmployeePhoto(c.get("db"), employmentId);
-    // 先解除資料庫參照；舊版刪除失敗不會讓畫面繼續顯示已移除照片。
-    const result = await updateHrEmployeePhoto(c.get("db"), employmentId, { revision: expectedRevision, photo: null }, c.get("user"));
-    if (previous) await deleteEmployeePhotoObject(bucket, previous.objectKey);
-    return c.json(result);
+    return removeEmployeePhoto(c, person.employee.employmentId, revision(await body(c)));
   })
   .post("/employees", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);

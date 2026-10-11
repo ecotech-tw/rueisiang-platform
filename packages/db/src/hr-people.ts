@@ -299,6 +299,7 @@ export async function listHrSupervisorCandidates(db: Database, userId: string) {
 
 export interface HrEmployeeDetailOptions {
   includePersonalData?: boolean;
+  includePhoto?: boolean;
   includeScopeAssignments?: boolean;
   includeCompensation?: boolean;
   includeInsurance?: boolean;
@@ -389,9 +390,11 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     supervisorName: current.supervisorUserId ? supervisorNames.get(current.supervisorUserId) ?? null : null,
   };
   const [personalData] = options.includePersonalData ? await db.select().from(hrEmployeePersonalData).where(eq(hrEmployeePersonalData.employmentId, current.id)).limit(1) : [];
-  const photo = options.includePersonalData ? await findHrEmployeePhoto(db, current.id) : undefined;
+  const includePhoto = options.includePhoto ?? options.includePersonalData;
+  const photo = includePhoto ? await findHrEmployeePhoto(db, current.id) : undefined;
   return {
-    ...(options.includePersonalData ? { personalData: personalData ?? emptyHrPersonalData(), photo: photo ? { id: photo.id } : null } : {}),
+    ...(options.includePersonalData ? { personalData: personalData ?? emptyHrPersonalData() } : {}),
+    ...(includePhoto ? { photo: photo ? { id: photo.id } : null } : {}),
     employee: employeeRecord,
     employments,
     ...(assignments ? { assignments } : {}), attendanceAssignments: withPrimary,
@@ -455,9 +458,20 @@ export async function getHrPerson(db: Database, id: string, options: HrEmployeeD
 
 export async function getHrSelf(db: Database, userId: string) {
   if (!await isHrEmployee(db, userId)) return null;
-  return getHrEmployee(db, userId);
+  return getHrEmployee(db, userId, { includePhoto: true });
 }
 
+async function findActiveHrEmployment(db: Database, userId: string) {
+  const [employee] = await db.select({ employmentId: hrEmployments.id, revision: hrEmployments.revision, personKind: hrEmployments.personKind, archivedAt: hrEmployments.archivedAt }).from(hrEmployments)
+    .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt)))
+    .orderBy(desc(hrEmployments.updatedAt), desc(hrEmployments.id)).limit(1);
+  return employee;
+}
+export async function requireHrSelfEmployment(db: Database, userId: string) {
+  const employee = await findActiveHrEmployment(db, userId);
+  if (!employee) throw new HrError(403, "只有在職員工可以管理自己的大頭貼。");
+  return employee;
+}
 export async function isHrEmployee(db: Database, userId: string) {
   const [employee] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
     .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);

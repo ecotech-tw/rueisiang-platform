@@ -38,6 +38,7 @@ export {
   summarizeAssignments,
   type OvertimeEntryDay,
 } from "./overtime-entry.js";
+export { useImageFilePreview, type ImageFileError } from "./useImageFilePreview.js";
 export { useOvertimeBatchSelection } from "./useOvertimeBatchSelection.js";
 export { REVIEW_SNAPSHOT_NOTICE, reviewSnapshotState, type ReviewSnapshotState } from "./review-snapshot.js";
 export { DialogContext, type DialogCloseRef, type DialogCloseRequest, type DialogContextValue } from "./dialog-context.js";

@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, syncSystemRoles } from "@rueisiang/db";
+import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, newSessionClaims, serializeDeviceToken, signSession } from "@rueisiang/auth";
+import { createDatabase, createDeviceSession, syncSystemRoles } from "@rueisiang/db";
 import { userPermissionGrants, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
@@ -18,11 +18,19 @@ let uploads: ReturnType<typeof createLocalR2>;
 let directory: string;
 let cookies: Record<string, string>;
 let employmentId: string;
-const env = () => ({ DB: d1, UPLOADS: uploads, AUTH_SESSION_SECRET: SECRET, GOOGLE_OAUTH_CLIENT_ID: "test", GOOGLE_OAUTH_CLIENT_SECRET: "test" });
+const env = () => ({ DB: d1, UPLOADS: uploads, AUTH_SESSION_SECRET: SECRET, AUTH_APP_ORIGINS: "https://hr.rueisiang.com", GOOGLE_OAUTH_CLIENT_ID: "test", GOOGLE_OAUTH_CLIENT_SECRET: "test" });
 const currentRevision = () => Number((d1.sqlite.prepare("SELECT revision FROM hr_employments WHERE id=?").get(employmentId) as { revision: number }).revision);
 const photoRow = () => d1.sqlite.prepare("SELECT id, object_key FROM hr_employee_photos WHERE employment_id=?").get(employmentId) as { id: string; object_key: string } | undefined;
 async function request(route: string, method = "GET", body?: BodyInit, actor = "admin", environment = env()) {
   return app.fetch(new Request(`https://test.local/api/hr${route}`, { method, headers: { ...(cookies[actor] ? { Cookie: cookies[actor] } : {}), ...(typeof body === "string" ? { "Content-Type": "application/json" } : {}) }, ...(body === undefined ? {} : { body }) }), environment as never);
+}
+async function requestSelf(route: string, method = "GET", body?: BodyInit, actor = "employee") {
+  const identity = actor === "device" ? "employee-device" : actor;
+  return app.fetch(new Request(`https://test.local/api/hr/me${route}`, { method, headers: { Origin: "https://hr.rueisiang.com", ...(cookies[identity] ? { Cookie: cookies[identity] } : {}), ...(typeof body === "string" ? { "Content-Type": "application/json" } : {}) }, ...(body === undefined ? {} : { body }) }), env() as never);
+}
+async function uploadSelf(expectedRevision = currentRevision(), content: Uint8Array = png, type = "image/png", actor = "employee") {
+  const body = new FormData(); body.set("file", new Blob([Uint8Array.from(content).buffer], { type }), "portrait.png"); body.set("revision", String(expectedRevision));
+  return requestSelf("/photo", "POST", body, actor);
 }
 async function upload(expectedRevision = currentRevision(), content: Uint8Array = png, type = "image/png", actor = "admin") {
   const body = new FormData(); body.set("file", new Blob([Uint8Array.from(content).buffer], { type }), "portrait.png"); body.set("revision", String(expectedRevision));
@@ -34,7 +42,7 @@ beforeEach(async () => {
   d1 = createTargetOnlyD1();
   directory = mkdtempSync(path.join(tmpdir(), "hr-employee-photo-")); uploads = createLocalR2(directory);
   const db = createDatabase(d1 as never); await syncSystemRoles(db); cookies = {};
-  for (const id of ["admin", "employee", "staff"]) {
+  for (const id of ["admin", "employee", "staff", "other"]) {
     await db.insert(users).values({ id, email: `${id}@example.test`, displayName: id, status: "active" });
     cookies[id] = `${SESSION_COOKIE}=${encodeURIComponent(await signSession(newSessionClaims({ id, email: `${id}@example.test`, name: id, pictureUrl: "" }), SECRET))}`;
   }
@@ -42,6 +50,8 @@ beforeEach(async () => {
   await db.insert(userPermissionGrants).values([{ userId: "employee", permission: "hr:employee:read" }, { userId: "staff", permission: "hr:employee:read" }, { userId: "staff", permission: "hr:employee:write" }]);
   const response = await request("/employees", "POST", JSON.stringify({ userId: "employee", legalName: "測試員工", employeeNumber: "E001", position: "一般職員" }));
   expect(response.status).toBe(201); employmentId = (await response.json() as { employmentId: string }).employmentId;
+  const device = await createDeviceSession(createDatabase(d1 as never), "employee", "test device");
+  cookies["employee-device"] = `${DEVICE_SESSION_COOKIE}=${encodeURIComponent(serializeDeviceToken(device))}`;
 });
 afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); rmSync(directory, { recursive: true, force: true }); });
 
@@ -106,6 +116,31 @@ describe("員工私有大頭貼", () => {
     expect((await upload(revision, mpo, "image/jpeg")).status).toBe(400); expect(put).not.toHaveBeenCalled(); expect(photoRow()).toEqual(before); expect(currentRevision()).toBe(revision); expect(await uploads.head(before!.object_key)).not.toBeNull();
   });
 
+  it("移除已提交但 D1 回應遺失時核對參照後清理舊檔並回報成功", async () => {
+    expect((await upload()).status).toBe(201); const previous = photoRow()!; const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => { await batch(statements); throw new Error("D1 response lost after remove commit"); });
+    const reconciled = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect((await requestSelf("/photo", "DELETE", JSON.stringify({ revision: currentRevision() }))).status).toBe(200);
+    expect(photoRow()).toBeUndefined(); expect(await uploads.head(previous.object_key)).toBeNull(); expect(reconciled).toHaveBeenCalledWith(expect.stringContaining("hr.employee_photo_write_reconciled"));
+  });
+
+  it("本人端共用照片、revision 與私有讀取，只能操作 session 對應的在職員工", async () => {
+    expect((await requestSelf("/photo")).status).toBe(404);
+    expect((await uploadSelf(currentRevision(), png, "image/png", "other")).status).toBe(403);
+    expect((await uploadSelf()).status).toBe(201);
+    const current = photoRow()!; const version = currentRevision();
+    const profile = await (await requestSelf("")).text();
+    expect(profile).toContain(`"photo":{"id":"${current.id}"}`); expect(profile).not.toContain(current.object_key); expect(profile).not.toContain("personalData");
+    const selfPhoto = await requestSelf("/photo"); expect(selfPhoto.status).toBe(200); expect(selfPhoto.headers.get("Cache-Control")).toBe("private, no-store"); expect(selfPhoto.headers.get("Access-Control-Allow-Origin")).toBe("https://hr.rueisiang.com"); expect(selfPhoto.headers.get("Access-Control-Allow-Credentials")).toBe("true"); expect(Buffer.from(await selfPhoto.arrayBuffer())).toEqual(png);
+    expect((await uploadSelf(version - 1)).status).toBe(409); expect(photoRow()).toEqual(current);
+    expect((await requestSelf("/photo", "DELETE", JSON.stringify({ revision: version }), "device")).status).toBe(200);
+    expect(photoRow()).toBeUndefined(); expect(currentRevision()).toBe(version + 1);
+    expect((await requestSelf("/photo", "GET", undefined, "device")).status).toBe(404);
+    expect((await requestSelf("/photo", "POST", new FormData(), "staff")).status).toBe(403);
+    expect((await request(`/employments/${employmentId}/archive`, "POST", JSON.stringify({ revision: currentRevision() }))).status).toBe(200);
+    expect((await requestSelf("/photo")).status).toBe(403);
+  });
+
   it("已提交但回應遺失時確認參照並回報成功，不刪除目前照片", async () => {
     expect((await upload()).status).toBe(201); const before = photoRow()!; const revision = currentRevision();
     const batch = d1.batch.bind(d1); const log = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -131,7 +166,7 @@ describe("員工私有大頭貼", () => {
     await batch(deferred!); expect(photoRow()?.id).not.toBe(before.id); expect((await request(`/employees/${employmentId}/photo`)).status).toBe(200);
   });
 
-  it("未登入、一般員工與僅有員工寫入權限者不能讀寫照片；列表與本人回應不包含照片", async () => {
+  it("未登入、一般員工與僅有員工寫入權限者不能使用管理入口；列表不含照片、本人僅含版本", async () => {
     expect((await upload()).status).toBe(201);
     for (const actor of ["employee", "staff", "missing"]) {
       const status = actor === "missing" ? 401 : 403;
@@ -141,7 +176,8 @@ describe("員工私有大頭貼", () => {
     }
     expect(await (await request(`/employees/${employmentId}`, "GET", undefined, "employee")).text()).not.toContain('"photo"');
     expect(await (await request("/employees?personKind=all")).text()).not.toContain('"photo"');
-    expect(await (await request("/me", "GET", undefined, "employee")).text()).not.toContain('"photo"');
+    const self = await (await request("/me", "GET", undefined, "employee")).text();
+    expect(self).toContain(`"photo":{"id":"${photoRow()!.id}"}`); expect(self).not.toContain(photoRow()!.object_key); expect(self).not.toContain("personalData");
   });
   it("驗證檔案格式、大小、空檔與 revision，不改寫既有照片", async () => {
     expect((await upload()).status).toBe(201); const first = photoRow(); const revision = currentRevision();
