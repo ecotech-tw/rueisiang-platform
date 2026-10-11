@@ -53,6 +53,65 @@ beforeEach(async () => {
 afterEach(() => d1.sqlite.close());
 
 describe("HR 扁平員工主檔", () => {
+  it("基本與聯絡個資可分區更新、清空；封存復職仍保留，稽核不記個資值", async () => {
+    await assign("self");
+    const job = (await profile("self")).employments[0]!;
+    const patch = (revision: number, personalData: Record<string, unknown>) => request("/hr/employees/self", "PATCH", { legalName: "正式self", employeeNumber: "E001", position: "一般職員", revision, personalData });
+    expect((await patch(job.revision, { englishName: " Test Employee ", birthDate: "1990-02-28", identityNumber: "PRIVATE-ID", personalEmail: "private@example.test", mobilePhone: "PRIVATE-PHONE", mailingAddress: "PRIVATE-ADDRESS" })).status).toBe(200);
+    const detail = await (await request("/hr/employees/self")).json() as { personalData: Record<string, string> };
+    expect(detail.personalData).toMatchObject({ englishName: "Test Employee", birthDate: "1990-02-28", mobilePhone: "PRIVATE-PHONE" });
+    expect((await patch(job.revision + 1, { mobilePhone: "", emergencyName: "PRIVATE-CONTACT" })).status).toBe(200);
+    const updated = await (await request("/hr/employees/self")).json() as { personalData: Record<string, string> };
+    expect(updated.personalData).toMatchObject({ englishName: "Test Employee", mobilePhone: "", emergencyName: "PRIVATE-CONTACT" });
+    expect((await request(`/hr/employments/${job.id}/archive`, "POST", { revision: job.revision + 2 })).status).toBe(200);
+    expect((await patch(job.revision + 3, { mobilePhone: "changed" })).status).toBe(409);
+    await assign("self", "E001", "一般職員", job.revision + 3);
+    expect((await (await request("/hr/employees/self")).json() as { personalData: Record<string, string> }).personalData).toMatchObject(updated.personalData);
+    const audit = JSON.stringify(d1.sqlite.prepare("SELECT payload_json FROM activity_events WHERE event_type='employee_updated'").all());
+    expect(audit).toContain("personalFields");
+    expect(audit).not.toMatch(/PRIVATE-|private@example/);
+  });
+
+  it("個資只給全平台 HR；列表、本人與一般讀取／辦公讀取回應不洩漏", async () => {
+    await assign("self");
+    const revision = (await profile("self")).employments[0]!.revision;
+    const payload = { legalName: "正式self", employeeNumber: "E001", position: "一般職員", revision, personalData: { identityNumber: "PRIVATE-ID" } };
+    expect((await request("/hr/employees/self", "PATCH", payload)).status).toBe(200);
+    for (const actor of ["self", "other"]) {
+      const response = await request("/hr/employees/self", "GET", undefined, actor);
+      expect(response.status).toBe(200);
+      expect(await response.text()).not.toMatch(/personalData|PRIVATE-ID/);
+    }
+    await createDatabase(d1 as never).delete(userPermissionGrants).where(eq(userPermissionGrants.userId, "other"));
+    await createDatabase(d1 as never).insert(userPermissionGrants).values([{ userId: "other", permission: "hr:office:read" }, { userId: "other", permission: "hr:employee:write" }]);
+    expect(await (await request("/hr/employees/self", "GET", undefined, "other")).text()).not.toMatch(/personalData|PRIVATE-ID/);
+    expect((await request("/hr/employees/self", "PATCH", { ...payload, revision: revision + 1 }, "other")).status).toBe(403);
+    expect((await request("/hr/employees/self", "PATCH", payload, "missing")).status).toBe(401);
+    expect(await (await request("/hr/me", "GET", undefined, "self")).text()).not.toMatch(/personalData|PRIVATE-ID/);
+    expect(await (await request("/hr/employees?personKind=all")).text()).not.toMatch(/personalData|PRIVATE-ID/);
+  });
+
+  it("過期 revision 會原子回滾姓名與個資，省略個資則保留原值", async () => {
+    await assign("self");
+    const revision = (await profile("self")).employments[0]!.revision;
+    const base = { legalName: "正式self", employeeNumber: "E001", position: "一般職員" };
+    expect((await request("/hr/employees/self", "PATCH", { ...base, revision, personalData: { mobilePhone: "0912345678" } })).status).toBe(200);
+    expect((await request("/hr/employees/self", "PATCH", { ...base, legalName: "過期姓名", revision, personalData: { mobilePhone: "stale" } })).status).toBe(409);
+    expect((await request("/hr/employees/self", "PATCH", { ...base, position: "新職位", revision: revision + 1 })).status).toBe(200);
+    const detail = await (await request("/hr/employees/self")).json() as { employee: { legalName: string; position: string }; personalData: { mobilePhone: string } };
+    expect(detail.employee).toMatchObject({ legalName: "正式self", position: "新職位" });
+    expect(detail.personalData.mobilePhone).toBe("0912345678");
+  });
+
+  it.each([
+    null, [], "wrong", { unknownField: "x" }, { birthDate: "2026-02-30" }, { birthDate: "bad-date" }, { dischargedOn: "2026-13" }, { personalEmail: "invalid" }, { gender: "invalid" }, { heightCm: "-1" }, { weightKg: "501" }, { englishName: "x".repeat(101) }, { mobilePhone: 123 },
+  ])("不合法個資不會部分寫入：%j", async (personalData) => {
+    await assign("self");
+    const revision = (await profile("self")).employments[0]!.revision;
+    expect((await request("/hr/employees/self", "PATCH", { legalName: "不應寫入", employeeNumber: "E001", position: "一般職員", revision, personalData })).status).toBe(400);
+    expect((await profile("self")).employee.legalName).toBe("正式self");
+    expect(d1.sqlite.prepare("SELECT count(*) AS n FROM hr_employee_personal_data").get()).toEqual({ n: 0 });
+  });
   it("由 hr_employments 存在性判定員工，並將員工編號、職位與主管放在同一列", async () => {
     const result = await assign("self", "E001", "門市專員");
     expect(result.id).toBe("self");
@@ -63,6 +122,20 @@ describe("HR 扁平員工主檔", () => {
     expect(detail.employments[0]).toMatchObject({ id: result.employmentId, employeeNumber: "E001", position: "門市專員", archivedAt: null });
     expect((await (await request("/hr/candidates?search=self")).json() as { users: unknown[] }).users).toEqual([]);
     expect(d1.sqlite.prepare("SELECT display_name FROM users WHERE id='self'").get()).toEqual({ display_name: "self" });
+  });
+
+  it("正式員工與統一 roster 都回傳在職狀態，封存後不誤標", async () => {
+    const assigned = await assign("self");
+    for (const personKind of ["employee", "all"]) {
+      const active = await (await request(`/hr/employees?personKind=${personKind}&employmentStatus=active`)).json() as { employees: Array<{ employmentStatus: string }> };
+      expect(active.employees[0]?.employmentStatus).toBe("active");
+    }
+    const revision = (await profile("self")).employments[0]!.revision;
+    expect((await request(`/hr/employments/${assigned.employmentId}/archive`, "POST", { revision })).status).toBe(200);
+    for (const personKind of ["employee", "all"]) {
+      const inactive = await (await request(`/hr/employees?personKind=${personKind}&employmentStatus=inactive`)).json() as { employees: Array<{ employmentStatus: string }> };
+      expect(inactive.employees[0]?.employmentStatus).toBe("inactive");
+    }
   });
 
   it("員工與統一 roster 僅提供 LINE 綁定時間，解除後即時更新且保留分頁", async () => {

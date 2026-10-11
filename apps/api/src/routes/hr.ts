@@ -1518,6 +1518,7 @@ export const hr = new Hono<AppEnv>()
     return c.json(await getHrPerson(c.get("db"), c.req.param("id"), {
       // 只靠 hr:office:read 進來的人只拿員工、任職與出勤設定，營運 scope 歷史不給。
       includeScopeAssignments: can(c.get("user"), "hr:employee:read"),
+      includePersonalData: fullAccess && can(c.get("user"), "hr:employee:read"),
       includeCompensation: fullAccess, includeInsurance: fullAccess, includeLeave: fullAccess, includeAttendanceEvents: fullAccess,
       includeEmploymentActions: can(c.get("user"), "hr:employee:write"),
     }));
@@ -1531,8 +1532,10 @@ export const hr = new Hono<AppEnv>()
   })
   .patch("/employees/:id", requirePermission("hr:employee:write"), async (c) => {
     const input = await body(c);
+    if (input.personalData !== undefined && !await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以管理員工個資。" });
     return c.json(await updateHrEmployee(c.get("db"), c.req.param("id"), {
       legalName: text(input, "legalName", "正式姓名", 100), employeeNumber: text(input, "employeeNumber", "員工編號", 40), position: text(input, "position", "職位", 100),
+      personalData: input.personalData,
       supervisorUserId: input.supervisorUserId === undefined ? undefined : nullableText(input, "supervisorUserId", "主管"),
       serviceStartOn: input.serviceStartOn === undefined ? undefined : date(input, "serviceStartOn")!, revision: revision(input),
     }, c.get("user")));

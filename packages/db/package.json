@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./schedule-draft": "./src/schedule-draft.ts"
+    "./schedule-draft": "./src/schedule-draft.ts",
+    "./hr-profile-fields": "./src/hr-profile-fields.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",

@@ -3,7 +3,8 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { inJsonArray } from "./sql-lists.js";
-import { hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
+import { hrEmployeePersonalData, hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
+import { HR_PROFILE_FIELDS, emptyHrPersonalData, type HrPersonalData, type HrProfileField } from "./hr-profile-fields.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests, hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
@@ -98,6 +99,8 @@ const supervisorName = sql<string | null>`(
 /** 啟用中或邀請中的帳號可以成為員工；在職狀態則由 hr_employments.archived_at 判定。 */
 export const hrEmployableUser = sql`${users.status} IN ('active', 'invited')`;
 
+const employmentStatus = sql<"active" | "inactive">`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 'active' ELSE 'inactive' END`;
+
 const employeeFields = {
   personKind: hrEmployments.personKind,
   userId: sql<string>`${hrEmployments.employeeUserId}`.as("employee_user_id"),
@@ -110,6 +113,7 @@ const employeeFields = {
   supervisorUserId: hrEmployments.supervisorUserId,
   supervisorName,
   archivedAt: hrEmployments.archivedAt,
+  employmentStatus,
   email: users.email,
   userStatus: users.status,
   revision: hrEmployments.revision,
@@ -235,6 +239,7 @@ const personnelFields = {
   supervisorUserId: hrEmployments.supervisorUserId,
   supervisorName,
   archivedAt: hrEmployments.archivedAt,
+  employmentStatus,
   email: sql<string>`coalesce(${users.email}, '')`,
   userStatus: sql<"invited" | "active" | "disabled">`coalesce(${users.status}, 'disabled')`,
   revision: hrEmployments.revision,
@@ -293,6 +298,7 @@ export async function listHrSupervisorCandidates(db: Database, userId: string) {
 }
 
 export interface HrEmployeeDetailOptions {
+  includePersonalData?: boolean;
   includeScopeAssignments?: boolean;
   includeCompensation?: boolean;
   includeInsurance?: boolean;
@@ -361,6 +367,7 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   }).from(hrInsuranceVersions).where(inJsonArray(hrInsuranceVersions.employmentId, employmentIds)).orderBy(desc(hrInsuranceVersions.validFrom), asc(hrInsuranceVersions.scheme)) : undefined;
   const leaveRows = options.includeLeave ? await db.select({
     id: hrLeaveRequests.id, employmentId: hrLeaveRequests.employmentId, leaveType: hrLeaveRequests.leaveType, status: hrLeaveRequests.status,
+    startsAt: hrLeaveRequests.startsAt, endsAt: hrLeaveRequests.endsAt,
     startsOn: hrLeaveRequests.startsOn, endsOn: hrLeaveRequests.endsOn, durationMinutes: hrLeaveRequests.durationMinutes, payRatePpm: hrLeaveRequests.payRatePpm,
     reason: hrLeaveRequests.reason, reviewedBy: hrLeaveRequests.reviewedBy, reviewedAt: hrLeaveRequests.reviewedAt,
     reviewComment: hrLeaveRequests.reviewComment, createdAt: hrLeaveRequests.createdAt, createdBy: hrLeaveRequests.createdBy,
@@ -381,7 +388,9 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
     employmentStatus: current.archivedAt === null ? "active" as const : "inactive" as const,
     supervisorName: current.supervisorUserId ? supervisorNames.get(current.supervisorUserId) ?? null : null,
   };
+  const [personalData] = options.includePersonalData ? await db.select().from(hrEmployeePersonalData).where(eq(hrEmployeePersonalData.employmentId, current.id)).limit(1) : [];
   return {
+    ...(options.includePersonalData ? { personalData: personalData ?? emptyHrPersonalData() } : {}),
     employee: employeeRecord,
     employments,
     ...(assignments ? { assignments } : {}), attendanceAssignments: withPrimary,
@@ -504,8 +513,31 @@ function supervisorCondition(userId: string, supervisorUserId: string | null) {
       WHERE supervisor_employee.employee_user_id=${supervisorUserId} AND supervisor_employee.archived_at IS NULL AND supervisor_user.status='active'))) `;
 }
 
-export async function updateHrEmployee(db: Database, userId: string, input: { legalName: string; employeeNumber: string; position: string; supervisorUserId?: string | null; serviceStartOn?: string; revision: number }, actor: HrActor) {
+function normalizePersonalData(input: unknown): Partial<HrPersonalData> {
+  if (!input || typeof input !== "object" || Array.isArray(input)) throw new HrError(400, "員工個資格式不正確。");
+  const record = input as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !HR_PROFILE_FIELDS.some((field) => field.key === key))) throw new HrError(400, "員工個資包含未知欄位。");
+  const result: Partial<HrPersonalData> = {};
+  for (const definition of HR_PROFILE_FIELDS) {
+    const field: HrProfileField = definition;
+    const raw = record[definition.key];
+    if (raw === undefined) continue;
+    if (typeof raw !== "string") throw new HrError(400, `${field.label}必須是文字。`);
+    const value = raw.trim();
+    if (value.length > (field.maxLength ?? 100)) throw new HrError(400, `${field.label}過長。`);
+    if (value && field.options && !field.options.includes(value)) throw new HrError(400, `${field.label}選項不正確。`);
+    if (value && field.type === "date" && (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(`${value}T00:00:00Z`)) || new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value)) throw new HrError(400, `${field.label}日期不正確。`);
+    if (value && field.type === "month" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw new HrError(400, `${field.label}年月不正確。`);
+    if (value && field.type === "number" && (!/^\d+(\.\d{1,2})?$/.test(value) || Number(value) <= 0 || Number(value) > 500)) throw new HrError(400, `${field.label}請填 0～500 之間的正數，最多兩位小數。`);
+    if (value && field.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) throw new HrError(400, `${field.label}格式不正確。`);
+    result[definition.key] = value;
+  }
+  return result;
+}
+
+export async function updateHrEmployee(db: Database, userId: string, input: { legalName: string; employeeNumber: string; position: string; supervisorUserId?: string | null; serviceStartOn?: string; personalData?: unknown; revision: number }, actor: HrActor) {
   const legalName = normalizeEmployeeLegalName(input.legalName);
+  const personalData = input.personalData === undefined ? undefined : normalizePersonalData(input.personalData);
   const [current] = await db.select({ id: hrEmployments.id, serviceStartOn: hrEmploymentServicePeriods.serviceStartOn }).from(hrEmployments)
     .leftJoin(hrEmploymentServicePeriods, eq(hrEmploymentServicePeriods.employmentId, hrEmployments.id))
     .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);
@@ -524,7 +556,10 @@ export async function updateHrEmployee(db: Database, userId: string, input: { le
     VALUES (${current?.id}, ${input.serviceStartOn})
     ON CONFLICT (employment_id) DO UPDATE SET service_start_on=excluded.service_start_on, updated_at=CURRENT_TIMESTAMP
     RETURNING employment_id AS id`);
-  const payload = { legalName, ...(input.supervisorUserId === undefined ? {} : { supervisorUserId: input.supervisorUserId }), ...(serviceStartChanged ? { beforeServiceStartOn: current?.serviceStartOn ?? null, serviceStartOn: input.serviceStartOn } : {}) };
+  if (personalData && Object.keys(personalData).length) mutations.push(db.insert(hrEmployeePersonalData).values({ employmentId: current?.id ?? "", ...personalData })
+    .onConflictDoUpdate({ target: hrEmployeePersonalData.employmentId, set: { ...personalData, updatedAt: sql`CURRENT_TIMESTAMP` } }).returning({ id: hrEmployeePersonalData.employmentId }).getSQL());
+  // 稽核只記異動欄位名稱，不複製身分證、地址與聯絡電話。
+  const payload = { legalName, ...(personalData ? { personalFields: Object.keys(personalData) } : {}), ...(input.supervisorUserId === undefined ? {} : { supervisorUserId: input.supervisorUserId }), ...(serviceStartChanged ? { beforeServiceStartOn: current?.serviceStartOn ?? null, serviceStartOn: input.serviceStartOn } : {}) };
   return write(db, mutations, userId, actor, "employee_updated", "員工不存在、已是未在職或資料已變更，請重新整理後再試。", { activity: { payload, summary: "員工資料已更新" } });
 }
 

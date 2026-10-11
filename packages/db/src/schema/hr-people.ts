@@ -45,6 +45,36 @@ export const hrEmploymentServicePeriods = sqliteTable("hr_employment_service_per
   check("ck_hr_employment_service_periods_date", sql`length(${t.serviceStartOn}) = 10`),
 ]);
 
+/** 個資與任職分開，避免既有出勤／薪資 consumer 無意取得敏感欄位。 */
+export const hrEmployeePersonalData = sqliteTable("hr_employee_personal_data", {
+  employmentId: text("employment_id").primaryKey().references(() => hrEmployments.id, { onDelete: "restrict" }),
+  englishName: text("english_name").notNull().default(""),
+  gender: text("gender").notNull().default(""),
+  nationality: text("nationality").notNull().default(""),
+  birthDate: text("birth_date").notNull().default(""),
+  identityNumber: text("identity_number").notNull().default(""),
+  maritalStatus: text("marital_status").notNull().default(""),
+  identityGroup: text("identity_group").notNull().default(""),
+  militaryStatus: text("military_status").notNull().default(""),
+  dischargedOn: text("discharged_on").notNull().default(""),
+  heightCm: text("height_cm").notNull().default(""),
+  weightKg: text("weight_kg").notNull().default(""),
+  bloodType: text("blood_type").notNull().default(""),
+  personalEmail: text("personal_email").notNull().default(""),
+  companyPhone: text("company_phone").notNull().default(""),
+  extension: text("extension").notNull().default(""),
+  homePhone: text("home_phone").notNull().default(""),
+  mobilePhone: text("mobile_phone").notNull().default(""),
+  registeredPhone: text("registered_phone").notNull().default(""),
+  registeredAddress: text("registered_address").notNull().default(""),
+  mailingAddress: text("mailing_address").notNull().default(""),
+  overseasAddress: text("overseas_address").notNull().default(""),
+  emergencyRelation: text("emergency_relation").notNull().default(""),
+  emergencyName: text("emergency_name").notNull().default(""),
+  emergencyPhone: text("emergency_phone").notNull().default(""),
+  ...timestamps(),
+});
+
 export const hrEmploymentActions = sqliteTable("hr_employment_actions", {
   id: text("id").primaryKey(),
   employeeUserId: text("employee_user_id").notNull(),

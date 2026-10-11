@@ -1,3 +1,4 @@
+import { type HrPersonalData } from "@rueisiang/db/hr-profile-fields";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../../shell/Toast.js";
 
@@ -43,7 +44,7 @@ export interface CompensationVersion { id: string; employmentId: string; version
 export interface InsuranceVersion { id: string; employmentId: string; scheme: "labor" | "health"; versionNumber: number; status: "enrolled" | "withdrawn"; validFrom: string; validTo: string | null; insuredAmountMinor: number; dependentCount: number; rateYear: number; sourceKind: "official" | "manual"; sourceUrl: string; note: string; voidedAt?: string | null; voidedBy?: string | null; createdAt: string; createdBy: string }
 export interface LeaveRequest { id: string; employmentId: string; leaveType: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number; payRatePpm?: number; reason: string; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string | null; createdAt: string; createdBy: string }
 export interface AttendanceEvent { id: string; eventKind: "clock_in" | "clock_out"; occurredAt: string; locationName: string | null; scopeName?: string | null; distanceMeters: number | null; sourceKind?: string; manualReason?: string; recordedBy?: string | null }
-export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; /** 只有出勤讀取權限時不回傳。 */ assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[]; compensation?: CompensationVersion[]; insurance?: InsuranceVersion[]; leave?: LeaveRequest[]; attendanceEvents?: AttendanceEvent[] }
+export interface Profile { personalData?: HrPersonalData; employee: Employee & { supervisorName?: string | null }; employments: Employment[]; /** 只有出勤讀取權限時不回傳。 */ assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[]; compensation?: CompensationVersion[]; insurance?: InsuranceVersion[]; leave?: LeaveRequest[]; attendanceEvents?: AttendanceEvent[] }
 
 const employeeNumberCollator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
 export function sortHrEmployees<T extends Pick<Employee, "employeeNumber" | "legalName">>(employees: readonly T[]): T[] {
