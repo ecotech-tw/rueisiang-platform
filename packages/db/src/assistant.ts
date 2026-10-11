@@ -5,7 +5,7 @@ import type {
   AssistantUsage,
 } from "@rueisiang/assistant";
 import type { Database } from "./client.js";
-import { inJsonArray } from "./sql-lists.js";
+import { inJsonArray, chunks } from "./sql-lists.js";
 import {
   assistantPromptRevisions,
   assistantConfigs,
@@ -61,6 +61,12 @@ export interface StoredMediaAttachment {
  * 這裡改成產新的鍵值即可，既有資料不必再搬。
  * `defaultToolKeys` 只在首次建立 channel 時套用；後續管理者收回的工具不會在每次 request 被補回。
  */
+/**
+ * 工具授權一列五個綁定參數，而 D1 單一語句上限是 100 個：一次寫超過二十個工具整句會被拒。
+ * 平台的 LINE 工具已經超過二十個，建立 channel 的預設授權與後台「全選」都會碰到，所以一律切批。
+ */
+const TOOL_GRANT_BATCH_SIZE = 15;
+
 export async function ensureAssistantLineChannel(
   db: Database,
   input: { assistantKey: string; updatedBy?: string; defaultToolKeys?: readonly string[] },
@@ -94,13 +100,15 @@ export async function ensureAssistantLineChannel(
   const defaultToolKeys = [...new Set(input.defaultToolKeys ?? [])];
   if (defaultToolKeys.length) {
     const now = new Date().toISOString();
-    await db.insert(assistantChannelTools).values(defaultToolKeys.map((toolKey) => ({
-      id: crypto.randomUUID(),
-      channelKey: created.channelKey,
-      toolKey,
-      createdBy: input.updatedBy ?? "system",
-      createdAt: now,
-    }))).onConflictDoNothing();
+    for (const batch of chunks(defaultToolKeys, TOOL_GRANT_BATCH_SIZE)) {
+      await db.insert(assistantChannelTools).values(batch.map((toolKey) => ({
+        id: crypto.randomUUID(),
+        channelKey: created.channelKey,
+        toolKey,
+        createdBy: input.updatedBy ?? "system",
+        createdAt: now,
+      }))).onConflictDoNothing();
+    }
   }
   return created;
 }
@@ -1275,7 +1283,11 @@ export async function appendAssistantSandboxMessage(
 
 export async function ensureAssistantDefaults(
   db: Database,
-  input: { assistantKey: string; defaultModel: string; defaultPrompt: string; toolKeys: string[] },
+  input: {
+    assistantKey: string; defaultModel: string; defaultPrompt: string; toolKeys: string[];
+    /** 第一次看到某個工具時要寫入的狀態；沒列的是 enabled。還沒準備好上線的工具用它預設成 development。 */
+    toolDefaultStatuses?: Readonly<Record<string, "enabled" | "development" | "disabled">>;
+  },
 ): Promise<void> {
   const now = new Date().toISOString();
   const [config] = await db
@@ -1314,7 +1326,7 @@ export async function ensureAssistantDefaults(
   for (const key of input.toolKeys) {
     if (existing.has(key)) continue;
     // 內建唯讀工具預設直接可用；管理者仍可在後台改成開發中或已停用。
-    await db.insert(assistantToolConfigs).values({ key, status: "enabled", updatedBy: "system", updatedAt: now }).onConflictDoNothing();
+    await db.insert(assistantToolConfigs).values({ key, status: input.toolDefaultStatuses?.[key] ?? "enabled", updatedBy: "system", updatedAt: now }).onConflictDoNothing();
   }
 }
 
@@ -1573,13 +1585,15 @@ export async function setAssistantChannelTools(
   }
   if (added.length) {
     const now = new Date().toISOString();
-    await db.insert(assistantChannelTools).values(added.map((toolKey) => ({
-      id: crypto.randomUUID(),
-      channelKey: input.channelKey,
-      toolKey,
-      createdBy: input.updatedBy,
-      createdAt: now,
-    }))).onConflictDoNothing();
+    for (const batch of chunks(added, TOOL_GRANT_BATCH_SIZE)) {
+      await db.insert(assistantChannelTools).values(batch.map((toolKey) => ({
+        id: crypto.randomUUID(),
+        channelKey: input.channelKey,
+        toolKey,
+        createdBy: input.updatedBy,
+        createdAt: now,
+      }))).onConflictDoNothing();
+    }
   }
   return listAssistantChannelTools(db, input.channelKey);
 }
@@ -1612,13 +1626,15 @@ export async function setAssistantChatTools(
   await db.delete(assistantChatTools).where(eq(assistantChatTools.groupId, input.groupId));
   if (wanted.length) {
     const now = new Date().toISOString();
-    await db.insert(assistantChatTools).values(wanted.map((grant) => ({
-      id: crypto.randomUUID(),
-      groupId: input.groupId,
-      channelToolId: grant.id,
-      createdBy: input.updatedBy,
-      createdAt: now,
-    }))).onConflictDoNothing();
+    for (const batch of chunks(wanted, TOOL_GRANT_BATCH_SIZE)) {
+      await db.insert(assistantChatTools).values(batch.map((grant) => ({
+        id: crypto.randomUUID(),
+        groupId: input.groupId,
+        channelToolId: grant.id,
+        createdBy: input.updatedBy,
+        createdAt: now,
+      }))).onConflictDoNothing();
+    }
   }
   return listAssistantChatToolKeys(db, input.groupId);
 }

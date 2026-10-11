@@ -87,6 +87,8 @@ export interface SandboxAttachment {
 export interface SandboxResult {
   runId: string;
   sessionId: string | null;
+  /** 欄位齊全的申請草稿；卡片文字由後端排好，畫面只負責顯示。 */
+  hrRequestDraft?: { kindLabel: string; card: string };
   text: string;
   thoughts: string;
   attachments: SandboxAttachment[];

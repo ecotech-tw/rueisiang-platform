@@ -96,6 +96,20 @@ Sandbox 設定欄的「模擬員工本人」要求操作者具有系統 `admin` 
 
 模擬員工本人只需既有的 `LINE_LIFF_CHANNEL_ID` 綁定 scope，不依賴 Messaging channel 開關或正式 LINE 對話的工具白名單。這讓管理者能在正式 LINE 開通前測試本人資料，但不代表正式 LINE 授權或 UID Provider 相容性已通過驗證。特休額度仍沿用本人補建規則，不會補建其他員工。
 
+## HR 申請草稿
+
+員工可以跟小香講話來準備 HR 申請。模型只有三個工具：`hr_request_draft_get`、`hr_request_draft_save`、`hr_request_draft_cancel`，都是本人 HR 工具（先 `hr_authorize`、LINE 僅限私訊、Sandbox 要先選模擬對象）。**沒有送出的工具**：模型只能把員工講的內容存成草稿。
+
+草稿存在 `assistant_hr_request_drafts`，不是 HR 的申請單——HR 的表不知道它存在。這樣設計有兩個理由：LINE 的 HR 回合不留 transcript，下一輪模型不記得上一輪問到哪裡，進度只能放在資料庫；而送出不能由模型判斷「好」是在回哪一件事。
+
+- 每次 `save` 只帶這一輪新知道的欄位，回傳 `missing`（還要問什麼）。兩個時間都有了就用 HR 既有的 `calculateHrLeaveDuration` 試算，不合法的時段當場回錯誤；任何欄位不合法整次不存。
+- 欄位齊全時 `status` 是 `ready`，並由程式（不是模型）用草稿排出固定格式的確認卡片。
+- 一段對話同時只有一張進行中的草稿。已經有一張時不會自動換掉，工具回錯誤要模型提醒員工那張還在、問他要繼續還是取消。
+- 草稿 24 小時沒有更新就視為不存在。
+- 每一輪開始前，路由查這段對話有沒有草稿，有的話在 system prompt 加一句提醒（只講有草稿與種類，不帶欄位），模型才知道要先讀草稿。
+
+三個工具的預設狀態是「開發中」，所以只在 Sandbox 出現。Sandbox 會顯示確認卡片的預覽，但按鈕是停用的：模擬本人的管理者不能替員工送出真的申請。草稿的種類目前只有請假。
+
 ## 錯誤診斷與 Cloudflare logs
 
 每次 Sandbox 執行都會產生一個診斷編號；run、tool 執行、耗時與錯誤會寫入 D1，Pi Agent 與 tool 的執行錯誤也會寫到 Worker Logs。模擬員工本人的回合另以操作者 ID、目標員工 ID 及 run ID 稽核模擬操作。Sandbox 只顯示 tool 的實際參數；credential、完整 prompt 與完整對話不會寫入 Worker log。

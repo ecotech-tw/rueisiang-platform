@@ -30,7 +30,7 @@ import {
   taipeiWallClockToUtc,
   listItems,
 } from "@rueisiang/db";
-import type { ToolContract, ToolContext, ToolSurface } from "./contract.js";
+import type { ToolContract, ToolContext, ToolSurface, ToolStatus } from "./contract.js";
 import { COMPANY_CALENDAR_TOOL, HR_TOOL_DEFINITIONS } from "./hr.js";
 
 export type PlatformToolDefinition = ToolContract;
@@ -1351,6 +1351,8 @@ export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
 ];
 
 export const PLATFORM_TOOL_KEYS = PLATFORM_TOOL_DEFINITIONS.map((tool) => tool.key);
+/** 第一次把工具寫進設定表時用的狀態；還沒準備好上線的工具靠它預設成 development。 */
+export const PLATFORM_TOOL_DEFAULT_STATUSES: Readonly<Record<string, ToolStatus>> = Object.fromEntries(PLATFORM_TOOL_DEFINITIONS.map((tool) => [tool.key, tool.defaultStatus]));
 export const PLATFORM_TOOL_MAP = new Map(PLATFORM_TOOL_DEFINITIONS.map((tool) => [tool.key, tool]));
 
 export function toolsForSurface(surface: ToolSurface): PlatformToolDefinition[] {

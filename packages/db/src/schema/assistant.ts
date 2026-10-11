@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 const isoNow = () => new Date().toISOString();
 
@@ -338,3 +338,61 @@ export type AssistantLinePushDelivery = typeof assistantLinePushDeliveries.$infe
 export type AssistantLineQueueJob = typeof assistantLineQueueJobs.$inferSelect;
 export type AssistantChannelTool = typeof assistantChannelTools.$inferSelect;
 export type AssistantChatTool = typeof assistantChatTools.$inferSelect;
+
+export const ASSISTANT_HR_REQUEST_DRAFT_KINDS = ["leave", "overtime", "clock_correction"] as const;
+/**
+ * 存的狀態只分「還開著」與兩種結束。欄位齊不齊、現在還能不能送，一律當下重算（見 assistant-hr-drafts 的 view）：
+ * 假別會被停用、班表會改，存一個 ready 下來只會跟事實脫節，而送出最不能信的就是過期的 ready。
+ */
+export const ASSISTANT_HR_REQUEST_DRAFT_STATUSES = ["open", "submitted", "cancelled"] as const;
+
+/**
+ * 員工跟小香講到一半的 HR 申請（請假、加班、補打卡）。
+ *
+ * 這不是 HR 的申請單：HR 那邊的表完全不知道它存在。員工確認之後，程式才用這裡收集到的欄位
+ * 去呼叫跟 HR 頁面同一支建立函式，所以申請的規則只有一份。
+ *
+ * 存在資料庫而不是靠模型記得，有兩個理由：
+ * - LINE 的 HR 回合不留 transcript（見 pi-agent-do 的 privateHrRun），下一輪模型不記得上一輪問到哪裡。
+ * - 送出不能由模型決定。模型只有「存草稿」的工具；送出是員工按下確認之後由程式執行，
+ *   對象就是這一列的 id，不需要模型判斷「好」是在回哪一件事。
+ */
+export const assistantHrRequestDrafts = sqliteTable("assistant_hr_request_drafts", {
+  id: text("id").primaryKey(),
+  assistantKey: text("assistant_key").notNull(),
+  /**
+   * LINE 的草稿指向它所屬的 channel。Sandbox 不是 LINE channel，這一欄是 null，由 surface 區分。
+   * 用 RESTRICT 不用 CASCADE：父表哪天被重建時，CASCADE 會讓 D1 靜靜把這裡刪光（CLAUDE.md 的 0023）。
+   */
+  channelKey: text("channel_key").references(() => assistantLineChannels.channelKey, { onDelete: "restrict" }),
+  surface: text("surface", { enum: ["line", "sandbox"] as const }).notNull(),
+  /** LINE：assistant_line_groups.id（一對一私訊）；Sandbox：這一段對話的 conversation id。 */
+  conversationKey: text("conversation_key").notNull(),
+  /** 申請人，也就是這張草稿的主人；確認送出時要再對一次。 */
+  userId: text("user_id").notNull(),
+  /** Sandbox 模擬本人時實際操作的管理者；LINE 是本人，留空。 */
+  actorUserId: text("actor_user_id"),
+  kind: text("kind", { enum: ASSISTANT_HR_REQUEST_DRAFT_KINDS }).notNull(),
+  status: text("status", { enum: ASSISTANT_HR_REQUEST_DRAFT_STATUSES }).notNull().default("open"),
+  /**
+   * 已收集到的欄位，形狀依 kind 而定；由 assistant-hr-drafts.ts 讀寫，別處不要直接解析。
+   * 裡面的時間是員工講的台北時間，不是 HR 表用的 UTC——要交給 HR 函式時一律經過那個模組轉換。
+   */
+  payloadJson: text("payload_json").notNull().default("{}"),
+  /** 送出後建立的 HR 申請 id，方便從草稿追到真正的申請。 */
+  submittedRequestId: text("submitted_request_id"),
+  /** 過了這個時間沒有動就當作不存在；避免幾天前講到一半的東西突然被當成現在的意思。 */
+  expiresAt: text("expires_at").notNull(),
+  revision: integer("revision").notNull().default(1),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+}, (table) => [
+  // 一段對話同時只有一張進行中的草稿：模型不用猜「上午」是在回哪一張。
+  uniqueIndex("idx_assistant_hr_request_drafts_open").on(table.assistantKey, table.surface, table.conversationKey).where(sql`${table.status} = 'open'`),
+  index("idx_assistant_hr_request_drafts_user").on(table.userId, table.updatedAt),
+  check("ck_assistant_hr_request_drafts_surface", sql`${table.surface} IN ('line', 'sandbox')`),
+  check("ck_assistant_hr_request_drafts_kind", sql`${table.kind} IN ('leave', 'overtime', 'clock_correction')`),
+  check("ck_assistant_hr_request_drafts_status", sql`${table.status} IN ('open', 'submitted', 'cancelled')`),
+  check("ck_assistant_hr_request_drafts_channel", sql`(${table.surface} = 'line') = (${table.channelKey} IS NOT NULL)`),
+  check("ck_assistant_hr_request_drafts_revision", sql`${table.revision} > 0`),
+]);

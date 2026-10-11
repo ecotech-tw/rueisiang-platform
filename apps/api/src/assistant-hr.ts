@@ -1,9 +1,9 @@
 import { can, HR_TOOL_TOKEN_TTL_SECONDS, signHrToolToken, verifyHrToolToken, type AuthUser, type HrToolContext, type HrToolIdentity } from "@rueisiang/auth";
 import {
-  findAssistantLineGroup, findLineAccountBinding, findLineAccountBindingByUser, getAssistantLineChannel, getHrSelfToolAnnualLeave,
+  cancelHrRequestDraft, findAssistantLineGroup, findLineAccountBinding, findLineAccountBindingByUser, getAssistantLineChannel, getHrRequestDraft, getHrSelfToolAnnualLeave,
   isHrAdministrator, isHrEmployee, listAssistantToolConfigs, listHrSelfToolLeaveRequests, listHrSelfToolOvertimeRequests, listHrSelfToolSchedule,
-  loadAuthUser, resolveLineToolKeys,
-  type Database, type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery,
+  loadAuthUser, resolveLineToolKeys, saveHrRequestDraft,
+  type Database, type HrRequestDraftInput, type HrRequestDraftScope, type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery,
 } from "@rueisiang/db";
 import { isHrToolKey, type HrSelfToolService } from "@rueisiang/tools";
 import type { Env } from "./env.js";
@@ -85,7 +85,7 @@ class HrSelfService implements HrSelfToolService {
     this.token = await signHrToolToken(this.context, identity, this.env.AUTH_SESSION_SECRET, now);
     this.expiresAt = Math.floor(now / 1000) + HR_TOOL_TOKEN_TTL_SECONDS;
     this.identity = identity;
-    return { authorized: true, access: "本人假單、特休、加班申請與班表唯讀", expiresInSeconds: 300 };
+    return { authorized: true, access: "本人假單、特休、加班申請與班表唯讀；可以存取本人的申請草稿，但不能送出申請", expiresInSeconds: 300 };
   }
 
   private async requireToken(key: string) {
@@ -114,6 +114,33 @@ class HrSelfService implements HrSelfToolService {
   async schedule(query: HrSelfScheduleQuery) {
     const userId = await this.requireToken("hr_get_my_schedule");
     return listHrSelfToolSchedule(this.db, userId, query);
+  }
+
+  /** 草稿屬於這段對話與這位已授權的員工；兩者都由執行環境決定，模型傳不進來。 */
+  private draftScope(userId: string): HrRequestDraftScope {
+    return {
+      assistantKey: this.context.assistantKey,
+      surface: this.context.surface,
+      channelKey: this.context.surface === "line" ? this.context.channelKey : null,
+      conversationKey: this.context.conversationId,
+      userId,
+      actorUserId: this.context.actorUserId ?? null,
+    };
+  }
+
+  async requestDraft() {
+    const userId = await this.requireToken("hr_request_draft_get");
+    return { draft: await getHrRequestDraft(this.db, this.draftScope(userId)) };
+  }
+
+  async saveRequestDraft(input: HrRequestDraftInput) {
+    const userId = await this.requireToken("hr_request_draft_save");
+    return { draft: await saveHrRequestDraft(this.db, this.draftScope(userId), input) };
+  }
+
+  async cancelRequestDraft() {
+    const userId = await this.requireToken("hr_request_draft_cancel");
+    return cancelHrRequestDraft(this.db, this.draftScope(userId));
   }
 
   async assertStillAuthorized() {
@@ -239,4 +266,14 @@ export async function assertHrLineDeliveryAuthorized(db: Database, env: Env, inp
     throw new HrSelfToolError("本輪 HR 授權已過期或不屬於此回覆，請重新查詢。" );
   }
   await authorizedIdentity(db, env, input, toolKeys.filter(isHrToolKey), identity);
+}
+
+/**
+ * 每一輪開始前給模型的提醒：這段對話有一張講到一半的草稿。
+ * 只講「有」跟「是哪一種」——這句會進 system prompt，草稿內容要模型自己用工具去讀。
+ */
+export function hrRequestDraftPromptHint(hint: { kindLabel: string } | null): string[] {
+  return hint
+    ? [`這位員工有一張還沒完成的${hint.kindLabel}申請草稿。回答前先呼叫 hr_authorize 與 hr_request_draft_get 讀出草稿，接著問還缺的欄位；員工如果想做別的事，提醒他這張草稿還在，問他要繼續還是取消。`]
+    : [];
 }

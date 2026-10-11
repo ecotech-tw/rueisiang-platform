@@ -619,6 +619,10 @@
 .assistant-session-copy span { color: var(--color-muted); font-size: 12px; }
 .assistant-session-actions { display: flex; flex: none; align-items: center; justify-content: flex-end; gap: 8px; }
 .assistant-session-select { min-width: 180px; padding: 8px 9px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
+.assistant-request-card { margin-bottom: 10px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-brand-soft); }
+.assistant-request-card-head { display: grid; gap: 2px; margin-bottom: 8px; }
+.assistant-request-card-head small { color: var(--color-muted); font-size: 12px; }
+.assistant-request-card pre { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--color-paper); font: inherit; white-space: pre-wrap; }
 .assistant-conversation { display: grid; gap: 8px; max-height: none; min-height: 0; margin-bottom: 10px; padding: 10px; overflow-y: auto; border: 1px solid var(--color-line); border-radius: 11px; background: var(--color-canvas); }
 .assistant-message { align-self: start; max-width: 88%; padding: 9px 11px; border: 1px solid var(--color-line); border-radius: 11px; background: var(--color-paper); }
 .assistant-message-user { justify-self: end; border-color: color-mix(in srgb, var(--color-secondary) 35%, var(--color-line)); background: var(--color-brand-soft); }

@@ -169,6 +169,15 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 - [ ] 部署後以平台管理者在 Sandbox 的「模擬員工本人」選擇兩位員工，驗證假單／特休隔離、未綁定與未啟用拒絕、查詢後撤銷綁定或管理角色，以及設定頁停用／重新啟用 HR 工具；確認模擬本人可與一般工具在同一個 session 多輪混用、不傳送 LINE，沒選員工或非管理者無法使用 HR 工具。
 - [ ] 確認 LINE Login／LIFF 與小香 Messaging API channel 位於同一 LINE Provider，並以 LINE 私訊驗證本人假單、當期特休、解除綁定及群組不可查詢。
 
+### 小香：用對話申請 HR 單據
+
+設計與現況見 [`docs/assistant-sandbox.md`](./docs/assistant-sandbox.md) 的「HR 申請草稿」。
+
+- [ ] LINE 端：每一輪開始前的草稿提醒、把確認卡片與按鈕（postback）交給員工、收到確認後驗證按的人就是草稿主人，再用 HR 既有的建立函式送出；完成後把三個草稿工具的預設狀態改成已啟用。
+- [ ] 草稿支援加班申請。
+- [ ] 草稿支援補打卡申請。
+- [ ] 部署後在 Sandbox 模擬一位員工，從「我想請假」講到出現確認卡片，確認模型一次只問一件事、不會說「已送出」，換成第二種申請時會提醒舊草稿。
+
 ### 小香：MCP tools
 
 `mcp` 目前只是 tool registry 上的 surface 標記，除了唯讀的

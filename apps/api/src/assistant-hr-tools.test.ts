@@ -281,7 +281,10 @@ describe("小香 HR 工具：公司行事曆", () => {
 describe("小香 HR 工具：本人工具的入口", () => {
   it("加班與班表屬於本人 HR 工具：只限私訊、要授權服務、不能指定查詢對象", async () => {
     const keys = HR_TOOL_DEFINITIONS.map((tool) => tool.key);
-    expect(keys).toEqual(["hr_authorize", "hr_get_my_leave_requests", "hr_get_my_annual_leave", "hr_get_my_overtime_requests", "hr_get_my_schedule"]);
+    expect(keys).toEqual([
+      "hr_authorize", "hr_get_my_leave_requests", "hr_get_my_annual_leave", "hr_get_my_overtime_requests", "hr_get_my_schedule",
+      "hr_request_draft_get", "hr_request_draft_save", "hr_request_draft_cancel",
+    ]);
     const calls: unknown[] = [];
     const hrSelf = {
       authorize: async () => ({}), leaveRequests: async () => ({}), annualLeave: async () => ({}),
