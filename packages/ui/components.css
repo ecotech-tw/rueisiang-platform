@@ -975,6 +975,18 @@ span.filter-chip {
   text-decoration: underline;
 }
 
+.link-button:where(.with-icon) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.link-button:where(.with-icon) svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
 .link-button:disabled {
   opacity: .45;
   cursor: not-allowed;
