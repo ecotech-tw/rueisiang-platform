@@ -303,11 +303,29 @@ export function hrRequestDraftConfirmationReply(outcome: HrRequestDraftConfirmat
 }
 
 /**
- * 每一輪開始前給模型的提醒：這段對話有一張講到一半的草稿。
- * 只講「有」跟「是哪一種」——這句會進 system prompt，草稿內容要模型自己用工具去讀。
+ * 這一輪拿得到草稿工具時，每一輪都放進 system prompt 的規則，加上「現在有沒有草稿」。
+ *
+ * 規則的核心是「先存，再複述」。LINE 的 HR 回合不留 transcript：模型這一輪聽到、卻沒有存進草稿的東西，
+ * 下一輪就不存在了。原本的說明要模型「日期先跟員工確認再存」，實機上的結果是它問完「是 10/20 嗎」，
+ * 下一輪連員工講過 09:00–12:00 都不記得，對話永遠湊不齊。所以改成：聽到就存，存完把存進去的內容念給員工聽，
+ * 請他有錯再更正——更正也只是再存一次。
+ *
+ * 放在 system prompt 而不只寫在工具說明：工具說明是「要用這個工具時怎麼用」，而這裡要的是模型在
+ * 員工一開口說要申請時就知道該先開草稿。有沒有草稿只講「有」與種類，內容要模型自己用工具去讀。
  */
-export function hrRequestDraftPromptHint(hint: { kindLabel: string } | null): string[] {
-  return hint
-    ? [`這位員工有一張還沒完成的${hint.kindLabel}申請草稿。回答前先呼叫 hr_authorize 與 hr_request_draft_get 讀出草稿，接著問還缺的欄位；員工如果想做別的事，提醒他這張草稿還在，問他要繼續還是取消。`]
-    : [];
+export function hrRequestDraftPromptRules(available: boolean, hint: { kindLabel: string } | null): string[] {
+  if (!available) return [];
+  return [
+    [
+      "員工可以用講的準備請假、加班、補打卡申請，進度存在「申請草稿」裡。你在這段對話裡不會記得前幾輪講過的申請內容：這一輪沒有存進草稿的東西，下一輪就不見了。所以：",
+      "1. 員工一說要申請（例如「我想請假」），就先呼叫 hr_authorize，再呼叫 hr_request_draft_save 開草稿；只知道是哪一種申請也要存。",
+      "2. 之後每一輪，員工講到的任何內容（日期、時間、假別、原因）都先呼叫 hr_request_draft_save 存進去，再回覆。不要先問「是不是這樣」等他回答才存——等他回答時你已經不記得了。他同時問了別的事（例如特休剩幾天）也一樣：先存草稿，再去查。",
+      "   欄位只收完整的日期加時間。他只講了一半（有日期沒時間、有時間沒日期），或 hr_request_draft_save 回了錯誤，就把他講的內容寫進 notes 存起來——放不進欄位不是不存的理由。",
+      "3. 存完之後，把你存進去的內容念給他聽（日期要講幾月幾號星期幾），請他有錯就直接說；他更正就再存一次。",
+      "4. 然後只問一件還缺的事。",
+    ].join("\n"),
+    hint
+      ? `這位員工有一張還沒完成的${hint.kindLabel}申請草稿。回答前先呼叫 hr_authorize 與 hr_request_draft_get 讀出草稿，再處理他這一輪講的內容；員工如果想做別的事，提醒他這張草稿還在，問他要繼續還是取消。`
+      : "這段對話目前沒有進行中的申請草稿。",
+  ];
 }

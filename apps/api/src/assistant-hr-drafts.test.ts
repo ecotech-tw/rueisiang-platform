@@ -71,6 +71,49 @@ describe("小香 HR 申請草稿", () => {
     expect((await db().select().from(hrOvertimeRequests))[0]!.reason).toBe("");
   });
 
+  it("員工只講了一半、放不進欄位的內容寫在備註：下一輪讀得到，不進卡片、不會送出", async () => {
+    const first = await saveHrRequestDraft(db(), scope, { kind: "leave", notes: "  10/20（二）上午，還沒說幾點到幾點  " }, NOW);
+    expect(first).toMatchObject({ notes: "10/20（二）上午，還沒說幾點到幾點", status: "collecting", missing: ["leaveTypeId", "startsAt", "endsAt"] });
+    // 沒帶 notes 的存檔不會動到它；再帶一次是整段取代；空字串清掉。
+    expect((await saveHrRequestDraft(db(), scope, { kind: "leave", leaveTypeId: "leave-personal" }, NOW)).notes).toBe("10/20（二）上午，還沒說幾點到幾點");
+    expect((await saveHrRequestDraft(db(), scope, { kind: "leave", notes: "改成 10/13（二）上午" }, NOW)).notes).toBe("改成 10/13（二）上午");
+    const ready = await saveHrRequestDraft(db(), scope, { kind: "leave", startsAt: "2026-03-03 09:00", endsAt: "2026-03-03 12:00", notes: "還在想要不要寫原因" }, NOW);
+    expect(ready.status).toBe("ready");
+    expect(ready.card).not.toContain("還在想");
+    expect((await saveHrRequestDraft(db(), scope, { kind: "leave", notes: "" }, NOW)).notes).toBeNull();
+    await expect(saveHrRequestDraft(db(), scope, { kind: "leave", notes: "長".repeat(501) }, NOW)).rejects.toThrow("500 字");
+    // 加班與補打卡一樣能用。
+    await cancelHrRequestDraft(db(), scope, NOW);
+    expect((await saveHrRequestDraft(db(), scope, { kind: "overtime", notes: "週五晚上，幾點還不確定" }, NOW)).notes).toBe("週五晚上，幾點還不確定");
+  });
+
+  it("第一次存就失敗：欄位一個都不留，但草稿本身與備註留得下來，下一輪才知道他在申請什麼", async () => {
+    await expect(saveHrRequestDraft(db(), scope, { kind: "leave", startsAt: "下週二上午", notes: "員工說下週二上午，格式不對沒存進去" }, NOW)).rejects.toThrow("YYYY-MM-DD HH:mm");
+    expect(await hrRequestDraftHint(db(), scope, NOW)).toEqual({ kind: "leave", kindLabel: "請假" });
+    expect(await getHrRequestDraft(db(), scope, NOW)).toMatchObject({
+      kind: "leave", notes: "員工說下週二上午，格式不對沒存進去", fields: { startsAt: null, endsAt: null, leaveTypeId: null },
+    });
+    // 沒帶備註的失敗也一樣開得出草稿。
+    const other = { ...scope, conversationKey: "session-other" };
+    await expect(saveHrRequestDraft(db(), other, { kind: "overtime", startsAt: "2026-03-03 18:00", endsAt: "2026-03-03 18:10" }, NOW)).rejects.toThrow("0.5 小時");
+    expect(await getHrRequestDraft(db(), other, NOW)).toMatchObject({ kind: "overtime", notes: null, fields: { startsAt: null, endsAt: null } });
+    // 不認得的種類不會留下任何東西。
+    const unknown = { ...scope, conversationKey: "session-unknown" };
+    await expect(saveHrRequestDraft(db(), unknown, { kind: "resign", notes: "想離職" }, NOW)).rejects.toThrow("目前只能透過小香申請");
+    expect(await hrRequestDraftHint(db(), unknown, NOW)).toBeNull();
+  });
+
+  it("已經有草稿時存失敗：原本的欄位不變，這一次帶的欄位不存，備註有帶才更新", async () => {
+    await saveHrRequestDraft(db(), scope, { kind: "leave", leaveTypeId: "leave-personal", startsAt: "2026-03-03 09:00" }, NOW);
+    await expect(saveHrRequestDraft(db(), scope, { kind: "leave", endsAt: "2026-03-03 08:00", reason: "不該存進去", notes: "他說結束是早上八點，比開始還早" }, NOW)).rejects.toThrow();
+    expect(await getHrRequestDraft(db(), scope, NOW)).toMatchObject({
+      notes: "他說結束是早上八點，比開始還早",
+      fields: { leaveTypeId: "leave-personal", startsAt: "2026-03-03 09:00", endsAt: null, reason: null },
+    });
+    await expect(saveHrRequestDraft(db(), scope, { kind: "leave", endsAt: "亂填" }, NOW)).rejects.toThrow();
+    expect((await getHrRequestDraft(db(), scope, NOW))!.notes).toBe("他說結束是早上八點，比開始還早");
+  });
+
   it("存草稿不會建立任何 HR 申請", async () => {
     await saveHrRequestDraft(db(), scope, complete, NOW);
     expect(await db().select().from(hrLeaveRequests)).toHaveLength(0);
@@ -557,6 +600,9 @@ describe("小香 HR 申請草稿的工具", () => {
     await PLATFORM_TOOL_MAP.get("hr_request_draft_save")!.execute({ kind: "leave", startsAt: "2026-03-03 09:00" }, context);
     await PLATFORM_TOOL_MAP.get("hr_request_draft_cancel")!.execute({}, context);
     expect(calls).toEqual(["get", { kind: "leave", startsAt: "2026-03-03 09:00" }, "cancel"]);
+    await PLATFORM_TOOL_MAP.get("hr_request_draft_save")!.execute({ kind: "leave", notes: "只說了下週二" }, context);
+    expect(calls.at(-1)).toEqual({ kind: "leave", notes: "只說了下週二" });
+    await expect(PLATFORM_TOOL_MAP.get("hr_request_draft_save")!.execute({ kind: "leave", notes: 5 }, context)).rejects.toThrow("參數格式");
     const save = PLATFORM_TOOL_MAP.get("hr_request_draft_save")!;
     await expect(save.execute({ kind: "leave", userId: "bob" }, context)).rejects.toThrow("不接受查詢對象");
     await expect(save.execute({ startsAt: "2026-03-03 09:00" }, context)).rejects.toThrow("申請種類");
