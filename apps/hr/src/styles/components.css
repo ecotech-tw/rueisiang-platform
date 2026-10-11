@@ -650,15 +650,15 @@
 .hr-profile-signout { width: 100%; }
 .hr-profile-signout-button { width: 100%; min-height: 48px; justify-content: center; font-size: 14px; }
 .hr-profile-overview { padding: 20px 22px; background: linear-gradient(125deg, var(--color-brand-soft), var(--color-paper) 72%); }
-.hr-profile-overview-main { display: flex; align-items: flex-start; gap: 16px; min-width: 0; }
+.hr-profile-overview-main { display: flex; align-items: flex-start; gap: 24px; min-width: 0; }
 .hr-profile-photo-control { display: grid; flex: none; justify-items: center; align-content: start; gap: 8px; max-width: 220px; }
 .hr-profile-avatar-wrap { position: relative; flex: none; }
-.hr-profile-avatar { display: grid; width: 68px; height: 68px; place-items: center; border-radius: 22px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 27px; font-weight: 800; }
+.hr-profile-avatar { display: grid; width: 76px; height: 76px; place-items: center; border-radius: 24px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 29px; font-weight: 800; }
 .hr-profile-avatar img { display: block; width: 100%; height: 100%; border-radius: inherit; object-fit: cover; outline: 1px solid oklch(0 0 0 / .1); outline-offset: -1px; }
-.hr-profile-avatar-action { position: absolute; right: -8px; bottom: -8px; width: 40px; height: 40px; border: 2px solid var(--color-paper); background: var(--color-brand); color: white; box-shadow: 0 2px 5px oklch(0 0 0 / .2); }
+.hr-profile-avatar-action { position: absolute; right: -6px; bottom: -6px; width: 40px; height: 40px; border: 2px solid var(--color-paper); background: var(--color-brand); color: white; box-shadow: 0 2px 5px oklch(0 0 0 / .2); }
 .hr-profile-avatar-action:hover:not(:disabled) { background: var(--color-brand-dark); color: white; }
 .hr-profile-avatar-action:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-profile-avatar-action svg { width: 20px; height: 20px; }
+.hr-profile-avatar-action svg { width: 18px; height: 18px; }
 .hr-profile-photo-edit { display: grid; justify-items: center; gap: 6px; width: 100%; text-align: center; }
 .hr-profile-photo-edit > p { margin: 0; font-size: 12px; line-height: 1.45; }
 .hr-profile-photo-edit > .muted { color: var(--color-muted); }
@@ -3793,10 +3793,10 @@
   .hr-payroll-history-page,
   .hr-profile-page { max-width: none; }
   .hr-profile-overview { padding: 16px; }
-  .hr-profile-overview-main { gap: 12px; }
-  .hr-profile-avatar { width: 56px; height: 56px; border-radius: 18px; font-size: 23px; }
+  .hr-profile-overview-main { gap: 18px; }
+  .hr-profile-avatar { width: 64px; height: 64px; border-radius: 20px; font-size: 25px; }
   .hr-profile-photo-control { max-width: 152px; }
-  .hr-profile-avatar-action { right: -9px; bottom: -9px; width: 38px; height: 38px; }
+  .hr-profile-avatar-action { right: -5px; bottom: -5px; width: 38px; height: 38px; }
   .hr-profile-overview-meta { gap: 6px; }
   .hr-profile-overview-copy h2 { font-size: 20px; }
   .hr-profile-sections { grid-template-columns: minmax(0, 1fr); gap: 12px; }
