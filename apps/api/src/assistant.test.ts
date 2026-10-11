@@ -425,6 +425,9 @@ describe("只有 LINE 權限的人", () => {
       "hr_get_my_leave_requests",
       "hr_get_my_overtime_requests",
       "hr_get_my_schedule",
+      "hr_request_draft_cancel",
+      "hr_request_draft_get",
+      "hr_request_draft_save",
       "list_items",
       "list_report_scopes",
       "query_payout_report",
@@ -557,6 +560,9 @@ describe("AI 助理 Sandbox", () => {
       "hr_get_my_annual_leave",
       "hr_get_my_overtime_requests",
       "hr_get_my_schedule",
+      "hr_request_draft_get",
+      "hr_request_draft_save",
+      "hr_request_draft_cancel",
       "company_calendar",
     ]);
     expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
@@ -2292,7 +2298,7 @@ describe("小香 HR 模擬本人 Sandbox", () => {
       { roleId: "role-staff", permission: "assistant:sandbox:read" }, { roleId: "role-staff", permission: "assistant:sandbox:write" },
     ]);
     const admin = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[]; hrSandbox: { available: boolean; toolKeys: string[] } };
-    expect(admin.hrSandbox).toMatchObject({ available: true, toolKeys: [...keys, "hr_get_my_overtime_requests", "hr_get_my_schedule"] });
+    expect(admin.hrSandbox).toMatchObject({ available: true, toolKeys: [...keys, "hr_get_my_overtime_requests", "hr_get_my_schedule", "hr_request_draft_get", "hr_request_draft_save", "hr_request_draft_cancel"] });
     expect(admin.tools.map((tool) => tool.key)).toEqual(expect.arrayContaining(["crm_search_customers", ...keys]));
     const staff = await (await as("alice", "alice@example.test", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[]; hrSandbox: { available: boolean; toolKeys: string[] } };
     expect(staff.hrSandbox).toMatchObject({ available: false, toolKeys: [] });
@@ -2428,6 +2434,42 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect(requests.join("\n")).not.toContain("敏感加班-bob");
     // 沒選模擬對象時，本人工具照舊不能送出。
     expect((await runHr({ toolKeys, hrSandboxUserId: undefined })).status).toBe(400);
+  });
+
+  it("申請草稿：模型只能存草稿，齊了回固定格式的卡片給畫面預覽；不會建立請假，下一輪會被提醒有草稿", async () => {
+    const sessionId = await openSession();
+    let stage = 0;
+    const requests: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
+      requests.push(String(init?.body));
+      const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
+        : stage === 1 ? [{ functionCall: { name: "hr_request_draft_save", args: { kind: "leave", leaveTypeId: "sandbox-leave-type", startsAt: "2026-01-06 09:00", endsAt: "2026-01-06 12:00", reason: "看醫生" } } }]
+        : [{ text: "請核對卡片後按確認。" }];
+      stage++;
+      return Response.json({ candidates: [{ content: { parts } }] });
+    });
+    const toolKeys = ["hr_authorize", "hr_request_draft_get", "hr_request_draft_save", "hr_request_draft_cancel"];
+    const response = await runHr({ sessionId, toolKeys, input: "我 1/6 上午要請假看醫生" });
+    expect(response.status).toBe(200);
+    const result = await response.json() as { hrRequestDraft?: { kindLabel: string; card: string } };
+    expect(result.hrRequestDraft).toEqual({
+      kindLabel: "請假",
+      card: "請假申請（尚未送出）\n假別：測試假\n開始：2026-01-06（週二）09:00\n結束：2026-01-06（週二）12:00\n時數：3 小時\n原因：看醫生",
+    });
+    expect(requests[0]).not.toContain("還沒完成的請假申請草稿");
+    // 只有一開始 seed 的那一筆待審假單；草稿沒有變成申請。
+    expect((await db().select().from(hrLeaveRequests)).filter((row) => row.employmentId === "sandbox-employment-alice")).toHaveLength(1);
+
+    stage = 2; requests.length = 0;
+    const next = await runHr({ sessionId, toolKeys, input: "好" });
+    expect(next.status).toBe(200);
+    expect(requests[0]).toContain("還沒完成的請假申請草稿");
+    // 這一輪沒有存草稿，就不重送卡片。
+    expect((await next.json() as { hrRequestDraft?: unknown }).hrRequestDraft).toBeUndefined();
+    // 沒帶讀草稿的工具時不提醒：提了只會叫模型去呼叫它沒有的工具。
+    stage = 2; requests.length = 0;
+    expect((await runHr({ sessionId, toolKeys: ["hr_authorize", "hr_get_my_leave_requests"], input: "好" })).status).toBe(200);
+    expect(requests[0]).not.toContain("還沒完成的請假申請草稿");
   });
 
   it("公司行事曆不是本人工具：不選模擬對象、沒有 HR 管理角色也能用", async () => {

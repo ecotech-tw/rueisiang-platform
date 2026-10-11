@@ -468,6 +468,19 @@ export function Sandbox() {
             </div>
           ) : null}
         </div>
+        {run.data?.hrRequestDraft && run.data.sessionId === sessionId ? (
+          <div className="assistant-request-card">
+            <div className="assistant-request-card-head">
+              <strong>確認卡片預覽</strong>
+              <small>LINE 上員工會收到這張卡片與按鈕；Sandbox 只預覽，不會送出。</small>
+            </div>
+            <pre>{run.data.hrRequestDraft.card}</pre>
+            <div className="assistant-actions">
+              <Button disabled>確認送出</Button>
+              <Button variant="secondary" disabled>取消</Button>
+            </div>
+          </div>
+        ) : null}
         {failedRun?.toolCalls.length ? (
           <div className="assistant-failed-run">
             <details className="assistant-message-tools">

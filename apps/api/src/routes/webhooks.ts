@@ -53,7 +53,7 @@ import {
   runtimeContextInstruction,
   type AssistantRunResult,
 } from "@rueisiang/assistant";
-import { PLATFORM_TOOL_KEYS, toolsForSurface, toolKeysForLineSource } from "@rueisiang/tools";
+import { PLATFORM_TOOL_DEFAULT_STATUSES, PLATFORM_TOOL_KEYS, toolsForSurface, toolKeysForLineSource } from "@rueisiang/tools";
 import { assertHrLineDeliveryAuthorized, HrSelfToolError } from "../assistant-hr.js";
 import type { HrDeliveryAuthorization } from "../assistant-hr.js";
 import { Hono } from "hono";
@@ -524,6 +524,7 @@ async function runLineAssistant(input: {
       defaultModel,
       defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
       toolKeys: PLATFORM_TOOL_KEYS,
+      toolDefaultStatuses: PLATFORM_TOOL_DEFAULT_STATUSES,
     });
     /*
      * toolMode 在這裡重讀，不採信收 webhook 當下那一份。

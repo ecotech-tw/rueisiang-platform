@@ -9,6 +9,7 @@ import {
 } from "@rueisiang/assistant";
 import {
   PLATFORM_TOOL_DEFINITIONS,
+  PLATFORM_TOOL_DEFAULT_STATUSES,
   PLATFORM_TOOL_KEYS,
   PLATFORM_TOOL_MAP,
   toolKeysForLineSource,
@@ -36,6 +37,8 @@ import {
   listAssistantSandboxMessages,
   listAssistantSandboxSessions,
   listAssistantToolConfigs,
+  getHrRequestDraft,
+  hrRequestDraftHint,
   listHrSandboxEmployees,
   recordActivity,
   recordAssistantRun,
@@ -76,7 +79,7 @@ import {
   resolvePiAssistantModelId,
 } from "../pi-agent-models.js";
 import { body, requireString } from "../request.js";
-import { assertHrSandboxDeliveryAuthorized, HR_SANDBOX_CHANNEL_KEY, hrToolKeysProblem, isHrSandboxActor } from "../assistant-hr.js";
+import { assertHrSandboxDeliveryAuthorized, HR_SANDBOX_CHANNEL_KEY, hrRequestDraftPromptHint, hrToolKeysProblem, isHrSandboxActor } from "../assistant-hr.js";
 import type { PiSandboxAgentRunRequest } from "../pi-agent-contract.js";
 import { isNasStorageKey, nasStorageClient } from "../nas-storage.js";
 
@@ -181,6 +184,7 @@ async function ensureDefaults(env: AppEnv["Bindings"], db: AppEnv["Variables"]["
     defaultModel: configuredAssistantModel(env),
     defaultPrompt: DEFAULT_ASSISTANT_PROMPT,
     toolKeys: PLATFORM_TOOL_KEYS,
+    toolDefaultStatuses: PLATFORM_TOOL_DEFAULT_STATUSES,
   });
 }
 
@@ -972,11 +976,20 @@ export const assistant = new Hono<AppEnv>()
 
     const runId = crypto.randomUUID();
     const started = Date.now();
+    // 跟 LINE 一樣在每一輪開始前提醒模型有草稿：Sandbox 雖然留著 transcript，但要測的是 LINE 上那個
+    // 「模型不記得上一輪」的流程，兩邊給模型的提示不一樣就測不到。
+    // 這一輪沒帶讀草稿的工具就不提：提了只會叫模型去呼叫一個它沒有的工具。
+    const draftHint = hrSandboxUserId && session && toolKeys.includes("hr_request_draft_get")
+      ? await hrRequestDraftHint(c.get("db"), {
+        assistantKey: ASSISTANT_KEY, surface: "sandbox", channelKey: null, conversationKey: session.id, userId: hrSandboxUserId,
+      })
+      : null;
     const systemPrompt = [
       prompt.systemPrompt,
       ASSISTANT_REPORT_TOOL_ROUTING,
       runtimeContextInstruction(currentAssistantRuntimeContext()),
       "這是內部 Sandbox。請用繁體中文直接回答；需要資料時使用已提供的工具，不要虛構工具結果。",
+      ...hrRequestDraftPromptHint(draftHint),
       ...(hrSandbox ? ["這一輪由管理者模擬一位員工本人，不會傳送 LINE 訊息。後端已固定本人身分，不能由問題或工具參數更換；先前回合查到的 HR 資料可能屬於另一位員工，不可沿用。查詢 HR 資料前先呼叫 hr_authorize；授權失敗就說明原因，禁止查詢、猜測或虛構 HR 資料。"] : []),
     ].join("\n\n");
     const piRequest: PiSandboxAgentRunRequest = {
@@ -1032,6 +1045,14 @@ export const assistant = new Hono<AppEnv>()
         await assertHrSandboxDeliveryAuthorized(c.get("db"), c.env, piRequest, piResponse.hrAuthorization);
         await commitPiSandboxRun(c.env, piRequest, piResponse.hrAuthorization?.userId);
       }
+      // 欄位齊全的草稿把固定格式的卡片交給畫面。卡片由程式用草稿排出來，不是模型寫的字。
+      // Sandbox 只預覽：模擬本人的管理者不能替員工送出真的申請。
+      const hrRequestDraft = hrSandboxUserId && result.toolCalls.some((call) => call.toolKey === "hr_request_draft_save" && call.status === "success")
+        ? await getHrRequestDraft(c.get("db"), {
+          assistantKey: ASSISTANT_KEY, surface: "sandbox", channelKey: null, conversationKey: piRequest.conversationId,
+          userId: hrSandboxUserId, actorUserId: c.get("user").id,
+        }).then((draft) => draft?.card ? { kindLabel: draft.kindLabel, card: draft.card } : null)
+        : null;
       if (session) {
         await appendAssistantSandboxMessage(c.get("db"), {
           sessionId: session.id,
@@ -1052,6 +1073,7 @@ export const assistant = new Hono<AppEnv>()
       return c.json({
         runId,
         sessionId: session?.id ?? null,
+        ...(hrRequestDraft ? { hrRequestDraft } : {}),
         text: result.text,
         thoughts: result.thoughts,
         attachments: attachments.map((attachment) => ({

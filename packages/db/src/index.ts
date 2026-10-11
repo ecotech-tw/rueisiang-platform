@@ -25,6 +25,10 @@ export {
 } from "./hr-special-workdays.js";
 export { approveHrOvertimeBatch, cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest, MAX_OVERTIME_CANCELLATION_ENTRIES, type HrOvertimeBatchInput, type HrOvertimeCancellationOptions, type HrOvertimeDay, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
 export {
+  cancelHrRequestDraft, getHrRequestDraft, hrRequestDraftHint, saveHrRequestDraft,
+  type HrLeaveDraftFields, type HrRequestDraftConversation, type HrRequestDraftInput, type HrRequestDraftKind, type HrRequestDraftScope, type HrRequestDraftView,
+} from "./assistant-hr-drafts.js";
+export {
   listHrSelfToolLeaveRequests, getHrSelfToolAnnualLeave, listHrSelfToolOvertimeRequests, listHrSelfToolSchedule, listHrToolCalendar, listHrSandboxEmployees,
   type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery, type HrToolCalendarQuery,
 } from "./hr-self-tools.js";
