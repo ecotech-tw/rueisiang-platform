@@ -2236,15 +2236,6 @@
 .salary-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
 .salary-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
 .salary-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
-/* 班別管理每個據點固定兩欄呈現摘要；編輯入口獨立，不讓整列誤觸開啟。 */
-.shift-scope-list { display: grid; gap: 10px; }
-.shift-scope-card { padding: 14px; border: 1px solid var(--color-soft-line); border-radius: var(--radius-card); background: var(--color-paper); }
-.shift-scope-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.shift-scope-heading h2 { margin: 0; font-size: 16px; }
-.shift-scope-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
-.shift-scope-columns > div { min-width: 0; }
-.shift-scope-columns p { margin: 4px 0 0; overflow-wrap: anywhere; }
-.shift-scope-label { color: var(--color-muted); font-size: 12px; font-weight: 600; }
 /* 班別清單沿用敘薪的「逐列編輯／底部新增與儲存」結構，但一個班別是一張卡，卡裡才是三個日型。 */
 .shift-items { display: grid; gap: 10px; }
 .shift-items-label { color: var(--color-ink); font-size: 13px; font-weight: 600; }
