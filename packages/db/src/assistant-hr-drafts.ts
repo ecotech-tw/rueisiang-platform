@@ -8,8 +8,10 @@
  *    怎麼算時數、能不能申請、送給誰審，規則只有 HR 模組那一份（hr-leave、hr-overtime、hr-requests）。
  * 2. **一段對話同時只有一張進行中的草稿。** 已經有一張時不會自動換掉：模型要回頭提醒員工
  *    「還有一張沒填完，要繼續還是取消」，由員工決定。靜靜換掉的話，員工以為兩張都還在。
- * 3. **存不進去的欄位不會留下一半。** 任何一個欄位不合法就整次不存，草稿維持上一次的樣子，
- *    模型拿到的錯誤訊息就是要問員工的問題。
+ * 3. **存不進去的欄位不會留下一半。** 任何一個欄位不合法，這一次帶來的欄位就一個都不存，
+ *    模型拿到的錯誤訊息就是要問員工的問題。留得下來的只有兩樣不屬於欄位的東西：草稿本身
+ *    （第一次存就失敗時仍然開一張只有種類的草稿）與模型寫的備註 notes——少了它們，
+ *    下一輪模型不知道員工在申請什麼、也不知道他剛剛講了什麼。
  */
 import { and, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
@@ -51,7 +53,17 @@ export interface HrRequestDraftFields {
   clockEvent?: string;
   clockAt?: string;
   reason?: string;
+  /**
+   * 員工講過、但還放不進上面欄位的內容，由模型用白話記下來（「下週二上午，還沒說幾點」）。
+   *
+   * 欄位只收完整的日期加時間，而 LINE 的 HR 回合不留 transcript：員工只講了一半的那一輪，模型沒有地方
+   * 可以放，只能反問，然後下一輪連那一半都不記得。這一欄就是給那一半住的地方。它不進確認卡片、
+   * 不會送出，任何一種申請都能用。
+   */
+  notes?: string;
 }
+
+const NOTES_MAX_LENGTH = 500;
 
 const FIELD_KEYS = ["leaveTypeId", "startsAt", "endsAt", "clockEvent", "clockAt", "reason"] as const;
 type FieldKey = (typeof FIELD_KEYS)[number];
@@ -383,6 +395,7 @@ function draftView(row: DraftRow, detail: DraftDetail) {
     kindLabel,
     status: detail.cardLines ? "ready" as const : "collecting" as const,
     fields: detail.fields,
+    notes: parseFields(row).notes || null,
     missing: detail.missing,
     optional: detail.optional,
     problem: detail.problem,
@@ -424,19 +437,19 @@ export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScop
     throw new HrError(409, `已經有一張還沒完成的${KIND_LABELS[current.kind]}草稿。請先問員工要繼續那一張，還是取消它；取消後才能開始新的${KIND_LABELS[kind]}申請。`);
   }
 
-  const next = await handler.merge(db, scope.userId, current ? parseFields(current) : {}, input, now);
-
   const nowIso = new Date(now).toISOString();
   const expiresAt = new Date(now + DRAFT_TTL_MS).toISOString();
-  const payloadJson = JSON.stringify(next);
-  if (current) {
-    // 用 revision 守門：同一段對話的兩輪並行時，後到的不會靜靜蓋掉先到的。
-    const updated = await db.update(assistantHrRequestDrafts)
-      .set({ payloadJson, expiresAt, updatedAt: nowIso, revision: sql`${assistantHrRequestDrafts.revision} + 1` })
-      .where(and(eq(assistantHrRequestDrafts.id, current.id), eq(assistantHrRequestDrafts.revision, current.revision), eq(assistantHrRequestDrafts.status, "open")))
-      .returning({ id: assistantHrRequestDrafts.id });
-    if (!updated.length) throw new HrError(409, "草稿剛剛被更新或取消了，請重新讀取草稿再繼續。");
-  } else {
+  const write = async (fields: HrRequestDraftFields) => {
+    const payloadJson = JSON.stringify(fields);
+    if (current) {
+      // 用 revision 守門：同一段對話的兩輪並行時，後到的不會靜靜蓋掉先到的。
+      const updated = await db.update(assistantHrRequestDrafts)
+        .set({ payloadJson, expiresAt, updatedAt: nowIso, revision: sql`${assistantHrRequestDrafts.revision} + 1` })
+        .where(and(eq(assistantHrRequestDrafts.id, current.id), eq(assistantHrRequestDrafts.revision, current.revision), eq(assistantHrRequestDrafts.status, "open")))
+        .returning({ id: assistantHrRequestDrafts.id });
+      if (!updated.length) throw new HrError(409, "草稿剛剛被更新或取消了，請重新讀取草稿再繼續。");
+      return;
+    }
     try {
       await db.insert(assistantHrRequestDrafts).values({
         id: crypto.randomUUID(), assistantKey: scope.assistantKey, channelKey: scope.channelKey, surface: scope.surface,
@@ -447,7 +460,27 @@ export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScop
       if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "這段對話已經有一張進行中的草稿，請重新讀取草稿再繼續。");
       throw error;
     }
+  };
+
+  const previous = current ? parseFields(current) : {};
+  // notes 是白話，不經過 handler 的規則：先併好，下面欄位不合法時它仍然要留得下來。
+  const withNotes: HrRequestDraftFields = { ...previous };
+  if (input.notes !== undefined) {
+    const notes = input.notes.trim();
+    if (notes.length > NOTES_MAX_LENGTH) throw new HrError(400, `備註不可超過 ${NOTES_MAX_LENGTH} 字。`);
+    if (notes) withNotes.notes = notes; else delete withNotes.notes;
   }
+  let next: HrRequestDraftFields;
+  try {
+    next = await handler.merge(db, scope.userId, withNotes, input, now);
+  } catch (error) {
+    // 欄位不合法時那些欄位整次不存（不變條件 3），但「員工正在申請這一種」與模型寫的備註要留下來：
+    // 這一輪是 HR 回合，不留 transcript。什麼都不留的話，下一輪模型連他在申請什麼都不知道，
+    // 員工被拒絕的那句話也跟著不見。
+    if (error instanceof HrError && (!current || input.notes !== undefined)) await write(withNotes).catch(() => undefined);
+    throw error;
+  }
+  await write(next);
   const saved = await ownDraft(db, scope, now);
   if (!saved) throw new HrError(409, "草稿剛剛被取消了，請重新開始。");
   return draftView(saved, await draftDetail(db, saved, now));

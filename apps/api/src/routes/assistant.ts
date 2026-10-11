@@ -989,7 +989,7 @@ export const assistant = new Hono<AppEnv>()
       ASSISTANT_REPORT_TOOL_ROUTING,
       runtimeContextInstruction(currentAssistantRuntimeContext()),
       "這是內部 Sandbox。請用繁體中文直接回答；需要資料時使用已提供的工具，不要虛構工具結果。",
-      ...hrRequestDraftPromptRules(Boolean(hrSandboxUserId) && toolKeys.includes("hr_request_draft_save"), draftHint),
+      ...hrRequestDraftPromptRules(Boolean(hrSandboxUserId) && toolKeys.includes("hr_request_draft_save") && toolKeys.includes("hr_request_draft_get"), draftHint),
       ...(hrSandbox ? ["這一輪由管理者模擬一位員工本人，不會傳送 LINE 訊息。後端已固定本人身分，不能由問題或工具參數更換；先前回合查到的 HR 資料可能屬於另一位員工，不可沿用。查詢 HR 資料前先呼叫 hr_authorize；授權失敗就說明原因，禁止查詢、猜測或虛構 HR 資料。"] : []),
     ].join("\n\n");
     const piRequest: PiSandboxAgentRunRequest = {

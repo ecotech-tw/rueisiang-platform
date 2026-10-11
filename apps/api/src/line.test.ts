@@ -1424,6 +1424,16 @@ describe("LINE 申請草稿：確認卡片與按鈕", () => {
     expect(prompt).toContain("員工一說要申請");
     expect(prompt).toContain("只知道是哪一種申請也要存");
     expect(prompt).toContain("這段對話目前沒有進行中的申請草稿");
+    expect(prompt).toContain("寫進 notes 存起來");
+    // 只給存、沒給讀：模型讀不到草稿，這套流程走不通，不給規則。
+    await setAssistantChannelTools(db(), { channelKey: "rueisiang-xiaoxiang", toolKeys: ["hr_authorize", "hr_request_draft_save"], updatedBy: "admin" });
+    await postLine(JSON.stringify({ events: [userEvent({ webhookEventId: "save-only", message: { id: "m-save-only", type: "text", text: "我想請假" } })] }));
+    expect(String(piAgentRequests.at(-1)!.payload.systemPrompt)).not.toContain("申請草稿");
+    // 工具都有，但這個 LINE 帳號沒有綁定員工：授權一定失敗，也不給規則。
+    await setAssistantChannelTools(db(), { channelKey: "rueisiang-xiaoxiang", toolKeys: DRAFT_TOOLS, updatedBy: "admin" });
+    await unlinkLineAccount(db(), "admin");
+    await postLine(JSON.stringify({ events: [userEvent({ webhookEventId: "unbound", message: { id: "m-unbound", type: "text", text: "我想請假" } })] }));
+    expect(String(piAgentRequests.at(-1)!.payload.systemPrompt)).not.toContain("申請草稿");
     // 群組拿不到草稿工具，也就不帶這段規則。
     const group = mentionEvent({ webhookEventId: "group-turn" });
     await enableLineConversation(group);
