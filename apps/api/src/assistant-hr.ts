@@ -314,6 +314,9 @@ export function hrRequestDraftConfirmationReply(outcome: HrRequestDraftConfirmat
  * 錯的日期就這樣進了確認卡片。所以規則要它逐項列出來、看存檔回傳的 changed 自己核對，並明講哪些沒變；
  * 日期則直接給一張這週與下週的日曆（hrRequestDraftCalendar），不讓它自己推算星期。
  *
+ * now 由路由傳進來，跟同一輪 runtimeContextInstruction 用同一個時間：各取各的，跨午夜的那一輪會一邊說
+ * 今天 3/1、一邊的日曆寫今天 3/2。
+ *
  * 放在 system prompt 而不只寫在工具說明：工具說明是「要用這個工具時怎麼用」，而這裡要的是模型在
  * 員工一開口說要申請時就知道該先開草稿。有沒有草稿只講「有」與種類，內容要模型自己用工具去讀。
  */
@@ -325,9 +328,10 @@ const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as cons
  * 模型拿得到今天的日期與星期，但從那裡推「這週二」「下週四」是幾號很容易算錯，而算錯的日期會一路
  * 進到確認卡片。週從週一算起：週一凌晨說的「這週二」是明天，不是八天後。
  */
-export function hrRequestDraftCalendar(now = Date.now()): string {
-  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei" }).format(new Date(now));
-  const todayMs = Date.parse(`${today}T00:00:00Z`);
+export function hrRequestDraftCalendar(now: number): string {
+  // 台北沒有日光節約時間，固定 UTC+8：直接平移再用 UTC 的欄位讀，不靠 Intl 在各 runtime 的輸出格式。
+  const todayMs = Math.floor((now + 8 * 3_600_000) / 86_400_000) * 86_400_000;
+  const today = new Date(todayMs).toISOString().slice(0, 10);
   const mondayMs = todayMs - ((new Date(todayMs).getUTCDay() + 6) % 7) * 86_400_000;
   const day = (offset: number) => {
     const date = new Date(mondayMs + offset * 86_400_000);
@@ -343,7 +347,7 @@ export function hrRequestDraftCalendar(now = Date.now()): string {
   ].join("\n");
 }
 
-export function hrRequestDraftPromptRules(available: boolean, hint: { kindLabel: string } | null, now = Date.now()): string[] {
+export function hrRequestDraftPromptRules(available: boolean, hint: { kindLabel: string } | null, now: number): string[] {
   if (!available) return [];
   return [
     [
@@ -351,8 +355,8 @@ export function hrRequestDraftPromptRules(available: boolean, hint: { kindLabel:
       "1. 員工一說要申請（例如「我想請假」），就先呼叫 hr_authorize，再呼叫 hr_request_draft_save 開草稿；只知道是哪一種申請也要存。",
       "2. 之後每一輪，員工講到的任何內容（日期、時間、假別、原因）都先呼叫 hr_request_draft_save 存進去，再回覆。不要先問「是不是這樣」等他回答才存——等他回答時你已經不記得了。他同時問了別的事（例如特休剩幾天）也一樣：先存草稿，再去查。",
       "   欄位只收完整的日期加時間。他只講了一半（有日期沒時間、有時間沒日期），或 hr_request_draft_save 回了錯誤，就把他講的內容寫進 notes 存起來——放不進欄位不是不存的理由。",
-      "3. 一句話裡常常不只一件事（「不是，是這週二才對。另外我想用特休」是兩件：改日期、選假別）。存之前把他這一輪講的每一件事列出來，全部放進同一次存檔，一件都不能漏。「不是」「才對」「改成」「我是說」都是在更正前面的內容，一定要存。只改日期時，原本的時間要跟著新日期一起重存（開始與結束都要）。",
-      "4. 存完看工具回傳的 changed：那是這一次真的改到的欄位。他想改的那一項不在裡面，就是你漏了，馬上再存一次。",
+      "3. 一句話裡常常不只一件事（「不是，是這週二才對。另外我想用特休」是兩件：改日期、選假別）。存之前把他這一輪講的每一件事列出來，全部放進同一次存檔，一件都不能漏。他用「不是…是…」「…才對」「改成…」「我是說…」更正申請內容時，更正後的值一定要存；他只是在問問題或說不申請了，就不是更正。只改日期時，原本的時間要跟著新日期一起重存（開始與結束都要）。",
+      "4. 存完看工具回傳的 changed（這一次真的改到的欄位）與草稿現在的內容。他想改的那一項不在 changed 裡、草稿裡的值也不是他要的，就是你漏了：補存一次，只補一次。草稿裡的值已經是他要的（他只是重講一遍）就不用再存。",
       "5. 回覆時把草稿現在的內容念給他聽（日期要講幾月幾號星期幾），並明講這一輪改了什麼、哪些沒有變，請他有錯就直接說；他更正就再存一次。",
       "6. 然後只問一件還缺的事。",
     ].join("\n"),

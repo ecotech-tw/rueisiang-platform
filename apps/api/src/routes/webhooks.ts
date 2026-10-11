@@ -591,12 +591,14 @@ async function runLineAssistant(input: {
 
     // 最近對話不再由 D1 每輪拼成 prompt；chat 專屬 DO 會還原 Pi transcript 與 compact summary。
     promptText = input.questionText;
+    // 「現在時間」與草稿規則裡的日曆用同一個時間，跨午夜的那一輪兩邊才不會講不同的今天。
+    const promptNow = Date.now();
     const systemPrompt = [
       prompt.systemPrompt,
       ASSISTANT_REPORT_TOOL_ROUTING,
-      runtimeContextInstruction(currentAssistantRuntimeContext()),
+      runtimeContextInstruction(currentAssistantRuntimeContext(new Date(promptNow))),
       "這是 LINE 內部助理。除非使用者要求詳細說明，請用繁體中文在六句內直接回答；不要輸出思考過程。",
-      ...hrRequestDraftPromptRules(draftToolsAvailable, draftHint),
+      ...hrRequestDraftPromptRules(draftToolsAvailable, draftHint, promptNow),
     ].join("\n\n");
     let result: AssistantRunResult;
     if (savedBackup?.responseText) {
