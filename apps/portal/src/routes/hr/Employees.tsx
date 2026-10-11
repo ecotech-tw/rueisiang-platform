@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type Candidate, type CompensationVersion, type Employee, type Employment, type InsuranceVersion, type LeaveRequest, type NamedOption, type Profile } from "./api.js";
 import { EmployeeProfile } from "./EmployeeProfile.js";
 import { EmployeeSectionNav } from "./EmployeeSectionNav.js";
@@ -158,7 +158,6 @@ export function HrEmployees() {
         <button type="button" role="tab" aria-selected={filters.employmentStatus === "inactive"} className={filters.employmentStatus === "inactive" ? "active" : ""} onClick={() => update({ employmentStatus: "inactive" })}>未在職 <span>{data?.counts.inactive ?? "—"}</span></button>
       </div>
       <FilterToolbar><SearchFilterInput label="搜尋" placeholder="搜尋人員編號、姓名或 Email" value={filters.search} onSearch={(search) => update({ search })} /><FilterSelect label="帳號狀態" value={filters.status} onChange={(event) => update({ status: event.target.value })} options={[{ value: "all", label: "全部帳號" }, { value: "active", label: "啟用中" }, { value: "invited", label: "待啟用" }, { value: "disabled", label: "已停用" }]} /></FilterToolbar>
-      <p className="muted table-note">LINE 綁定、帳號啟用與在職狀態分開；已綁定不代表可登入或打卡。支援人員沒有平台帳號。</p>
       {employees.error ? <Alert tone="danger">{employees.error.message}</Alert> : null}{candidates.error ? <Alert tone="danger">{candidates.error.message}</Alert> : null}
       <DataTable className="hr-employee-list-table"><colgroup><col className="hr-employee-number-column" /><col className="hr-employee-name-column" /><col className="hr-employee-account-column" /><col className="hr-employee-status-column" /><col className="hr-employee-line-column" /><col className="hr-employee-position-column" /><col className="hr-employee-supervisor-column" /><col className="hr-employee-status-column" /></colgroup><thead><tr>
         <SortableHeader label="員工編號" field="employeeNumber" active={filters.sortField} direction={filters.sortDirection as "asc" | "desc"} onSort={sort} />
@@ -169,7 +168,7 @@ export function HrEmployees() {
       </tr></thead><tbody>{data?.employees.map((employee) => {
         const path = employeeDetailPath(employee);
         return <tr key={employee.employmentId ?? employee.userId} className="clickable-row" role="link" tabIndex={0} onClick={() => navigate(path)} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(path); } }}>
-          <td data-label="員工編號"><span className="cell-strong">{employee.employeeNumber}</span></td><td data-label="姓名">{employee.legalName}<br /><span className="cell-sub">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="LINE 綁定"><HrLineBindingStatus employee={employee} /></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>
+          <td data-label="員工編號"><Tooltip label={employee.employeeNumber}><span className="cell-strong hr-employee-number">{employee.employeeNumber}</span></Tooltip></td><td data-label="姓名">{employee.legalName}<br /><span className="cell-sub">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="LINE 綁定"><HrLineBindingStatus employee={employee} /></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>
         </tr>;
       })}</tbody></DataTable>
       {employees.isPlaceholderData ? <p className="muted table-note">載入中…</p> : null}

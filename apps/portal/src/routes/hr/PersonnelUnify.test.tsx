@@ -93,6 +93,20 @@ describe("統一人員名單與支援人員薪資／加班表單", () => {
     expect(markup).toContain('role="link" tabindex="0"');
   });
 
+  it("人員列表不顯示狀態說明，長員工編號以省略樣式搭配 Tooltip 呈現", () => {
+    const employeeNumber = "W-5927c2239dba447bae0a3bd2b994c7e6";
+    mocks.useHrQuery.mockImplementation((path: string) => query(path.startsWith("/employees?")
+      ? { employees: [{ ...workerPerson, employeeNumber }], total: 1, page: 1, pageSize: 25, hasMore: false, counts: { active: 1, inactive: 0 } }
+      : { users: [] }));
+
+    const markup = renderToStaticMarkup(<MemoryRouter><HrEmployees /></MemoryRouter>);
+
+    expect(markup).not.toContain("LINE 綁定、帳號啟用與在職狀態分開");
+    expect(markup).toContain('class="tooltip-anchor"');
+    expect(markup).toContain("hr-employee-number");
+    expect(markup).toContain(employeeNumber);
+  });
+
   it("支援人員敘薪列顯示目前時薪與更新操作", () => {
     const markup = renderToStaticMarkup(
       <DataTable><tbody><WorkerCompensationRow employee={workerPerson} worker={worker} canWrite onEdit={() => {}} /></tbody></DataTable>,
