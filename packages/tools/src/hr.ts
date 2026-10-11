@@ -133,7 +133,7 @@ export const HR_TOOL_DEFINITIONS: readonly ToolContract[] = [
   {
     ...draftCommon,
     key: "hr_request_draft_get", label: "讀取本人申請草稿",
-    description: "先 hr_authorize，再讀這位員工跟你講到一半的 HR 申請草稿（請假或加班）。系統提示說有草稿時，回答前一定要先呼叫，因為你不記得上一輪問到哪裡。draft 是 null 代表沒有草稿。missing 是一定要有、還沒問到的欄位，一次只問員工一件事；optional 是可以不填的欄位（例如原因），問一次就好，員工說不用就不要再問，也不要自己編一個；problem 有內容代表目前的時間不能請，照實告訴員工並請他改。leaveTypeOptions 是可以選的假別，remainingMinutes 是特休剩餘分鐘數。",
+    description: "先 hr_authorize，再讀這位員工跟你講到一半的 HR 申請草稿（請假、加班或補打卡）。系統提示說有草稿時，回答前一定要先呼叫，因為你不記得上一輪問到哪裡。draft 是 null 代表沒有草稿。missing 是一定要有、還沒問到的欄位，一次只問員工一件事；optional 是可以不填的欄位（請假與加班的原因；補打卡的原因是必填，會出現在 missing），問一次就好，員工說不用就不要再問，也不要自己編一個；problem 有內容代表目前的時間不能請，照實告訴員工並請他改。leaveTypeOptions 是可以選的假別，remainingMinutes 是特休剩餘分鐘數。",
     parameters: { type: "object", properties: {} },
     async execute(input, context) {
       inputObject(input, []);
@@ -143,17 +143,20 @@ export const HR_TOOL_DEFINITIONS: readonly ToolContract[] = [
   {
     ...draftCommon,
     key: "hr_request_draft_save", label: "儲存本人申請草稿",
-    description: "先 hr_authorize，再把員工剛剛講的內容存進申請草稿；沒有草稿會開一張新的。只傳這一輪新知道或要更正的欄位，其他欄位會保留。這個工具只存草稿，不會送出申請——你沒有送出申請的工具，絕對不可以說「已送出」「已申請」。欄位齊全時 status 會是 ready，系統會另外把確認卡片交給員工，由員工自己按確認才送出；你只要請他核對卡片並按確認。員工說的日期要換算成明確日期，「下週三」「明天」先跟他確認是幾月幾號星期幾；沒講清楚的時間、假別、原因不要自己猜，回頭問他。工具回錯誤時，把原因照實告訴員工。如果錯誤說已經有另一張還沒完成的草稿，要提醒員工那張還在，問他要繼續還是取消，不可以自己決定。加班要問的是哪一天、幾點到幾點、原因，時數要是半小時的倍數；本人申請的加班一律領加班費，不要問員工要加班費還是補休，他要補休的話請他洽 HR。",
+    description: "先 hr_authorize，再把員工剛剛講的內容存進申請草稿；沒有草稿會開一張新的。只傳這一輪新知道或要更正的欄位，其他欄位會保留。這個工具只存草稿，不會送出申請——你沒有送出申請的工具，絕對不可以說「已送出」「已申請」。欄位齊全時 status 會是 ready，系統會另外把確認卡片交給員工，由員工自己按確認才送出；你只要請他核對卡片並按確認。員工說的日期要換算成明確日期，「下週三」「明天」先跟他確認是幾月幾號星期幾；沒講清楚的時間、假別、原因不要自己猜，回頭問他。工具回錯誤時，把原因照實告訴員工。如果錯誤說已經有另一張還沒完成的草稿，要提醒員工那張還在，問他要繼續還是取消，不可以自己決定。加班要問的是哪一天、幾點到幾點、原因，時數要是半小時的倍數；本人申請的加班一律領加班費，不要問員工要加班費還是補休，他要補休的話請他洽 HR。補打卡要問的是補上班還是下班、實際的時間、為什麼沒打到；一張申請只補一次打卡，上下班都要補就先完成一張再開下一張。每一種申請只傳它自己的欄位。",
     parameters: { type: "object", properties: {
-      kind: { type: "string", enum: ["leave", "overtime"], description: "申請種類：leave 是請假，overtime 是加班。" },
+      kind: { type: "string", enum: ["leave", "overtime", "clock_correction"], description: "申請種類：leave 是請假，overtime 是加班，clock_correction 是補打卡。" },
       leaveTypeId: { type: "string", description: "只有請假要填：假別的 id，來自草稿的 leaveTypeOptions；不要傳假別名稱。" },
       startsAt: { type: "string", description: "請假或加班的開始，台北時間 YYYY-MM-DD HH:mm。" },
       endsAt: { type: "string", description: "請假或加班的結束，台北時間 YYYY-MM-DD HH:mm。" },
-      reason: { type: "string", description: "申請原因，用員工自己的話，最多 1000 字。請假與加班的原因可以不填；員工沒有講就不要傳，不要替他編。" },
+      clockEvent: { type: "string", enum: ["clock_in", "clock_out"], description: "只有補打卡要填：clock_in 是補上班打卡，clock_out 是補下班打卡。" },
+      clockAt: { type: "string", description: "只有補打卡要填：實際上班或下班的時間，台北時間 YYYY-MM-DD HH:mm；一張只補一次打卡，不能是未來的時間。" },
+      reason: { type: "string", description: "申請原因，用員工自己的話，最多 1000 字。請假與加班的原因可以不填，補打卡一定要有；員工沒有講就不要傳，不要替他編。" },
     }, required: ["kind"] },
     async execute(input, context) {
-      const value = inputObject(input, ["kind", "leaveTypeId", "startsAt", "endsAt", "reason"]);
-      stringFields(value, ["kind", "leaveTypeId", "startsAt", "endsAt", "reason"], "申請草稿參數格式不正確。");
+      const keys = ["kind", "leaveTypeId", "startsAt", "endsAt", "clockEvent", "clockAt", "reason"] as const;
+      const value = inputObject(input, keys);
+      stringFields(value, keys, "申請草稿參數格式不正確。");
       if (typeof value.kind !== "string") throw new AssistantError("請提供申請種類。");
       return JSON.stringify(await service(context).saveRequestDraft(value as unknown as HrRequestDraftInput));
     },

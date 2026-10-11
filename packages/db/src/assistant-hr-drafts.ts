@@ -5,7 +5,7 @@
  *
  * 1. **只有 confirmHrRequestDraft 會建立 HR 申請，而且它不是給模型用的。** 模型拿到的 get／save／cancel
  *    只收集欄位、用 HR 既有的函式試算。送出是員工按下確認之後由程式呼叫，建立時用的是 HR 頁面的同一支函式：
- *    怎麼算時數、能不能申請、送給誰審，規則只有 HR 模組那一份（hr-leave、hr-overtime）。
+ *    怎麼算時數、能不能申請、送給誰審，規則只有 HR 模組那一份（hr-leave、hr-overtime、hr-requests）。
  * 2. **一段對話同時只有一張進行中的草稿。** 已經有一張時不會自動換掉：模型要回頭提醒員工
  *    「還有一張沒填完，要繼續還是取消」，由員工決定。靜靜換掉的話，員工以為兩張都還在。
  * 3. **存不進去的欄位不會留下一半。** 任何一個欄位不合法就整次不存，草稿維持上一次的樣子，
@@ -16,6 +16,7 @@ import type { Database } from "./client.js";
 import { checkHrSelfLeaveRequest, createHrLeaveRequest, listHrSelfLeaveTypeOptions, type HrLeaveDurationInput } from "./hr-leave.js";
 import { checkHrSelfOvertimeRequest, createHrOvertimeRequest, type HrOvertimeInput } from "./hr-overtime.js";
 import { HrError, type HrActor } from "./hr-people.js";
+import { checkHrSelfClockCorrection, createAndSubmitHrClockCorrection, type HrSelfClockCorrectionInput } from "./hr-requests.js";
 import { assistantHrRequestDrafts, type ASSISTANT_HR_REQUEST_DRAFT_KINDS } from "./schema/assistant.js";
 import { formatTaipeiDate, taipeiMinuteFromUtcWallClock, taipeiWallClockToUtc } from "./taipei-time.js";
 
@@ -46,7 +47,23 @@ export interface HrRequestDraftFields {
   /** 請假、加班：起訖。 */
   startsAt?: string;
   endsAt?: string;
+  /** 補打卡：補的是上班還是下班，以及那一次打卡的時間。 */
+  clockEvent?: string;
+  clockAt?: string;
   reason?: string;
+}
+
+const FIELD_KEYS = ["leaveTypeId", "startsAt", "endsAt", "clockEvent", "clockAt", "reason"] as const;
+type FieldKey = (typeof FIELD_KEYS)[number];
+const CLOCK_EVENT_LABELS: Record<string, string> = { clock_in: "上班打卡", clock_out: "下班打卡" };
+
+/**
+ * 每一種申請只收自己的欄位。模型把請假的假別傳進加班、或把起訖時間傳進補打卡時直接拒絕：
+ * 靜靜收下的話，那個值會留在草稿裡沒有人用，而模型以為它存進去了。
+ */
+function assertOwnFields(input: HrRequestDraftInput, allowed: readonly FieldKey[], kindLabel: string) {
+  const extra = FIELD_KEYS.filter((key) => input[key] !== undefined && !allowed.includes(key));
+  if (extra.length) throw new HrError(400, `${kindLabel}申請沒有這些欄位：${extra.join("、")}。`);
 }
 
 export interface HrRequestDraftInput extends HrRequestDraftFields {
@@ -117,14 +134,6 @@ async function retireExpired(db: Database, scope: HrRequestDraftConversation, no
 async function ownDraft(db: Database, scope: HrRequestDraftScope, now: number) {
   const row = await activeDraft(db, scope, now);
   return row && row.userId === scope.userId ? row : null;
-}
-
-/**
- * 資料表允許的種類比這裡做得到的多（值域先留了位置）。遇到一列沒有 handler 的草稿時，讀取、提醒與確認
- * 都當作沒有這張，不丟例外——它還佔著這段對話的位置，所以存新草稿時仍會被提醒要先取消它，而取消不需要 handler。
- */
-function readable(row: DraftRow | null): DraftRow | null {
-  return row && HANDLERS[row.kind] ? row : null;
 }
 
 /** 把這段對話所有還開著的草稿收掉，不管是誰的。重設對話、或對話換了人要開新草稿時用。 */
@@ -209,6 +218,7 @@ function overtimeInput(userId: string, fields: HrRequestDraftFields): (HrOvertim
 
 const leaveHandler: DraftKindHandler = {
   async merge(db, userId, previous, input, now) {
+    assertOwnFields(input, ["leaveTypeId", "startsAt", "endsAt", "reason"], "請假");
     const next = { ...previous };
     if (input.leaveTypeId !== undefined) {
       const options = await listHrSelfLeaveTypeOptions(db, userId, formatTaipeiDate(now));
@@ -267,7 +277,7 @@ const leaveHandler: DraftKindHandler = {
 
 const overtimeHandler: DraftKindHandler = {
   async merge(db, userId, previous, input) {
-    if (input.leaveTypeId !== undefined) throw new HrError(400, "加班申請沒有假別。");
+    assertOwnFields(input, ["startsAt", "endsAt", "reason"], "加班");
     const next = { ...previous };
     const intervalChanged = mergeInterval(next, input);
     mergeReason(next, input, "加班");
@@ -300,13 +310,62 @@ const overtimeHandler: DraftKindHandler = {
   },
 };
 
-/** 做得到的種類。補打卡的表已經留了位置，還沒有對應的收集與送出邏輯。 */
-const HANDLERS: Partial<Record<HrRequestDraftKind, DraftKindHandler>> = { leave: leaveHandler, overtime: overtimeHandler };
-const SUPPORTED_KIND_LABELS = (Object.keys(HANDLERS) as HrRequestDraftKind[]).map((kind) => KIND_LABELS[kind]).join("、");
+function clockCorrectionInput(userId: string, fields: HrRequestDraftFields): HrSelfClockCorrectionInput | null {
+  if (!fields.clockAt || (fields.clockEvent !== "clock_in" && fields.clockEvent !== "clock_out")) return null;
+  return {
+    employeeUserId: userId,
+    // 補打卡的日期就是那一次打卡在台北的日期；HR 那邊會驗兩者一致。
+    correctionDate: fields.clockAt.slice(0, 10),
+    requestedEventKind: fields.clockEvent,
+    requestedAt: taipeiMinute(fields.clockAt, "打卡時間"),
+    reason: fields.reason ?? "",
+  };
+}
+
+const clockCorrectionHandler: DraftKindHandler = {
+  async merge(db, userId, previous, input) {
+    assertOwnFields(input, ["clockEvent", "clockAt", "reason"], "補打卡");
+    const next = { ...previous };
+    if (input.clockEvent !== undefined) {
+      if (!CLOCK_EVENT_LABELS[input.clockEvent]) throw new HrError(400, "請選擇要補的是上班打卡（clock_in）還是下班打卡（clock_out）。");
+      next.clockEvent = input.clockEvent;
+    }
+    if (input.clockAt !== undefined) { taipeiMinute(input.clockAt, "打卡時間"); next.clockAt = input.clockAt; }
+    mergeReason(next, input, "補打卡");
+    const request = clockCorrectionInput(userId, next);
+    if (request && (input.clockAt !== undefined || input.clockEvent !== undefined)) await checkHrSelfClockCorrection(db, request);
+    return next;
+  },
+  async detail(db, userId, fields) {
+    const request = clockCorrectionInput(userId, fields);
+    const { problem } = request ? await problemOf(() => checkHrSelfClockCorrection(db, request)) : { problem: null };
+    const reason = fields.reason?.trim() ?? "";
+    const eventLabel = fields.clockEvent ? CLOCK_EVENT_LABELS[fields.clockEvent] ?? null : null;
+    // 補打卡的原因是必填，跟 HR 頁面那張表單一樣：審核者要靠它判斷那一次為什麼沒打到。
+    const missing = [
+      ...(eventLabel ? [] : ["clockEvent"]),
+      ...(fields.clockAt ? [] : ["clockAt"]),
+      ...(reason ? [] : ["reason"]),
+    ];
+    const ready = request && !problem && reason ? { ...request, reason } : null;
+    return {
+      fields: { clockEvent: eventLabel ? fields.clockEvent : null, clockEventLabel: eventLabel, clockAt: fields.clockAt ?? null, reason: reason || null },
+      missing, optional: [], problem,
+      cardLines: ready ? [
+        `類型：${eventLabel}`,
+        `時間：${withWeekday(fields.clockAt!)}`,
+        `原因：${reason}`,
+      ] : null,
+      submit: ready ? (actor) => createAndSubmitHrClockCorrection(db, ready, actor) : null,
+    };
+  },
+};
+
+const HANDLERS: Record<HrRequestDraftKind, DraftKindHandler> = { leave: leaveHandler, overtime: overtimeHandler, clock_correction: clockCorrectionHandler };
 
 function handlerFor(kind: string): DraftKindHandler {
-  const handler = HANDLERS[kind as HrRequestDraftKind];
-  if (!handler) throw new HrError(400, `目前只能透過小香申請${SUPPORTED_KIND_LABELS}。`);
+  const handler = (HANDLERS as Partial<Record<string, DraftKindHandler>>)[kind];
+  if (!handler) throw new HrError(400, `目前只能透過小香申請${Object.values(KIND_LABELS).join("、")}。`);
   return handler;
 }
 
@@ -338,7 +397,7 @@ export type HrRequestDraftView = ReturnType<typeof draftView>;
 
 /** 讀這段對話進行中的草稿；沒有就是 null。 */
 export async function getHrRequestDraft(db: Database, scope: HrRequestDraftScope, now = Date.now()): Promise<HrRequestDraftView | null> {
-  const row = readable(await ownDraft(db, scope, now));
+  const row = await ownDraft(db, scope, now);
   return row ? draftView(row, await draftDetail(db, row, now)) : null;
 }
 
@@ -348,7 +407,7 @@ export async function getHrRequestDraft(db: Database, scope: HrRequestDraftScope
  */
 export async function hrRequestDraftHint(db: Database, scope: HrRequestDraftScope, now = Date.now()) {
   // 草稿不是這個人的就不提：提了等於告訴他「這段對話有別人的申請」。
-  const row = readable(await ownDraft(db, scope, now));
+  const row = await ownDraft(db, scope, now);
   return row ? { kind: row.kind, kindLabel: KIND_LABELS[row.kind] } : null;
 }
 
@@ -389,7 +448,7 @@ export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScop
       throw error;
     }
   }
-  const saved = readable(await ownDraft(db, scope, now));
+  const saved = await ownDraft(db, scope, now);
   if (!saved) throw new HrError(409, "草稿剛剛被取消了，請重新開始。");
   return draftView(saved, await draftDetail(db, saved, now));
 }
@@ -432,6 +491,8 @@ export type HrRequestDraftConfirmation =
  *   寧可少送一張（員工會發現沒有待審單），也不要因為重試而多送一張。
  * - 建立成功之後、記下 id 之前中斷或失敗：申請已經存在，草稿維持 submitted。**只有建立函式自己丟出錯誤
  *   才退回 open**；記 id 失敗不算。把這兩種失敗混在一起退回的話，員工再按一次就是第二張申請。
+ * - 建立函式丟出錯誤、但那次寫入其實已經進了資料庫（結果不明的失敗）：草稿會退回 open，員工可能再送一次。
+ *   這時擋住第二張的是 HR 自己的規則——請假與加班的時段重疊、補打卡的同一個時間點——不是這裡。
  */
 export async function confirmHrRequestDraft(
   db: Database,
@@ -457,7 +518,6 @@ export async function confirmHrRequestDraft(
     .returning({ id: assistantHrRequestDrafts.id });
 
   if (input.action === "cancel") return (await claim("cancelled")).length ? { outcome: "cancelled", kindLabel } : { outcome: "changed", kindLabel };
-  if (!readable(row)) return { outcome: "gone" };
 
   // 卡片發出去之後假別可能被停用、班表可能改了：送出前照現在的規則再算一次，不信卡片當時的樣子。
   const detail = await draftDetail(db, row, now);

@@ -148,6 +148,45 @@ export async function createHrFormRequest(db: Database, input: HrFormRequestInpu
     RETURNING id`, id, actor, "hr_form_request_created", "申請單資料不合法，請重新確認。");
 }
 
+export type HrSelfClockCorrectionInput = Omit<HrFormRequestInput, "approverUserId">;
+
+/**
+ * 本人補打卡「送出前先看看行不行」：時間合法、目前在職、有直屬主管可以審。不寫入。
+ * 不看原因：原因必填由資料表的 CHECK 把關，而呼叫端在時間還沒問完、原因還沒問到時就需要這個檢查。
+ * 同一個時間點有沒有重複的申請要等送出才知道（那個檢查在 UPDATE 的 WHERE 裡），這裡不重做一份。
+ */
+export async function checkHrSelfClockCorrection(db: Database, input: HrSelfClockCorrectionInput): Promise<void> {
+  validateRequestedAt(input.correctionDate, input.requestedAt);
+  await employmentForActiveUser(db, input.employeeUserId);
+  const approverUserId = await employeeSupervisor(db, input.employeeUserId);
+  // HR 頁面可以讓員工自己挑審核者；對話裡不問這個，所以沒有直屬主管的人請他回表單處理。
+  if (!approverUserId) throw new HrError(400, "你沒有設定直屬主管，請到 HR 頁面的補打卡申請自行指定審核者。");
+  await ensureApprover(db, input.employeeUserId, approverUserId);
+}
+
+/**
+ * 建立補打卡申請並立刻送出，審核者是直屬主管。
+ *
+ * HR 頁面是「存草稿、再送出」兩步，因為員工會在表單上停留；對話的草稿存在小香那邊，確認時一次做完，
+ * 走的仍是同一對 createHrFormRequest／submitHrFormRequest。送出被擋（例如同一個時間點已經有一張）時
+ * 把剛建立的那一列刪掉，不在員工的 HR 頁面留下一張他不知道的草稿。
+ *
+ * 兩步不在同一個 transaction 裡，清不乾淨的情況都偏向「多留一張 HR 頁面看得到的草稿」，不會多出一張待審申請：
+ * - 建立之後、送出之前中斷，或送出失敗後刪除也失敗：HR 頁面留下一張 draft，員工可以在那裡送出或刪掉。
+ * - 送出其實已經寫入、呼叫端卻收到錯誤：刪除會因為狀態已是 pending 而被擋，那張待審申請留著；
+ *   員工重送同一個時間點時，會被「同一個時間點已有一張」擋下來，不會變成兩張。
+ */
+export async function createAndSubmitHrClockCorrection(db: Database, input: HrSelfClockCorrectionInput, actor: HrActor): Promise<{ id: string }> {
+  const created = await createHrFormRequest(db, { ...input, approverUserId: null }, actor);
+  try {
+    await submitHrFormRequest(db, created.id, input.employeeUserId, actor);
+  } catch (error) {
+    await deleteHrFormRequestDraft(db, created.id, input.employeeUserId, actor).catch(() => undefined);
+    throw error;
+  }
+  return { id: created.id };
+}
+
 export async function updateHrFormRequest(db: Database, id: string, employeeUserId: string, input: Omit<HrFormRequestInput, "employeeUserId">, actor: HrActor) {
   const [current] = await db.select({ status: hrFormRequests.status }).from(hrFormRequests)
     .where(and(eq(hrFormRequests.id, id), eq(hrFormRequests.employeeUserId, employeeUserId))).limit(1);

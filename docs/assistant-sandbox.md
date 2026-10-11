@@ -117,10 +117,10 @@ Sandbox 設定欄的「模擬員工本人」要求操作者具有系統 `admin` 
 1. 只處理一對一私訊，而且 channel 與這段對話都要啟用。
 2. 按的人是誰由 `resolveLineHrRequestActor` 決定，檢查與 HR 工具是同一套：LINE 綁定有效、帳號啟用、在職、這個私訊有被授權 `hr_request_draft_save`。工具被停用或授權被收回，按鈕也跟著失效。
 3. `confirmHrRequestDraft` 確認草稿是這個人、這段對話的，版本與按鈕上的一致（草稿之後又改過的話，舊卡片的按鈕失效），再照現在的規則重算一次能不能送。
-4. 先把草稿從 `open` 改成 `submitted`（搶到的才往下走），再呼叫 HR 頁面用的 `createHrLeaveRequest`。連按兩下或 LINE 重送 webhook，第二次都搶不到。HR 拒絕建立時草稿退回 `open`，員工可以改了再送。
+4. 先把草稿從 `open` 改成 `submitted`（搶到的才往下走），再呼叫 HR 頁面用的建立函式（請假 `createHrLeaveRequest`、加班 `createHrOvertimeRequest`、補打卡 `createAndSubmitHrClockCorrection`）。連按兩下或 LINE 重送 webhook，第二次都搶不到。HR 拒絕建立時草稿退回 `open`，員工可以改了再送。
 5. 回覆是固定句子（`hrRequestDraftConfirmationReply`），不是模型產生的。
 
-第 4 步的幾個動作不在同一個 transaction 裡，每一個中斷點都落在「不會多送」那一邊：搶到之後、建立之前中斷，會留下一張 `submitted` 但沒有 `submitted_request_id` 的草稿，申請沒有建立；建立成功之後才失敗（例如把申請 id 記回草稿那一步），申請已經存在，草稿維持 `submitted`。只有建立函式自己丟出錯誤才會把草稿退回 `open`。
+第 4 步的幾個動作不在同一個 transaction 裡，每一個中斷點都落在「不會多送」那一邊：搶到之後、建立之前中斷，會留下一張 `submitted` 但沒有 `submitted_request_id` 的草稿，申請沒有建立；建立成功之後才失敗（例如把申請 id 記回草稿那一步），申請已經存在，草稿維持 `submitted`。只有建立函式自己丟出錯誤才會把草稿退回 `open`；如果那次寫入其實已經進了資料庫（結果不明的失敗），擋住第二張的是 HR 自己的規則——請假與加班的時段重疊、補打卡的同一個時間點。補打卡是「建立、再送出」兩步，清不乾淨時留下的是一張 HR 頁面看得到的 draft，不是多一張待審申請。
 
 草稿跟著「這段對話裡現在這個人」走：
 
@@ -131,7 +131,7 @@ Sandbox 設定欄的「模擬員工本人」要求操作者具有系統 `admin` 
 
 三個工具的預設狀態是「開發中」，所以部署後只在 Sandbox 出現。Sandbox 會顯示確認卡片的預覽，但按鈕是停用的：模擬本人的管理者不能替員工送出真的申請。要在 LINE 開放，管理者要明確做兩件事：在小香設定頁把三個工具改成「已啟用」，並在 LINE 前台把它們授權給 channel。回滾時把 `hr_request_draft_save` 停用即可：模型存不了草稿，已經發出去的按鈕也會失效。
 
-草稿的種類目前有請假與加班。加班只問起訖時間與原因：本人申請的加班一律領加班費（`hr-overtime` 的規則），所以不問結算方式；試算用 `checkHrSelfOvertimeRequest`，與建立時跑的是同一組檢查，時段重疊則要到送出、由資料庫仲裁時才知道。每一種申請在 `assistant-hr-drafts.ts` 是一個 handler（怎麼併欄位、怎麼算、怎麼送出），草稿的生命週期不分種類。
+草稿的種類有請假、加班與補打卡。補打卡一張只補一次打卡，問的是補上班還是下班、實際的時間與原因（必填，跟 HR 頁面的表單一樣）；審核者固定是直屬主管，沒有直屬主管的人請他回 HR 頁面自己指定。HR 頁面的補打卡是「存草稿、再送出」兩步，對話的草稿存在小香那邊，確認時由 `createAndSubmitHrClockCorrection` 一次做完，送出被擋就把剛建立的那一列刪掉。每一種申請只收自己的欄位，傳了別種的欄位會被拒絕。加班只問起訖時間與原因：本人申請的加班一律領加班費（`hr-overtime` 的規則），所以不問結算方式；試算用 `checkHrSelfOvertimeRequest`，與建立時跑的是同一組檢查，時段重疊則要到送出、由資料庫仲裁時才知道。每一種申請在 `assistant-hr-drafts.ts` 是一個 handler（怎麼併欄位、怎麼算、怎麼送出），草稿的生命週期不分種類。
 
 ## 錯誤診斷與 Cloudflare logs
 
