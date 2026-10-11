@@ -55,7 +55,14 @@ it("部分儲存後重新載入並關閉舊草稿，避免用過期 revision 重
     });
     await changeName("早班名稱", "早班改名");
     await changeName("晚班名稱", "晚班改名");
-    await act(async () => { [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "儲存")!.click(); await new Promise((resolve) => setTimeout(resolve, 260)); });
+    await act(async () => { [...document.body.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "儲存")!.click(); });
+    // 等對話框真的從畫面上消失，不賭一個固定的毫秒數：兩次 PATCH、重新載入與收合都要時間，
+    // CI 的機器慢一點，固定等 260ms 就會早一步檢查而失敗。每一小段各包一個 act——
+    // React 的更新要等 act 結束才會套到畫面上，整段等在同一個 act 裡永遠看不到它關掉。
+    const deadline = Date.now() + 3_000;
+    while (document.body.querySelector('[role="dialog"]') && Date.now() < deadline) {
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 20)); });
+    }
 
     expect(patchCount).toBe(2);
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
