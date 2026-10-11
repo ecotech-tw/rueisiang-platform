@@ -116,6 +116,14 @@ describe("員工私有大頭貼", () => {
     expect((await upload(revision, mpo, "image/jpeg")).status).toBe(400); expect(put).not.toHaveBeenCalled(); expect(photoRow()).toEqual(before); expect(currentRevision()).toBe(revision); expect(await uploads.head(before!.object_key)).not.toBeNull();
   });
 
+  it("移除已提交但 D1 回應遺失時核對參照後清理舊檔並回報成功", async () => {
+    expect((await upload()).status).toBe(201); const previous = photoRow()!; const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => { await batch(statements); throw new Error("D1 response lost after remove commit"); });
+    const reconciled = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect((await requestSelf("/photo", "DELETE", JSON.stringify({ revision: currentRevision() }))).status).toBe(200);
+    expect(photoRow()).toBeUndefined(); expect(await uploads.head(previous.object_key)).toBeNull(); expect(reconciled).toHaveBeenCalledWith(expect.stringContaining("hr.employee_photo_write_reconciled"));
+  });
+
   it("本人端共用照片、revision 與私有讀取，只能操作 session 對應的在職員工", async () => {
     expect((await requestSelf("/photo")).status).toBe(404);
     expect((await uploadSelf(currentRevision(), png, "image/png", "other")).status).toBe(403);

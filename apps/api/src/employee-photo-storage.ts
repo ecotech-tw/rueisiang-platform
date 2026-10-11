@@ -61,7 +61,21 @@ export async function uploadEmployeePhoto(c: Context<AppEnv>, employee: PhotoEmp
 export async function removeEmployeePhoto(c: Context<AppEnv>, employmentId: string, revision: number) {
   const bucket = requireBucket(c);
   const previous = await findHrEmployeePhoto(c.get("db"), employmentId);
-  const result = await updateHrEmployeePhoto(c.get("db"), employmentId, { revision, photo: null }, c.get("user"));
+  let result: Awaited<ReturnType<typeof updateHrEmployeePhoto>>;
+  try { result = await updateHrEmployeePhoto(c.get("db"), employmentId, { revision, photo: null }, c.get("user")); }
+  catch (error) {
+    let current: Awaited<ReturnType<typeof findHrEmployeePhoto>>;
+    try { current = await findHrEmployeePhoto(c.get("db"), employmentId); }
+    catch { console.error(JSON.stringify({ event: "hr.employee_photo_write_unconfirmed", employmentId, photoId: previous?.id ?? null })); throw error; }
+    if (previous && current?.id !== previous.id) {
+      await deleteObject(bucket, previous.objectKey);
+      if (!current && !(error instanceof HrError && error.status === 409)) {
+        console.warn(JSON.stringify({ event: "hr.employee_photo_write_reconciled", employmentId, photoId: previous.id }));
+        return c.json({ id: employmentId });
+      }
+    } else if (!(error instanceof HrError && error.status === 409)) console.error(JSON.stringify({ event: "hr.employee_photo_write_unconfirmed", employmentId, photoId: previous?.id ?? null }));
+    throw error;
+  }
   if (previous) await deleteObject(bucket, previous.objectKey);
   return c.json(result);
 }
