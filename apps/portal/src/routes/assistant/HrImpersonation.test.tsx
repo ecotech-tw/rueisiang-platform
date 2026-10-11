@@ -34,7 +34,7 @@ function sandboxConfig(available: boolean): SandboxConfig {
   return {
     assistantKey: "test", configured: true, providers: { codex: true, gemini: true }, defaultModel: "gemini", activeModel: "gemini",
     fallbackModel: null, activeModelUpdatedAt: null, credentialStatus: { codex: "ready", codexLastErrorAt: null },
-    models: [{ id: "gemini", label: "Gemini 測試模型", category: "test", quota: { rpm: 1, tpm: 1, rpd: 1 }, provider: "google", supported: true, configured: true, supportsVision: true }],
+    models: [{ id: "gemini", label: "Gemini 測試模型", category: "test", provider: "google", supported: true, configured: true, supportsVision: true }],
     tools: [tool("crm_search_customers", "搜尋客戶"), ...(available ? [tool("hr_authorize", "HR 本人授權")] : [])],
     activePrompt: prompt, revisions: [prompt],
     hrSandbox: { available, bindingConfigured: true, toolKeys: available ? ["hr_authorize"] : [] },
