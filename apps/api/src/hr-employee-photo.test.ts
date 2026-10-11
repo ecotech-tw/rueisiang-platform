@@ -84,6 +84,28 @@ describe("員工私有大頭貼", () => {
     const response = await upload(revision, oversized); expect(response.status).toBe(400); expect(await response.text()).toContain("解碼限制"); expect(photoRow()).toEqual(before); expect(currentRevision()).toBe(revision);
   });
 
+  it("APP1 內容出現 MPF-like bytes 不誤判成 MPO", async () => {
+    const app1 = Buffer.from([0xff, 0xe1, 0, 10, 0xff, 0xe2, 0, 6, 0x4d, 0x50, 0x46, 0]);
+    const ordinary = Buffer.concat([jpeg.subarray(0, 2), app1, jpeg.subarray(2)]);
+    expect((await upload(currentRevision(), ordinary, "image/jpeg")).status).toBe(201);
+  });
+
+  it.each([2, 1001])("拒絕包含 %s 張有效 JPEG 的 MPO，不改照片、revision 或 R2", async (count) => {
+    // MPF index 與逐張 MPEntry；涵蓋 library metadata 忽略 NumberOfImages > 1000 的情境。
+    const app2 = Buffer.alloc(58 + 16 * count); app2[0] = 0xff; app2[1] = 0xe2; app2.writeUInt16BE(app2.length - 2, 2); app2.write("MPF\0", 4); app2.write("MM", 8); app2.writeUInt16BE(42, 10); app2.writeUInt32BE(8, 12); app2.writeUInt16BE(3, 16);
+    app2.writeUInt16BE(0xb000, 18); app2.writeUInt16BE(7, 20); app2.writeUInt32BE(4, 22); app2.write("0100", 26);
+    app2.writeUInt16BE(0xb001, 30); app2.writeUInt16BE(4, 32); app2.writeUInt32BE(1, 34); app2.writeUInt32BE(count, 38);
+    app2.writeUInt16BE(0xb002, 42); app2.writeUInt16BE(7, 44); app2.writeUInt32BE(16 * count, 46); app2.writeUInt32BE(50, 50);
+    const primarySize = jpeg.length + app2.length;
+    for (let index = 0; index < count; index++) {
+      const offset = 58 + index * 16;
+      app2.writeUInt32BE(index === 0 ? 0x20000000 : 0, offset); app2.writeUInt32BE(index === 0 ? primarySize : jpeg.length, offset + 4); app2.writeUInt32BE(index === 0 ? 0 : primarySize + (index - 1) * jpeg.length - 10, offset + 8);
+    }
+    const mpo = Buffer.concat([jpeg.subarray(0, 2), app2, jpeg.subarray(2), ...Array.from({ length: count - 1 }, () => jpeg)]);
+    expect((await upload()).status).toBe(201); const before = photoRow(); const revision = currentRevision(); const put = vi.spyOn(uploads, "put");
+    expect((await upload(revision, mpo, "image/jpeg")).status).toBe(400); expect(put).not.toHaveBeenCalled(); expect(photoRow()).toEqual(before); expect(currentRevision()).toBe(revision); expect(await uploads.head(before!.object_key)).not.toBeNull();
+  });
+
   it("已提交但回應遺失時確認參照並回報成功，不刪除目前照片", async () => {
     expect((await upload()).status).toBe(201); const before = photoRow()!; const revision = currentRevision();
     const batch = d1.batch.bind(d1); const log = vi.spyOn(console, "warn").mockImplementation(() => {});
