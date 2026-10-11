@@ -174,7 +174,6 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 設計與現況見 [`docs/assistant-sandbox.md`](./docs/assistant-sandbox.md) 的「HR 申請草稿」。
 
 - [ ] 在 LINE 開通：把 `hr_request_draft_get`／`save`／`cancel` 改成已啟用並授權給 channel，用一個測試帳號實機走完「講到齊 → 收到卡片 → 按確認 → HR 頁面出現待審假單」，並確認連按兩下只有一張、按取消不會送出、舊卡片的按鈕失效。LINE 的 confirm template 與 postback 沒有在實機驗證過。
-- [ ] 草稿支援補打卡申請。
 - [ ] 部署後在 Sandbox 模擬一位員工，從「我想請假」講到出現確認卡片，確認模型一次只問一件事、不會說「已送出」，換成第二種申請時會提醒舊草稿。
 
 ### 小香：MCP tools

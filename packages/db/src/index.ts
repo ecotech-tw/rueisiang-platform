@@ -41,7 +41,7 @@ export {
   type HrAnnualLeaveAdjustmentInput, type HrAnnualLeaveAllocation, type HrAnnualLeaveAllocationInput, type HrAnnualLeaveBackfillOptions, type HrAnnualLeaveSettlementCandidate,
 } from "./hr-annual-leave.js";
 export {
-  cancelHrFormRequest, createHrFormRequest, deleteHrFormRequestDraft, getHrFormRequest, listHrFormApprovers, listHrFormRequests, listHrFormRequestsForHr, reviewHrFormRequest,
+  cancelHrFormRequest, checkHrSelfClockCorrection, createAndSubmitHrClockCorrection, createHrFormRequest, deleteHrFormRequestDraft, getHrFormRequest, listHrFormApprovers, listHrFormRequests, listHrFormRequestsForHr, reviewHrFormRequest,
   submitHrFormRequest, updateHrFormRequest,
   type HrFormRequestEventKind, type HrFormRequestInput, type HrFormRequestStatus,
 } from "./hr-requests.js";

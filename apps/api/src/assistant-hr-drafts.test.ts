@@ -2,7 +2,7 @@ import {
   cancelHrRequestDraft, confirmHrRequestDraft, createDatabase, discardHrRequestDrafts, ensureAssistantDefaults, ensureAssistantLineChannel, getHrRequestDraft, hrRequestDraftHint,
   listAssistantChannelTools, listAssistantToolConfigs, saveHrRequestDraft, setAssistantChannelTools, syncSystemRoles, type HrRequestDraftScope,
 } from "@rueisiang/db";
-import { assistantHrRequestDrafts, hrEmployments, hrLeaveRequests, hrLeaveTypes, hrOvertimeRequests, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { assistantHrRequestDrafts, hrEmployments, hrFormRequests, hrLeaveRequests, hrNotifications, hrLeaveTypes, hrOvertimeRequests, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { HR_TOOL_DEFINITIONS, isHrToolKey, PLATFORM_TOOL_DEFAULT_STATUSES, PLATFORM_TOOL_KEYS, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -71,21 +71,6 @@ describe("小香 HR 申請草稿", () => {
     expect((await db().select().from(hrOvertimeRequests))[0]!.reason).toBe("");
   });
 
-  it("資料表裡出現這一版還不會處理的種類：讀取、提醒與確認都當作沒有，取消仍然做得到", async () => {
-    const draft = await saveHrRequestDraft(db(), scope, complete, NOW);
-    d1.sqlite.prepare("UPDATE assistant_hr_request_drafts SET kind='clock_correction'").run();
-    expect(await getHrRequestDraft(db(), scope, NOW)).toBeNull();
-    expect(await hrRequestDraftHint(db(), scope, NOW)).toBeNull();
-    expect(await confirmHrRequestDraft(db(), {
-      draftId: draft.id, revision: draft.revision, action: "submit", userId: "alice", actor: { id: "alice", email: "alice@example.test" },
-      conversation: { assistantKey: scope.assistantKey, surface: scope.surface, channelKey: scope.channelKey, conversationKey: scope.conversationKey },
-    }, NOW)).toEqual({ outcome: "gone" });
-    // 它還佔著這段對話的位置，所以開新草稿時會被提醒；取消之後才開得了。
-    await expect(saveHrRequestDraft(db(), scope, { kind: "leave" }, NOW)).rejects.toThrow("已經有一張還沒完成的補打卡草稿");
-    expect(await cancelHrRequestDraft(db(), scope, NOW)).toEqual({ cancelled: true, kindLabel: "補打卡" });
-    expect(await saveHrRequestDraft(db(), scope, { kind: "leave" }, NOW)).toMatchObject({ kind: "leave" });
-  });
-
   it("存草稿不會建立任何 HR 申請", async () => {
     await saveHrRequestDraft(db(), scope, complete, NOW);
     expect(await db().select().from(hrLeaveRequests)).toHaveLength(0);
@@ -105,8 +90,7 @@ describe("小香 HR 申請草稿", () => {
   });
 
   it("還沒支援的種類直接拒絕；已經有一張草稿時不能改開別種，要先取消", async () => {
-    await expect(saveHrRequestDraft(db(), scope, { kind: "clock_correction" }, NOW)).rejects.toThrow("目前只能透過小香申請請假、加班");
-    await expect(saveHrRequestDraft(db(), scope, { kind: "resign" }, NOW)).rejects.toThrow("目前只能透過小香申請請假、加班");
+    await expect(saveHrRequestDraft(db(), scope, { kind: "resign" }, NOW)).rejects.toThrow("目前只能透過小香申請請假、加班、補打卡");
     await saveHrRequestDraft(db(), scope, { kind: "leave", reason: "看醫生" }, NOW);
     await expect(saveHrRequestDraft(db(), scope, { kind: "overtime", reason: "盤點" }, NOW)).rejects.toThrow("已經有一張還沒完成的請假草稿");
     // 被擋下來的那一次什麼都沒有改到。
@@ -404,7 +388,7 @@ describe("小香 HR 申請草稿：加班", () => {
     const before = await getHrRequestDraft(db(), line, NOW);
     await expect(saveHrRequestDraft(db(), line, { kind: "overtime", endsAt: "2026-03-03 18:45" }, NOW)).rejects.toThrow("0.5 小時");
     await expect(saveHrRequestDraft(db(), line, { kind: "overtime", endsAt: "2026-03-03 17:00" }, NOW)).rejects.toThrow("晚於開始");
-    await expect(saveHrRequestDraft(db(), line, { kind: "overtime", leaveTypeId: "leave-personal" }, NOW)).rejects.toThrow("沒有假別");
+    await expect(saveHrRequestDraft(db(), line, { kind: "overtime", leaveTypeId: "leave-personal" }, NOW)).rejects.toThrow("加班申請沒有這些欄位：leaveTypeId");
     expect(await getHrRequestDraft(db(), line, NOW)).toEqual(before);
   });
 
@@ -444,6 +428,85 @@ describe("小香 HR 申請草稿：加班", () => {
   });
 });
 
+describe("小香 HR 申請草稿：補打卡", () => {
+  const line: HrRequestDraftScope = { assistantKey: "xiaoxiang", surface: "line", channelKey: "xiaoxiang", conversationKey: "group-row-1", userId: "alice" };
+  const alice = { id: "alice", email: "alice@example.test" };
+  const conversation = { assistantKey: line.assistantKey, surface: line.surface, channelKey: line.channelKey, conversationKey: line.conversationKey };
+  // 台北 2026-03-03（週二）09:05 上班。HR 用真實的現在判斷「不能是未來」，這個時間早就過了。
+  const complete = { kind: "clock_correction", clockEvent: "clock_in", clockAt: "2026-03-03 09:05", reason: "手機沒電" };
+  const press = (draft: { id: string; revision: number }) =>
+    confirmHrRequestDraft(db(), { draftId: draft.id, revision: draft.revision, action: "submit", conversation, userId: "alice", actor: alice }, NOW);
+  const forms = () => db().select().from(hrFormRequests);
+
+  beforeEach(async () => {
+    await ensureAssistantLineChannel(db(), { assistantKey: "xiaoxiang" });
+    // 補打卡送給直屬主管審。
+    await db().update(hrEmployments).set({ supervisorUserId: "bob" }).where(eq(hrEmployments.id, "employment-alice"));
+  });
+
+  it("問上班還是下班、實際時間與原因（必填），齊了排出補打卡的卡片", async () => {
+    const first = await saveHrRequestDraft(db(), line, { kind: "clock_correction" }, NOW);
+    expect(first).toMatchObject({ kindLabel: "補打卡", status: "collecting", missing: ["clockEvent", "clockAt", "reason"], optional: [], card: null });
+    const partial = await saveHrRequestDraft(db(), line, { kind: "clock_correction", clockEvent: "clock_in", clockAt: "2026-03-03 09:05" }, NOW);
+    expect(partial).toMatchObject({ status: "collecting", missing: ["reason"], card: null });
+    const ready = await saveHrRequestDraft(db(), line, { kind: "clock_correction", reason: "手機沒電" }, NOW);
+    expect(ready).toMatchObject({ status: "ready", missing: [], fields: { clockEvent: "clock_in", clockEventLabel: "上班打卡", clockAt: "2026-03-03 09:05" } });
+    expect(ready.card).toBe("補打卡申請（尚未送出）\n類型：上班打卡\n時間：2026-03-03（週二）09:05\n原因：手機沒電");
+    expect(await forms()).toHaveLength(0);
+  });
+
+  it("未來的時間、亂填的類型、別種申請的欄位：當場拒絕，草稿不變", async () => {
+    await saveHrRequestDraft(db(), line, { kind: "clock_correction", clockEvent: "clock_out", reason: "忘了" }, NOW);
+    const before = await getHrRequestDraft(db(), line, NOW);
+    await expect(saveHrRequestDraft(db(), line, { kind: "clock_correction", clockAt: "2099-01-01 09:00" }, NOW)).rejects.toThrow("不可晚於現在");
+    await expect(saveHrRequestDraft(db(), line, { kind: "clock_correction", clockAt: "昨天九點" }, NOW)).rejects.toThrow("YYYY-MM-DD HH:mm");
+    await expect(saveHrRequestDraft(db(), line, { kind: "clock_correction", clockEvent: "lunch" }, NOW)).rejects.toThrow("clock_in");
+    await expect(saveHrRequestDraft(db(), line, { kind: "clock_correction", startsAt: "2026-03-03 09:00", leaveTypeId: "leave-personal" }, NOW)).rejects.toThrow("補打卡申請沒有這些欄位：leaveTypeId、startsAt");
+    expect(await getHrRequestDraft(db(), line, NOW)).toEqual(before);
+    // 反過來也一樣：補打卡的欄位進不了請假。
+    await cancelHrRequestDraft(db(), line, NOW);
+    await expect(saveHrRequestDraft(db(), line, { kind: "leave", clockAt: "2026-03-03 09:05" }, NOW)).rejects.toThrow("請假申請沒有這些欄位：clockAt");
+  });
+
+  it("按確認：建立並送出一張待審的補打卡，時間轉成 UTC、審核者是直屬主管；再按不會重複", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    expect(await press(draft)).toMatchObject({ outcome: "submitted", kindLabel: "補打卡", card: draft.card });
+    expect(await forms()).toEqual([expect.objectContaining({
+      employeeUserId: "alice", employmentId: "employment-alice", formKind: "clock_correction", status: "pending",
+      correctionDate: "2026-03-03", requestedEventKind: "clock_in", requestedAt: "2026-03-03 01:05:00", reason: "手機沒電", approverUserId: "bob",
+    })]);
+    expect((await forms())[0]!.submittedAt).toBeTruthy();
+    expect(await press(draft)).toEqual({ outcome: "already_submitted", kindLabel: "補打卡" });
+    expect(await forms()).toHaveLength(1);
+  });
+
+  it("台北凌晨的打卡在 UTC 是前一天：補打卡的日期仍是台北那一天", async () => {
+    const draft = await saveHrRequestDraft(db(), line, { ...complete, clockEvent: "clock_out", clockAt: "2026-03-04 00:30" }, NOW);
+    expect(await press(draft)).toMatchObject({ outcome: "submitted" });
+    expect((await forms())[0]).toMatchObject({ correctionDate: "2026-03-04", requestedAt: "2026-03-03 16:30:00", requestedEventKind: "clock_out" });
+  });
+
+  it("同一個時間點已經有一張審核中的：HR 拒絕，照實說沒有送出，而且不在 HR 頁面留下草稿", async () => {
+    const first = await saveHrRequestDraft(db(), line, complete, NOW);
+    expect(await press(first)).toMatchObject({ outcome: "submitted" });
+    const again = await saveHrRequestDraft(db(), line, complete, NOW);
+    expect(await press(again)).toMatchObject({ outcome: "rejected", kindLabel: "補打卡", message: expect.stringContaining("同一個時間點") });
+    expect((await forms()).map((row) => row.status)).toEqual(["pending"]);
+    // 被擋下來的那一次不會通知主管：只有第一張送出時的那一則。
+    expect((await db().select().from(hrNotifications)).map((row) => [row.userId, row.kind])).toEqual([["bob", "request_submitted"]]);
+    expect((await db().select().from(assistantHrRequestDrafts)).map((row) => row.status).sort()).toEqual(["open", "submitted"]);
+  });
+
+  it("沒有直屬主管：存時間的當下就講，請他到 HR 頁面指定審核者；卡片發出去之後主管被拿掉，按了也不送", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    await db().update(hrEmployments).set({ supervisorUserId: null }).where(eq(hrEmployments.id, "employment-alice"));
+    await expect(saveHrRequestDraft(db(), { ...line, conversationKey: "group-row-2" }, complete, NOW)).rejects.toThrow("直屬主管");
+    expect(await getHrRequestDraft(db(), line, NOW)).toMatchObject({ status: "collecting", card: null, problem: expect.stringContaining("直屬主管") });
+    expect(await press(draft)).toMatchObject({ outcome: "not_ready", problem: expect.stringContaining("直屬主管") });
+    expect(await forms()).toHaveLength(0);
+  });
+});
+
 describe("工具超過二十個時的授權寫入", () => {
   it("建立 channel 的預設授權與後台全選都切批寫，不會撞到 D1 單一語句 100 個參數的上限", async () => {
     const lineKeys = toolKeysForLineSource(PLATFORM_TOOL_KEYS, "user");
@@ -468,7 +531,7 @@ describe("小香 HR 申請草稿的工具", () => {
     }
     expect(toolKeysForLineSource(keys, "group")).toEqual([]);
     expect(HR_TOOL_DEFINITIONS.map((tool) => tool.key).filter((key) => /submit|confirm|create|apply/.test(key))).toEqual([]);
-    expect(PLATFORM_TOOL_MAP.get("hr_request_draft_save")!.parameters.properties.kind!.enum).toEqual(["leave", "overtime"]);
+    expect(PLATFORM_TOOL_MAP.get("hr_request_draft_save")!.parameters.properties.kind!.enum).toEqual(["leave", "overtime", "clock_correction"]);
   });
 
   it("第一次寫進設定表時照工具自己的預設狀態，不是一律 enabled；已經設定過的不會被改回去", async () => {
