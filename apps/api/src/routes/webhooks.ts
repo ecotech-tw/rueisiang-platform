@@ -32,6 +32,11 @@ import {
   reserveAssistantLinePushDelivery,
   resolveLineToolKeys,
   recordAssistantRun,
+  confirmHrRequestDraft,
+  discardHrRequestDrafts,
+  findLineAccountBinding,
+  getHrRequestDraft,
+  hrRequestDraftHint,
   recordAssistantLineMessage,
   upsertAssistantLineQueueJob,
   resetAssistantLineContext,
@@ -54,7 +59,7 @@ import {
   type AssistantRunResult,
 } from "@rueisiang/assistant";
 import { PLATFORM_TOOL_DEFAULT_STATUSES, PLATFORM_TOOL_KEYS, toolsForSurface, toolKeysForLineSource } from "@rueisiang/tools";
-import { assertHrLineDeliveryAuthorized, HrSelfToolError } from "../assistant-hr.js";
+import { assertHrLineDeliveryAuthorized, hrRequestDraftConfirmationReply, hrRequestDraftPromptHint, HrSelfToolError, resolveLineHrRequestActor } from "../assistant-hr.js";
 import type { HrDeliveryAuthorization } from "../assistant-hr.js";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -86,6 +91,10 @@ import {
   lineEventIsSessionReset,
   lineEventRawText,
   lineEventText,
+  lineHrDraftConfirmMessages,
+  parseLineHrDraftPostback,
+  type LineExtraMessage,
+  type LineWebhookEvent,
   fetchLineChatMemberCount,
   fetchLineGroupSummary,
   fetchLinePushUsage,
@@ -266,6 +275,8 @@ async function deliverLinePush(input: {
   messageId?: string;
   sourceType: "group" | "room" | "user";
   text: string;
+  /** 接在文字後面一起送的訊息（申請草稿的確認卡片）。 */
+  extraMessages?: readonly LineExtraMessage[];
   beforeSend?: () => Promise<void>;
   redactMessageErrors?: boolean;
   /** Queue outbox 建立時間；超過 LINE retry-key 的 24 小時 dedupe 保證後不可自動 Push。 */
@@ -376,7 +387,7 @@ async function deliverLinePush(input: {
   try {
     await input.beforeSend?.();
     // retry key 與 Queue message 的 runId 相同；consumer 在 LINE 已收件、D1 尚未標 sent 時重試也不會重複計費。
-    await pushLineMessage(input.accessToken, input.lineGroupId, input.text, input.runId, lineLogContext);
+    await pushLineMessage(input.accessToken, input.lineGroupId, input.text, input.runId, lineLogContext, input.extraMessages);
     await markAssistantLinePushDelivery(input.db, { runId: input.runId, status: "sent" });
     assistantLog("info", "line.push.completed", {
       runId: input.runId,
@@ -473,6 +484,8 @@ async function runLineAssistant(input: {
   let privateHrRun = false;
   let hrAuthorization: HrDeliveryAuthorization | undefined;
   let hrToolKeys: string[] = [];
+  /** 這一輪把草稿存齊了：最終回覆後面接確認卡片與按鈕。只跟最終回覆一起送，忙碌或錯誤的回覆不帶。 */
+  let confirmMessages: LineExtraMessage[] = [];
   const checkHrDelivery = async () => {
     if (hrAuthorization) await assertHrLineDeliveryAuthorized(input.db, input.env, input, hrAuthorization, hrToolKeys);
   };
@@ -486,7 +499,7 @@ async function runLineAssistant(input: {
     replyAttempt = (async () => {
       if (reason === "final") await checkHrDelivery();
       try {
-        await replyLineMessage(input.accessToken, input.replyToken, text, { ...trace, ...(privateHrRun ? { redactMessageErrors: true } : {}) });
+        await replyLineMessage(input.accessToken, input.replyToken, text, { ...trace, ...(privateHrRun ? { redactMessageErrors: true } : {}) }, reason === "final" ? confirmMessages : []);
         replyKind = reason;
         assistantLog("info", "line.reply.completed", {
           ...trace,
@@ -559,6 +572,19 @@ async function runLineAssistant(input: {
     if (!prompt) throw new Error("小香的 prompt 設定目前無法使用。");
     promptRevisionId = prompt.id;
 
+    // HR 回合不留 transcript，模型不記得上一輪問到哪裡；有講到一半的申請草稿就先提醒它去讀。
+    // 只在這一輪真的拿得到讀草稿工具時才提：私訊、工具已啟用、這段對話有被授權。
+    // 草稿要是「現在綁在這個 LINE 帳號上的那位員工」的才提：帳號換綁給別人之後，前一個人的草稿不該出現在他的提示裡。
+    const lineLoginChannelId = input.env.LINE_LIFF_CHANNEL_ID?.trim();
+    const draftOwner = input.sourceType === "user" && lineLoginChannelId && allowedToolKeys.includes("hr_request_draft_get")
+      ? await findLineAccountBinding(input.db, { channelId: lineLoginChannelId, lineUserId: input.lineGroupId })
+      : null;
+    const draftHint = draftOwner
+      ? await hrRequestDraftHint(input.db, {
+        assistantKey: input.assistantKey, surface: "line", channelKey: input.channelKey, conversationKey: input.groupRowId, userId: draftOwner.userId,
+      })
+      : null;
+
     // 最近對話不再由 D1 每輪拼成 prompt；chat 專屬 DO 會還原 Pi transcript 與 compact summary。
     promptText = input.questionText;
     const systemPrompt = [
@@ -566,6 +592,7 @@ async function runLineAssistant(input: {
       ASSISTANT_REPORT_TOOL_ROUTING,
       runtimeContextInstruction(currentAssistantRuntimeContext()),
       "這是 LINE 內部助理。除非使用者要求詳細說明，請用繁體中文在六句內直接回答；不要輸出思考過程。",
+      ...hrRequestDraftPromptHint(draftHint),
     ].join("\n\n");
     let result: AssistantRunResult;
     if (savedBackup?.responseText) {
@@ -602,6 +629,13 @@ async function runLineAssistant(input: {
       privateHrRun = piResponse.privateHrRun === true;
       hrAuthorization = piResponse.hrAuthorization;
       hrToolKeys = result.toolCalls.map((call) => call.toolKey);
+      // 卡片由程式用草稿排出來，不是模型寫的字；按的人是誰、能不能送，等他按下去時再驗一次。
+      if (hrAuthorization && result.toolCalls.some((call) => call.toolKey === "hr_request_draft_save" && call.status === "success")) {
+        const draft = await getHrRequestDraft(input.db, {
+          assistantKey: input.assistantKey, surface: "line", channelKey: input.channelKey, conversationKey: input.groupRowId, userId: hrAuthorization.userId,
+        });
+        if (draft?.card) confirmMessages = lineHrDraftConfirmMessages({ id: draft.id, revision: draft.revision, kindLabel: draft.kindLabel, card: draft.card });
+      }
     }
     await checkHrDelivery();
     resultForBackup = result;
@@ -658,6 +692,7 @@ async function runLineAssistant(input: {
           messageId: input.messageId,
           sourceType: input.sourceType,
           text: result.text,
+          extraMessages: confirmMessages,
           ...(privateHrRun ? { beforeSend: checkHrDelivery, redactMessageErrors: true } : {}),
           queueCreatedAt: input.queueCreatedAt,
         });
@@ -1463,6 +1498,51 @@ async function receive(c: Context<AppEnv>) {
   return c.json(outcome);
 }
 
+/**
+ * 員工按了申請草稿確認卡片上的按鈕。
+ *
+ * 這條路不進 Queue、不經過模型：按鈕帶的只有草稿 id 與版本，按的人是誰由 LINE 簽過章的 webhook 來源
+ * 加上既有的帳號綁定決定，能不能送由 confirmHrRequestDraft 照現在的規則重算。回覆也是固定句子。
+ * LINE 重送同一個 webhook、或員工連按兩下，第二次都只會得到「已經送出過了」。
+ */
+async function confirmLineHrDraft(c: Context<AppEnv>, input: {
+  event: LineWebhookEvent;
+  postback: { action: "submit" | "cancel"; draftId: string; revision: number };
+  lineChannel: { assistantKey: string; channelKey: string; enabled: boolean };
+  accessToken: string | null | undefined;
+}): Promise<void> {
+  const source = lineEventGroup(input.event);
+  const replyToken = typeof input.event.replyToken === "string" ? input.event.replyToken.trim() : "";
+  // 群組裡的按鈕一律不理：草稿只存在於一對一私訊。
+  if (!source || source.sourceType !== "user" || !replyToken || !input.accessToken || !input.lineChannel.enabled) return;
+  const lineGroup = await upsertAssistantLineGroup(c.get("db"), { channelKey: input.lineChannel.channelKey, lineGroupId: source.id, sourceType: "user" });
+  if (!lineGroup.enabled) return;
+  const trace = { channelKey: input.lineChannel.channelKey, groupRowId: lineGroup.id, draftId: input.postback.draftId, action: input.postback.action };
+  let text: string;
+  try {
+    const actor = await resolveLineHrRequestActor(c.get("db"), c.env, {
+      assistantKey: input.lineChannel.assistantKey, channelKey: input.lineChannel.channelKey, groupRowId: lineGroup.id,
+      lineGroupId: lineGroup.lineGroupId, sourceType: "user", contextGeneration: lineGroup.contextResetAt ?? "",
+    });
+    const outcome = await confirmHrRequestDraft(c.get("db"), {
+      draftId: input.postback.draftId, revision: input.postback.revision, action: input.postback.action,
+      conversation: { assistantKey: input.lineChannel.assistantKey, surface: "line", channelKey: input.lineChannel.channelKey, conversationKey: lineGroup.id },
+      userId: actor.id, actor,
+    });
+    assistantLog("info", "line.hr_draft.confirmed", { ...trace, outcome: outcome.outcome });
+    text = hrRequestDraftConfirmationReply(outcome);
+  } catch (error) {
+    // HrSelfToolError 是我們自己寫的授權訊息（未綁定、已停權、工具沒有授權），可以直接給員工看。
+    assistantLog("warn", "line.hr_draft.failed", { ...trace, error: error instanceof HrSelfToolError ? error.message : assistantErrorDetails(error) });
+    text = error instanceof HrSelfToolError ? error.message : "目前無法處理這張申請，沒有送出。請稍後再試。";
+  }
+  try {
+    await replyLineMessage(input.accessToken, replyToken, text, { ...trace, redactMessageErrors: true });
+  } catch (error) {
+    assistantLog("warn", "line.hr_draft.reply_failed", { ...trace, error: assistantErrorDetails(error) });
+  }
+}
+
 async function receiveLine(c: Context<AppEnv>) {
   const declared = Number(c.req.header("content-length") || 0);
   if (declared > MAX_BODY_BYTES) throw new HTTPException(413, { message: "Payload too large" });
@@ -1512,6 +1592,11 @@ async function receiveLine(c: Context<AppEnv>) {
       continue;
     }
     const event = rawEvent;
+    const draftPostback = parseLineHrDraftPostback(event);
+    if (draftPostback) {
+      await confirmLineHrDraft(c, { event, postback: draftPostback, lineChannel, accessToken });
+      continue;
+    }
     const rawText = lineEventRawText(event);
     const text = lineEventText(event);
     const group = lineEventGroup(event);
@@ -1603,6 +1688,10 @@ async function receiveLine(c: Context<AppEnv>) {
         id: lineGroup.id,
       });
       resetGeneration = resetGroup?.contextResetAt ?? resetGeneration;
+      // 重設就是「從頭來過」：講到一半的申請草稿一起收掉，之前發出去的確認卡片也跟著失效。
+      await discardHrRequestDrafts(c.get("db"), {
+        assistantKey: lineChannel.assistantKey, surface: "line", channelKey: lineChannel.channelKey, conversationKey: lineGroup.id,
+      });
     }
     if (sessionReset) {
       if (lineChannel.enabled && lineGroup.enabled && accessToken && replyToken) {

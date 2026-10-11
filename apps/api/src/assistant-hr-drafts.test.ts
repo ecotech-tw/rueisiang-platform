@@ -1,11 +1,11 @@
 import {
-  cancelHrRequestDraft, createDatabase, ensureAssistantDefaults, ensureAssistantLineChannel, getHrRequestDraft, hrRequestDraftHint,
+  cancelHrRequestDraft, confirmHrRequestDraft, createDatabase, discardHrRequestDrafts, ensureAssistantDefaults, ensureAssistantLineChannel, getHrRequestDraft, hrRequestDraftHint,
   listAssistantChannelTools, listAssistantToolConfigs, saveHrRequestDraft, setAssistantChannelTools, syncSystemRoles, type HrRequestDraftScope,
 } from "@rueisiang/db";
-import { assistantHrRequestDrafts, hrEmployments, hrLeaveRequests, hrLeaveTypes, users } from "@rueisiang/db/schema";
+import { assistantHrRequestDrafts, hrEmployments, hrLeaveRequests, hrLeaveTypes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { HR_TOOL_DEFINITIONS, isHrToolKey, PLATFORM_TOOL_DEFAULT_STATUSES, PLATFORM_TOOL_KEYS, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 // 台北 2026-03-02（週一）08:00。
@@ -30,7 +30,7 @@ beforeEach(async () => {
     { id: "leave-retired", name: "停用假", leaveKind: "other", active: 0, createdBy: "admin" },
   ]);
 });
-afterEach(() => { d1.sqlite.close(); });
+afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); });
 
 describe("小香 HR 申請草稿", () => {
   it("一輪一輪把欄位補齊：缺什麼就回什麼，齊了才是 ready 並排出固定格式的卡片", async () => {
@@ -98,13 +98,21 @@ describe("小香 HR 申請草稿", () => {
     expect(fresh.fields).toMatchObject({ reason: null, leaveTypeId: null });
   });
 
-  it("草稿只屬於這段對話與這位員工：別段對話看不到，同一段對話換了人會被擋", async () => {
+  it("草稿只屬於這段對話與這位員工：別段對話看不到；同一段對話換了人，前一個人的草稿對他來說不存在", async () => {
     await saveHrRequestDraft(db(), scope, complete, NOW);
     expect(await getHrRequestDraft(db(), { ...scope, conversationKey: "session-2" }, NOW)).toBeNull();
     expect(await getHrRequestDraft(db(), { ...scope, surface: "line", channelKey: "xiaoxiang" }, NOW)).toBeNull();
-    await expect(getHrRequestDraft(db(), { ...scope, userId: "bob" }, NOW)).rejects.toThrow("另一位員工");
-    await expect(saveHrRequestDraft(db(), { ...scope, userId: "bob" }, { kind: "leave" }, NOW)).rejects.toThrow("另一位員工");
-    await expect(cancelHrRequestDraft(db(), { ...scope, userId: "bob" }, NOW)).rejects.toThrow("另一位員工");
+    const bob = { ...scope, userId: "bob" };
+    // 讀不到、取消不到，也不會被告知「這裡有別人的申請」。
+    expect(await getHrRequestDraft(db(), bob, NOW)).toBeNull();
+    expect(await hrRequestDraftHint(db(), bob, NOW)).toBeNull();
+    expect(await cancelHrRequestDraft(db(), bob, NOW)).toEqual({ cancelled: false, kindLabel: null });
+    expect((await getHrRequestDraft(db(), scope, NOW))!.fields.reason).toBe("看醫生");
+    // 他開始自己的申請時，前一個人留下的那張作廢，他從空白開始。
+    const own = await saveHrRequestDraft(db(), bob, { kind: "leave" }, NOW);
+    expect(own.fields).toMatchObject({ reason: null, leaveTypeId: null, startsAt: null });
+    expect(await getHrRequestDraft(db(), scope, NOW)).toBeNull();
+    expect((await db().select().from(assistantHrRequestDrafts)).map((row) => [row.userId, row.status]).sort()).toEqual([["alice", "cancelled"], ["bob", "open"]]);
   });
 
   it("LINE 的草稿要指向真的 channel，Sandbox 的不能帶 channel", async () => {
@@ -178,6 +186,157 @@ describe("小香 HR 申請草稿", () => {
     const stale = await getHrRequestDraft(db(), scope, NOW);
     expect(stale).toMatchObject({ status: "collecting", card: null, fields: { durationMinutes: null } });
     expect(stale!.problem).toContain("任職期間");
+  });
+});
+
+describe("小香 HR 申請草稿：員工按下確認", () => {
+  const line: HrRequestDraftScope = { assistantKey: "xiaoxiang", surface: "line", channelKey: "xiaoxiang", conversationKey: "group-row-1", userId: "alice" };
+  const alice = { id: "alice", email: "alice@example.test" };
+  const conversation = { assistantKey: line.assistantKey, surface: line.surface, channelKey: line.channelKey, conversationKey: line.conversationKey };
+  const press = (draft: { id: string; revision: number }, patch: Record<string, unknown> = {}, now = NOW) =>
+    confirmHrRequestDraft(db(), { draftId: draft.id, revision: draft.revision, action: "submit", conversation, userId: "alice", actor: alice, ...patch }, now);
+  const leaves = () => db().select().from(hrLeaveRequests);
+  const stored = async () => (await db().select().from(assistantHrRequestDrafts))[0]!;
+
+  beforeEach(async () => {
+    await ensureAssistantLineChannel(db(), { assistantKey: "xiaoxiang" });
+    // 沒有直屬主管時申請會送給 HR 管理者；一個都沒有的話 HR 會拒絕建立。
+    await db().insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
+  });
+
+  it("申請已經建立、但把申請 id 記回草稿那一步失敗：仍然算送出，草稿不會被重新打開", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    const prepare = d1.prepare.bind(d1);
+    vi.spyOn(d1, "prepare").mockImplementation((query) => {
+      if (/update "assistant_hr_request_drafts" set "submitted_request_id"/i.test(query)) throw new Error("D1 暫時寫不進去");
+      return prepare(query);
+    });
+    const outcome = await press(draft);
+    vi.restoreAllMocks();
+    expect(outcome).toMatchObject({ outcome: "submitted" });
+    expect(await leaves()).toHaveLength(1);
+    expect(await stored()).toMatchObject({ status: "submitted", submittedRequestId: null });
+    // 重新打開的話，這裡會變成第二張申請。
+    expect(await press(draft)).toEqual({ outcome: "already_submitted", kindLabel: "請假" });
+    expect(await getHrRequestDraft(db(), line, NOW)).toBeNull();
+    expect(await leaves()).toHaveLength(1);
+  });
+
+  it("建立過程丟出不是 HR 規則的錯誤：往外丟，草稿退回開著，沒有申請", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    const prepare = d1.prepare.bind(d1);
+    vi.spyOn(d1, "prepare").mockImplementation((query) => {
+      if (/INSERT INTO hr_leave_requests/i.test(query)) throw new Error("D1 暫時寫不進去");
+      return prepare(query);
+    });
+    await expect(press(draft)).rejects.toThrow("D1 暫時寫不進去");
+    vi.restoreAllMocks();
+    expect(await leaves()).toHaveLength(0);
+    expect((await stored()).status).toBe("open");
+  });
+
+  it("重設對話會把講到一半的草稿收掉，之前的確認按鈕跟著失效", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    await discardHrRequestDrafts(db(), conversation, NOW);
+    expect(await getHrRequestDraft(db(), line, NOW)).toBeNull();
+    expect(await press(draft)).toEqual({ outcome: "gone" });
+    expect(await leaves()).toHaveLength(0);
+    // 別段對話的草稿不受影響。
+    const other = await saveHrRequestDraft(db(), { ...line, conversationKey: "group-row-2" }, complete, NOW);
+    await discardHrRequestDrafts(db(), conversation, NOW);
+    expect(other.status).toBe("ready");
+    expect(await getHrRequestDraft(db(), { ...line, conversationKey: "group-row-2" }, NOW)).not.toBeNull();
+  });
+
+  it("找不到審核者時 HR 拒絕建立：照實回原因，不會留下一張卡住的草稿", async () => {
+    await db().delete(userRoleAssignments);
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    expect(await press(draft)).toMatchObject({ outcome: "rejected", message: expect.stringContaining("審核者") });
+    expect(await stored()).toMatchObject({ status: "open", submittedRequestId: null });
+  });
+
+  it("建立一張待審的請假：時間轉成 UTC、申請人是本人，草稿記下申請的 id", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    const outcome = await press(draft);
+    expect(outcome).toMatchObject({ outcome: "submitted", kindLabel: "請假", card: draft.card });
+    const [request] = await leaves();
+    // 台北 2026-03-03 09:00–12:00。
+    expect(request).toMatchObject({
+      employmentId: "employment-alice", leaveTypeId: "leave-personal", status: "pending", reason: "看醫生",
+      startsAt: "2026-03-03 01:00:00", endsAt: "2026-03-03 04:00:00", startsOn: "2026-03-03", durationMinutes: 180, createdBy: "alice",
+    });
+    expect(await stored()).toMatchObject({ status: "submitted", submittedRequestId: request!.id });
+    expect(outcome.outcome === "submitted" && outcome.requestId).toBe(request!.id);
+    expect(await getHrRequestDraft(db(), line, NOW)).toBeNull();
+  });
+
+  it("按兩下、或 LINE 重送同一個按鈕事件，只會有一張申請", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    const results = await Promise.all([press(draft), press(draft)]);
+    expect(results.map((result) => result.outcome).sort()).toEqual(["already_submitted", "submitted"]);
+    expect(await press(draft)).toEqual({ outcome: "already_submitted", kindLabel: "請假" });
+    expect(await leaves()).toHaveLength(1);
+  });
+
+  it("卡片發出去之後草稿又改過：舊卡片的按鈕失效，不會送出他沒看過的內容", async () => {
+    const shown = await saveHrRequestDraft(db(), line, complete, NOW);
+    const edited = await saveHrRequestDraft(db(), line, { kind: "leave", reason: "改成回診" }, NOW);
+    expect(await press(shown)).toEqual({ outcome: "changed", kindLabel: "請假" });
+    expect(await leaves()).toHaveLength(0);
+    expect(await press(edited)).toMatchObject({ outcome: "submitted" });
+    expect((await leaves())[0]!.reason).toBe("改成回診");
+  });
+
+  it("按取消只丟掉草稿；取消後的按鈕與過期的草稿都當作不在了", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    expect(await press(draft, { action: "cancel" })).toEqual({ outcome: "cancelled", kindLabel: "請假" });
+    expect(await press(draft)).toEqual({ outcome: "gone" });
+    const second = await saveHrRequestDraft(db(), line, complete, NOW);
+    expect(await press(second, {}, NOW + 25 * HOUR)).toEqual({ outcome: "gone" });
+    expect(await leaves()).toHaveLength(0);
+  });
+
+  it("不是草稿主人、不是那段對話、actor 與本人不一致、或 id 不存在：一律當作不在了，什麼都不建立", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    const bob = { id: "bob", email: "bob@example.test" };
+    for (const patch of [
+      { userId: "bob", actor: bob },
+      { actor: bob },
+      { conversation: { ...conversation, conversationKey: "group-row-2" } },
+      { conversation: { ...conversation, surface: "sandbox" as const, channelKey: null } },
+      { conversation: { ...conversation, assistantKey: "another-assistant" } },
+      { draftId: crypto.randomUUID() },
+    ]) expect(await press(draft, patch)).toEqual({ outcome: "gone" });
+    expect(await leaves()).toHaveLength(0);
+    expect((await stored()).status).toBe("open");
+  });
+
+  it("送出前照現在的規則再算一次：假別被停用就不送，講得出原因的講原因", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    await db().update(hrLeaveTypes).set({ active: 0 }).where(eq(hrLeaveTypes.id, "leave-personal"));
+    expect(await press(draft)).toEqual({ outcome: "not_ready", kindLabel: "請假", problem: null });
+    await db().update(hrLeaveTypes).set({ active: 1 }).where(eq(hrLeaveTypes.id, "leave-personal"));
+    await db().update(hrEmployments).set({ archivedAt: "2026-03-01" }).where(eq(hrEmployments.id, "employment-alice"));
+    expect(await press(draft)).toMatchObject({ outcome: "not_ready", problem: expect.stringContaining("任職期間") });
+    expect(await leaves()).toHaveLength(0);
+    expect((await stored()).status).toBe("open");
+  });
+
+  it("HR 拒絕建立（跟既有的假重疊）：照實說沒有送出，草稿退回開著，改了時間可以再送", async () => {
+    await db().insert(hrLeaveRequests).values({
+      id: "existing", employmentId: "employment-alice", leaveTypeId: "leave-sick", leaveType: "病假", status: "approved",
+      startsAt: "2026-03-03 02:00:00", endsAt: "2026-03-03 03:00:00", startsOn: "2026-03-03", endsOn: "2026-03-04", durationMinutes: 60, createdBy: "alice",
+    });
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    const rejected = await press(draft);
+    expect(rejected).toMatchObject({ outcome: "rejected", kindLabel: "請假", message: expect.stringContaining("重疊") });
+    expect(await leaves()).toHaveLength(1);
+    expect(await stored()).toMatchObject({ status: "open", submittedRequestId: null });
+    // 搶的時候版本已經往前，舊卡片不能再按。
+    expect(await press(draft)).toEqual({ outcome: "changed", kindLabel: "請假" });
+    const moved = await saveHrRequestDraft(db(), line, { kind: "leave", startsAt: "2026-03-04 09:00", endsAt: "2026-03-04 12:00" }, NOW);
+    expect(await press(moved)).toMatchObject({ outcome: "submitted" });
+    expect(await leaves()).toHaveLength(2);
   });
 });
 

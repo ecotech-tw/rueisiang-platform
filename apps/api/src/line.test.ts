@@ -4,6 +4,7 @@ import {
   claimAssistantLineQueueJob,
   createDatabase,
   ensureAssistantDefaults,
+  saveHrRequestDraft,
   setAssistantChannelTools,
   listPendingAssistantLineQueueJobs,
   linkLineAccount,
@@ -24,8 +25,11 @@ import {
   assistantLineQueueJobs,
   assistantLineReplyBackups,
   assistantRuns,
+  assistantHrRequestDrafts,
   assistantToolCalls,
   hrEmployments,
+  hrLeaveRequests,
+  hrLeaveTypes,
   mediaObjects,
   userRoleAssignments,
   users,
@@ -1264,6 +1268,209 @@ describe("LINE HR 敏感回答 delivery", () => {
       expect(JSON.stringify(rows)).not.toMatch(/HR-機密假單回答|HR-機密thought|linkVersion/);
     }
     expect(JSON.stringify(logs.flatMap((log) => log.mock.calls))).not.toMatch(/HR-機密假單回答|HR-機密thought|linkVersion/);
+  });
+});
+
+describe("LINE 申請草稿：確認卡片與按鈕", () => {
+  const DRAFT_TOOLS = ["hr_authorize", "hr_request_draft_get", "hr_request_draft_save", "hr_request_draft_cancel"];
+  const complete = { kind: "leave", leaveTypeId: "leave-personal", startsAt: "2026-03-03 09:00", endsAt: "2026-03-03 12:00", reason: "看醫生" };
+  let group: { id: string; contextResetAt: string | null };
+  let sent: Array<{ url: string; body: { replyToken?: string; to?: string; messages: Array<Record<string, unknown>> } }>;
+
+  const scope = () => ({ assistantKey: "rueisiang-xiaoxiang", surface: "line" as const, channelKey: "rueisiang-xiaoxiang", conversationKey: group.id, userId: "admin" });
+  const postbackEvent = (data: string, overrides: Record<string, unknown> = {}) => ({
+    type: "postback", webhookEventId: `postback-${crypto.randomUUID()}`, timestamp: Date.now(), replyToken: "postback-reply",
+    source: { type: "user", userId: "user-1" }, postback: { data }, ...overrides,
+  });
+  const press = (data: string, overrides: Record<string, unknown> = {}) => postLine(JSON.stringify({ events: [postbackEvent(data, overrides)] }));
+  const replies = () => sent.filter((request) => request.url.endsWith("/message/reply")).map((request) => String(request.body.messages[0]!.text));
+  const leaves = () => db().select().from(hrLeaveRequests);
+
+  beforeEach(async () => {
+    group = await enableLineConversation(userEvent({ webhookEventId: "draft-seed" }));
+    // 申請人自己不能審自己的單；另一位 HR 管理者當審核者。
+    await db().insert(users).values({ id: "boss", email: "boss@ecotech.tw", googleName: "主管", status: "active" });
+    await db().insert(userRoleAssignments).values({ userId: "boss", roleId: "role-admin" });
+    await db().insert(hrEmployments).values({ id: "hr-admin", employeeUserId: "admin", employeeNumber: "HR-ADMIN" });
+    await db().insert(hrLeaveTypes).values({ id: "leave-personal", name: "事假", leaveKind: "other", createdBy: "admin" });
+    await linkLineAccount(db(), "admin", { channelId: "hr-login", lineUserId: "user-1" });
+    await ensureAssistantDefaults(db(), { assistantKey: "rueisiang-xiaoxiang", defaultModel: "gpt-6-luna", defaultPrompt: "HR 測試", toolKeys: DRAFT_TOOLS });
+    await setAssistantChannelTools(db(), { channelKey: "rueisiang-xiaoxiang", toolKeys: DRAFT_TOOLS, updatedBy: "admin" });
+    env.LINE_LIFF_CHANNEL_ID = "hr-login";
+    piAgentRequests = [];
+    sent = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      if (/\/message\/(reply|push)$/.test(String(url))) sent.push({ url: String(url), body: JSON.parse(String(init?.body)) });
+      if (String(url).endsWith("/message/quota/consumption")) return Response.json({ totalUsage: 0 });
+      return new Response(null, { status: 200 });
+    });
+  });
+
+  async function runDraftTurn(replyDeadlineAt = Date.now() + 60_000) {
+    const runId = crypto.randomUUID();
+    const context = {
+      assistantKey: "rueisiang-xiaoxiang", channelKey: "rueisiang-xiaoxiang", groupRowId: group.id,
+      lineGroupId: "user-1", sourceType: "user" as const, contextGeneration: group.contextResetAt ?? "",
+      webhookEventId: `draft-event-${runId}`, runId,
+    };
+    const hrSelf = new LineHrSelfService(db(), env as never, { ...context, model: "gpt-6-luna", systemPrompt: "", userText: "請假", toolKeys: DRAFT_TOOLS });
+    await hrSelf.authorize();
+    setPiAgentResponse("請核對下面的卡片，沒問題就按確認送出。");
+    piAgentResponse.privateHrRun = true;
+    piAgentResponse.hrAuthorization = hrSelf.authorization;
+    piAgentResponse.result.toolCalls = [
+      { toolKey: "hr_authorize", status: "success", durationMs: 1 },
+      { toolKey: "hr_request_draft_save", status: "success", durationMs: 1 },
+    ];
+    await processLineAssistantQueueMessage({ ...context, kind: "assistant", replyToken: "draft-reply", questionText: "我要請假", replyDeadlineAt }, env as never);
+  }
+
+  it("草稿存齊的那一輪：回覆後面接固定格式的卡片與兩顆按鈕，按鈕帶草稿 id 與版本", async () => {
+    const draft = await saveHrRequestDraft(db(), scope(), complete);
+    await runDraftTurn();
+    expect(sent).toHaveLength(1);
+    const [text, card, confirm] = sent[0]!.body.messages;
+    expect(sent[0]!.body.messages).toHaveLength(3);
+    expect(text).toMatchObject({ type: "text", text: "請核對下面的卡片，沒問題就按確認送出。" });
+    expect(card).toEqual({ type: "text", text: draft.card });
+    expect(confirm).toMatchObject({
+      type: "template", altText: "請確認請假申請",
+      template: { type: "confirm", actions: [
+        { type: "postback", label: "確認送出", data: `hr_draft:submit:${draft.id}:${draft.revision}` },
+        { type: "postback", label: "取消", data: `hr_draft:cancel:${draft.id}:${draft.revision}` },
+      ] },
+    });
+    // 發卡片不等於送出。
+    expect(await leaves()).toHaveLength(0);
+  });
+
+  it("Reply 來不及改走 Push 時，卡片與按鈕一樣跟著送", async () => {
+    await saveHrRequestDraft(db(), scope(), complete);
+    await runDraftTurn(Date.now() - 1);
+    const push = sent.find((request) => request.url.endsWith("/message/push"));
+    expect(push!.body.messages.map((message) => message.type)).toEqual(["text", "text", "template"]);
+  });
+
+  it("草稿還沒齊就不發卡片；有草稿而且拿得到讀草稿的工具時，下一輪的 system prompt 會提醒", async () => {
+    await saveHrRequestDraft(db(), scope(), { kind: "leave", reason: "看醫生" });
+    await runDraftTurn();
+    expect(sent[0]!.body.messages).toHaveLength(1);
+    const prompt = String(piAgentRequests.at(-1)!.payload.systemPrompt);
+    expect(prompt).toContain("還沒完成的請假申請草稿");
+    expect(prompt).not.toContain("看醫生");
+    // 工具被停用後這個私訊就拿不到讀草稿的工具，也就不提醒。
+    await setAssistantChannelTools(db(), { channelKey: "rueisiang-xiaoxiang", toolKeys: ["hr_authorize"], updatedBy: "admin" });
+    setPiAgentResponse("一般回答");
+    await postLine(JSON.stringify({ events: [userEvent({ webhookEventId: "after-revoke", message: { id: "m-2", type: "text", text: "你好" } })] }));
+    expect(String(piAgentRequests.at(-1)!.payload.systemPrompt)).not.toContain("申請草稿");
+  });
+
+  it("按確認送出：不經過模型，建立待審的請假並用固定句子回覆；再按一次不會重複送", async () => {
+    const draft = await saveHrRequestDraft(db(), scope(), complete);
+    expect((await press(`hr_draft:submit:${draft.id}:${draft.revision}`)).status).toBe(200);
+    expect(piAgentRequests).toHaveLength(0);
+    expect(await leaves()).toEqual([expect.objectContaining({ status: "pending", startsAt: "2026-03-03 01:00:00", endsAt: "2026-03-03 04:00:00", createdBy: "admin", approverUserId: "boss" })]);
+    expect(replies()).toEqual(["已送出請假申請，等候審核。\n假別：事假\n開始：2026-03-03（週二）09:00\n結束：2026-03-03（週二）12:00\n時數：3 小時\n原因：看醫生"]);
+    await press(`hr_draft:submit:${draft.id}:${draft.revision}`);
+    expect(replies()[1]).toBe("這張請假申請已經送出過了，不會重複送出。");
+    expect(await leaves()).toHaveLength(1);
+    // 按鈕事件不是對話內容，不進訊息紀錄。
+    expect((await db().select().from(assistantLineMessages)).map((row) => row.webhookEventId)).toEqual(["draft-seed"]);
+  });
+
+  it("LINE 重送同一個按鈕事件：只有一張申請，第二次回的是已經送出過", async () => {
+    const draft = await saveHrRequestDraft(db(), scope(), complete);
+    const event = postbackEvent(`hr_draft:submit:${draft.id}:${draft.revision}`);
+    await postLine(JSON.stringify({ events: [event] }));
+    await postLine(JSON.stringify({ events: [event] }));
+    expect(await leaves()).toHaveLength(1);
+    expect(replies().map((text) => text.split("\n")[0])).toEqual(["已送出請假申請，等候審核。", "這張請假申請已經送出過了，不會重複送出。"]);
+  });
+
+  it("傳 /reset 之後草稿被收掉，之前那張卡片的按鈕失效", async () => {
+    const draft = await saveHrRequestDraft(db(), scope(), complete);
+    await postLine(JSON.stringify({ events: [userEvent({ webhookEventId: "reset-evt", message: { id: "m-reset", type: "text", text: "/reset" } })] }));
+    expect((await db().select().from(assistantHrRequestDrafts))[0]!.status).toBe("cancelled");
+    sent = [];
+    await press(`hr_draft:submit:${draft.id}:${draft.revision}`);
+    expect(replies()[0]).toContain("已經不在了");
+    expect(await leaves()).toHaveLength(0);
+  });
+
+  it("LINE 帳號換綁給另一位員工之後：前一個人的草稿不會出現在他的提示裡，他按舊卡片也送不出去", async () => {
+    const draft = await saveHrRequestDraft(db(), scope(), complete);
+    await unlinkLineAccount(db(), "admin");
+    await db().insert(users).values({ id: "newcomer", email: "newcomer@ecotech.tw", googleName: "新同事", status: "active" });
+    await db().insert(hrEmployments).values({ id: "hr-newcomer", employeeUserId: "newcomer", employeeNumber: "HR-N" });
+    await linkLineAccount(db(), "newcomer", { channelId: "hr-login", lineUserId: "user-1" });
+    setPiAgentResponse("一般回答");
+    await postLine(JSON.stringify({ events: [userEvent({ webhookEventId: "after-rebind", message: { id: "m-3", type: "text", text: "你好" } })] }));
+    expect(String(piAgentRequests.at(-1)!.payload.systemPrompt)).not.toContain("申請草稿");
+    sent = [];
+    await press(`hr_draft:submit:${draft.id}:${draft.revision}`);
+    expect(replies()[0]).toContain("已經不在了");
+    expect(await leaves()).toHaveLength(0);
+  });
+
+  it("卡片與按鈕符合 LINE 的訊息限制：一千字的原因也送得出去", async () => {
+    const draft = await saveHrRequestDraft(db(), scope(), { ...complete, reason: "長".repeat(1000) });
+    await runDraftTurn();
+    const messages = sent[0]!.body.messages as Array<{ type: string; text?: string; template?: { text: string; actions: Array<{ label: string; data: string }> } }>;
+    expect(messages.length).toBeLessThanOrEqual(5);
+    expect(messages[1]!.text).toBe(draft.card);
+    expect(messages[1]!.text!.length).toBeLessThanOrEqual(5000);
+    expect(messages[2]!.template!.text.length).toBeLessThanOrEqual(240);
+    for (const action of messages[2]!.template!.actions) {
+      expect(action.label.length).toBeLessThanOrEqual(20);
+      expect(action.data.length).toBeLessThanOrEqual(300);
+    }
+  });
+
+  it("按取消：丟掉草稿，沒有建立申請", async () => {
+    const draft = await saveHrRequestDraft(db(), scope(), complete);
+    await press(`hr_draft:cancel:${draft.id}:${draft.revision}`);
+    expect(replies()).toEqual(["已取消這張請假草稿，沒有送出任何申請。"]);
+    expect(await leaves()).toHaveLength(0);
+    expect((await db().select().from(assistantHrRequestDrafts))[0]!.status).toBe("cancelled");
+  });
+
+  it("舊卡片、別人的按鈕、群組裡的按鈕、亂填的 data 都不會建立申請", async () => {
+    const shown = await saveHrRequestDraft(db(), scope(), complete);
+    await saveHrRequestDraft(db(), scope(), { kind: "leave", reason: "改成回診" });
+    await press(`hr_draft:submit:${shown.id}:${shown.revision}`);
+    expect(replies()).toEqual(["這張卡片的內容後來有更新，請以最新的請假確認卡片為準。"]);
+
+    // 另一位綁定了 LINE 的員工拿到同一個按鈕資料：身分是他自己，草稿不是他的。
+    await db().insert(users).values({ id: "mallory", email: "mallory@ecotech.tw", googleName: "別人", status: "active" });
+    await db().insert(hrEmployments).values({ id: "hr-mallory", employeeUserId: "mallory", employeeNumber: "HR-M" });
+    await linkLineAccount(db(), "mallory", { channelId: "hr-login", lineUserId: "user-2" });
+    await enableLineConversation(userEvent({ webhookEventId: "mallory-seed", source: { type: "user", userId: "user-2" }, message: { id: "m-9", type: "text", text: "你好" } }));
+    const latest = (await db().select().from(assistantHrRequestDrafts))[0]!;
+    sent = [];
+    await press(`hr_draft:submit:${latest.id}:${latest.revision}`, { source: { type: "user", userId: "user-2" } });
+    expect(replies()).toEqual(["這張申請草稿已經不在了（可能已經取消，或超過 24 小時沒有更新）。需要的話請重新跟我說一次。"]);
+
+    sent = [];
+    await press(`hr_draft:submit:${latest.id}:${latest.revision}`, { source: { type: "group", groupId: "group-1", userId: "user-1" } });
+    await press("hr_draft:submit:not-a-uuid:1");
+    await press(`hr_draft:approve:${latest.id}:${latest.revision}`);
+    await press(`other_feature:${latest.id}`);
+    expect(sent).toHaveLength(0);
+    expect(await leaves()).toHaveLength(0);
+    expect((await db().select().from(assistantHrRequestDrafts))[0]!.status).toBe("open");
+  });
+
+  it.each(["解除綁定", "收回草稿工具授權", "帳號停權", "channel 停用"])("%s 之後按鈕失效，不會送出", async (change) => {
+    const draft = await saveHrRequestDraft(db(), scope(), complete);
+    if (change === "解除綁定") await unlinkLineAccount(db(), "admin");
+    if (change === "收回草稿工具授權") await setAssistantChannelTools(db(), { channelKey: "rueisiang-xiaoxiang", toolKeys: ["hr_authorize", "hr_request_draft_get"], updatedBy: "admin" });
+    if (change === "帳號停權") await db().update(users).set({ status: "disabled" }).where(eq(users.id, "admin"));
+    if (change === "channel 停用") await db().update(assistantLineChannels).set({ enabled: false });
+    await press(`hr_draft:submit:${draft.id}:${draft.revision}`);
+    expect(await leaves()).toHaveLength(0);
+    if (change === "channel 停用") expect(sent).toHaveLength(0);
+    else expect(replies()[0]).toMatch(/綁定|授權|在職/);
+    expect(replies().join("")).not.toContain("已送出");
   });
 });
 
