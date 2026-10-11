@@ -352,8 +352,7 @@ export function lineHrDraftConfirmMessages(draft: { id: string; revision: number
           type: "box", layout: "vertical", paddingAll: "16px", spacing: "sm",
           contents: [
             { type: "separator", color: color.softLine },
-            { type: "text", text: "內容正確嗎？按「確認送出」才會送出申請。", size: "xs", color: color.muted, wrap: true, margin: "md" },
-            { type: "button", style: "primary", color: color.brand, height: "sm", action: { type: "postback", label: "確認送出", data: data("submit"), displayText: "確認送出" } },
+            { type: "button", style: "primary", color: color.brand, height: "sm", margin: "md", action: { type: "postback", label: "確認送出", data: data("submit"), displayText: "確認送出" } },
             { type: "button", style: "link", color: color.muted, height: "sm", action: { type: "postback", label: "取消", data: data("cancel"), displayText: "取消申請" } },
           ],
         },
