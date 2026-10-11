@@ -59,8 +59,9 @@ const common = {
 } as const;
 
 /**
- * 申請草稿的工具先只在 Sandbox 開放：LINE 那一端還沒有把確認卡片與按鈕交給員工的管道，
- * 這時在 LINE 開放只會讓員工講到最後卻沒有地方按確認。
+ * 申請草稿的工具預設「開發中」，只在 Sandbox 出現。要在 LINE 開放得由管理者明確做兩件事：
+ * 把這三個工具改成已啟用，並在 LINE 前台授權給 channel。這是會替員工建立真實申請的功能，
+ * 不該因為部署了新版就自動對所有人打開。
  */
 const draftCommon = { ...common, defaultStatus: "development" } as const;
 

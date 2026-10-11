@@ -3,7 +3,7 @@ import {
   cancelHrRequestDraft, findAssistantLineGroup, findLineAccountBinding, findLineAccountBindingByUser, getAssistantLineChannel, getHrRequestDraft, getHrSelfToolAnnualLeave,
   isHrAdministrator, isHrEmployee, listAssistantToolConfigs, listHrSelfToolLeaveRequests, listHrSelfToolOvertimeRequests, listHrSelfToolSchedule,
   loadAuthUser, resolveLineToolKeys, saveHrRequestDraft,
-  type Database, type HrRequestDraftInput, type HrRequestDraftScope, type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery,
+  type Database, type HrRequestDraftConfirmation, type HrRequestDraftInput, type HrRequestDraftScope, type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery,
 } from "@rueisiang/db";
 import { isHrToolKey, type HrSelfToolService } from "@rueisiang/tools";
 import type { Env } from "./env.js";
@@ -266,6 +266,40 @@ export async function assertHrLineDeliveryAuthorized(db: Database, env: Env, inp
     throw new HrSelfToolError("本輪 HR 授權已過期或不屬於此回覆，請重新查詢。" );
   }
   await authorizedIdentity(db, env, input, toolKeys.filter(isHrToolKey), identity);
+}
+
+/**
+ * 員工按下確認卡片的按鈕時，這個人是誰。
+ *
+ * 按鈕不經過模型，但身分與授權的檢查必須跟 HR 工具是同一套（authorizedIdentity）：私訊、channel 與對話啟用、
+ * 這個私訊被授權使用草稿工具、LINE 綁定有效、帳號啟用且在職。工具被停用或授權被收回，按鈕也跟著失效。
+ */
+export async function resolveLineHrRequestActor(db: Database, env: Env, input: PiLineAgentContext): Promise<{ id: string; email: string }> {
+  const binding = await authorizedIdentity(db, env, input, ["hr_request_draft_save"]);
+  const user = await loadAuthUser(db, { id: binding.userId });
+  if (!user) throw new HrSelfToolError("HR 本人查詢僅限帳號啟用的在職員工。" );
+  return { id: user.id, email: user.email };
+}
+
+/** 按下確認卡片之後回給員工的話。固定句子，不經過模型：這時候講錯一個字（例如把沒送出說成送出）代價最高。 */
+export function hrRequestDraftConfirmationReply(outcome: HrRequestDraftConfirmation): string {
+  switch (outcome.outcome) {
+    case "submitted":
+      // 卡片第一行是「（尚未送出）」的標題，送出後不能原樣貼回去。
+      return [`已送出${outcome.kindLabel}申請，等候審核。`, ...outcome.card.split("\n").slice(1)].join("\n");
+    case "cancelled":
+      return `已取消這張${outcome.kindLabel}草稿，沒有送出任何申請。`;
+    case "already_submitted":
+      return `這張${outcome.kindLabel}申請已經送出過了，不會重複送出。`;
+    case "changed":
+      return `這張卡片的內容後來有更新，請以最新的${outcome.kindLabel}確認卡片為準。`;
+    case "not_ready":
+      return `目前還不能送出這張${outcome.kindLabel}申請：${outcome.problem ?? "資料還不完整"}請告訴我要怎麼修改。`;
+    case "rejected":
+      return `沒有送出${outcome.kindLabel}申請：${outcome.message}`;
+    case "gone":
+      return "這張申請草稿已經不在了（可能已經取消，或超過 24 小時沒有更新）。需要的話請重新跟我說一次。";
+  }
 }
 
 /**

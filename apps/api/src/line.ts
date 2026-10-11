@@ -12,6 +12,8 @@ export interface LineWebhookEvent {
     userId?: string;
   };
   replyToken?: string;
+  /** 使用者按了訊息上的按鈕。data 是我們自己放進按鈕的字串，LINE 原樣送回。 */
+  postback?: { data?: string };
   message?: {
     id?: string;
     type?: string;
@@ -279,13 +281,17 @@ async function sendLineMessage(
   });
 }
 
+/** 接在文字回覆後面一起送的訊息（目前只有申請草稿的確認卡片）。LINE 一次最多五則。 */
+export type LineExtraMessage = Record<string, unknown>;
+
 export async function replyLineMessage(
   accessToken: string,
   replyToken: string,
   text: string,
   context: LineLogContext = {},
+  extraMessages: readonly LineExtraMessage[] = [],
 ): Promise<void> {
-  await sendLineMessage(accessToken, "reply", { replyToken, messages: [{ type: "text", text: lineText(text) }] }, undefined, context);
+  await sendLineMessage(accessToken, "reply", { replyToken, messages: [{ type: "text", text: lineText(text) }, ...extraMessages] }, undefined, context);
 }
 
 export async function pushLineMessage(
@@ -294,8 +300,44 @@ export async function pushLineMessage(
   text: string,
   retryKey: string,
   context: LineLogContext = {},
+  extraMessages: readonly LineExtraMessage[] = [],
 ): Promise<void> {
-  await sendLineMessage(accessToken, "push", { to, messages: [{ type: "text", text: lineText(text) }] }, retryKey, context);
+  await sendLineMessage(accessToken, "push", { to, messages: [{ type: "text", text: lineText(text) }, ...extraMessages] }, retryKey, context);
+}
+
+const HR_DRAFT_POSTBACK_PREFIX = "hr_draft";
+
+/**
+ * 申請草稿的確認卡片：一則固定格式的文字，加一則只有兩顆按鈕的 confirm template。
+ *
+ * 卡片內容放在文字訊息而不是 template 裡：template 的文字上限是 240 字，而請假原因最多 1000 字。
+ * 按鈕帶的是草稿 id 與版本——員工按的是哪一版的卡片，送出的就必須是那一版；草稿之後又被改過的話，
+ * 這兩顆按鈕會失效，而不是送出他沒看過的內容。
+ */
+export function lineHrDraftConfirmMessages(draft: { id: string; revision: number; kindLabel: string; card: string }): LineExtraMessage[] {
+  const data = (action: "submit" | "cancel") => `${HR_DRAFT_POSTBACK_PREFIX}:${action}:${draft.id}:${draft.revision}`;
+  return [
+    { type: "text", text: lineText(draft.card) },
+    {
+      type: "template",
+      altText: `請確認${draft.kindLabel}申請`,
+      template: {
+        type: "confirm",
+        text: "以上內容正確嗎？按「確認送出」才會送出申請。",
+        actions: [
+          { type: "postback", label: "確認送出", data: data("submit"), displayText: "確認送出" },
+          { type: "postback", label: "取消", data: data("cancel"), displayText: "取消申請" },
+        ],
+      },
+    },
+  ];
+}
+
+/** 解析確認卡片按鈕送回來的 data。格式不對就是 null：別的功能的 postback 不該被當成草稿確認。 */
+export function parseLineHrDraftPostback(event: LineWebhookEvent): { action: "submit" | "cancel"; draftId: string; revision: number } | null {
+  if (event.type !== "postback" || typeof event.postback?.data !== "string") return null;
+  const match = /^hr_draft:(submit|cancel):([0-9a-f-]{36}):([1-9]\d{0,8})$/.exec(event.postback.data);
+  return match ? { action: match[1] as "submit" | "cancel", draftId: match[2]!, revision: Number(match[3]) } : null;
 }
 
 export interface LineMessageContent {
