@@ -5,15 +5,16 @@ interface PanelProps {
   description?: ReactNode;
   actions?: ReactNode;
   className?: string;
+  id?: string;
   children: ReactNode;
 }
 
 /** 卡片、標題與右側 actions 的共用版型。 */
-export function Panel({ title, description, actions, className = "", children }: PanelProps) {
+export function Panel({ title, description, actions, className = "", id, children }: PanelProps) {
   const hasHeader = title || description || actions;
 
   return (
-    <section className={`panel ${className}`.trim()}>
+    <section id={id} className={`panel ${className}`.trim()}>
       {hasHeader ? (
         <div className="panel-head">
           <div>

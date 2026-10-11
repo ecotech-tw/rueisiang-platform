@@ -67,7 +67,7 @@ export {
 export {
   HrError, archiveHrEmployment, assignHrEmployee, createHrAssignment,
   endHrAssignment, getHrEmployee, getHrPerson, getHrSelf, isHrAdministrator, isHrEmployee, updateHrEmploymentPosition, updateHrEmploymentServicePeriod,
-  updateHrEmploymentAttendanceMode,
+  updateHrEmploymentAttendanceMode, findHrEmployeePhoto, updateHrEmployeePhoto,
   listHrCandidates, listHrEmployees, listHrPersonnel, listHrScopes, listHrSupervisorCandidates, updateHrEmployee, updateHrEmployeeSupervisor,
   HR_EMPLOYEE_PAGE_SIZES, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField, type HrEmploymentStatus, type HrPersonnelListQuery, type HrPersonKind,
 } from "./hr-people.js";

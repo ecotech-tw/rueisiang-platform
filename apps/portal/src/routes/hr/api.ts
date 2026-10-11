@@ -1,3 +1,4 @@
+import { type HrPersonalData } from "@rueisiang/db/hr-profile-fields";
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "../../shell/Toast.js";
 
@@ -43,7 +44,7 @@ export interface CompensationVersion { id: string; employmentId: string; version
 export interface InsuranceVersion { id: string; employmentId: string; scheme: "labor" | "health"; versionNumber: number; status: "enrolled" | "withdrawn"; validFrom: string; validTo: string | null; insuredAmountMinor: number; dependentCount: number; rateYear: number; sourceKind: "official" | "manual"; sourceUrl: string; note: string; voidedAt?: string | null; voidedBy?: string | null; createdAt: string; createdBy: string }
 export interface LeaveRequest { id: string; employmentId: string; leaveType: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number; payRatePpm?: number; reason: string; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string | null; createdAt: string; createdBy: string }
 export interface AttendanceEvent { id: string; eventKind: "clock_in" | "clock_out"; occurredAt: string; locationName: string | null; scopeName?: string | null; distanceMeters: number | null; sourceKind?: string; manualReason?: string; recordedBy?: string | null }
-export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; /** 只有出勤讀取權限時不回傳。 */ assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[]; compensation?: CompensationVersion[]; insurance?: InsuranceVersion[]; leave?: LeaveRequest[]; attendanceEvents?: AttendanceEvent[] }
+export interface Profile { photo?: { id: string } | null; personalData?: HrPersonalData; employee: Employee & { supervisorName?: string | null }; employments: Employment[]; /** 只有出勤讀取權限時不回傳。 */ assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[]; compensation?: CompensationVersion[]; insurance?: InsuranceVersion[]; leave?: LeaveRequest[]; attendanceEvents?: AttendanceEvent[] }
 
 const employeeNumberCollator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
 export function sortHrEmployees<T extends Pick<Employee, "employeeNumber" | "legalName">>(employees: readonly T[]): T[] {
@@ -353,7 +354,7 @@ export interface ScheduleWorkerRecord { id: string; employmentId?: string; displ
 export interface ScheduleWorkerPageResponse { workers: ScheduleWorkerRecord[]; total: number; page: number; pageSize: number; hasMore: boolean }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`/api/hr${path}`, { credentials: "same-origin", ...init, headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) } });
+  const response = await fetch(`/api/hr${path}`, { credentials: "same-origin", ...init, headers: { ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }), ...(init?.headers ?? {}) } });
   const result = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(result.error ?? `操作失敗（${response.status}）`);
   return result;
@@ -449,7 +450,7 @@ export function useHrWrite<T = { id: string }>({ invalidate = true }: { invalida
   const client = useQueryClient();
   const toast = useToast();
   return useMutation({
-    mutationFn: (input: { path: string; method: string; values: Record<string, unknown> }) => request<T>(input.path, { method: input.method, body: JSON.stringify(input.values) }),
+    mutationFn: (input: { path: string; method: string } & ({ values: Record<string, unknown> } | { formData: FormData })) => request<T>(input.path, { method: input.method, body: "formData" in input ? input.formData : JSON.stringify(input.values) }),
     onSuccess: () => { if (invalidate) void client.invalidateQueries({ queryKey: ["hr"] }); },
     onError: (error) => toast.show(error instanceof Error ? error.message : "HR 操作失敗，請稍後再試。", "danger"),
   });
