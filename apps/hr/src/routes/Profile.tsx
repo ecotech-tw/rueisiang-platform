@@ -6,6 +6,7 @@ import { usePageTitle } from "../shell/usePageTitle.js";
 import { Alert, Button, ConfirmDialog, EmptyState, PageHeader, Panel, StatusBadge } from "../ui/index.js";
 import { useHrQuery, type Employment, type Profile as HrProfile } from "./hr/api.js";
 import { dateLabel } from "./hr/format.js";
+import { HrProfileAvatar, HrProfilePhoto } from "./hr/ProfilePhoto.js";
 
 function userStatusLabel(status: HrProfile["employee"]["userStatus"]) {
   if (status === "active") return "帳號啟用中";
@@ -53,7 +54,7 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
   return <>
     <Panel className="hr-profile-overview">
       <div className="hr-profile-overview-main">
-        <span className="hr-profile-avatar" aria-hidden="true">{Array.from(employeeName)[0] ?? "員"}</span>
+        <HrProfileAvatar name={employeeName} photo={profile.photo} />
         <div className="hr-profile-overview-copy">
           <div className="hr-profile-overview-meta"><span>員工編號 {employee.employeeNumber}</span><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "任職中" : "已封存"}</StatusBadge></div>
           <h2>{employeeName}</h2>
@@ -63,6 +64,7 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
     </Panel>
 
     <div className="hr-profile-sections">
+      <HrProfilePhoto profile={profile} />
       <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="calendar">我的假勤</ProfileSectionTitle>} description="可用特休、到期日與各月請假時數。">
         <Button variant="secondary" onClick={() => navigate("/profile/leave")}>查看假勤</Button>
       </Panel>
@@ -109,11 +111,11 @@ export function HrProfile() {
     }
   }
   return <div className="page hr-profile-page">
-    <PageHeader title="個人中心" description="查看你的帳號、任職與工作地點資料；如有錯誤，請聯絡管理者。" />
+    <PageHeader title="個人中心" description="管理自己的大頭貼，查看帳號、任職與工作地點資料；其他資料如有錯誤，請聯絡管理者。" />
     {query.isPending ? <Panel className="hr-profile-loading"><p className="muted">正在載入個人資料…</p></Panel> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {managedScopes.data?.scopes?.length ? <Panel title={<ProfileSectionTitle icon="calendar">據點排班</ProfileSectionTitle>} description={`你負責：${managedScopes.data.scopes.map((scope) => scope.name).join("、")}`}><Link className="button secondary" to="/scheduling">快速排班</Link></Panel> : null}
-    {query.data?.profile ? <ProfileDetails profile={query.data.profile} /> : null}
+    {query.data?.profile ? <ProfileDetails key={query.data.profile.employee.userId} profile={query.data.profile} /> : null}
     {!query.isPending && !query.error && !query.data?.profile ? <Alert>尚未指派為員工，請聯絡管理者。</Alert> : null}
     <div className="hr-profile-signout"><Button variant="primary" className="hr-profile-signout-button" icon="logout" onClick={() => setShowSignOutConfirm(true)}>登出此裝置</Button></div>
     {showSignOutConfirm ? <ConfirmDialog title="確定要登出這台裝置？" confirmLabel="確認登出" cancelLabel="繼續使用" tone="primary" pending={signOutPending} onCancel={() => { if (!signOutPending) setShowSignOutConfirm(false); }} onConfirm={confirmSignOut}>

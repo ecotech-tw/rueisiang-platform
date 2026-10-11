@@ -26,7 +26,7 @@ export interface AttendanceAssignment {
   isPrimary?: boolean;
   revision: number;
 }
-export interface Profile { employee: Employee & { supervisorName?: string | null }; employments: Employment[]; assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[] }
+export interface Profile { photo?: { id: string } | null; employee: Employee & { supervisorName?: string | null }; employments: Employment[]; assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[] }
 
 const employeeNumberCollator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
 export function sortHrEmployees<T extends Pick<Employee, "employeeNumber" | "legalName">>(employees: readonly T[]): T[] {
@@ -232,7 +232,7 @@ export interface OvertimeRequest { request: { id: string; requestedStart: string
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
-  if (init?.body !== undefined) headers.set("Content-Type", "application/json");
+  if (init?.body !== undefined && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const response = await fetch(`${API_BASE_URL}/hr${path}`, { ...init, credentials: "include", headers });
   const result = await response.json() as T & { error?: string };
   if (!response.ok) throw new Error(result.error ?? `操作失敗（${response.status}）`);
@@ -263,7 +263,7 @@ export function useHrLeaveEnd(input: { startsAt: string; durationMinutes: number
 export function useHrWrite<T = { id: string }>(options: { onSuccess?: () => Promise<void>; invalidate?: boolean } = {}) {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { path: string; method: string; values: Record<string, unknown> }) => request<T>(input.path, { method: input.method, body: JSON.stringify(input.values) }),
+    mutationFn: (input: { path: string; method: string } & ({ values: Record<string, unknown>; formData?: never } | { formData: FormData; values?: never })) => request<T>(input.path, { method: input.method, body: input.formData ?? JSON.stringify(input.values) }),
     onSuccess: options.onSuccess,
     // 失敗也要重抓：409 幾乎都代表畫面上的資料已經過期（別人先審了、先取消了），不重抓的話同一顆按鈕會一直失敗。
     onSettled: () => { if (options.invalidate !== false) void client.invalidateQueries({ queryKey: ["hr"] }); },

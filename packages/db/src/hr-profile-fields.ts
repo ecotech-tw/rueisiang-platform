@@ -2,6 +2,12 @@ export const HR_EMPLOYEE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 export const HR_EMPLOYEE_PHOTO_MAX_PIXELS = 8_000_000;
 export const HR_EMPLOYEE_PHOTO_MAX_SIDE = 8192;
 export const HR_EMPLOYEE_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+export const HR_EMPLOYEE_PHOTO_PREVIEW_LIMITS = { types: HR_EMPLOYEE_PHOTO_TYPES, maxBytes: HR_EMPLOYEE_PHOTO_MAX_BYTES, maxPixels: HR_EMPLOYEE_PHOTO_MAX_PIXELS, maxSide: HR_EMPLOYEE_PHOTO_MAX_SIDE };
+export const HR_EMPLOYEE_PHOTO_FILE_ERRORS = {
+  invalid_file: "請選擇 5 MB 以內的 JPEG、PNG 或 WebP 圖片。",
+  decode_failed: "照片損壞或無法解碼，請重新選擇圖片。",
+  resolution_exceeded: "大頭貼尺寸超出限制，請縮小到 800 萬像素、單邊 8192 px 以內後再上傳。",
+};
 
 export interface HrProfileField {
   key: string;

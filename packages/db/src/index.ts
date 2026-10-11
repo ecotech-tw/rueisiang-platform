@@ -66,7 +66,7 @@ export {
 } from "./hr-payroll-adjustments.js";
 export {
   HrError, archiveHrEmployment, assignHrEmployee, createHrAssignment,
-  endHrAssignment, getHrEmployee, getHrPerson, getHrSelf, isHrAdministrator, isHrEmployee, updateHrEmploymentPosition, updateHrEmploymentServicePeriod,
+  endHrAssignment, getHrEmployee, getHrPerson, getHrSelf, requireHrSelfEmployment, isHrAdministrator, isHrEmployee, updateHrEmploymentPosition, updateHrEmploymentServicePeriod,
   updateHrEmploymentAttendanceMode, findHrEmployeePhoto, updateHrEmployeePhoto,
   listHrCandidates, listHrEmployees, listHrPersonnel, listHrScopes, listHrSupervisorCandidates, updateHrEmployee, updateHrEmployeeSupervisor,
   HR_EMPLOYEE_PAGE_SIZES, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField, type HrEmploymentStatus, type HrPersonnelListQuery, type HrPersonKind,
