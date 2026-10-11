@@ -161,9 +161,11 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
       }
     }
 
+    let persistedChanges = false;
     try {
       for (const row of removedRows) {
         await save.mutateAsync({ path: `/shift-templates/${encodeURIComponent(row.templateId)}`, method: "DELETE", values: { scopeId: scope.id, revision: row.revision } });
+        persistedChanges = true;
       }
       for (const row of rows) {
         const name = row.name.trim();
@@ -173,14 +175,22 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
         } else {
           await save.mutateAsync({ path: "/shift-templates", method: "POST", values: { scopeId: scope.id, name, requiredHeadcount: row.times.weekday?.requiredHeadcount, times: timesPayload(row) } });
         }
+        persistedChanges = true;
       }
       if (managerUserId !== (manager.userId ?? "")) {
         await save.mutateAsync({ path: `/schedule-managers/${encodeURIComponent(scope.id)}`, method: "PUT", values: { userId: managerUserId || null, revision: manager.revision } });
+        persistedChanges = true;
       }
       await onSaved();
       toast.show("班別與排班負責人已儲存。");
       (closeRequestRef.current ?? onClose)();
     } catch (error) {
+      if (persistedChanges) {
+        await onSaved().catch(() => undefined);
+        toast.show("部分設定已儲存。請重新開啟編輯視窗確認，再完成其他變更。", "danger");
+        (closeRequestRef.current ?? onClose)();
+        return;
+      }
       setMessage(error instanceof Error ? error.message : "設定儲存失敗，請稍後再試。");
     }
   };
