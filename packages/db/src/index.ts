@@ -24,7 +24,10 @@ export {
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAllowanceQuantityInput, type SpecialWorkdayAllowanceSnapshot, type SpecialWorkdayAssignmentInput, type SpecialWorkdayAssignmentItem, type SpecialWorkdayAssignmentUpdateInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,
 } from "./hr-special-workdays.js";
 export { approveHrOvertimeBatch, cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest, MAX_OVERTIME_CANCELLATION_ENTRIES, type HrOvertimeBatchInput, type HrOvertimeCancellationOptions, type HrOvertimeDay, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
-export { listHrSelfToolLeaveRequests, getHrSelfToolAnnualLeave, listHrSandboxEmployees, type HrSelfLeaveQuery } from "./hr-self-tools.js";
+export {
+  listHrSelfToolLeaveRequests, getHrSelfToolAnnualLeave, listHrSelfToolOvertimeRequests, listHrSelfToolSchedule, listHrToolCalendar, listHrSandboxEmployees,
+  type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery, type HrToolCalendarQuery,
+} from "./hr-self-tools.js";
 export { HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage, type HrRequestCenterKind, type HrRequestCenterListQuery, type HrRequestCenterPage, type HrRequestCenterRow, type HrRequestCenterStatus } from "./hr-request-center.js";
 export { calculateHrLeaveDuration, calculateHrLeaveEnd, cancelHrLeaveRequest, createHrLeaveRequest, getHrSelfLeaveMonths, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfAnnualLeave, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest, type HrLeaveCancellationOptions, type HrLeaveCredit, type HrLeaveDurationInput, type HrLeaveEndInput, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput, type HrSelfAnnualLeavePeriod, type HrSelfLeaveMonths, type HrSelfLeaveTypeOption } from "./hr-leave.js";
 export {

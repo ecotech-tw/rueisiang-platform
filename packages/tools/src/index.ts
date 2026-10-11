@@ -31,7 +31,7 @@ import {
   listItems,
 } from "@rueisiang/db";
 import type { ToolContract, ToolContext, ToolSurface } from "./contract.js";
-import { HR_TOOL_DEFINITIONS } from "./hr.js";
+import { HR_CALENDAR_TOOL, HR_TOOL_DEFINITIONS } from "./hr.js";
 
 export type PlatformToolDefinition = ToolContract;
 
@@ -1347,6 +1347,7 @@ export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   cyberbizQuerySalesReportTool,
   cyberbizQueryPayoutReportTool,
   ...HR_TOOL_DEFINITIONS,
+  HR_CALENDAR_TOOL,
 ];
 
 export const PLATFORM_TOOL_KEYS = PLATFORM_TOOL_DEFINITIONS.map((tool) => tool.key);

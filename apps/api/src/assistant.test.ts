@@ -420,8 +420,11 @@ describe("只有 LINE 權限的人", () => {
       "crm_get_orders",
       "crm_search_customers",
       "hr_authorize",
+      "hr_get_calendar",
       "hr_get_my_annual_leave",
       "hr_get_my_leave_requests",
+      "hr_get_my_overtime_requests",
+      "hr_get_my_schedule",
       "list_items",
       "list_report_scopes",
       "query_payout_report",
@@ -552,6 +555,9 @@ describe("AI 助理 Sandbox", () => {
       "hr_authorize",
       "hr_get_my_leave_requests",
       "hr_get_my_annual_leave",
+      "hr_get_my_overtime_requests",
+      "hr_get_my_schedule",
+      "hr_get_calendar",
     ]);
     expect(result.tools.find((tool) => tool.key === "wms_search_warehouse")).toMatchObject({
       label: "WMS 搜尋倉庫位置",
@@ -2286,7 +2292,7 @@ describe("小香 HR 模擬本人 Sandbox", () => {
       { roleId: "role-staff", permission: "assistant:sandbox:read" }, { roleId: "role-staff", permission: "assistant:sandbox:write" },
     ]);
     const admin = await (await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[]; hrSandbox: { available: boolean; toolKeys: string[] } };
-    expect(admin.hrSandbox).toMatchObject({ available: true, toolKeys: keys });
+    expect(admin.hrSandbox).toMatchObject({ available: true, toolKeys: [...keys, "hr_get_my_overtime_requests", "hr_get_my_schedule"] });
     expect(admin.tools.map((tool) => tool.key)).toEqual(expect.arrayContaining(["crm_search_customers", ...keys]));
     const staff = await (await as("alice", "alice@example.test", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[]; hrSandbox: { available: boolean; toolKeys: string[] } };
     expect(staff.hrSandbox).toMatchObject({ available: false, toolKeys: [] });

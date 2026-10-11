@@ -120,6 +120,17 @@ describe("管理者限定的 HR 模擬本人", () => {
     await expect(SandboxHrSelfService.create(db(), { ...env, LINE_LIFF_CHANNEL_ID: undefined }, { ...input, toolKeys: [] })).rejects.toThrow("LINE Login channel");
   });
 
+  it("加班與班表跟假單走同一道本人授權：沒授權不能查，授權後只查後端固定的員工，停用就擋", async () => {
+    const hrSelf = await service();
+    await expect(hrSelf.overtimeRequests({})).rejects.toThrow("先呼叫 hr_authorize");
+    await expect(hrSelf.schedule({})).rejects.toThrow("先呼叫 hr_authorize");
+    await hrSelf.authorize();
+    expect(await hrSelf.overtimeRequests({ status: "pending" })).toMatchObject({ requests: [], total: 0 });
+    expect(await hrSelf.schedule({ fromDate: "2026-03-02", toDate: "2026-03-03" })).toMatchObject({ fromDate: "2026-03-02", toDate: "2026-03-03", days: [{ date: "2026-03-02" }, { date: "2026-03-03" }] });
+    await setAssistantToolStatus(db(), { key: "hr_get_my_schedule", status: "disabled", updatedBy: "actor" });
+    await expect(hrSelf.schedule({})).rejects.toThrow("已停用");
+  });
+
   it("開發中 HR 工具可在 Sandbox 測試，不需授權或啟用正式 LINE 對話", async () => {
     await setAssistantToolStatus(db(), { key: "hr_get_my_leave_requests", status: "development", updatedBy: "actor" });
     const hrSelf = await service(); await hrSelf.authorize();

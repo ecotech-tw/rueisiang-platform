@@ -61,7 +61,8 @@ CRM、WMS 與報表工具共用 provider-neutral `ToolContract`；目前這些�
 - `crm_search_customers`：依關鍵字、來源、狀態、標籤與 `YYYY-MM-DD` 日期搜尋客戶；`dateField=createdAt` 代表當天新增，`dateField=updatedAt` 代表當天更新。
 - `crm_get_customer`：依客戶 ID 取得客戶資料、標籤、同步狀態、最近操作紀錄與可選的消費摘要。
 - `crm_get_orders`：即時查詢 CYBERBIZ 訂單，支援 customer ID、order ID、訂單編號、日期、狀態、排序與 limit；需要 `crm:order:read`。
-- `hr_authorize`、`hr_get_my_leave_requests`、`hr_get_my_annual_leave`：本人 HR 授權、假單狀態與當期特休查詢。正式 LINE 僅限一對一私訊，群組及多人聊天室不提供此工具，亦不進入 HR 綁定或員工查核；Sandbox 目錄只對管理者列出 HR 工具，沒有選定模擬員工時不能送出。
+- `hr_authorize`、`hr_get_my_leave_requests`、`hr_get_my_annual_leave`、`hr_get_my_overtime_requests`、`hr_get_my_schedule`：本人 HR 授權、假單狀態、當期特休、加班申請與已發布班表查詢。正式 LINE 僅限一對一私訊，群組及多人聊天室不提供此工具，亦不進入 HR 綁定或員工查核；Sandbox 目錄只對管理者列出 HR 工具，沒有選定模擬員工時不能送出。
+- `hr_get_calendar`：公司行事曆上的國定假日、補班日與災防停班。不是個資，不需要 `hr_authorize`，群組與多人聊天室也能用；它不在本人 HR 工具的清單裡，所以不受「只限私訊、Sandbox 要先選模擬對象」限制。
 - `list_report_scopes`：列出啟用中的報表據點正式名稱與 scopeId；單一據點報表查詢遇到簡稱或不確定名稱時，先用它取得正式 `scopeName`。
 - `query_sales_report`、`query_payout_report`：依月份、據點與篩選條件查詢已匯入 D1 的商品銷售或出金資料；需要 `reports:cyberbiz:read`。
 
@@ -71,9 +72,11 @@ CRM、WMS 與報表工具共用 provider-neutral `ToolContract`；目前這些�
 
 HR 本人工具先依可信 LINE 私訊的 Messaging UID，在 `LINE_LIFF_CHANNEL_ID` scope 下查現有員工綁定、啟用帳號及在職狀態。LINE Login channel 與小香 Messaging API channel 必須屬於同一個 LINE Provider；HR 工具直接沿用既有小香 channel，不需要額外的 HR channel key。每輪授權 token 綁定 assistant、channel、私訊對話、session generation、run、LINE identity 與綁定版本，五分鐘到期且只留在該次 Pi 執行記憶體中。每次 HR 查詢重驗 token 並回 D1 重讀綁定、員工狀態與工具授權，解除／替換綁定會撤銷舊 token。
 
+加班申請查詢的條件與分頁跟假單相同（`dateField` 是 `submitted` 或 `work`），核定時段與申請時段分開回，不回申請原因。班表查詢預設今天起 14 天、最多 62 天，只讀同一期間最新的已發布版；每一天都回一列並帶 `schedulePublished`，整體帶 `attendanceMode`——「班表還沒發布」與「不是排班制」都不是休假，工具把這兩種情況明講出來，模型才不會把沒有班次說成放假。班表同時帶日型與假日名稱，因為 LINE 的 HR 回合呼叫過 HR 工具後不能再呼叫行事曆工具。這三個工具回給模型的時間都已轉成台北時間。
+
 假單查詢只回本人必要欄位，pending 未指定日期時不設日期下限，其他未指定日期預設台北最近 30 天；每頁 20 筆，日期區間最多 366 天。特休查詢沿用本人年度額度及台帳，回報週期、到期日、分鐘／天數與待審時數，待審申請不扣餘額；額度補建只限定該員工。HR 回答與模型 tool-call transcript 不寫入 Pi Durable Object、LINE reply backup 或回答 log；Reply／Push 送出前重新確認有效綁定與授權期限。
 
-開通時先由 CI 套用新增 `link_version` 欄位的 migration，再設定 `LINE_LIFF_CHANNEL_ID`，並在既有小香 channel 工具授權中勾選三個 HR 工具。實機 smoke 必須包含本人／他人隔離、未綁定、離職／停權、查詢後解除綁定、群組與多人聊天室。回滾時停用三個工具，再回退 Worker；保留新增欄位與綁定版本，不刪資料、不反向重建表。
+開通時先由 CI 套用新增 `link_version` 欄位的 migration，再設定 `LINE_LIFF_CHANNEL_ID`，並在既有小香 channel 工具授權中勾選 HR 工具；之後新增的工具（含行事曆）同樣不會自動授權給既有 channel，要到 LINE 前台勾選。實機 smoke 必須包含本人／他人隔離、未綁定、離職／停權、查詢後解除綁定、群組與多人聊天室。回滾時停用本人 HR 工具，再回退 Worker；保留新增欄位與綁定版本，不刪資料、不反向重建表。
 
 Open-Meteo 是無 API key 的公開測試 API；目前只用來驗證 tool calling，不是公司的知識來源，也不應被視為正式內部問答能力。後續 WMS、CRM 與公司文件搜尋會以同一個 `ToolContract` 介面接入，MCP adapter 會放在這層之下。
 
