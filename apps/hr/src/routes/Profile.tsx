@@ -6,7 +6,7 @@ import { usePageTitle } from "../shell/usePageTitle.js";
 import { Alert, Button, ConfirmDialog, EmptyState, PageHeader, Panel, StatusBadge } from "../ui/index.js";
 import { useHrQuery, type Employment, type Profile as HrProfile } from "./hr/api.js";
 import { dateLabel } from "./hr/format.js";
-import { HrProfileAvatar, HrProfilePhoto } from "./hr/ProfilePhoto.js";
+import { HrProfilePhoto } from "./hr/ProfilePhoto.js";
 
 function userStatusLabel(status: HrProfile["employee"]["userStatus"]) {
   if (status === "active") return "帳號啟用中";
@@ -54,7 +54,7 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
   return <>
     <Panel className="hr-profile-overview">
       <div className="hr-profile-overview-main">
-        <HrProfileAvatar name={employeeName} photo={profile.photo} />
+        <HrProfilePhoto profile={profile} />
         <div className="hr-profile-overview-copy">
           <div className="hr-profile-overview-meta"><span>員工編號 {employee.employeeNumber}</span><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "任職中" : "已封存"}</StatusBadge></div>
           <h2>{employeeName}</h2>
@@ -64,7 +64,6 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
     </Panel>
 
     <div className="hr-profile-sections">
-      <HrProfilePhoto profile={profile} />
       <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="calendar">我的假勤</ProfileSectionTitle>} description="可用特休、到期日與各月請假時數。">
         <Button variant="secondary" onClick={() => navigate("/profile/leave")}>查看假勤</Button>
       </Panel>

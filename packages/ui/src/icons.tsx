@@ -14,6 +14,7 @@ export type IconName =
   | "person"
   | "list"
   | "personAdd"
+  | "camera"
   | "tag"
   | "history"
   | "notifications"
@@ -170,6 +171,12 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="10" cy="8.4" r="3.3" />
       <path d="M3.8 19.2c0-3.1 2.8-4.9 6.2-4.9.9 0 1.7.12 2.5.37" />
       <path d="M17.6 13.8v6.2M14.5 16.9h6.2" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M4.2 8.2h3l1.5-2.4h6.6l1.5 2.4h3a1.8 1.8 0 0 1 1.8 1.8v8.2a1.8 1.8 0 0 1-1.8 1.8H4.2a1.8 1.8 0 0 1-1.8-1.8V10a1.8 1.8 0 0 1 1.8-1.8Z" />
+      <circle cx="12" cy="13.8" r="3.2" />
     </>
   ),
   tag: (
