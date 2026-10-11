@@ -664,7 +664,7 @@
 .hr-profile-photo-edit > .muted { color: var(--color-muted); }
 .hr-profile-photo-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
 .hr-profile-photo-actions > button { min-height: 40px; }
-.hr-profile-photo-remove { min-height: 28px; font-size: 12px; }
+.hr-profile-photo-remove { min-height: 40px; font-size: 12px; }
 .hr-profile-photo-feedback { margin: 0; color: var(--color-info); font-size: 12px; font-weight: 700; text-align: center; }
 .hr-profile-photo-note { margin: 0; color: var(--color-muted); font-size: 12px; text-align: center; }
 @media (max-width: 560px) { .hr-profile-photo-control { max-width: 170px; } }
