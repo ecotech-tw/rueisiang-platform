@@ -156,6 +156,8 @@ export async function discardHrRequestDrafts(db: Database, scope: HrRequestDraft
 }
 
 /** 某一種申請現在的樣子：給模型看的欄位、還缺什麼，以及（齊了的話）卡片與送出的動作。 */
+export interface HrRequestDraftCardRow { label: string; value: string }
+
 interface DraftDetail {
   fields: Record<string, unknown>;
   missing: string[];
@@ -167,8 +169,12 @@ interface DraftDetail {
   /** 欄位都有了但照現在的規則不能申請（班表改了、任職無效…）時的原因。 */
   problem: string | null;
   leaveTypeOptions?: Array<{ id: string; name: string; remainingMinutes?: number }>;
-  /** 欄位齊全而且現在申請得了才有；卡片標題之後的每一行。 */
-  cardLines: string[] | null;
+  /**
+   * 欄位齊全而且現在申請得了才有；卡片標題之後的每一列。
+   * 拆成標籤與值而不是排好的字串：LINE 的卡片要把兩者排成兩欄，從「假別：事假」再切回來的話，
+   * 原因裡只要有一個冒號或換行就會切錯。文字版（Sandbox 預覽、送出後的回覆）由 draftView 用同一份排。
+   */
+  cardRows: HrRequestDraftCardRow[] | null;
   /**
    * 建立 HR 申請。跟卡片出自同一次計算：員工看到什麼，送出的就是什麼，不會在送出時另外再推一次輸入。
    * 只有 confirmHrRequestDraft 會呼叫它。
@@ -275,12 +281,12 @@ const leaveHandler: DraftKindHandler = {
         name: option.name,
         ...(option.leaveKind === "annual" ? { remainingMinutes: option.credits.reduce((total, credit) => total + credit.balanceHalfHours * 30, 0) } : {}),
       })),
-      cardLines: ready ? [
-        `假別：${ready.leaveType.name}`,
-        `開始：${withWeekday(fields.startsAt!)}`,
-        `結束：${withWeekday(fields.endsAt!)}`,
-        `時數：${hours(ready.durationMinutes)}`,
-        `原因：${ready.reason || NO_REASON}`,
+      cardRows: ready ? [
+        { label: "假別", value: ready.leaveType.name },
+        { label: "開始", value: withWeekday(fields.startsAt!) },
+        { label: "結束", value: withWeekday(fields.endsAt!) },
+        { label: "時數", value: hours(ready.durationMinutes) },
+        { label: "原因", value: ready.reason || NO_REASON },
       ] : null,
       submit: ready ? (actor) => createHrLeaveRequest(db, { ...ready.interval, leaveTypeId: ready.leaveType.id, reason: ready.reason }, actor) : null,
     };
@@ -310,12 +316,12 @@ const overtimeHandler: DraftKindHandler = {
     return {
       fields: { startsAt: fields.startsAt ?? null, endsAt: fields.endsAt ?? null, durationMinutes, settlement: "加班費", reason: reason || null },
       missing, optional: reason ? [] : ["reason"], problem,
-      cardLines: ready ? [
-        `開始：${withWeekday(fields.startsAt!)}`,
-        `結束：${withWeekday(fields.endsAt!)}`,
-        `時數：${hours(ready.durationMinutes)}`,
-        "結算：加班費",
-        `原因：${ready.reason || NO_REASON}`,
+      cardRows: ready ? [
+        { label: "開始", value: withWeekday(fields.startsAt!) },
+        { label: "結束", value: withWeekday(fields.endsAt!) },
+        { label: "時數", value: hours(ready.durationMinutes) },
+        { label: "結算", value: "加班費" },
+        { label: "原因", value: ready.reason || NO_REASON },
       ] : null,
       submit: ready ? (actor) => createHrOvertimeRequest(db, ready.request, actor) : null,
     };
@@ -363,10 +369,10 @@ const clockCorrectionHandler: DraftKindHandler = {
     return {
       fields: { clockEvent: eventLabel ? fields.clockEvent : null, clockEventLabel: eventLabel, clockAt: fields.clockAt ?? null, reason: reason || null },
       missing, optional: [], problem,
-      cardLines: ready ? [
-        `類型：${eventLabel}`,
-        `時間：${withWeekday(fields.clockAt!)}`,
-        `原因：${reason}`,
+      cardRows: ready ? [
+        { label: "類型", value: String(eventLabel) },
+        { label: "時間", value: withWeekday(fields.clockAt!) },
+        { label: "原因", value: reason },
       ] : null,
       submit: ready ? (actor) => createAndSubmitHrClockCorrection(db, ready, actor) : null,
     };
@@ -393,14 +399,15 @@ function draftView(row: DraftRow, detail: DraftDetail) {
     revision: row.revision,
     kind: row.kind,
     kindLabel,
-    status: detail.cardLines ? "ready" as const : "collecting" as const,
+    status: detail.cardRows ? "ready" as const : "collecting" as const,
     fields: detail.fields,
     notes: parseFields(row).notes || null,
     missing: detail.missing,
     optional: detail.optional,
     problem: detail.problem,
     ...(detail.leaveTypeOptions ? { leaveTypeOptions: detail.leaveTypeOptions } : {}),
-    card: detail.cardLines ? [`${kindLabel}申請（尚未送出）`, ...detail.cardLines].join("\n") : null,
+    card: detail.cardRows ? [`${kindLabel}申請（尚未送出）`, ...detail.cardRows.map((row) => `${row.label}：${row.value}`)].join("\n") : null,
+    cardRows: detail.cardRows,
     expiresAt: taipeiMinuteFromUtcWallClock(row.expiresAt),
     timeZone: "Asia/Taipei",
   };

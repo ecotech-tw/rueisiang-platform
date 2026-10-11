@@ -48,6 +48,12 @@ describe("小香 HR 申請草稿", () => {
     const third = await saveHrRequestDraft(db(), scope, { kind: "leave", leaveTypeId: "leave-personal", reason: "  看醫生  " }, NOW);
     expect(third).toMatchObject({ id: first.id, status: "ready", missing: [], optional: [], leaveTypeOptions: [], problem: null });
     expect(third.card).toBe("請假申請（尚未送出）\n假別：事假\n開始：2026-03-03（週二）09:00\n結束：2026-03-03（週二）12:00\n時數：3 小時\n原因：看醫生");
+    // 文字版的卡片與 LINE 卡片用的每一列是同一份內容。
+    expect(third.cardRows).toEqual([
+      { label: "假別", value: "事假" }, { label: "開始", value: "2026-03-03（週二）09:00" }, { label: "結束", value: "2026-03-03（週二）12:00" },
+      { label: "時數", value: "3 小時" }, { label: "原因", value: "看醫生" },
+    ]);
+    expect(first.cardRows).toBeNull();
     const { changed: _changed, ...thirdView } = third;
     expect(await getHrRequestDraft(db(), scope, NOW)).toEqual(thirdView);
     expect((await db().select().from(assistantHrRequestDrafts))[0]).toMatchObject({ status: "open", revision: 3, userId: "alice", actorUserId: "admin", channelKey: null });

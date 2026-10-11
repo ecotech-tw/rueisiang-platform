@@ -640,7 +640,7 @@ async function runLineAssistant(input: {
         const draft = await getHrRequestDraft(input.db, {
           assistantKey: input.assistantKey, surface: "line", channelKey: input.channelKey, conversationKey: input.groupRowId, userId: hrAuthorization.userId,
         });
-        if (draft?.card) confirmMessages = lineHrDraftConfirmMessages({ id: draft.id, revision: draft.revision, kindLabel: draft.kindLabel, card: draft.card });
+        if (draft?.cardRows) confirmMessages = lineHrDraftConfirmMessages({ id: draft.id, revision: draft.revision, kindLabel: draft.kindLabel, cardRows: draft.cardRows });
       }
     }
     await checkHrDelivery();
