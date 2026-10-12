@@ -226,7 +226,9 @@ describe("HR 前台快速排班", () => {
       await page.click("返回月曆");
       expect(document.querySelector("h1")!.textContent).toBe("排班");
       expect(document.body.textContent).toContain("已儲存，重新載入班表");
-      await page.click("快速排班"); await page.click("返回月曆");
+      expect(document.body.textContent).not.toContain("尚未儲存：");
+      await page.click("快速排班"); await page.click("儲存排班");
+      expect(document.querySelector("h1")!.textContent).toBe("排班");
       expect(page.writes).toHaveLength(1);
       await page.click("返回工作");
       expect(page.router.state.location.pathname).toBe("/work");
@@ -476,6 +478,17 @@ describe("HR 前台快速排班", () => {
       confirm.mockReturnValue(true);
       await act(async () => { await page.router.navigate(-1); });
       expect(document.body.textContent).toContain("個人頁");
+    } finally { await page.cleanup(); }
+  });
+
+  it("桌機未儲存時返回工作只詢問一次，不重複跳確認", async () => {
+    const page = await renderPage(data());
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      await page.clickDate("2026-02-07"); await page.click("返回工作");
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(page.router.state.location.pathname).toBe("/work");
+      expect(page.writes).toHaveLength(0);
     } finally { await page.cleanup(); }
   });
 

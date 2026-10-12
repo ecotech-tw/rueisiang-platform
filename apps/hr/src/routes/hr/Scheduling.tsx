@@ -139,7 +139,7 @@ function ScheduleEditor({ data, quick, onQuickChange, exitRequestRef, onReload, 
   const focusedDay = detailsDate ? data.calendar.find((day) => day.date === detailsDate) : undefined;
   const focusedEntries = detailsDate ? draft.filter((entry) => entry.workDate === detailsDate) : [];
   const offset = new Date(`${data.periodKey}-01T00:00:00Z`).getUTCDay();
-  const summary = dirty ? `尚未儲存：新增 ${changes.entries.length} 筆、移除 ${changes.removedIds.length} 筆` : "";
+  const summary = dirty && !savedNeedsReload ? `尚未儲存：新增 ${changes.entries.length} 筆、移除 ${changes.removedIds.length} 筆` : "";
   const personSummary = `本據點已排 ${selectedDays} 天${employee?.monthlyRestDays != null ? `・約定月休 ${employee.monthlyRestDays} 天` : ""}`;
   const fields = <div className="grid grid-cols-2 gap-2">
     <SelectField label="人員" aria-label="人員" searchable value={personValue ?? ""} placeholder="請選擇人員" disabled={disabled || !shifts.length} options={people} onChange={(event) => setPersonValue(event.target.value)} />
@@ -195,7 +195,7 @@ function ScheduleEditor({ data, quick, onQuickChange, exitRequestRef, onReload, 
     </Panel>
     {alerts}
     {quick || !isMobile || summary ? <div className="flex flex-wrap items-center gap-2">
-      {quick ? <Button size="lg" loading={pending} disabled={pending || (dirty && disabled)} onClick={() => void finishQuick()}>儲存排班</Button> : !isMobile ? <Button size="lg" loading={pending} disabled={pending || !dirty && !changes.refreshIds.length || disabled} onClick={() => void persist()}>儲存</Button> : null}
+      {quick ? <Button size="lg" loading={pending} disabled={pending || (dirty && disabled && !savedNeedsReload)} onClick={() => void finishQuick()}>儲存排班</Button> : !isMobile ? <Button size="lg" loading={pending} disabled={pending || !dirty && !changes.refreshIds.length || disabled} onClick={() => void persist()}>儲存</Button> : null}
       {summary ? <span className="text-xs text-muted">{summary}</span> : null}
     </div> : null}
     {focusedDay ? <Dialog title={`${detailsDate} 排班`} titleMeta={focusedDay.name || dayTypeLabel(focusedDay.dayType)} onClose={() => setDetailsDate(null)} closeDisabled={pending || (!quick && dirty && !savedNeedsReload)} closeRequestRef={closeRequestRef} bodyClassName="gap-2" actions={<>
@@ -258,7 +258,7 @@ export function HrScheduling() {
   }, [editState]);
   const goBack = async () => {
     if (editState.pending) return;
-    if (!quick) { if (confirmLeave()) void navigate("/work"); return; }
+    if (!quick) { void navigate("/work"); return; }
     if (await exitRequestRef.current?.()) setQuick(false);
   };
   return <div className={`page hr-front-schedule-page grid min-w-0 content-start ${quick ? "gap-1" : "gap-2"} [&>*+*]:!mt-0`}>
