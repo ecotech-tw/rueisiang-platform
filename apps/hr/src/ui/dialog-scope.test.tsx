@@ -3,6 +3,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { Dialog, DialogScope, Panel } from "./index.js";
+import { Icon } from "../shell/icons.js";
 
 let root: Root | null = null;
 let host: HTMLElement | null = null;
@@ -30,6 +31,13 @@ afterEach(async () => {
  * 對話框 portal 到 body 之後會離開站的樣式範圍，語意色（核准的綠、修改的藍）全部失效，
  * 核准會落回品牌紅、跟駁回分不出來。這裡守的是「站台提供的範圍有被補回來」。
  */
+describe("Icon 線寬契約", () => {
+  it("預設 consumer 不變，可明確配合 regular 與 semibold 字重", async () => {
+    await render(<><Icon name="calendar" /><Icon name="calendar" weight="regular" /><Icon name="calendar" weight="semibold" /></>);
+    expect([...host!.querySelectorAll("svg")].map((icon) => icon.getAttribute("stroke-width"))).toEqual(["1.8", "1.5", "2"]);
+  });
+});
+
 describe("Panel 內距契約", () => {
   it("預設內距不變，compact 透過 prop 縮減內距而非從 route 蓋樣式", async () => {
     await render(<><Panel>預設</Panel><Panel density="compact">緊湊</Panel></>);

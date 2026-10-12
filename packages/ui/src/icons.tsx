@@ -415,14 +415,14 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
 };
 
-export function Icon({ name, className }: { name: IconName; className?: string }) {
+export function Icon({ name, className, weight }: { name: IconName; className?: string; weight?: "regular" | "semibold" }) {
   return (
     <svg
       className={className}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.8}
+      strokeWidth={weight === "regular" ? 1.5 : weight === "semibold" ? 2 : 1.8}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

@@ -29,9 +29,9 @@ function PersonalNav({ className }: { className: string }) {
       to={link.to}
       aria-label={link.label}
       aria-current={active ? "page" : undefined}
-      className={`${link.center ? "hr-personal-bottom-link center" : "hr-personal-bottom-link"}${active ? " active" : ""}`}
+      className={`${link.center ? "hr-personal-bottom-link center" : "hr-personal-bottom-link"} font-semibold${active ? " active" : ""}`}
     >
-      <span className="hr-personal-nav-icon"><Icon name={link.icon} />{link.to === "/notifications" && notifications.data?.unreadCount ? <small className="hr-personal-nav-badge">{notifications.data.unreadCount > 99 ? "99+" : notifications.data.unreadCount}</small> : null}</span>
+      <span className="hr-personal-nav-icon"><Icon name={link.icon} weight="semibold" className="size-6" />{link.to === "/notifications" && notifications.data?.unreadCount ? <small className="hr-personal-nav-badge">{notifications.data.unreadCount > 99 ? "99+" : notifications.data.unreadCount}</small> : null}</span>
       <span className="hr-personal-nav-label"><span className="max-[760px]:hidden">{link.label}</span><span className="min-[761px]:hidden">{link.shortLabel}</span></span>
     </Link>; })}
   </nav>;
