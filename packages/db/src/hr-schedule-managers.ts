@@ -8,6 +8,7 @@ import { users } from "./schema/auth.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrScheduleManagers } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
+import { canSchedulePerson } from "./schedule-draft.js";
 
 export async function listHrScheduleManagers(db: Database) {
   const [stores, managers, candidates] = await Promise.all([
@@ -55,7 +56,7 @@ async function assertManagedScope(db: Database, userId: string, scopeId: string)
 export async function getHrManagedSchedule(db: Database, userId: string, periodKey: string, scopeId: string) {
   await assertManagedScope(db, userId, scopeId);
   const data = await getHrSchedule(db, periodKey, scopeId);
-  return { ...data, scopes: data.scopes.filter((scope) => scope.id === scopeId), calendar: data.calendar.map((day) => ({ ...day, specialScopeIds: day.specialScopeIds.filter((id) => id === scopeId) })) };
+  return { ...data, employees: data.employees.filter((person) => data.shifts.some((shift) => canSchedulePerson(shift, person.employmentId))), workers: data.workers.filter((person) => data.shifts.some((shift) => canSchedulePerson(shift, person.id))), scopes: data.scopes.filter((scope) => scope.id === scopeId), calendar: data.calendar.map((day) => ({ ...day, specialScopeIds: day.specialScopeIds.filter((id) => id === scopeId) })) };
 }
 
 export async function saveHrManagedSchedule(db: Database, scopeId: string, input: HrScheduleChangesInput, actor: HrActor) {

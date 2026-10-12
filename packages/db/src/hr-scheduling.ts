@@ -42,6 +42,7 @@ export interface ScheduleEntryInput {
 type EnrichedScheduleEntry = ScheduleEntryInput & {
   startsAt: string;
   endsAt: string;
+  enforceMembership?: boolean;
   standardMinutes: number;
   breakMinutes: number;
   shiftTemplateId: string;
@@ -158,11 +159,13 @@ async function saveEntriesAtomically(db: Database, version: { id: string; revisi
   };
   const personIds = JSON.stringify(entries.map((entry) => entry.personKind === "employee" ? entry.employmentId : entry.workerId));
   const scopeIds = JSON.stringify([...new Set(entries.map((entry) => entry.scopeId))]);
+  const membershipEntries = JSON.stringify(entries.filter((entry) => entry.enforceMembership).map((entry) => ({ templateId: entry.shiftTemplateId, personId: entry.personKind === "employee" ? entry.employmentId : entry.workerId })));
   const eligible = sql`NOT EXISTS (SELECT 1 FROM hr_employments WHERE id IN (SELECT value FROM json_each(${personIds})) AND archived_at IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM scopes WHERE id IN (SELECT value FROM json_each(${scopeIds})) AND (active<>1 OR scope_kind<>'store'))
       ${removed ? sql`AND NOT EXISTS (SELECT 1 FROM hr_schedule_entries AS entry INNER JOIN hr_employments AS person ON person.id=entry.employment_id WHERE entry.id IN (SELECT value FROM json_each(${JSON.stringify(removed.employee)})) AND person.archived_at IS NOT NULL)
         AND NOT EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS entry INNER JOIN hr_employments AS person ON person.id=entry.worker_id WHERE entry.id IN (SELECT value FROM json_each(${JSON.stringify(removed.worker)})) AND person.archived_at IS NOT NULL)` : sql``}
       ${authorizedScopeId ? sql`AND EXISTS (SELECT 1 FROM hr_schedule_managers AS manager INNER JOIN users ON users.id=manager.user_id INNER JOIN hr_employments ON hr_employments.employee_user_id=users.id INNER JOIN scopes ON scopes.id=manager.scope_id WHERE manager.scope_id=${authorizedScopeId} AND manager.user_id=${actor.id} AND users.status='active' AND hr_employments.archived_at IS NULL AND scopes.active=1 AND scopes.scope_kind='store')` : sql``}
+      ${authorizedScopeId ? sql`AND NOT EXISTS (SELECT 1 FROM json_each(${membershipEntries}) AS proposed INNER JOIN hr_shift_templates AS template ON template.id=json_extract(proposed.value, '$.templateId') WHERE template.allowed_person_ids IS NOT NULL AND NOT EXISTS (SELECT 1 FROM json_each(template.allowed_person_ids) AS member WHERE member.value=json_extract(proposed.value, '$.personId')))` : sql``}
       ${removed?.scheduledOnlyIds?.length ? sql`AND NOT EXISTS (SELECT 1 FROM hr_schedule_entries WHERE id IN (SELECT value FROM json_each(${JSON.stringify(removed.scheduledOnlyIds)})) AND attendance_status<>'scheduled')
         AND NOT EXISTS (SELECT 1 FROM hr_schedule_worker_entries WHERE id IN (SELECT value FROM json_each(${JSON.stringify(removed.scheduledOnlyIds)})) AND attendance_status<>'scheduled')` : sql``}`;
   // 首次發布也必須同批建立月份；守衛失敗或任何 INSERT 失敗都不能留下空的已發布版本。
@@ -294,6 +297,7 @@ function listHrScopeShiftRows(db: Database) {
       code: sql<string>`${hrShiftTemplates.code}`.as("schedule_shift_code"),
       name: sql<string>`${hrShiftTemplates.name}`.as("schedule_shift_name"),
       revision: sql<number>`${hrShiftTemplates.revision}`.as("schedule_shift_revision"),
+      allowedPersonIds: hrShiftTemplates.allowedPersonIds,
       dayType: sql<HrDayType>`${hrShiftVersions.dayType}`.as("schedule_shift_day_type"),
       versionNumber: sql<number>`${hrShiftVersions.versionNumber}`.as("schedule_shift_version_number"),
       startSecond: hrShiftVersions.startSecond,
@@ -312,7 +316,8 @@ function listHrScopeShiftRows(db: Database) {
 /** 班別管理頁：店與每家店目前生效的班別。 */
 export async function listHrShifts(db: Database) {
   const [scopeRows, shiftRows] = await Promise.all([listHrScheduleScopes(db), listHrScopeShiftRows(db)]);
-  return { scopes: scopeRows, shifts: latestShiftVersions(shiftRows).map(({ versionNumber: _versionNumber, code: _code, ...shift }) => shift) };
+  const people = await db.select({ id: hrEmployments.id, name: hrEmployments.legalName, employeeNumber: hrEmployments.employeeNumber, personKind: hrEmployments.personKind }).from(hrEmployments).where(isNull(hrEmployments.archivedAt)).orderBy(...hrEmployeeNumberOrder());
+  return { scopes: scopeRows, shifts: latestShiftVersions(shiftRows).map(({ versionNumber: _versionNumber, code: _code, ...shift }) => shift), people };
 }
 
 export async function getHrSchedule(db: Database, periodKey: string, scopeId?: string) {
@@ -403,7 +408,15 @@ export async function saveHrScheduleChanges(db: Database, input: HrScheduleChang
     const entry = byId.get(id)!;
     return { personKind: entry.personKind, employmentId: entry.employmentId ?? undefined, workerId: entry.workerId ?? undefined, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate, attendanceStatus: entry.attendanceStatus };
   });
+  if (authorizedScopeId) {
+    for (const entry of input.entries) {
+      const shift = current.shifts.find((shift) => shift.versionId === entry.shiftVersionId && shift.scopeId === entry.scopeId);
+      const personId = entry.personKind === "employee" ? entry.employmentId : entry.workerId;
+      if (shift?.allowedPersonIds != null && (!personId || !shift.allowedPersonIds.includes(personId))) throw new HrError(403, "這位人員未納入班別的前台可排人員，請聯絡 HR 調整。 ");
+    }
+  }
   const enriched = await validateAndEnrichEntries(db, period, [...input.entries, ...refreshed]);
+  if (authorizedScopeId) enriched.forEach((entry, index) => { entry.enforceMembership = index < input.entries.length; });
   const retained = current.entries.filter((entry) => !touchedIds.has(entry.id));
   for (const entry of enriched) {
     for (const other of retained) {
@@ -455,6 +468,7 @@ export interface HrShiftInput {
   scopeId: string;
   name: string;
   times: HrShiftTime[];
+  allowedPersonIds?: string[] | null;
   /** 舊版 API 的班別層級需求人力；新的 UI 會在每個日型提供自己的值。 */
   requiredHeadcount?: number;
 }
@@ -493,6 +507,13 @@ function resolveRequiredHeadcounts(times: HrShiftTime[], fallback: number | unde
   return new Map(times.map((time) => [time.dayType, assertRequiredHeadcount(time.requiredHeadcount ?? inherited.get(time.dayType) ?? defaultHeadcount)]));
 }
 
+async function validateShiftPeople(db: Database, ids: string[] | null | undefined, previous: string[] | null = null) {
+  if (ids == null) return;
+  if (!Array.isArray(ids) || ids.length > 1000 || ids.some((id) => typeof id !== "string" || !id || id.length > 100) || new Set(ids).size !== ids.length) throw new HrError(400, "班別可排人員名單格式不正確。 ");
+  const people = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(inJsonArray(hrEmployments.id, ids), isNull(hrEmployments.archivedAt)));
+  if (ids.some((id) => !people.some((person) => person.id === id) && !previous?.includes(id))) throw new HrError(400, "班別可排人員必須是有效的員工或支援人員。 ");
+}
+
 function insertShiftVersion(versionId: string, templateId: string, time: HrShiftTime, requiredHeadcount: number, versionNumber: number, actorId: string) {
   return sql`INSERT INTO hr_shift_versions (id, shift_template_id, day_type, required_headcount, version_number, start_second, end_second, end_day_offset, standard_minutes, break_minutes, pay_factor_ppm, created_by)
     VALUES (${versionId}, ${templateId}, ${time.dayType}, ${requiredHeadcount}, ${versionNumber}, ${time.startSecond}, ${time.endSecond}, 0, ${time.standardMinutes}, ${time.breakMinutes}, 1000000, ${actorId})`;
@@ -500,6 +521,7 @@ function insertShiftVersion(versionId: string, templateId: string, time: HrShift
 
 export async function createHrShift(db: Database, input: HrShiftInput, actor: HrActor) {
   assertShiftTimes(input.times);
+  await validateShiftPeople(db, input.allowedPersonIds);
   const requiredHeadcounts = resolveRequiredHeadcounts(input.times, input.requiredHeadcount);
   const weekdayHeadcount = requiredHeadcounts.get("weekday")!;
   const [scope] = await db.select({ id: scopes.id }).from(scopes).where(and(eq(scopes.id, input.scopeId), eq(scopes.scopeKind, "store"), eq(scopes.active, 1))).limit(1);
@@ -508,9 +530,9 @@ export async function createHrShift(db: Database, input: HrShiftInput, actor: Hr
   const versionIds = new Map(input.times.map((time) => [time.dayType, crypto.randomUUID()]));
   const assignmentId = `${input.scopeId}:${templateId}`;
   const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
-  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_created", summary: "班別已建立", actor, payload: { name: input.name.trim(), requiredHeadcount: weekdayHeadcount, requiredHeadcounts: Object.fromEntries(requiredHeadcounts), dayTypes: input.times.map((time) => time.dayType) } });
+  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_created", summary: "班別已建立", actor, payload: { name: input.name.trim(), allowedPersonIds: input.allowedPersonIds ?? null, requiredHeadcount: weekdayHeadcount, requiredHeadcounts: Object.fromEntries(requiredHeadcounts), dayTypes: input.times.map((time) => time.dayType) } });
   const statements = [
-    sql`INSERT INTO hr_shift_templates (id, code, name, active, required_headcount, created_by) VALUES (${templateId}, ${templateId}, ${input.name.trim()}, 1, ${weekdayHeadcount}, ${actor.id}) RETURNING id`,
+    sql`INSERT INTO hr_shift_templates (id, code, name, active, required_headcount, allowed_person_ids, created_by) VALUES (${templateId}, ${templateId}, ${input.name.trim()}, 1, ${weekdayHeadcount}, ${input.allowedPersonIds == null ? null : JSON.stringify(input.allowedPersonIds)}, ${actor.id}) RETURNING id`,
     ...input.times.map((time) => insertShiftVersion(versionIds.get(time.dayType)!, templateId, time, requiredHeadcounts.get(time.dayType)!, 1, actor.id)),
     sql`INSERT INTO hr_scope_shift_assignments (scope_id, shift_template_id, is_default, created_by) VALUES (${input.scopeId}, ${templateId}, 0, ${actor.id}) RETURNING scope_id AS id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson})`,
@@ -542,7 +564,9 @@ async function assertShiftOwnedByScope(db: Database, templateId: string, scopeId
 export async function updateHrShift(db: Database, templateId: string, input: HrShiftInput & { revision: number }, actor: HrActor) {
   assertShiftTimes(input.times);
   await assertShiftOwnedByScope(db, templateId, input.scopeId, "修改");
-  const [template] = await db.select({ requiredHeadcount: hrShiftTemplates.requiredHeadcount }).from(hrShiftTemplates).where(eq(hrShiftTemplates.id, templateId)).limit(1);
+  const [template] = await db.select({ requiredHeadcount: hrShiftTemplates.requiredHeadcount, allowedPersonIds: hrShiftTemplates.allowedPersonIds }).from(hrShiftTemplates).where(eq(hrShiftTemplates.id, templateId)).limit(1);
+  await validateShiftPeople(db, input.allowedPersonIds, template?.allowedPersonIds);
+  const allowedPersonIds = input.allowedPersonIds === undefined ? template?.allowedPersonIds ?? null : input.allowedPersonIds;
   const existing = await db.select({ id: hrShiftVersions.id, dayType: hrShiftVersions.dayType, versionNumber: hrShiftVersions.versionNumber, requiredHeadcount: hrShiftVersions.requiredHeadcount })
     .from(hrShiftVersions).where(eq(hrShiftVersions.shiftTemplateId, templateId)).orderBy(desc(hrShiftVersions.versionNumber));
   if (!existing.length) throw new HrError(404, "找不到班別的時間設定。 ");
@@ -556,7 +580,7 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
   const weekdayHeadcount = requiredHeadcounts.get("weekday")!;
   const wanted = new Set(input.times.map((time) => time.dayType));
   const removed = [...latestByDayType.entries()].filter(([dayType]) => !wanted.has(dayType));
-  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), requiredHeadcount: weekdayHeadcount, requiredHeadcounts: Object.fromEntries(requiredHeadcounts), times: input.times } });
+  const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), allowedPersonIds, requiredHeadcount: weekdayHeadcount, requiredHeadcounts: Object.fromEntries(requiredHeadcounts), times: input.times } });
   /*
    * 只有第一句真的改到一列，後面才動時間與寫紀錄；用 changes() 而不是再查一次 revision。
    * 用「revision = 舊值 + 1」判斷會被併發騙過：別人先改成 2 之後，拿著舊值 1 的請求
@@ -567,7 +591,7 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
    * 否則從那一句之後的守衛全部失效。
    */
   const statements = [
-    sql`UPDATE hr_shift_templates SET name=${input.name.trim()}, required_headcount=${weekdayHeadcount}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${templateId} AND revision=${input.revision} RETURNING id`,
+    sql`UPDATE hr_shift_templates SET name=${input.name.trim()}, required_headcount=${weekdayHeadcount}, allowed_person_ids=${allowedPersonIds === null ? null : JSON.stringify(allowedPersonIds)}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${templateId} AND revision=${input.revision} RETURNING id`,
     ...input.times.map((time) => {
       const current = latestByDayType.get(time.dayType);
       const requiredHeadcount = requiredHeadcounts.get(time.dayType)!;

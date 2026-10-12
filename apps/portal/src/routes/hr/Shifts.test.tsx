@@ -22,6 +22,38 @@ const managerData = { scopes: [{ id: "store", name: "門市", userId: null, revi
 
 afterEach(() => { vi.unstubAllGlobals(); showToast.mockClear(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
+it("時間可手動輸入並驗證 HH:mm，班別名單可多選後一起儲存", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  notifyManager.setScheduler(queueMicrotask);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const initial = { ...initialShifts, shifts: initialShifts.shifts.slice(0, 1).map((shift) => ({ ...shift, allowedPersonIds: [] })), people: [{ id: "employee", employeeNumber: "E1", name: "小明", personKind: "employee" }] };
+  const writes: Record<string, unknown>[] = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "PATCH") { writes.push(JSON.parse(String(init.body))); return Response.json({ revision: 2 }); }
+    return Response.json(String(input).endsWith("/schedule-managers") ? managerData : initial);
+  });
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  const change = async (value: string) => act(async () => {
+    const input = document.querySelector<HTMLInputElement>('[aria-label="早班平日開始時間"]')!;
+    Object.getOwnPropertyDescriptor(input.constructor.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  const save = async () => act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "儲存")!.click());
+  try {
+    await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrShifts /></QueryClientProvider></MemoryRouter>));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="編輯 門市 的班別與排班負責人"]')!.click());
+    expect(document.querySelector<HTMLInputElement>('[aria-label="早班平日開始時間"]')!.type).toBe("text");
+    await change("25:00"); await save();
+    expect(document.body.textContent).toContain("請輸入有效的 HH:mm"); expect(writes).toHaveLength(0);
+    await change("09:30");
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="開啟早班納入人員選單"]')!.click());
+    await act(async () => ([...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("小明")))!.click());
+    await save();
+    expect(writes).toHaveLength(1);
+    expect(writes[0]).toMatchObject({ allowedPersonIds: ["employee"], times: [{ dayType: "weekday", startTime: "09:30", endTime: "18:00" }] });
+  } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+});
+
 it("部分儲存後重新載入並關閉舊草稿，避免用過期 revision 重試", async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   notifyManager.setScheduler(queueMicrotask);

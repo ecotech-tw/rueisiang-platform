@@ -64,6 +64,8 @@ export const hrShiftTemplates = sqliteTable("hr_shift_templates", {
   code: text("code").notNull(),
   name: text("name").notNull(),
   active: integer("active").notNull().default(1),
+  /** null 維持舊班別不限人員；空陣列表示前台尚無可排人員。名單使用穩定 employmentId，含支援人員。 */
+  allowedPersonIds: text("allowed_person_ids", { mode: "json" }).$type<string[]>(),
   /** 舊版班別需求人力的相容鏡像；新的來源是各日型版本上的需求人力。 */
   requiredHeadcount: integer("required_headcount").notNull().default(1),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),

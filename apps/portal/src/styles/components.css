@@ -2237,7 +2237,8 @@
 .salary-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
 .salary-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
 /* 班別清單沿用敘薪的「逐列編輯／底部新增與儲存」結構，但一個班別是一張卡，卡裡才是三個日型。 */
-.shift-items { display: grid; gap: 10px; }
+.shift-items { display: grid; gap: 10px; container: shift-settings / inline-size; }
+.shift-members { display: grid; gap: 8px; padding: 6px 4px; }
 .shift-items-label { color: var(--color-ink); font-size: 13px; font-weight: 600; }
 /* 內距 5px ＋ 欄位 9px 圓角 = 卡片 14px：巢狀圓角同心，邊角才不會看起來歪一塊。 */
 .shift-group { display: grid; gap: 6px; padding: 5px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-paper); }
@@ -2248,9 +2249,10 @@
 .shift-day-head > span:not(:first-child):not(:last-child) { text-align: center; }
 .shift-day-row-empty { grid-template-columns: 62px minmax(0, 1fr) auto; }
 .shift-day-label { padding-left: 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; }
-.shift-day-inherited { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.shift-day-inherited { min-width: 0; }
 .shift-group .field { min-width: 0; margin: 0; }
-.shift-group .field > span:first-child { display: none; }
+.shift-group-head .field > span:first-child,
+.shift-day-row .field > span:first-child { display: none; }
 .shift-group .icon-button { align-self: center; }
 .shift-item-spacer { display: block; }
 .shift-item-note { grid-column: 1 / -1; margin-top: -4px; color: var(--color-muted); font-size: 12px; }
@@ -2270,7 +2272,9 @@
   .special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 44px; }
   .special-allowance-items .salary-item-row > .field:nth-child(2)::before { content: "補貼單價（元）"; }
   .special-allowance-items .salary-item-row > .icon-button { grid-column: 2; }
-  /* 窄螢幕把日型獨占一行，四個欄位拆成兩列，刪除／還原按鈕固定在右下角。 */
+}
+/* 依對話框可用寬度換行，不依螢幕寬度猜測欄位是否放得下。 */
+@container shift-settings (max-width: 600px) {
   .shift-day-head { display: none; }
   .shift-day-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 6px 8px; }
   .shift-day-label { grid-column: 1 / -1; padding-left: 2px; }

@@ -334,7 +334,7 @@ export function isDefaultHrCalendarSpecialName(name: string) {
   return normalized === "災防停班" || normalized === "颱風停班";
 }
 
-export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShift[] }
+export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShift[]; people?: Array<{ id: string; name: string; employeeNumber: string; personKind: "employee" | "worker" }> }
 export interface HrCalendarDay { date: string; dayType: HrDayType; name: string; specialKind: HrCalendarSpecialKind; specialScopeIds: string[]; overridden: boolean }
 export interface HrCalendarResponse { days: HrCalendarDay[]; scopes: ScheduleScope[] }
 

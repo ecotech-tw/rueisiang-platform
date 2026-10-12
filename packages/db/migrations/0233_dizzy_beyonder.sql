@@ -1,0 +1,1 @@
+ALTER TABLE `hr_shift_templates` ADD `allowed_person_ids` text;
