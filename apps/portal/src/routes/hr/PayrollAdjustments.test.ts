@@ -35,7 +35,8 @@ describe("薪資加扣項操作欄", () => {
     expect(cells[0]).toContain("刪除");
     expect(cells[0]).not.toContain('class="button-row"');
     expect(cells[1]).toContain('role="img" aria-label="不能編輯或刪除"');
-    expect(cells[1]).toContain("<svg");
+    expect(cells[1]).toContain('class="inline-flex size-6 shrink-0 items-center"');
+    expect(cells[1]).toContain('<svg class="size-6 shrink-0"');
     expect(cells[1]).not.toContain("<button");
     expect(cells[1]).not.toContain("icon-button");
   });
@@ -47,7 +48,8 @@ describe("薪資加扣項操作欄", () => {
     expect(cells).toHaveLength(2);
     for (const cell of cells) {
       expect(cell).toContain('role="img" aria-label="需要薪資試算權限才能編輯或刪除"');
-      expect(cell).toContain("<svg");
+      expect(cell).toContain('class="inline-flex size-6 shrink-0 items-center"');
+      expect(cell).toContain('<svg class="size-6 shrink-0"');
       expect(cell).not.toContain("<button");
     }
     expect(markup).not.toContain("新增薪資加扣項");
