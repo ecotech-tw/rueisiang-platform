@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { HR_PROFILE_FIELDS, emptyHrPersonalData, type HrPersonalData, type HrProfileField } from "@rueisiang/db/hr-profile-fields";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type NamedOption, type Profile } from "./api.js";
 
 import { EmployeePhoto } from "./EmployeePhoto.js";

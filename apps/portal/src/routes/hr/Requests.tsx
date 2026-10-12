@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectionActionBar, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectionActionBar, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";

@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { EmployeeFilterBar } from "./EmployeeFilterBar.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SegmentedControl, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SegmentedControl, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrAnnualLeaveEntitlement, type HrAnnualLeaveEntitlementDetail, type HrAnnualLeaveLedgerEntry, type HrAnnualLeaveResponse } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 

@@ -253,7 +253,7 @@ export function Analytics() {
                     }
                   }}
                 />
-                <Button variant="secondary" icon="search" onClick={applyProductFilter}>查看分析</Button>
+                <Button variant="secondary" icon="search" className="flex-none" onClick={applyProductFilter}>查看分析</Button>
               </div>
             </div>
           ) : null}

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { groupShiftsByTemplate, shiftTimeRange, useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrDayType, type HrShiftsResponse, type ScheduleScope, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { ShiftTimeField } from "./ShiftTimeField.js";

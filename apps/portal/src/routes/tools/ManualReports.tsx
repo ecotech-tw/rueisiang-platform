@@ -7,7 +7,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, LegacyButton, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -912,7 +912,7 @@ export function ManualReports() {
         actions={(
           <div className="manual-report-toolbar">
             <div className="manual-report-tabs" role="tablist" aria-label="報表類型">
-              <Button
+              <LegacyButton
                 variant="chip"
                 selected={kind === "payout"}
                 role="tab"
@@ -921,8 +921,8 @@ export function ManualReports() {
               >
                 <Icon name="payments" />
                 每日出金
-              </Button>
-              <Button
+              </LegacyButton>
+              <LegacyButton
                 variant="chip"
                 selected={kind === "sales"}
                 role="tab"
@@ -931,13 +931,13 @@ export function ManualReports() {
               >
                 <Icon name="report" />
                 每月商品銷售
-              </Button>
+              </LegacyButton>
             </div>
             <div className="manual-report-actions">
               <Button variant="secondary" icon="attachment" disabled={busy} onClick={() => setImportDialog({ kind })}>匯入報表</Button>
               <Button
                 icon="plus"
-                className="add-action"
+                className="max-[620px]:justify-center"
                 disabled={!scopes.length || busy}
                 onClick={() => setDialog({ kind })}
                 aria-label={`新增${kind === "payout" ? "出金" : "商品銷售"}資料`}
@@ -1373,7 +1373,7 @@ function PayoutTable({
                     />
                     <Button
                       variant="icon"
-                      className="danger"
+                      tone="danger"
                       icon="trash"
                       disabled={busy}
                       onClick={() => onDelete(row)}
@@ -1498,7 +1498,7 @@ function SalesTable({
                     />
                     <Button
                       variant="icon"
-                      className="danger"
+                      tone="danger"
                       icon="trash"
                       disabled={busy}
                       onClick={() => onDelete(row)}

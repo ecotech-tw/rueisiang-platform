@@ -97,7 +97,7 @@ function CustomerRow({
             {canBlock ? (
               <Button
                 variant="icon"
-                className={customer.status === "blocked" ? "" : "danger"}
+                tone={customer.status === "blocked" ? "brand" : "danger"}
                 icon={customer.status === "blocked" ? "unblock" : "block"}
                 onClick={onBlock}
                 disabled={busy}
@@ -160,7 +160,7 @@ export function Customers() {
         actions={canWrite ? (
             <Button
               icon="plus"
-              className="add-action"
+              mobileIconOnly
               onClick={() => setEditing("new")}
               aria-label="新增客人"
             >
@@ -189,7 +189,7 @@ export function Customers() {
           <Button
             variant="secondary"
             icon="filter"
-            className={`filter-toggle${showFilters ? " active" : ""}`}
+            size="lg" active={showFilters} className="flex-none min-[761px]:hidden"
             aria-expanded={showFilters}
             onClick={() => setShowFilters((open) => !open)}
           >

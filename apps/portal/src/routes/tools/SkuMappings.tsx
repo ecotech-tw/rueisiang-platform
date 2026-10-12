@@ -93,7 +93,7 @@ export function SkuMappings() {
         actions={canWrite ? (
           <Button
             icon="plus"
-            className="add-action"
+            mobileIconOnly
             onClick={() => setMappingDialog("new")}
             aria-label="新增對應"
           >
@@ -159,6 +159,7 @@ export function SkuMappings() {
           />
           <Button
             icon="plus"
+            size="lg"
             disabled={!ignoreSku.trim() || addIgnore.isPending}
             loading={addIgnore.isPending}
             loadingLabel="加入中…"
@@ -270,7 +271,7 @@ export function SkuMappings() {
                         />
                         <Button
                           variant="icon"
-                          className="danger"
+                          tone="danger"
                           icon="trash"
                           title={`移除外部 SKU ${mapping.externalSku}`}
                           aria-label={`移除外部 SKU ${mapping.externalSku}`}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, Button, LegacyButton } from "../../ui/index.js";
 import {
   useCountItem,
   useDeleteZoneImage,
@@ -224,7 +224,7 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
                 */}
               <img src={`/api/wms/images/${image.id}`} alt={image.filename} loading="lazy" />
               {canWrite ? (
-                <Button
+                <LegacyButton
                   variant="icon"
                   className="danger"
                   icon="trash"
@@ -308,7 +308,7 @@ export function ZoneDrawer({
     >
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="zone-drawer-title">
         <header className={`drawer-head tone-${zone.color}`}>
-          <Button variant="icon" className="drawer-close" icon="close" type="button" onClick={requestClose} aria-label="關閉" />
+          <Button variant="icon" className="absolute top-3.5 right-3.5" icon="close" type="button" onClick={requestClose} aria-label="關閉" />
           <p className="drawer-eyebrow">STORAGE ZONE</p>
           <div className="drawer-title">
             <span className="drawer-code">{zone.code}</span>

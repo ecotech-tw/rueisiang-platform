@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type ScheduleWorkerPageResponse, type ScheduleWorkerRecord } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 

@@ -157,7 +157,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
                   />
                   <Button
                     variant="icon"
-                    className="danger"
+                    tone="danger"
                     icon="trash"
                     // 至少要有一層：一個沒有層的倉位，商品就沒地方放。
                     disabled={levels.length <= 1}

@@ -320,7 +320,7 @@ export function Items() {
                         {item.source === "custom" ? (
                           <Button
                             variant="icon"
-                            className="danger"
+                            tone="danger"
                             icon="trash"
                             title={item.inWarehouse ? "請先從倉儲移除後再刪除" : "刪除自訂品項"}
                             aria-label={`刪除自訂品項 ${item.name}`}

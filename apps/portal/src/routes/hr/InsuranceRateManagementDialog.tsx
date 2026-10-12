@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog, SegmentedControl, StatusBadge } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, Dialog, SegmentedControl, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type InsuranceRateTableRecord } from "./api.js";
 import { InsuranceRateTableEditor } from "./InsuranceRateTableEditor.js";
 

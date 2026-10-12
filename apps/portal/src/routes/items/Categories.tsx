@@ -100,7 +100,7 @@ function SortableCategoryRow({ category, canWrite, over, parentHighlight, onEdit
   return <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={isDragging ? "dragging" : parentHighlight ? "drop-parent" : over ? "drop-target" : undefined}>
     <td data-label="分類" style={{ paddingLeft: category.depth === 1 ? 48 : undefined }}><span className="category-drag-handle" {...attributes} {...listeners} aria-label="拖曳調整排序" title="拖曳調整排序"><Icon name="dragHandle" /></span><span className={`status status-tone-${category.color}`}>{category.name}</span></td>
     <td data-label="使用中的品項" className="numeric">{category.usageCount}</td>
-    {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" onClick={onEdit} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" className="danger" icon="trash" disabled={category.usageCount > 0} onClick={onDelete} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
+    {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" onClick={onEdit} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" tone="danger" icon="trash" disabled={category.usageCount > 0} onClick={onDelete} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
   </tr>;
 }
 

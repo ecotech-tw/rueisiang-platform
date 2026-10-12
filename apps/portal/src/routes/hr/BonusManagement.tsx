@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, DropdownSelect, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import { Link } from "react-router";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";

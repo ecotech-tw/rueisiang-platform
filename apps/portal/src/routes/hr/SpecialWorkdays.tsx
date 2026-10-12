@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, Panel, PageHeader, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, Panel, PageHeader, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { useHrEmployeeRoster, useHrQuery, useHrWrite, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";

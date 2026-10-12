@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrPersonnelRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 

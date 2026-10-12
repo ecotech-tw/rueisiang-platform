@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, EmptyState, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, EmptyState, PageHeader, Panel } from "../../ui/index.js";
 import { isHrFormalEmployee, useHrQuery, type Employee, type Employment, type InsuranceVersion, type Profile, type HrFormalEmployee } from "./api.js";
 import { InsuranceEditor } from "./InsuranceEditor.js";
 import { InsuranceRateManagementDialog } from "./InsuranceRateManagementDialog.js";

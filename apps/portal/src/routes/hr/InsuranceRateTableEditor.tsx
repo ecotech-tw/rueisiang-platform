@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, DataTable, EmptyState, TextField } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, EmptyState, TextField } from "../../ui/index.js";
 import { useHrWrite, type InsuranceBracket, type InsuranceRateTableRecord } from "./api.js";
 
 const SCHEME_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };

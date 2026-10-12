@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 

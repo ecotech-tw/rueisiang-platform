@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { isHrFormalEmployee, useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type HrFormalEmployee, type Profile } from "./api.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 

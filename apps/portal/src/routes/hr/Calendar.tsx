@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, DropdownSelect, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, isDefaultHrCalendarSpecialName, type HrCalendarDay, type HrCalendarResponse, type HrCalendarSpecialKind, type HrDayType, type ScheduleScope } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";

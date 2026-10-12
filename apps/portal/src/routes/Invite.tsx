@@ -98,7 +98,7 @@ export function Invite() {
               <TextField label="顯示名稱" maxLength={40} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="其他人在系統裡看到的名字" />
               <TextField label={<>密碼<b>至少 8 個字元</b></>} required type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} />
               <TextField label="再輸入一次" required type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
-              <Button type="submit" disabled={pending}>
+              <Button type="submit" size="lg" className="w-full" disabled={pending}>
                 {pending ? "設定中…" : "設定密碼並進入系統"}
               </Button>
             </form>

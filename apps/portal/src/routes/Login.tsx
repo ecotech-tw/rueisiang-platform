@@ -82,7 +82,7 @@ export function Login() {
         <form className="login-form" onSubmit={submit}>
           <TextField label="Email" required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
           <TextField label="密碼" required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
-          <Button type="submit" className="login-submit" disabled={pending}>
+          <Button type="submit" size="lg" className="w-full" disabled={pending}>
             {pending ? "登入中…" : "登入"}
           </Button>
         </form>

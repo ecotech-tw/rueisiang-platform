@@ -5,7 +5,7 @@ import { Icon } from "../../shell/icons.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { downloadPayslipImage } from "./exportPayslip.js";
 import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail, type PayrollScheduleAllocationDetail, type PayrollWorker } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
