@@ -1,6 +1,7 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
+import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrPersonnelRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
@@ -184,7 +185,7 @@ export function HrPayrollAdjustments() {
               <td data-label="加扣項目"><div className="hr-payroll-adjustment-item-summary">{adjustment.items.map((item) => <span key={item.id}><strong>{item.itemName}</strong><small>{item.amountMinor < 0 ? "扣款" : "補發／加給"}</small></span>)}</div></td>
               <td data-label="加扣金額" className="numeric"><strong>{signedMoney(totalMinor(adjustment))}</strong></td>
               <td data-label="原因" className="hr-payroll-adjustment-reason">{adjustment.reason}</td>
-              <td data-label="操作">{canCalculate ? adjustment.canEdit ? <div className="button-row"><Button variant="secondary" icon="edit" className="hr-action-update" onClick={() => openEdit(adjustment)}>編輯</Button><Button variant="danger" icon="trash" onClick={() => { remove.reset(); setDeleting(adjustment); }}>刪除</Button></div> : <Tooltip label="已發放或月份結帳，不能編輯或刪除"><Button variant="icon" icon="block" disabled aria-label="不能編輯或刪除" /></Tooltip> : null}</td>
+              <td data-label="操作">{canCalculate ? <div className="hr-payroll-adjustment-actions">{adjustment.canEdit ? <><Button variant="secondary" icon="edit" className="hr-action-update" onClick={() => openEdit(adjustment)}>編輯</Button><Button variant="danger" icon="trash" onClick={() => { remove.reset(); setDeleting(adjustment); }}>刪除</Button></> : <Tooltip label="已發放或月份結帳，不能編輯或刪除" className="muted"><span role="img" aria-label="不能編輯或刪除"><Icon name="block" /></span></Tooltip>}</div> : null}</td>
             </tr>)}</tbody>
         </DataTable>
       </div>

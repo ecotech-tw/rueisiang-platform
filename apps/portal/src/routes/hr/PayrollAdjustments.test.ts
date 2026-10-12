@@ -1,5 +1,51 @@
-import { describe, expect, it } from "vitest";
-import { payrollAdjustmentPersonnelLabel } from "./PayrollAdjustments.js";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { HrPayrollAdjustments, payrollAdjustmentPersonnelLabel } from "./PayrollAdjustments.js";
+import type { PayrollAdjustment } from "./api.js";
+
+const mocks = vi.hoisted(() => ({ useSession: vi.fn(), useHrQuery: vi.fn() }));
+vi.mock("../../auth/session.js", () => ({ useSession: mocks.useSession }));
+vi.mock("../../shell/usePageTitle.js", () => ({ usePageTitle: vi.fn() }));
+vi.mock("./api.js", async (importOriginal) => ({
+  ...await importOriginal<typeof import("./api.js")>(),
+  useHrQuery: mocks.useHrQuery,
+  useHrPersonnelRoster: () => ({ data: { employees: [] }, isPending: false, error: null }),
+  useHrWrite: () => ({ mutate: vi.fn(), reset: vi.fn(), isPending: false, error: null }),
+}));
+
+const adjustment: PayrollAdjustment = {
+  id: "adjustment-1", employmentId: "employment-1", effectivePeriodKey: "2026-09", reason: "補發",
+  createdBy: "admin", createdAt: "2026-09-01", updatedBy: "admin", updatedAt: "2026-09-01", revision: 1,
+  canEdit: true, employeeName: "王小明", employeeNumber: "E036",
+  items: [{ id: "item-1", adjustmentId: "adjustment-1", itemName: "獎金", amountMinor: 10000, createdAt: "2026-09-01" }],
+};
+beforeEach(() => {
+  mocks.useSession.mockReturnValue({ user: { isHrAdministrator: true }, permissions: new Set(["hr:payroll:read", "hr:payroll:calculate"]) });
+  mocks.useHrQuery.mockReturnValue({ data: { adjustments: [adjustment, { ...adjustment, id: "locked", canEdit: false }] }, isPending: false, error: null });
+});
+
+describe("薪資加扣項操作欄", () => {
+  it("可編輯列與鎖定列共用對齊容器，禁止圖示不是按鈕", () => {
+    const markup = renderToStaticMarkup(createElement(HrPayrollAdjustments));
+    const cells = [...markup.matchAll(/<td data-label="操作">([\s\S]*?)<\/td>/g)].map((match) => match[1]!);
+    expect(cells).toHaveLength(2);
+    for (const cell of cells) expect(cell).toContain('class="hr-payroll-adjustment-actions"');
+    expect(cells[0]).toContain("編輯");
+    expect(cells[0]).toContain("刪除");
+    expect(cells[0]).not.toContain('class="button-row"');
+    expect(cells[1]).toContain('role="img" aria-label="不能編輯或刪除"');
+    expect(cells[1]).toContain("<svg");
+    expect(cells[1]).not.toContain("<button");
+    expect(cells[1]).not.toContain("icon-button");
+  });
+
+  it("只有讀取權限時不顯示操作", () => {
+    mocks.useSession.mockReturnValue({ user: { isHrAdministrator: true }, permissions: new Set(["hr:payroll:read"]) });
+    const markup = renderToStaticMarkup(createElement(HrPayrollAdjustments));
+    expect(markup).not.toContain('class="hr-payroll-adjustment-actions"');
+  });
+});
 
 describe("薪資加扣項人員選項", () => {
   it("支援人員優先顯示姓名，保留編號供辨識與搜尋", () => {
