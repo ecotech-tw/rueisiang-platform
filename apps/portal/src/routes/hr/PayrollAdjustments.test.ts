@@ -40,10 +40,17 @@ describe("薪資加扣項操作欄", () => {
     expect(cells[1]).not.toContain("icon-button");
   });
 
-  it("只有讀取權限時不顯示操作", () => {
+  it("只有讀取權限時顯示禁止圖示與所需權限，不顯示可操作按鈕", () => {
     mocks.useSession.mockReturnValue({ user: { isHrAdministrator: true }, permissions: new Set(["hr:payroll:read"]) });
     const markup = renderToStaticMarkup(createElement(HrPayrollAdjustments));
-    expect(markup).not.toContain('class="hr-payroll-adjustment-actions"');
+    const cells = [...markup.matchAll(/<td data-label="操作">([\s\S]*?)<\/td>/g)].map((match) => match[1]!);
+    expect(cells).toHaveLength(2);
+    for (const cell of cells) {
+      expect(cell).toContain('role="img" aria-label="需要薪資試算權限才能編輯或刪除"');
+      expect(cell).toContain("<svg");
+      expect(cell).not.toContain("<button");
+    }
+    expect(markup).not.toContain("新增薪資加扣項");
   });
 });
 
