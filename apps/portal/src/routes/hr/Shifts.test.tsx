@@ -77,6 +77,12 @@ it("舊不限名單直接預選所有有效人員，開啟不產生變更，清�
     expect(document.body.textContent).toContain("E1・小明"); expect(document.body.textContent).toContain("W1・小華（支援）");
     const save = () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "儲存")!;
     expect(save().disabled).toBe(true);
+    // 欄位包在 <label> 裡，label 的點擊會轉給它對到的控制項：對到第一顆移除鈕的話，點欄位空白處就是移除第一位。
+    expect(document.querySelector<HTMLLabelElement>(".shift-members label")!.control).toBe(document.querySelector('input[aria-label="早班排班人員"]'));
+    await act(async () => document.querySelector<HTMLElement>(".shift-members label > span")!.click());
+    expect(document.body.textContent).toContain("E1・小明"); expect(save().disabled).toBe(true);
+    await act(async () => document.querySelector<HTMLElement>('[aria-label="移除E1・小明"]')!.click());
+    expect(document.querySelector('[aria-label="移除E1・小明"]')).toBeNull(); expect(save().disabled).toBe(false);
     await act(async () => document.querySelector<HTMLButtonElement>('.shift-members [aria-label="清除全部選擇"]')!.click());
     await act(async () => save().click()); expect(writes[0]!.allowedPersonIds).toEqual([]);
   } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }

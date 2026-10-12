@@ -418,7 +418,12 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
                     <Combobox.Chip key={option.value} className="dropdown-combobox-chip" aria-description="按 Backspace 或 Delete 移除">
                       {/* 螢幕閱讀器唸完整 label：提示掛在外層，聚焦 chip 時不會被唸到。 */}
                       {shortened ? <><span aria-hidden="true">{option.chipLabel}</span><span className="sr-only">{option.label}</span></> : <span>{option.label}</span>}
-                      <Combobox.ChipRemove aria-label={`移除${option.label}`} className="dropdown-combobox-chip-remove"><Icon name="close" /></Combobox.ChipRemove>
+                      {/*
+                        * 不用原生 <button>：這個元件常被包在 <label>（Field）裡，而 label 會把 hover 與點擊轉給裡面第一個可標記的控制項。
+                        * chip 排在輸入框前面，第一顆移除鈕就成了那個控制項——滑過欄位它會亮起來，點欄位空白處就把第一位移除。
+                        * <span> 不算可標記的控制項，label 於是對到後面的輸入框。
+                        */}
+                      <Combobox.ChipRemove nativeButton={false} render={<span />} aria-label={`移除${option.label}`} className="dropdown-combobox-chip-remove"><Icon name="close" /></Combobox.ChipRemove>
                     </Combobox.Chip>
                   );
                   // 提示包在 chip 外面：chip 自己拿得到焦點，focus 冒泡上來，鍵盤與觸控點選也看得到完整 label。
