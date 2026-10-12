@@ -612,7 +612,8 @@ export async function confirmHrRequestDraft(
     if (error instanceof HrError) return { outcome: "rejected", kindLabel, message: error.message.trim() };
     throw error;
   }
-  // 申請已經建立，從這裡開始不能再讓任何失敗把草稿退回去。id 只是方便追查，記不上不影響結果。
+  // 申請已經建立，從這裡開始不能再讓任何失敗把草稿退回去。記不上 id 不影響送出的結果，
+  // 但之後就找不到是哪一張，所以它也決定「已送出」的卡片放不放取消按鈕。
   const recorded = await db.update(assistantHrRequestDrafts).set({ submittedRequestId: requestId }).where(eq(assistantHrRequestDrafts.id, row.id))
     .returning({ id: assistantHrRequestDrafts.id }).then((rows) => rows.length > 0, () => false);
   return { outcome: "submitted", kindLabel, requestId, cardRows, withdrawable: recorded };

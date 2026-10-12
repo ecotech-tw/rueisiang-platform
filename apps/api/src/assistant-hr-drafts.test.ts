@@ -6,7 +6,7 @@ import { assistantHrRequestDrafts, hrEmployments, hrFormRequests, hrLeaveRequest
 import { HR_TOOL_DEFINITIONS, isHrToolKey, PLATFORM_TOOL_DEFAULT_STATUSES, PLATFORM_TOOL_KEYS, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { hrRequestDraftCalendar, hrRequestDraftPromptRules } from "./assistant-hr.js";
+import { hrRequestDraftCalendar, hrRequestDraftConfirmationReply, hrRequestDraftPromptRules } from "./assistant-hr.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 // 台北 2026-03-02（週一）08:00。
@@ -301,6 +301,8 @@ describe("小香 HR 申請草稿：員工按下確認", () => {
     vi.restoreAllMocks();
     // 沒記上 id 就不知道是哪一張：卡片不能放取消按鈕，按了也只會回找不到。
     expect(outcome).toMatchObject({ outcome: "submitted", withdrawable: false });
+    // 卡片沒有按鈕，回覆就要講去哪裡取消。
+    expect(hrRequestDraftConfirmationReply(outcome)).toBe("已送出請假申請，等候審核。如需取消，請到 HR 頁面處理。");
     expect(await leaves()).toHaveLength(1);
     expect(await stored()).toMatchObject({ status: "submitted", submittedRequestId: null });
     expect(await withdrawHrRequestDraft(db(), { draftId: draft.id, conversation, userId: "alice", actor: alice })).toEqual({ outcome: "gone" });

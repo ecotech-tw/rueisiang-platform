@@ -286,7 +286,8 @@ export function hrRequestDraftConfirmationReply(outcome: HrRequestDraftConfirmat
   switch (outcome.outcome) {
     case "submitted":
       // 內容在後面接的那張「已送出」卡片上，這裡不再重複一次。
-      return `已送出${outcome.kindLabel}申請，等候審核。`;
+      // 卡片沒有取消按鈕時要講去哪裡取消：他最需要收回的時刻就是剛發現送錯的現在。
+      return `已送出${outcome.kindLabel}申請，等候審核。${outcome.withdrawable ? "" : "如需取消，請到 HR 頁面處理。"}`;
     case "cancelled":
       return `已取消這張${outcome.kindLabel}草稿，沒有送出任何申請。`;
     case "already_submitted":
