@@ -46,7 +46,7 @@ export function LiffAccountLinkPage({ replaceExisting = false, intentExpired = f
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {!link.isPending && intentExpired ? <Alert tone="danger">LINE 綁定驗證已逾時，請重新從 LINE 開啟打卡頁。若目前仍在 LINE 打卡頁，可重新載入驗證。</Alert> : null}
       {!link.isPending && intentExpired ? <Button variant="secondary" onClick={() => window.location.reload()}>重新載入驗證</Button> : null}
-      <Button variant="primary" className="hr-liff-link-confirm" disabled={intentExpired || !user?.isEmployee || link.isPending || signOutPending} onClick={() => void confirmLink()}>
+      <Button size="lg" disabled={intentExpired || !user?.isEmployee || link.isPending || signOutPending} onClick={() => void confirmLink()}>
         {link.isPending ? "驗證並綁定中…" : replaceExisting ? "解除舊綁定並改綁目前 LINE" : "確認並綁定這個帳號"}
       </Button>
       <Button variant="secondary" disabled={link.isPending || signOutPending} onClick={() => void switchAccount()}>{signOutPending ? "登出中…" : "不是這個帳號？登出後切換"}</Button>

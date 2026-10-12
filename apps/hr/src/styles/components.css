@@ -445,8 +445,6 @@
 .hr-clock-calendar-anomaly strong { color: var(--color-brand-dark); font-size: 12px; }
 .hr-clock-calendar-anomaly > span { min-width: 0; overflow: hidden; color: var(--color-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .hr-clock-calendar-actions { display: flex; gap: 6px; }
-.hr-clock-calendar-actions button { min-height: 32px; padding: 5px 10px; font-size: 12px; }
-.hr-clock-calendar-actions .ghost-button { border-color: var(--color-secondary); background: var(--color-paper); color: var(--color-brand-dark); }
 @media (prefers-reduced-motion: reduce) {
   .hr-clock-calendar-main.slide-next,
   .hr-clock-calendar-main.slide-prev { animation: none; }
@@ -500,7 +498,6 @@
 .hr-clock-full-page .hr-clock-deep-links a > svg { width: 19px; height: 19px; color: var(--color-brand-dark); }
 .hr-clock-full-page .hr-clock-deep-links a span,
 .hr-clock-full-page .hr-clock-deep-links a > span:nth-child(2) { display: inline; }
-.hr-clock-full-page .hr-clock-retry-action { min-height: 38px; padding: 7px 14px; border-radius: 999px; background: var(--color-canvas); color: var(--color-ink); font-size: 13px; font-weight: 800; }
 .hr-clock-last-event { margin: -2px 0 0; color: var(--color-muted); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
 .hr-clock-full-page .hr-clock-feedback-corner { position: absolute; top: 88px; left: clamp(16px, 5vw, 72px); z-index: 4; display: grid; gap: 8px; max-width: min(400px, calc(100vw - 32px)); }
 .hr-clock-full-page .hr-clock-feedback-corner .ui-alert { font-size: 12px; }
@@ -580,7 +577,6 @@
 .hr-form-request-card.review { background: var(--color-canvas); }
 /* 整批核准的入口排在逐筆卡片上面，用成功色的細框跟單筆區分；逐筆卡片還在下面，要駁回個別幾筆走那裡。 */
 .hr-overtime-batch-list { margin-bottom: 12px; }
-.hr-review-reload { justify-self: start; min-height: 44px; margin-top: 8px; }
 .hr-form-request-card.review.batch { box-shadow: 0 0 0 1px --alpha(var(--color-ok) / 28%) inset; background: var(--color-ok-soft); }
 .hr-form-request-card.review.batch p { margin: 0; font-size: 13px; line-height: 1.55; font-variant-numeric: tabular-nums; }
 .hr-overtime-batch-days { display: grid; gap: 6px; max-height: 40vh; margin: 12px 0; padding: 0; overflow-y: auto; list-style: none; font-size: 13px; font-variant-numeric: tabular-nums; }
@@ -598,7 +594,6 @@
 .hr-form-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hr-overtime-mode { margin-bottom: 16px; }
 .hr-overtime-note { margin: 0; font-size: 13px; line-height: 1.55; }
-.hr-form-review-all { justify-self: start; min-height: 44px; font-size: 13px; font-weight: 700; }
 .hr-form-actions,
 .hr-form-review-actions,
 .hr-form-request-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 18px; }
@@ -637,8 +632,6 @@
 .hr-form-page { min-height: calc(100dvh - 48px); }
 .hr-form-page > .page-head { margin-top: 8px; }
 .hr-form-back-bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; min-height: 42px; background: --alpha(var(--color-canvas) / 94%); border-bottom: 1px solid var(--color-soft-line); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-.hr-form-back-button { display: inline-flex; align-items: center; width: max-content; min-height: 42px; gap: 3px; padding: 4px 0; font-size: 13px; font-weight: 700; text-decoration: none; }
-.hr-form-back-button svg { width: 18px; height: 18px; }
 .hr-leave-duration-card,
 .hr-leave-credit-card { display: grid; gap: 5px; padding: 14px 16px; border: 1px solid var(--color-soft-line); border-radius: 14px; background: var(--color-canvas); }
 .hr-leave-duration-card > div,
@@ -653,7 +646,6 @@
 .hr-leave-credit-card strong { color: var(--color-brand-dark); }
 .hr-profile-page { width: 100%; max-width: 900px; margin-inline: auto; }
 .hr-profile-signout { width: 100%; }
-.hr-profile-signout-button { width: 100%; min-height: 48px; justify-content: center; font-size: 14px; }
 .hr-profile-overview { padding: 20px 22px; background: linear-gradient(125deg, var(--color-brand-soft), var(--color-paper) 72%); }
 .hr-profile-overview-main { display: flex; align-items: flex-start; gap: 24px; min-width: 0; }
 .hr-profile-photo-control { display: grid; flex: none; justify-items: center; align-content: start; gap: 8px; max-width: 220px; }
@@ -669,8 +661,6 @@
 .hr-profile-photo-edit > p { margin: 0; font-size: 12px; line-height: 1.45; }
 .hr-profile-photo-edit > .muted { color: var(--color-muted); }
 .hr-profile-photo-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; }
-.hr-profile-photo-actions > button { min-height: 40px; }
-.hr-profile-photo-remove { min-height: 40px; font-size: 12px; }
 .hr-profile-photo-feedback { margin: 0; color: var(--color-info); font-size: 12px; font-weight: 700; text-align: center; }
 .hr-profile-photo-note { margin: 0; color: var(--color-muted); font-size: 12px; text-align: center; }
 @media (max-width: 560px) { .hr-profile-photo-control { max-width: 170px; } }
@@ -2337,7 +2327,6 @@
  
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .page-head-row > :last-child { flex: none; }
-.page-head-row .add-action { white-space: nowrap; }
 
  
 
@@ -2612,7 +2601,6 @@
  
 .login-form { width: 100%; display: grid; gap: 14px; margin-top: 16px; text-align: left; }
 .login-form .field input { width: 100%; }
-.login-form .primary-button { width: 100%; padding: 11px; font-size: 14px; }
 
  
 .login-divider {
@@ -2923,16 +2911,6 @@
    
   .page-head-row:has(.map-toolbar) { flex-wrap: wrap; }
   .map-toolbar { width: 100%; justify-content: flex-start; }
-  .add-action {
-    width: 44px;
-    height: 44px;
-    flex: none;
-    padding: 0;
-    justify-content: center;
-    border-radius: 50%;
-  }
-  .add-action span { display: none; }
-  .add-action svg { width: 22px; height: 22px; }
 
    
    
@@ -3584,14 +3562,6 @@
   .manual-report-tabs .filter-chip { flex: 1; min-width: 0; }
   .manual-report-actions { width: 100%; }
   .manual-report-actions > button { flex: 1 1 0; }
-  .manual-report-actions .add-action {
-    width: auto;
-    height: auto;
-    padding: 7px 14px;
-    border-radius: 9px;
-  }
-  .manual-report-actions .add-action span { display: inline; }
-  .manual-report-actions .add-action svg { width: 18px; height: 18px; }
   .manual-report-mobile-select-all {
     display: flex;
     padding: 8px 14px;
@@ -3650,60 +3620,6 @@
 .manual-sales-step .admin-form.toolbar select { max-width: none; }
 .manual-sales-sku-input { min-width: 150px; max-width: 220px; }
 
-/* HR employee actions use the same semantic colors as the management station. */
-.hr-module-self .primary-button.add-action,
-.hr-module-self .primary-button.hr-action-approve {
-  background: var(--color-ok);
-  color: var(--color-paper);
-}
-.hr-module-self .primary-button.add-action:hover:not(:disabled),
-.hr-module-self .primary-button.hr-action-approve:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-ok) 86%, var(--color-ink));
-}
-.hr-module-self .ghost-button.add-action,
-.hr-module-self .chip-action.add-action {
-  border-color: var(--color-ok);
-  background: var(--color-ok-soft);
-  color: var(--color-ok);
-}
-.hr-module-self .ghost-button.add-action:hover:not(:disabled),
-.hr-module-self .chip-action.add-action:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-ok-soft) 86%, var(--color-ok));
-}
-.hr-module-self .primary-button.hr-action-info,
-.hr-module-self .primary-button.hr-action-update {
-  background: var(--color-info);
-  color: var(--color-paper);
-}
-.hr-module-self .primary-button.hr-action-info:hover:not(:disabled),
-.hr-module-self .primary-button.hr-action-update:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-info) 86%, var(--color-ink));
-}
-.hr-module-self .ghost-button.hr-action-info,
-.hr-module-self .ghost-button.hr-action-update {
-  border-color: var(--color-info);
-  background: var(--color-info-soft);
-  color: var(--color-info);
-}
-.hr-module-self .ghost-button.hr-action-info:hover:not(:disabled),
-.hr-module-self .ghost-button.hr-action-update:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-info-soft) 86%, var(--color-info));
-}
-.hr-module-self .icon-button.hr-action-info,
-.hr-module-self .icon-button.hr-action-update {
-  color: var(--color-info);
-}
-.hr-module-self .icon-button.hr-action-info:hover:not(:disabled),
-.hr-module-self .icon-button.hr-action-update:hover:not(:disabled) {
-  background: var(--color-info-soft);
-}
-.hr-module-self .icon-button.add-action {
-  color: var(--color-ok);
-}
-.hr-module-self .icon-button.add-action:hover:not(:disabled) {
-  background: var(--color-ok-soft);
-  color: var(--color-ok);
-}
 
 @media (prefers-reduced-motion: reduce) {
   .hr-form-tab-transition,
@@ -3771,8 +3687,6 @@
   .hr-clock-calendar-anomaly { grid-template-columns: auto minmax(0, 1fr); }
   .hr-clock-calendar-anomaly > span { grid-column: 2; }
   .hr-clock-calendar-actions { grid-column: 1 / -1; justify-content: stretch; }
-  .hr-clock-calendar-actions button { flex: 1; }
-  .hr-clock-calendar-actions .add-action { border-radius: 9px; }
   .hr-clock-calendar-legend { padding-top: 6px; gap: 6px 10px; }
   .hr-clock-personal-nav { display: none; }
   .hr-clock-full-page .hr-clock-map-stage { display: block; padding: 0; }
@@ -3789,7 +3703,6 @@
   .hr-clock-office-card strong { font-size: 18px; }
   .hr-clock-full-page .hr-clock-deep-links { width: 100%; }
   .hr-clock-full-page .hr-clock-deep-links a { min-height: 36px; font-size: 12px; }
-  .hr-clock-full-page .hr-clock-retry-action { width: 100%; min-height: 38px; }
   .hr-clock-full-page .hr-clock-feedback-corner { top: 12px; left: 16px; max-width: calc(100vw - 32px); }
   .hr-form-field-row { grid-template-columns: 1fr; gap: 14px; }
   .hr-clock-history-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
@@ -3852,8 +3765,6 @@
   .hr-form-request-card > p { margin: 0; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
   .hr-form-request-actions,
   .hr-form-review-actions { display: grid; grid-template-columns: 1fr; gap: 8px; }
-  .hr-form-request-actions button,
-  .hr-form-review-actions button { width: 100%; min-height: 44px; }
   .hr-form-fields { gap: 14px; }
   .hr-leave-duration-card,
   .hr-leave-credit-card { padding: 12px 13px; border-radius: 13px; }
@@ -3875,8 +3786,5 @@
     backdrop-filter: blur(12px) saturate(140%);
   }
   .hr-form-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 0; }
-  .hr-form-actions button { width: 100%; min-width: 0; min-height: 46px; }
-  /* 手機版的 .add-action 會把頁首的新增鈕縮成 44px 圓鈕；送出鈕借用這個 class 只是為了取色，不能跟著變成橢圓。 */
-  .hr-form-actions .add-action { height: auto; padding: 7px 14px; border-radius: 9px; }
   .hr-form-request-summary dl { grid-template-columns: 60px minmax(0, 1fr); gap: 5px 10px; font-size: 12.5px; }
 }

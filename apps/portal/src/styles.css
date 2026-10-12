@@ -8,6 +8,7 @@
  */
 @import "./styles/components.css" layer(components);
 @import "./styles/hr.css" layer(components);
+@source "../../../packages/ui/src";
 
 /*
  * 設計 token 只寫這一份。@theme 讓同一個值既是 CSS 變數

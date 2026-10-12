@@ -3,6 +3,7 @@
 @import "@rueisiang/ui/theme.css";
 @import "./styles/components.css" layer(components);
 @import "./styles/scheduling.css" layer(components);
+@source "../../../packages/ui/src";
 
 @layer base {
   html, body, #root { min-height: 100%; }
@@ -74,5 +75,4 @@
 .hr-liff-link-account > div + div { border-top: 1px solid var(--color-soft-line); }
 .hr-liff-link-account dt { color: var(--color-muted); }
 .hr-liff-link-account dd { min-width: 0; margin: 0; overflow-wrap: anywhere; font-weight: 700; }
-.hr-liff-link-confirm { min-height: 48px; }
 .hr-liff-link-card > small { color: var(--color-muted); }

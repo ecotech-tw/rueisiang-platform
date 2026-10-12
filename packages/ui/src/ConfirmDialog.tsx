@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { Button } from "./Button.js";
+import { LegacyButton as Button } from "./LegacyButton.js";
 import { Dialog } from "./Dialog.js";
 import type { DialogCloseRef } from "./dialog-context.js";
 

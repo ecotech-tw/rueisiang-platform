@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
-import { Alert, Button, ConfirmDialog, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, ConfirmDialog, Dialog, Field, LegacyButton, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrLeaveEnd, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type HrOvertimeDay, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
 import { dateBefore, formatHours, taipeiDay, taipeiTimeRange, utcStampDate } from "./format.js";
 import { hoursToMinutes } from "./hours-entry.js";
@@ -86,7 +86,7 @@ function FormPageHeader({ title, description, returnTo = "/forms" }: { title: st
   const navigate = useNavigate();
   return <>
     <div className="hr-form-back-bar">
-      <Button variant="link" icon="chevronLeft" className="hr-form-back-button" onClick={() => navigate(returnTo)}>返回表單</Button>
+      <Button variant="text" icon="chevronLeft" className="w-max" onClick={() => navigate(returnTo)}>返回表單</Button>
     </div>
     <PageHeader title={title} description={description} />
   </>;
@@ -151,7 +151,7 @@ function OvertimeRequestCard({ item, onEdit, onReapply, onCancel }: { item: Over
     <div className="hr-form-request-title"><strong>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</strong><StatusBadge tone={tone}>{label}</StatusBadge></div>
     <p>{item.request.settlementKind === "pay" ? "付薪" : "補休"}・{item.request.reason || "—"}</p>
     {item.request.decisionReason ? <small>審核意見：{item.request.decisionReason}</small> : null}
-    {canEdit || canReapply || canCancel ? <div className="hr-form-request-actions">{canEdit ? <Button variant="secondary" className="hr-action-update" onClick={() => onEdit(item)}>編輯</Button> : null}{canReapply ? <Button variant="secondary" className="hr-action-update" onClick={() => onReapply(item)}>修改後重新申請</Button> : null}{canCancel ? <Button variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
+    {canEdit || canReapply || canCancel ? <div className="hr-form-request-actions">{canEdit ? <Button size="lg" variant="secondary" tone="info" onClick={() => onEdit(item)}>編輯</Button> : null}{canReapply ? <Button size="lg" variant="secondary" tone="info" onClick={() => onReapply(item)}>修改後重新申請</Button> : null}{canCancel ? <Button size="lg" variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
   </article>;
 }
 
@@ -179,7 +179,7 @@ function LeaveRequestCard({ item, onEdit, onReapply, onCancel }: { item: LeaveRe
     <div className="hr-form-request-title"><strong>{item.request.leaveType}・{leavePeriod(item)}</strong><StatusBadge tone={status.tone}>{status.label}</StatusBadge></div>
     <p>{formatHours(item.request.durationMinutes)}・{item.request.reason || "未填寫原因"}</p>
     {item.request.reviewComment ? <small>審核意見：{item.request.reviewComment}</small> : null}
-    {canEdit || canReapply || canCancel ? <div className="hr-form-request-actions">{canEdit ? <Button variant="secondary" className="hr-action-update" onClick={() => onEdit(item)}>編輯</Button> : null}{canReapply ? <Button variant="secondary" className="hr-action-update" onClick={() => onReapply(item)}>修改後重新申請</Button> : null}{canCancel ? <Button variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
+    {canEdit || canReapply || canCancel ? <div className="hr-form-request-actions">{canEdit ? <Button size="lg" variant="secondary" tone="info" onClick={() => onEdit(item)}>編輯</Button> : null}{canReapply ? <Button size="lg" variant="secondary" tone="info" onClick={() => onReapply(item)}>修改後重新申請</Button> : null}{canCancel ? <Button size="lg" variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
   </article>;
 }
 
@@ -214,13 +214,13 @@ function LeaveReviewDialog({ item, latest, onReload, onClose }: { item: LeaveReq
   return <Dialog title="審核請假申請" titleMeta={item.employeeName ?? item.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={review.isPending} actions={<>
     <Button variant="secondary" disabled={review.isPending} onClick={onClose}>{snapshot === "gone" ? "關閉" : "取消"}</Button>
     <Button variant="danger" disabled={locked} onClick={() => { void submit("rejected"); }}>駁回</Button>
-    <Button className="hr-action-approve" loading={review.isPending} disabled={locked} onClick={() => { void submit("approved"); }}>核准</Button>
+    <Button tone="success" loading={review.isPending} disabled={locked} onClick={() => { void submit("approved"); }}>核准</Button>
   </>}>
     <div className="hr-form-request-summary"><dl><dt>請假期間</dt><dd>{leavePeriod(item)}</dd><dt>假別</dt><dd>{item.request.leaveType}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
     {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : error ? <Alert tone="danger">{error}</Alert> : null}
     {/* 打到一半的審核意見留著：只換上面的申請內容。 */}
-    {snapshot === "changed" && latest ? <Button variant="secondary" className="hr-action-update hr-review-reload" onClick={() => { setError(""); onReload(latest); }}>載入最新內容</Button> : null}
+    {snapshot === "changed" && latest ? <Button variant="secondary" tone="info" size="lg" className="mt-2 justify-self-start" onClick={() => { setError(""); onReload(latest); }}>載入最新內容</Button> : null}
   </Dialog>;
 }
 
@@ -249,13 +249,13 @@ function OvertimeReviewDialog({ item, latest, onReload, onClose }: { item: Overt
   return <Dialog title="審核加班申請" titleMeta={item.employeeName ?? item.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={review.isPending} actions={<>
     <Button variant="secondary" disabled={review.isPending} onClick={onClose}>{snapshot === "gone" ? "關閉" : "取消"}</Button>
     <Button variant="danger" disabled={locked} onClick={() => { void submit("rejected"); }}>駁回</Button>
-    <Button className="hr-action-approve" loading={review.isPending} disabled={locked} onClick={() => { void submit("approved"); }}>核准</Button>
+    <Button tone="success" loading={review.isPending} disabled={locked} onClick={() => { void submit("approved"); }}>核准</Button>
   </>}>
     <div className="hr-form-request-summary"><dl><dt>加班期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算方式</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
     {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : error ? <Alert tone="danger">{error}</Alert> : null}
     {/* 打到一半的審核意見留著：只換上面的申請內容。 */}
-    {snapshot === "changed" && latest ? <Button variant="secondary" className="hr-action-update hr-review-reload" onClick={() => { setError(""); onReload(latest); }}>載入最新內容</Button> : null}
+    {snapshot === "changed" && latest ? <Button variant="secondary" tone="info" size="lg" className="mt-2 justify-self-start" onClick={() => { setError(""); onReload(latest); }}>載入最新內容</Button> : null}
   </Dialog>;
 }
 
@@ -279,7 +279,7 @@ function OvertimeBatchApproveDialog({ batchId, items, settled, onClose }: { batc
   }
   return <Dialog title="整批核准加班申請" titleMeta={items[0]?.employeeName ?? items[0]?.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={approve.isPending} actions={<>
     <Button variant="secondary" disabled={approve.isPending} onClick={onClose}>{alreadyHandled ? "關閉" : "取消"}</Button>
-    <Button className="hr-action-approve" loading={approve.isPending} loadingLabel="核准中…" disabled={alreadyHandled} onClick={submit}>核准 {items.length} 筆</Button>
+    <Button tone="success" loading={approve.isPending} loadingLabel="核准中…" disabled={alreadyHandled} onClick={submit}>核准 {items.length} 筆</Button>
   </>}>
     {alreadyHandled
       ? <Alert tone="info">這一批已經沒有待審的申請了，可能已被處理或取消。</Alert>
@@ -341,7 +341,7 @@ function ReviewDialog({ request, onClose }: { request: FormRequest; onClose: () 
   return <Dialog title="審核補打卡申請" titleMeta={request.requesterName ?? request.employeeUserId} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={review.isPending} actions={<>
     <Button variant="secondary" disabled={review.isPending} onClick={onClose}>取消</Button>
     <Button variant="danger" disabled={review.isPending} onClick={() => { void submitAndClose("rejected"); }}>駁回</Button>
-    <Button className="hr-action-approve" loading={review.isPending} loadingLabel="核准中…" onClick={() => { void submitAndClose("approved"); }}>核准</Button>
+    <Button tone="success" loading={review.isPending} loadingLabel="核准中…" onClick={() => { void submitAndClose("approved"); }}>核准</Button>
   </>}>
     <RequestSummary request={request} reviewer />
     <Field label="審核意見" hint="駁回時必填；核准時可留空。">
@@ -498,15 +498,15 @@ export function HrForms() {
   });
 
   return <div className="page hr-forms-page hr-forms-index-page" onTouchStart={startSwipe} onTouchEnd={endSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
-    <PageHeader className="hr-forms-index-head" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><Button variant="icon" icon="plus" className="hr-form-add-button" aria-label="新增申請" onClick={openNewForm} /></Tooltip>} />
+    <PageHeader className="hr-forms-index-head" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><LegacyButton variant="icon" icon="plus" className="hr-form-add-button" aria-label="新增申請" onClick={openNewForm} /></Tooltip>} />
     {isLoading ? <p className="muted">載入申請紀錄…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
     {leave.error ? <Alert tone="danger">{leave.error.message}</Alert> : null}
     {reviewTargetMissing ? <Alert tone="info">{reviewBatchId ? "這批申請已全部處理，或不在你目前的待審清單。" : "這筆申請已處理，或不在你目前的待審清單。"}</Alert> : null}
     {/* 從通知點進來只會看到那一筆（或那一批）；待審清單還有別的時要有路回到全部。 */}
-    {reviewFiltered && reviewTotal > reviewShown ? <Button variant="link" className="hr-form-review-all" onClick={() => clearParams("review", "reviewBatch")}>查看全部 {reviewTotal} 筆待審</Button> : null}
-    {recordsFiltered ? <Button variant="link" className="hr-form-review-all" onClick={() => clearParams("batch", "focus")}>{focusId ? "目前只顯示通知提到的申請，改看全部" : "目前只顯示同一批送出的加班，改看全部"}</Button> : null}
+    {reviewFiltered && reviewTotal > reviewShown ? <Button variant="text" className="justify-self-start" onClick={() => clearParams("review", "reviewBatch")}>查看全部 {reviewTotal} 筆待審</Button> : null}
+    {recordsFiltered ? <Button variant="text" className="justify-self-start" onClick={() => clearParams("batch", "focus")}>{focusId ? "目前只顯示通知提到的申請，改看全部" : "目前只顯示同一批送出的加班，改看全部"}</Button> : null}
     <div className="hr-form-sticky-controls">
       <div className="hr-form-tabs-shell">
         <SegmentedControl className="hr-form-tabs" aria-label="申請表單類型" options={tabOptions} value={activeTab} onChange={(value) => selectTab(formTab(value))} />
@@ -521,35 +521,35 @@ export function HrForms() {
       <div className="panel-head"><div><h2>待我審核</h2><p className="muted">只顯示指定你為審核者、且尚未完成處理的申請。</p></div></div>
       <div className="hr-form-request-list">{reviewForms.map((request) => <article className="hr-form-request-card review" key={request.id}>
         <RequestSummary request={request} reviewer />
-        <div className="hr-form-review-actions"><Button className="hr-action-info" onClick={() => setReviewing(request)}>審核</Button></div>
+        <div className="hr-form-review-actions"><Button size="lg" tone="info" onClick={() => setReviewing(request)}>審核</Button></div>
       </article>)}</div>
     </Panel> : null}
     {!recordsFiltered && activeTab === "leave" && reviewLeaves.length ? <Panel className="hr-form-section hr-form-review-panel">
       <div className="panel-head"><div><h2>待我審核</h2><p className="muted">請假申請只有指定主管或 HR 管理者可以處理。</p></div></div>
       <div className="hr-form-request-list">{reviewLeaves.map((item) => <article className="hr-form-request-card review" key={item.request.id}>
         <div className="hr-form-request-summary"><div className="hr-form-request-title"><strong>{item.employeeName ?? item.employeeUserId}・{item.request.leaveType}</strong><StatusBadge tone="info">申請中</StatusBadge></div><dl><dt>期間</dt><dd>{leavePeriod(item)}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
-        <div className="hr-form-review-actions"><Button className="hr-action-info" onClick={() => setReviewingLeave(item)}>審核</Button></div>
+        <div className="hr-form-review-actions"><Button size="lg" tone="info" onClick={() => setReviewingLeave(item)}>審核</Button></div>
       </article>)}</div>
     </Panel> : null}
     {!recordsFiltered && activeTab === "overtime" && reviewOvertime.length ? <Panel className="hr-form-section hr-form-review-panel">
       <div className="panel-head"><div><h2>待我審核</h2><p className="muted">加班申請由指定主管或 HR 管理者處理。</p></div></div>
       {overtimeBatches.length ? <div className="hr-form-request-list hr-overtime-batch-list">{overtimeBatches.map((batch) => <article className="hr-form-request-card review batch" key={batch.batchId}>
         <div className="hr-form-request-summary"><div className="hr-form-request-title"><strong>{batch.items[0]?.employeeName ?? batch.items[0]?.employeeUserId}・同一批 {batch.items.length} 筆</strong><StatusBadge tone="info">申請中</StatusBadge></div><p className="muted">{batch.items.map((item) => taipeiDay(item.request.requestedStart)).join("、")}</p></div>
-        <div className="hr-form-review-actions"><Button className="hr-action-approve" onClick={() => setApprovingBatch(batch)}>整批核准</Button></div>
+        <div className="hr-form-review-actions"><Button size="lg" tone="success" onClick={() => setApprovingBatch(batch)}>整批核准</Button></div>
       </article>)}</div> : null}
       <div className="hr-form-request-list">{reviewOvertime.map((item) => <article className="hr-form-request-card review" key={item.request.id}>
         <div className="hr-form-request-summary"><div className="hr-form-request-title"><strong>{item.employeeName ?? item.employeeUserId}・{formatTaipei(item.request.requestedStart)}</strong><StatusBadge tone="info">申請中</StatusBadge></div><dl><dt>期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
-        <div className="hr-form-review-actions"><Button className="hr-action-info" onClick={() => setReviewingOvertime(item)}>審核</Button></div>
+        <div className="hr-form-review-actions"><Button size="lg" tone="info" onClick={() => setReviewingOvertime(item)}>審核</Button></div>
       </article>)}</div>
     </Panel> : null}
     <Panel key={activeTab} className={`hr-form-section hr-form-request-panel hr-form-request-panel-${activeTab}${tabDirection ? ` hr-form-tab-transition${tabDirection === "back" ? " back" : ""}` : ""}`}>
       {activeError ? null : activeTab === "leave" ? <div className="hr-form-request-list">{filteredLeaves.slice(0, visibleCount).map((item) => <LeaveRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/leave?request=${encodeURIComponent(request.request.id)}`)} onReapply={(request) => navigate(`/forms/leave?copy=${encodeURIComponent(request.request.id)}`)} onCancel={setCancellingLeave} />)}</div> : activeTab === "overtime" ? <div className="hr-form-request-list">{filteredOvertime.slice(0, visibleCount).map((item) => <OvertimeRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/overtime?request=${encodeURIComponent(request.request.id)}`)} onReapply={(request) => navigate(`/forms/overtime?copy=${encodeURIComponent(request.request.id)}`)} onCancel={setCancelling} />)}</div> : <div className="hr-form-request-list">{filteredCorrections.slice(0, visibleCount).map((request) => <article className="hr-form-request-card" key={request.id}>
         <RequestSummary request={request} />
         {request.status === "draft" ? <div className="hr-form-request-actions">
-          <Button variant="secondary" className="hr-action-update" onClick={() => navigate(`/forms/new?request=${encodeURIComponent(request.id)}`)}>繼續編輯</Button>
-          <Button variant="secondary" onClick={() => setCorrectionAction({ request, mode: "delete" })}>刪除草稿</Button>
+          <Button size="lg" variant="secondary" tone="info" onClick={() => navigate(`/forms/new?request=${encodeURIComponent(request.id)}`)}>繼續編輯</Button>
+          <Button size="lg" variant="secondary" onClick={() => setCorrectionAction({ request, mode: "delete" })}>刪除草稿</Button>
         </div> : request.status === "pending" ? <div className="hr-form-request-actions">
-          <Button variant="secondary" onClick={() => setCorrectionAction({ request, mode: "cancel" })}>取消申請</Button>
+          <Button size="lg" variant="secondary" onClick={() => setCorrectionAction({ request, mode: "cancel" })}>取消申請</Button>
         </div> : null}
       </article>)}</div>}
       {!isLoading && !activeError && activeCount === 0 ? <div className="hr-form-empty-state"><strong>{emptyMessage.title}</strong><p className="muted">{emptyMessage.hint}</p></div> : null}
@@ -628,8 +628,8 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
     </div>
     {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
     <div className="hr-form-actions">
-      <Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={save.isPending}>取消</Button>
-      <Button className="add-action" loading={save.isPending} onClick={submit} disabled={!canSubmit}>{summary.days ? `送出 ${summary.days} 筆加班申請` : "送出加班申請"}</Button>
+      <Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={save.isPending}>取消</Button>
+      <Button size="lg" tone="success" loading={save.isPending} onClick={submit} disabled={!canSubmit}>{summary.days ? `送出 ${summary.days} 筆加班申請` : "送出加班申請"}</Button>
     </div>
     {confirmingUnscheduled ? <ConfirmDialog title="確認未排班日加班" confirmLabel="確認送出申請" cancelLabel="返回修改" tone="primary" pending={save.isPending} onConfirm={send} onCancel={() => setConfirmingUnscheduled(false)}>
       <p>以下日期沒有排班，會從 {unscheduledStartTime} 開始計算；有排班的日期仍從下班時間起算。</p>
@@ -738,7 +738,7 @@ export function HrOvertimeForm() {
     save.mutate({ path: editing ? `/me/overtime/${requestId}` : "/me/overtime", method: editing ? "PATCH" : "POST", values: { requestedStart: start, requestedEnd: end, settlementKind, reason, ...(editing ? { revision: loadedRevision?.revision } : {}) } }, { onSuccess: () => { if (!editing) sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }, onError: (cause) => setError(cause.message) });
   }
 
-  return <div className="page hr-form-page"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : mode === "multiple" ? "先選時數再點日期，每一天會建立一筆申請；選好的日期離開頁面後不會保留。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel>{editing || copying ? null : <SegmentedControl className="hr-form-tabs hr-overtime-mode" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending || batchPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} onPendingChange={setBatchPending} onDone={() => { sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }} /> : <><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => changeStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} /></div><TextField label="加班時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (requestedMinutes > 0 ? hoursText(requestedMinutes) : "")} disabled={disabled} onChange={(event) => changeHours(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint="填時數會自動換算結束時間。" error={hoursError} /><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{existingRequest?.request.settlementKind === "compensatory" ? <Alert tone="info">{editing ? "這筆申請的結算方式是補休，更新後仍是補休、不計加班費。要改成付薪請取消後重新申請。" : "原申請的結算方式是補休；重新送出會改為付薪。需要補休請洽 HR。"}</Alert> : null}{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></>}</Panel></div>;
+  return <div className="page hr-form-page"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : mode === "multiple" ? "先選時數再點日期，每一天會建立一筆申請；選好的日期離開頁面後不會保留。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel>{editing || copying ? null : <SegmentedControl className="hr-form-tabs hr-overtime-mode" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending || batchPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} onPendingChange={setBatchPending} onDone={() => { sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }} /> : <><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => changeStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} /></div><TextField label="加班時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (requestedMinutes > 0 ? hoursText(requestedMinutes) : "")} disabled={disabled} onChange={(event) => changeHours(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint="填時數會自動換算結束時間。" error={hoursError} /><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{existingRequest?.request.settlementKind === "compensatory" ? <Alert tone="info">{editing ? "這筆申請的結算方式是補休，更新後仍是補休、不計加班費。要改成付薪請取消後重新申請。" : "原申請的結算方式是補休；重新送出會改為付薪。需要補休請洽 HR。"}</Alert> : null}{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></>}</Panel></div>;
 }
 
 function leaveTypeLabel(leaveType: LeaveTypeOption) {
@@ -899,7 +899,7 @@ export function HrLeaveForm() {
       {duration.error ? <Alert tone="danger">{duration.error.message}</Alert> : null}
       {selectedType?.leaveKind === "annual" && calculated && !hasEnoughCredit ? <Alert tone="warning">所選時段超過可用特休額度，請縮短時數或調整到其他額度週期。</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      <div className="hr-form-actions"><Button variant="secondary" onClick={() => navigate("/forms?tab=leave")} disabled={disabled}>取消</Button><Button className={editing || copying ? "hr-action-update" : "add-action"} loading={save.isPending} onClick={submit} disabled={!canSubmit}>{editing ? "更新請假申請" : copying ? "重新送出請假申請" : "送出請假申請"}</Button></div>
+      <div className="hr-form-actions"><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=leave")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={!canSubmit}>{editing ? "更新請假申請" : copying ? "重新送出請假申請" : "送出請假申請"}</Button></div>
     </Panel>
   </div>;
 }
@@ -1001,8 +1001,8 @@ export function HrClockCorrectionForm() {
       {approvers.error ? <Alert tone="danger">{approvers.error.message}</Alert> : null}
       {localError ? <Alert tone="danger">{localError}</Alert> : null}
       <div className="hr-form-actions">
-        <Button variant="secondary" disabled={saving} onClick={() => navigate(returnTo)}>取消</Button>
-        <Button className="add-action" loading={saving} loadingLabel="送出中…" disabled={!approverUserId} onClick={() => { void submit(); }}>送出補打卡申請</Button>
+        <Button size="lg" variant="secondary" disabled={saving} onClick={() => navigate(returnTo)}>取消</Button>
+        <Button size="lg" tone="success" loading={saving} loadingLabel="送出中…" disabled={!approverUserId} onClick={() => { void submit(); }}>送出補打卡申請</Button>
       </div>
     </Panel>
   </div>;
