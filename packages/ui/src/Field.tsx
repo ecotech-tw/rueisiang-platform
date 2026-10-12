@@ -37,6 +37,7 @@ type SelectFieldCommonProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "cla
   options: readonly { label: string; value: string }[];
   selectClassName?: string;
   searchable?: boolean;
+  placeholder?: string;
 };
 
 type SelectFieldProps = SelectFieldCommonProps & ({
@@ -66,6 +67,7 @@ export function SelectField({
   error,
   options,
   selectClassName = "",
+  placeholder,
   searchable = false,
   multiple = false,
   value,
@@ -91,6 +93,7 @@ export function SelectField({
         name={name}
         id={id}
         className={selectClassName}
+        placeholder={placeholder}
         searchable={searchable}
         onChange={onChange}
         onValueChange={onValueChange}

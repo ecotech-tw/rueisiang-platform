@@ -153,7 +153,7 @@ function SelectSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps) {
     multiple: _multiple,
     ...ariaProps
   } = props;
-  const selectedOption = optionForValue(options, value);
+  const selectedOption = value === undefined ? undefined : optionForValue(options, value) ?? null;
   const initialOption = optionForValue(options, defaultValue);
 
   return (

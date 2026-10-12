@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { outdatedScheduleIds, scheduleChanges } from "@rueisiang/db/schedule-draft";
+import { canSchedulePerson, outdatedScheduleIds, scheduleChanges } from "@rueisiang/db/schedule-draft";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -32,6 +32,13 @@ function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${shiftTimeR
  * 真正要寫進班表的版本由 makeEntry 依那天的日型挑。
  */
 interface QuickPick { personKind: "employee" | "worker"; personId: string; scopeId: string; shiftTemplateId: string }
+type QuickSelection = Omit<QuickPick, "personId"> & { personId: string | null };
+
+// null 可在名單恢復後自動選人；空字串代表使用者主動清空，不可替他重新選人。
+function reconcilePersonId(personIds: readonly string[], selectedPersonId: string | null): string | null {
+  return selectedPersonId === "" || (selectedPersonId !== null && personIds.includes(selectedPersonId))
+    ? selectedPersonId : personIds[0] ?? null;
+}
 
 export function firstQuickPersonId(data: { employees: readonly { employmentId: string }[]; workers: readonly { id: string }[] }, personKind: QuickPick["personKind"]) {
   return personKind === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? "";
@@ -70,7 +77,7 @@ export function outdatedScheduleShiftCount(entries: readonly ScheduleEntry[], sh
 /** 對話框與快速排班共用，避免兩種新增方式產生不同的日型、班別名稱與人力。 */
 function makeEntry(data: HrScheduleResponse, pick: QuickPick, workDate: string, dayType: HrDayType): ScheduleEntry | null {
   const shift = pickShiftForDay(data.shifts.filter((item) => item.templateId === pick.shiftTemplateId && item.scopeId === pick.scopeId), dayType);
-  if (!shift || !pick.personId) return null;
+  if (!shift || !canSchedulePerson(shift, pick.personId)) return null;
   const employee = data.employees.find((item) => item.employmentId === pick.personId);
   const worker = data.workers.find((item) => item.id === pick.personId);
   return {
@@ -137,7 +144,7 @@ function diffEntries(draft: ScheduleEntry[], saved: ScheduleEntry[]) {
 function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAdd, onClose }: { data: HrScheduleResponse; entries: ScheduleEntry[]; day: string; dayType: HrDayType; defaultScopeId: string; onAdd: (entry: ScheduleEntry) => void; onClose: () => void }) {
   const [personKind, setPersonKind] = useState<"employee" | "worker">("employee");
   const [scopeId, setScopeId] = useState(defaultScopeId);
-  const [personId, setPersonId] = useState(data.employees[0]?.employmentId ?? data.workers[0]?.id ?? "");
+  const [selectedPersonId, setPersonId] = useState<string | null>(null);
   const [shiftVersionId, setShiftVersionId] = useState("");
   const shifts = useMemo(() => data.shifts.filter((shift) => shift.scopeId === scopeId), [data.shifts, scopeId]);
   const templates = useMemo(() => [...groupShiftsByTemplate(shifts).values()], [shifts]);
@@ -145,8 +152,13 @@ function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAd
     const first = templates[0];
     setShiftVersionId(first ? pickShiftForDay(first, dayType)?.versionId ?? "" : "");
   }, [templates, dayType]);
-  useEffect(() => { setPersonId(personKind === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? ""); }, [personKind, data.employees, data.workers]);
   const selectedShift = shifts.find((shift) => shift.versionId === shiftVersionId);
+  const employees = data.employees.filter((person) => canSchedulePerson(selectedShift, person.employmentId));
+  const workers = data.workers.filter((person) => canSchedulePerson(selectedShift, person.id));
+  const personIds = personKind === "employee" ? employees.map((person) => person.employmentId) : workers.map((person) => person.id);
+  const resolvedPersonId = reconcilePersonId(personIds, selectedPersonId);
+  if (selectedShift && selectedPersonId !== resolvedPersonId) setPersonId(resolvedPersonId);
+  const personId = resolvedPersonId ?? "";
   const otherScopeNames = [...new Set(entries.filter((entry) => !entry.archivedAt && entry.workDate === day && entry.personKind === personKind && (personKind === "employee" ? entry.employmentId === personId : entry.workerId === personId) && entry.scopeId !== scopeId).map((entry) => entry.scopeName))];
   const closeRequestRef = useRef<(() => void) | null>(null);
   return <Dialog title={`${day} 新增排班`} onClose={onClose} closeRequestRef={closeRequestRef} formProps={{ onSubmit: (event) => {
@@ -157,17 +169,17 @@ function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAd
     onAdd(entry);
     (closeRequestRef.current ?? onClose)();
   } }} actions={<Button type="submit" icon="check" className="add-action" disabled={!selectedShift || !personId}>加入排班</Button>}>
-    <SelectField label="人員類型" value={personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援人員" }]} onChange={(event) => setPersonKind(event.target.value as "employee" | "worker")} />
-    <SelectField label="人員" value={personId} searchable options={personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
-    <SelectField label="營運據點" value={scopeId} options={data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => setScopeId(event.target.value)} />
+    <SelectField label="人員類型" aria-label="新增排班人員類型" value={personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援人員" }]} onChange={(event) => setPersonKind(event.target.value as "employee" | "worker")} />
+    <SelectField label="人員" aria-label="新增排班人員" value={personId} placeholder="請選擇人員" searchable options={personKind === "employee" ? employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
+    <SelectField label="營運據點" aria-label="新增排班據點" value={scopeId} options={data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => setScopeId(event.target.value)} />
     {/* 一個班別一個選項，label 直接寫出那天會用到的時間，使用者不必自己推今天算哪一型。 */}
-    <SelectField label="班別" value={shiftVersionId} options={templates.flatMap((versions) => {
+    <SelectField label="班別" aria-label="新增排班班別" value={shiftVersionId} options={templates.flatMap((versions) => {
       const shift = pickShiftForDay(versions, dayType);
       return shift ? [{ value: shift.versionId, label: shiftLabel(shift) }] : [];
     })} onChange={(event) => setShiftVersionId(event.target.value)} />
     {selectedShift && selectedShift.dayType !== "weekday" ? <p className="muted field-note">這天是{HR_DAY_TYPE_LABELS[dayType]}，已套用{HR_DAY_TYPE_LABELS[selectedShift.dayType]}時間。</p> : null}
     {otherScopeNames.length ? <Alert tone="warning">此人員已在 {day} 排入「{otherScopeNames.join("、")}」。仍可加入另一據點；請確認支援安排，日薪會依排班單位計算。</Alert> : null}
-    {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先到 <GuardedNavLink to="/hr/scheduling/shifts">班別管理</GuardedNavLink> 新增。</Alert> : null}
+    {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先到 <GuardedNavLink to="/hr/scheduling/shifts">班別管理</GuardedNavLink> 新增。</Alert> : selectedShift && !personIds.length ? <Alert>此班別沒有可排的{personKind === "employee" ? "正式員工" : "支援人員"}。</Alert> : null}
   </Dialog>;
 }
 
@@ -238,7 +250,7 @@ export function HrScheduling() {
   const savedNeedsReload = savedVersion !== null;
   const [reloadRequired, setReloadRequired] = useState(false);
   const [addingDay, setAddingDay] = useState<string | null>(null);
-  const [quick, setQuick] = useState<QuickPick | null>(null);
+  const [quickSelection, setQuick] = useState<QuickSelection | null>(null);
   const [editingCalendar, setEditingCalendar] = useState(false);
   const toast = useToast();
   const confirmLeave = useConfirmLeave();
@@ -342,6 +354,12 @@ export function HrScheduling() {
     const restDays = Math.max(0, activeDays - scheduledDays);
     return { employee, activeDays, scheduledDays, restDays, matches: restDays === Math.min(employee.monthlyRestDays!, activeDays) };
   });
+  const quickShift = data.shifts.find((shift) => shift.scopeId === quickSelection?.scopeId && shift.templateId === quickSelection.shiftTemplateId);
+  const quickPeople = { employees: data.employees.filter((person) => canSchedulePerson(quickShift, person.employmentId)), workers: data.workers.filter((person) => canSchedulePerson(quickShift, person.id)) };
+  const quickPersonIds = quickSelection?.personKind === "worker" ? quickPeople.workers.map((person) => person.id) : quickPeople.employees.map((person) => person.employmentId);
+  const resolvedQuickPersonId = quickSelection ? reconcilePersonId(quickPersonIds, quickSelection.personId) : null;
+  if (quickSelection && quickSelection.personId !== resolvedQuickPersonId) setQuick({ ...quickSelection, personId: resolvedQuickPersonId });
+  const quick: QuickPick | null = quickSelection ? { ...quickSelection, personId: resolvedQuickPersonId ?? "" } : null;
   const quickTemplates = quick ? [...groupShiftsByTemplate(data.shifts.filter((shift) => shift.scopeId === quick.scopeId)).values()] : [];
   const quickDays = quick ? new Set(draftEntries.filter((entry) => !entry.archivedAt && samePick(entry, quick, templateOf)).map((entry) => entry.workDate)).size : 0;
   // 正在排的那個人的月休進度直接放在快速排班條上；否則要回頭在月休統計那一排裡找名字。
@@ -354,13 +372,14 @@ export function HrScheduling() {
    * 切走，那筆錯的排班在畫面上看不到，按儲存就發布到錯的店別。
    */
   const pickScope = (nextScopeId: string) => {
+    if (!nextScopeId) return;
     setScopeId(nextScopeId);
     setQuick((current) => current ? { ...current, scopeId: nextScopeId, shiftTemplateId: firstTemplateId(nextScopeId) } : current);
   };
   const openQuick = () => {
     const scope = defaultScope;
     setScopeId(scope);
-    setQuick({ personKind: "employee", personId: firstQuickPersonId(data, "employee"), scopeId: scope, shiftTemplateId: firstTemplateId(scope) });
+    setQuick({ personKind: "employee", personId: null, scopeId: scope, shiftTemplateId: firstTemplateId(scope) });
   };
   const toggleQuickDay = (day: string) => {
     // 鎖定的月份不能改草稿：畫面說已鎖定，草稿卻默默變了，解鎖後一按儲存就發布出去。
@@ -413,10 +432,9 @@ export function HrScheduling() {
         <strong>快速排班</strong>
         <SelectField aria-label="人員類型" value={quick.personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援人員" }]} onChange={(event) => {
           const personKind = event.target.value as "employee" | "worker";
-          // DropdownSelect 沒有有效值時會顯示第一個選項的 placeholder；切換類型時要同步把預設人員寫進狀態，日期才可點。
-          setQuick((current) => current ? { ...current, personKind, personId: firstQuickPersonId(data, personKind) } : current);
+          setQuick((current) => current ? { ...current, personKind, personId: firstQuickPersonId(quickPeople, personKind) || null } : current);
         }} />
-        <SelectField aria-label="人員" value={quick.personId} searchable options={quick.personKind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick((current) => current ? { ...current, personId: event.target.value } : current)} />
+        <SelectField aria-label="人員" value={quick.personId} placeholder="請選擇人員" searchable options={quick.personKind === "employee" ? quickPeople.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : quickPeople.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick((current) => current ? { ...current, personId: event.target.value } : current)} />
         {/*
           * 選班別而不是選某一組時間：點到哪一天就用那天的日型挑。所以 label
           * 只寫平日的時間做代表，後面再註明還有哪些日型有自己的時間。
@@ -427,9 +445,9 @@ export function HrScheduling() {
               if (!weekday) return [];
               const extras = versions.filter((shift) => shift.dayType !== "weekday").map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]);
               return [{ value: weekday.templateId, label: `${shiftLabel(weekday)}${extras.length ? ` 另設${extras.join("、")}` : ""}` }];
-            })} onChange={(event) => setQuick((current) => current ? { ...current, shiftTemplateId: event.target.value } : current)} />
+            })} onChange={(event) => { if (event.target.value) setQuick((current) => current ? { ...current, shiftTemplateId: event.target.value } : current); }} />
           : <span className="hr-quick-bar-empty">這個據點還沒有班別，<GuardedNavLink to="/hr/scheduling/shifts">前往班別管理</GuardedNavLink></span>}
-        <span className="hr-quick-bar-hint">點日期或排班內容排入或取消；叉叉可移除</span>
+        <span className="hr-quick-bar-hint">{quickShift && !quickPersonIds.length ? `此班別沒有可排的${quick.personKind === "employee" ? "正式員工" : "支援人員"}` : !quick.personId ? "請先選擇排班人員" : "點日期或排班內容排入或取消；叉叉可移除"}</span>
         <span className="hr-quick-bar-count">已選 <b>{quickDays}</b> 天</span>
         {quickRest ? <span className={`hr-quick-bar-rest ${quickRest.matches ? "ok" : "warning"}`}>休 {quickRest.restDays}／約定 {quickRest.employee.monthlyRestDays} 天</span> : null}
         <Button variant="secondary" onClick={() => setQuick(null)}>結束</Button>

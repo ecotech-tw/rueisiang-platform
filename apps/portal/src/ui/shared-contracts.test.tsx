@@ -1,13 +1,19 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { ConfirmDialog, SelectionActionBar } from "@rueisiang/ui";
+import { ConfirmDialog, SelectField, SelectionActionBar } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
 import { FilterInput, FilterSelect, FilterToolbar, SearchFilterInput } from "./index.js";
 
 describe("shared HRIS UI contracts", () => {
+  it("人員未選取時保留指定提示，不冒充第一個選項", () => {
+    const markup = renderToStaticMarkup(<MemoryRouter initialEntries={["/hr/scheduling"]}><SelectField aria-label="人員" searchable value="" placeholder="請選擇人員" options={[{ value: "employee", label: "E1・小明" }]} /></MemoryRouter>);
+    expect(markup).toContain('placeholder="請選擇人員"');
+    expect(markup).not.toContain('placeholder="E1・小明"');
+  });
+
   it("keeps table modifiers on the intended wrapper and table", () => {
     const markup = renderToStaticMarkup(
       <DataTable className="payroll-table" containerClassName="mobile-table">
