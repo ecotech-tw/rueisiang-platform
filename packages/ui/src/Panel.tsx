@@ -5,16 +5,18 @@ interface PanelProps {
   description?: ReactNode;
   actions?: ReactNode;
   className?: string;
+  /** 緊湊控制列與手機月曆減少 surface 內距，保留同一套圓角與深度。 */
+  density?: "default" | "compact";
   id?: string;
   children: ReactNode;
 }
 
 /** 卡片、標題與右側 actions 的共用版型。 */
-export function Panel({ title, description, actions, className = "", id, children }: PanelProps) {
+export function Panel({ title, description, actions, className = "", density = "default", id, children }: PanelProps) {
   const hasHeader = title || description || actions;
 
   return (
-    <section id={id} className={`panel ${className}`.trim()}>
+    <section id={id} className={`panel ${density === "compact" ? "p-2" : ""} ${className}`.trim()}>
       {hasHeader ? (
         <div className="panel-head">
           <div>

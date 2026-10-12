@@ -2,7 +2,7 @@
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { Dialog, DialogScope } from "./index.js";
+import { Dialog, DialogScope, Panel } from "./index.js";
 
 let root: Root | null = null;
 let host: HTMLElement | null = null;
@@ -30,6 +30,15 @@ afterEach(async () => {
  * 對話框 portal 到 body 之後會離開站的樣式範圍，語意色（核准的綠、修改的藍）全部失效，
  * 核准會落回品牌紅、跟駁回分不出來。這裡守的是「站台提供的範圍有被補回來」。
  */
+describe("Panel 內距契約", () => {
+  it("預設內距不變，compact 透過 prop 縮減內距而非從 route 蓋樣式", async () => {
+    await render(<><Panel>預設</Panel><Panel density="compact">緊湊</Panel></>);
+    const panels = [...host!.querySelectorAll(".panel")];
+    expect(panels[0]!.classList.contains("p-2")).toBe(false);
+    expect(panels[1]!.classList.contains("p-2")).toBe(true);
+  });
+});
+
 describe("Dialog 補回站的樣式範圍", () => {
   it("在 DialogScope 裡開的對話框帶回站台給的 class，而且殼已經移到範圍外面", async () => {
     const scope = await render(<DialogScope className="hr-module-self">{dialog}</DialogScope>, "hr-module hr-module-self");

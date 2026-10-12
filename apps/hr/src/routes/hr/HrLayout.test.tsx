@@ -9,7 +9,7 @@ import { HrLayout } from "./HrLayout.js";
 afterEach(() => { vi.unstubAllGlobals(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
 describe("HR 手機導覽", () => {
-  it.each(["/clock", "/forms"])("LINE 登入在 %s 仍顯示完整五項手機導覽與通知數", async (path) => {
+  it.each(["/clock", "/forms", "/scheduling"])("LINE 登入在 %s 仍顯示完整六項手機導覽與通知數", async (path) => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     notifyManager.setScheduler(queueMicrotask);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -26,10 +26,13 @@ describe("HR 手機導覽", () => {
       await vi.waitFor(async () => {
         await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
         const nav = container.querySelector(".hr-personal-bottom-nav");
-        expect([...nav!.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual(["/forms", "/payroll", "/clock", "/notifications", "/profile"]);
+        expect([...nav!.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual(["/forms", "/payroll", "/clock", "/scheduling", "/notifications", "/profile"]);
         expect(nav?.textContent).toContain("表單申請");
         expect(nav?.textContent).toContain("薪資袋");
         expect(nav?.textContent).toContain("個人中心");
+        expect(nav?.textContent).toContain("排班");
+        expect(nav?.querySelector('a[href="/scheduling"]')?.getAttribute("aria-label")).toBe("排班");
+        if (path === "/scheduling") expect(nav?.querySelector('a[href="/scheduling"]')?.getAttribute("aria-current")).toBe("page");
         expect(nav?.querySelector(".hr-personal-nav-badge")?.textContent).toBe("3");
       });
       expect(fetch.mock.calls).toHaveLength(1);
