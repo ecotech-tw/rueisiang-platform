@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, LegacyButton, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -136,7 +136,7 @@ function ItemRow({
         <td data-label="操作">
           <div className="row-actions">
             {canCount ? (
-              <Button
+              <LegacyButton
                 variant="secondary"
                 className="count-action"
                 onClick={onCount}
@@ -145,10 +145,10 @@ function ItemRow({
                 aria-label={`盤點 ${item.name}`}
               >
                 盤點
-              </Button>
+              </LegacyButton>
             ) : null}
             {canSync && item.cyberbiz ? (
-              <Button
+              <LegacyButton
                 variant="secondary"
                 icon="sync"
                 className="sync-action"
@@ -159,7 +159,7 @@ function ItemRow({
                 aria-label={`同步 ${item.name}`}
               >
                 同步
-              </Button>
+              </LegacyButton>
             ) : null}
             {canWrite ? (
               <>
@@ -173,7 +173,7 @@ function ItemRow({
                 />
                 <Button
                   variant="icon"
-                  className="danger"
+                  tone="danger"
                   icon="trash"
                   onClick={onDelete}
                   disabled={busy}
@@ -311,7 +311,7 @@ export function Inventory() {
               </Button>
             ) : null}
             {canWrite ? (
-              <Button icon="plus" className="add-action" onClick={() => setAdding(true)} aria-label="新增入庫">
+              <Button icon="plus" mobileIconOnly onClick={() => setAdding(true)} aria-label="新增入庫">
                 新增入庫
               </Button>
             ) : null}
@@ -332,7 +332,7 @@ export function Inventory() {
           <Button
             variant="secondary"
             icon="filter"
-            className={`filter-toggle${showFilters ? " active" : ""}`}
+            size="lg" active={showFilters} className="flex-none min-[761px]:hidden"
             aria-expanded={showFilters}
             onClick={() => setShowFilters((open) => !open)}
           >

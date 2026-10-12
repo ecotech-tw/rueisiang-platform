@@ -61,7 +61,7 @@ export function ElementDialog({
           {element ? (
             <Button
               variant="secondary"
-              className="danger"
+              tone="danger"
               loading={remove.isPending}
               loadingLabel="刪除中…"
               disabled={pending}

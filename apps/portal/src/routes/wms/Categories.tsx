@@ -127,7 +127,7 @@ export function Categories() {
                           />
                           <Button
                             variant="icon"
-                            className="danger"
+                            tone="danger"
                             icon="trash"
                             /*
                               * 還有商品在用就直接停用，不要等按下去再吐一句 409。

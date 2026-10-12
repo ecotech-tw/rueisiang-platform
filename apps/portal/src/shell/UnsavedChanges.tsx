@@ -140,7 +140,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
       closeLabel="留在這一頁"
       actions={<>
         <Button variant="secondary" onClick={() => answer(false)}>留下來</Button>
-        <Button className="danger" onClick={() => answer(true)}>離開並捨棄</Button>
+        <Button variant="danger" onClick={() => answer(true)}>離開並捨棄</Button>
       </>}
     >
       {/* 講清楚捨棄的是什麼，不要只說「有未儲存的變更」——那句話沒有幫使用者做決定。 */}

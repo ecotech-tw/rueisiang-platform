@@ -176,7 +176,7 @@ export function Roles() {
                       />
                       <Button
                         variant="icon"
-                        className="danger"
+                        tone="danger"
                         icon="trash"
                         onClick={() => confirmDelete(role)}
                         disabled={role.key === PROTECTED_ROLE_KEY || pending}

@@ -102,7 +102,7 @@ export function AnalyticsDataDialog({ title, description, children, disabled = f
       <Button
         variant="secondary"
         icon="list"
-        className="analytics-data-trigger"
+       
         disabled={disabled}
         onClick={() => setOpen(true)}
       >

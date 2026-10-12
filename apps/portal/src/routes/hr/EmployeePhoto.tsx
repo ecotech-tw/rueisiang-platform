@@ -4,7 +4,7 @@ import { useImageFilePreview } from "@rueisiang/ui";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button } from "../../ui/index.js";
+import { Alert, LegacyButton as Button } from "../../ui/index.js";
 import { useHrWrite } from "./api.js";
 
 export function EmployeePhoto({ employmentId, revision, name, photo, canWrite, disabled, onBusyChange, onSaved }: { employmentId: string; revision: number; name: string; photo?: { id: string } | null; canWrite: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void; onSaved: () => void }) {

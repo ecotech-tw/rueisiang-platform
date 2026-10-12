@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, FilterInput } from "../../ui/index.js";
+import { Alert, Button, LegacyButton, FilterInput } from "../../ui/index.js";
 import {
   DEFAULT_FILTERS,
   matchesView,
@@ -54,7 +54,7 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
   return (
     <>
       <div className="view-bar">
-        <Button
+        <LegacyButton
           type="button"
           variant="chip"
           selected={!active && isDefault}
@@ -63,11 +63,11 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
           title="回到預設條件"
         >
           全部客戶
-        </Button>
+        </LegacyButton>
 
         {rows.map((view) => (
           <span className={`filter-chip${active?.id === view.id ? " selected" : ""}`} key={view.id}>
-            <Button
+            <LegacyButton
               type="button"
               variant="chip-label"
               selected={active?.id === view.id}
@@ -76,9 +76,9 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
               title={`${describe(view)}${view.createdByEmail ? `　—　${view.createdByEmail} 建立` : ""}`}
             >
               {view.name}
-            </Button>
+            </LegacyButton>
             {canManage ? (
-              <Button
+              <LegacyButton
                 type="button"
                 variant="chip-remove"
                 icon="close"
@@ -92,7 +92,7 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
         ))}
 
         {canManage && name === null ? (
-          <Button
+          <LegacyButton
             type="button"
             variant="chip-action"
             icon="bookmark"
@@ -103,7 +103,7 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
                 ? "目前的條件已經是一個視圖了"
                 : "把現在的搜尋、篩選與排序存成一個視圖，所有人都看得到"
             }
-          >儲存為視圖</Button>
+          >儲存為視圖</LegacyButton>
         ) : null}
 
         {canManage && name !== null ? (

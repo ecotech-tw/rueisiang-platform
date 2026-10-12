@@ -19,7 +19,7 @@ import {
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, LegacyButton, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
   invited: "已邀請",
@@ -67,7 +67,7 @@ function InviteLink({ email, url, onDismiss }: { email: string; url: string; onD
       </div>
       <div className="invite-link-row">
         <input readOnly value={url} onFocus={(event) => event.target.select()} />
-        <Button
+        <LegacyButton
           variant="secondary"
           onClick={async () => {
             /*
@@ -83,7 +83,7 @@ function InviteLink({ email, url, onDismiss }: { email: string; url: string; onD
           }}
         >
           {copied ? "已複製" : "複製"}
-        </Button>
+        </LegacyButton>
         <Button variant="secondary" onClick={onDismiss}>知道了</Button>
       </div>
     </div>
@@ -137,7 +137,7 @@ function InviteForm({
         ]}
       />
 
-      <Button type="submit" loading={invite.isPending} loadingLabel="邀請中…">
+      <Button type="submit" size="lg" loading={invite.isPending} loadingLabel="邀請中…">
         邀請
       </Button>
 
@@ -223,7 +223,7 @@ function UserEditor({
           {user.status !== "active" ? (
             <Button
               variant="secondary"
-              className="danger delete-action"
+              tone="danger" className="mr-auto"
               disabled={pending}
               onClick={() => setConfirmingDelete(true)}
             >
@@ -262,7 +262,7 @@ function UserEditor({
               ) : (
                 <Button
                   variant="secondary"
-                  className="danger"
+                  tone="danger"
                   disabled={pending || user.status === "invited"}
                   title={user.status === "invited" ? "還沒登入過的帳號不需要停用" : undefined}
                   onClick={() =>

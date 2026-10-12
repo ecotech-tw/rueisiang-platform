@@ -71,7 +71,7 @@ export function Profile() {
               setSaved(false);
             }}
           />
-          <Button type="submit" loading={save.isPending} loadingLabel="儲存中…">
+          <Button type="submit" size="lg" loading={save.isPending} loadingLabel="儲存中…">
             儲存
           </Button>
           {saved ? <span className="form-hint">已儲存</span> : null}

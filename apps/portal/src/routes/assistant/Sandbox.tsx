@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, LegacyButton, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -322,10 +322,10 @@ export function Sandbox() {
                   <h3>可調用的 tools</h3>
                   <p className="muted">Sandbox 可測試「開發中」與「已啟用」；停用工具不會送給模型。</p>
                 </div>
-                <Button variant="secondary" icon="widgets" className="assistant-tool-config-button" onClick={() => setToolsOpen(true)}>
+                <LegacyButton variant="secondary" icon="widgets" className="assistant-tool-config-button" onClick={() => setToolsOpen(true)}>
                   設定 tools
                   <span className="assistant-tool-count">{activeToolKeys.length}</span>
-                </Button>
+                </LegacyButton>
               </div>
               <div className="assistant-selection-summary">
                 {activeToolKeys.length
@@ -539,7 +539,7 @@ export function Sandbox() {
               <Button
                 variant="icon"
                 icon="attachment"
-                className="assistant-attachment-button"
+                className="flex-none"
                 disabled={!sessionOpen || run.isPending || uploadAttachment.isPending || !selectedModel?.supportsVision}
                 title={uploadAttachment.isPending ? "圖片上傳中…" : "附加圖片"}
                 aria-label={uploadAttachment.isPending ? "圖片上傳中" : "附加圖片"}
@@ -547,6 +547,7 @@ export function Sandbox() {
               />
               <span className="assistant-input-shortcut">Shift + Enter 送出</span>
               <Button
+                className="flex-none"
                 loading={run.isPending}
                 loadingLabel="小香思考中…"
                 disabled={!modelReady || hrAuthorizeMissing || (!input.trim() && !attachments.length) || !sessionOpen || uploadAttachment.isPending}

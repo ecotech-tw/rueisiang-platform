@@ -4,7 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Button } from "../../ui/index.js";
+import { LegacyButton as Button } from "../../ui/index.js";
 import {
   useDeleteElement,
   useDeleteZone,

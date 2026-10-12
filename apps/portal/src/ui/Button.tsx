@@ -1,1 +1,1 @@
-export { LegacyButton as Button } from "@rueisiang/ui";
+export { Button, LegacyButton } from "@rueisiang/ui";

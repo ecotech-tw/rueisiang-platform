@@ -196,7 +196,7 @@ export function Tags() {
                         />
                         <Button
                           variant="icon"
-                          className="danger"
+                          tone="danger"
                           icon="trash"
                           disabled={Boolean(busy)}
                           onClick={() => void applyChange(tag.name, null)}

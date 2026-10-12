@@ -1,3 +1,9 @@
+/*
+ * Tailwind 預設把 hover: 包在 @media (hover: hover) 裡。有觸控螢幕的 Windows 筆電常常回報
+ * hover: none，即使正在用滑鼠——整個站的 hover 會靜靜地消失。改成不看裝置，一律套用。
+ */
+@custom-variant hover (&:hover);
+
 @theme {
   --color-brand: #d5383b;
   --color-brand-dark: #ad282c;

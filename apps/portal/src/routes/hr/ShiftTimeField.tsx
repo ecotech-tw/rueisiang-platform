@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Button, Field } from "../../ui/index.js";
+import { LegacyButton as Button, Field } from "../../ui/index.js";
 
 const VALID_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 

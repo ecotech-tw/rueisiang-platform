@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
+import { Alert, Button, LegacyButton, Dialog, TextField } from "../../ui/index.js";
 import { useUpdateSettings } from "./api.js";
 
 /**
@@ -65,7 +65,7 @@ export function CanvasDialog({
 
           <div className="preset-row">
             {PRESETS.map((preset) => (
-              <Button
+              <LegacyButton
                 key={preset.label}
                 type="button"
                 variant="secondary"
@@ -79,7 +79,7 @@ export function CanvasDialog({
               >
                 {preset.label}
                 <small>{preset.width} × {preset.height}</small>
-              </Button>
+              </LegacyButton>
             ))}
           </div>
 

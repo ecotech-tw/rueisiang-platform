@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, EmptyState, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, LegacyButton as Button, DataTable, EmptyState, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type Profile } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 

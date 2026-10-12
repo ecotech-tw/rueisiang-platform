@@ -672,9 +672,7 @@
 .assistant-input-wrap { position: relative; }
 .assistant-input-wrap .assistant-input { padding-bottom: 52px; }
 .assistant-composer-actions { position: absolute; right: 8px; bottom: 8px; left: 8px; display: flex; align-items: center; gap: 8px; }
-.assistant-composer-actions .assistant-attachment-button { flex: none; }
 .assistant-input-shortcut { margin: 0 auto; pointer-events: none; color: var(--color-muted); opacity: .65; font-size: 11px; }
-.assistant-composer-actions .primary-button { flex: none; }
 .assistant-composer-note { margin-top: 6px; }
 .assistant-modal-card { width: min(680px, 100%); }
 .assistant-modal-body { max-height: calc(100vh - 190px); }
@@ -825,7 +823,6 @@
 .assistant-toggle small { margin-top: 3px; color: var(--color-muted); font-size: 12px; }
 .copy-field { display: flex; align-items: center; gap: 8px; }
 .copy-field input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-canvas); color: var(--color-ink); font: inherit; }
-.copy-field .ghost-button { display: inline-flex; align-items: center; gap: 6px; }
 .copy-field svg { width: 17px; height: 17px; }
 .line-groups-table { margin-top: 22px; }
 .line-group-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -1523,7 +1520,6 @@
   .drawer-backdrop.closing .drawer { animation: none; }
 }
 .drawer-head { position: relative; padding: 22px 24px 18px; }
-.drawer-close { position: absolute; top: 14px; right: 14px; }
 .drawer-eyebrow {
   margin: 0 0 10px;
   font-size: 11px;
@@ -1712,7 +1708,6 @@
   background: var(--color-canvas);
 }
 .link-panel > div { min-width: 0; }
-.link-panel .ghost-button { flex: none; }
 /* 已連結的用綠色的邊，一眼看得出狀態不同。 */
 .link-panel.linked { border-color: var(--color-ok); background: var(--color-ok-soft); }
 
@@ -2638,7 +2633,6 @@
  */
 .login-form { width: 100%; display: grid; gap: 14px; margin-top: 16px; text-align: left; }
 .login-form .field input { width: 100%; }
-.login-form .primary-button { width: 100%; padding: 11px; font-size: 14px; }
 
 /*
  * 兩條登入路之間的分隔線。中間的字用底色蓋掉線，不用額外的容器——
@@ -2698,7 +2692,6 @@
 .invite-link-row .ghost-button { background: var(--color-paper); }
 
 /* 危險動作靠左，跟右邊的「關閉／儲存」拉開距離——想關掉的人不該手滑按到刪除。 */
-.modal-actions .delete-action { margin-right: auto; }
 
 /* 分組裡的說明文字。權限這種東西不解釋一下，人不會知道什麼時候該用。 */
 .perm-hint { margin: 2px 6px 10px; font-size: 12.5px; }
@@ -3401,7 +3394,6 @@
 .analytics-product-field { min-width: 280px; flex: 1 1 280px; }
 .analytics-product-control { display: flex; align-items: stretch; gap: 8px; }
 .analytics-product-control input { flex: 1 1 auto; width: 0; }
-.analytics-product-control .ghost-button { flex: none; white-space: nowrap; }
 .analytics-filters > .ui-alert { margin: 0; }
 
 .analytics-tabs {
@@ -3523,7 +3515,6 @@
 .analytics-chart-empty { display: grid; place-items: center; height: 260px; margin: 0; color: var(--color-muted); font-size: 13px; }
 .analytics-chart-pending { display: grid; place-items: center; height: 360px; margin: 0; color: var(--color-muted); font-size: 13px; }
 .analytics-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.analytics-data-trigger { white-space: nowrap; }
 .analytics-data-dialog { width: min(920px, 100%); }
 .analytics-data-dialog-body { min-height: 0; }
 .analytics-data-dialog-table { max-height: calc(100vh - 170px); overflow: auto; }

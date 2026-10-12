@@ -303,6 +303,7 @@ export function ItemForm({
                     ) : null}
                   </div>
                   <Button
+                    className="flex-none"
                     variant="secondary"
                     loading={link.isPending}
                     loadingLabel="查詢官網中…"
