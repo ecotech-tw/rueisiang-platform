@@ -2,6 +2,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
+import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, LegacyButton as Button, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrPersonnelRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
@@ -71,6 +72,7 @@ function PayrollAdjustmentDialog({
   const [items, setItems] = useState<AdjustmentItemDraft[]>(() => initialItems(adjustment));
   const [validationError, setValidationError] = useState<string | null>(null);
   const save = useHrWrite();
+  const toast = useToast();
   const closeRequestRef = useRef<(() => void) | null>(null);
 
   function updateItem(key: string, patch: Partial<AdjustmentItemDraft>) {
@@ -99,7 +101,7 @@ function PayrollAdjustmentDialog({
       path: adjustment ? `/payroll/adjustments/${encodeURIComponent(adjustment.id)}` : "/payroll/adjustments",
       method: adjustment ? "PATCH" : "POST",
       values: { employmentId, effectivePeriodKey, reason: reason.trim(), items: payloadItems, ...(adjustment ? { revision: adjustment.revision } : {}) },
-    }, { onSuccess: () => { onSuccess(); (closeRequestRef.current ?? onClose)(); } });
+    }, { onSuccess: () => { toast.show(adjustment ? "已保存薪資加扣項修改。" : "已新增薪資加扣項。", "success"); onSuccess(); (closeRequestRef.current ?? onClose)(); } });
   }
 
   return <Dialog
@@ -144,6 +146,7 @@ export function HrPayrollAdjustments() {
   const [deleting, setDeleting] = useState<PayrollAdjustment | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const remove = useHrWrite();
+  const toast = useToast();
   const adjustments = useHrQuery<PayrollAdjustmentsResponse>(`/payroll/adjustments${effectivePeriodKey ? `?effectivePeriodKey=${encodeURIComponent(effectivePeriodKey)}` : ""}`, canRead);
   const employees = useHrPersonnelRoster(canCalculate);
 
@@ -165,7 +168,7 @@ export function HrPayrollAdjustments() {
   function confirmRemove() {
     if (!deleting) return;
     remove.mutate({ path: `/payroll/adjustments/${encodeURIComponent(deleting.id)}`, method: "DELETE", values: { revision: deleting.revision } }, {
-      onSuccess: () => { setDeleting(null); void adjustments.refetch(); },
+      onSuccess: () => { toast.show("已刪除薪資加扣項。", "success"); setDeleting(null); void adjustments.refetch(); },
     });
   }
 
