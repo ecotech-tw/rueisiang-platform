@@ -171,6 +171,7 @@ export function HrPayrollAdjustments() {
 
   return <div className="page fills hr-payroll-page hr-payroll-adjustments-page">
     <PageHeader title="薪資加扣項" description="登記指定薪資月份的補發與扣款，於試算時自動帶入。" actions={canCalculate ? <Button icon="plus" className="add-action" onClick={openCreate}>新增薪資加扣項</Button> : null} />
+    {!canCalculate ? <Alert tone="info">目前只有薪資檢視權限；新增、編輯與刪除需要「執行薪資試算」權限。</Alert> : null}
     <Panel className="grows hr-payroll-adjustments-panel">
       <FilterToolbar className="hr-payroll-adjustment-filter">
         <FilterInput label="生效薪資月份" type="month" value={effectivePeriodKey} onChange={(event) => setEffectivePeriodKey(event.target.value)} />
@@ -185,7 +186,7 @@ export function HrPayrollAdjustments() {
               <td data-label="加扣項目"><div className="hr-payroll-adjustment-item-summary">{adjustment.items.map((item) => <span key={item.id}><strong>{item.itemName}</strong><small>{item.amountMinor < 0 ? "扣款" : "補發／加給"}</small></span>)}</div></td>
               <td data-label="加扣金額" className="numeric"><strong>{signedMoney(totalMinor(adjustment))}</strong></td>
               <td data-label="原因" className="hr-payroll-adjustment-reason">{adjustment.reason}</td>
-              <td data-label="操作">{canCalculate ? <div className="hr-payroll-adjustment-actions">{adjustment.canEdit ? <><Button variant="secondary" icon="edit" className="hr-action-update" onClick={() => openEdit(adjustment)}>編輯</Button><Button variant="danger" icon="trash" onClick={() => { remove.reset(); setDeleting(adjustment); }}>刪除</Button></> : <Tooltip label="已發放或月份結帳，不能編輯或刪除" className="muted"><span role="img" aria-label="不能編輯或刪除"><Icon name="block" /></span></Tooltip>}</div> : null}</td>
+              <td data-label="操作"><div className="hr-payroll-adjustment-actions">{!canCalculate || !adjustment.canEdit ? <Tooltip label={canCalculate ? "已發放或月份結帳，不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"} className="muted"><span role="img" aria-label={canCalculate ? "不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"}><Icon name="block" /></span></Tooltip> : <><Button variant="secondary" icon="edit" className="hr-action-update" onClick={() => openEdit(adjustment)}>編輯</Button><Button variant="danger" icon="trash" onClick={() => { remove.reset(); setDeleting(adjustment); }}>刪除</Button></>}</div></td>
             </tr>)}</tbody>
         </DataTable>
       </div>
