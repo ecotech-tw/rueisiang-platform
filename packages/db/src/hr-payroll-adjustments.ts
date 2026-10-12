@@ -63,17 +63,26 @@ function joinedAdjustment(row: JoinedAdjustmentRow) {
 
 export async function listHrPayrollAdjustments(db: Database, effectivePeriodKey?: string) {
   if (effectivePeriodKey) periodKey(effectivePeriodKey);
+  const periodFilter = effectivePeriodKey ? eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey) : undefined;
   const rawRows = await db.select(adjustmentJoinSelection).from(hrPayrollAdjustments)
     .innerJoin(hrPayrollAdjustmentItems, eq(hrPayrollAdjustmentItems.adjustmentId, hrPayrollAdjustments.id))
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(effectivePeriodKey ? eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey) : undefined).orderBy(desc(hrPayrollAdjustments.effectivePeriodKey), ...hrEmployeeNumberOrder(), asc(hrPayrollAdjustments.createdAt));
+    .where(periodFilter).orderBy(desc(hrPayrollAdjustments.effectivePeriodKey), ...hrEmployeeNumberOrder(), asc(hrPayrollAdjustments.createdAt));
+  const editabilityRows = await db.select({ id: hrPayrollAdjustments.id, canEdit: sql<number>`NOT (
+    EXISTS (SELECT 1 FROM hr_payroll_periods p WHERE p.period_key=${hrPayrollAdjustments.effectivePeriodKey} AND p.status='closed')
+    OR EXISTS (SELECT 1 FROM hr_payslips s INNER JOIN hr_payroll_runs r ON r.id=s.payroll_run_id INNER JOIN hr_payroll_periods p ON p.id=r.payroll_period_id WHERE s.employment_id=${hrPayrollAdjustments.employmentId} AND p.period_key=${hrPayrollAdjustments.effectivePeriodKey} AND r.status='closed')
+    OR EXISTS (SELECT 1 FROM hr_payroll_closed_employees c WHERE c.period_key=${hrPayrollAdjustments.effectivePeriodKey} AND c.employment_id=${hrPayrollAdjustments.employmentId})
+    OR EXISTS (SELECT 1 FROM hr_payroll_worker_results w INNER JOIN hr_payroll_runs r ON r.id=w.payroll_run_id INNER JOIN hr_payroll_periods p ON p.id=r.payroll_period_id WHERE w.worker_id=${hrPayrollAdjustments.employmentId} AND p.period_key=${hrPayrollAdjustments.effectivePeriodKey} AND r.status='closed')
+    OR EXISTS (SELECT 1 FROM hr_payroll_closed_workers c WHERE c.period_key=${hrPayrollAdjustments.effectivePeriodKey} AND c.worker_id=${hrPayrollAdjustments.employmentId})
+  )` }).from(hrPayrollAdjustments).where(periodFilter);
   const rows = rawRows.map((row) => joinedAdjustment(row));
   const byId = new Map<string, { adjustment: typeof rows[number]["adjustment"]; employeeNumber: string; employeeName: string; items: typeof rows[number]["item"][] }>();
   for (const row of rows) {
     const current = byId.get(row.adjustment.id) ?? { adjustment: row.adjustment, employeeNumber: row.employeeNumber, employeeName: row.employeeName, items: [] };
     current.items.push(row.item); byId.set(row.adjustment.id, current);
   }
-  return [...byId.values()];
+  const editability = new Map(editabilityRows.map((row) => [row.id, Boolean(row.canEdit)]));
+  return [...byId.values()].map((row) => ({ ...row, canEdit: editability.get(row.adjustment.id) ?? false }));
 }
 
 export async function createHrPayrollAdjustment(db: Database, input: HrPayrollAdjustmentInput, actor: HrActor) {

@@ -1333,7 +1333,7 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const effectivePeriodKey = c.req.query("effectivePeriodKey");
     const rows = await listHrPayrollAdjustments(c.get("db"), effectivePeriodKey);
-    return c.json({ adjustments: rows.map((row) => ({ ...row.adjustment, employeeName: row.employeeName, employeeNumber: row.employeeNumber, items: row.items })) });
+    return c.json({ adjustments: rows.map((row) => ({ ...row.adjustment, canEdit: row.canEdit, employeeName: row.employeeName, employeeNumber: row.employeeNumber, items: row.items })) });
   })
   .post("/payroll/adjustments", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
