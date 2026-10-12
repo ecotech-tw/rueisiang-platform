@@ -245,7 +245,7 @@
   box-shadow: var(--shadow-panel);
 }
 
-.selection-action-bar__count { margin-right: auto; }
+.selection-action-bar__count { margin-right: auto; color: var(--color-muted); }
 .selection-action-bar > button { flex: none; }
 
 @media (max-width: 760px) {
