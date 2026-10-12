@@ -30,7 +30,7 @@ const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visi
 const WITH_ICON = "inline-flex items-center gap-2 [&_svg]:size-[18px]";
 
 const FILLED = "rounded-field border-0 px-3.5 py-[7px] text-[13px] font-bold disabled:opacity-55";
-const OUTLINED = "rounded-field border px-3 py-1.5 text-xs whitespace-nowrap disabled:opacity-45";
+const OUTLINED = "rounded-field border px-3 py-1.5 text-[12px] whitespace-nowrap disabled:opacity-45";
 const ICON_ONLY = "grid size-10 place-items-center rounded-full border-0 bg-transparent p-0 disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5";
 
 const FILLED_TONE: Record<ButtonTone, string> = {
@@ -52,7 +52,7 @@ const ICON_TONE: Record<ButtonTone, string> = {
 function appearance(variant: ButtonVariant, tone: ButtonTone, size: ButtonSize, hasIcon: boolean) {
   const touch = size === "lg" ? "min-h-11" : "";
   if (variant === "icon") return [ICON_ONLY, ICON_TONE[tone]];
-  if (variant === "link") return ["border-0 bg-transparent p-0 text-xs text-brand underline disabled:opacity-45", FOCUS, hasIcon ? "inline-flex items-center gap-1.5 [&_svg]:size-[18px] [&_svg]:flex-none" : ""];
+  if (variant === "link") return ["border-0 bg-transparent p-0 text-[12px] text-brand underline disabled:opacity-45", FOCUS, hasIcon ? "inline-flex items-center gap-1.5 [&_svg]:size-[18px] [&_svg]:flex-none" : ""];
   if (variant === "text") return ["inline-flex min-h-11 items-center gap-1 border-0 bg-transparent px-0 py-1 text-[13px] font-bold text-brand disabled:opacity-45 [&_svg]:size-[18px] [&_svg]:flex-none", FOCUS];
   if (variant === "secondary") return [OUTLINED, OUTLINED_TONE[tone], FOCUS, touch, hasIcon ? WITH_ICON : ""];
   const fill = variant === "danger"
