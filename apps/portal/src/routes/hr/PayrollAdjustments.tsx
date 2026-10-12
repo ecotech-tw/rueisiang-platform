@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrPersonnelRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
@@ -139,7 +140,9 @@ export function HrPayrollAdjustments() {
   const canCalculate = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:calculate"));
   const [effectivePeriodKey, setEffectivePeriodKey] = useState("");
   const [editing, setEditing] = useState<PayrollAdjustment | null>(null);
+  const [deleting, setDeleting] = useState<PayrollAdjustment | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const remove = useHrWrite();
   const adjustments = useHrQuery<PayrollAdjustmentsResponse>(`/payroll/adjustments${effectivePeriodKey ? `?effectivePeriodKey=${encodeURIComponent(effectivePeriodKey)}` : ""}`, canRead);
   const employees = useHrPersonnelRoster(canCalculate);
 
@@ -158,6 +161,12 @@ export function HrPayrollAdjustments() {
     setDialogOpen(false);
     setEditing(null);
   }
+  function confirmRemove() {
+    if (!deleting) return;
+    remove.mutate({ path: `/payroll/adjustments/${encodeURIComponent(deleting.id)}`, method: "DELETE", values: { revision: deleting.revision } }, {
+      onSuccess: () => { setDeleting(null); void adjustments.refetch(); },
+    });
+  }
 
   return <div className="page fills hr-payroll-page hr-payroll-adjustments-page">
     <PageHeader title="薪資加扣項" description="登記指定薪資月份的補發與扣款，於試算時自動帶入。" actions={canCalculate ? <Button icon="plus" className="add-action" onClick={openCreate}>新增薪資加扣項</Button> : null} />
@@ -171,16 +180,21 @@ export function HrPayrollAdjustments() {
             <thead><tr><th>生效月份</th><th>人員</th><th>加扣項目</th><th className="numeric">加扣金額</th><th>原因</th><th>操作</th></tr></thead>
             <tbody>{(adjustments.data?.adjustments ?? []).map((adjustment) => <tr key={adjustment.id}>
               <td data-label="生效月份"><strong>{periodLabel(adjustment.effectivePeriodKey)}</strong></td>
-              <td data-label="人員"><strong>{adjustment.employeeName}</strong><small className="cell-sub">{adjustment.employeeNumber ?? adjustment.employmentId}</small></td>
+              <td data-label="人員"><div className="hr-payroll-adjustment-person"><strong>{adjustment.employeeName}</strong><small className="cell-sub">{adjustment.employeeNumber ?? adjustment.employmentId}</small></div></td>
               <td data-label="加扣項目"><div className="hr-payroll-adjustment-item-summary">{adjustment.items.map((item) => <span key={item.id}><strong>{item.itemName}</strong><small>{item.amountMinor < 0 ? "扣款" : "補發／加給"}</small></span>)}</div></td>
               <td data-label="加扣金額" className="numeric"><strong>{signedMoney(totalMinor(adjustment))}</strong></td>
               <td data-label="原因" className="hr-payroll-adjustment-reason">{adjustment.reason}</td>
-              <td data-label="操作">{canCalculate ? <Button variant="secondary" icon="edit" className="hr-action-update" onClick={() => openEdit(adjustment)}>編輯</Button> : null}</td>
+              <td data-label="操作">{canCalculate ? <div className="button-row"><Button variant="secondary" icon="edit" className="hr-action-update" onClick={() => openEdit(adjustment)}>編輯</Button><Button variant="danger" icon="trash" onClick={() => { remove.reset(); setDeleting(adjustment); }}>刪除</Button></div> : null}</td>
             </tr>)}</tbody>
         </DataTable>
       </div>
       {adjustments.data && !adjustments.data.adjustments.length ? <EmptyState>目前沒有符合條件的薪資加扣項。</EmptyState> : null}
     </Panel>
     {dialogOpen ? <PayrollAdjustmentDialog key={editing?.id ?? "new"} employees={employees.data?.employees ?? []} employeesPending={employees.isPending} employeesError={employees.error instanceof Error ? employees.error : null} adjustment={editing ?? undefined} onClose={closeDialog} onSuccess={() => { closeDialog(); void adjustments.refetch(); }} /> : null}
+    {deleting ? <ConfirmDialog title="刪除這筆薪資加扣項？" confirmLabel="刪除加扣項" pending={remove.isPending} onCancel={() => { if (!remove.isPending) setDeleting(null); }} onConfirm={confirmRemove}>
+      <p><strong>{deleting.employeeName}</strong>（{periodLabel(deleting.effectivePeriodKey)}）的加扣項及其項目會一併刪除。</p>
+      <p>已建立的薪資試算會保留當時保存的明細快照，不會因刪除而改寫；已結帳月份不可刪除。</p>
+      {remove.error ? <Alert tone="danger">刪除失敗：{remove.error.message}</Alert> : null}
+    </ConfirmDialog> : null}
   </div>;
 }

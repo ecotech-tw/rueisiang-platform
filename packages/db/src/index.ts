@@ -65,7 +65,7 @@ export {
   type HrLeaveKind, type MonthlyHourlyInput, type MonthlyLeaveInput,
 } from "./hr-monthly-data.js";
 export {
-  createHrPayrollAdjustment, listHrPayrollAdjustments, listHrPayrollAdjustmentsForPeriod, updateHrPayrollAdjustment,
+  createHrPayrollAdjustment, deleteHrPayrollAdjustment, listHrPayrollAdjustments, listHrPayrollAdjustmentsForPeriod, updateHrPayrollAdjustment,
   type HrPayrollAdjustmentInput, type HrPayrollAdjustmentItemInput,
 } from "./hr-payroll-adjustments.js";
 export {

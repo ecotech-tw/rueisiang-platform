@@ -4317,6 +4317,8 @@
   overflow: auto;
 }
 .hr-payroll-adjustment-table { min-width: 900px; }
+.hr-payroll-adjustment-person { display: flex; align-items: baseline; gap: 8px; }
+.hr-payroll-adjustment-person > small { white-space: nowrap; }
 .hr-payroll-adjustment-table td[data-label="原因"] { max-width: 280px; white-space: normal; }
 .hr-payroll-adjustment-item-summary { display: grid; gap: 3px; min-width: 150px; }
 .hr-payroll-adjustment-item-summary > span { display: flex; align-items: baseline; gap: 8px; }
