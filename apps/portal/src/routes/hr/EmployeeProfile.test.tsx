@@ -30,7 +30,7 @@ describe("員工內頁資料區", () => {
     expect(markup).toContain("設為未在職");
     expect(markup.indexOf('id="employee-basic"')).toBeLessThan(markup.indexOf('id="employee-contact"'));
     expect(markup.indexOf('id="employee-contact"')).toBeLessThan(markup.indexOf('id="employee-company"'));
-    expect(markup.match(/hr-action-update/g)).toHaveLength(4);
+    expect(markup.match(/border-info/g)).toHaveLength(4);
     expect(markup).toContain("上傳大頭貼");
     expect(markup).toContain("尚未上傳大頭貼");
     expect(markup).toContain("靜態照片，最大 5 MB、800 萬像素、單邊 8192 px");

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, Dialog, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { groupShiftsByTemplate, shiftTimeRange, useHrQuery, useHrWrite, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, type HrDayType, type HrShiftsResponse, type ScheduleScope, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { ShiftTimeField } from "./ShiftTimeField.js";
@@ -216,7 +216,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
           <div className="shift-group-head items-end">
             <TextField label="班別名稱" aria-label={`${row.name || "班別"}名稱`} required maxLength={100} placeholder="例如：早班" value={row.name} disabled={disabled} onChange={(event) => updateRow(row.key, { name: event.target.value })} />
             {canWrite ? <Tooltip className="self-end mb-0.5" label={`刪除${row.name ? ` ${row.name}` : "這個班別"}`} focusable={false}>
-              <Button variant="icon" icon="trash" className="danger" aria-label={`刪除${row.name || "這個班別"}`} disabled={save.isPending} onClick={() => removeRow(row)} />
+              <Button className="self-center" variant="icon" icon="trash" tone="danger" aria-label={`刪除${row.name || "這個班別"}`} disabled={save.isPending} onClick={() => removeRow(row)} />
             </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
           </div>
           <div className="shift-members">
@@ -231,7 +231,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
             if (!draft) return <div className="shift-day-row shift-day-row-empty" key={dayType}>
               <span className="shift-day-label">{label}</span>
               <span className="muted shift-day-inherited @max-[400px]/shift-settings:col-span-full">沿用平日時段與需求人力（{row.times.weekday?.requiredHeadcount ?? 1} 人）</span>
-              {canWrite ? <Button variant="secondary" icon="plus" className="add-action @max-[400px]/shift-settings:col-span-full @max-[400px]/shift-settings:row-start-3 justify-self-start" disabled={disabled} onClick={() => updateTime(row.key, dayType, {})}>設定{label}時間</Button> : <span className="shift-item-spacer @max-[400px]/shift-settings:col-span-full @max-[400px]/shift-settings:row-start-3" aria-hidden="true" />}
+              {canWrite ? <Button variant="secondary" icon="plus" tone="success" className="col-start-2 row-start-2 @max-[400px]/shift-settings:col-span-full @max-[400px]/shift-settings:row-start-3 justify-self-start" disabled={disabled} onClick={() => updateTime(row.key, dayType, {})}>設定{label}時間</Button> : <span className="shift-item-spacer @max-[400px]/shift-settings:col-span-full @max-[400px]/shift-settings:row-start-3" aria-hidden="true" />}
             </div>;
             return <div className="shift-day-row" key={dayType}>
               <span className="shift-day-label">{label}</span>
@@ -241,7 +241,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
               <TextField label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
               {/* 平日是其他日型的退路，拿掉就沒有東西可退；所以只有另外兩個日型能取消。 */}
               {canWrite && dayType !== "weekday" ? <Tooltip label={`改回同平日`} focusable={false}>
-                <Button variant="icon" icon="close" aria-label={`${label}改回同平日`} disabled={disabled} onClick={() => updateTime(row.key, dayType, null)} />
+                <Button className="self-center" variant="icon" icon="close" aria-label={`${label}改回同平日`} disabled={disabled} onClick={() => updateTime(row.key, dayType, null)} />
               </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
             </div>;
           })}
@@ -251,7 +251,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
       {!rows.length ? <p className="muted shift-items-empty">尚未設定班別，按下「新增班別」後會直接出現可編輯的列。</p> : null}
       {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
       <div className="shift-items-foot">
-        {canWrite ? <Button variant="secondary" icon="plus" className="add-action" disabled={save.isPending} onClick={addNewRow}>新增班別</Button> : <span />}
+        {canWrite ? <Button variant="secondary" icon="plus" tone="success" disabled={save.isPending} onClick={addNewRow}>新增班別</Button> : <span />}
         <p className="shift-items-total">共 <strong>{rows.length}</strong> 個班別</p>
       </div>
     </div>
@@ -323,7 +323,7 @@ export function HrShifts() {
               </div>;
             })}</div> : <span className="muted">尚未設定</span>}</td>
             <td data-label="排班負責人">{managerName ?? (manager?.userId ? "已停用或封存" : managers.isPending ? "載入中…" : "尚未指定")}</td>
-            {canWrite ? <td data-label="操作"><Button variant="icon" icon="edit" className="compensation-action-update" aria-label={`編輯 ${scope.name} 的班別與排班負責人`} disabled={!manager || !managers.data} onClick={() => setOpenScopeId(scope.id)} /></td> : null}
+            {canWrite ? <td data-label="操作"><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${scope.name} 的班別與排班負責人`} disabled={!manager || !managers.data} onClick={() => setOpenScopeId(scope.id)} /></td> : null}
           </tr>;
         })}
       </tbody></DataTable>

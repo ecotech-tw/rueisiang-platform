@@ -35,5 +35,11 @@
   --radius-field: 9px;
   --size-field: 44px;
   --shadow-panel: 0 18px 45px rgba(96, 55, 48, .09);
+  --shadow-glass: 0 1px 0 --alpha(var(--color-paper) / 52%) inset, 0 0 0 1px --alpha(var(--color-paper) / 18%) inset, 0 8px 20px --alpha(var(--color-ink) / 7%);
+  --shadow-glass-info: 0 1px 0 --alpha(var(--color-paper) / 30%) inset, 0 -8px 18px --alpha(var(--color-ink) / 12%) inset, 0 10px 24px --alpha(var(--color-info) / 18%);
+  --shadow-glass-ok: 0 1px 0 --alpha(var(--color-paper) / 30%) inset, 0 -8px 18px --alpha(var(--color-ink) / 12%) inset, 0 10px 24px --alpha(var(--color-ok) / 18%);
+  --shadow-glass-danger: 0 1px 0 --alpha(var(--color-paper) / 26%) inset, 0 -8px 18px --alpha(var(--color-ink) / 16%) inset, 0 10px 24px --alpha(var(--color-brand) / 20%);
+  --shadow-glass-tint-info: 0 1px 0 --alpha(var(--color-paper) / 58%) inset, 0 0 0 1px --alpha(var(--color-info) / 16%) inset;
+  --shadow-glass-tint-ok: 0 1px 0 --alpha(var(--color-paper) / 58%) inset, 0 0 0 1px --alpha(var(--color-ok) / 16%) inset;
   --font-sans: Inter, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
 }

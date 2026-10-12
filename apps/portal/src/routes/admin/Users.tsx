@@ -84,7 +84,7 @@ function InviteLink({ email, url, onDismiss }: { email: string; url: string; onD
         >
           {copied ? "已複製" : "複製"}
         </LegacyButton>
-        <Button variant="secondary" onClick={onDismiss}>知道了</Button>
+        <LegacyButton variant="secondary" onClick={onDismiss}>知道了</LegacyButton>
       </div>
     </div>
   );

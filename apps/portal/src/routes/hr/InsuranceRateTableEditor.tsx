@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, LegacyButton as Button, DataTable, EmptyState, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, TextField } from "../../ui/index.js";
 import { useHrWrite, type InsuranceBracket, type InsuranceRateTableRecord } from "./api.js";
 
 const SCHEME_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
@@ -111,7 +111,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
             </tbody>
         </DataTable>
         {!brackets.length ? <EmptyState>尚無級距，請新增一筆。</EmptyState> : null}
-        <div className="hr-rate-editor-foot"><Button type="button" icon="plus" className="add-action" onClick={addBracket}>新增級距</Button><span className="muted">薪資下限填 0 代表「以下」級距；員工負擔由該年度費率計算，健保欄先以 0 位眷屬呈現。</span></div>
+        <div className="hr-rate-editor-foot"><Button type="button" icon="plus" tone="success" mobileIconOnly onClick={addBracket}>新增級距</Button><span className="muted">薪資下限填 0 代表「以下」級距；員工負擔由該年度費率計算，健保欄先以 0 位眷屬呈現。</span></div>
       </div>
       <div className="field-grid">
         <TextField label="資料來源網址或公告名稱（可留空）" value={sourceUrl} maxLength={500} onChange={(event) => setSourceUrl(event.target.value)} />
@@ -120,7 +120,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
       {message || save.error || remove.error ? <Alert tone="danger">{message || save.error?.message || remove.error?.message}</Alert> : null}
       <div className="hr-rate-editor-actions">
         {isExistingDraft ? <Button type="button" variant="danger" icon="trash" onClick={() => setConfirmDelete(true)} disabled={save.isPending || remove.isPending}>刪除草稿</Button> : null}
-        <Button type="submit" className={isExistingDraft ? "hr-action-update" : "add-action"} loading={save.isPending}>儲存</Button>
+        <Button type="submit" tone={isExistingDraft ? "info" : "success"} loading={save.isPending}>儲存</Button>
       </div>
     </form>
     {confirmDelete ? <ConfirmDialog title={`刪除${SCHEME_LABEL[scheme]}級距草稿？`} pending={remove.isPending} closeRequestRef={closeRequestRef} onCancel={() => setConfirmDelete(false)} onConfirm={confirmRemove}><p>這只會刪除尚未啟用的待審閱版本，不會影響目前啟用或歷史級距。</p></ConfirmDialog> : null}

@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectionActionBar, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectionActionBar, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
@@ -242,7 +242,7 @@ function ReviewDialog({ row, latest, onReload, onClose, onDone }: { row: Request
     actions={<>
       <Button variant="secondary" onClick={onClose}>關閉</Button>
       {canCancel ? <Button variant="secondary" loading={review.isPending} disabled={locked} onClick={() => decide("cancelled")}>{isApprovedCancellable ? `取消已核准${REQUEST_KIND_LABEL[row.kind]}` : "取消申請"}</Button> : null}
-      {row.status === "pending" ? <><Button variant="danger" loading={review.isPending} onClick={() => decide("rejected")} disabled={locked || !comment.trim()}>駁回</Button><Button className="hr-action-approve" loading={review.isPending} disabled={locked} onClick={() => decide("approved")}>核准</Button></> : null}
+      {row.status === "pending" ? <><Button variant="danger" loading={review.isPending} onClick={() => decide("rejected")} disabled={locked || !comment.trim()}>駁回</Button><Button tone="success" loading={review.isPending} disabled={locked} onClick={() => decide("approved")}>核准</Button></> : null}
     </>}
   >
     <dl><dt>申請期間</dt><dd>{row.period}</dd><dt>申請內容</dt><dd>{row.detail}</dd><dt>原因</dt><dd>{row.reason}</dd></dl>
@@ -250,7 +250,7 @@ function ReviewDialog({ row, latest, onReload, onClose, onDone }: { row: Request
     {isApprovedCancellable ? <p className="muted field-note">{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</p> : <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
     {row.kind === "overtime" && row.status === "pending" ? <p className="muted field-note">按「取消申請」會直接刪除這筆加班，不會留在申請紀錄。</p> : null}
     {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
-    {snapshot === "changed" ? <Button type="button" variant="secondary" className="hr-action-update" onClick={reload}>載入最新內容</Button> : null}
+    {snapshot === "changed" ? <Button type="button" variant="secondary" tone="info" onClick={reload}>載入最新內容</Button> : null}
   </Dialog>;
 }
 
@@ -300,7 +300,7 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
     <p className="muted field-note">系統依工作日、班表與休息時間計算請假時數：{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</p>
     <Field label="請假原因"><textarea rows={4} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
-    {actionsSlot ? createPortal(<><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" className="add-action" loading={write.isPending} disabled={!employees.length || !leaveTypes.length || leaveDuration.isPending || !durationValid}>建立請假申請</Button></>, actionsSlot) : null}
+    {actionsSlot ? createPortal(<><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" tone="success" mobileIconOnly loading={write.isPending} disabled={!employees.length || !leaveTypes.length || leaveDuration.isPending || !durationValid}>建立請假申請</Button></>, actionsSlot) : null}
   </form>;
 }
 
@@ -428,7 +428,7 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
     <SelectField label="結算方式" required value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={write.isPending} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} />
     <Field label="加班原因（選填）"><textarea rows={3} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
     {write.error && !showUnscheduledConfirmation ? <Alert tone="danger">{write.error.message}</Alert> : null}
-    {actionsSlot ? createPortal(<><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" className="add-action" loading={write.isPending} disabled={!canSubmit}>{mode === "multiple" && entries.length ? `建立 ${entries.length} 筆加班申請` : "建立加班申請"}</Button></>, actionsSlot) : null}
+    {actionsSlot ? createPortal(<><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" tone="success" mobileIconOnly loading={write.isPending} disabled={!canSubmit}>{mode === "multiple" && entries.length ? `建立 ${entries.length} 筆加班申請` : "建立加班申請"}</Button></>, actionsSlot) : null}
     {showUnscheduledConfirmation ? <ConfirmDialog
       title="確認未排班日加班"
       confirmLabel="確認建立申請"
@@ -578,14 +578,14 @@ export function HrRequestCenter() {
   }
 
   return <div className="page fills hr-request-page">
-    <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" className="add-action" onClick={() => setCreateOpen(true)}>新增申請</Button>} />
+    <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" tone="success" mobileIconOnly onClick={() => setCreateOpen(true)}>新增申請</Button>} />
     <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登（含沒有平台帳號的支援人員）會保存「已核准」狀態；正式員工前台申請則由主管或 HR 進行審核。</Alert>
     {employees.error || leaveTypes.error || workers.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message ?? workers.error?.message}</Alert> : null}
     <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登（正式員工與支援人員）及正式員工前台產生的申請；待審核資料可直接在此處理。">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <FilterToolbar className="hr-request-toolbar">
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
-        <Button variant="secondary" icon="filter" className={`filter-toggle${showFilters ? " active" : ""}`} aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選{activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}</Button>
+        <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[761px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選{activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}</Button>
         {activeFilterCount ? <Button variant="link" onClick={() => updateFilters({ kind: "all", status: "all" })}>清除篩選</Button> : null}
         <div className={`filter-fields${showFilters ? " open" : ""}`}>
           <FilterSelect label="申請類型" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
@@ -610,7 +610,7 @@ export function HrRequestCenter() {
             <td data-label="內容"><Tooltip label={row.detail} focusable={false}><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td>
             <td data-label="原因"><Tooltip label={row.reason} focusable={false}><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td>
             <td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td>
-            <td data-label="操作">{row.status === "pending" ? <Button variant="secondary" className="hr-action-info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false}><Button variant="icon" icon="trash" className="danger hr-request-cancel-action" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
+            <td data-label="操作">{row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false}><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
           </tr>;
         })}</tbody>
       </DataTable>

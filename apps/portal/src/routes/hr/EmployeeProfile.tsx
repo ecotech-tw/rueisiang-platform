@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { HR_PROFILE_FIELDS, emptyHrPersonalData, type HrPersonalData, type HrProfileField } from "@rueisiang/db/hr-profile-fields";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, LegacyButton as Button, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type NamedOption, type Profile } from "./api.js";
 
 import { EmployeePhoto } from "./EmployeePhoto.js";
@@ -53,8 +53,8 @@ export function EmployeeProfile({ profile, canWrite, onSaved }: { profile: Profi
       },
     }, { onSuccess: () => { setEditing(null); onSaved(); } });
   };
-  const editButton = (group: EditGroup) => canWrite && active && editing === null ? <Button variant="secondary" className="hr-action-update" icon="edit" disabled={pending} onClick={() => begin(group)}>編輯</Button> : null;
-  const actions = <div className="hr-employee-detail-form-actions"><Button variant="secondary" type="button" disabled={pending} onClick={() => { reset(); setEditing(null); }}>取消</Button><Button type="submit" icon="check" className="hr-action-update" loading={save.isPending}>{editing === "reactivate" ? "恢復在職" : "儲存資料"}</Button></div>;
+  const editButton = (group: EditGroup) => canWrite && active && editing === null ? <Button variant="secondary" tone="info" icon="edit" disabled={pending} onClick={() => begin(group)}>編輯</Button> : null;
+  const actions = <div className="hr-employee-detail-form-actions"><Button variant="secondary" type="button" disabled={pending} onClick={() => { reset(); setEditing(null); }}>取消</Button><Button type="submit" icon="check" tone="info" loading={save.isPending}>{editing === "reactivate" ? "恢復在職" : "儲存資料"}</Button></div>;
   const error = save.error ? <Alert tone="danger">{save.error.message} 輸入內容仍保留；若資料已變更，請取消編輯並重新整理。</Alert> : null;
   const supervisorOptions = supervisors.data?.users ?? [];
   const currentSupervisor: NamedOption[] = profile.employee.supervisorUserId && !supervisorOptions.some((option) => option.id === profile.employee.supervisorUserId)
@@ -95,7 +95,7 @@ export function EmployeeProfile({ profile, canWrite, onSaved }: { profile: Profi
         <div><dt>帳號狀態</dt><dd>{profile.employee.userStatus === "active" ? "啟用中" : profile.employee.userStatus === "invited" ? "待啟用" : "已停用"}</dd></div>
       </dl>}
       <p className="muted">公司 Email 與帳號名稱由平台帳號管理；在職與帳號啟用狀態分開。</p>
-      {canWrite && employment && editing === null ? <div className="hr-employee-detail-form-actions">{active ? <Button variant="danger" icon="archive" disabled={pending} onClick={() => { archive.reset(); setConfirmArchive(true); }}>設為未在職</Button> : <Button icon="plus" className="add-action" onClick={() => begin("reactivate")}>恢復在職</Button>}</div> : null}
+      {canWrite && employment && editing === null ? <div className="hr-employee-detail-form-actions">{active ? <Button variant="danger" icon="archive" disabled={pending} onClick={() => { archive.reset(); setConfirmArchive(true); }}>設為未在職</Button> : <Button icon="plus" tone="success" mobileIconOnly onClick={() => begin("reactivate")}>恢復在職</Button>}</div> : null}
     </Panel>
     {confirmArchive && employment ? <ConfirmDialog title="將員工設為未在職？" confirmLabel="設為未在職" pending={archive.isPending} closeRequestRef={closeArchiveRef} onCancel={() => setConfirmArchive(false)} onConfirm={() => archive.mutate({ path: `/employments/${employment.id}/archive`, method: "POST", values: { revision: employment.revision } }, { onSuccess: () => { (closeArchiveRef.current ?? ((afterClose?: () => void) => { setConfirmArchive(false); afterClose?.(); }))(onSaved); } })}>
       <p>這會將 <strong>{profile.employee.legalName}</strong> 移到未在職名單，不會刪除基本、聯絡、敘薪、保險與出勤紀錄；之後可恢復在職。</p>{archive.error ? <Alert tone="danger">{archive.error.message}</Alert> : null}

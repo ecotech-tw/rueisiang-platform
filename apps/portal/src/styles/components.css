@@ -493,8 +493,6 @@
 .hr-location-form-grid > .field { min-width: 0; }
 .hr-location-map-search { display: flex; align-items: end; gap: 10px; min-width: 0; }
 .hr-location-map-search .field { min-width: 0; flex: 1 1 auto; }
-.hr-location-map-search > .primary-button,
-.hr-location-map-search > .ghost-button { flex: 0 0 auto; min-width: 86px; min-height: var(--size-field); }
 .hr-location-map-link { display: inline-flex; align-items: center; align-self: start; min-height: 40px; padding: 0 10px; border-radius: 999px; color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
 .hr-location-map-link:hover { background: --alpha(var(--color-brand) / 7%); }
 .hr-location-map-link:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
@@ -872,8 +870,6 @@
  * 一起拉高會讓篩選列變笨重。
  */
 .admin-form:has(> .field) { align-items: flex-end; }
-.admin-form:has(> .field) > .primary-button,
-.admin-form:has(> .field) > .ghost-button { min-height: var(--size-field); }
 
 .admin-form.row { margin-top: 16px; }
 .panel-head + .admin-form.row { margin-top: 0; }
@@ -2043,7 +2039,6 @@
 .hr-bonus-employee-row { grid-template-columns: minmax(0, 1fr) 116px; }
 .hr-bonus-selected-employee { min-width: 0; overflow: hidden; color: var(--color-ink); font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .hr-bonus-picker-row .select-trigger { width: 100%; min-width: 0; }
-.hr-bonus-picker-row .icon-button { justify-self: end; }
 .hr-bonus-picker-list > .chip-action { justify-self: start; }
 .hr-bonus-picker-empty { margin: 0; padding: 6px 2px; }
 .hr-bonus-weight-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
@@ -2159,7 +2154,6 @@
  */
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .page-head-row > :last-child { flex: none; }
-.page-head-row .add-action { white-space: nowrap; }
 
 /*
  * 底部的按鈕列與可捲動內容分開：footer 永遠是 modal-card 的最後一層，不會跟著內容捲走，
@@ -2214,7 +2208,6 @@
 .special-allowance-items .salary-items-head,
 .special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 130px 44px; }
 .special-allowance-items .salary-item-row > .field { min-width: 0; margin: 0; }
-.special-allowance-items .salary-item-row > .icon-button { align-self: center; }
 .special-allowance-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 /* 特殊日加班費級距拆成兩行，讓欄位標籤與輸入框在窄 Modal 裡仍有呼吸空間。 */
 .special-overtime-items,
@@ -2225,7 +2218,6 @@
 .special-overtime-item-row > .field:nth-child(2) { grid-column: 2; grid-row: 1; }
 .special-overtime-item-row > .field:nth-child(3) { grid-column: 1; grid-row: 2; }
 .special-overtime-item-row > .field:nth-child(4) { grid-column: 2; grid-row: 2; }
-.special-overtime-item-row > .icon-button { grid-column: 3; grid-row: 2; align-self: end; margin-bottom: 2px; }
 .special-overtime-item-row + .special-overtime-item-row { padding-top: 14px; border-top: 1px solid var(--color-soft-line); }
 .special-overtime-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 .salary-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
@@ -2236,11 +2228,8 @@
 .shift-members { display: grid; gap: 8px; padding: 6px 4px; }
 .shift-time-control { position: relative; min-width: 0; }
 .shift-time-control > input { width: 100%; padding-right: 44px; font-variant-numeric: tabular-nums; }
-.shift-time-control > .shift-time-trigger { position: absolute; top: 0; bottom: 0; right: 2px; margin-block: auto; }
 .shift-time-fallback { width: 100%; }
 .shift-items-label { color: var(--color-ink); font-size: 13px; font-weight: 600; }
-/* 頁首 add-action 的窄版圓形規則不適合這裡帶完整文案的設定按鈕。 */
-.shift-items .add-action { width: auto; height: auto; padding: 6px 12px; border-radius: 999px; }
 .shift-group { display: grid; gap: 6px; }
 .shift-group-head { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
 .shift-day-head,
@@ -2252,7 +2241,6 @@
 .shift-day-inherited { min-width: 0; }
 .shift-group .field { min-width: 0; margin: 0; }
 .shift-day-row .field > span:first-child { display: none; }
-.shift-group .icon-button { align-self: center; }
 .shift-item-spacer { display: block; }
 .shift-item-note { grid-column: 1 / -1; margin-top: -4px; color: var(--color-muted); font-size: 12px; }
 .shift-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
@@ -2267,10 +2255,8 @@
   .salary-item-row > .field:nth-child(3)::before { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
   .salary-item-row > .field:nth-child(2)::before { content: "計算單位"; }
   .salary-item-row > .field:nth-child(3)::before { content: "金額（元）"; }
-  .salary-item-row > .icon-button { align-self: end; margin-bottom: 2px; }
   .special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 44px; }
   .special-allowance-items .salary-item-row > .field:nth-child(2)::before { content: "補貼單價（元）"; }
-  .special-allowance-items .salary-item-row > .icon-button { grid-column: 2; }
 }
 /* 依對話框可用寬度換行，不依螢幕寬度猜測欄位是否放得下。 */
 @container shift-settings (max-width: 640px) {
@@ -2282,13 +2268,11 @@
   .shift-day-row > .field:nth-child(3) { grid-column: 2; grid-row: 2; }
   .shift-day-row > .field:nth-child(4) { grid-column: 1; grid-row: 3; }
   .shift-day-row > .field:nth-child(5) { grid-column: 2; grid-row: 3; }
-  .shift-day-row > .icon-button,
   .shift-day-row > .tooltip-anchor,
   .shift-day-row > .shift-item-spacer { grid-column: 2; grid-row: 1; justify-self: end; }
   .shift-day-row-empty { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
   .shift-day-row-empty .shift-day-label { grid-column: 1 / -1; }
   .shift-day-row-empty .shift-day-inherited { grid-column: 1; grid-row: 2; }
-  .shift-day-row-empty > .add-action,
   .shift-day-row-empty > .shift-item-spacer { grid-column: 2; grid-row: 2; }
 }
 /*
@@ -2622,11 +2606,6 @@
  * 就看得到的東西前面。
  */
 .filter-fields { display: contents; }
-/*
- * 兩個 class 是為了壓過 .ghost-button.with-icon 的 display: inline-flex——
- * 單一個 .filter-toggle 特異性較低，會輸給它。
- */
-.ghost-button.filter-toggle { display: none; }
 /*
  * 登入卡片裡的表單。卡片本身是置中的窄欄，所以欄位要撐滿寬度——
  * 沿用一般表單的 .field，只補「在這張卡片裡該有多寬」這件事。
@@ -3016,16 +2995,6 @@
   .page-head { margin-bottom: 12px; }
   .page-head h1 { font-size: 20px; }
   .page-head-row { align-items: center; gap: 12px; }
-  .add-action {
-    width: 44px;
-    height: 44px;
-    flex: none;
-    padding: 0;
-    justify-content: center;
-    border-radius: 50%;
-  }
-  .add-action span { display: none; }
-  .add-action svg { width: 22px; height: 22px; }
 
   /*
    * 搜尋與篩選併成一行。搜尋框原本的 min-width: 220px 會把篩選鈕擠到下一列，
@@ -3062,7 +3031,6 @@
    * 手機：三個下拉收起來，由「篩選」按鈕開關。展開時每個各佔一整行，比擠成
    * 兩欄好按。
    */
-  .ghost-button.filter-toggle { display: inline-flex; }
   .filter-fields { display: none; }
   /*
    * flex-basis: 100% 才會換到新的一行。只寫 width: 100% 在 flex 子項上不夠——
@@ -3769,14 +3737,6 @@
   .manual-report-tabs .filter-chip { flex: 1; min-width: 0; }
   .manual-report-actions { width: 100%; }
   .manual-report-actions > button { flex: 1 1 0; }
-  .manual-report-actions .add-action {
-    width: auto;
-    height: auto;
-    padding: 7px 14px;
-    border-radius: 9px;
-  }
-  .manual-report-actions .add-action span { display: inline; }
-  .manual-report-actions .add-action svg { width: 18px; height: 18px; }
   .manual-report-mobile-select-all {
     display: flex;
     padding: 8px 14px;
@@ -3827,8 +3787,6 @@
   .hr-personal-bottom-link.center.active .hr-personal-nav-icon { background: var(--color-brand-dark); }
   .hr-personal-bottom-link.center.active { color: var(--color-brand-dark); }
   .hr-location-map-search { align-items: stretch; flex-direction: column; }
-  .hr-location-map-search > .primary-button,
-  .hr-location-map-search > .ghost-button { width: 100%; }
   .hr-location-form-grid { grid-template-columns: minmax(0, 1fr); }
   .hr-location-radius-field { width: 100%; }
   .hr-clock-map-stage { border-radius: 18px; }
@@ -4368,7 +4326,6 @@
   .hr-payroll-mobile-select-all { flex: none; }
   .hr-payroll-job-card-head,
   .hr-payroll-job-card-foot { align-items: flex-start; flex-direction: column; }
-  .hr-payroll-job-card-foot .ghost-button { align-self: stretch; justify-content: center; }
   .hr-payroll-record-filter .search-input,
   .hr-payroll-record-filter input:not(.search-input),
   .hr-payroll-record-filter .filter-select-control { flex-basis: 100%; }
