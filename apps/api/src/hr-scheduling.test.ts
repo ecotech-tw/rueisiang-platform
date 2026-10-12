@@ -180,6 +180,25 @@ describe("據點負責人的 HR 前台排班", () => {
     expect((await changes({ entries: [entry("worker-1")] }, "scheduler")).status).toBe(403);
   });
 
+  it.each(["active", "invited", "disabled"] as const)("任一未封存員工可被指定（帳號 %s），但不繞過帳號啟用檢查", async (status) => {
+    d1.sqlite.prepare("UPDATE users SET status=? WHERE id='other'").run(status);
+    const data = await (await request("/schedule-managers")).json() as { candidates: Array<{ userId: string; userStatus: string }> };
+    expect(data.candidates).toContainEqual(expect.objectContaining({ userId: "other", userStatus: status }));
+    expect((await assign("other")).status).toBe(200);
+    const own = await request("/me/schedule-scopes", "GET", undefined, "other");
+    if (status === "active") expect(await own.json()).toEqual({ scopes: [{ id: "store-a", name: "store-a" }] });
+    else expect(own.status).toBe(403);
+    expect((await request("/me/schedules?periodKey=2026-02&scopeId=store-b", "GET", undefined, "scheduler")).status).toBe(403);
+  });
+
+  it("候選限未封存員工，不把非員工帳號或支援人員當負責人", async () => {
+    await db.insert(users).values({ id: "nonemployee", email: "nonemployee@example.test", displayName: "非員工", status: "active" });
+    d1.sqlite.prepare("UPDATE hr_employments SET archived_at=CURRENT_TIMESTAMP WHERE id='employment-other'").run();
+    const data = await (await request("/schedule-managers")).json() as { candidates: Array<{ userId: string }> };
+    expect(data.candidates.map((person) => person.userId).sort()).toEqual(["admin", "scheduler"]);
+    for (const id of ["other", "nonemployee", "worker-1"]) expect((await assign(id)).status).toBe(400);
+  });
+
   it("負責人指派限全域管理權限、有效員工及有效門市", async () => {
     expect((await request("/schedule-managers/store-a", "PUT", { userId: "scheduler", revision: 0 }, "scheduler")).status).toBe(403);
     expect((await assign("missing")).status).toBe(400);

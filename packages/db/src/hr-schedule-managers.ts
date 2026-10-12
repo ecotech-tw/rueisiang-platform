@@ -14,7 +14,7 @@ export async function listHrScheduleManagers(db: Database) {
   const [stores, managers, candidates] = await Promise.all([
     db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(and(eq(scopes.scopeKind, "store"), eq(scopes.active, 1))).orderBy(asc(scopes.sortOrder), asc(scopes.name)),
     db.select().from(hrScheduleManagers),
-    db.select({ userId: users.id, name: hrEmployeeName, employeeNumber: hrEmployments.employeeNumber }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(and(isNull(hrEmployments.archivedAt), eq(users.status, "active"))).orderBy(...hrEmployeeNumberOrder()),
+    db.select({ userId: users.id, name: hrEmployeeName, employeeNumber: hrEmployments.employeeNumber, userStatus: users.status }).from(hrEmployments).innerJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(and(eq(hrEmployments.personKind, "employee"), isNull(hrEmployments.archivedAt))).orderBy(...hrEmployeeNumberOrder()),
   ]);
   return { scopes: stores.map((scope) => ({ ...scope, userId: managers.find((manager) => manager.scopeId === scope.id)?.userId ?? null, revision: managers.find((manager) => manager.scopeId === scope.id)?.revision ?? 0 })), candidates };
 }
@@ -23,8 +23,8 @@ export async function setHrScheduleManager(db: Database, scopeId: string, input:
   const [scope] = await db.select({ id: scopes.id }).from(scopes).where(and(eq(scopes.id, scopeId), eq(scopes.scopeKind, "store"), eq(scopes.active, 1)));
   if (!scope) throw new HrError(404, "找不到有效的營運據點。 ");
   if (input.userId) {
-    const [candidate] = await db.select({ id: users.id }).from(users).innerJoin(hrEmployments, eq(hrEmployments.employeeUserId, users.id)).where(and(eq(users.id, input.userId), eq(users.status, "active"), isNull(hrEmployments.archivedAt)));
-    if (!candidate) throw new HrError(400, "排班負責人必須是在職且帳號啟用的員工。 ");
+    const [candidate] = await db.select({ id: users.id }).from(users).innerJoin(hrEmployments, eq(hrEmployments.employeeUserId, users.id)).where(and(eq(users.id, input.userId), eq(hrEmployments.personKind, "employee"), isNull(hrEmployments.archivedAt)));
+    if (!candidate) throw new HrError(400, "排班負責人必須是在職員工。 ");
   }
   const row = activityRow({ entityType: "hr_schedule", entityId: scopeId, source: "hr", eventType: "schedule_manager_updated", summary: "排班負責人已更新", actor, payload: { userId: input.userId } });
   const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });

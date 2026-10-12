@@ -88,6 +88,29 @@ it("舊不限名單直接預選所有有效人員，開啟不產生變更，清�
   } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
 });
 
+it("排班負責人可選尚未啟用或停用帳號的員工，顯示狀態並保存穩定 userId", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); notifyManager.setScheduler(queueMicrotask);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const managers = { ...managerData, candidates: [{ userId: "invited", employeeNumber: "E1", name: "待啟用同仁", userStatus: "invited" }, { userId: "disabled", employeeNumber: "E2", name: "停用同仁", userStatus: "disabled" }] };
+  const writes: Record<string, unknown>[] = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "PUT") { writes.push(JSON.parse(String(init.body))); return Response.json({ revision: 1 }); }
+    return Response.json(String(input).endsWith("/schedule-managers") ? managers : initialShifts);
+  });
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  try {
+    await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrShifts /></QueryClientProvider></MemoryRouter>));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="編輯 門市 的班別與排班負責人"]')!.click());
+    expect(document.querySelectorAll(".shift-group")).toHaveLength(2);
+    expect(document.querySelector(".shift-group-head .field > span")?.textContent).toContain("班別名稱");
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="開啟排班負責人選單"]')!.click());
+    expect(document.body.textContent).toContain("待啟用同仁（尚未啟用）"); expect(document.body.textContent).toContain("停用同仁（帳號停用）");
+    await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("待啟用同仁"))!.click());
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "儲存")!.click());
+    expect(writes).toEqual([{ userId: "invited", revision: 0 }]);
+  } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+});
+
 it("部分儲存後重新載入並關閉舊草稿，避免用過期 revision 重試", async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   notifyManager.setScheduler(queueMicrotask);
