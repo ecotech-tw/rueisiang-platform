@@ -104,7 +104,7 @@ function ScheduleEditor({ data, quick, onQuickChange, exitRequestRef, onReload, 
   const persist = async (): Promise<boolean> => {
     if (saving.current || pending) return false;
     // PATCH 已成功但 GET 失敗時不能重送；回到月曆仍保留重新載入入口。
-    if (savedNeedsReload || (!dirty && (!changes.refreshIds.length || disabled))) return true;
+    if (savedNeedsReload || (!dirty && !changes.refreshIds.length)) return true;
     if (disabled) return false;
     saving.current = true;
     setSettling(true);
@@ -168,16 +168,17 @@ function ScheduleEditor({ data, quick, onQuickChange, exitRequestRef, onReload, 
             const specialApplies = day.specialKind === "none" || !day.specialScopeIds.length || day.specialScopeIds.includes(data.scopes[0]!.id);
             const special = specialApplies && Boolean(day.name || day.overridden || day.specialKind !== "none");
             const description = `${day.name || dayTypeLabel(day.dayType)}${special ? "・公司行事曆特別日" : ""}・${entries.length} 筆排班${quick && otherCount ? `・其他人 ${otherCount} 筆` : ""}`;
-            const background = occupied ? "bg-tone-peach/15" : quick && picked(day.date) ? "bg-brand-soft" : day.dayType !== "weekday" ? "bg-canvas" : "";
+            const selectable = quick || !isMobile;
+            const background = occupied ? "bg-tone-peach/15" : selectable && picked(day.date) ? "bg-brand-soft" : day.dayType !== "weekday" ? "bg-canvas" : "";
             return <div key={day.date} className={`relative min-w-0 ${quick ? "" : "border-t border-soft-line"} ${!isMobile && !quick ? "min-h-32 p-1" : ""}`}>
-              <button type="button" className={`${dateClass} ${background} ${day.dayType === "weekday" ? "text-ink" : "text-brand-dark"} ${quick && picked(day.date) ? "ring-1 ring-inset ring-brand-dark" : ""}`} aria-label={`${day.date} ${quick ? "快速排班" : "排班"}`} aria-description={description} aria-pressed={!isMobile || quick ? picked(day.date) : undefined} disabled={!isMobile || quick ? toggleDisabled(day.date) : undefined} onClick={() => isMobile && !quick ? setDetailsDate(day.date) : toggle(day.date)}>
+              <button type="button" className={`${dateClass} ${background} ${day.dayType === "weekday" ? "text-ink" : "text-brand-dark"} ${selectable && picked(day.date) ? "ring-1 ring-inset ring-brand-dark" : ""}`} aria-label={`${day.date} ${quick ? "快速排班" : "排班"}`} aria-description={description} aria-pressed={!isMobile || quick ? picked(day.date) : undefined} disabled={!isMobile || quick ? toggleDisabled(day.date) : undefined} onClick={() => isMobile && !quick ? setDetailsDate(day.date) : toggle(day.date)}>
                 {Number(day.date.slice(8))}
                 {entries.length ? <span className="absolute bottom-0 right-0 rounded-full bg-brand-soft px-1 text-[9px] font-semibold leading-3 text-brand-dark" aria-hidden="true">{entries.length}</span> : null}
                 {special ? <span className="absolute left-1 top-1 size-1.5 rounded-full bg-ok" aria-hidden="true" /> : null}
               </button>
               {!isMobile && !quick ? <>
                 {day.name ? <small className="block text-xs text-muted">{day.name}</small> : null}
-                {draft.filter((entry) => entry.workDate === day.date).map((entry) => <div className="mt-1 grid min-w-0 gap-0.5 rounded-field bg-canvas p-1 text-xs [overflow-wrap:anywhere]" key={entry.id}>
+                {draft.filter((entry) => entry.workDate === day.date).map((entry) => <div className={`mt-1 grid min-w-0 gap-0.5 rounded-field p-1 text-xs [overflow-wrap:anywhere] ${matchesPerson(entry) && templateOf(entry) === templateId ? "bg-brand-soft" : "bg-canvas"}`} key={entry.id}>
                   <span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}{entry.attendanceStatus !== "scheduled" ? "・出勤已確認" : ""}</small>
                   {!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <Button variant="icon" icon="close" aria-label={`移除 ${day.date} ${entry.personName} ${entry.shiftName}`} disabled={disabled} className="justify-self-end" onClick={() => setDraft((current) => current.filter((other) => other.id !== entry.id))} /> : null}
                 </div>)}
