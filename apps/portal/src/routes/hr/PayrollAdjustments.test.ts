@@ -51,6 +51,7 @@ describe("薪資加扣項操作欄", () => {
       expect(cell).not.toContain("<button");
     }
     expect(markup).not.toContain("新增薪資加扣項");
+    expect(markup).toContain("目前只有薪資檢視權限；新增、編輯與刪除需要「執行薪資試算」權限。");
   });
 });
 
