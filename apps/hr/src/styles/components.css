@@ -507,13 +507,16 @@
 .hr-clock-now { margin: 0; color: var(--color-muted); font-size: 32px; font-variant-numeric: tabular-nums; letter-spacing: .03em; }
 .hr-clock-main-action { width: 100%; min-height: 58px; font-size: 18px; }
 .hr-clock-blocked { margin: 0; color: var(--color-muted); font-size: 14px; }
-.hr-clock-history-panel { display: grid; gap: 14px; }
-.hr-clock-history-panel .panel-head { margin-bottom: 0; }
-.hr-clock-logs-panel { min-height: 0; overflow-y: auto; }
+/* 沒有外框：手機上那一圈 padding 很貴。上半部是 auto 列、只有清單那一列吃剩下的高度，
+   所以內容再少也不會被拉高。 */
+.hr-clock-logs { display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 12px; min-height: 0; }
+.hr-clock-logs-head { display: grid; gap: 12px; }
+.hr-clock-logs-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.hr-clock-logs-scroll > * + * { margin-top: 10px; }
 .hr-clock-history-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--color-soft-line); }
 .hr-clock-history-toolbar strong { font-size: 16px; }
 .hr-clock-history-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.hr-clock-history-summary > div { display: grid; gap: 4px; min-width: 0; padding: 11px 12px; border-radius: 12px; background: var(--color-canvas); }
+.hr-clock-history-summary > div { display: grid; gap: 4px; min-width: 0; padding: 11px 12px; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-paper); }
 .hr-clock-history-summary span { color: var(--color-muted); font-size: 11px; font-weight: 700; }
 .hr-clock-history-summary strong { overflow: hidden; color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
 .hr-clock-history-days { display: grid; gap: 10px; }
