@@ -116,7 +116,7 @@ export function HrProfile() {
     {managedScopes.data?.scopes?.length ? <Panel title={<ProfileSectionTitle icon="calendar">據點排班</ProfileSectionTitle>} description={`你負責：${managedScopes.data.scopes.map((scope) => scope.name).join("、")}`}><Link className="button secondary" to="/scheduling">快速排班</Link></Panel> : null}
     {query.data?.profile ? <ProfileDetails key={query.data.profile.employee.userId} profile={query.data.profile} /> : null}
     {!query.isPending && !query.error && !query.data?.profile ? <Alert>尚未指派為員工，請聯絡管理者。</Alert> : null}
-    <div className="hr-profile-signout"><Button variant="primary" className="hr-profile-signout-button" icon="logout" onClick={() => setShowSignOutConfirm(true)}>登出此裝置</Button></div>
+    <div className="hr-profile-signout"><Button size="lg" className="w-full justify-center" icon="logout" onClick={() => setShowSignOutConfirm(true)}>登出此裝置</Button></div>
     {showSignOutConfirm ? <ConfirmDialog title="確定要登出這台裝置？" confirmLabel="確認登出" cancelLabel="繼續使用" tone="primary" pending={signOutPending} onCancel={() => { if (!signOutPending) setShowSignOutConfirm(false); }} onConfirm={confirmSignOut}>
       <p>登出後會清除這台裝置的登入狀態，並返回登入頁。要繼續嗎？</p>
       {signOutError ? <Alert tone="danger">{signOutError}</Alert> : null}

@@ -47,7 +47,7 @@ export function HrLeaveSummary() {
 
   return <div className="page hr-payroll-history-page hr-payslip-page">
     <div className="hr-form-back-bar">
-      <Button variant="link" icon="chevronLeft" className="hr-form-back-button" onClick={() => navigate("/profile")}>返回個人中心</Button>
+      <Button variant="text" icon="chevronLeft" className="w-max" onClick={() => navigate("/profile")}>返回個人中心</Button>
     </div>
     <PageHeader title="我的假勤" description="可用特休與已核准的請假時數。" />
 

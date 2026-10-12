@@ -5,7 +5,7 @@ import { usePageTitle } from "../shell/usePageTitle.js";
 import { PageTabs, WorkflowRunPanel } from "../ui/index.js";
 import {
   Alert,
-  Button,
+  LegacyButton as Button,
   ConfirmDialog,
   DataTable,
   Dialog,

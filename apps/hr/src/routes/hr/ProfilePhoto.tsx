@@ -2,7 +2,7 @@ import { useRef, useState } from "react";
 import { HR_EMPLOYEE_PHOTO_FILE_ERRORS, HR_EMPLOYEE_PHOTO_PREVIEW_LIMITS, HR_EMPLOYEE_PHOTO_TYPES } from "@rueisiang/db/hr-profile-fields";
 import { useImageFilePreview } from "@rueisiang/ui";
 import { API_BASE_URL } from "../../config.js";
-import { Alert, Button, ConfirmDialog } from "../../ui/index.js";
+import { Alert, Button, ConfirmDialog, LegacyButton } from "../../ui/index.js";
 import { useHrWrite, type Profile } from "./api.js";
 
 export function selfPhotoUrl(photo: Profile["photo"]) {
@@ -39,21 +39,21 @@ export function HrProfilePhoto({ profile }: { profile: Profile }) {
           if (photoFile.choose(event.target.files?.[0])) { setExpectedRevision(profile.employee.revision); setFeedback(""); upload.reset(); }
           else event.target.value = "";
         }} />
-        <Button variant="icon" className="hr-profile-avatar-action" icon="camera" aria-label={photoFile.file ? "重新選擇大頭貼" : "更新大頭貼"} disabled={pending} onClick={() => input.current?.click()} />
+        <LegacyButton variant="icon" className="hr-profile-avatar-action" icon="camera" aria-label={photoFile.file ? "重新選擇大頭貼" : "更新大頭貼"} disabled={pending} onClick={() => input.current?.click()} />
       </> : null}
     </div>
     {photoFile.file ? <div className="hr-profile-photo-edit">
       <p>{photoFile.status === "checking" ? "正在檢查照片…" : photoFile.status === "invalid" ? "所選照片無法使用，請重新選擇。" : "預覽照片，儲存後才會更新。"}</p>
       <p className="muted">JPEG、PNG 或 WebP 靜態照片，最大 5 MB、800 萬像素、單邊 8192 px；不支援多影像 JPEG。</p>
       <div className="hr-profile-photo-actions">
-        <Button variant="secondary" disabled={pending} onClick={cancel}>取消</Button>
-        <Button icon="check" loading={upload.isPending} disabled={remove.isPending || !photoFile.canSave} onClick={() => {
+        <Button size="lg" variant="secondary" disabled={pending} onClick={cancel}>取消</Button>
+        <Button size="lg" icon="check" loading={upload.isPending} disabled={remove.isPending || !photoFile.canSave} onClick={() => {
           const formData = new FormData(); formData.set("file", photoFile.file!); formData.set("revision", String(expectedRevision));
           upload.mutate({ path: "/me/photo", method: "POST", formData }, { onSuccess: () => { cancel(); setFeedback("大頭貼已更新"); } });
         }}>儲存</Button>
       </div>
       {upload.error ? <Alert tone="danger">{`${upload.error.message} 所選照片仍保留；請取消並重新整理後再試。`}</Alert> : null}
-    </div> : profile.photo && canWrite ? <Button variant="link" className="hr-profile-photo-remove" icon="trash" disabled={pending} onClick={() => { setExpectedRevision(profile.employee.revision); remove.reset(); setFeedback(""); setConfirmRemove(true); }}>移除大頭貼</Button> : null}
+    </div> : profile.photo && canWrite ? <Button variant="text" icon="trash" disabled={pending} onClick={() => { setExpectedRevision(profile.employee.revision); remove.reset(); setFeedback(""); setConfirmRemove(true); }}>移除大頭貼</Button> : null}
     {fileError ? <Alert tone="danger">{fileError}</Alert> : null}
     {failedPhoto === savedSrc && savedSrc ? <p className="hr-profile-photo-note">照片載入失敗，請重新整理或重新上傳。</p> : null}
     {feedback ? <p role="status" className="hr-profile-photo-feedback">{feedback}</p> : null}

@@ -1,4 +1,4 @@
-export { Button } from "./Button.js";
+export { Button, LegacyButton } from "./Button.js";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog.js";
 export { DataTable } from "./DataTable.js";
 export { Dialog, DialogScope } from "./Dialog.js";

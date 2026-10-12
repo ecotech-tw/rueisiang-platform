@@ -262,7 +262,7 @@ function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendar
     {day.status === "leave" ? <p className="hr-clock-calendar-empty-detail">已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="hr-clock-calendar-events">
       {day.events.map((event) => <li key={event.id}><span>{event.eventKind === "clock_in" ? "上班" : "下班"}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}
     </ul> : day.anomaly ? null : <p className="hr-clock-calendar-empty-detail">{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "目前不是活動員工。" : "這天尚未有打卡紀錄。"}</p>}
-    {day.anomaly ? <div className="hr-clock-calendar-anomaly"><strong>{anomalyTitle}</strong><span>{day.anomalyMessage ?? "請確認當日出勤紀錄。"}</span><div className="hr-clock-calendar-actions"><Button className="add-action" onClick={() => onCorrection(day.date, correctionKind)}>申請忘刷</Button><Button variant="secondary" className="add-action" onClick={() => onLeave(day.date)}>請假申請</Button></div></div> : null}
+    {day.anomaly ? <div className="hr-clock-calendar-anomaly"><strong>{anomalyTitle}</strong><span>{day.anomalyMessage ?? "請確認當日出勤紀錄。"}</span><div className="hr-clock-calendar-actions"><Button size="lg" tone="success" className="max-[760px]:flex-1" onClick={() => onCorrection(day.date, correctionKind)}>申請忘刷</Button><Button size="lg" variant="secondary" tone="success" className="max-[760px]:flex-1" onClick={() => onLeave(day.date)}>請假申請</Button></div></div> : null}
   </section>;
 }
 
@@ -420,7 +420,7 @@ export function HrClock() {
           <NavLink to="/clock/logs" aria-label="打卡紀錄"><Icon name="history" /><span>打卡紀錄</span></NavLink>
         </nav>
         {lastEvent ? <p className="hr-clock-last-event">最近一次：{lastEvent.eventKind === "clock_out" ? "下班" : "上班"}・{formatTaipei(lastEvent.occurredAt)}</p> : <p className="hr-clock-last-event">今天尚未打卡。</p>}
-        {(demoLocationFailed || status?.geolocationRequired) && (visibleLocationError || outsideOffice) ? <Button className="hr-clock-retry-action hr-action-info" variant="secondary" disabled={!status?.canClock || locating} onClick={() => { void verifyLocation(); }}>重新定位</Button> : null}
+        {(demoLocationFailed || status?.geolocationRequired) && (visibleLocationError || outsideOffice) ? <Button tone="info" size="lg" className="max-[760px]:w-full" variant="secondary" disabled={!status?.canClock || locating} onClick={() => { void verifyLocation(); }}>重新定位</Button> : null}
         {lineLiffAuthenticated ? <Button variant="link" disabled={unlink.isPending} onClick={() => setUnlinkConfirmOpen(true)}>解除 LINE 綁定</Button> : null}
       </div>
       {successMessage || status?.message || query.error || visibleLocationError || clock.error || unlinkError ? <div className="hr-clock-feedback-corner">
