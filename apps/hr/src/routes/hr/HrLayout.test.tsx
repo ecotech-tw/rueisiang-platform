@@ -9,7 +9,7 @@ import { HrLayout } from "./HrLayout.js";
 afterEach(() => { vi.unstubAllGlobals(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
 describe("HR 手機導覽", () => {
-  it.each(["/clock", "/forms", "/scheduling"])("LINE 登入在 %s 仍顯示完整六項手機導覽與通知數", async (path) => {
+  it.each(["/clock", "/work", "/forms", "/forms/leave", "/scheduling", "/CLOCK", "/SCHEDULING", "/FORMS/leave", "/PAYROLL"])("LINE 登入在 %s 顯示對稱五項導覽、工作分類選取與通知數", async (path) => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     notifyManager.setScheduler(queueMicrotask);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -26,13 +26,16 @@ describe("HR 手機導覽", () => {
       await vi.waitFor(async () => {
         await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
         const nav = container.querySelector(".hr-personal-bottom-nav");
-        expect([...nav!.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual(["/forms", "/payroll", "/clock", "/scheduling", "/notifications", "/profile"]);
-        expect(nav?.textContent).toContain("表單申請");
+        expect([...nav!.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual(["/work", "/payroll", "/clock", "/notifications", "/profile"]);
+        expect(nav?.textContent).toContain("工作");
         expect(nav?.textContent).toContain("薪資袋");
         expect(nav?.textContent).toContain("個人中心");
-        expect(nav?.textContent).toContain("排班");
-        expect(nav?.querySelector('a[href="/scheduling"]')?.getAttribute("aria-label")).toBe("排班");
-        if (path === "/scheduling") expect(nav?.querySelector('a[href="/scheduling"]')?.getAttribute("aria-current")).toBe("page");
+        expect(nav?.querySelectorAll(".center")).toHaveLength(1);
+        expect(nav?.querySelectorAll("a")[2]?.classList.contains("center")).toBe(true);
+        expect(nav?.querySelector('a[href="/work"]')?.getAttribute("aria-label")).toBe("工作");
+        const activePath = path.toLowerCase() === "/clock" ? "/clock" : path.toLowerCase() === "/payroll" ? "/payroll" : "/work";
+        expect(nav?.querySelector(`a[href="${activePath}"]`)?.getAttribute("aria-current")).toBe("page");
+        expect(nav?.querySelectorAll('a[aria-current="page"]')).toHaveLength(1);
         expect(nav?.querySelector(".hr-personal-nav-badge")?.textContent).toBe("3");
       });
       expect(fetch.mock.calls).toHaveLength(1);

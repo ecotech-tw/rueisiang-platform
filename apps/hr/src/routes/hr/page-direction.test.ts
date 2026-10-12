@@ -31,6 +31,14 @@ describe("pageDirection", () => {
     expect(pageDirection(sections, "/forms/leave", "/forms/overtime")).toBeNull();
   });
 
+  it("工作分類的子頁回首頁是 back，進申請或排班是 forward", () => {
+    const grouped = ["/work", "/payroll", "/clock", "/notifications", "/profile"];
+    expect(pageDirection(grouped, "/work/scheduling", "/work")).toBe("back");
+    expect(pageDirection(grouped, "/work", "/work/forms")).toBe("forward");
+    expect(pageDirection(grouped, "/work/forms/leave", "/payroll")).toBe("forward");
+    expect(pageDirection(grouped, "/notifications", "/work/scheduling")).toBe("forward");
+  });
+
   it("名稱只是前綴相同的路徑不算同一區", () => {
     expect(pageDirection(["/forms", "/formsx"], "/forms", "/formsx")).toBe("forward");
   });

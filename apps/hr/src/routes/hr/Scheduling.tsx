@@ -36,13 +36,12 @@ function dayTypeLabel(dayType: HrScheduleResponse["calendar"][number]["dayType"]
 
 const dateClass = "relative grid min-h-11 w-full min-w-0 place-items-center rounded-field border-0 text-sm font-semibold tabular-nums transition-[background-color,color,scale] duration-150 ease-out enabled:hover:bg-brand/7 enabled:active:scale-[.96] focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:enabled:active:scale-100";
 
-function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleResponse; onReload: () => Promise<HrScheduleResponse | undefined>; onChangeState: (dirty: boolean, pending: boolean) => void }) {
+function ScheduleEditor({ data, quick, onQuickChange, onReload, onChangeState }: { data: HrScheduleResponse; quick: boolean; onQuickChange: (quick: boolean) => void; onReload: () => Promise<HrScheduleResponse | undefined>; onChangeState: (dirty: boolean, pending: boolean) => void }) {
   const [baseline, setBaseline] = useState(data);
   const [draft, setDraft] = useState(data.entries);
   const [selectedPersonValue, setPersonValue] = useState<string | null>(null);
   const [templateId, setTemplateId] = useState(data.shifts[0]?.templateId ?? "");
   const [detailsDate, setDetailsDate] = useState<string | null>(null);
-  const [quick, setQuick] = useState(false);
   const closeRequestRef: DialogCloseRef = useRef(null);
   const isMobile = useMobileScheduleView();
   const [message, setMessage] = useState<string | null>(null);
@@ -98,7 +97,8 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
     const fresh = await onReload();
     if (fresh) { setBaseline(fresh); setDraft(fresh.entries); setSavedNeedsReload(false); setReloadRequired(false); }
   };
-  const closeDialog = () => { setDetailsDate(null); setQuick(false); };
+  const closeDialog = () => setDetailsDate(null);
+  const enterQuick = () => { onQuickChange(true); closeRequestRef.current?.(); };
   const submit = async () => {
     if (!canSave) return;
     setMessage(null);
@@ -107,6 +107,7 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
       setSavedNeedsReload(true);
       setMessage("排班已儲存並生效，不需送審。");
       await reload();
+      onQuickChange(false);
       closeRequestRef.current?.();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "排班儲存失敗，草稿仍保留。");
@@ -138,23 +139,23 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
   </>;
   const weekdays = <div className="grid grid-cols-7 text-center text-xs text-muted" aria-hidden="true">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div>;
   return <>
-    {!isMobile ? <Panel>{fields}<p className="mt-2 text-sm text-muted">選好人員與班別，點日期排入；再點一次取消。</p><p className="mt-1 text-sm text-muted">{personSummary}</p>{availability}</Panel> : null}
-    <Panel density={isMobile ? "compact" : "default"} className="min-w-0">
-      <div className="grid gap-1" aria-label="據點月曆">
-        <p className="m-0 text-xs text-muted">{isMobile ? "點日期查看排班・數字為排班筆數" : "週末與假日套用對應班別時間"}</p>
+    {!isMobile || quick ? <Panel density={quick ? "compact" : "default"}>{fields}{!quick ? <><p className="mt-2 text-sm text-muted">選好人員與班別，點日期排入；再點一次取消。</p><p className="mt-1 text-sm text-muted">{personSummary}</p></> : null}{availability}</Panel> : null}
+    <Panel density={isMobile || quick ? "compact" : "default"} className="min-w-0">
+      <div className="grid gap-1" aria-label={quick ? "快速排班日期" : "據點月曆"}>
+        <p className="m-0 text-xs text-muted">{quick ? "點日期排入，再點取消；週末與假日自動套用時段。" : isMobile ? "點日期查看排班・數字為排班筆數" : "週末與假日套用對應班別時間"}</p>
         {weekdays}
-        <div className={`grid grid-cols-7 ${isMobile ? "" : "gap-1"}`}>
+        <div className={`grid grid-cols-7 ${quick ? "gap-0.5" : isMobile ? "" : "gap-1"}`}>
           {Array.from({ length: offset }, (_, index) => <div aria-hidden="true" key={`empty-${index}`} />)}
           {data.calendar.map((day) => {
             const entries = draft.filter((entry) => !entry.archivedAt && entry.workDate === day.date);
             const description = `${day.name || dayTypeLabel(day.dayType)}・${entries.length} 筆排班`;
-            return <div key={day.date} className={`relative min-w-0 border-t border-soft-line ${!isMobile ? "min-h-32 p-1" : ""} ${day.dayType !== "weekday" ? "bg-canvas" : ""}`}>
-              <button type="button" className={`${dateClass} ${!isMobile && picked(day.date) ? "bg-brand-soft text-brand-dark" : "text-ink"}`} aria-label={`${day.date} 排班`} aria-description={description} aria-pressed={!isMobile ? picked(day.date) : undefined} disabled={!isMobile && toggleDisabled(day.date)} onClick={() => isMobile ? setDetailsDate(day.date) : toggle(day.date)}>
+            return <div key={day.date} className={`relative min-w-0 ${quick ? "" : "border-t border-soft-line"} ${!isMobile && !quick ? "min-h-32 p-1" : ""} ${day.dayType !== "weekday" ? "bg-canvas" : ""}`}>
+              <button type="button" className={`${dateClass} ${(quick || !isMobile) && picked(day.date) ? `bg-brand-soft text-brand-dark${quick ? " ring-1 ring-inset ring-brand-dark" : ""}` : "text-ink"}`} aria-label={`${day.date} ${quick ? "快速排班" : "排班"}`} aria-description={description} aria-pressed={quick || !isMobile ? picked(day.date) : undefined} disabled={(quick || !isMobile) && toggleDisabled(day.date)} onClick={() => isMobile && !quick ? setDetailsDate(day.date) : toggle(day.date)}>
                 {Number(day.date.slice(8))}
-                {isMobile && entries.length ? <span className="absolute bottom-0 right-0 rounded-full bg-brand-soft px-1 text-[9px] leading-3 text-brand-dark" aria-hidden="true">{entries.length}</span> : null}
+                {isMobile && !quick && entries.length ? <span className="absolute bottom-0 right-0 rounded-full bg-brand-soft px-1 text-[9px] leading-3 text-brand-dark" aria-hidden="true">{entries.length}</span> : null}
                 {isMobile && day.name ? <span className="absolute left-1 top-1 size-1 rounded-full bg-warn" aria-hidden="true" /> : null}
               </button>
-              {!isMobile ? <>
+              {!isMobile && !quick ? <>
                 {day.name ? <small className="block text-xs text-muted">{day.name}</small> : null}
                 {draft.filter((entry) => entry.workDate === day.date).map((entry) => <div className={`mt-1 grid min-w-0 gap-0.5 rounded-field p-1 text-xs [overflow-wrap:anywhere] ${matchesPerson(entry) ? "bg-brand-soft text-brand-dark" : "bg-canvas"}`} key={entry.id}>
                   <span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}{entry.attendanceStatus !== "scheduled" ? "・出勤已確認" : ""}</small>
@@ -166,37 +167,23 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
         </div>
       </div>
     </Panel>
+    {quick ? <p className="m-0 text-xs text-muted">{personSummary}</p> : null}
     {alerts}
     <div className="flex flex-wrap items-center gap-2">
-      {isMobile ? <Button variant="secondary" size="lg" disabled={disabled || !shifts.length} onClick={() => setQuick(true)}>快速排班</Button> : null}
-      <Button size="lg" loading={save.isPending} disabled={!canSave} onClick={() => void submit()}>儲存</Button>
+      {quick ? <Button variant="secondary" size="lg" disabled={save.isPending} onClick={() => onQuickChange(false)}>返回月曆</Button> : isMobile ? <Button variant="secondary" size="lg" disabled={disabled || !shifts.length} onClick={enterQuick}>快速排班</Button> : null}
+      <Button size="lg" loading={save.isPending} disabled={!canSave} onClick={() => void submit()}>{quick ? "儲存排班" : "儲存"}</Button>
       <span className="text-xs text-muted">{summary}</span>
     </div>
-    {quick || focusedDay ? <Dialog title={quick ? "快速排班" : `${detailsDate} 排班`} titleMeta={quick ? `${data.scopes[0]?.name}・${data.periodKey}` : focusedDay?.name || (focusedDay && dayTypeLabel(focusedDay.dayType))} onClose={closeDialog} closeDisabled={save.isPending} closeRequestRef={closeRequestRef} bodyClassName="gap-2" actions={<>
+    {focusedDay ? <Dialog title={`${detailsDate} 排班`} titleMeta={focusedDay.name || dayTypeLabel(focusedDay.dayType)} onClose={closeDialog} closeDisabled={save.isPending} closeRequestRef={closeRequestRef} bodyClassName="gap-2" actions={<>
       <Button variant="secondary" size="lg" disabled={save.isPending} onClick={closeDialog}>返回月曆</Button>
-      {quick ? <Button size="lg" loading={save.isPending} disabled={!canSave} onClick={() => void submit()}>儲存排班</Button> : <Button size="lg" disabled={disabled || !shifts.length} onClick={() => setQuick(true)}>快速排班</Button>}
+      <Button size="lg" disabled={disabled || !shifts.length} onClick={enterQuick}>快速排班</Button>
     </>}>
-      {quick ? <>
-        {fields}
-        {availability}
-        <p className="m-0 text-xs text-muted">點日期排入，再點取消；週末與假日自動套用時段。</p>
-        <div className="grid gap-1" aria-label="快速排班日期">
-          {weekdays}
-          <div className="grid grid-cols-7 gap-0.5">
-            {Array.from({ length: offset }, (_, index) => <div aria-hidden="true" key={`empty-${index}`} />)}
-            {data.calendar.map((day) => <button key={day.date} type="button" className={`${dateClass} ${picked(day.date) ? "bg-brand-soft text-brand-dark ring-1 ring-inset ring-brand-dark" : day.dayType !== "weekday" ? "bg-canvas text-ink" : "text-ink"}`} aria-label={`${day.date} 快速排班`} aria-description={day.name || dayTypeLabel(day.dayType)} aria-pressed={picked(day.date)} disabled={toggleDisabled(day.date)} onClick={() => toggle(day.date)}>{Number(day.date.slice(8))}{day.name ? <span className="absolute left-1 top-1 size-1 rounded-full bg-warn" aria-hidden="true" /> : null}</button>)}
-          </div>
-        </div>
-        <p className="m-0 text-xs text-muted">{personSummary}。{summary}</p>
-        {alerts}
-      </> : <>
         {focusedEntries.length ? <div className="grid divide-y divide-soft-line">{focusedEntries.map((entry) => <div className="flex min-w-0 items-center justify-between gap-2 py-2" key={entry.id}>
           <div className="grid min-w-0 gap-0.5"><strong className="break-words">{entry.employeeNumber ? `${entry.employeeNumber}・` : ""}{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</strong><small className="text-muted">{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}{entry.attendanceStatus !== "scheduled" ? "・出勤已確認" : ""}</small></div>
           {!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <Button variant="icon" icon="trash" aria-label={`移除 ${detailsDate} ${entry.personName} ${entry.shiftName}`} disabled={disabled} className="shrink-0" onClick={() => setDraft((current) => current.filter((other) => other.id !== entry.id))} /> : <span className="shrink-0 text-xs text-muted">{entry.archivedAt ? "已封存" : "已確認"}</span>}
         </div>)}</div> : <EmptyState>這一天尚無排班。</EmptyState>}
         <p className="m-0 text-xs text-muted">移除後需按「儲存」才會生效。快速排班可一次安排多個日期。</p>
         {alerts}
-      </>}
     </Dialog> : null}
   </>;
 }
@@ -206,6 +193,13 @@ export function HrScheduling() {
   const scopes = useHrQuery<{ scopes: ScheduleScope[] }>("/me/schedule-scopes");
   const [scopeId, setScopeId] = useState("");
   const [month, setMonth] = useState(currentMonth);
+  const [quick, setQuick] = useState(false);
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const previousMode = useRef(quick);
+  useEffect(() => {
+    if (previousMode.current !== quick) headingRef.current?.focus({ preventScroll: true });
+    previousMode.current = quick;
+  }, [quick]);
   const [editState, setEditState] = useState({ dirty: false, pending: false });
   const selectedScopeId = scopeId || scopes.data?.scopes[0]?.id || "";
   const schedule = useHrQuery<HrScheduleResponse>(`/me/schedules?periodKey=${month}&scopeId=${encodeURIComponent(selectedScopeId)}`, Boolean(selectedScopeId));
@@ -221,17 +215,17 @@ export function HrScheduling() {
     window.addEventListener("beforeunload", unload);
     return () => window.removeEventListener("beforeunload", unload);
   }, [editState]);
-  return <div className="page hr-front-schedule-page grid min-w-0 content-start gap-2 [&>*+*]:!mt-0">
-    <h1 className="m-0 text-xl">排班</h1>
+  return <div className={`page hr-front-schedule-page grid min-w-0 content-start ${quick ? "gap-1" : "gap-2"} [&>*+*]:!mt-0`}>
+    <h1 ref={headingRef} tabIndex={-1} className="m-0 text-xl outline-none">{quick ? "快速排班" : "排班"}</h1>
     {scopes.error ? <Alert tone="danger">{scopes.error.message}</Alert> : null}
     {scopes.isPending ? <p>載入據點中…</p> : null}
     {scopes.data && !scopes.data.scopes.length ? <EmptyState>目前沒有負責的排班據點，請聯絡 HR 指派。</EmptyState> : null}
-    {selectedScopeId ? <Panel density="compact" className="grid gap-1">
+    {selectedScopeId && quick ? <p className="m-0 text-sm text-muted">{scopes.data?.scopes.find((scope) => scope.id === selectedScopeId)?.name}・{month.slice(0, 4)} 年 {Number(month.slice(5))} 月</p> : selectedScopeId ? <Panel density="compact" className="grid gap-1">
       <SelectField label="營運據點" aria-label="營運據點" value={selectedScopeId} disabled={editState.pending} options={(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => { if (confirmLeave()) { setScopeId(event.target.value); setEditState({ dirty: false, pending: false }); } }} />
       <div className="flex items-center justify-between" aria-label="排班月份"><Button variant="icon" icon="chevronLeft" aria-label="上個月" disabled={editState.pending} onClick={() => { if (confirmLeave()) { setMonth(nextMonth(month, -1)); setEditState({ dirty: false, pending: false }); } }} /><strong className="text-sm tabular-nums">{month.slice(0, 4)} 年 {Number(month.slice(5))} 月</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" disabled={editState.pending} onClick={() => { if (confirmLeave()) { setMonth(nextMonth(month, 1)); setEditState({ dirty: false, pending: false }); } }} /></div>
     </Panel> : null}
     {selectedScopeId && schedule.isPending ? <p>載入班表中…</p> : null}
     {schedule.error ? <Alert tone="danger">{schedule.error.message}</Alert> : null}
-    {selectedScopeId && schedule.data ? <ScheduleEditor key={`${month}:${selectedScopeId}`} data={schedule.data} onChangeState={(dirty, pending) => setEditState((current) => current.dirty === dirty && current.pending === pending ? current : { dirty, pending })} onReload={async () => { const result = await schedule.refetch(); return result.isError ? undefined : result.data; }} /> : null}
+    {selectedScopeId && schedule.data ? <ScheduleEditor key={`${month}:${selectedScopeId}`} data={schedule.data} quick={quick} onQuickChange={setQuick} onChangeState={(dirty, pending) => setEditState((current) => current.dirty === dirty && current.pending === pending ? current : { dirty, pending })} onReload={async () => { const result = await schedule.refetch(); return result.isError ? undefined : result.data; }} /> : null}
   </div>;
 }

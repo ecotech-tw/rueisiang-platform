@@ -10,6 +10,7 @@ import { HrLeaveSummary } from "./routes/hr/Leave.js";
 import { HrNotifications } from "./routes/hr/Notifications.js";
 import { HrPayrollHistory, HrPayslipDetail } from "./routes/hr/Payroll.js";
 import { HrScheduling } from "./routes/hr/Scheduling.js";
+import { HrWork } from "./routes/hr/Work.js";
 import { HrLayout } from "./routes/hr/HrLayout.js";
 
 function RequireSession({ children }: { children: React.ReactNode }) {
@@ -54,6 +55,7 @@ export function App() {
         <Route path="clock" element={<HrClock />} />
         <Route path="clock/calendar" element={<HrClockCalendar />} />
         <Route path="clock/logs" element={<HrClockLogs />} />
+        <Route path="work" element={<HrWork />} />
         <Route path="forms" element={<HrForms />} />
         <Route path="payroll" element={<HrPayrollHistory />} />
         <Route path="payroll/:runId/:employmentId" element={<HrPayslipDetail />} />
