@@ -2237,7 +2237,6 @@
 .salary-items-total { margin: 0; color: var(--color-muted); font-size: 13px; }
 .salary-items-total strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
 /* 班別清單沿用敘薪的「逐列編輯／底部新增與儲存」結構，但一個班別是一張卡，卡裡才是三個日型。 */
-.shift-settings-dialog { width: 760px; }
 .shift-items { display: grid; gap: 10px; container: shift-settings / inline-size; }
 .shift-members { display: grid; gap: 8px; padding: 6px 4px; }
 .shift-items-label { color: var(--color-ink); font-size: 13px; font-weight: 600; }

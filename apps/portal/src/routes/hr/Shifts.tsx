@@ -199,7 +199,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
 
   return <Dialog
     title={scope.name}
-    className="shift-settings-dialog"
+    className="wide"
     onClose={onClose}
     closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending}
