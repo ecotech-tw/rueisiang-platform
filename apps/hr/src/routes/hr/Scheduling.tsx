@@ -122,12 +122,14 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
   const focusedEntries = detailsDate ? draft.filter((entry) => entry.workDate === detailsDate) : [];
   const offset = new Date(`${data.periodKey}-01T00:00:00Z`).getUTCDay();
   const summary = dirty ? `尚未儲存：新增 ${changes.entries.length} 筆、移除 ${changes.removedIds.length} 筆` : "沒有未儲存變更";
+  const personSummary = `本據點已排 ${selectedDays} 天${employee?.monthlyRestDays != null ? `・約定月休 ${employee.monthlyRestDays} 天` : ""}`;
   const fields = <div className="grid grid-cols-2 gap-2">
     <SelectField label="人員" aria-label="人員" searchable value={personValue ?? ""} placeholder="請選擇人員" disabled={disabled || !shifts.length} options={people} onChange={(event) => setPersonValue(event.target.value)} />
     <SelectField label="班別" aria-label="班別" value={templateId} disabled={disabled || !shifts.length} options={shifts.map((shift) => { const weekday = pickShiftForDay(data.shifts.filter((item) => item.templateId === shift.templateId), "weekday") ?? shift; return { value: shift.templateId, label: `${weekday.name} ${shiftTimeRange(weekday)}` }; })} onChange={(event) => setTemplateId(event.target.value)} />
   </div>;
   const availability = !shifts.length ? <Alert>這個據點尚未設定班別，請聯絡 HR。</Alert> : !people.length ? <Alert>這個班別尚未納入可排人員，請聯絡 HR 設定。</Alert> : null;
   const alerts = <>
+    {changes.refreshIds.length ? <Alert tone="warning">有 {changes.refreshIds.length} 筆班別設定已變更，儲存會重新套用目前的日型、時間與需求人力。</Alert> : null}
     {reloadRequired && !stale ? <Alert tone="warning">載入最新班表失敗，草稿仍保留。<Button variant="secondary" onClick={() => { if (!dirty || window.confirm("重新載入會放棄尚未儲存的排班，確定繼續？")) void reload(); }}>重新載入</Button></Alert> : null}
     {data.version?.locked ? <Alert>這個月份已鎖定，請聯絡 HR 開鎖後再調整。</Alert> : null}
     {stale ? <Alert tone="warning">排班已被其他人修改，草稿仍保留。請重新載入後再安排。<Button variant="secondary" onClick={() => { if (!dirty || window.confirm("重新載入會放棄尚未儲存的排班，確定繼續？")) void reload(); }}>重新載入</Button></Alert> : null}
@@ -136,7 +138,7 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
   </>;
   const weekdays = <div className="grid grid-cols-7 text-center text-xs text-muted" aria-hidden="true">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div>;
   return <>
-    {!isMobile ? <Panel>{fields}<p className="mt-2 text-sm text-muted">選好人員與班別，點日期排入；再點一次取消。</p>{availability}</Panel> : null}
+    {!isMobile ? <Panel>{fields}<p className="mt-2 text-sm text-muted">選好人員與班別，點日期排入；再點一次取消。</p><p className="mt-1 text-sm text-muted">{personSummary}</p>{availability}</Panel> : null}
     <Panel density={isMobile ? "compact" : "default"} className="min-w-0">
       <div className="grid gap-1" aria-label="據點月曆">
         <p className="m-0 text-xs text-muted">{isMobile ? "點日期查看排班・數字為排班筆數" : "週末與假日套用對應班別時間"}</p>
@@ -154,7 +156,7 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
               </button>
               {!isMobile ? <>
                 {day.name ? <small className="block text-xs text-muted">{day.name}</small> : null}
-                {draft.filter((entry) => entry.workDate === day.date).map((entry) => <div className={`mt-1 grid gap-0.5 rounded-field p-1 text-xs ${matchesPerson(entry) ? "bg-brand-soft text-brand-dark" : "bg-canvas"}`} key={entry.id}>
+                {draft.filter((entry) => entry.workDate === day.date).map((entry) => <div className={`mt-1 grid min-w-0 gap-0.5 rounded-field p-1 text-xs [overflow-wrap:anywhere] ${matchesPerson(entry) ? "bg-brand-soft text-brand-dark" : "bg-canvas"}`} key={entry.id}>
                   <span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}{entry.attendanceStatus !== "scheduled" ? "・出勤已確認" : ""}</small>
                   {!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <Button variant="icon" icon="close" aria-label={`移除 ${day.date} ${entry.personName} ${entry.shiftName}`} disabled={disabled} className="justify-self-end" onClick={() => setDraft((current) => current.filter((other) => other.id !== entry.id))} /> : null}
                 </div>)}
@@ -164,7 +166,6 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
         </div>
       </div>
     </Panel>
-    {changes.refreshIds.length ? <Alert tone="warning">有 {changes.refreshIds.length} 筆班別設定已變更，儲存會重新套用目前的日型、時間與需求人力。</Alert> : null}
     {alerts}
     <div className="flex flex-wrap items-center gap-2">
       {isMobile ? <Button variant="secondary" size="lg" disabled={disabled || !shifts.length} onClick={() => setQuick(true)}>快速排班</Button> : null}
@@ -186,7 +187,7 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
             {data.calendar.map((day) => <button key={day.date} type="button" className={`${dateClass} ${picked(day.date) ? "bg-brand-soft text-brand-dark ring-1 ring-inset ring-brand-dark" : day.dayType !== "weekday" ? "bg-canvas text-ink" : "text-ink"}`} aria-label={`${day.date} 快速排班`} aria-description={day.name || dayTypeLabel(day.dayType)} aria-pressed={picked(day.date)} disabled={toggleDisabled(day.date)} onClick={() => toggle(day.date)}>{Number(day.date.slice(8))}{day.name ? <span className="absolute left-1 top-1 size-1 rounded-full bg-warn" aria-hidden="true" /> : null}</button>)}
           </div>
         </div>
-        <p className="m-0 text-xs text-muted">本據點已排 {selectedDays} 天{employee?.monthlyRestDays != null ? `・約定月休 ${employee.monthlyRestDays} 天` : ""}。{summary}</p>
+        <p className="m-0 text-xs text-muted">{personSummary}。{summary}</p>
         {alerts}
       </> : <>
         {focusedEntries.length ? <div className="grid divide-y divide-soft-line">{focusedEntries.map((entry) => <div className="flex min-w-0 items-center justify-between gap-2 py-2" key={entry.id}>

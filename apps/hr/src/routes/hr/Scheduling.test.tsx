@@ -206,6 +206,24 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
+  it("手機快速排班會提示既有班別過期，不在未告知下重套歷史排班", async () => {
+    const initial = data(); initial.shifts = initial.shifts.map((shift) => ({ ...shift, startSecond: shift.startSecond + 3600 }));
+    const page = await renderMobilePage(initial);
+    try {
+      await page.clickDate("2026-02-07"); await openMobileQuick();
+      expect(document.querySelector('[role="dialog"]')!.textContent).toContain("有 1 筆班別設定已變更");
+      expect(document.querySelector('[role="dialog"]')!.textContent).toContain("重新套用目前的日型、時間與需求人力");
+      await page.click("儲存排班"); expect(page.writes[0]!.values.refreshIds).toEqual(["saved"]);
+    } finally { await page.cleanup(); }
+  });
+
+  it("桌機保留目前人員已排天數與約定月休摘要", async () => {
+    const initial = data(); initial.employees = initial.employees.map((person) => ({ ...person, monthlyRestDays: 8 }));
+    const page = await renderPage(initial);
+    try { expect(document.body.textContent).toContain("本據點已排 1 天・約定月休 8 天"); }
+    finally { await page.cleanup(); }
+  });
+
   it("再次點選已排日期只送移除 ID，新增後取消不產生變更", async () => {
     const page = await renderPage(data());
     try {
