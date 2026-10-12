@@ -5,12 +5,12 @@ import { Icon, type IconName } from "../../shell/icons.js";
 import { useHrQuery, type HrNotificationsResponse } from "./api.js";
 import { pageDirection, type SlideDirection } from "./page-direction.js";
 
-const personalLinks: { to: string; label: string; shortLabel: string; icon: IconName; center?: boolean }[] = [
-  { to: "/work", label: "工作", shortLabel: "工作", icon: "report" },
-  { to: "/payroll", label: "薪資袋", shortLabel: "薪資", icon: "payments" },
-  { to: "/clock", label: "打卡", shortLabel: "打卡", icon: "clock", center: true },
-  { to: "/notifications", label: "通知", shortLabel: "通知", icon: "notifications" },
-  { to: "/profile", label: "個人中心", shortLabel: "個人", icon: "person" },
+const personalLinks: { to: string; label: string; icon: IconName; center?: boolean }[] = [
+  { to: "/work", label: "工作", icon: "report" },
+  { to: "/payroll", label: "薪資袋", icon: "payments" },
+  { to: "/clock", label: "打卡", icon: "clock", center: true },
+  { to: "/notifications", label: "通知", icon: "notifications" },
+  { to: "/profile", label: "個人中心", icon: "person" },
 ];
 
 function navigationPath(pathname: string) {
@@ -32,7 +32,7 @@ function PersonalNav({ className }: { className: string }) {
       className={`${link.center ? "hr-personal-bottom-link center" : "hr-personal-bottom-link"} font-semibold${active ? " active" : ""}`}
     >
       <span className="hr-personal-nav-icon"><Icon name={link.icon} weight="semibold" className="size-6" />{link.to === "/notifications" && notifications.data?.unreadCount ? <small className="hr-personal-nav-badge">{notifications.data.unreadCount > 99 ? "99+" : notifications.data.unreadCount}</small> : null}</span>
-      <span className="hr-personal-nav-label"><span className="max-[760px]:hidden">{link.label}</span><span className="min-[761px]:hidden">{link.shortLabel}</span></span>
+      <span className="hr-personal-nav-label max-[760px]:hidden">{link.label}</span>
     </Link>; })}
   </nav>;
 }
