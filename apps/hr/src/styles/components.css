@@ -3772,6 +3772,7 @@
   .hr-clock-calendar-anomaly > span { grid-column: 2; }
   .hr-clock-calendar-actions { grid-column: 1 / -1; justify-content: stretch; }
   .hr-clock-calendar-actions button { flex: 1; }
+  .hr-clock-calendar-actions .add-action { border-radius: 9px; }
   .hr-clock-calendar-legend { padding-top: 6px; gap: 6px 10px; }
   .hr-clock-personal-nav { display: none; }
   .hr-clock-full-page .hr-clock-map-stage { display: block; padding: 0; }
