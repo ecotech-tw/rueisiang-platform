@@ -15,11 +15,14 @@
  */
 import { and, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { checkHrSelfLeaveRequest, createHrLeaveRequest, listHrSelfLeaveTypeOptions, type HrLeaveDurationInput } from "./hr-leave.js";
-import { checkHrSelfOvertimeRequest, createHrOvertimeRequest, type HrOvertimeInput } from "./hr-overtime.js";
+import { cancelHrLeaveRequest, checkHrSelfLeaveRequest, createHrLeaveRequest, listHrSelfLeaveTypeOptions, type HrLeaveDurationInput } from "./hr-leave.js";
+import { cancelHrOvertimeRequest, checkHrSelfOvertimeRequest, createHrOvertimeRequest, type HrOvertimeInput } from "./hr-overtime.js";
 import { HrError, type HrActor } from "./hr-people.js";
-import { checkHrSelfClockCorrection, createAndSubmitHrClockCorrection, type HrSelfClockCorrectionInput } from "./hr-requests.js";
+import { cancelHrFormRequest, checkHrSelfClockCorrection, createAndSubmitHrClockCorrection, type HrSelfClockCorrectionInput } from "./hr-requests.js";
 import { assistantHrRequestDrafts, type ASSISTANT_HR_REQUEST_DRAFT_KINDS } from "./schema/assistant.js";
+import { hrLeaveRequests } from "./schema/hr-payroll.js";
+import { hrFormRequests } from "./schema/hr-requests.js";
+import { hrOvertimeRequests } from "./schema/hr-scheduling.js";
 import { formatTaipeiDate, taipeiMinuteFromUtcWallClock, taipeiWallClockToUtc } from "./taipei-time.js";
 
 export type HrRequestDraftKind = (typeof ASSISTANT_HR_REQUEST_DRAFT_KINDS)[number];
@@ -187,6 +190,10 @@ interface DraftKindHandler {
   /** 把這一輪的輸入併進既有欄位並驗證；不合法就丟 HrError，呼叫端整次不存。 */
   merge(db: Database, userId: string, previous: HrRequestDraftFields, input: HrRequestDraftInput, now: number): Promise<HrRequestDraftFields>;
   detail(db: Database, userId: string, fields: HrRequestDraftFields, now: number): Promise<DraftDetail>;
+  /** 送出去的那張申請現在的狀態；null 是那一列已經不在了（加班取消是直接刪列）。 */
+  requestStatus(db: Database, requestId: string): Promise<string | null>;
+  /** 收回一張還在待審的申請。用的是 HR 頁面那顆「取消」的同一個函式，通知審核者與稽核紀錄都照舊。 */
+  withdraw(db: Database, requestId: string, actor: HrActor): Promise<unknown>;
 }
 
 function mergeInterval(next: HrRequestDraftFields, input: HrRequestDraftInput) {
@@ -291,6 +298,11 @@ const leaveHandler: DraftKindHandler = {
       submit: ready ? (actor) => createHrLeaveRequest(db, { ...ready.interval, leaveTypeId: ready.leaveType.id, reason: ready.reason }, actor) : null,
     };
   },
+  async requestStatus(db, requestId) {
+    const [row] = await db.select({ status: hrLeaveRequests.status }).from(hrLeaveRequests).where(eq(hrLeaveRequests.id, requestId)).limit(1);
+    return row?.status ?? null;
+  },
+  withdraw: (db, requestId, actor) => cancelHrLeaveRequest(db, requestId, actor, { pendingOnly: true }),
 };
 
 const overtimeHandler: DraftKindHandler = {
@@ -326,6 +338,11 @@ const overtimeHandler: DraftKindHandler = {
       submit: ready ? (actor) => createHrOvertimeRequest(db, ready.request, actor) : null,
     };
   },
+  async requestStatus(db, requestId) {
+    const [row] = await db.select({ status: hrOvertimeRequests.status }).from(hrOvertimeRequests).where(eq(hrOvertimeRequests.id, requestId)).limit(1);
+    return row?.status ?? null;
+  },
+  withdraw: (db, requestId, actor) => cancelHrOvertimeRequest(db, requestId, actor, { pendingOnly: true }),
 };
 
 function clockCorrectionInput(userId: string, fields: HrRequestDraftFields): HrSelfClockCorrectionInput | null {
@@ -377,6 +394,12 @@ const clockCorrectionHandler: DraftKindHandler = {
       submit: ready ? (actor) => createAndSubmitHrClockCorrection(db, ready, actor) : null,
     };
   },
+  async requestStatus(db, requestId) {
+    const [row] = await db.select({ status: hrFormRequests.status }).from(hrFormRequests).where(eq(hrFormRequests.id, requestId)).limit(1);
+    return row?.status ?? null;
+  },
+  // 補打卡的取消本來就只收審核中的。
+  withdraw: (db, requestId, actor) => cancelHrFormRequest(db, requestId, actor.id, actor),
 };
 
 const HANDLERS: Record<HrRequestDraftKind, DraftKindHandler> = { leave: leaveHandler, overtime: overtimeHandler, clock_correction: clockCorrectionHandler };
@@ -514,8 +537,12 @@ export async function cancelHrRequestDraft(db: Database, scope: HrRequestDraftSc
 }
 
 export type HrRequestDraftConfirmation =
-  /** 申請建立了。card 是送出時的內容，回覆員工用。 */
-  | { outcome: "submitted"; kindLabel: string; requestId: string; card: string }
+  /**
+   * 申請建立了。cardRows 是送出時的內容，回覆員工用。
+   * withdrawable 是「草稿有沒有記下這張申請的 id」：沒記上的話 withdrawHrRequestDraft 找不到是哪一張，
+   * 卡片上就不能放一顆按了只會說找不到的取消按鈕。
+   */
+  | { outcome: "submitted"; kindLabel: string; requestId: string; cardRows: HrRequestDraftCardRow[]; withdrawable: boolean }
   | { outcome: "cancelled"; kindLabel: string }
   /** 找不到、不是這個人的、不是這段對話的、已取消或已過期：對按的人來說都是「這張已經不在了」。 */
   | { outcome: "gone" }
@@ -551,11 +578,9 @@ export async function confirmHrRequestDraft(
   },
   now = Date.now(),
 ): Promise<HrRequestDraftConfirmation> {
-  const [row] = await db.select().from(assistantHrRequestDrafts).where(eq(assistantHrRequestDrafts.id, input.draftId)).limit(1);
+  const row = await pressedDraft(db, input);
   const nowIso = new Date(now).toISOString();
-  if (!row || row.userId !== input.userId || input.actor.id !== input.userId
-    || row.assistantKey !== input.conversation.assistantKey || row.surface !== input.conversation.surface
-    || row.channelKey !== input.conversation.channelKey || row.conversationKey !== input.conversation.conversationKey) return { outcome: "gone" };
+  if (!row) return { outcome: "gone" };
   const kindLabel = KIND_LABELS[row.kind];
   if (row.status === "submitted") return { outcome: "already_submitted", kindLabel };
   if (row.status !== "open" || row.expiresAt <= nowIso) return { outcome: "gone" };
@@ -570,8 +595,8 @@ export async function confirmHrRequestDraft(
 
   // 卡片發出去之後假別可能被停用、班表可能改了：送出前照現在的規則再算一次，不信卡片當時的樣子。
   const detail = await draftDetail(db, row, now);
-  const card = draftView(row, detail).card;
-  if (!detail.submit || !card) return { outcome: "not_ready", kindLabel, problem: detail.problem };
+  const cardRows = detail.cardRows;
+  if (!detail.submit || !cardRows) return { outcome: "not_ready", kindLabel, problem: detail.problem };
   if (!(await claim("submitted")).length) {
     const [latest] = await db.select({ status: assistantHrRequestDrafts.status }).from(assistantHrRequestDrafts).where(eq(assistantHrRequestDrafts.id, row.id)).limit(1);
     return latest?.status === "submitted" ? { outcome: "already_submitted", kindLabel } : { outcome: "changed", kindLabel };
@@ -587,7 +612,58 @@ export async function confirmHrRequestDraft(
     if (error instanceof HrError) return { outcome: "rejected", kindLabel, message: error.message.trim() };
     throw error;
   }
-  // 申請已經建立，從這裡開始不能再讓任何失敗把草稿退回去。id 只是方便追查，記不上不影響結果。
-  await db.update(assistantHrRequestDrafts).set({ submittedRequestId: requestId }).where(eq(assistantHrRequestDrafts.id, row.id)).catch(() => undefined);
-  return { outcome: "submitted", kindLabel, requestId, card };
+  // 申請已經建立，從這裡開始不能再讓任何失敗把草稿退回去。記不上 id 不影響送出的結果，
+  // 但之後就找不到是哪一張，所以它也決定「已送出」的卡片放不放取消按鈕。
+  const recorded = await db.update(assistantHrRequestDrafts).set({ submittedRequestId: requestId }).where(eq(assistantHrRequestDrafts.id, row.id))
+    .returning({ id: assistantHrRequestDrafts.id }).then((rows) => rows.length > 0, () => false);
+  return { outcome: "submitted", kindLabel, requestId, cardRows, withdrawable: recorded };
+}
+
+export type HrRequestWithdrawal =
+  | { outcome: "withdrawn"; kindLabel: string }
+  /** 已經取消過（在這裡按過，或他自己在 HR 頁面取消了）。 */
+  | { outcome: "already_withdrawn"; kindLabel: string }
+  /** 已經核准或駁回：不從聊天室收回，請他到 HR 頁面處理。 */
+  | { outcome: "reviewed"; kindLabel: string }
+  | { outcome: "rejected"; kindLabel: string; message: string }
+  /** 找不到、不是這個人的、不是這段對話的，或這張草稿沒有送出過。 */
+  | { outcome: "gone" };
+
+/**
+ * 員工按下「已送出」卡片上的取消：收回剛剛透過這張草稿送出的那一張申請。**呼叫端必須已經確認按的人是誰**，
+ * 跟 confirmHrRequestDraft 一樣。
+ *
+ * 按鈕帶的是草稿 id，不是 HR 申請的 id：能收回的只有「這個人在這段對話裡、經由這張草稿送出的那一張」，
+ * 不會變成一個拿任意申請 id 就能取消的入口。只收回還在待審的（見 HrLeaveCancellationOptions.pendingOnly）。
+ * 不檢查草稿的版本與期限：送出後的草稿不會再變，而員工隔天才發現送錯也應該收得回來。
+ */
+export async function withdrawHrRequestDraft(
+  db: Database,
+  input: { draftId: string; conversation: HrRequestDraftConversation; userId: string; actor: HrActor },
+): Promise<HrRequestWithdrawal> {
+  const row = await pressedDraft(db, input);
+  // 送出成功但申請 id 沒記上（confirmHrRequestDraft 最後一步失敗）的草稿也走這裡：不知道是哪一張就不猜。
+  if (!row || row.status !== "submitted" || !row.submittedRequestId) return { outcome: "gone" };
+  const kindLabel = KIND_LABELS[row.kind];
+  const handler = handlerFor(row.kind);
+  const status = await handler.requestStatus(db, row.submittedRequestId);
+  if (status === null || status === "cancelled") return { outcome: "already_withdrawn", kindLabel };
+  if (status !== "pending") return { outcome: "reviewed", kindLabel };
+  try {
+    await handler.withdraw(db, row.submittedRequestId, input.actor);
+  } catch (error) {
+    // 讀到待審之後、取消之前被審核掉：HR 的取消自己會擋下來，照它的說法回。
+    if (error instanceof HrError) return { outcome: "rejected", kindLabel, message: error.message.trim() };
+    throw error;
+  }
+  return { outcome: "withdrawn", kindLabel };
+}
+
+/** 按鈕指的那張草稿，而且確實是這個人在這段對話裡的；不是就當作不存在。 */
+async function pressedDraft(db: Database, input: { draftId: string; conversation: HrRequestDraftConversation; userId: string; actor: HrActor }) {
+  const [row] = await db.select().from(assistantHrRequestDrafts).where(eq(assistantHrRequestDrafts.id, input.draftId)).limit(1);
+  if (!row || row.userId !== input.userId || input.actor.id !== input.userId
+    || row.assistantKey !== input.conversation.assistantKey || row.surface !== input.conversation.surface
+    || row.channelKey !== input.conversation.channelKey || row.conversationKey !== input.conversation.conversationKey) return null;
+  return row;
 }

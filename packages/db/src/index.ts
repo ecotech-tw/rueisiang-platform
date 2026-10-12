@@ -25,8 +25,8 @@ export {
 } from "./hr-special-workdays.js";
 export { approveHrOvertimeBatch, cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, checkHrSelfOvertimeRequest, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, reviewHrOvertimeRequest, updateHrOvertimeRequest, MAX_OVERTIME_CANCELLATION_ENTRIES, type HrOvertimeBatchInput, type HrOvertimeCancellationOptions, type HrOvertimeDay, type HrOvertimeInput, type HrOvertimeRequestCreateOptions } from "./hr-overtime.js";
 export {
-  cancelHrRequestDraft, confirmHrRequestDraft, discardHrRequestDrafts, getHrRequestDraft, hrRequestDraftHint, saveHrRequestDraft,
-  type HrRequestDraftFields, type HrRequestDraftConfirmation, type HrRequestDraftConversation, type HrRequestDraftInput, type HrRequestDraftKind, type HrRequestDraftCardRow, type HrRequestDraftSaveResult, type HrRequestDraftScope, type HrRequestDraftView,
+  cancelHrRequestDraft, confirmHrRequestDraft, discardHrRequestDrafts, getHrRequestDraft, hrRequestDraftHint, saveHrRequestDraft, withdrawHrRequestDraft,
+  type HrRequestDraftFields, type HrRequestDraftConfirmation, type HrRequestDraftConversation, type HrRequestDraftInput, type HrRequestDraftKind, type HrRequestDraftCardRow, type HrRequestDraftSaveResult, type HrRequestDraftScope, type HrRequestDraftView, type HrRequestWithdrawal,
 } from "./assistant-hr-drafts.js";
 export {
   listHrSelfToolLeaveRequests, getHrSelfToolAnnualLeave, listHrSelfToolOvertimeRequests, listHrSelfToolSchedule, listHrToolCalendar, listHrSandboxEmployees,

@@ -1,12 +1,12 @@
 import {
-  cancelHrRequestDraft, confirmHrRequestDraft, createDatabase, discardHrRequestDrafts, ensureAssistantDefaults, ensureAssistantLineChannel, getHrRequestDraft, hrRequestDraftHint,
+  cancelHrLeaveRequest, cancelHrRequestDraft, confirmHrRequestDraft, withdrawHrRequestDraft, createDatabase, discardHrRequestDrafts, ensureAssistantDefaults, ensureAssistantLineChannel, getHrRequestDraft, hrRequestDraftHint,
   listAssistantChannelTools, listAssistantToolConfigs, saveHrRequestDraft, setAssistantChannelTools, syncSystemRoles, type HrRequestDraftScope,
 } from "@rueisiang/db";
 import { assistantHrRequestDrafts, hrEmployments, hrFormRequests, hrLeaveRequests, hrNotifications, hrLeaveTypes, hrOvertimeRequests, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { HR_TOOL_DEFINITIONS, isHrToolKey, PLATFORM_TOOL_DEFAULT_STATUSES, PLATFORM_TOOL_KEYS, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { hrRequestDraftCalendar, hrRequestDraftPromptRules } from "./assistant-hr.js";
+import { hrRequestDraftCalendar, hrRequestDraftConfirmationReply, hrRequestDraftPromptRules } from "./assistant-hr.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 
 // 台北 2026-03-02（週一）08:00。
@@ -299,9 +299,14 @@ describe("小香 HR 申請草稿：員工按下確認", () => {
     });
     const outcome = await press(draft);
     vi.restoreAllMocks();
-    expect(outcome).toMatchObject({ outcome: "submitted" });
+    // 沒記上 id 就不知道是哪一張：卡片不能放取消按鈕，按了也只會回找不到。
+    expect(outcome).toMatchObject({ outcome: "submitted", withdrawable: false });
+    // 卡片沒有按鈕，回覆就要講去哪裡取消。
+    expect(hrRequestDraftConfirmationReply(outcome)).toBe("已送出請假申請，等候審核。如需取消，請到 HR 頁面處理。");
     expect(await leaves()).toHaveLength(1);
     expect(await stored()).toMatchObject({ status: "submitted", submittedRequestId: null });
+    expect(await withdrawHrRequestDraft(db(), { draftId: draft.id, conversation, userId: "alice", actor: alice })).toEqual({ outcome: "gone" });
+    expect((await leaves())[0]!.status).toBe("pending");
     // 重新打開的話，這裡會變成第二張申請。
     expect(await press(draft)).toEqual({ outcome: "already_submitted", kindLabel: "請假" });
     expect(await getHrRequestDraft(db(), line, NOW)).toBeNull();
@@ -344,10 +349,43 @@ describe("小香 HR 申請草稿：員工按下確認", () => {
     expect(await stored()).toMatchObject({ status: "open", submittedRequestId: null });
   });
 
+  it("送出後按取消申請：收回那張待審的請假並通知審核者；不是本人或不是那段對話就當作不存在；再按一次照實說已經取消", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    const withdraw = (patch: Record<string, unknown> = {}) => withdrawHrRequestDraft(db(), { draftId: draft.id, conversation, userId: "alice", actor: alice, ...patch });
+    // 還沒送出的草稿沒有東西可以收回。
+    expect(await withdraw()).toEqual({ outcome: "gone" });
+    await press(draft);
+    expect(await withdraw({ userId: "bob", actor: { id: "bob", email: "bob@example.test" } })).toEqual({ outcome: "gone" });
+    expect(await withdraw({ actor: { id: "bob", email: "bob@example.test" } })).toEqual({ outcome: "gone" });
+    expect(await withdraw({ conversation: { ...conversation, conversationKey: "group-row-2" } })).toEqual({ outcome: "gone" });
+    expect(await withdraw({ draftId: crypto.randomUUID() })).toEqual({ outcome: "gone" });
+    expect((await leaves())[0]!.status).toBe("pending");
+
+    expect(await withdraw()).toEqual({ outcome: "withdrawn", kindLabel: "請假" });
+    expect((await leaves())[0]!.status).toBe("cancelled");
+    // 用的是 HR 頁面那顆取消的同一個函式：審核者收得到通知。
+    expect((await db().select().from(hrNotifications)).filter((row) => row.kind === "request_cancelled")).toHaveLength(1);
+    expect(await withdraw()).toEqual({ outcome: "already_withdrawn", kindLabel: "請假" });
+    expect((await db().select().from(hrNotifications)).filter((row) => row.kind === "request_cancelled")).toHaveLength(1);
+  });
+
+  it("已經核准的請假不從聊天室收回：卡片上的按鈕會一直留著，誤觸不該動到別人已經照著排班的假", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    const submitted = await press(draft);
+    await db().update(hrLeaveRequests).set({ status: "approved" });
+    expect(await withdrawHrRequestDraft(db(), { draftId: draft.id, conversation, userId: "alice", actor: alice })).toEqual({ outcome: "reviewed", kindLabel: "請假" });
+    expect((await leaves())[0]!.status).toBe("approved");
+    // 讀到待審之後才被核准的那一瞬間，擋下來的是 HR 的取消自己。
+    await expect(cancelHrLeaveRequest(db(), (submitted as { requestId: string }).requestId, alice, { pendingOnly: true })).rejects.toThrow("已經審核過了");
+    expect((await leaves())[0]!.status).toBe("approved");
+    await db().update(hrLeaveRequests).set({ status: "rejected" });
+    expect(await withdrawHrRequestDraft(db(), { draftId: draft.id, conversation, userId: "alice", actor: alice })).toEqual({ outcome: "reviewed", kindLabel: "請假" });
+  });
+
   it("建立一張待審的請假：時間轉成 UTC、申請人是本人，草稿記下申請的 id", async () => {
     const draft = await saveHrRequestDraft(db(), line, complete, NOW);
     const outcome = await press(draft);
-    expect(outcome).toMatchObject({ outcome: "submitted", kindLabel: "請假", card: draft.card });
+    expect(outcome).toMatchObject({ outcome: "submitted", kindLabel: "請假", cardRows: draft.cardRows, withdrawable: true });
     const [request] = await leaves();
     // 台北 2026-03-03 09:00–12:00。
     expect(request).toMatchObject({
@@ -462,7 +500,7 @@ describe("小香 HR 申請草稿：加班", () => {
 
   it("按確認：建立一張待審、領加班費的加班申請，時間轉成 UTC；再按不會重複", async () => {
     const draft = await saveHrRequestDraft(db(), line, complete, NOW);
-    expect(await press(draft)).toMatchObject({ outcome: "submitted", kindLabel: "加班", card: draft.card });
+    expect(await press(draft)).toMatchObject({ outcome: "submitted", kindLabel: "加班", cardRows: draft.cardRows });
     expect(await overtime()).toEqual([expect.objectContaining({
       employmentId: "employment-alice", status: "pending", settlementKind: "pay", reason: "月底盤點",
       requestedStart: "2026-03-03 10:00:00", requestedEnd: "2026-03-03 12:30:00", actualStart: null, createdBy: "alice",
@@ -470,6 +508,19 @@ describe("小香 HR 申請草稿：加班", () => {
     expect(await press(draft)).toEqual({ outcome: "already_submitted", kindLabel: "加班" });
     expect(await overtime()).toHaveLength(1);
     expect(await db().select().from(hrLeaveRequests)).toHaveLength(0);
+  });
+
+  it("送出後按取消申請：待審的加班被刪掉（加班的取消就是刪列）；再按照實說已經取消；已核准的不收回", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    await press(draft);
+    const withdraw = () => withdrawHrRequestDraft(db(), { draftId: draft.id, conversation, userId: "alice", actor: alice });
+    await db().update(hrOvertimeRequests).set({ status: "approved" });
+    expect(await withdraw()).toEqual({ outcome: "reviewed", kindLabel: "加班" });
+    expect(await overtime()).toHaveLength(1);
+    await db().update(hrOvertimeRequests).set({ status: "pending" });
+    expect(await withdraw()).toEqual({ outcome: "withdrawn", kindLabel: "加班" });
+    expect(await overtime()).toHaveLength(0);
+    expect(await withdraw()).toEqual({ outcome: "already_withdrawn", kindLabel: "加班" });
   });
 
   it("跟既有的加班重疊時 HR 拒絕：照實說沒有送出，改了時間可以再送", async () => {
@@ -538,7 +589,7 @@ describe("小香 HR 申請草稿：補打卡", () => {
 
   it("按確認：建立並送出一張待審的補打卡，時間轉成 UTC、審核者是直屬主管；再按不會重複", async () => {
     const draft = await saveHrRequestDraft(db(), line, complete, NOW);
-    expect(await press(draft)).toMatchObject({ outcome: "submitted", kindLabel: "補打卡", card: draft.card });
+    expect(await press(draft)).toMatchObject({ outcome: "submitted", kindLabel: "補打卡", cardRows: draft.cardRows });
     expect(await forms()).toEqual([expect.objectContaining({
       employeeUserId: "alice", employmentId: "employment-alice", formKind: "clock_correction", status: "pending",
       correctionDate: "2026-03-03", requestedEventKind: "clock_in", requestedAt: "2026-03-03 01:05:00", reason: "手機沒電", approverUserId: "bob",
@@ -546,6 +597,18 @@ describe("小香 HR 申請草稿：補打卡", () => {
     expect((await forms())[0]!.submittedAt).toBeTruthy();
     expect(await press(draft)).toEqual({ outcome: "already_submitted", kindLabel: "補打卡" });
     expect(await forms()).toHaveLength(1);
+  });
+
+  it("送出後按取消申請：待審的補打卡變成已取消；已核准的不收回", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    await press(draft);
+    const withdraw = () => withdrawHrRequestDraft(db(), { draftId: draft.id, conversation, userId: "alice", actor: alice });
+    await db().update(hrFormRequests).set({ status: "approved" });
+    expect(await withdraw()).toEqual({ outcome: "reviewed", kindLabel: "補打卡" });
+    await db().update(hrFormRequests).set({ status: "pending" });
+    expect(await withdraw()).toEqual({ outcome: "withdrawn", kindLabel: "補打卡" });
+    expect((await forms())[0]!.status).toBe("cancelled");
+    expect(await withdraw()).toEqual({ outcome: "already_withdrawn", kindLabel: "補打卡" });
   });
 
   it("台北凌晨的打卡在 UTC 是前一天：補打卡的日期仍是台北那一天", async () => {
