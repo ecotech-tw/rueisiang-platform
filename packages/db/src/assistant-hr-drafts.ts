@@ -537,8 +537,12 @@ export async function cancelHrRequestDraft(db: Database, scope: HrRequestDraftSc
 }
 
 export type HrRequestDraftConfirmation =
-  /** 申請建立了。cardRows 是送出時的內容，回覆員工用。 */
-  | { outcome: "submitted"; kindLabel: string; requestId: string; cardRows: HrRequestDraftCardRow[] }
+  /**
+   * 申請建立了。cardRows 是送出時的內容，回覆員工用。
+   * withdrawable 是「草稿有沒有記下這張申請的 id」：沒記上的話 withdrawHrRequestDraft 找不到是哪一張，
+   * 卡片上就不能放一顆按了只會說找不到的取消按鈕。
+   */
+  | { outcome: "submitted"; kindLabel: string; requestId: string; cardRows: HrRequestDraftCardRow[]; withdrawable: boolean }
   | { outcome: "cancelled"; kindLabel: string }
   /** 找不到、不是這個人的、不是這段對話的、已取消或已過期：對按的人來說都是「這張已經不在了」。 */
   | { outcome: "gone" }
@@ -609,8 +613,9 @@ export async function confirmHrRequestDraft(
     throw error;
   }
   // 申請已經建立，從這裡開始不能再讓任何失敗把草稿退回去。id 只是方便追查，記不上不影響結果。
-  await db.update(assistantHrRequestDrafts).set({ submittedRequestId: requestId }).where(eq(assistantHrRequestDrafts.id, row.id)).catch(() => undefined);
-  return { outcome: "submitted", kindLabel, requestId, cardRows };
+  const recorded = await db.update(assistantHrRequestDrafts).set({ submittedRequestId: requestId }).where(eq(assistantHrRequestDrafts.id, row.id))
+    .returning({ id: assistantHrRequestDrafts.id }).then((rows) => rows.length > 0, () => false);
+  return { outcome: "submitted", kindLabel, requestId, cardRows, withdrawable: recorded };
 }
 
 export type HrRequestWithdrawal =

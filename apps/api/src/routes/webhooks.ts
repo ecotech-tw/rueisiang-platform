@@ -1547,7 +1547,7 @@ async function confirmLineHrDraft(c: Context<AppEnv>, input: {
       assistantLog("info", "line.hr_draft.confirmed", { ...trace, outcome: outcome.outcome });
       text = hrRequestDraftConfirmationReply(outcome);
       if (outcome.outcome === "submitted") {
-        extraMessages = lineHrRequestSubmittedMessages({ id: input.postback.draftId, revision: input.postback.revision, kindLabel: outcome.kindLabel, cardRows: outcome.cardRows });
+        extraMessages = lineHrRequestSubmittedMessages({ id: input.postback.draftId, revision: input.postback.revision, kindLabel: outcome.kindLabel, cardRows: outcome.cardRows, withdrawable: outcome.withdrawable });
       }
     }
   } catch (error) {

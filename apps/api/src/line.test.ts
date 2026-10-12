@@ -40,7 +40,7 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
-import { lineQuestionText } from "./line.js";
+import { lineHrRequestSubmittedMessages, lineQuestionText } from "./line.js";
 import { LineHrSelfService } from "./assistant-hr.js";
 import type { PiLineAgentRunRequest, PiLineAgentRunResponse } from "./pi-agent-contract.js";
 import { processLineAssistantQueueMessage } from "./routes/webhooks.js";
@@ -1449,6 +1449,15 @@ describe("LINE 申請草稿：確認卡片與按鈕", () => {
     await press(withdraw);
     expect(replies().at(-1)).toBe("這張請假申請已經審核過了，不能在這裡取消。需要更動請到 HR 頁面處理。");
     expect((await leaves())[0]!.status).toBe("approved");
+  });
+
+  it("草稿沒記下申請 id 時，已送出的卡片不放取消按鈕，也不留一塊空的 footer", () => {
+    const card = { id: crypto.randomUUID(), revision: 2, kindLabel: "請假", cardRows: [{ label: "假別", value: "事假" }] };
+    const [withButton] = lineHrRequestSubmittedMessages({ ...card, withdrawable: true }) as unknown as [FlexCard];
+    expect(cardButtonsOf(withButton)).toHaveLength(1);
+    const [withoutButton] = lineHrRequestSubmittedMessages({ ...card, withdrawable: false }) as unknown as [FlexCard];
+    expect(withoutButton.contents).not.toHaveProperty("footer");
+    expect(cardRowsOf(withoutButton)).toEqual(card.cardRows);
   });
 
   it("LINE 重送同一個按鈕事件：只有一張申請，第二次回的是已經送出過", async () => {

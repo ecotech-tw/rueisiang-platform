@@ -299,9 +299,12 @@ describe("小香 HR 申請草稿：員工按下確認", () => {
     });
     const outcome = await press(draft);
     vi.restoreAllMocks();
-    expect(outcome).toMatchObject({ outcome: "submitted" });
+    // 沒記上 id 就不知道是哪一張：卡片不能放取消按鈕，按了也只會回找不到。
+    expect(outcome).toMatchObject({ outcome: "submitted", withdrawable: false });
     expect(await leaves()).toHaveLength(1);
     expect(await stored()).toMatchObject({ status: "submitted", submittedRequestId: null });
+    expect(await withdrawHrRequestDraft(db(), { draftId: draft.id, conversation, userId: "alice", actor: alice })).toEqual({ outcome: "gone" });
+    expect((await leaves())[0]!.status).toBe("pending");
     // 重新打開的話，這裡會變成第二張申請。
     expect(await press(draft)).toEqual({ outcome: "already_submitted", kindLabel: "請假" });
     expect(await getHrRequestDraft(db(), line, NOW)).toBeNull();
@@ -380,7 +383,7 @@ describe("小香 HR 申請草稿：員工按下確認", () => {
   it("建立一張待審的請假：時間轉成 UTC、申請人是本人，草稿記下申請的 id", async () => {
     const draft = await saveHrRequestDraft(db(), line, complete, NOW);
     const outcome = await press(draft);
-    expect(outcome).toMatchObject({ outcome: "submitted", kindLabel: "請假", cardRows: draft.cardRows });
+    expect(outcome).toMatchObject({ outcome: "submitted", kindLabel: "請假", cardRows: draft.cardRows, withdrawable: true });
     const [request] = await leaves();
     // 台北 2026-03-03 09:00–12:00。
     expect(request).toMatchObject({

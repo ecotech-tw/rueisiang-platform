@@ -341,18 +341,21 @@ function hrDraftCardMessage(draft: HrDraftCard, card: { altText: string; status:
           ],
         })),
       },
-      footer: {
-        type: "box", layout: "vertical", paddingAll: "16px", spacing: "sm",
-        contents: [
-          { type: "separator", color: color.softLine },
-          ...card.buttons.map((button, index) => ({
-            type: "button", style: button.style, height: "sm", ...(index === 0 ? { margin: "md" } : {}),
-            // secondary 有自己的灰底，再指定顏色會把底色換掉。
-            ...(button.style === "secondary" ? {} : { color: button.style === "primary" ? color.brand : color.muted }),
-            action: { type: "postback", label: button.label, data: `${HR_DRAFT_POSTBACK_PREFIX}:${button.action}:${draft.id}:${draft.revision}`, displayText: button.displayText },
-          })),
-        ],
-      },
+      // 沒有按鈕就整塊不放：只剩一條分隔線的 footer 沒有意義。
+      ...(card.buttons.length ? {
+        footer: {
+          type: "box", layout: "vertical", paddingAll: "16px", spacing: "sm",
+          contents: [
+            { type: "separator", color: color.softLine },
+            ...card.buttons.map((button, index) => ({
+              type: "button", style: button.style, height: "sm", ...(index === 0 ? { margin: "md" } : {}),
+              // secondary 有自己的灰底，再指定顏色會把底色換掉。
+              ...(button.style === "secondary" ? {} : { color: button.style === "primary" ? color.brand : color.muted }),
+              action: { type: "postback", label: button.label, data: `${HR_DRAFT_POSTBACK_PREFIX}:${button.action}:${draft.id}:${draft.revision}`, displayText: button.displayText },
+            })),
+          ],
+        },
+      } : {}),
     },
   };
 }
@@ -384,13 +387,14 @@ export function lineHrDraftConfirmMessages(draft: HrDraftCard): LineExtraMessage
  *
  * 員工最常在這一刻才發現送錯（日期、假別），而小香沒有取消已送出申請的工具：沒有這顆按鈕的話，
  * 他只能自己到 HR 頁面找那一張。按鈕帶的仍是草稿 id，由 withdrawHrRequestDraft 找出它送出的那一張。
- * 不用品牌色：這是收回，不是這張卡片希望他做的事。
+ * 不用品牌色：這是收回，不是這張卡片希望他做的事。草稿沒記下申請 id 時（withdrawable 為 false）不放按鈕：
+ * 那顆按鈕按了只會回找不到。
  */
-export function lineHrRequestSubmittedMessages(draft: HrDraftCard): LineExtraMessage[] {
+export function lineHrRequestSubmittedMessages(draft: HrDraftCard & { withdrawable: boolean }): LineExtraMessage[] {
   return [hrDraftCardMessage(draft, {
     altText: `已送出${draft.kindLabel}申請`,
     status: "已送出，等候審核",
-    buttons: [{ style: "secondary", label: "取消申請", displayText: "取消申請", action: "withdraw" }],
+    buttons: draft.withdrawable ? [{ style: "secondary", label: "取消申請", displayText: "取消申請", action: "withdraw" }] : [],
   })];
 }
 
