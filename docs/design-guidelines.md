@@ -12,6 +12,8 @@
 
 所有涉及 UI 的 agent，在新增或修改頁面、元件、CSS 前先讀本文件與 `better-ui` skill。若既有元件能承載需求，不得在 route 裡另做一份外觀相同的 markup 或 CSS。
 
+樣式寫在哪裡（元件內的 Tailwind inline class、不從外面覆寫）以 [`CLAUDE.md`](../CLAUDE.md) 的「CSS 怎麼分工」為準；本文件提到的 base class 與 modifier class，只適用於還沒搬進元件的既有樣式。
+
 ## 盤點結論
 
 ### 跨 app 應共用的 primitive

@@ -163,28 +163,44 @@ UI 一律照 Material 3 的規格做，不要自己發明一套。既有的元�
 品牌色套進 Material 的角色：`--color-brand` 當 primary，`--color-brand-soft` 當
 primary-container，`--color-muted` 當 on-surface-variant。
 
-### CSS 怎麼分工：Tailwind v4 ＋ 語意化元件 class
+### CSS 怎麼分工：Tailwind v4 ＋ 共用元件
 
-**token 只有一份，寫在 `apps/portal/src/styles.css` 的 `@theme` 裡。**
-Tailwind v4 沒有 `tailwind.config.js`，設定就是 CSS。`@theme` 裡的每個值同時是
-CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`），所以
-不會有「CSS 改了但 config 沒改」這種漂移。要加顏色、圓角、陰影就加在那裡，
+**token 只有一份，寫在 `packages/ui/theme.css` 的 `@theme` 裡**，兩個 app 的 styles
+入口都 import 它。Tailwind v4 沒有 `tailwind.config.js`，設定就是 CSS。`@theme` 裡的
+每個值同時是 CSS 變數（`var(--color-brand)`）與 utility（`bg-brand`、`text-muted`），
+所以不會有「CSS 改了但 config 沒改」這種漂移。要加顏色、圓角、陰影就加在那裡，
 不要在元件裡寫死色碼。
 
-**元件樣式在 `apps/portal/src/styles/components.css`，用 `layer(components)` 匯入。**
-掛在 layer 裡的理由：utility 一定贏。沒有 layer 的話「`.panel` 的 padding」跟
-「`p-6`」誰贏要看誰寫在後面，那是最難查的一種 bug。
+**外觀寫在元件裡，用 Tailwind utility 當 inline class。** 語意放在元件名稱與 prop
+（`<Button tone="add" size="sm">`），不放在 class 名稱。會重複出現的東西抽成
+`packages/ui` 的元件，不是抽成一個 class。
+
+理由：class 是全域的，任何一頁都能從外面蓋掉它，也能把它挪去做別的事。
+`.add-action` 本來只管顏色，後來又被當成「手機上的圓形圖示按鈕」——想要顏色的頁面
+一起拿到圓形，每一處都得再寫一條規則把它關掉。寫在元件裡的外觀沒有這條路可走。
 
 分工原則：
 
-- **會重複出現的東西寫成語意化 class**（`.panel`、`.data-table`、`.nav-item`）。
-  一個 `.panel` 比一串 `rounded-card border border-line bg-paper p-5 shadow-panel`
-  好讀，而且改規格時只改一個地方。這一套就是上面那份 Material 3 規格的實作。
-- **一次性的版面微調用 utility**（`whitespace-nowrap`、`mt-4`）。為了一個地方
-  發明一個 class 名字不划算。
-- Tailwind 已經有的東西不要再自己寫一個同義的 class。
-- 半透明的品牌色用 `--alpha(var(--color-brand) / 7%)`，不要手寫 `rgba(213, 56, 59, .07)`——
-  色碼改了那些 rgba 不會跟著改。
+- **不從外面改共用元件的外觀。** 不寫 `.某容器 button { … }` 這類選擇器，也不靠
+  `className` 蓋顏色、尺寸、圓角。需要變化就替元件加 prop。
+- **版面歸使用它的那一層管。** 擺在哪、多寬、跟旁邊隔多遠（`mt-4`、`flex-1`、grid
+  位置）由外層用 utility 決定；元件的 `className` 只給這種用途，元件自己不帶外距。
+- **狀態與斷點用 variant 寫在同一處**（`hover:`、`focus-visible:`、`disabled:`、
+  `active:`、`max-sm:`），不要拆到另一個檔案。
+- **不新增語意化 class。** `components.css` 裡既有的 class，在所屬元件搬完之前照舊
+  使用；搬一個元件時，把它的 class 連同所有從外面覆寫它的規則一起刪掉，不留新舊兩套。
+- **留在 CSS 檔的只有 utility 寫不到的東西**：`@theme`、`@layer base` 的元素預設、
+  `@keyframes`、第三方元件自己產生的 DOM（地圖）。
+- 半透明的品牌色用 `bg-brand/7`，CSS 檔裡用 `--alpha(var(--color-brand) / 7%)`；不要手寫
+  `rgba(213, 56, 59, .07)`——色碼改了那些 rgba 不會跟著改。
+
+**`packages/ui` 不在 app 的掃描範圍裡。** Tailwind 只掃 app 自己的目錄，所以兩個 app 的
+styles 入口必須用 `@source` 指到 `packages/ui/src`。少了這一行不會報錯，元件裡的 class
+只是不會被產生，畫面上就是一顆沒有樣式的按鈕。
+
+**既有的 `components.css` 用 `layer(components)` 匯入**，所以 utility 一定贏過還沒搬的
+舊 class。沒有 layer 的話「`.panel` 的 padding」跟「`p-6`」誰贏要看誰寫在後面，
+那是最難查的一種 bug。
 
 **preflight 會重置掉瀏覽器預設樣式**，所以標題字重、清單的項目符號這類東西要自己寫回來
 （`styles.css` 的 `@layer base` 已經處理了 `h1`–`h3`）。新加標籤時記得確認。
