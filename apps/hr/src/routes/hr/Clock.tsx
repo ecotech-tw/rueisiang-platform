@@ -507,7 +507,7 @@ function ClockHistoryDay({ day }: { day: ClockCalendarDay }) {
     <div className="hr-clock-history-day-head"><div><strong>{dayLabel}</strong><span>{calendarStatusLabel(day.status)}</span></div><strong>{day.workedMinutes ? formatWorkedMinutes(day.workedMinutes) : "—"}</strong></div>
     {day.expectedStartAt || day.expectedEndAt ? <p className="hr-clock-history-schedule">預期 {formatTaipeiTime(day.expectedStartAt)}～{formatTaipeiTime(day.expectedEndAt)}</p> : null}
     {day.events.length ? <ol className="hr-clock-history-events">{day.events.map((event, index) => <li key={event.id}><span>{eventLabel(index, day.events.length)}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}</ol> : day.anomaly ? null : <p className="hr-clock-history-empty">{day.anomalyMessage ?? (day.status === "missing" ? "這天尚未有打卡紀錄。" : "沒有打卡事件。")}</p>}
-    {day.anomaly ? <p className="hr-clock-history-anomaly">{day.anomalyMessage ?? "請確認出勤紀錄。"}</p> : null}
+    {day.anomaly ? <p className="hr-clock-history-anomaly">{day.anomalyMessage ?? (day.status === "missing" ? "這天尚未有打卡紀錄。" : "請確認出勤紀錄。")}</p> : null}
   </article>;
 }
 
@@ -539,7 +539,8 @@ export function HrClockLogs() {
         <div className="hr-clock-history-toolbar"><Button variant="icon" icon="chevronLeft" aria-label="上個月" onClick={() => changeMonth(-1)} /><strong>{monthLabel(calendarMonth.year, calendarMonth.month)}</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" onClick={() => changeMonth(1)} /></div>
         <div className="hr-clock-history-summary"><div><span>實際工時</span><strong>{summaryReady ? formatWorkedMinutes(totalWorkedMinutes) : "—"}</strong></div><div><span>有打卡日</span><strong>{summaryReady ? `${recordedCount} 天` : "—"}</strong></div><div><span>待確認</span><strong>{summaryReady ? `${anomalyCount} 天` : "—"}</strong></div></div>
       </div>
-      <div className="hr-clock-logs-scroll">
+      {/* 清單裡沒有任何可聚焦的東西，不給 tabIndex 的話 Safari 的鍵盤使用者捲不到下面。 */}
+      <div className="hr-clock-logs-scroll" role="region" aria-label="每日打卡紀錄" tabIndex={0}>
         {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
         {calendar.isPending ? <p className="muted">載入月度紀錄…</p> : calendar.data ? days.length ? <div className="hr-clock-history-days">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <div className="hr-form-empty-state"><strong>本月沒有需要顯示的紀錄</strong><p className="muted">有打卡或出勤異常的日期會列在這裡。</p></div> : null}
       </div>
