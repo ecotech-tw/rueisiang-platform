@@ -67,7 +67,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(closedBody.counts.closed).toBeGreaterThanOrEqual(1);
   });
 
-  it("薪資加扣項可刪除且版本過期或薪資月份結帳後會拒絕", async () => {
+  it("同月只有已發放人員的加扣項鎖定，尚未發放的人員仍可修改", async () => {
     const removable = await request("/hr/payroll/adjustments", "POST", {
       employmentId: "dev-employment-lin", effectivePeriodKey: "2026-09", reason: "刪除測試", items: [{ itemName: "測試補發", amountMinor: 100 }],
     });
@@ -82,20 +82,34 @@ describe("HR 薪資與櫃點獎金試算", () => {
     });
     expect(protectedAdjustment.status, await protectedAdjustment.clone().text()).toBe(201);
     const protectedId = (await protectedAdjustment.json() as { id: string }).id;
-    const editableRows = await request("/hr/payroll/adjustments?effectivePeriodKey=2026-08");
-    const editableAdjustment = (await editableRows.json() as { adjustments: Array<{ id: string; canEdit: boolean }> }).adjustments.find((row) => row.id === protectedId);
-    expect(editableAdjustment?.canEdit).toBe(true);
+    const unpaidAdjustment = await request("/hr/payroll/adjustments", "POST", {
+      employmentId: "dev-employment-wang", effectivePeriodKey: "2026-08", reason: "尚未發放測試", items: [{ itemName: "未發放項目", amountMinor: 100 }],
+    });
+    expect(unpaidAdjustment.status, await unpaidAdjustment.clone().text()).toBe(201);
+    const unpaidId = (await unpaidAdjustment.json() as { id: string }).id;
+    const beforeClose = await request("/hr/payroll/adjustments?effectivePeriodKey=2026-08");
+    const beforeCloseRows = (await beforeClose.json() as { adjustments: Array<{ id: string; canEdit: boolean }> }).adjustments;
+    expect(beforeCloseRows.find((row) => row.id === protectedId)?.canEdit).toBe(true);
+    expect(beforeCloseRows.find((row) => row.id === unpaidId)?.canEdit).toBe(true);
     const calculation = await request("/hr/payroll/calculate", "POST", {
       periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-adjustment-delete-closed-period",
     });
     expect(calculation.status, await calculation.clone().text()).toBe(200);
     const runId = (await calculation.json() as { run: { runId: string } }).run.runId;
     expect((await request(`/hr/payroll/runs/${runId}/close`, "POST", {})).status).toBe(200);
+    const afterClose = await request("/hr/payroll/adjustments?effectivePeriodKey=2026-08");
+    const afterCloseRows = (await afterClose.json() as { adjustments: Array<{ id: string; canEdit: boolean }> }).adjustments;
+    expect(afterCloseRows.find((row) => row.id === protectedId)?.canEdit).toBe(false);
+    expect(afterCloseRows.find((row) => row.id === unpaidId)?.canEdit).toBe(true);
     expect((await request(`/hr/payroll/adjustments/${protectedId}`, "PATCH", {
       employmentId: "dev-employment-lin", effectivePeriodKey: "2026-08", reason: "已發放不可編輯", revision: 1, items: [{ itemName: "保留項目", amountMinor: 100 }],
     })).status).toBe(409);
     expect((await request(`/hr/payroll/adjustments/${protectedId}`, "DELETE", { revision: 1 })).status).toBe(409);
-    await expect((await request("/hr/payroll/adjustments?effectivePeriodKey=2026-08")).json()).resolves.toMatchObject({ adjustments: [expect.objectContaining({ id: protectedId, canEdit: false })] });
+    const updatedUnpaid = await request(`/hr/payroll/adjustments/${unpaidId}`, "PATCH", {
+      employmentId: "dev-employment-wang", effectivePeriodKey: "2026-08", reason: "未發放仍可修改", revision: 1, items: [{ itemName: "未發放項目", amountMinor: 200 }],
+    });
+    expect(updatedUnpaid.status, await updatedUnpaid.clone().text()).toBe(200);
+    expect((await request(`/hr/payroll/adjustments/${unpaidId}`, "DELETE", { revision: 2 })).status).toBe(200);
   });
 
   it("員工薪資袋只提供本人已發放的薪資單與明細", async () => {
