@@ -1,10 +1,10 @@
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, sql, type SQLWrapper } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrEmployments } from "./schema/hr-people.js";
-import { hrPayrollAdjustmentItems, hrPayrollAdjustments, hrPayrollClosedEmployees, hrPayrollClosedWorkers, hrPayrollPeriods, hrPayrollRuns, hrPayrollWorkerResults, hrPayslips } from "./schema/hr-payroll-runs.js";
+import { hrPayrollAdjustmentItems, hrPayrollAdjustments } from "./schema/hr-payroll-runs.js";
 import { users } from "./schema/auth.js";
 
 export interface HrPayrollAdjustmentItemInput { itemName: string; amountMinor: number }
@@ -22,21 +22,19 @@ function validate(input: HrPayrollAdjustmentInput) {
     if (!item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor) || item.amountMinor === 0) throw new HrError(400, "薪資加扣項目或金額不正確。 ");
   }
 }
+function payrollAdjustmentCanEdit(employmentId: SQLWrapper | string, effectivePeriodKey: SQLWrapper | string) {
+  return sql<number>`NOT (
+    EXISTS (SELECT 1 FROM hr_payroll_periods p WHERE p.period_key=${effectivePeriodKey} AND p.status='closed')
+    OR EXISTS (SELECT 1 FROM hr_payslips s INNER JOIN hr_payroll_runs r ON r.id=s.payroll_run_id INNER JOIN hr_payroll_periods p ON p.id=r.payroll_period_id WHERE s.employment_id=${employmentId} AND p.period_key=${effectivePeriodKey} AND r.status='closed')
+    OR EXISTS (SELECT 1 FROM hr_payroll_closed_employees c WHERE c.period_key=${effectivePeriodKey} AND c.employment_id=${employmentId})
+    OR EXISTS (SELECT 1 FROM hr_payroll_worker_results w INNER JOIN hr_payroll_runs r ON r.id=w.payroll_run_id INNER JOIN hr_payroll_periods p ON p.id=r.payroll_period_id WHERE w.worker_id=${employmentId} AND p.period_key=${effectivePeriodKey} AND r.status='closed')
+    OR EXISTS (SELECT 1 FROM hr_payroll_closed_workers c WHERE c.period_key=${effectivePeriodKey} AND c.worker_id=${employmentId})
+  )`;
+}
 async function ensureEditable(db: Database, employmentId: string, effectivePeriodKey: string) {
-  const [periodRow] = await db.select({ status: hrPayrollPeriods.status }).from(hrPayrollPeriods).where(eq(hrPayrollPeriods.periodKey, effectivePeriodKey)).limit(1);
-  const [closed] = await db.select({ id: hrPayslips.id }).from(hrPayslips)
-    .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayslips.payrollRunId))
-    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
-    .where(and(eq(hrPayslips.employmentId, employmentId), eq(hrPayrollPeriods.periodKey, effectivePeriodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
-  const [closedClaim] = await db.select({ employmentId: hrPayrollClosedEmployees.employmentId }).from(hrPayrollClosedEmployees)
-    .where(and(eq(hrPayrollClosedEmployees.periodKey, effectivePeriodKey), eq(hrPayrollClosedEmployees.employmentId, employmentId))).limit(1);
-  const [closedWorker] = await db.select({ id: hrPayrollWorkerResults.id }).from(hrPayrollWorkerResults)
-    .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayrollWorkerResults.payrollRunId))
-    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
-    .where(and(eq(hrPayrollWorkerResults.workerId, employmentId), eq(hrPayrollPeriods.periodKey, effectivePeriodKey), eq(hrPayrollRuns.status, "closed"))).limit(1);
-  const [closedWorkerClaim] = await db.select({ workerId: hrPayrollClosedWorkers.workerId }).from(hrPayrollClosedWorkers)
-    .where(and(eq(hrPayrollClosedWorkers.periodKey, effectivePeriodKey), eq(hrPayrollClosedWorkers.workerId, employmentId))).limit(1);
-  if (periodRow?.status === "closed" || closed || closedClaim || closedWorker || closedWorkerClaim) throw new HrError(409, "加扣項生效月份已結帳，請建立下一個月份的新加扣項。 ");
+  const [row] = await db.select({ canEdit: payrollAdjustmentCanEdit(employmentId, effectivePeriodKey) }).from(hrEmployments)
+    .where(eq(hrEmployments.id, employmentId)).limit(1);
+  if (row && !Boolean(row.canEdit)) throw new HrError(409, "加扣項生效月份已結帳，請建立下一個月份的新加扣項。 ");
 }
 async function ensureEmployment(db: Database, employmentId: string) {
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
@@ -63,17 +61,21 @@ function joinedAdjustment(row: JoinedAdjustmentRow) {
 
 export async function listHrPayrollAdjustments(db: Database, effectivePeriodKey?: string) {
   if (effectivePeriodKey) periodKey(effectivePeriodKey);
+  const periodFilter = effectivePeriodKey ? eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey) : undefined;
   const rawRows = await db.select(adjustmentJoinSelection).from(hrPayrollAdjustments)
     .innerJoin(hrPayrollAdjustmentItems, eq(hrPayrollAdjustmentItems.adjustmentId, hrPayrollAdjustments.id))
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
-    .where(effectivePeriodKey ? eq(hrPayrollAdjustments.effectivePeriodKey, effectivePeriodKey) : undefined).orderBy(desc(hrPayrollAdjustments.effectivePeriodKey), ...hrEmployeeNumberOrder(), asc(hrPayrollAdjustments.createdAt));
+    .where(periodFilter).orderBy(desc(hrPayrollAdjustments.effectivePeriodKey), ...hrEmployeeNumberOrder(), asc(hrPayrollAdjustments.createdAt));
+  const editabilityRows = await db.select({ id: hrPayrollAdjustments.id, canEdit: payrollAdjustmentCanEdit(hrPayrollAdjustments.employmentId, hrPayrollAdjustments.effectivePeriodKey) })
+    .from(hrPayrollAdjustments).where(periodFilter);
   const rows = rawRows.map((row) => joinedAdjustment(row));
   const byId = new Map<string, { adjustment: typeof rows[number]["adjustment"]; employeeNumber: string; employeeName: string; items: typeof rows[number]["item"][] }>();
   for (const row of rows) {
     const current = byId.get(row.adjustment.id) ?? { adjustment: row.adjustment, employeeNumber: row.employeeNumber, employeeName: row.employeeName, items: [] };
     current.items.push(row.item); byId.set(row.adjustment.id, current);
   }
-  return [...byId.values()];
+  const editability = new Map(editabilityRows.map((row) => [row.id, Boolean(row.canEdit)]));
+  return [...byId.values()].map((row) => ({ ...row, canEdit: editability.get(row.adjustment.id) ?? false }));
 }
 
 export async function createHrPayrollAdjustment(db: Database, input: HrPayrollAdjustmentInput, actor: HrActor) {

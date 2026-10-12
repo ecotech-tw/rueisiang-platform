@@ -312,6 +312,7 @@ export interface PayrollAdjustment {
   updatedBy: string;
   updatedAt: string;
   revision: number;
+  canEdit: boolean;
   employeeName: string;
   employeeNumber?: string;
   items: PayrollAdjustmentItem[];
