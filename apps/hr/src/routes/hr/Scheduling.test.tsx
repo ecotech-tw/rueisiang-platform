@@ -456,7 +456,7 @@ describe("HR 前台快速排班", () => {
       expect(button.getAttribute("aria-pressed")).toBe("true");
       expect(button.className).toContain("ring-brand-dark");
       expect(button.className).toContain("bg-tone-peach/15");
-      expect(button.parentElement!.querySelector(".bg-brand-soft")).not.toBeNull();
+      expect(button.parentElement!.querySelector(":scope > div.bg-brand-soft")).not.toBeNull();
       await page.clickDate("2026-02-06");
       expect(button.getAttribute("aria-pressed")).toBe("false");
       expect(button.className).not.toContain("ring-brand-dark");
