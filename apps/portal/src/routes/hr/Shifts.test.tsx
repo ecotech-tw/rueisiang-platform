@@ -43,14 +43,42 @@ it("時間可手動輸入並驗證 HH:mm，班別名單可多選後一起儲存"
     await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrShifts /></QueryClientProvider></MemoryRouter>));
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="編輯 門市 的班別與排班負責人"]')!.click());
     expect(document.querySelector<HTMLInputElement>('[aria-label="早班平日開始時間"]')!.type).toBe("text");
+    expect(document.body.textContent).not.toContain("每個據點指定一位在職員工");
+    expect(document.body.textContent).not.toContain("時間可直接輸入，格式為");
+    expect(document.querySelector('[aria-label="早班前台人員範圍"]')).toBeNull();
+    const picker = document.querySelector<HTMLInputElement>('[aria-label="早班平日開始時間時間選擇器"]')!;
+    const showPicker = vi.fn(); Object.assign(picker, { showPicker });
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="點選早班平日開始時間"]')!.click());
+    expect(showPicker).toHaveBeenCalledOnce();
     await change("25:00"); await save();
     expect(document.body.textContent).toContain("請輸入有效的 HH:mm"); expect(writes).toHaveLength(0);
     await change("09:30");
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="開啟早班納入人員選單"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="開啟早班排班人員選單"]')!.click());
     await act(async () => ([...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("小明")))!.click());
     await save();
     expect(writes).toHaveLength(1);
     expect(writes[0]).toMatchObject({ allowedPersonIds: ["employee"], times: [{ dayType: "weekday", startTime: "09:30", endTime: "18:00" }] });
+  } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+});
+
+it("舊不限名單直接預選所有有效人員，開啟不產生變更，清空後存成空名單", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); notifyManager.setScheduler(queueMicrotask);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const initial = { ...initialShifts, shifts: initialShifts.shifts.slice(0, 1), people: [{ id: "employee", employeeNumber: "E1", name: "小明", personKind: "employee" }, { id: "worker", employeeNumber: "W1", name: "小華", personKind: "worker" }] };
+  const writes: Record<string, unknown>[] = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "PATCH") { writes.push(JSON.parse(String(init.body))); return Response.json({ revision: 2 }); }
+    return Response.json(String(input).endsWith("/schedule-managers") ? managerData : initial);
+  });
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  try {
+    await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrShifts /></QueryClientProvider></MemoryRouter>));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="編輯 門市 的班別與排班負責人"]')!.click());
+    expect(document.body.textContent).toContain("E1・小明"); expect(document.body.textContent).toContain("W1・小華（支援）");
+    const save = () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "儲存")!;
+    expect(save().disabled).toBe(true);
+    await act(async () => document.querySelector<HTMLButtonElement>('.shift-members [aria-label="清除全部選擇"]')!.click());
+    await act(async () => save().click()); expect(writes[0]!.allowedPersonIds).toEqual([]);
   } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
 });
 
