@@ -41,6 +41,33 @@ async function renderPage(initial: HrScheduleResponse, mutationStatus = 200, get
 }
 
 describe("HR 前台快速排班", () => {
+  it("切換班別後人員名單跟著限制，不沿用未納入的人員", async () => {
+    const initial = data();
+    initial.employees.push({ employmentId: "other", userId: "other-user", employeeNumber: "E2", name: "小華" });
+    initial.shifts = [...initial.shifts.map((shift) => ({ ...shift, allowedPersonIds: ["employee"] })), { ...shift, name: "晚班", templateId: "late", versionId: "late-weekday", allowedPersonIds: ["other"] }];
+    const page = await renderPage(initial);
+    try {
+      expect((document.querySelector('[aria-label="人員"]') as HTMLInputElement).value).toContain("小明");
+      await act(async () => (document.querySelector('[aria-label="班別"]') as HTMLButtonElement).click());
+      await act(async () => ([...document.querySelectorAll('[role="option"]')].find((option) => option.textContent?.includes("晚班")) as HTMLElement).click());
+      expect((document.querySelector('[aria-label="人員"]') as HTMLInputElement).value).toContain("小華");
+      await page.clickDate("2026-02-07"); await page.save();
+      expect(page.writes[0]!.values.entries).toMatchObject([{ employmentId: "other" }]);
+    } finally { await page.cleanup(); }
+  });
+
+  it("沒有納入人員時不能點日期，既有排班仍可由卡片移除", async () => {
+    const initial = data(); initial.shifts = initial.shifts.map((shift) => ({ ...shift, allowedPersonIds: [] }));
+    const page = await renderPage(initial);
+    try {
+      expect(document.body.textContent).toContain("尚未納入此類型的可排人員");
+      expect((document.querySelector('[aria-label="2026-02-07 排班"]') as HTMLButtonElement).disabled).toBe(true);
+      expect(document.querySelector('[aria-label="移除 2026-02-06 小明 早班"]')).not.toBeNull();
+      await act(async () => (document.querySelector('[aria-label="移除 2026-02-06 小明 早班"]') as HTMLButtonElement).click());
+      await page.save(); expect(page.writes[0]!.values.removedIds).toEqual(["saved"]);
+    } finally { await page.cleanup(); }
+  });
+
   it("點日期切換班表，儲存只送差異，週末使用對應版本", async () => {
     const page = await renderPage(data());
     try {

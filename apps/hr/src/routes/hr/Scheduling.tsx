@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useBlocker } from "react-router";
-import { outdatedScheduleIds, pickShiftForDay, scheduleChanges, shiftTimeRange, type HrScheduleResponse, type ScheduleEntry, type ScheduleScope } from "@rueisiang/db/schedule-draft";
+import { canSchedulePerson, outdatedScheduleIds, pickShiftForDay, scheduleChanges, shiftTimeRange, type HrScheduleResponse, type ScheduleEntry, type ScheduleScope } from "@rueisiang/db/schedule-draft";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, EmptyState, PageHeader, Panel, SelectField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite } from "./api.js";
@@ -20,7 +20,7 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
   const [baseline, setBaseline] = useState(data);
   const [draft, setDraft] = useState(data.entries);
   const [kind, setKind] = useState<"employee" | "worker">("employee");
-  const [personId, setPersonId] = useState(data.employees[0]?.employmentId ?? "");
+  const [selectedPersonId, setPersonId] = useState(data.employees[0]?.employmentId ?? "");
   const [templateId, setTemplateId] = useState(data.shifts[0]?.templateId ?? "");
   const [message, setMessage] = useState<string | null>(null);
   const [savedNeedsReload, setSavedNeedsReload] = useState(false);
@@ -36,6 +36,11 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
     if (!dirty && !save.isPending) { setBaseline(data); setDraft(data.entries); }
   }, [data, dirty, save.isPending]);
   const shifts = [...new Map(data.shifts.map((shift) => [shift.templateId, shift])).values()];
+  const selectedShift = shifts.find((shift) => shift.templateId === templateId);
+  const employees = data.employees.filter((person) => canSchedulePerson(selectedShift, person.employmentId));
+  const workers = data.workers.filter((person) => canSchedulePerson(selectedShift, person.id));
+  const personIds = kind === "employee" ? employees.map((person) => person.employmentId) : workers.map((person) => person.id);
+  const personId = personIds.includes(selectedPersonId) ? selectedPersonId : personIds[0] ?? "";
   const matchesPerson = (entry: ScheduleEntry) => entry.personKind === kind && (kind === "employee" ? entry.employmentId : entry.workerId) === personId;
   const templateOf = (entry: ScheduleEntry) => data.shifts.find((shift) => shift.versionId === entry.shiftVersionId)?.templateId;
   const selectedEntry = (date: string) => draft.find((entry) => !entry.archivedAt && entry.workDate === date && matchesPerson(entry) && templateOf(entry) === templateId);
@@ -47,7 +52,7 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
     if (existing) { setDraft((entries) => entries.filter((entry) => entry.id !== existing.id)); setMessage(null); return; }
     const day = data.calendar.find((day) => day.date === date);
     const shift = day && pickShiftForDay(data.shifts.filter((shift) => shift.templateId === templateId), day.dayType);
-    if (!shift) return;
+    if (!shift || !canSchedulePerson(shift, personId)) return;
     const employee = data.employees.find((employee) => employee.employmentId === personId);
     const worker = data.workers.find((worker) => worker.id === personId);
     setDraft((entries) => [...entries, {
@@ -87,11 +92,11 @@ function ScheduleEditor({ data, onReload, onChangeState }: { data: HrScheduleRes
     {stale ? <Alert tone="warning">排班已被其他人修改，草稿仍保留。請重新載入後再安排。<Button variant="secondary" onClick={() => { if (!dirty || window.confirm("重新載入會放棄尚未儲存的排班，確定繼續？")) void reload(); }}>重新載入</Button></Alert> : null}
     <Panel className="hr-front-schedule-tools">
       <SelectField label="人員類型" value={kind} disabled={disabled} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "支援人員" }]} onChange={(event) => { const next = event.target.value as "employee" | "worker"; setKind(next); setPersonId(next === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? ""); }} />
-      <SelectField label="人員" searchable value={personId} disabled={disabled} options={kind === "employee" ? data.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : data.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
-      <SelectField label="班別" value={templateId} disabled={disabled} options={shifts.map((shift) => { const weekday = pickShiftForDay(data.shifts.filter((item) => item.templateId === shift.templateId), "weekday") ?? shift; return { value: shift.templateId, label: `${shift.name} ${shiftTimeRange(weekday)}` }; })} onChange={(event) => setTemplateId(event.target.value)} />
+      <SelectField label="人員" aria-label="人員" searchable value={personId} disabled={disabled} options={kind === "employee" ? employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
+      <SelectField label="班別" aria-label="班別" value={templateId} disabled={disabled} options={shifts.map((shift) => { const weekday = pickShiftForDay(data.shifts.filter((item) => item.templateId === shift.templateId), "weekday") ?? shift; return { value: shift.templateId, label: `${shift.name} ${shiftTimeRange(weekday)}` }; })} onChange={(event) => setTemplateId(event.target.value)} />
       <p className="muted">選好人員與班別，點日期排入；再點一次取消。週末及國定假日由系統套用對應班別時間。</p>
       <p>本據點已排 {selectedDays} 天{employee?.monthlyRestDays != null ? `；約定月休 ${employee.monthlyRestDays} 天（不含其他據點排班）` : ""}</p>
-      {!shifts.length ? <Alert>這個據點尚未設定班別，請聯絡 HR。</Alert> : null}
+      {!shifts.length ? <Alert>這個據點尚未設定班別，請聯絡 HR。</Alert> : !personId ? <Alert>這個班別尚未納入此類型的可排人員，請切換人員類型或聯絡 HR 設定。</Alert> : null}
       <div className="button-row"><Button loading={save.isPending} disabled={disabled || !dirty && !changes.refreshIds.length} onClick={() => void submit()}>儲存</Button><span>{dirty ? `尚未儲存：新增 ${changes.entries.length} 筆、移除 ${changes.removedIds.length} 筆` : "沒有未儲存變更"}</span></div>
       {changes.refreshIds.length ? <Alert tone="warning">有 {changes.refreshIds.length} 筆班別設定已變更，儲存會重新套用目前的日型、時間與需求人力。</Alert> : null}
       {message ? <Alert tone={save.error ? "danger" : "info"}>{message}</Alert> : null}

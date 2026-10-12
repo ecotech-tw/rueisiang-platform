@@ -43,6 +43,7 @@ interface ShiftRowDraft {
   original: ShiftGroup | null;
   name: string;
   times: Record<HrDayType, TimeDraft>;
+  allowedPersonIds: string[] | null;
 }
 
 function rowsFromGroups(groups: ShiftGroup[]): ShiftRowDraft[] {
@@ -50,6 +51,7 @@ function rowsFromGroups(groups: ShiftGroup[]): ShiftRowDraft[] {
     key: group.templateId,
     original: group,
     name: group.name,
+    allowedPersonIds: group.weekday.allowedPersonIds ?? null,
     times: Object.fromEntries(HR_DAY_TYPES.map((dayType) => {
       const version = group.versions.find((shift) => shift.dayType === dayType);
       return [dayType, version ? { startTime: clock(version.startSecond), endTime: clock(version.endSecond), breakMinutes: version.breakMinutes, requiredHeadcount: version.requiredHeadcount } : null];
@@ -69,7 +71,7 @@ function sameTimes(row: ShiftRowDraft, group: ShiftGroup) {
 function rowChanged(row: ShiftRowDraft) {
   if (!row.original) return true;
   if (row.original.weekday.endDayOffset) return false;
-  return row.name.trim() !== row.original.name || !sameTimes(row, row.original);
+  return row.name.trim() !== row.original.name || !sameTimes(row, row.original) || JSON.stringify(row.allowedPersonIds?.slice().sort() ?? null) !== JSON.stringify(row.original.weekday.allowedPersonIds?.slice().sort() ?? null);
 }
 
 function timesPayload(row: ShiftRowDraft) {
@@ -88,7 +90,7 @@ function timesPayload(row: ShiftRowDraft) {
  * 平日那一格永遠顯示，週末與國定假日預設沿用平日時段與需求人力；按下設定時間後，
  * 該日型才會變成獨立設定。這樣沿用狀態只有一個入口，也避免半列欄位無法對齊。
  */
-function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClose, onSaved }: { scope: ScheduleScope; groups: ShiftGroup[]; manager: ScheduleManagersResponse["scopes"][number]; candidates: ScheduleManagersResponse["candidates"]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
+function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrite, onClose, onSaved }: { scope: ScheduleScope; groups: ShiftGroup[]; people: NonNullable<HrShiftsResponse["people"]>; manager: ScheduleManagersResponse["scopes"][number]; candidates: ScheduleManagersResponse["candidates"]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
   const [rows, setRows] = useState(() => rowsFromGroups(groups));
   const [managerUserId, setManagerUserId] = useState(manager.userId ?? "");
   const [removedRows, setRemovedRows] = useState<ShiftGroup[]>([]);
@@ -98,7 +100,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
   const closeRequestRef = useRef<(() => void) | null>(null);
   const hasChanges = removedRows.length > 0 || rows.length !== groups.length || rows.some(rowChanged) || managerUserId !== (manager.userId ?? "");
 
-  const updateRow = (key: string, patch: Partial<Pick<ShiftRowDraft, "name">>) => {
+  const updateRow = (key: string, patch: Partial<Pick<ShiftRowDraft, "name" | "allowedPersonIds">>) => {
     setRows((current) => current.map((row) => row.key === key ? { ...row, ...patch } : row));
     setMessage(null);
   };
@@ -124,7 +126,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
   };
 
   const addNewRow = () => {
-    setRows((current) => [...current, { key: `new-${crypto.randomUUID()}`, original: null, name: "", times: { weekday: { startTime: "09:00", endTime: "18:00", breakMinutes: 60, requiredHeadcount: 1 }, weekend: null, holiday: null } }]);
+    setRows((current) => [...current, { key: `new-${crypto.randomUUID()}`, original: null, name: "", allowedPersonIds: [], times: { weekday: { startTime: "09:00", endTime: "18:00", breakMinutes: 60, requiredHeadcount: 1 }, weekend: null, holiday: null } }]);
     setMessage(null);
   };
 
@@ -152,7 +154,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
         if (!draft) continue;
         const label = HR_DAY_TYPE_LABELS[dayType];
         if (!Number.isSafeInteger(draft.requiredHeadcount) || draft.requiredHeadcount < 1 || draft.requiredHeadcount > 100) { setMessage(`「${name}」的${label}需求人力必須是 1～100 人。`); return; }
-        if (!draft.startTime || !draft.endTime) { setMessage(`「${name}」的${label}時間請填寫開始與結束。`); return; }
+        if (![draft.startTime, draft.endTime].every((time) => /^([01]\d|2[0-3]):[0-5]\d$/.test(time))) { setMessage(`「${name}」的${label}時間請輸入有效的 HH:mm（例如 09:30）。`); return; }
         if (draft.endTime <= draft.startTime) { setMessage(`「${name}」的${label}結束時間必須晚於開始時間。`); return; }
         const [startHour = 0, startMinute = 0] = draft.startTime.split(":").map(Number);
         const [endHour = 0, endMinute = 0] = draft.endTime.split(":").map(Number);
@@ -171,9 +173,9 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
         const name = row.name.trim();
         if (row.original) {
           if (!rowChanged(row)) continue;
-          await save.mutateAsync({ path: `/shift-templates/${encodeURIComponent(row.original.templateId)}`, method: "PATCH", values: { scopeId: scope.id, name, requiredHeadcount: row.times.weekday?.requiredHeadcount, times: timesPayload(row), revision: row.original.revision } });
+          await save.mutateAsync({ path: `/shift-templates/${encodeURIComponent(row.original.templateId)}`, method: "PATCH", values: { scopeId: scope.id, name, allowedPersonIds: row.allowedPersonIds, requiredHeadcount: row.times.weekday?.requiredHeadcount, times: timesPayload(row), revision: row.original.revision } });
         } else {
-          await save.mutateAsync({ path: "/shift-templates", method: "POST", values: { scopeId: scope.id, name, requiredHeadcount: row.times.weekday?.requiredHeadcount, times: timesPayload(row) } });
+          await save.mutateAsync({ path: "/shift-templates", method: "POST", values: { scopeId: scope.id, name, allowedPersonIds: row.allowedPersonIds, requiredHeadcount: row.times.weekday?.requiredHeadcount, times: timesPayload(row) } });
         }
         persistedChanges = true;
       }
@@ -197,6 +199,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
 
   return <Dialog
     title={scope.name}
+    className="shift-settings-dialog"
     onClose={onClose}
     closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending}
@@ -205,6 +208,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
     <div className="shift-items">
       {canWrite ? <><SelectField label="排班負責人" searchable value={managerUserId} disabled={save.isPending} options={[{ value: "", label: "不指定" }, ...(manager.userId && !candidates.some((person) => person.userId === manager.userId) ? [{ value: manager.userId, label: "原負責人（已停用或封存）" }] : []), ...candidates.map((person) => ({ value: person.userId, label: `${person.employeeNumber}・${person.name}` }))]} onChange={(event) => { setManagerUserId(event.target.value); setMessage(null); }} /><p className="muted">每個據點指定一位在職員工，可從 HR 前台的個人中心進入快速排班；儲存直接生效。更換或移除負責人會立即撤銷原負責人的據點排班權限。</p></> : <div><span className="shift-items-label">排班負責人</span><p>{candidates.find((person) => person.userId === manager.userId)?.name ?? (manager.userId ? "已停用或封存" : "尚未指定")}</p></div>}
       <span className="shift-items-label">班別時段</span>
+      <p className="muted">時間可直接輸入，格式為 HH:mm（例如 09:30）。</p>
       {rows.map((row) => {
         const legacyOvernight = Boolean(row.original?.weekday.endDayOffset);
         const disabled = !canWrite || legacyOvernight || save.isPending;
@@ -214,6 +218,10 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
             {canWrite ? <Tooltip label={`刪除${row.name ? ` ${row.name}` : "這個班別"}`} focusable={false}>
               <Button variant="icon" icon="trash" className="danger" aria-label={`刪除${row.name || "這個班別"}`} disabled={save.isPending} onClick={() => removeRow(row)} />
             </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
+          </div>
+          <div className="shift-members">
+            <SelectField label="前台可排人員" aria-label={`${row.name || "班別"}前台人員範圍`} value={row.allowedPersonIds === null ? "all" : "selected"} disabled={disabled} options={[{ value: "selected", label: "僅指定人員" }, { value: "all", label: "不限制（所有人員）" }]} onChange={(event) => updateRow(row.key, { allowedPersonIds: event.target.value === "all" ? null : [] })} />
+            {row.allowedPersonIds !== null ? <SelectField label="納入人員" aria-label={`${row.name || "班別"}納入人員`} multiple searchable value={row.allowedPersonIds} disabled={disabled} options={[...people.map((person) => ({ value: person.id, label: `${person.employeeNumber}・${person.name}${person.personKind === "worker" ? "（支援）" : ""}` })), ...row.allowedPersonIds.filter((id) => !people.some((person) => person.id === id)).map((id) => ({ value: id, label: "已封存人員" }))]} onValueChange={(allowedPersonIds: string[]) => updateRow(row.key, { allowedPersonIds })} hint="未選人員時，前台不能新增此班別排班。既有班表保留；HR 後台仍可安排跨櫃支援。" /> : null}
           </div>
           <div className="shift-day-head" aria-hidden="true">
             <span>日型</span><span>開始</span><span>結束</span><span>休息（分）</span><span>需求人力</span><span />
@@ -228,8 +236,8 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, canWrite, onClo
             </div>;
             return <div className="shift-day-row" key={dayType}>
               <span className="shift-day-label">{label}</span>
-              <TextField label="開始時間" aria-label={`${row.name || "班別"}${label}開始時間`} type="time" required value={draft.startTime} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { startTime: event.target.value })} />
-              <TextField label="結束時間" aria-label={`${row.name || "班別"}${label}結束時間`} type="time" required value={draft.endTime} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { endTime: event.target.value })} />
+              <TextField label="開始時間" aria-label={`${row.name || "班別"}${label}開始時間`} type="text" placeholder="09:30" maxLength={5} autoComplete="off" required value={draft.startTime} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { startTime: event.target.value })} />
+              <TextField label="結束時間" aria-label={`${row.name || "班別"}${label}結束時間`} type="text" placeholder="18:30" maxLength={5} autoComplete="off" required value={draft.endTime} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { endTime: event.target.value })} />
               <TextField label="休息分鐘" aria-label={`${row.name || "班別"}${label}休息分鐘`} type="number" min="0" step="30" value={draft.breakMinutes} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { breakMinutes: Number(event.target.value) })} />
               <TextField label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
               {/* 平日是其他日型的退路，拿掉就沒有東西可退；所以只有另外兩個日型能取消。 */}
@@ -316,6 +324,7 @@ export function HrShifts() {
       groups={groupsByScope.get(openScope.id) ?? []}
       manager={managers.data.scopes.find((scope) => scope.id === openScope.id)!}
       candidates={managers.data.candidates}
+      people={data.people ?? []}
       canWrite={canWrite}
       onClose={() => setOpenScopeId(null)}
       onSaved={() => Promise.all([shifts.refetch(), managers.refetch()])}

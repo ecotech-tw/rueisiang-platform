@@ -1182,7 +1182,7 @@ export const hr = new Hono<AppEnv>()
   .patch("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
     const requiredHeadcount = input.requiredHeadcount === undefined ? undefined : integerValue(input, "requiredHeadcount", "需求人力", 1, 100);
-    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), requiredHeadcount, times: shiftTimes(input), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
+    return c.json(await updateHrShift(c.get("db"), c.req.param("id"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), requiredHeadcount, allowedPersonIds: input.allowedPersonIds === undefined || input.allowedPersonIds === null ? input.allowedPersonIds : stringArray(input, "allowedPersonIds", "可排人員", 1000), times: shiftTimes(input), revision: integerValue(input, "revision", "版本", 1, Number.MAX_SAFE_INTEGER) }, c.get("user")));
   })
   .delete("/shift-templates/:id", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
@@ -1191,7 +1191,7 @@ export const hr = new Hono<AppEnv>()
   .post("/shift-templates", requirePermission("hr:schedule:write"), async (c) => {
     const input = await body(c);
     const requiredHeadcount = input.requiredHeadcount === undefined ? 1 : integerValue(input, "requiredHeadcount", "需求人力", 1, 100);
-    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), requiredHeadcount, times: shiftTimes(input) }, c.get("user")), 201);
+    return c.json(await createHrShift(c.get("db"), { scopeId: text(input, "scopeId", "營運據點"), name: text(input, "name", "班別名稱", 100), requiredHeadcount, allowedPersonIds: input.allowedPersonIds === undefined || input.allowedPersonIds === null ? input.allowedPersonIds : stringArray(input, "allowedPersonIds", "可排人員", 1000), times: shiftTimes(input) }, c.get("user")), 201);
   })
   .patch("/employments/:id/attendance-scope", requirePermission("hr:office:write"), async (c) => {
     const input = await body(c);

@@ -1,10 +1,14 @@
 // 純排班資料與差異計算，供兩個前台使用；不載入資料庫或 Worker 程式碼。
-export interface ScheduleShift { versionId: string; templateId: string; scopeId: string; name: string; dayType: "weekday" | "weekend" | "holiday"; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number; requiredHeadcount: number }
+export interface ScheduleShift { allowedPersonIds?: string[] | null; versionId: string; templateId: string; scopeId: string; name: string; dayType: "weekday" | "weekend" | "holiday"; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number; requiredHeadcount: number }
 export interface ScheduleEntry extends ScheduleDraftEntry { scheduleVersionId: string; employmentId: string | null; workerId: string | null; shiftGroupId: string | null; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; requiredHeadcount: number; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }
 export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null }
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
 export interface ScheduleScope { id: string; name: string }
 export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; calendar: Array<{ date: string; dayType: ScheduleShift["dayType"]; name: string; specialKind: "none" | "typhoon_stop"; specialScopeIds: string[]; overridden: boolean }>; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
+
+export function canSchedulePerson(shift: Pick<ScheduleShift, "allowedPersonIds"> | undefined, personId: string) {
+  return Boolean(shift && personId && (shift.allowedPersonIds == null || shift.allowedPersonIds.includes(personId)));
+}
 
 export function pickShiftForDay(versions: ScheduleShift[], dayType: ScheduleShift["dayType"]) {
   return versions.find((shift) => shift.dayType === dayType) ?? versions.find((shift) => shift.dayType === "weekday");
