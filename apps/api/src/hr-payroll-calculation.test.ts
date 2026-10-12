@@ -67,6 +67,31 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(closedBody.counts.closed).toBeGreaterThanOrEqual(1);
   });
 
+  it("薪資加扣項可刪除且版本過期或薪資月份結帳後會拒絕", async () => {
+    const removable = await request("/hr/payroll/adjustments", "POST", {
+      employmentId: "dev-employment-lin", effectivePeriodKey: "2026-09", reason: "刪除測試", items: [{ itemName: "測試補發", amountMinor: 100 }],
+    });
+    expect(removable.status, await removable.clone().text()).toBe(201);
+    const removableId = (await removable.json() as { id: string }).id;
+    expect((await request(`/hr/payroll/adjustments/${removableId}`, "DELETE", { revision: 2 })).status).toBe(409);
+    expect((await request(`/hr/payroll/adjustments/${removableId}`, "DELETE", { revision: 1 })).status).toBe(200);
+    await expect((await request("/hr/payroll/adjustments?effectivePeriodKey=2026-09")).json()).resolves.toMatchObject({ adjustments: [] });
+
+    const protectedAdjustment = await request("/hr/payroll/adjustments", "POST", {
+      employmentId: "dev-employment-lin", effectivePeriodKey: "2026-08", reason: "結帳後保護測試", items: [{ itemName: "保留項目", amountMinor: 100 }],
+    });
+    expect(protectedAdjustment.status, await protectedAdjustment.clone().text()).toBe(201);
+    const protectedId = (await protectedAdjustment.json() as { id: string }).id;
+    const calculation = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], requestId: "test-adjustment-delete-closed-period",
+    });
+    expect(calculation.status, await calculation.clone().text()).toBe(200);
+    const runId = (await calculation.json() as { run: { runId: string } }).run.runId;
+    expect((await request(`/hr/payroll/runs/${runId}/close`, "POST", {})).status).toBe(200);
+    expect((await request(`/hr/payroll/adjustments/${protectedId}`, "DELETE", { revision: 1 })).status).toBe(409);
+    await expect((await request("/hr/payroll/adjustments?effectivePeriodKey=2026-08")).json()).resolves.toMatchObject({ adjustments: [expect.objectContaining({ id: protectedId })] });
+  });
+
   it("員工薪資袋只提供本人已發放的薪資單與明細", async () => {
     const calculation = await request("/hr/payroll/calculate", "POST", {
       periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-own-payroll-history-2026-08",

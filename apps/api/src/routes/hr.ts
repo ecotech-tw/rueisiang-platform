@@ -17,7 +17,7 @@ import {
   HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
   calculateHrLeaveDuration, calculateHrLeaveEnd, cancelHrLeaveRequest, createHrLeaveRequest, getHrSelfLeaveMonths, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfAnnualLeave, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
-  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
+  createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, deleteHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
   createDeviceSession, createLineLiffSession, findUserByLineIdentity, getLineAccountLink, isHrEmployee, linkLineAccount, loadAuthUser, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession, replaceLineAccount, unlinkLineAccount, useDeviceSession,
 } from "@rueisiang/db";
@@ -1344,6 +1344,11 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
     return c.json(await updateHrPayrollAdjustment(c.get("db"), c.req.param("id"), { employmentId: text(input, "employmentId", "人員任職"), effectivePeriodKey: text(input, "effectivePeriodKey", "生效薪資月份", 7), reason: text(input, "reason", "加扣項原因", 1000), items: adjustmentItems(input), revision: revision(input) }, c.get("user")));
+  })
+  .delete("/payroll/adjustments/:id", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await deleteHrPayrollAdjustment(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
   })
   .get("/payroll/workers", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

@@ -88,6 +88,18 @@ export async function createHrPayrollAdjustment(db: Database, input: HrPayrollAd
   return { id };
 }
 
+export async function deleteHrPayrollAdjustment(db: Database, id: string, expectedRevision: number, actor: HrActor) {
+  const [current] = await db.select({ id: hrPayrollAdjustments.id, employmentId: hrPayrollAdjustments.employmentId, effectivePeriodKey: hrPayrollAdjustments.effectivePeriodKey, reason: hrPayrollAdjustments.reason, revision: hrPayrollAdjustments.revision }).from(hrPayrollAdjustments).where(eq(hrPayrollAdjustments.id, id)).limit(1);
+  if (!current || current.revision !== expectedRevision) throw new HrError(409, "薪資加扣項不存在或版本已過期，請重新整理。 ");
+  await ensureEditable(db, current.employmentId, current.effectivePeriodKey);
+  const items = await db.select({ itemName: hrPayrollAdjustmentItems.itemName, amountMinor: hrPayrollAdjustmentItems.amountMinor }).from(hrPayrollAdjustmentItems).where(eq(hrPayrollAdjustmentItems.adjustmentId, id));
+  const deleteItems = sql`DELETE FROM hr_payroll_adjustment_items WHERE adjustment_id=${id} AND EXISTS (SELECT 1 FROM hr_payroll_adjustments WHERE id=${id} AND revision=${expectedRevision}) RETURNING id`;
+  const deleteAdjustment = sql`DELETE FROM hr_payroll_adjustments WHERE id=${id} AND revision=${expectedRevision} RETURNING id`;
+  return writeHrMutation(db, [deleteItems, deleteAdjustment], id, actor, "payroll_adjustment_deleted", "薪資加扣項不存在、版本已過期或已結帳，請重新整理。", {
+    activity: { summary: "薪資加扣項已刪除", payload: { employmentId: current.employmentId, effectivePeriodKey: current.effectivePeriodKey, reason: current.reason, items } },
+  });
+}
+
 export async function updateHrPayrollAdjustment(db: Database, id: string, input: HrPayrollAdjustmentInput & { revision: number }, actor: HrActor) {
   validate(input);
   const [current] = await db.select({ id: hrPayrollAdjustments.id, employmentId: hrPayrollAdjustments.employmentId, effectivePeriodKey: hrPayrollAdjustments.effectivePeriodKey, revision: hrPayrollAdjustments.revision }).from(hrPayrollAdjustments).where(eq(hrPayrollAdjustments.id, id)).limit(1);
