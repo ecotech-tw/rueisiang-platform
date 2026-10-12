@@ -66,7 +66,11 @@ export async function listHrPayrollAdjustments(db: Database, effectivePeriodKey?
     .innerJoin(hrPayrollAdjustmentItems, eq(hrPayrollAdjustmentItems.adjustmentId, hrPayrollAdjustments.id))
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrPayrollAdjustments.employmentId)).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
     .where(periodFilter).orderBy(desc(hrPayrollAdjustments.effectivePeriodKey), ...hrEmployeeNumberOrder(), asc(hrPayrollAdjustments.createdAt));
-  const editabilityRows = await db.select({ id: hrPayrollAdjustments.id, canEdit: payrollAdjustmentCanEdit(hrPayrollAdjustments.employmentId, hrPayrollAdjustments.effectivePeriodKey) })
+  // 單表 SELECT 會移除 Drizzle Column 的表名前綴；子查詢有同名欄位，必須保留外層表名才能逐人判斷。
+  const editabilityRows = await db.select({ id: hrPayrollAdjustments.id, canEdit: payrollAdjustmentCanEdit(
+    sql`${sql.identifier("hr_payroll_adjustments")}.${sql.identifier("employment_id")}`,
+    sql`${sql.identifier("hr_payroll_adjustments")}.${sql.identifier("effective_period_key")}`,
+  ) })
     .from(hrPayrollAdjustments).where(periodFilter);
   const rows = rawRows.map((row) => joinedAdjustment(row));
   const byId = new Map<string, { adjustment: typeof rows[number]["adjustment"]; employeeNumber: string; employeeName: string; items: typeof rows[number]["item"][] }>();
