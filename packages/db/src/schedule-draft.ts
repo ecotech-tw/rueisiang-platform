@@ -10,6 +10,20 @@ export function canSchedulePerson(shift: Pick<ScheduleShift, "allowedPersonIds">
   return Boolean(shift && personId && (shift.allowedPersonIds == null || shift.allowedPersonIds.includes(personId)));
 }
 
+export interface SchedulePersonOption { value: string; label: string; personId: string; personKind: ScheduleEntry["personKind"] }
+
+export function schedulePersonOptions(data: Pick<HrScheduleResponse, "employees" | "workers">, shift: Pick<ScheduleShift, "allowedPersonIds"> | undefined): SchedulePersonOption[] {
+  return [
+    ...data.employees.filter((person) => canSchedulePerson(shift, person.employmentId)).map((person) => ({ value: `employee:${person.employmentId}`, label: `${person.employeeNumber}・${person.name}`, personId: person.employmentId, personKind: "employee" as const })),
+    ...data.workers.filter((person) => canSchedulePerson(shift, person.id)).map((person) => ({ value: `worker:${person.id}`, label: `${person.name}（支援）`, personId: person.id, personKind: "worker" as const })),
+  ];
+}
+
+// 空字串是主動清空；null 或失效選擇才可自動選人，避免切班別把已顯示的人員換回舊值。
+export function resolveSchedulePerson(options: readonly SchedulePersonOption[], value: string | null) {
+  return value === "" ? undefined : options.find((person) => person.value === value) ?? options[0];
+}
+
 export function pickShiftForDay(versions: ScheduleShift[], dayType: ScheduleShift["dayType"]) {
   return versions.find((shift) => shift.dayType === dayType) ?? versions.find((shift) => shift.dayType === "weekday");
 }

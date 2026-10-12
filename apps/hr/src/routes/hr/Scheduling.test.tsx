@@ -41,6 +41,40 @@ async function renderPage(initial: HrScheduleResponse, mutationStatus = 200, get
 }
 
 describe("HR 前台快速排班", () => {
+  it("單一選單同時列正式與支援人員，選支援直接保存正確身分", async () => {
+    const initial = data(); initial.workers = [{ id: "worker", name: "支援小美", active: 1 }];
+    const page = await renderPage(initial);
+    try {
+      expect(document.body.textContent).not.toContain("人員類型");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="開啟人員選單"]')!.click());
+      expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual([expect.stringContaining("E1・小明"), expect.stringContaining("支援小美（支援）")]);
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("支援小美"))!.click());
+      await page.clickDate("2026-02-07"); await page.save();
+      expect(page.writes[0]!.values.entries).toEqual([expect.objectContaining({ personKind: "worker", workerId: "worker", shiftVersionId: "weekend" })]);
+    } finally { await page.cleanup(); }
+  });
+
+  it("主動清空不重選，切班別仍保留有效人員，空名單恢復可以自動選支援", async () => {
+    const initial = data(); initial.workers = [{ id: "worker", name: "支援小美", active: 1 }];
+    initial.shifts = [{ ...shift, allowedPersonIds: ["worker"] }, { ...shift, templateId: "late", versionId: "late", name: "晚班", allowedPersonIds: null }, { ...shift, templateId: "empty", versionId: "empty", name: "空名單", allowedPersonIds: [] }];
+    const page = await renderPage(initial);
+    const select = async (text: string) => {
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="班別"]')!.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes(text))!.click());
+    };
+    try {
+      expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toContain("支援小美");
+      await select("晚班"); expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toContain("支援小美");
+      await select("空名單"); expect(document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 排班"]')!.disabled).toBe(true);
+      await select("早班"); expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toContain("支援小美");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="清除選擇"]')!.click());
+      expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toBe("");
+      await select("晚班"); expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toBe("");
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 排班"]')!.disabled).toBe(true);
+      await page.clickDate("2026-02-07"); await page.save(); expect(page.writes).toHaveLength(0);
+    } finally { await page.cleanup(); }
+  });
+
   it("切換班別後人員名單跟著限制，不沿用未納入的人員", async () => {
     const initial = data();
     initial.employees.push({ employmentId: "other", userId: "other-user", employeeNumber: "E2", name: "小華" });
@@ -60,7 +94,7 @@ describe("HR 前台快速排班", () => {
     const initial = data(); initial.shifts = initial.shifts.map((shift) => ({ ...shift, allowedPersonIds: [] }));
     const page = await renderPage(initial);
     try {
-      expect(document.body.textContent).toContain("尚未納入此類型的可排人員");
+      expect(document.body.textContent).toContain("尚未納入可排人員");
       expect((document.querySelector('[aria-label="2026-02-07 排班"]') as HTMLButtonElement).disabled).toBe(true);
       expect(document.querySelector('[aria-label="移除 2026-02-06 小明 早班"]')).not.toBeNull();
       await act(async () => (document.querySelector('[aria-label="移除 2026-02-06 小明 早班"]') as HTMLButtonElement).click());

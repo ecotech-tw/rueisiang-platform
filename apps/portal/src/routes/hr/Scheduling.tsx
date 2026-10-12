@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { canSchedulePerson, outdatedScheduleIds, scheduleChanges } from "@rueisiang/db/schedule-draft";
+import { canSchedulePerson, outdatedScheduleIds, resolveSchedulePerson, scheduleChanges, schedulePersonOptions } from "@rueisiang/db/schedule-draft";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -32,16 +32,12 @@ function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${shiftTimeR
  * 真正要寫進班表的版本由 makeEntry 依那天的日型挑。
  */
 interface QuickPick { personKind: "employee" | "worker"; personId: string; scopeId: string; shiftTemplateId: string }
-type QuickSelection = Omit<QuickPick, "personId"> & { personId: string | null };
+type QuickSelection = Pick<QuickPick, "scopeId" | "shiftTemplateId"> & { personValue: string | null };
 
 // null 可在名單恢復後自動選人；空字串代表使用者主動清空，不可替他重新選人。
 function reconcilePersonId(personIds: readonly string[], selectedPersonId: string | null): string | null {
   return selectedPersonId === "" || (selectedPersonId !== null && personIds.includes(selectedPersonId))
     ? selectedPersonId : personIds[0] ?? null;
-}
-
-export function firstQuickPersonId(data: { employees: readonly { employmentId: string }[]; workers: readonly { id: string }[] }, personKind: QuickPick["personKind"]) {
-  return personKind === "employee" ? data.employees[0]?.employmentId ?? "" : data.workers[0]?.id ?? "";
 }
 
 export interface SameDayMultiScopeSchedule {
@@ -355,11 +351,11 @@ export function HrScheduling() {
     return { employee, activeDays, scheduledDays, restDays, matches: restDays === Math.min(employee.monthlyRestDays!, activeDays) };
   });
   const quickShift = data.shifts.find((shift) => shift.scopeId === quickSelection?.scopeId && shift.templateId === quickSelection.shiftTemplateId);
-  const quickPeople = { employees: data.employees.filter((person) => canSchedulePerson(quickShift, person.employmentId)), workers: data.workers.filter((person) => canSchedulePerson(quickShift, person.id)) };
-  const quickPersonIds = quickSelection?.personKind === "worker" ? quickPeople.workers.map((person) => person.id) : quickPeople.employees.map((person) => person.employmentId);
-  const resolvedQuickPersonId = quickSelection ? reconcilePersonId(quickPersonIds, quickSelection.personId) : null;
-  if (quickSelection && quickSelection.personId !== resolvedQuickPersonId) setQuick({ ...quickSelection, personId: resolvedQuickPersonId });
-  const quick: QuickPick | null = quickSelection ? { ...quickSelection, personId: resolvedQuickPersonId ?? "" } : null;
+  const quickPeople = schedulePersonOptions(data, quickShift);
+  const quickPerson = quickSelection ? resolveSchedulePerson(quickPeople, quickSelection.personValue) : undefined;
+  const quickPersonValue = quickPerson?.value ?? (quickSelection?.personValue === "" ? "" : null);
+  if (quickSelection && quickSelection.personValue !== quickPersonValue) setQuick({ ...quickSelection, personValue: quickPersonValue });
+  const quick: QuickPick | null = quickSelection ? { ...quickSelection, personKind: quickPerson?.personKind ?? "employee", personId: quickPerson?.personId ?? "" } : null;
   const quickTemplates = quick ? [...groupShiftsByTemplate(data.shifts.filter((shift) => shift.scopeId === quick.scopeId)).values()] : [];
   const quickDays = quick ? new Set(draftEntries.filter((entry) => !entry.archivedAt && samePick(entry, quick, templateOf)).map((entry) => entry.workDate)).size : 0;
   // 正在排的那個人的月休進度直接放在快速排班條上；否則要回頭在月休統計那一排裡找名字。
@@ -379,7 +375,7 @@ export function HrScheduling() {
   const openQuick = () => {
     const scope = defaultScope;
     setScopeId(scope);
-    setQuick({ personKind: "employee", personId: null, scopeId: scope, shiftTemplateId: firstTemplateId(scope) });
+    setQuick({ personValue: null, scopeId: scope, shiftTemplateId: firstTemplateId(scope) });
   };
   const toggleQuickDay = (day: string) => {
     // 鎖定的月份不能改草稿：畫面說已鎖定，草稿卻默默變了，解鎖後一按儲存就發布出去。
@@ -430,11 +426,7 @@ export function HrScheduling() {
       </div>
       {quick ? <div className="hr-quick-bar">
         <strong>快速排班</strong>
-        <SelectField aria-label="人員類型" value={quick.personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援人員" }]} onChange={(event) => {
-          const personKind = event.target.value as "employee" | "worker";
-          setQuick((current) => current ? { ...current, personKind, personId: firstQuickPersonId(quickPeople, personKind) || null } : current);
-        }} />
-        <SelectField aria-label="人員" value={quick.personId} placeholder="請選擇人員" searchable options={quick.personKind === "employee" ? quickPeople.employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : quickPeople.workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setQuick((current) => current ? { ...current, personId: event.target.value } : current)} />
+        <SelectField aria-label="人員" value={quickPersonValue ?? ""} placeholder="請選擇人員" searchable options={quickPeople} onChange={(event) => setQuick((current) => current ? { ...current, personValue: event.target.value } : current)} />
         {/*
           * 選班別而不是選某一組時間：點到哪一天就用那天的日型挑。所以 label
           * 只寫平日的時間做代表，後面再註明還有哪些日型有自己的時間。
@@ -447,7 +439,7 @@ export function HrScheduling() {
               return [{ value: weekday.templateId, label: `${shiftLabel(weekday)}${extras.length ? ` 另設${extras.join("、")}` : ""}` }];
             })} onChange={(event) => { if (event.target.value) setQuick((current) => current ? { ...current, shiftTemplateId: event.target.value } : current); }} />
           : <span className="hr-quick-bar-empty">這個據點還沒有班別，<GuardedNavLink to="/hr/scheduling/shifts">前往班別管理</GuardedNavLink></span>}
-        <span className="hr-quick-bar-hint">{quickShift && !quickPersonIds.length ? `此班別沒有可排的${quick.personKind === "employee" ? "正式員工" : "支援人員"}` : !quick.personId ? "請先選擇排班人員" : "點日期或排班內容排入或取消；叉叉可移除"}</span>
+        <span className="hr-quick-bar-hint">{quickShift && !quickPeople.length ? "此班別沒有可排人員" : !quick.personId ? "請先選擇排班人員" : "點日期或排班內容排入或取消；叉叉可移除"}</span>
         <span className="hr-quick-bar-count">已選 <b>{quickDays}</b> 天</span>
         {quickRest ? <span className={`hr-quick-bar-rest ${quickRest.matches ? "ok" : "warning"}`}>休 {quickRest.restDays}／約定 {quickRest.employee.monthlyRestDays} 天</span> : null}
         <Button variant="secondary" onClick={() => setQuick(null)}>結束</Button>

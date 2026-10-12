@@ -114,12 +114,23 @@ describe("後台班別人員篩選", () => {
     try {
       expect((document.querySelector('[aria-label="人員"]') as HTMLInputElement).value).toContain("小華");
       await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="開啟人員選單"]')!.click());
-      expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual([expect.stringContaining("E2・小華")]);
-      await act(async () => document.querySelector<HTMLElement>('[role="option"]')!.click());
-      await selectOption("人員類型", "臨時支援");
-      expect((document.querySelector('[aria-label="人員"]') as HTMLInputElement).value).toBe("支援小美");
+      expect(document.querySelector('[aria-label="人員類型"]')).toBeNull();
+      expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual([expect.stringContaining("E2・小華"), expect.stringContaining("支援小美（支援）")]);
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("支援小美"))!.click());
+      expect((document.querySelector('[aria-label="人員"]') as HTMLInputElement).value).toBe("支援小美（支援）");
       await act(async () => page.dateButton("8").click()); await page.click("儲存");
       expect(page.writes[0]!.entries).toEqual([expect.objectContaining({ employmentId: "other" }), expect.objectContaining({ workerId: "worker" })]);
+    } finally { await page.cleanup(); }
+  });
+
+  it("只有支援人員的班別直接選人，不需要先切換類型", async () => {
+    const initial = restrictedData(); initial.shifts[0]!.allowedPersonIds = ["worker"];
+    const page = await renderPage(0, 200, initial);
+    try {
+      expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toBe("支援小美（支援）");
+      expect(document.querySelector('[aria-label="人員類型"]')).toBeNull();
+      await page.click("儲存");
+      expect(page.writes[0]!.entries).toEqual([expect.objectContaining({ personKind: "worker", workerId: "worker", workDate: "2026-02-07" })]);
     } finally { await page.cleanup(); }
   });
 

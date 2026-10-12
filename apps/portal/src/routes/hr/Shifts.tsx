@@ -207,15 +207,15 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
     actions={canWrite ? <Button loading={save.isPending} disabled={!hasChanges} onClick={() => { void saveAll(); }}>儲存</Button> : undefined}
   >
     <div className="shift-items">
-      {canWrite ? <><SelectField label="排班負責人" searchable value={managerUserId} disabled={save.isPending} options={[{ value: "", label: "不指定" }, ...(manager.userId && !candidates.some((person) => person.userId === manager.userId) ? [{ value: manager.userId, label: "原負責人（已停用或封存）" }] : []), ...candidates.map((person) => ({ value: person.userId, label: `${person.employeeNumber}・${person.name}` }))]} onChange={(event) => { setManagerUserId(event.target.value); setMessage(null); }} /></> : <div><span className="shift-items-label">排班負責人</span><p>{candidates.find((person) => person.userId === manager.userId)?.name ?? (manager.userId ? "已停用或封存" : "尚未指定")}</p></div>}
+      {canWrite ? <><SelectField label="排班負責人" aria-label="排班負責人" searchable value={managerUserId} disabled={save.isPending} options={[{ value: "", label: "不指定" }, ...(manager.userId && !candidates.some((person) => person.userId === manager.userId) ? [{ value: manager.userId, label: "原負責人（已停用或封存）" }] : []), ...candidates.map((person) => ({ value: person.userId, label: `${person.employeeNumber}・${person.name}${person.userStatus === "invited" ? "（尚未啟用）" : person.userStatus === "disabled" ? "（帳號停用）" : ""}` }))]} onChange={(event) => { setManagerUserId(event.target.value); setMessage(null); }} /></> : <div><span className="shift-items-label">排班負責人</span><p>{candidates.find((person) => person.userId === manager.userId)?.name ?? (manager.userId ? "已停用或封存" : "尚未指定")}</p></div>}
       <span className="shift-items-label">班別時段</span>
-      {rows.map((row) => {
+      {rows.map((row, rowIndex) => {
         const legacyOvernight = Boolean(row.original?.weekday.endDayOffset);
         const disabled = !canWrite || legacyOvernight || save.isPending;
-        return <div key={row.key} className={`shift-group${row.original ? "" : " shift-group-draft"}`}>
-          <div className="shift-group-head">
+        return <div key={row.key} className={`shift-group grid gap-3 p-0${rowIndex > 0 ? " mt-3 border-t border-soft-line pt-6" : ""}`}>
+          <div className="shift-group-head items-end">
             <TextField label="班別名稱" aria-label={`${row.name || "班別"}名稱`} required maxLength={100} placeholder="例如：早班" value={row.name} disabled={disabled} onChange={(event) => updateRow(row.key, { name: event.target.value })} />
-            {canWrite ? <Tooltip label={`刪除${row.name ? ` ${row.name}` : "這個班別"}`} focusable={false}>
+            {canWrite ? <Tooltip className="self-end mb-0.5" label={`刪除${row.name ? ` ${row.name}` : "這個班別"}`} focusable={false}>
               <Button variant="icon" icon="trash" className="danger" aria-label={`刪除${row.name || "這個班別"}`} disabled={save.isPending} onClick={() => removeRow(row)} />
             </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
           </div>
@@ -230,8 +230,8 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
             const label = HR_DAY_TYPE_LABELS[dayType];
             if (!draft) return <div className="shift-day-row shift-day-row-empty" key={dayType}>
               <span className="shift-day-label">{label}</span>
-              <span className="muted shift-day-inherited">沿用平日時段與需求人力（{row.times.weekday?.requiredHeadcount ?? 1} 人）</span>
-              {canWrite ? <Button variant="secondary" icon="plus" className="add-action" disabled={disabled} onClick={() => updateTime(row.key, dayType, {})}>設定{label}時間</Button> : <span className="shift-item-spacer" aria-hidden="true" />}
+              <span className="muted shift-day-inherited @max-[400px]/shift-settings:col-span-full">沿用平日時段與需求人力（{row.times.weekday?.requiredHeadcount ?? 1} 人）</span>
+              {canWrite ? <Button variant="secondary" icon="plus" className="add-action @max-[400px]/shift-settings:col-span-full @max-[400px]/shift-settings:row-start-3 justify-self-start" disabled={disabled} onClick={() => updateTime(row.key, dayType, {})}>設定{label}時間</Button> : <span className="shift-item-spacer @max-[400px]/shift-settings:col-span-full @max-[400px]/shift-settings:row-start-3" aria-hidden="true" />}
             </div>;
             return <div className="shift-day-row" key={dayType}>
               <span className="shift-day-label">{label}</span>
@@ -270,7 +270,7 @@ function groupSummary(group: ShiftGroup) {
   return `${group.name} ${shiftTimeRange(group.weekday)} · ${headcount}${timeOnlyExtras.length ? `（另設${timeOnlyExtras.map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]).join("、")}）` : ""}`;
 }
 
-interface ScheduleManagersResponse { scopes: Array<ScheduleScope & { userId: string | null; revision: number }>; candidates: Array<{ userId: string; name: string; employeeNumber: string }> }
+interface ScheduleManagersResponse { scopes: Array<ScheduleScope & { userId: string | null; revision: number }>; candidates: Array<{ userId: string; name: string; employeeNumber: string; userStatus?: "invited" | "active" | "disabled" }> }
 
 export function HrShifts() {
   usePageTitle("班別管理");

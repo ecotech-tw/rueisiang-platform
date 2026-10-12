@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { firstQuickPersonId, outdatedScheduleShiftCount, sameDayMultiScopeSchedules } from "./Scheduling.js";
+import { outdatedScheduleShiftCount, sameDayMultiScopeSchedules } from "./Scheduling.js";
 import type { HrCalendarDay, ScheduleEntry, ScheduleShift } from "./api.js";
+import { resolveSchedulePerson, schedulePersonOptions } from "@rueisiang/db/schedule-draft";
 
 describe("同日跨據點排班提醒", () => {
   const entry = (overrides: Partial<{ personKind: "employee" | "worker"; employmentId: string | null; workerId: string | null; workDate: string; scopeId: string; scopeName: string; personName: string; archivedAt: string | null }> = {}) => ({
@@ -42,18 +43,26 @@ describe("已發布排班的日型與需求人力更新提示", () => {
   });
 });
 
-describe("快速排班的人員預設值", () => {
-  const data = {
-    employees: [{ employmentId: "employment-1" }],
-    workers: [{ id: "worker-1" }],
-  };
+describe("快速排班的合併人員選擇", () => {
+  const data = { employees: [{ employmentId: "same", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [{ id: "same", name: "小華", active: 1 }] };
 
-  it("切換到臨時支援時記住第一位支援人員", () => {
-    expect(firstQuickPersonId(data, "worker")).toBe("worker-1");
+  it("同時列出兩種人力，選項保留類型與 ID，不靠顯示文字推測身分", () => {
+    const options = schedulePersonOptions(data, { allowedPersonIds: null });
+    expect(options.map((person) => person.value)).toEqual(["employee:same", "worker:same"]);
+    expect(resolveSchedulePerson(options, "worker:same")).toMatchObject({ personKind: "worker", personId: "same", label: "小華（支援）" });
   });
 
-  it("切換回正式員工時沿用第一位員工，沒有名單則保持空值", () => {
-    expect(firstQuickPersonId(data, "employee")).toBe("employment-1");
-    expect(firstQuickPersonId({ employees: [], workers: [] }, "worker")).toBe("");
+  it("主動清空不重選，失效選擇才 fallback，仍有效的支援人員保持不變", () => {
+    const options = schedulePersonOptions(data, { allowedPersonIds: ["same"] });
+    expect(resolveSchedulePerson(options, "")).toBeUndefined();
+    expect(resolveSchedulePerson(options, null)?.value).toBe("employee:same");
+    expect(resolveSchedulePerson(options, "missing")?.value).toBe("employee:same");
+    expect(resolveSchedulePerson(options, "worker:same")?.value).toBe("worker:same");
+  });
+
+  it("沒有班別或空名單時不提供人員，正式員工清單為空也可直接選支援", () => {
+    expect(schedulePersonOptions(data, undefined)).toEqual([]);
+    expect(schedulePersonOptions(data, { allowedPersonIds: [] })).toEqual([]);
+    expect(resolveSchedulePerson(schedulePersonOptions({ ...data, employees: [] }, { allowedPersonIds: null }), null)?.personKind).toBe("worker");
   });
 });
