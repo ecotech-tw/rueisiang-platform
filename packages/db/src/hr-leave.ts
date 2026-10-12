@@ -709,6 +709,11 @@ export interface HrLeaveCancellationOptions {
   allowAny?: boolean;
   /** 管理端畫面上那一筆的版本；與目前不同就拒絕，跟核准、駁回守同一條。 */
   expectedRevision?: number;
+  /**
+   * 只取消還在待審的。小香的「已送出」卡片上那顆取消按鈕會一直留在聊天紀錄裡，幾個月後誤觸
+   * 不該收回一張已經核准、別人已經照著排班的假。
+   */
+  pendingOnly?: boolean;
 }
 
 const LEAVE_CHANGED_MESSAGE = "這筆請假申請在你開啟之後被申請人修改過，請看過最新的內容再處理。 ";
@@ -725,6 +730,7 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
   if (!current) throw new HrError(404, "找不到請假申請。 ");
   if (!options.allowAny && current.employeeUserId !== actor.id) throw new HrError(404, "找不到可取消的請假申請。 ");
   if (current.status !== "pending" && current.status !== "approved") throw new HrError(409, "請假申請不存在或已完成處理。 ");
+  if (options.pendingOnly && current.status !== "pending") throw new HrError(409, "請假申請已經審核過了。 ");
   // 管理端替人取消也是「看著某一版內容下的決定」，跟核准、駁回守同一條。
   if (options.expectedRevision !== undefined && current.revision !== options.expectedRevision) throw new HrError(409, LEAVE_CHANGED_MESSAGE);
 

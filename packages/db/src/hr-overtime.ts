@@ -63,6 +63,8 @@ export interface HrOvertimeCancellationOptions {
   allowAny?: boolean;
   /** 管理端畫面上那一筆的版本；與目前不同就拒絕，跟核准、駁回守同一條。 */
   expectedRevision?: number;
+  /** 只取消還在待審的；理由同 HrLeaveCancellationOptions.pendingOnly。 */
+  pendingOnly?: boolean;
 }
 
 function stamp(value: string) {
@@ -531,6 +533,7 @@ export async function cancelHrOvertimeRequest(db: Database, id: string, actor: H
   if (!options.allowAny && current.employeeUserId !== actor.id) throw new HrError(404, "找不到可取消的加班申請。 ");
   const { request } = current;
   if (request.status !== "pending" && request.status !== "approved") throw new HrError(409, "加班申請不存在或已完成處理。 ");
+  if (options.pendingOnly && request.status !== "pending") throw new HrError(409, "加班申請已經審核過了。 ");
   if (options.expectedRevision !== undefined && current.personKind === "employee" && request.revision !== options.expectedRevision) throw new HrError(409, OVERTIME_CHANGED_MESSAGE);
   const tableName = current.personKind === "employee" ? "hr_overtime_requests" : "hr_worker_overtime_requests";
   const eventPayload = current.personKind === "employee" ? { employeeUserId: current.employeeUserId, ...request } : { workerId: current.workerId, ...request };

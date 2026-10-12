@@ -311,62 +311,94 @@ const HR_DRAFT_POSTBACK_PREFIX = "hr_draft";
 // 兩邊對不上時 line.test.ts 會失敗，所以 token 改了不會靜靜漂掉。
 const HR_DRAFT_CARD_COLORS = { brand: "#d5383b", brandDark: "#ad282c", brandSoft: "#fbe8e5", ink: "#351c1d", muted: "#806c69", softLine: "#f1e7e4" } as const;
 
+type HrDraftPostbackAction = "submit" | "cancel" | "withdraw";
+type HrDraftCard = { id: string; revision: number; kindLabel: string; cardRows: ReadonlyArray<{ label: string; value: string }> };
+
+/** 確認卡片與「已送出」卡片的共同版面：上面是標題與狀態，中間是標籤與值排成兩欄的申請內容，下面是按鈕。 */
+function hrDraftCardMessage(draft: HrDraftCard, card: { altText: string; status: string; buttons: Array<{ style: "primary" | "secondary" | "link"; label: string; displayText: string; action: HrDraftPostbackAction }> }): LineExtraMessage {
+  const color = HR_DRAFT_CARD_COLORS;
+  return {
+    type: "flex",
+    // 通知與聊天列表只看得到這一行，不放申請內容：鎖定畫面上不該出現請假原因。
+    altText: card.altText,
+    contents: {
+      type: "bubble",
+      header: {
+        type: "box", layout: "vertical", backgroundColor: color.brandSoft, paddingAll: "16px", spacing: "xs",
+        contents: [
+          { type: "text", text: `${draft.kindLabel}申請`, weight: "bold", size: "lg", color: color.ink },
+          { type: "text", text: card.status, size: "sm", color: color.brandDark },
+        ],
+      },
+      body: {
+        type: "box", layout: "vertical", paddingAll: "16px", spacing: "md",
+        contents: draft.cardRows.map((row) => ({
+          type: "box", layout: "baseline", spacing: "md",
+          contents: [
+            { type: "text", text: row.label, size: "sm", color: color.muted, flex: 2 },
+            // Flex 的文字不能是空字串，整則訊息會被 LINE 拒收。
+            { type: "text", text: row.value.trim() || "—", size: "sm", color: color.ink, flex: 6, wrap: true },
+          ],
+        })),
+      },
+      footer: {
+        type: "box", layout: "vertical", paddingAll: "16px", spacing: "sm",
+        contents: [
+          { type: "separator", color: color.softLine },
+          ...card.buttons.map((button, index) => ({
+            type: "button", style: button.style, height: "sm", ...(index === 0 ? { margin: "md" } : {}),
+            // secondary 有自己的灰底，再指定顏色會把底色換掉。
+            ...(button.style === "secondary" ? {} : { color: button.style === "primary" ? color.brand : color.muted }),
+            action: { type: "postback", label: button.label, data: `${HR_DRAFT_POSTBACK_PREFIX}:${button.action}:${draft.id}:${draft.revision}`, displayText: button.displayText },
+          })),
+        ],
+      },
+    },
+  };
+}
+
 /**
  * 申請草稿的確認卡片：一張 Flex bubble，上面是標籤與值排成兩欄的申請內容，下面是「確認送出」「取消」。
  *
  * 不用 confirm template：它的文字上限 240 字（請假原因最多 1000 字），所以內容得另外拆成一則文字訊息，
  * 員工看到的是一段字加一個跟內容分開的小框，日期這種最該看清楚的東西反而埋在字裡。Flex 的上限是整張
- * bubble 30KB，一千字的原因放得下，內容與按鈕在同一張卡上。主要動作用品牌色實心按鈕、取消用文字按鈕：兩顆長得一樣時最容易按錯。
+ * bubble 30KB，一千字的原因放得下，內容與按鈕在同一張卡上。主要動作用品牌色實心按鈕、取消用文字按鈕：
+ * 兩顆長得一樣時最容易按錯。
  *
  * 按鈕帶的是草稿 id 與版本——員工按的是哪一版的卡片，送出的就必須是那一版；草稿之後又被改過的話，
  * 這兩顆按鈕會失效，而不是送出他沒看過的內容。
  */
-export function lineHrDraftConfirmMessages(draft: { id: string; revision: number; kindLabel: string; cardRows: ReadonlyArray<{ label: string; value: string }> }): LineExtraMessage[] {
-  const data = (action: "submit" | "cancel") => `${HR_DRAFT_POSTBACK_PREFIX}:${action}:${draft.id}:${draft.revision}`;
-  const color = HR_DRAFT_CARD_COLORS;
-  return [
-    {
-      type: "flex",
-      // 通知與聊天列表只看得到這一行，不放申請內容：鎖定畫面上不該出現請假原因。
-      altText: `請確認${draft.kindLabel}申請`,
-      contents: {
-        type: "bubble",
-        header: {
-          type: "box", layout: "vertical", backgroundColor: color.brandSoft, paddingAll: "16px", spacing: "xs",
-          contents: [
-            { type: "text", text: `${draft.kindLabel}申請`, weight: "bold", size: "lg", color: color.ink },
-            { type: "text", text: "尚未送出", size: "sm", color: color.brandDark },
-          ],
-        },
-        body: {
-          type: "box", layout: "vertical", paddingAll: "16px", spacing: "md",
-          contents: draft.cardRows.map((row) => ({
-            type: "box", layout: "baseline", spacing: "md",
-            contents: [
-              { type: "text", text: row.label, size: "sm", color: color.muted, flex: 2 },
-              // Flex 的文字不能是空字串，整則訊息會被 LINE 拒收。
-              { type: "text", text: row.value.trim() || "—", size: "sm", color: color.ink, flex: 6, wrap: true },
-            ],
-          })),
-        },
-        footer: {
-          type: "box", layout: "vertical", paddingAll: "16px", spacing: "sm",
-          contents: [
-            { type: "separator", color: color.softLine },
-            { type: "button", style: "primary", color: color.brand, height: "sm", margin: "md", action: { type: "postback", label: "確認送出", data: data("submit"), displayText: "確認送出" } },
-            { type: "button", style: "link", color: color.muted, height: "sm", action: { type: "postback", label: "取消", data: data("cancel"), displayText: "取消申請" } },
-          ],
-        },
-      },
-    },
-  ];
+export function lineHrDraftConfirmMessages(draft: HrDraftCard): LineExtraMessage[] {
+  return [hrDraftCardMessage(draft, {
+    altText: `請確認${draft.kindLabel}申請`,
+    status: "尚未送出",
+    buttons: [
+      { style: "primary", label: "確認送出", displayText: "確認送出", action: "submit" },
+      { style: "link", label: "取消", displayText: "取消申請", action: "cancel" },
+    ],
+  })];
 }
 
-/** 解析確認卡片按鈕送回來的 data。格式不對就是 null：別的功能的 postback 不該被當成草稿確認。 */
-export function parseLineHrDraftPostback(event: LineWebhookEvent): { action: "submit" | "cancel"; draftId: string; revision: number } | null {
+/**
+ * 送出之後的卡片：同一份內容，狀態換成已送出，只剩一顆「取消申請」。
+ *
+ * 員工最常在這一刻才發現送錯（日期、假別），而小香沒有取消已送出申請的工具：沒有這顆按鈕的話，
+ * 他只能自己到 HR 頁面找那一張。按鈕帶的仍是草稿 id，由 withdrawHrRequestDraft 找出它送出的那一張。
+ * 不用品牌色：這是收回，不是這張卡片希望他做的事。
+ */
+export function lineHrRequestSubmittedMessages(draft: HrDraftCard): LineExtraMessage[] {
+  return [hrDraftCardMessage(draft, {
+    altText: `已送出${draft.kindLabel}申請`,
+    status: "已送出，等候審核",
+    buttons: [{ style: "secondary", label: "取消申請", displayText: "取消申請", action: "withdraw" }],
+  })];
+}
+
+/** 解析卡片按鈕送回來的 data。格式不對就是 null：別的功能的 postback 不該被當成草稿的按鈕。 */
+export function parseLineHrDraftPostback(event: LineWebhookEvent): { action: HrDraftPostbackAction; draftId: string; revision: number } | null {
   if (event.type !== "postback" || typeof event.postback?.data !== "string") return null;
-  const match = /^hr_draft:(submit|cancel):([0-9a-f-]{36}):([1-9]\d{0,8})$/.exec(event.postback.data);
-  return match ? { action: match[1] as "submit" | "cancel", draftId: match[2]!, revision: Number(match[3]) } : null;
+  const match = /^hr_draft:(submit|cancel|withdraw):([0-9a-f-]{36}):([1-9]\d{0,8})$/.exec(event.postback.data);
+  return match ? { action: match[1] as HrDraftPostbackAction, draftId: match[2]!, revision: Number(match[3]) } : null;
 }
 
 export interface LineMessageContent {

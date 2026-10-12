@@ -33,6 +33,7 @@ import {
   resolveLineToolKeys,
   recordAssistantRun,
   confirmHrRequestDraft,
+  withdrawHrRequestDraft,
   discardHrRequestDrafts,
   findLineAccountBinding,
   getHrRequestDraft,
@@ -59,7 +60,7 @@ import {
   type AssistantRunResult,
 } from "@rueisiang/assistant";
 import { PLATFORM_TOOL_DEFAULT_STATUSES, PLATFORM_TOOL_KEYS, toolsForSurface, toolKeysForLineSource } from "@rueisiang/tools";
-import { assertHrLineDeliveryAuthorized, hrRequestDraftConfirmationReply, hrRequestDraftPromptRules, HrSelfToolError, resolveLineHrRequestActor } from "../assistant-hr.js";
+import { assertHrLineDeliveryAuthorized, hrRequestDraftConfirmationReply, hrRequestDraftPromptRules, hrRequestWithdrawalReply, HrSelfToolError, resolveLineHrRequestActor } from "../assistant-hr.js";
 import type { HrDeliveryAuthorization } from "../assistant-hr.js";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -92,6 +93,7 @@ import {
   lineEventRawText,
   lineEventText,
   lineHrDraftConfirmMessages,
+  lineHrRequestSubmittedMessages,
   parseLineHrDraftPostback,
   type LineExtraMessage,
   type LineWebhookEvent,
@@ -1513,7 +1515,7 @@ async function receive(c: Context<AppEnv>) {
  */
 async function confirmLineHrDraft(c: Context<AppEnv>, input: {
   event: LineWebhookEvent;
-  postback: { action: "submit" | "cancel"; draftId: string; revision: number };
+  postback: { action: "submit" | "cancel" | "withdraw"; draftId: string; revision: number };
   lineChannel: { assistantKey: string; channelKey: string; enabled: boolean };
   accessToken: string | null | undefined;
 }): Promise<void> {
@@ -1525,25 +1527,37 @@ async function confirmLineHrDraft(c: Context<AppEnv>, input: {
   if (!lineGroup.enabled) return;
   const trace = { channelKey: input.lineChannel.channelKey, groupRowId: lineGroup.id, draftId: input.postback.draftId, action: input.postback.action };
   let text: string;
+  let extraMessages: LineExtraMessage[] = [];
   try {
     const actor = await resolveLineHrRequestActor(c.get("db"), c.env, {
       assistantKey: input.lineChannel.assistantKey, channelKey: input.lineChannel.channelKey, groupRowId: lineGroup.id,
       lineGroupId: lineGroup.lineGroupId, sourceType: "user", contextGeneration: lineGroup.contextResetAt ?? "",
     });
-    const outcome = await confirmHrRequestDraft(c.get("db"), {
-      draftId: input.postback.draftId, revision: input.postback.revision, action: input.postback.action,
-      conversation: { assistantKey: input.lineChannel.assistantKey, surface: "line", channelKey: input.lineChannel.channelKey, conversationKey: lineGroup.id },
+    const pressed = {
+      draftId: input.postback.draftId,
+      conversation: { assistantKey: input.lineChannel.assistantKey, surface: "line" as const, channelKey: input.lineChannel.channelKey, conversationKey: lineGroup.id },
       userId: actor.id, actor,
-    });
-    assistantLog("info", "line.hr_draft.confirmed", { ...trace, outcome: outcome.outcome });
-    text = hrRequestDraftConfirmationReply(outcome);
+    };
+    if (input.postback.action === "withdraw") {
+      const outcome = await withdrawHrRequestDraft(c.get("db"), pressed);
+      assistantLog("info", "line.hr_draft.withdrawn", { ...trace, outcome: outcome.outcome });
+      text = hrRequestWithdrawalReply(outcome);
+    } else {
+      const outcome = await confirmHrRequestDraft(c.get("db"), { ...pressed, revision: input.postback.revision, action: input.postback.action });
+      assistantLog("info", "line.hr_draft.confirmed", { ...trace, outcome: outcome.outcome });
+      text = hrRequestDraftConfirmationReply(outcome);
+      if (outcome.outcome === "submitted") {
+        extraMessages = lineHrRequestSubmittedMessages({ id: input.postback.draftId, revision: input.postback.revision, kindLabel: outcome.kindLabel, cardRows: outcome.cardRows });
+      }
+    }
   } catch (error) {
     // HrSelfToolError 是我們自己寫的授權訊息（未綁定、已停權、工具沒有授權），可以直接給員工看。
     assistantLog("warn", "line.hr_draft.failed", { ...trace, error: error instanceof HrSelfToolError ? error.message : assistantErrorDetails(error) });
-    text = error instanceof HrSelfToolError ? error.message : "目前無法處理這張申請，沒有送出。請稍後再試。";
+    // 不講「沒有送出」或「沒有取消」：丟出不明錯誤時兩種都可能其實已經寫進去了。
+    text = error instanceof HrSelfToolError ? error.message : "目前無法處理這張申請。請稍後再試，或到 HR 頁面確認。";
   }
   try {
-    await replyLineMessage(input.accessToken, replyToken, text, { ...trace, redactMessageErrors: true });
+    await replyLineMessage(input.accessToken, replyToken, text, { ...trace, redactMessageErrors: true }, extraMessages);
   } catch (error) {
     assistantLog("warn", "line.hr_draft.reply_failed", { ...trace, error: assistantErrorDetails(error) });
   }

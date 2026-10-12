@@ -3,7 +3,7 @@ import {
   cancelHrRequestDraft, findAssistantLineGroup, findLineAccountBinding, findLineAccountBindingByUser, getAssistantLineChannel, getHrRequestDraft, getHrSelfToolAnnualLeave,
   isHrAdministrator, isHrEmployee, listAssistantToolConfigs, listHrSelfToolLeaveRequests, listHrSelfToolOvertimeRequests, listHrSelfToolSchedule,
   loadAuthUser, resolveLineToolKeys, saveHrRequestDraft,
-  type Database, type HrRequestDraftConfirmation, type HrRequestDraftInput, type HrRequestDraftScope, type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery,
+  type Database, type HrRequestDraftConfirmation, type HrRequestWithdrawal, type HrRequestDraftInput, type HrRequestDraftScope, type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery,
 } from "@rueisiang/db";
 import { isHrToolKey, type HrSelfToolService } from "@rueisiang/tools";
 import type { Env } from "./env.js";
@@ -285,8 +285,8 @@ export async function resolveLineHrRequestActor(db: Database, env: Env, input: P
 export function hrRequestDraftConfirmationReply(outcome: HrRequestDraftConfirmation): string {
   switch (outcome.outcome) {
     case "submitted":
-      // 卡片第一行是「（尚未送出）」的標題，送出後不能原樣貼回去。
-      return [`已送出${outcome.kindLabel}申請，等候審核。`, ...outcome.card.split("\n").slice(1)].join("\n");
+      // 內容在後面接的那張「已送出」卡片上，這裡不再重複一次。
+      return `已送出${outcome.kindLabel}申請，等候審核。`;
     case "cancelled":
       return `已取消這張${outcome.kindLabel}草稿，沒有送出任何申請。`;
     case "already_submitted":
@@ -299,6 +299,22 @@ export function hrRequestDraftConfirmationReply(outcome: HrRequestDraftConfirmat
       return `沒有送出${outcome.kindLabel}申請：${outcome.message}`;
     case "gone":
       return "這張申請草稿已經不在了（可能已經取消，或超過 24 小時沒有更新）。需要的話請重新跟我說一次。";
+  }
+}
+
+/** 按下「已送出」卡片上的取消之後回給員工的話。一樣是固定句子，不經過模型。 */
+export function hrRequestWithdrawalReply(outcome: HrRequestWithdrawal): string {
+  switch (outcome.outcome) {
+    case "withdrawn":
+      return `已取消這張${outcome.kindLabel}申請。`;
+    case "already_withdrawn":
+      return `這張${outcome.kindLabel}申請已經取消了。`;
+    case "reviewed":
+      return `這張${outcome.kindLabel}申請已經審核過了，不能在這裡取消。需要更動請到 HR 頁面處理。`;
+    case "rejected":
+      return `沒有取消${outcome.kindLabel}申請：${outcome.message}`;
+    case "gone":
+      return "找不到這張申請，沒有取消任何東西。請到 HR 頁面確認。";
   }
 }
 

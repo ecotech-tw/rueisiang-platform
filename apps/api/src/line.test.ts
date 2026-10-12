@@ -1409,12 +1409,46 @@ describe("LINE 申請草稿：確認卡片與按鈕", () => {
     expect((await press(`hr_draft:submit:${draft.id}:${draft.revision}`)).status).toBe(200);
     expect(piAgentRequests).toHaveLength(0);
     expect(await leaves()).toEqual([expect.objectContaining({ status: "pending", startsAt: "2026-03-03 01:00:00", endsAt: "2026-03-03 04:00:00", createdBy: "admin", approverUserId: "boss" })]);
-    expect(replies()).toEqual(["已送出請假申請，等候審核。\n假別：事假\n開始：2026-03-03（週二）09:00\n結束：2026-03-03（週二）12:00\n時數：3 小時\n原因：看醫生"]);
+    expect(replies()).toEqual(["已送出請假申請，等候審核。"]);
+    // 內容在後面那張「已送出」的卡片上：同一份內容，只剩一顆取消申請。
+    const submitted = sent.at(-1)!.body.messages as unknown as [unknown, FlexCard];
+    expect(submitted).toHaveLength(2);
+    expect(submitted[1]).toMatchObject({ type: "flex", altText: "已送出請假申請" });
+    expect(submitted[1].contents.header.contents.map((item) => item.text)).toEqual(["請假申請", "已送出，等候審核"]);
+    expect(cardRowsOf(submitted[1])).toEqual(draft.cardRows);
+    expect(cardButtonsOf(submitted[1])).toMatchObject([
+      { style: "secondary", action: { type: "postback", label: "取消申請", data: `hr_draft:withdraw:${draft.id}:${draft.revision}` } },
+    ]);
     await press(`hr_draft:submit:${draft.id}:${draft.revision}`);
     expect(replies()[1]).toBe("這張請假申請已經送出過了，不會重複送出。");
     expect(await leaves()).toHaveLength(1);
     // 按鈕事件不是對話內容，不進訊息紀錄。
     expect((await db().select().from(assistantLineMessages)).map((row) => row.webhookEventId)).toEqual(["draft-seed"]);
+  });
+
+  it("按已送出卡片上的取消申請：不經過模型，收回那張待審的請假；再按照實說已經取消；已核准的不收回；群組裡按不理", async () => {
+    const draft = await saveHrRequestDraft(db(), scope(), complete);
+    const withdraw = `hr_draft:withdraw:${draft.id}:${draft.revision}`;
+    // 還沒送出就按（偽造的按鈕）：沒有東西可以收回。
+    await press(withdraw);
+    expect(replies().at(-1)).toBe("找不到這張申請，沒有取消任何東西。請到 HR 頁面確認。");
+    await press(`hr_draft:submit:${draft.id}:${draft.revision}`);
+    await press(withdraw, { source: { type: "group", groupId: "group-1", userId: "user-1" } });
+    expect((await leaves())[0]!.status).toBe("pending");
+
+    await press(withdraw);
+    expect(piAgentRequests).toHaveLength(0);
+    expect((await leaves())[0]!.status).toBe("cancelled");
+    expect(replies().at(-1)).toBe("已取消這張請假申請。");
+    // 回的只有一句話，不再接卡片。
+    expect(sent.at(-1)!.body.messages).toHaveLength(1);
+    await press(withdraw);
+    expect(replies().at(-1)).toBe("這張請假申請已經取消了。");
+
+    await db().update(hrLeaveRequests).set({ status: "approved" });
+    await press(withdraw);
+    expect(replies().at(-1)).toBe("這張請假申請已經審核過了，不能在這裡取消。需要更動請到 HR 頁面處理。");
+    expect((await leaves())[0]!.status).toBe("approved");
   });
 
   it("LINE 重送同一個按鈕事件：只有一張申請，第二次回的是已經送出過", async () => {
