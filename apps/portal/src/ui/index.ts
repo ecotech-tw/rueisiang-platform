@@ -11,5 +11,6 @@ export { PageHeader, Panel } from "./Panel.js";
 export { PageTabs } from "./PageTabs.js";
 export { SegmentedControl } from "./SegmentedControl.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
+export { SelectionActionBar, type SelectionActionBarProps } from "@rueisiang/ui";
 export { Tooltip } from "./Tooltip.js";
 export { WorkflowRunPanel } from "./WorkflowRunPanel.js";

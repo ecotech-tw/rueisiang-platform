@@ -4281,23 +4281,6 @@
   overflow: auto;
 }
 .hr-payroll-mobile-select-all { display: none; }
-.hr-payroll-selection-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  z-index: 3;
-  gap: 12px;
-  padding: 10px 12px 10px 16px;
-  border: 1px solid var(--color-line);
-  border-radius: 12px;
-  background: var(--color-paper);
-  box-shadow: var(--shadow-panel);
-}
-.hr-payroll-selection-actions .hr-payroll-selection-count { margin-right: auto; }
-.hr-payroll-selection-actions > button { flex: none; }
 .hr-payroll-record-table tr.selected td { background: --alpha(var(--color-brand) / 8%); }
 .hr-payroll-select-cell { width: 44px; padding-inline: 10px !important; text-align: center; }
 @media (min-width: 761px) {
@@ -4404,8 +4387,6 @@
   .hr-payroll-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hr-payroll-line-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hr-payroll-adjustment-form > .field { flex-basis: 100%; }
-  .hr-payroll-selection-actions { right: 14px; bottom: 14px; left: 14px; padding: 8px 10px 8px 14px; }
-  .hr-payroll-selection-actions > button { width: auto; justify-content: center; }
   .hr-payroll-detail-head { align-items: flex-start; flex-direction: column; }
   .hr-payroll-detail-actions { justify-content: flex-start; width: 100%; }
   .hr-payroll-detail-action-group { width: 100%; }

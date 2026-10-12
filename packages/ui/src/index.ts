@@ -17,6 +17,7 @@ export { EmptyState } from "./EmptyState.js";
 export { FilterInput, FilterSelect, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";
 export { FilterToolbar } from "./FilterToolbar.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
+export { SelectionActionBar, type SelectionActionBarProps } from "./SelectionActionBar.js";
 export { Pager, type PagerProps } from "./Pager.js";
 export { SortableHeader, type SortableHeaderProps } from "./SortableHeader.js";
 export { PageHeader, Panel } from "./Panel.js";

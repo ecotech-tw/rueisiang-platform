@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { ConfirmDialog } from "@rueisiang/ui";
+import { ConfirmDialog, SelectionActionBar } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -20,6 +20,18 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toContain('class="data-table payroll-table"');
     expect(markup).toContain("<thead>");
     expect(markup).toContain("<tbody>");
+  });
+
+  it("renders selected-count actions in the shared live status bar", () => {
+    const markup = renderToStaticMarkup(
+      <SelectionActionBar count={3} countLabel="筆加班申請">
+        <button type="button">取消並刪除所選加班</button>
+      </SelectionActionBar>,
+    );
+
+    expect(markup).toContain('class="selection-action-bar" role="status" aria-live="polite"');
+    expect(markup).toContain("已選取 3 筆加班申請");
+    expect(markup).toContain("取消並刪除所選加班");
   });
 
   it("keeps confirmation dialogs as shared alertdialog contracts", () => {
