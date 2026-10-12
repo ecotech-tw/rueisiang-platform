@@ -20,6 +20,34 @@ const initialShifts: HrShiftsResponse = {
 };
 const managerData = { scopes: [{ id: "store", name: "門市", userId: null, revision: 0 }], candidates: [] };
 
+it("班別表逐班顯示可排人員，舊不限名單列出全體，空名單清楚標示", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); notifyManager.setScheduler(queueMicrotask);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const shifts: HrShiftsResponse = {
+    ...initialShifts,
+    shifts: [
+      { ...initialShifts.shifts[0]!, allowedPersonIds: null },
+      { ...initialShifts.shifts[1]!, allowedPersonIds: ["worker"] },
+      { ...initialShifts.shifts[1]!, templateId: "empty", versionId: "empty", name: "無人班", startSecond: 46800, allowedPersonIds: [] },
+    ],
+    people: [
+      { id: "employee", employeeNumber: "E1", name: "小明", personKind: "employee" },
+      { id: "worker", employeeNumber: "W1", name: "支援小華", personKind: "worker" },
+    ],
+  };
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL) => Response.json(String(input).endsWith("/schedule-managers") ? managerData : shifts));
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  try {
+    await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrShifts /></QueryClientProvider></MemoryRouter>));
+    const cells = [...container.querySelectorAll<HTMLElement>('td[data-label="班別與可排人員"]')];
+    expect(cells).toHaveLength(1);
+    expect(cells[0]!.textContent).toContain("可排人員：E1・小明、W1・支援小華（支援）");
+    expect(cells[0]!.textContent).toContain("可排人員：W1・支援小華（支援）");
+    expect(cells[0]!.textContent).toContain("無人班");
+    expect(cells[0]!.textContent).toContain("無可排人員");
+  } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+});
+
 afterEach(() => { vi.unstubAllGlobals(); showToast.mockClear(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
 it("時間可手動輸入並驗證 HH:mm，班別名單可多選後一起儲存", async () => {

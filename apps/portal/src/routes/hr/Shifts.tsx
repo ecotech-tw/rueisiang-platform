@@ -270,6 +270,11 @@ function groupSummary(group: ShiftGroup) {
   return `${group.name} ${shiftTimeRange(group.weekday)} · ${headcount}${timeOnlyExtras.length ? `（另設${timeOnlyExtras.map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]).join("、")}）` : ""}`;
 }
 
+function schedulablePeople(group: ShiftGroup, people: NonNullable<HrShiftsResponse["people"]>) {
+  const allowedPersonIds = group.weekday.allowedPersonIds;
+  return people.filter((person) => allowedPersonIds == null || allowedPersonIds.includes(person.id));
+}
+
 interface ScheduleManagersResponse { scopes: Array<ScheduleScope & { userId: string | null; revision: number }>; candidates: Array<{ userId: string; name: string; employeeNumber: string; userStatus?: "invited" | "active" | "disabled" }> }
 
 export function HrShifts() {
@@ -299,7 +304,7 @@ export function HrShifts() {
     <PageHeader title="班別管理" description="每個班別可分別設定平日、週末與國定假日的時間與需求人力；沒設定的日型會沿用平日時段與需求人力。需求人力同時是薪資單位池上限；待確認與已出勤人員計入、明確未出勤排除，超額排班時由有效人員平均分配。" />
     <Panel className="grows">
       <DataTable><thead><tr>
-        <th>營運據點</th><th className="numeric">班別數</th><th>班別</th><th>排班負責人</th>{canWrite ? <th>操作</th> : null}
+        <th>營運據點</th><th className="numeric">班別數</th><th>班別與可排人員</th><th>排班負責人</th>{canWrite ? <th>操作</th> : null}
       </tr></thead><tbody>
         {data.scopes.map((scope) => {
           const list = groupsByScope.get(scope.id) ?? [];
@@ -309,7 +314,14 @@ export function HrShifts() {
             <td data-label="營運據點"><span className="cell-strong">{scope.name}</span></td>
             <td data-label="班別數" className="numeric">{list.length}</td>
             {/* 沒有班別的店在排班月曆選不到任何班，所以要一眼看得出來，不是留一格空白。 */}
-            <td data-label="班別">{list.length ? list.map(groupSummary).join("、") : <span className="muted">尚未設定</span>}</td>
+            <td data-label="班別與可排人員">{list.length ? <div className="grid gap-3">{list.map((group) => {
+              const people = schedulablePeople(group, data.people ?? []);
+              const names = people.map((person) => `${person.employeeNumber}・${person.name}${person.personKind === "worker" ? "（支援）" : ""}`).join("、");
+              return <div className="grid gap-1" key={group.templateId}>
+                <span className="font-medium text-ink">{groupSummary(group)}</span>
+                <p className="m-0 text-sm text-muted"><span className="font-medium text-ink">可排人員：</span>{names || "無可排人員"}</p>
+              </div>;
+            })}</div> : <span className="muted">尚未設定</span>}</td>
             <td data-label="排班負責人">{managerName ?? (manager?.userId ? "已停用或封存" : managers.isPending ? "載入中…" : "尚未指定")}</td>
             {canWrite ? <td data-label="操作"><Button variant="icon" icon="edit" className="compensation-action-update" aria-label={`編輯 ${scope.name} 的班別與排班負責人`} disabled={!manager || !managers.data} onClick={() => setOpenScopeId(scope.id)} /></td> : null}
           </tr>;
