@@ -67,30 +67,36 @@ async function openMobileQuick() {
 }
 
 describe("HR 前台快速排班", () => {
-  it("保留右下角已排人數，只用背景色呈現足額與缺額", async () => {
+  it("保留右下角已排人數，只用日期底色呈現足額與缺額", async () => {
     const initial = data();
-    initial.entries.push({ ...savedEntry, id: "weekend-entry", workDate: "2026-02-07", shiftVersionId: "weekend", requiredHeadcount: 2 });
+    initial.entries.push({ ...savedEntry, id: "weekend-entry", employmentId: "employee-2", workDate: "2026-02-07", shiftVersionId: "weekend", requiredHeadcount: 2 });
     const page = await renderPage(initial);
     try {
       const fullDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
       const shortDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 排班"]');
+      const emptyDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-08 排班"]');
       expect(fullDay?.querySelector("span.absolute")?.textContent).toBe("1");
+      expect(fullDay?.className).toContain("bg-ok-soft");
+      expect(fullDay?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
       expect(fullDay?.getAttribute("aria-description")).toContain("早班 足額");
-      expect(fullDay?.querySelector("span.absolute")?.className).toContain("bg-ok-soft");
       expect(shortDay?.querySelector("span.absolute")?.textContent).toBe("1");
+      expect(shortDay?.className).toContain("bg-warn-soft");
+      expect(shortDay?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
       expect(shortDay?.getAttribute("aria-description")).toContain("早班 缺 1 人");
-      expect(shortDay?.querySelector("span.absolute")?.className).toContain("bg-warn-soft");
+      expect(emptyDay?.className).toContain("bg-warn-soft");
+      expect(emptyDay?.querySelector("span.absolute")).toBeNull();
     } finally { await page.cleanup(); }
   });
 
-  it("排班超額時保留原人數並以品牌色背景提示", async () => {
+  it("排班超額時保留原人數並以品牌色底色提示", async () => {
     const initial = data();
-    initial.entries.push({ ...savedEntry, id: "extra", employmentId: "employee-2" });
+    initial.entries = [{ ...savedEntry, employmentId: "employee-2" }, { ...savedEntry, id: "extra", employmentId: "employee-3" }];
     const page = await renderPage(initial);
     try {
       const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
       expect(day?.querySelector("span.absolute")?.textContent).toBe("2");
       expect(day?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
+      expect(day?.className).toContain("bg-brand-soft");
       expect(day?.getAttribute("aria-description")).toContain("早班 超 1 人");
     } finally { await page.cleanup(); }
   });
@@ -106,7 +112,8 @@ describe("HR 前台快速排班", () => {
     try {
       const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
       expect(day?.querySelector("span.absolute")?.textContent).toBe("3");
-      expect(day?.querySelector("span.absolute")?.className).toContain("bg-warn-soft");
+      expect(day?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
+      expect(day?.className).toContain("bg-warn-soft");
       expect(day?.getAttribute("aria-description")).toContain("早班 超 2 人");
       expect(day?.getAttribute("aria-description")).toContain("晚班 缺 2 人");
     } finally { await page.cleanup(); }
@@ -115,7 +122,8 @@ describe("HR 前台快速排班", () => {
     try {
       const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
       expect(day?.querySelector("span.absolute")?.textContent).toBe("1");
-      expect(day?.querySelector("span.absolute")?.className).toContain("bg-warn-soft");
+      expect(day?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
+      expect(day?.className).toContain("bg-warn-soft");
     } finally { await absentPage.cleanup(); }
   });
 
@@ -524,7 +532,7 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
-  it("手機節慶日期以綠點與日期描述標示，已有其他人排班以粉橘底呈現", async () => {
+  it("手機節慶日期以綠點與描述標示，日期底色顯示需求人力狀態", async () => {
     const initial = data();
     initial.employees.push({ employmentId: "other", userId: "other", employeeNumber: "E2", name: "小華" });
     initial.entries.push({ ...savedEntry, id: "other-entry", employmentId: "other", employeeNumber: "E2", personName: "小華", workDate: "2026-02-07" });
@@ -533,7 +541,7 @@ describe("HR 前台快速排班", () => {
     try {
       await page.click("快速排班");
       const holiday = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!;
-      expect(holiday.className).toContain("bg-tone-peach/15");
+      expect(holiday.className).toContain("bg-warn-soft");
       expect(holiday.querySelector(".bg-ok")).not.toBeNull();
       expect(document.querySelector('[aria-label="月曆圖例"]')).toBeNull();
       expect(holiday.getAttribute("aria-description")).toContain("公司行事曆特別日");
@@ -542,7 +550,7 @@ describe("HR 前台快速排班", () => {
       expect(document.querySelector('[aria-label="本月節慶"]')!.textContent).toContain("2/7 公司節慶");
       await act(async () => holiday.click());
       expect(holiday.getAttribute("aria-pressed")).toBe("true");
-      expect(holiday.className).toContain("bg-tone-peach/15");
+      expect(holiday.className).toContain("bg-ok-soft");
       expect(holiday.className).toContain("ring-brand-dark");
       expect(holiday.querySelector(".bg-ok")).not.toBeNull();
     } finally { await page.cleanup(); }
@@ -645,17 +653,18 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
-  it("桌機選中日期保留色環及卡片色調，與已有排班粉橘底並存", async () => {
+  it("桌機選中日期保留色環與足額底色；移除排班後顯示缺額底色", async () => {
     const page = await renderPage(data());
     try {
       const button = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]')!;
       expect(button.getAttribute("aria-pressed")).toBe("true");
       expect(button.className).toContain("ring-brand-dark");
-      expect(button.className).toContain("bg-tone-peach/15");
+      expect(button.className).toContain("bg-ok-soft");
       expect(button.parentElement!.querySelector(":scope > div.bg-brand-soft")).not.toBeNull();
       await page.clickDate("2026-02-06");
       expect(button.getAttribute("aria-pressed")).toBe("false");
       expect(button.className).not.toContain("ring-brand-dark");
+      expect(button.className).toContain("bg-warn-soft");
     } finally { await page.cleanup(); }
   });
 

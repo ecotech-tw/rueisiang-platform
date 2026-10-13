@@ -210,12 +210,12 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
             const special = specialDates.has(day.date);
             const description = `${day.name || dayTypeLabel(day.dayType)}${special ? "・公司行事曆特別日" : ""}・${entries.length} 筆排班${quick && otherCount ? `・其他人 ${otherCount} 筆` : ""}${coverage ? `・${coverage.description}` : ""}`;
             const selectable = quick || !isMobile;
-            const background = occupied ? "bg-tone-peach/15" : selectable && picked(day.date) ? "bg-brand-soft" : day.dayType !== "weekday" ? "bg-canvas" : "";
-            const coverageBadge = coverage?.tone === "full" ? "bg-ok-soft" : coverage?.tone === "short" ? "bg-warn-soft" : "bg-brand-soft";
+            const coverageBackground = coverage?.tone === "full" ? "bg-ok-soft" : coverage?.tone === "short" ? "bg-warn-soft" : coverage?.tone === "excess" ? "bg-brand-soft" : "";
+            const background = coverageBackground || (occupied ? "bg-tone-peach/15" : selectable && picked(day.date) ? "bg-brand-soft" : day.dayType !== "weekday" ? "bg-canvas" : "");
             return <div key={day.date} className={`relative min-w-0 border-t border-soft-line ${!isMobile && !quick ? "min-h-32 p-1" : ""}`}>
               <button type="button" className={`${dateClass} ${background} ${day.dayType === "weekday" ? "text-ink" : "text-brand-dark"} ${selectable && picked(day.date) ? "ring-1 ring-inset ring-brand-dark" : ""}`} aria-label={`${day.date} ${quick ? "快速排班" : "排班"}`} aria-description={description} aria-pressed={!isMobile || quick ? picked(day.date) : undefined} disabled={!isMobile || quick ? toggleDisabled(day.date) : undefined} onClick={() => isMobile && !quick ? setDetailsDate(day.date) : toggle(day.date)}>
                 {Number(day.date.slice(8))}
-                {entries.length ? <span className={`absolute bottom-0 right-0 rounded-full px-1 text-[9px] font-semibold leading-3 text-brand-dark ${coverageBadge}`} aria-hidden="true">{entries.length}</span> : null}
+                {entries.length ? <span className="absolute bottom-0 right-0 rounded-full bg-brand-soft px-1 text-[9px] font-semibold leading-3 text-brand-dark" aria-hidden="true">{entries.length}</span> : null}
                 {special ? <span className="absolute left-1 top-1 size-2 rounded-full bg-ok" aria-hidden="true" /> : null}
               </button>
               {!isMobile && !quick ? <>
@@ -228,7 +228,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
             </div>;
           })}
         </div>
-        <p className="m-0 text-[10px] text-muted" aria-label="需求人力圖例">右下角為已排人數；背景色：<span className="text-ok">足額</span>・<span className="text-warn">缺額</span>・<span className="text-brand-dark">超額</span>（待確認／已出勤計入，未出勤不計）</p>
+        <p className="m-0 text-[10px] text-muted" aria-label="需求人力圖例">右下角為已排人數；日期底色：<span className="text-ok">足額</span>・<span className="text-warn">缺額</span>・<span className="text-brand-dark">超額</span>（待確認／已出勤計入，未出勤不計）</p>
         {specialDays.length ? <p className="m-0 text-[11px] text-muted" aria-label="本月節慶">{specialDays.map((day) => `${Number(day.date.slice(5, 7))}/${Number(day.date.slice(8))} ${day.name || "公司特別日"}`).join("、")}</p> : null}
       </div>
     </Panel>
