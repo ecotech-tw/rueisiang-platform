@@ -69,6 +69,7 @@ beforeEach(() => {
       if (!sessionAuthorized) return Response.json({ error: "請先登入。" }, { status: 401 });
       return Response.json({ ...user, deviceRemembered: !platformOnly || lineAuthenticated, lineLiffAuthenticated: lineAuthenticated });
     }
+    if (path.endsWith("/me/schedule-scopes")) return Response.json({ scopes: [{ id: "store", name: "門市" }] });
     if (path.endsWith("/liff/link")) {
       if (!platformOnly && !liff.token) return Response.json({ error: "請先登入。" }, { status: 401 });
       if (init?.method !== "POST" && intentFailure === "network") throw new Error("連不上伺服器");
@@ -124,7 +125,7 @@ async function clickButton(label: string) {
 
 describe("LIFF 與一般 HR 登入流程", () => {
   it("工作分類沿用本人登入 gate，連結排班與既有申請路徑", async () => {
-    await renderApp("/work"); await expectText("排班與表單申請集中在這裡");
+    await renderApp("/work"); await expectText("可使用的工作項目集中在這裡");
     expect(container.querySelector('a[href="/scheduling"]')?.textContent).toContain("排班");
     const forms = container.querySelector<HTMLAnchorElement>('a[href="/forms"]')!;
     expect(forms.textContent).toContain("表單申請");
