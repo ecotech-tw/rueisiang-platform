@@ -194,11 +194,6 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
             </div>;
           })}
         </div>
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted" aria-label="月曆圖例">
-          <span className="inline-flex items-center gap-1"><span className="size-1.5 rounded-full bg-ok" aria-hidden="true" />節慶／特別日</span>
-          <span><span className="font-semibold text-brand-dark">紅色日期</span>：週末／假日</span>
-          <span className="inline-flex items-center gap-1"><span className="size-2.5 rounded-sm bg-tone-peach/15" aria-hidden="true" />{quick ? "其他人已排班" : "已有排班"}</span>
-        </div>
         {specialDays.length ? <p className="m-0 text-[11px] text-muted" aria-label="本月節慶">{specialDays.map((day) => `${Number(day.date.slice(5, 7))}/${Number(day.date.slice(8))} ${day.name || "公司特別日"}`).join("、")}</p> : null}
       </div>
     </Panel>
@@ -282,7 +277,7 @@ export function HrScheduling() {
     {scopes.isPending ? <p>載入據點中…</p> : null}
     {scopes.data && !scopes.data.scopes.length ? <EmptyState>目前沒有負責的排班據點，請聯絡 HR 指派。</EmptyState> : null}
     {selectedScopeId ? <Panel density="compact" className="grid gap-1">
-      <div className="flex items-center gap-1" aria-label="排班月份"><Button variant="icon" icon="chevronLeft" aria-label="上個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(-1); setMonth(nextMonth(month, -1)); setEditState({ dirty: false, pending: false }); } }} /><strong className="flex-1 text-center text-sm tabular-nums">{month.slice(0, 4)} 年 {Number(month.slice(5))} 月</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(1); setMonth(nextMonth(month, 1)); setEditState({ dirty: false, pending: false }); } }} />{isMobile || quick ? <div className="flex w-20 shrink-0 justify-end">{quick ? <Tooltip label="儲存排班" focusable={false}><Button variant="filled-icon" tone="success" size="lg" icon="save" aria-label="儲存排班" loading={editState.pending} loadingLabel={<span className="sr-only">儲存中…</span>} onClick={() => void goBack()} /></Tooltip> : <Button variant="primary" tone="info" size="lg" disabled={editState.pending || Boolean(schedule.data?.version?.locked) || !schedule.data?.shifts.length} onClick={() => setQuick(true)}>快速排班</Button>}</div> : null}</div>
+      <div className="flex items-center gap-1" aria-label="排班月份"><Button variant="icon" icon="chevronLeft" aria-label="上個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(-1); setMonth(nextMonth(month, -1)); setEditState({ dirty: false, pending: false }); } }} /><strong className="flex-1 text-center text-sm tabular-nums">{month.slice(0, 4)} 年 {Number(month.slice(5))} 月</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(1); setMonth(nextMonth(month, 1)); setEditState({ dirty: false, pending: false }); } }} />{isMobile || quick ? <div className="flex w-20 shrink-0 justify-end">{quick ? <Tooltip label="儲存排班" focusable={false}><Button variant="filled-icon" tone="success" size="lg" icon="save" aria-label="儲存排班" loading={editState.pending} loadingLabel={<span className="sr-only">儲存中…</span>} onClick={() => void goBack()} /></Tooltip> : <Tooltip label="快速排班" focusable={false}><Button variant="filled-icon" tone="info" size="lg" icon="edit" aria-label="快速排班" disabled={editState.pending || Boolean(schedule.data?.version?.locked) || !schedule.data?.shifts.length} onClick={() => setQuick(true)} /></Tooltip>}</div> : null}</div>
     </Panel> : null}
     {selectedScopeId && schedule.isPending ? <div role="status" aria-label="載入班表中" aria-live="polite" aria-busy="true">
       <Panel density="compact" className="grid gap-2">

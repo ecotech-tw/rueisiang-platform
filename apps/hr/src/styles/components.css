@@ -957,7 +957,7 @@
   .hr-forms-index-head > :first-child > .muted { font-size: 13px; line-height: 1.55; }
   .hr-form-add-inline { display: none; }
   .hr-form-add-portal { position: fixed; inset: 0; z-index: 21; display: block; pointer-events: none; }
-  .hr-form-add-portal > .tooltip-anchor { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: calc(var(--hr-safe-bottom) + 72px); pointer-events: auto; }
+  .hr-form-add-portal > .tooltip-anchor { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: calc(var(--hr-safe-bottom) + 96px); pointer-events: auto; }
   .hr-form-add-button-floating { width: 52px; height: 52px; border-radius: 50%; }
   .hr-form-sticky-controls { margin-inline: -14px; padding: 8px 14px; }
   .hr-form-page > .page-head { margin-top: 8px; }

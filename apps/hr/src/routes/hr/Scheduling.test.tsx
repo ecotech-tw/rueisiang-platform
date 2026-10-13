@@ -176,15 +176,18 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
-  it("快速模式保留外層據點與月份，月曆下方才是選人班別，原快速位置只有儲存圖示", async () => {
+  it("快速模式保留外層據點與月份，月曆下方才是選人班別，動作按鈕使用 icon", async () => {
     const page = await renderMobilePage(data());
     try {
       const scope = document.querySelector('[aria-label="營運據點"]')!;
       expect(document.querySelector("h1")!.parentElement!.contains(scope)).toBe(true);
       expect(document.body.textContent).not.toContain("營運據點");
-      const quickButton = [...document.querySelectorAll("button")].find((button) => button.textContent === "快速排班")!;
+      const quickButton = document.querySelector<HTMLButtonElement>('[aria-label="快速排班"]')!;
+      expect(quickButton.textContent).toBe("");
+      expect(quickButton.querySelector("svg")).not.toBeNull();
       expect(quickButton.classList.contains("bg-info")).toBe(true);
       expect(quickButton.classList.contains("text-paper")).toBe(true);
+      expect(quickButton.classList.contains("size-11")).toBe(true);
       await page.click("快速排班");
       expect(document.querySelector("h1")!.parentElement!.contains(scope)).toBe(true);
       const month = document.querySelector('[aria-label="排班月份"]')!;
@@ -201,17 +204,17 @@ describe("HR 前台快速排班", () => {
       expect(calendar.compareDocumentPosition(person) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(calendar.querySelector(".border-t")).not.toBeNull();
       expect(calendar.querySelector(".grid-cols-7.gap-0\\.5")).not.toBeNull();
-      expect(document.querySelector('[aria-label="月曆圖例"]')!.textContent).not.toContain("小數字");
+      expect(document.querySelector('[aria-label="月曆圖例"]')).toBeNull();
       await page.click("儲存排班"); expect(page.writes).toHaveLength(0);
     } finally { await page.cleanup(); }
   });
 
-  it("沒有公司行事曆設定時省略空狀態文案，保留圖例且不捏造節日", async () => {
+  it("沒有公司行事曆設定時不顯示圖例或空狀態文案，也不捏造節日", async () => {
     const page = await renderMobilePage(data());
     try {
       expect(document.querySelector('[aria-label="本月節慶"]')).toBeNull();
       expect(document.body.textContent).not.toContain("尚無公司行事曆");
-      expect(document.querySelector('[aria-label="據點月曆"] .bg-ok')).not.toBeNull();
+      expect(document.querySelector('[aria-label="據點月曆"] .bg-ok')).toBeNull();
       expect(document.querySelector('[aria-label="2026-02-07 排班"] .bg-ok')).toBeNull();
     } finally { await page.cleanup(); }
   });
@@ -406,7 +409,7 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
-  it("手機節慶日期以綠點標示，已有其他人排班以粉橘底與圖例說明", async () => {
+  it("手機節慶日期以綠點與日期描述標示，已有其他人排班以粉橘底呈現", async () => {
     const initial = data();
     initial.employees.push({ employmentId: "other", userId: "other", employeeNumber: "E2", name: "小華" });
     initial.entries.push({ ...savedEntry, id: "other-entry", employmentId: "other", employeeNumber: "E2", personName: "小華", workDate: "2026-02-07" });
@@ -417,9 +420,10 @@ describe("HR 前台快速排班", () => {
       const holiday = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!;
       expect(holiday.className).toContain("bg-tone-peach/15");
       expect(holiday.querySelector(".bg-ok")).not.toBeNull();
-      expect(document.querySelector('[aria-label="月曆圖例"]')!.textContent).toContain("節慶／特別日");
-      expect(document.querySelector('[aria-label="月曆圖例"]')!.textContent).toContain("其他人已排班");
+      expect(document.querySelector('[aria-label="月曆圖例"]')).toBeNull();
       expect(holiday.getAttribute("aria-description")).toContain("公司行事曆特別日");
+      expect(holiday.getAttribute("aria-description")).toContain("1 筆排班");
+      expect(holiday.getAttribute("aria-description")).toContain("其他人 1 筆");
       expect(document.querySelector('[aria-label="本月節慶"]')!.textContent).toContain("2/7 公司節慶");
       await act(async () => holiday.click());
       expect(holiday.getAttribute("aria-pressed")).toBe("true");
