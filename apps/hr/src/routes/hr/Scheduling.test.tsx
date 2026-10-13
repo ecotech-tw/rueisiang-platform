@@ -67,7 +67,7 @@ async function openMobileQuick() {
 }
 
 describe("HR 前台快速排班", () => {
-  it("保留右下角已排人數，只用日期底色呈現足額與缺額", async () => {
+  it("保留右下角人數；足額才特別上色，缺額沿用既有透明或排班底色", async () => {
     const initial = data();
     initial.entries.push({ ...savedEntry, id: "weekend-entry", employmentId: "employee-2", workDate: "2026-02-07", shiftVersionId: "weekend", requiredHeadcount: 2 });
     const page = await renderPage(initial);
@@ -80,10 +80,13 @@ describe("HR 前台快速排班", () => {
       expect(fullDay?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
       expect(fullDay?.getAttribute("aria-description")).toContain("早班 足額");
       expect(shortDay?.querySelector("span.absolute")?.textContent).toBe("1");
-      expect(shortDay?.className).toContain("bg-warn-soft");
+      expect(shortDay?.className).toContain("bg-tone-peach/15");
       expect(shortDay?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
       expect(shortDay?.getAttribute("aria-description")).toContain("早班 缺 1 人");
-      expect(emptyDay?.className).toContain("bg-warn-soft");
+      expect(emptyDay?.className).not.toContain("bg-ok-soft");
+      expect(emptyDay?.className).not.toContain("bg-warn-soft");
+      expect(emptyDay?.className).not.toContain("bg-brand-soft");
+      expect(emptyDay?.className).not.toContain("bg-tone-peach/15");
       expect(emptyDay?.querySelector("span.absolute")).toBeNull();
     } finally { await page.cleanup(); }
   });
@@ -113,7 +116,7 @@ describe("HR 前台快速排班", () => {
       const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
       expect(day?.querySelector("span.absolute")?.textContent).toBe("3");
       expect(day?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
-      expect(day?.className).toContain("bg-warn-soft");
+      expect(day?.className).toContain("bg-tone-peach/15");
       expect(day?.getAttribute("aria-description")).toContain("早班 超 2 人");
       expect(day?.getAttribute("aria-description")).toContain("晚班 缺 2 人");
     } finally { await page.cleanup(); }
@@ -123,7 +126,7 @@ describe("HR 前台快速排班", () => {
       const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
       expect(day?.querySelector("span.absolute")?.textContent).toBe("1");
       expect(day?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
-      expect(day?.className).toContain("bg-warn-soft");
+      expect(day?.className).toContain("bg-tone-peach/15");
     } finally { await absentPage.cleanup(); }
   });
 
@@ -541,7 +544,7 @@ describe("HR 前台快速排班", () => {
     try {
       await page.click("快速排班");
       const holiday = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!;
-      expect(holiday.className).toContain("bg-warn-soft");
+      expect(holiday.className).toContain("bg-tone-peach/15");
       expect(holiday.querySelector(".bg-ok")).not.toBeNull();
       expect(document.querySelector('[aria-label="月曆圖例"]')).toBeNull();
       expect(holiday.getAttribute("aria-description")).toContain("公司行事曆特別日");
@@ -653,7 +656,7 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
-  it("桌機選中日期保留色環與足額底色；移除排班後顯示缺額底色", async () => {
+  it("桌機選中日期保留色環與足額底色；移除排班後缺額維持透明底色", async () => {
     const page = await renderPage(data());
     try {
       const button = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]')!;
@@ -664,7 +667,8 @@ describe("HR 前台快速排班", () => {
       await page.clickDate("2026-02-06");
       expect(button.getAttribute("aria-pressed")).toBe("false");
       expect(button.className).not.toContain("ring-brand-dark");
-      expect(button.className).toContain("bg-warn-soft");
+      expect(button.className).not.toContain("bg-warn-soft");
+      expect(button.className).not.toContain("bg-ok-soft");
     } finally { await page.cleanup(); }
   });
 
