@@ -37,6 +37,10 @@ function dayTypeLabel(dayType: HrScheduleResponse["calendar"][number]["dayType"]
   return dayType === "holiday" ? "國定假日" : dayType === "weekend" ? "週末" : "平日";
 }
 
+function attendanceStatusLabel(status: ScheduleEntry["attendanceStatus"]) {
+  return status === "present" ? "已出勤" : status === "absent" ? "未出勤" : "待確認";
+}
+
 function getDateCoverage(day: HrScheduleResponse["calendar"][number], shifts: HrScheduleResponse["shifts"], entries: ScheduleEntry[]) {
   const templateIds = [...new Set(shifts.map((shift) => shift.templateId))];
   const requiredShifts = templateIds.flatMap((templateId) => {
@@ -218,7 +222,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
               {!isMobile && !quick ? <>
                 {day.name ? <small className="block text-xs text-muted">{day.name}</small> : null}
                 {draft.filter((entry) => entry.workDate === day.date).map((entry) => <div className={`mt-1 grid min-w-0 gap-0.5 rounded-field p-1 text-xs [overflow-wrap:anywhere] ${matchesPerson(entry) && templateOf(entry) === templateId ? "bg-brand-soft" : "bg-canvas"}`} key={entry.id}>
-                  <span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}{entry.attendanceStatus !== "scheduled" ? "・出勤已確認" : ""}</small>
+                  <span>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span><small>{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}・{attendanceStatusLabel(entry.attendanceStatus)}</small>
                   {!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <Button variant="icon" icon="close" aria-label={`移除 ${day.date} ${entry.personName} ${entry.shiftName}`} disabled={disabled} className="justify-self-end" onClick={() => setDraft((current) => current.filter((other) => other.id !== entry.id))} /> : null}
                 </div>)}
               </> : null}
@@ -240,8 +244,8 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
       <Button size="lg" disabled={disabled || !shifts.length} onClick={enterQuick}>快速排班</Button>
     </>}>
       {focusedEntries.length ? <div className="grid divide-y divide-soft-line">{focusedEntries.map((entry) => <div className="flex min-w-0 items-center justify-between gap-2 py-2" key={entry.id}>
-        <div className="grid min-w-0 gap-0.5"><strong className="break-words">{entry.employeeNumber ? `${entry.employeeNumber}・` : ""}{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</strong><small className="text-muted">{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}{entry.attendanceStatus !== "scheduled" ? "・出勤已確認" : ""}</small></div>
-        {!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <Button variant="icon" icon="trash" aria-label={`移除 ${detailsDate} ${entry.personName} ${entry.shiftName}`} disabled={disabled} className="shrink-0" onClick={() => setDraft((current) => current.filter((other) => other.id !== entry.id))} /> : <span className="shrink-0 text-xs text-muted">{entry.archivedAt ? "已封存" : "已確認"}</span>}
+        <div className="grid min-w-0 gap-0.5"><strong className="break-words">{entry.employeeNumber ? `${entry.employeeNumber}・` : ""}{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</strong><small className="text-muted">{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}・{attendanceStatusLabel(entry.attendanceStatus)}</small></div>
+        {!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <Button variant="icon" icon="trash" aria-label={`移除 ${detailsDate} ${entry.personName} ${entry.shiftName}`} disabled={disabled} className="shrink-0" onClick={() => setDraft((current) => current.filter((other) => other.id !== entry.id))} /> : <span className="shrink-0 text-xs text-muted">{entry.archivedAt ? "已封存" : attendanceStatusLabel(entry.attendanceStatus)}</span>}
       </div>)}</div> : <EmptyState>這一天尚無排班。</EmptyState>}
       {alerts}
     </Dialog> : null}

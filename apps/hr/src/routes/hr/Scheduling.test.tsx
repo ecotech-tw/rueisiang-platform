@@ -544,11 +544,15 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
-  it.each(["present", "absent"] as const)("手機可檢視已確認 %s 的日期，但明細與快速排班都不能移除", async (attendanceStatus) => {
+  it.each([
+    { attendanceStatus: "present" as const, label: "已出勤" },
+    { attendanceStatus: "absent" as const, label: "未出勤" },
+  ])("手機可檢視「$label」排班，但明細與快速排班都不能移除", async ({ attendanceStatus, label }) => {
     const page = await renderMobilePage({ ...data(), entries: [{ ...savedEntry, attendanceStatus }] });
     try {
       await page.clickDate("2026-02-06");
-      expect(document.body.textContent).toContain("出勤已確認");
+      expect(document.body.textContent).toContain(label);
+      expect(document.body.textContent).not.toContain("出勤已確認");
       expect(document.querySelector('[aria-label="移除 2026-02-06 小明 早班"]')).toBeNull();
       await openMobileQuick();
       expect(document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 快速排班"]')!.disabled).toBe(true);
@@ -738,12 +742,17 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
-  it.each(["present", "absent"] as const)("已確認出勤 %s 的日期不可取消，卡片不提供移除", async (attendanceStatus) => {
+  it.each([
+    { attendanceStatus: "present" as const, label: "已出勤" },
+    { attendanceStatus: "absent" as const, label: "未出勤" },
+  ])("「$label」日期不可取消，卡片不提供移除", async ({ attendanceStatus, label }) => {
     const page = await renderPage({ ...data(), entries: [{ ...savedEntry, attendanceStatus }] });
     try {
       expect((document.querySelector('[aria-label="2026-02-06 排班"]') as HTMLButtonElement).disabled).toBe(true);
       expect(document.querySelector('[aria-label="移除 2026-02-06 小明 早班"]')).toBeNull();
       await page.clickDate("2026-02-06");
+      expect(document.body.textContent).toContain(label);
+      expect(document.body.textContent).not.toContain("出勤已確認");
       expect(document.body.textContent).not.toContain("尚未儲存");
     } finally { await page.cleanup(); }
   });
