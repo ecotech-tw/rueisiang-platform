@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, isNull, like, sql, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, like, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
@@ -10,6 +10,7 @@ import { hrEmployments } from "./schema/hr-people.js";
 import { hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
 import {
   hrScheduleEntries,
+  hrScheduleScopeLocks,
   hrScheduleVersions,
   hrScheduleWorkerEntries,
   hrScheduleWorkers,
@@ -141,7 +142,7 @@ function compileStatements(statements: SQL[]) {
   return statements.map((statement) => dialect.sqlToQuery(statement));
 }
 
-async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor, removed?: { employee: string[]; worker: string[]; scheduledOnlyIds?: string[] }, authorizedScopeId?: string, retainedGroups: Array<{ scopeId: string; shiftTemplateId: string; workDate: string; shiftGroupId: string | null }> = [], newPeriod?: { start: string; end: string }) {
+async function saveEntriesAtomically(db: Database, version: { id: string; revision: number; lockedAt: string | null }, entries: EnrichedScheduleEntry[], actor: HrActor, removed?: { employee: string[]; worker: string[]; scheduledOnlyIds?: string[] }, authorizedScopeId?: string, retainedGroups: Array<{ scopeId: string; shiftTemplateId: string; workDate: string; shiftGroupId: string | null }> = [], newPeriod?: { start: string; end: string }, scopeLockGuard?: { periodStart: string; scopeIds: string[] }) {
   const nextRevision = version.revision + 1;
   const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: "schedule_saved", summary: "排班已發布", actor });
   // revision+1 可能是別人的更新；以本次獨有的稽核列守衛，CAS 失敗時後續 SQL 才會全部略過。
@@ -162,6 +163,7 @@ async function saveEntriesAtomically(db: Database, version: { id: string; revisi
   const membershipEntries = JSON.stringify(entries.filter((entry) => entry.enforceMembership).map((entry) => ({ templateId: entry.shiftTemplateId, personId: entry.personKind === "employee" ? entry.employmentId : entry.workerId })));
   const eligible = sql`NOT EXISTS (SELECT 1 FROM hr_employments WHERE id IN (SELECT value FROM json_each(${personIds})) AND archived_at IS NOT NULL)
       AND NOT EXISTS (SELECT 1 FROM scopes WHERE id IN (SELECT value FROM json_each(${scopeIds})) AND (active<>1 OR scope_kind<>'store'))
+      ${scopeLockGuard?.scopeIds.length ? sql`AND NOT EXISTS (SELECT 1 FROM hr_schedule_scope_locks WHERE period_start=${scopeLockGuard.periodStart} AND locked_at IS NOT NULL AND scope_id IN (SELECT value FROM json_each(${JSON.stringify(scopeLockGuard.scopeIds)})))` : sql``}
       ${removed ? sql`AND NOT EXISTS (SELECT 1 FROM hr_schedule_entries AS entry INNER JOIN hr_employments AS person ON person.id=entry.employment_id WHERE entry.id IN (SELECT value FROM json_each(${JSON.stringify(removed.employee)})) AND person.archived_at IS NOT NULL)
         AND NOT EXISTS (SELECT 1 FROM hr_schedule_worker_entries AS entry INNER JOIN hr_employments AS person ON person.id=entry.worker_id WHERE entry.id IN (SELECT value FROM json_each(${JSON.stringify(removed.worker)})) AND person.archived_at IS NOT NULL)` : sql``}
       ${authorizedScopeId ? sql`AND EXISTS (SELECT 1 FROM hr_schedule_managers AS manager INNER JOIN users ON users.id=manager.user_id INNER JOIN hr_employments ON hr_employments.employee_user_id=users.id INNER JOIN scopes ON scopes.id=manager.scope_id WHERE manager.scope_id=${authorizedScopeId} AND manager.user_id=${actor.id} AND users.status='active' AND hr_employments.archived_at IS NULL AND scopes.active=1 AND scopes.scope_kind='store')` : sql``}
@@ -373,7 +375,11 @@ export async function saveHrSchedule(db: Database, input: SaveHrScheduleInput, a
   const version = input.scheduleVersionId ? (await db.select().from(hrScheduleVersions).where(eq(hrScheduleVersions.id, input.scheduleVersionId)).limit(1))[0] : await latestScheduleVersion(db, period);
   if (input.scheduleVersionId && !version || version && (version.periodStart !== period.start || version.periodEnd !== period.end || version.status !== "published")) throw new HrError(404, "找不到指定月份的排班版本。 ");
   if (input.revision !== undefined && input.revision !== (version?.revision ?? 1)) throw new HrError(409, "排班已被其他人修改，請重新整理。 ");
-  return saveEntriesAtomically(db, version ?? { id: crypto.randomUUID(), revision: 1, lockedAt: null }, entries, actor, undefined, undefined, [], version ? undefined : period);
+  const current = await getHrSchedule(db, input.periodKey);
+  const affectedScopeIds = [...new Set([...current.entries.map((entry) => entry.scopeId), ...entries.map((entry) => entry.scopeId)])];
+  const lockedScopes = await listLockedScheduleScopes(db, period.start, affectedScopeIds);
+  if (lockedScopes.length) throw new HrError(409, `「${lockedScopes.join("、")}」據點的排班已鎖定。 `);
+  return saveEntriesAtomically(db, version ?? { id: crypto.randomUUID(), revision: 1, lockedAt: null }, entries, actor, undefined, undefined, [], version ? undefined : period, { periodStart: period.start, scopeIds: affectedScopeIds });
 }
 
 export interface HrScheduleChangesInput {
@@ -404,6 +410,9 @@ export async function saveHrScheduleChanges(db: Database, input: HrScheduleChang
     if (authorizedScopeId && input.removedIds.includes(id) && entry.attendanceStatus !== "scheduled") throw new HrError(403, "已確認出勤狀態的排班不可移除，請聯絡 HR 調整。 ");
   }
   if (authorizedScopeId && input.entries.some((entry) => entry.scopeId !== authorizedScopeId || entry.attendanceStatus && entry.attendanceStatus !== "scheduled")) throw new HrError(403, "只能安排負責據點的排班，不能設定出勤狀態。 ");
+  const affectedScopeIds = [...new Set([...(authorizedScopeId ? [authorizedScopeId] : []), ...input.entries.map((entry) => entry.scopeId), ...[...touchedIds].map((id) => byId.get(id)?.scopeId).filter((id): id is string => Boolean(id))])];
+  const lockedScopes = await listLockedScheduleScopes(db, period.start, affectedScopeIds);
+  if (lockedScopes.length) throw new HrError(409, `「${lockedScopes.join("、")}」據點的排班已鎖定。 `);
   const refreshed = input.refreshIds.map((id) => {
     const entry = byId.get(id)!;
     return { personKind: entry.personKind, employmentId: entry.employmentId ?? undefined, workerId: entry.workerId ?? undefined, scopeId: entry.scopeId, shiftVersionId: entry.shiftVersionId, workDate: entry.workDate, attendanceStatus: entry.attendanceStatus };
@@ -432,7 +441,51 @@ export async function saveHrScheduleChanges(db: Database, input: HrScheduleChang
     employee: [...touchedIds].filter((id) => byId.get(id)?.personKind === "employee"),
     worker: [...touchedIds].filter((id) => byId.get(id)?.personKind === "worker"),
     scheduledOnlyIds: authorizedScopeId ? input.removedIds : [],
-  }, authorizedScopeId, retained, current.version ? undefined : period);
+  }, authorizedScopeId, retained, current.version ? undefined : period, { periodStart: period.start, scopeIds: affectedScopeIds });
+}
+
+async function listLockedScheduleScopes(db: Database, periodStart: string, scopeIds: string[]) {
+  if (!scopeIds.length) return [];
+  const rows = await db.select({ scopeId: hrScheduleScopeLocks.scopeId }).from(hrScheduleScopeLocks)
+    .where(and(eq(hrScheduleScopeLocks.periodStart, periodStart), inArray(hrScheduleScopeLocks.scopeId, scopeIds), isNotNull(hrScheduleScopeLocks.lockedAt)));
+  return rows.map((row) => row.scopeId);
+}
+
+export async function getHrScheduleScopeLock(db: Database, periodKey: string, scopeId: string) {
+  const period = monthPeriodFromKey(periodKey);
+  const row = (await db.select().from(hrScheduleScopeLocks).where(and(eq(hrScheduleScopeLocks.periodStart, period.start), eq(hrScheduleScopeLocks.scopeId, scopeId))).limit(1))[0];
+  return { revision: row?.revision ?? 0, locked: Boolean(row?.lockedAt), lockedAt: row?.lockedAt ?? null };
+}
+
+export async function setHrScheduleScopeLock(db: Database, periodKey: string, scopeId: string, input: { revision: number; locked: boolean }, actor: HrActor) {
+  const period = monthPeriodFromKey(periodKey);
+  if (!Number.isSafeInteger(input.revision) || input.revision < 0) throw new HrError(400, "據點排班鎖定版本不正確。 ");
+  const version = await latestScheduleVersion(db, period);
+  if (!version) throw new HrError(404, "指定月份尚未建立排班。 ");
+  if (version.lockedAt) throw new HrError(409, "整個月份已由 HR 鎖定，請聯絡 HR 開鎖。 ");
+  const scope = (await db.select({ id: scopes.id, name: scopes.name }).from(scopes).where(and(eq(scopes.id, scopeId), eq(scopes.scopeKind, "store"), eq(scopes.active, 1))).limit(1))[0];
+  if (!scope) throw new HrError(404, "找不到有效的營運據點。 ");
+  const current = await getHrScheduleScopeLock(db, periodKey, scopeId);
+  if (current.revision !== input.revision) throw new HrError(409, "據點排班鎖定狀態已變更，請重新整理。 ");
+  if (current.locked === input.locked) return { scopeId, revision: current.revision, locked: input.locked };
+  const event = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: input.locked ? "schedule_scope_locked" : "schedule_scope_unlocked", summary: input.locked ? `「${scope.name}」據點排班已鎖定` : `「${scope.name}」據點排班已開鎖`, actor, payload: { scopeId, periodKey } });
+  const managerGuard = sql`EXISTS (SELECT 1 FROM hr_schedule_managers AS manager INNER JOIN users ON users.id=manager.user_id INNER JOIN hr_employments ON hr_employments.employee_user_id=users.id INNER JOIN scopes ON scopes.id=manager.scope_id WHERE manager.scope_id=${scopeId} AND manager.user_id=${actor.id} AND users.status='active' AND hr_employments.archived_at IS NULL AND scopes.active=1 AND scopes.scope_kind='store')
+    AND EXISTS (SELECT 1 FROM hr_schedule_versions WHERE id=${version.id} AND locked_at IS NULL)`;
+  const write = input.revision === 0
+    ? sql`INSERT INTO hr_schedule_scope_locks (period_start, scope_id, locked_at, locked_by, updated_by, revision)
+        SELECT ${period.start}, ${scopeId}, ${input.locked ? new Date().toISOString() : null}, ${input.locked ? actor.id : null}, ${actor.id}, 1 WHERE ${managerGuard}
+        ON CONFLICT (period_start, scope_id) DO NOTHING RETURNING revision`
+    : sql`UPDATE hr_schedule_scope_locks SET locked_at=${input.locked ? new Date().toISOString() : null}, locked_by=${input.locked ? actor.id : null}, updated_by=${actor.id}, updated_at=CURRENT_TIMESTAMP, revision=revision+1
+        WHERE period_start=${period.start} AND scope_id=${scopeId} AND revision=${input.revision} AND ${managerGuard} RETURNING revision`;
+  const result = await runRawBatch(db, compileStatements([
+    write,
+    sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
+      SELECT ${event.id}, ${event.entityType}, ${event.entityId}, ${event.eventType}, ${event.summary}, ${event.source}, ${event.actorType}, ${event.actorId}, ${event.actorEmail}, ${event.payloadJson} WHERE changes()=1`,
+  ]), true);
+  const rows = result[0]?.results as Array<{ revision?: number }> | undefined;
+  const revision = rows?.[0]?.revision;
+  if (revision === undefined) throw new HrError(409, "據點排班鎖定狀態已變更，請重新整理。 ");
+  return { scopeId, revision, locked: input.locked };
 }
 
 export async function setHrScheduleLock(db: Database, periodKey: string, input: { revision: number; locked: boolean }, actor: HrActor) {

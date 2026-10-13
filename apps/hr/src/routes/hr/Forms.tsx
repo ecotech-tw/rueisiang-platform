@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -10,6 +11,7 @@ import { hoursToMinutes } from "./hours-entry.js";
 import { emptyRecordsMessage } from "./notification-link.js";
 import { batchDialogItems, reviewableOvertimeBatches } from "./overtime-batch.js";
 import { swipeTarget, type SlideDirection } from "./page-direction.js";
+import { HrBackBar } from "./HrBackBar.js";
 
 const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "info" | "success" | "danger" }> = {
   draft: { label: "草稿", tone: "neutral" },
@@ -86,9 +88,7 @@ function matchesRequest(searchText: string, status: string, search: string, stat
 function FormPageHeader({ title, description, returnTo = "/forms" }: { title: string; description: string; returnTo?: string }) {
   const navigate = useNavigate();
   return <>
-    <div className="hr-form-back-bar">
-      <Button variant="text" icon="chevronLeft" className="w-max" onClick={() => navigate(returnTo)}>返回表單</Button>
-    </div>
+    <HrBackBar label="返回表單" onBack={() => navigate(returnTo)} />
     <PageHeader title={title} description={description} />
   </>;
 }
@@ -486,6 +486,8 @@ export function HrForms() {
     navigate(activeTab === "leave" ? "/forms/leave" : activeTab === "overtime" ? "/forms/overtime" : "/forms/new");
   }
 
+  const addRequestAction = (placement: "inline" | "floating") => <Tooltip label="新增申請" focusable={false}><button type="button" className={`hr-form-add-button hr-form-add-button-${placement}`} aria-label="新增申請" onClick={openNewForm}><Icon name="plus" /></button></Tooltip>;
+
   const tabOptions = FORM_TAB_OPTIONS.map((option) => {
     const count = option.value === "leave"
       ? requestBadgeCount(leave.data?.requests.map((item) => item.request.status)) + (leave.data?.reviewRequests.length ?? 0)
@@ -499,7 +501,9 @@ export function HrForms() {
   });
 
   return <div className="page hr-forms-page hr-forms-index-page" onTouchStart={startSwipe} onTouchEnd={endSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
-    <PageHeader className="hr-forms-index-head" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><button type="button" className="grid size-10 flex-none place-items-center rounded-[50%] border-0 bg-brand p-0 text-paper [box-shadow:0_5px_14px_color-mix(in_oklab,var(--color-brand)_24%,transparent)] transition-[background-color,color,scale] duration-120 ease-out motion-reduce:transition-none not-disabled:hover:bg-brand-dark enabled:active:scale-[.96] motion-reduce:enabled:active:scale-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5 max-[760px]:fixed max-[760px]:right-[max(16px,env(safe-area-inset-right))] max-[760px]:bottom-[calc(var(--hr-safe-bottom)+72px)] max-[760px]:z-[21] max-[760px]:size-[52px]" aria-label="新增申請" onClick={openNewForm}><Icon name="plus" /></button></Tooltip>} />
+    <HrBackBar label="返回工作" onBack={() => navigate("/work")} />
+    <PageHeader className="hr-forms-index-head mt-2" title="表單申請" actions={<span className="hr-form-add-inline">{addRequestAction("inline")}</span>} />
+    {typeof document !== "undefined" ? createPortal(<div className="hr-form-add-portal">{addRequestAction("floating")}</div>, document.body) : null}
     {isLoading ? <p className="muted">載入申請紀錄…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
@@ -508,7 +512,7 @@ export function HrForms() {
     {/* 從通知點進來只會看到那一筆（或那一批）；待審清單還有別的時要有路回到全部。 */}
     {reviewFiltered && reviewTotal > reviewShown ? <Button variant="text" className="justify-self-start" onClick={() => clearParams("review", "reviewBatch")}>查看全部 {reviewTotal} 筆待審</Button> : null}
     {recordsFiltered ? <Button variant="text" className="justify-self-start" onClick={() => clearParams("batch", "focus")}>{focusId ? "目前只顯示通知提到的申請，改看全部" : "目前只顯示同一批送出的加班，改看全部"}</Button> : null}
-    <div className="hr-form-sticky-controls">
+    <div className="hr-form-sticky-controls top-12">
       <div className="hr-form-tabs-shell">
         <SegmentedControl className="hr-form-tabs" aria-label="申請表單類型" options={tabOptions} value={activeTab} onChange={(value) => selectTab(formTab(value))} />
       </div>

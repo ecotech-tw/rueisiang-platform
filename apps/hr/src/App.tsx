@@ -10,6 +10,7 @@ import { HrLeaveSummary } from "./routes/hr/Leave.js";
 import { HrNotifications } from "./routes/hr/Notifications.js";
 import { HrPayrollHistory, HrPayslipDetail } from "./routes/hr/Payroll.js";
 import { HrScheduling } from "./routes/hr/Scheduling.js";
+import { HrWork } from "./routes/hr/Work.js";
 import { HrLayout } from "./routes/hr/HrLayout.js";
 
 function RequireSession({ children }: { children: React.ReactNode }) {
@@ -42,7 +43,9 @@ function RedirectIfSignedIn({ children }: { children: React.ReactNode }) {
 }
 
 function HrShell() {
-  return <div className="shell hr-app-shell"><main className="content"><Outlet /></main></div>;
+  const pathname = useLocation().pathname.toLowerCase();
+  const hasBackBar = pathname === "/scheduling" || pathname === "/forms" || pathname.startsWith("/forms/");
+  return <div className="shell hr-app-shell"><main className={`content${hasBackBar ? " max-[760px]:pt-0" : ""}`}><Outlet /></main></div>;
 }
 
 export function App() {
@@ -54,6 +57,7 @@ export function App() {
         <Route path="clock" element={<HrClock />} />
         <Route path="clock/calendar" element={<HrClockCalendar />} />
         <Route path="clock/logs" element={<HrClockLogs />} />
+        <Route path="work" element={<HrWork />} />
         <Route path="forms" element={<HrForms />} />
         <Route path="payroll" element={<HrPayrollHistory />} />
         <Route path="payroll/:runId/:employmentId" element={<HrPayslipDetail />} />

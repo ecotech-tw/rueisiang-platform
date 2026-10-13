@@ -37,6 +37,7 @@ export type IconName =
   | "analytics"
   | "report"
   | "download"
+  | "save"
   | "link"
   | "tune"
   | "chat"
@@ -49,6 +50,8 @@ export type IconName =
   | "copy"
   | "block"
   | "unblock"
+  | "lock"
+  | "lockOpen"
   | "archive"
   | "trash"
   | "close"
@@ -86,6 +89,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M15.2 8.2 19 12l-3.8 3.8M19 12H9.8" />
     </>
   ),
+  save: <><path d="M5 3.5h12l3.5 3.5v12a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5Z" /><path d="M7 3.5v6h9v-6M7 20.5v-7h10v7" /></>,
   plus: <path d="M12 5.5v13M5.5 12h13" />,
   search: (
     <>
@@ -359,6 +363,18 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="m6.2 6.2 11.6 11.6" />
     </>
   ),
+  lock: (
+    <>
+      <rect x="5.5" y="10.5" width="13" height="9.5" rx="1.8" />
+      <path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7M12 14v2.5" />
+    </>
+  ),
+  lockOpen: (
+    <>
+      <rect x="5.5" y="10.5" width="13" height="9.5" rx="1.8" />
+      <path d="M8 10.5V7.8a4 4 0 0 1 7.6-1.7M12 14v2.5" />
+    </>
+  ),
   unblock: (
     <>
       <circle cx="12" cy="12" r="8.2" />
@@ -415,14 +431,14 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
 };
 
-export function Icon({ name, className }: { name: IconName; className?: string }) {
+export function Icon({ name, className, weight }: { name: IconName; className?: string; weight?: "regular" | "semibold" }) {
   return (
     <svg
       className={className}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth={1.8}
+      strokeWidth={weight === "regular" ? 1.5 : weight === "semibold" ? 2 : 1.8}
       strokeLinecap="round"
       strokeLinejoin="round"
       aria-hidden="true"

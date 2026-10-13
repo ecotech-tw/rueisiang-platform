@@ -1,8 +1,9 @@
 import { useNavigate, useParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type HrPayrollHistoryRecord, type HrPayslipDetailResponse, type PayrollLine } from "./api.js";
 import { dateLabel } from "./format.js";
+import { HrBackBar } from "./HrBackBar.js";
 
 function money(minor: number) {
   return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`;
@@ -69,9 +70,7 @@ export function HrPayslipDetail() {
   const record = query.data?.detail.record;
   const lines = query.data?.detail.lines ?? [];
   return <div className="page hr-payroll-history-page hr-payslip-page">
-    <div className="hr-form-back-bar">
-      <Button variant="text" icon="chevronLeft" className="w-max" onClick={() => navigate("/payroll")}>返回薪資袋</Button>
-    </div>
+    <HrBackBar label="返回薪資袋" onBack={() => navigate("/payroll")} />
     <PageHeader title="薪資明細" description={record ? `${periodLabel(record.periodKey)}・${dateLabel(record.payDate, NO_PAY_DATE)}` : "查看已發放薪資項目。"} className="hr-payslip-head" />
     {query.isPending ? <p className="muted">載入薪資明細…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}

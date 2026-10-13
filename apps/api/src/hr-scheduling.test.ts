@@ -102,6 +102,23 @@ describe("班別前台可排人員", () => {
 });
 
 describe("據點負責人的 HR 前台排班", () => {
+  it("保留公司節慶與適用特別日，但不把別店的災防名單濾空成全域", async () => {
+    await assign("scheduler");
+    expect((await request("/calendar/2026-02", "PUT", { days: [
+      { date: "2026-02-05", dayType: "weekday", name: "別店災防停班", specialKind: "typhoon_stop", specialScopeIds: ["store-b"] },
+      { date: "2026-02-06", dayType: "weekday", name: "本店災防停班", specialKind: "typhoon_stop", specialScopeIds: ["store-a"] },
+      { date: "2026-02-09", dayType: "weekday", name: "全公司特別日", specialKind: "typhoon_stop", specialScopeIds: [] },
+      { date: "2026-02-10", dayType: "holiday", name: "公司節慶" },
+    ] })).status).toBe(200);
+    const response = await request("/me/schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "scheduler");
+    expect(response.status).toBe(200);
+    const data = await response.json() as { calendar: Array<{ date: string; name: string; specialKind: string; specialScopeIds: string[]; overridden: boolean }> };
+    expect(data.calendar.find((day) => day.date === "2026-02-05")).toMatchObject({ name: "", specialKind: "none", specialScopeIds: [], overridden: false });
+    expect(data.calendar.find((day) => day.date === "2026-02-06")).toMatchObject({ name: "本店災防停班", specialKind: "typhoon_stop", specialScopeIds: ["store-a"], overridden: true });
+    expect(data.calendar.find((day) => day.date === "2026-02-09")).toMatchObject({ name: "全公司特別日", specialKind: "typhoon_stop", specialScopeIds: [], overridden: true });
+    expect(data.calendar.find((day) => day.date === "2026-02-10")).toMatchObject({ name: "公司節慶", specialKind: "none", overridden: true });
+  });
+
   it("指派後可用本人裝置 session 排班，但不能讀寫其他據點或後台", async () => {
     expect((await assign("scheduler")).status).toBe(200);
     cookies.scheduler = `${DEVICE_SESSION_COOKIE}=${serializeDeviceToken(await createDeviceSession(db, "scheduler", "測試手機"))}`;
@@ -197,6 +214,43 @@ describe("據點負責人的 HR 前台排班", () => {
     const data = await (await request("/schedule-managers")).json() as { candidates: Array<{ userId: string }> };
     expect(data.candidates.map((person) => person.userId).sort()).toEqual(["admin", "scheduler"]);
     for (const id of ["other", "nonemployee", "worker-1"]) expect((await assign(id)).status).toBe(400);
+  });
+
+  it("據點負責人只能鎖定自己的單店月份，且不影響其他據點或全域鎖定範圍", async () => {
+    await assign("scheduler");
+    expect((await changes({ entries: [entry("worker-1")] })).status).toBe(200);
+    const locked = await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 0, locked: true }, "scheduler");
+    expect(locked.status, await locked.clone().text()).toBe(200);
+    expect(await locked.json()).toMatchObject({ scopeId: "store-a", revision: 1, locked: true });
+    const own = await request("/me/schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "scheduler");
+    expect(await own.json()).toMatchObject({ version: { locked: true }, scopeLock: { revision: 1, locked: true } });
+    expect((await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 0, locked: false }, "scheduler")).status).toBe(409);
+    expect((await changes({ entries: [entry("worker-2", "2026-02-09")] }, "scheduler")).status).toBe(409);
+    expect((await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-b", revision: 0, locked: true }, "scheduler")).status).toBe(403);
+
+    const otherShift = await request("/shift-templates", "POST", { scopeId: "store-b", name: "B早班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
+    const otherShiftId = (await otherShift.json() as { versionId: string }).versionId;
+    expect((await changes({ entries: [{ ...entry("worker-2", "2026-02-09", "store-b"), shiftVersionId: otherShiftId }] })).status).toBe(200);
+    const globalWriteToLockedScope = await changes({ entries: [entry("worker-2", "2026-02-10")] });
+    expect(globalWriteToLockedScope.status).toBe(409);
+    expect((await getHrSchedule(db, "2026-02")).entries.map((row) => row.scopeId).sort()).toEqual(["store-a", "store-b"]);
+
+    const unlocked = await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 1, locked: false }, "scheduler");
+    expect(unlocked.status).toBe(200);
+    expect(await unlocked.json()).toMatchObject({ scopeId: "store-a", revision: 2, locked: false });
+    expect((await changes({ entries: [entry("worker-2", "2026-02-11")] }, "scheduler")).status).toBe(200);
+
+    const relocked = await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 2, locked: true }, "scheduler");
+    expect(relocked.status).toBe(200);
+    const globalLock = await request("/schedules/2026-02/lock", "POST", { revision: (await getHrSchedule(db, "2026-02")).version!.revision, locked: true });
+    expect(globalLock.status).toBe(200);
+    const bothLocked = await request("/me/schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "scheduler");
+    expect(await bothLocked.json()).toMatchObject({ version: { locked: true }, scopeLock: { locked: true, globallyLocked: true } });
+    expect((await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 3, locked: false }, "scheduler")).status).toBe(409);
+    expect((await request("/schedules/2026-02/lock", "POST", { revision: (await getHrSchedule(db, "2026-02")).version!.revision, locked: false })).status).toBe(200);
+    const onlyStoreLocked = await request("/me/schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "scheduler");
+    expect(await onlyStoreLocked.json()).toMatchObject({ version: { locked: true }, scopeLock: { locked: true, globallyLocked: false } });
+    expect((await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 3, locked: false }, "scheduler")).status).toBe(200);
   });
 
   it("負責人指派限全域管理權限、有效員工及有效門市", async () => {

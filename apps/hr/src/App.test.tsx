@@ -123,6 +123,14 @@ async function clickButton(label: string) {
 }
 
 describe("LIFF 與一般 HR 登入流程", () => {
+  it("工作分類沿用本人登入 gate，連結排班與既有申請路徑", async () => {
+    await renderApp("/work"); await expectText("排班與表單申請集中在這裡");
+    expect(container.querySelector('a[href="/scheduling"]')?.textContent).toContain("排班");
+    const forms = container.querySelector<HTMLAnchorElement>('a[href="/forms"]')!;
+    expect(forms.textContent).toContain("表單申請");
+    await act(async () => forms.click()); await expectText("表單申請入口");
+  });
+
   it("主動登出的 LINE 登入頁不 bootstrap 或導回打卡，並提供明確重新登入入口", async () => {
     liff.token = "line-id-token";
     linked = true;

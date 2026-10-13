@@ -151,6 +151,22 @@ export const hrScheduleVersions = sqliteTable("hr_schedule_versions", {
   check("ck_hr_schedule_versions_revision", sql`${table.revision} > 0`),
 ]);
 
+export const hrScheduleScopeLocks = sqliteTable("hr_schedule_scope_locks", {
+  periodStart: text("period_start").notNull(),
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  lockedAt: text("locked_at"),
+  lockedBy: text("locked_by").references(() => users.id, { onDelete: "restrict" }),
+  updatedBy: text("updated_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  revision: integer("revision").notNull().default(1),
+}, (table) => [
+  primaryKey({ columns: [table.periodStart, table.scopeId] }),
+  index("idx_hr_schedule_scope_locks_locked").on(table.periodStart, table.lockedAt),
+  check("ck_hr_schedule_scope_locks_period", sql`length(${table.periodStart}) = 10`),
+  check("ck_hr_schedule_scope_locks_revision", sql`${table.revision} > 0`),
+]);
+
 /** 舊版支援人員資料表保留穩定 ID 與顯示資料；canonical 人員主檔是 hr_employments。 */
 export const hrScheduleWorkers = sqliteTable("hr_schedule_workers", {
   id: text("id").primaryKey(),

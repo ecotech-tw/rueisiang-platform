@@ -10,7 +10,7 @@ import { HrScheduling } from "./Scheduling.js";
 const shift = { versionId: "weekday", templateId: "early", scopeId: "store", name: "早班", dayType: "weekday" as const, revision: 1, startSecond: 32400, endSecond: 64800, endDayOffset: 0, standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1 };
 const savedEntry: ScheduleEntry = { id: "saved", scheduleVersionId: "version", personKind: "employee", employmentId: "employee", workerId: null, scopeId: "store", shiftVersionId: "weekday", shiftGroupId: "group", workDate: "2026-02-06", startsAt: "2026-02-06 09:00:00", endsAt: "2026-02-06 18:00:00", standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1, attendanceStatus: "scheduled", employeeNumber: "E1", personName: "小明", archivedAt: null, scopeName: "門市", shiftName: "早班" };
 function data(locked = false): HrScheduleResponse {
-  return { periodKey: "2026-02", period: { start: "2026-02-01", end: "2026-03-01" }, version: { id: "version", revision: 2, status: "published", locked, lockedAt: locked ? "now" : null }, scopes: [{ id: "store", name: "門市" }], employees: [{ employmentId: "employee", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [], shifts: [shift, { ...shift, versionId: "weekend", dayType: "weekend", startSecond: 36000, endSecond: 68400, requiredHeadcount: 2 }], entries: [savedEntry], calendar: Array.from({ length: 28 }, (_, index) => ({ date: `2026-02-${String(index + 1).padStart(2, "0")}`, dayType: index === 6 ? "weekend" as const : "weekday" as const, name: "", specialKind: "none" as const, specialScopeIds: [], overridden: false })) };
+  return { periodKey: "2026-02", period: { start: "2026-02-01", end: "2026-03-01" }, version: { id: "version", revision: 2, status: "published", locked, lockedAt: locked ? "now" : null }, scopeLock: { revision: 0, locked: false, lockedAt: null, globallyLocked: false }, scopes: [{ id: "store", name: "門市" }], employees: [{ employmentId: "employee", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [], shifts: [shift, { ...shift, versionId: "weekend", dayType: "weekend", startSecond: 36000, endSecond: 68400, requiredHeadcount: 2 }], entries: [savedEntry], calendar: Array.from({ length: 28 }, (_, index) => ({ date: `2026-02-${String(index + 1).padStart(2, "0")}`, dayType: index === 6 ? "weekend" as const : "weekday" as const, name: "", specialKind: "none" as const, specialScopeIds: [], overridden: false })) };
 }
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
@@ -25,22 +25,99 @@ async function renderPage(initial: HrScheduleResponse, mutationStatus = 200, get
   client.setQueryData(["hr", "/me/schedule-scopes"], { scopes: [{ id: "store", name: "門市" }] });
   client.setQueryData(["hr", "/me/schedules?periodKey=2026-02&scopeId=store"], initial);
   const writes: Array<{ path: string; method: string; values: Record<string, unknown> }> = [];
+  let currentScopeLock = initial.scopeLock ?? { revision: 0, locked: false, lockedAt: null, globallyLocked: Boolean(initial.version?.locked) };
+  const currentGlobalLock = Boolean(initial.scopeLock?.globallyLocked ?? (initial.version?.locked && !initial.scopeLock?.locked));
   vi.stubGlobal("fetch", async (path: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === "PATCH") {
       writes.push({ path: String(path), method: init.method, values: JSON.parse(String(init.body)) });
       return Response.json(mutationStatus === 200 ? { id: "version", revision: 3 } : { error: "同一據點排班重疊，草稿仍保留" }, { status: mutationStatus });
     }
+    if (init?.method === "POST") {
+      const values = JSON.parse(String(init.body)) as Record<string, unknown>;
+      writes.push({ path: String(path), method: init.method, values });
+      currentScopeLock = { revision: Number(values.revision) + 1, locked: Boolean(values.locked), lockedAt: values.locked ? "now" : null, globallyLocked: currentGlobalLock };
+      return Response.json({ scopeId: values.scopeId, ...currentScopeLock });
+    }
     if (getFailures-- > 0) return Response.json({ error: "最新班表暫時無法載入" }, { status: 500 });
-    return Response.json({ ...initial, version: { ...initial.version, revision: 3 } });
+    return Response.json({ ...initial, version: { ...initial.version, revision: 3, locked: currentGlobalLock || currentScopeLock.locked, lockedAt: currentGlobalLock ? initial.version?.lockedAt ?? null : currentScopeLock.lockedAt }, scopeLock: currentScopeLock });
   });
   const container = document.createElement("div"); document.body.append(container);
   const root = createRoot(container);
-  const router = createMemoryRouter([{ path: "*", element: <Routes><Route path="/scheduling" element={<HrScheduling />} /><Route path="/profile" element={<p>個人頁</p>} /></Routes> }], { initialEntries: ["/profile", "/scheduling", "/profile"], initialIndex: 1 });
+  const router = createMemoryRouter([{ path: "*", element: <Routes><Route path="/scheduling" element={<HrScheduling />} /><Route path="/profile" element={<p>個人頁</p>} /><Route path="/work" element={<p>工作分類</p>} /></Routes> }], { initialEntries: ["/profile", "/scheduling", "/profile"], initialIndex: 1 });
   await act(async () => root.render(<QueryClientProvider client={client}><RouterProvider router={router} /></QueryClientProvider>));
-  return { client, writes, router, click: async (label: string) => { await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === label)!.click(); await new Promise((resolve) => setTimeout(resolve, 10)); }); }, clickDate: async (date: string) => { await act(async () => (container.querySelector(`[aria-label="${date} 排班"]`) as HTMLButtonElement).click()); }, save: async () => { await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === "儲存")!.click(); await new Promise((resolve) => setTimeout(resolve, 10)); }); }, cleanup: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
+  return { client, writes, router, click: async (label: string) => { await act(async () => { const button = [...document.querySelectorAll("button")].find((item) => item.textContent === label || item.getAttribute("aria-label") === label); expect(button, `找不到按鈕「${label}」；目前按鈕：${[...document.querySelectorAll("button")].map((item) => item.textContent).join("／")}`).toBeDefined(); button!.click(); await new Promise((resolve) => setTimeout(resolve, 10)); }); }, clickDate: async (date: string) => { await act(async () => (container.querySelector(`[aria-label="${date} 排班"]`) as HTMLButtonElement).click()); }, save: async () => { await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === "儲存")!.click(); await new Promise((resolve) => setTimeout(resolve, 10)); }); }, cleanup: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
+}
+
+async function renderMobilePage(initial: HrScheduleResponse, mutationStatus = 200, getFailures = 0) {
+  const original = Object.getOwnPropertyDescriptor(window, "matchMedia");
+  Object.defineProperty(window, "matchMedia", { configurable: true, value: vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })) });
+  const page = await renderPage(initial, mutationStatus, getFailures);
+  return { ...page, cleanup: async () => {
+    await page.cleanup();
+    if (original) Object.defineProperty(window, "matchMedia", original);
+    else Reflect.deleteProperty(window, "matchMedia");
+  } };
+}
+
+async function openMobileQuick() {
+  await act(async () => {
+    [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((button) => button.textContent === "快速排班")!.click();
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
 }
 
 describe("HR 前台快速排班", () => {
+  it("快速排班選人與摘要之間保留間距，不額外撐高頁面頂部", async () => {
+    const page = await renderMobilePage(data());
+    try {
+      await page.click("快速排班");
+      const pageSurface = document.querySelector(".hr-front-schedule-page");
+      const fieldsPanel = document.querySelector<HTMLElement>('[aria-label="人員"]')?.closest("section.panel");
+      expect(pageSurface?.classList.contains("pt-6")).toBe(false);
+      expect(fieldsPanel?.classList.contains("grid")).toBe(true);
+      expect(fieldsPanel?.classList.contains("gap-2")).toBe(true);
+      expect(fieldsPanel?.querySelector(".grid-cols-2.gap-3")).not.toBeNull();
+      const personField = document.querySelector('[aria-label="人員"]')?.closest("label");
+      expect(personField?.textContent).toContain("人員已排 1 天");
+      expect(personField?.textContent).not.toContain("本據點");
+    } finally { await page.cleanup(); }
+  });
+
+  it("桌面一般模式也提供據點鎖定入口", async () => {
+    const page = await renderPage(data());
+    try {
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="鎖定本據點排班"]')?.disabled).toBe(false);
+    } finally { await page.cleanup(); }
+  });
+
+  it("全月與單據點同時鎖定時明確提示全月鎖定，且不提供本據點開鎖操作", async () => {
+    const initial = data(true);
+    initial.scopeLock = { revision: 1, locked: true, lockedAt: "store-lock", globallyLocked: true };
+    const page = await renderMobilePage(initial);
+    try {
+      expect(document.body.textContent).toContain("整個月份已由 HR 鎖定");
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="整個月份已由 HR 鎖定"]')?.disabled).toBe(true);
+      expect(document.querySelector('[aria-label="開鎖本據點排班"]')).toBeNull();
+    } finally { await page.cleanup(); }
+  });
+
+  it("確認鎖定與開鎖只更新本據點月份，並在鎖定後停用排班入口", async () => {
+    const page = await renderMobilePage(data());
+    try {
+      await page.click("鎖定本據點排班");
+      expect(document.body.textContent).toContain("其他據點不受影響");
+      await page.click("確認鎖定");
+      expect(new URL(page.writes[0]!.path, "https://hr.test").pathname).toBe("/api/hr/me/schedules/lock");
+      expect(page.writes[0]).toMatchObject({ method: "POST", values: { periodKey: "2026-02", scopeId: "store", revision: 0, locked: true } });
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="開鎖本據點排班"]')?.disabled).toBe(false);
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="快速排班"]')?.disabled).toBe(true);
+      await page.click("開鎖本據點排班");
+      await page.click("確認開鎖");
+      expect(page.writes[1]?.values).toMatchObject({ scopeId: "store", revision: 1, locked: false });
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="鎖定本據點排班"]')?.disabled).toBe(false);
+    } finally { await page.cleanup(); }
+  });
+
   it("單一選單同時列正式與支援人員，選支援直接保存正確身分", async () => {
     const initial = data(); initial.workers = [{ id: "worker", name: "支援小美", active: 1 }];
     const page = await renderPage(initial);
@@ -111,7 +188,429 @@ describe("HR 前台快速排班", () => {
       expect(page.writes).toHaveLength(1);
       expect(page.writes[0]).toMatchObject({ method: "PATCH", values: { revision: 2, scopeId: "store", entries: [{ employmentId: "employee", workDate: "2026-02-07", shiftVersionId: "weekend" }], removedIds: [], refreshIds: [] } });
       expect((page.writes[0]!.values.entries as unknown[])).toHaveLength(1);
-      expect(document.body.textContent).toContain("排班已儲存並生效，不需送審");
+      expect(document.body.textContent).not.toContain("排班已儲存並生效，不需送審");
+    } finally { await page.cleanup(); }
+  });
+
+  it("手機點日期先看當日明細，再用快速排班新增並儲存", async () => {
+    const initial = data(); initial.workers = [{ id: "worker", name: "支援小美", active: 1 }];
+    const page = await renderMobilePage(initial);
+    try {
+      await page.clickDate("2026-02-07");
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(document.body.textContent).toContain("2026-02-07");
+      expect(document.body.textContent).toContain("這一天尚無排班。");
+      expect(document.body.textContent).not.toContain("尚未儲存：新增 1 筆");
+      await openMobileQuick();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.querySelector('h1')!.textContent).toBe("快速排班");
+      expect(document.querySelector('[aria-label="據點月曆"]')).toBeNull();
+      await act(async () => (document.querySelector('[aria-label="開啟人員選單"]') as HTMLButtonElement).click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("支援小美"))!.click());
+      for (const day of ["07", "08", "09", "09"]) await act(async () => (document.querySelector(`[aria-label="2026-02-${day} 快速排班"]`) as HTMLButtonElement).click());
+      expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toContain("支援小美");
+      expect(document.body.textContent).toContain("尚未儲存：新增 2 筆");
+      await page.click("儲存排班");
+      expect(page.writes[0]!.values.entries).toMatchObject([
+        { personKind: "worker", workerId: "worker", workDate: "2026-02-07", shiftVersionId: "weekend" },
+        { personKind: "worker", workerId: "worker", workDate: "2026-02-08", shiftVersionId: "weekday" },
+      ]);
+    } finally { await page.cleanup(); }
+  });
+
+  it("手機直接進入同頁快速模式，返回視同儲存並保留日期差異", async () => {
+    const page = await renderMobilePage(data());
+    try {
+      await page.click("快速排班");
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.activeElement).toBe(document.querySelector("h1"));
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="營運據點"]')!.disabled).toBe(true);
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.click());
+      await page.click("返回月曆");
+      expect(document.querySelector("h1")!.textContent).toBe("排班");
+      expect(document.body.textContent).not.toContain("尚未儲存：新增 1 筆");
+      expect(document.querySelector('[aria-label="營運據點"]')).not.toBeNull();
+      expect(page.writes).toHaveLength(1);
+      expect(page.writes[0]!.values.entries).toMatchObject([{ workDate: "2026-02-07" }]);
+    } finally { await page.cleanup(); }
+  });
+
+  it("快速模式保留外層據點與月份，月曆下方才是選人班別，動作按鈕使用 icon", async () => {
+    const page = await renderMobilePage(data());
+    try {
+      const scope = document.querySelector('[aria-label="營運據點"]')!;
+      expect(document.querySelector("h1")!.parentElement!.contains(scope)).toBe(true);
+      expect(document.body.textContent).not.toContain("營運據點");
+      const quickButton = document.querySelector<HTMLButtonElement>('[aria-label="快速排班"]')!;
+      expect(quickButton.textContent).toBe("");
+      expect(quickButton.querySelector("svg")).not.toBeNull();
+      expect(quickButton.classList.contains("rounded-field")).toBe(true);
+      expect(quickButton.classList.contains("border-0")).toBe(true);
+      expect(quickButton.classList.contains("bg-info-soft")).toBe(true);
+      expect(quickButton.classList.contains("text-info")).toBe(true);
+      expect(quickButton.classList.contains("size-11")).toBe(true);
+      await page.click("快速排班");
+      expect(document.querySelector("h1")!.parentElement!.contains(scope)).toBe(true);
+      const month = document.querySelector('[aria-label="排班月份"]')!;
+      const save = month.querySelector<HTMLButtonElement>('[aria-label="儲存排班"]')!;
+      expect(save).not.toBeNull(); expect(save.querySelector("svg")).not.toBeNull();
+      expect(save.textContent).toBe("");
+      expect(save.classList.contains("rounded-field")).toBe(true);
+      expect(save.classList.contains("border-0")).toBe(true);
+      expect(save.classList.contains("bg-ok-soft")).toBe(true);
+      expect(save.classList.contains("text-ok")).toBe(true);
+      expect(save.classList.contains("size-11")).toBe(true);
+      expect([...document.querySelectorAll("button")].some((button) => button.textContent === "快速排班")).toBe(false);
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="上個月"]')!.disabled).toBe(true);
+      const calendar = document.querySelector('[aria-label="快速排班日期"]')!;
+      const person = document.querySelector('[aria-label="人員"]')!;
+      expect(calendar.compareDocumentPosition(person) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(calendar.querySelector(".border-t")).not.toBeNull();
+      expect(calendar.querySelector(".grid-cols-7.gap-0\\.5")).not.toBeNull();
+      expect(document.querySelector('[aria-label="月曆圖例"]')).toBeNull();
+      await page.click("儲存排班"); expect(page.writes).toHaveLength(0);
+    } finally { await page.cleanup(); }
+  });
+
+  it("沒有公司行事曆設定時不顯示圖例或空狀態文案，也不捏造節日", async () => {
+    const page = await renderMobilePage(data());
+    try {
+      expect(document.querySelector('[aria-label="本月節慶"]')).toBeNull();
+      expect(document.body.textContent).not.toContain("尚無公司行事曆");
+      expect(document.querySelector('[aria-label="據點月曆"] .bg-ok')).toBeNull();
+      expect(document.querySelector('[aria-label="2026-02-07 排班"] .bg-ok')).toBeNull();
+    } finally { await page.cleanup(); }
+  });
+
+  it("手機一般月曆沒有儲存或操作說明，無變更返回不送 PATCH，首頁返回工作", async () => {
+    const page = await renderMobilePage(data());
+    try {
+      expect([...document.querySelectorAll("button")].some((button) => button.textContent === "儲存")).toBe(false);
+      expect(document.body.textContent).not.toContain("選好人員與班別");
+      await page.click("快速排班"); await page.click("返回月曆");
+      expect(page.writes).toHaveLength(0);
+      await page.click("返回工作");
+      expect(page.router.state.location.pathname).toBe("/work");
+    } finally { await page.cleanup(); }
+  });
+
+  it.each([-1, 1, "/profile"] as const)("手機快速模式由 %s 離頁先保存，成功才導覽且不詢問放棄", async (target) => {
+    const page = await renderMobilePage(data());
+    const confirm = vi.spyOn(window, "confirm");
+    try {
+      await page.click("快速排班");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.click());
+      await act(async () => { if (typeof target === "number") await page.router.navigate(target); else await page.router.navigate(target); await new Promise((resolve) => setTimeout(resolve, 20)); });
+      await vi.waitFor(() => expect(page.router.state.location.pathname).toBe("/profile"));
+      expect(page.writes).toHaveLength(1);
+      expect(page.writes[0]!.values.entries).toMatchObject([{ workDate: "2026-02-07" }]);
+      expect(confirm).not.toHaveBeenCalled();
+    } finally { await page.cleanup(); }
+  });
+
+  it("手機快速模式離頁或返回保存失敗，保留模式和日期且過期版本不重送", async () => {
+    const page = await renderMobilePage(data(), 409);
+    try {
+      await page.click("快速排班");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.click());
+      await act(async () => { await page.router.navigate("/profile"); await new Promise((resolve) => setTimeout(resolve, 20)); });
+      expect(page.router.state.location.pathname).toBe("/scheduling");
+      expect(document.querySelector("h1")!.textContent).toBe("快速排班");
+      expect(document.querySelector('[aria-label="2026-02-07 快速排班"]')!.getAttribute("aria-pressed")).toBe("true");
+      expect(document.body.textContent).toContain("同一據點排班重疊");
+      await page.click("返回月曆");
+      expect(document.querySelector("h1")!.textContent).toBe("快速排班");
+      expect(page.writes).toHaveLength(1);
+    } finally { await page.cleanup(); }
+  });
+
+  it("只有重套班別差異且 PATCH／GET 都失敗時，重複返回與導航仍不能離開", async () => {
+    const initial = data(); initial.shifts = initial.shifts.map((item) => ({ ...item, startSecond: item.startSecond + 3600 }));
+    const page = await renderMobilePage(initial, 409, 1);
+    try {
+      await page.click("快速排班"); await page.click("返回月曆");
+      expect(page.writes[0]!.values.refreshIds).toEqual(["saved"]);
+      expect(document.querySelector("h1")!.textContent).toBe("快速排班");
+      await page.click("返回月曆");
+      await act(async () => { await page.router.navigate("/profile"); await new Promise((resolve) => setTimeout(resolve, 20)); });
+      expect(page.router.state.location.pathname).toBe("/scheduling");
+      expect(document.querySelector("h1")!.textContent).toBe("快速排班");
+      expect(page.writes).toHaveLength(1);
+      expect(document.body.textContent).toContain("有 1 筆班別設定已變更");
+    } finally { await page.cleanup(); }
+  });
+
+  it("快速返回後重抓的班表呈現已保存日期，再進入仍有選取狀態", async () => {
+    const initial = data();
+    const page = await renderMobilePage(initial);
+    const originalFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PATCH") return originalFetch(input, init);
+      return Response.json({ ...initial, version: { ...initial.version, revision: 3 }, entries: [...initial.entries, { ...savedEntry, id: "saved-new", workDate: "2026-02-07", shiftVersionId: "weekend", startsAt: "2026-02-07 10:00:00", endsAt: "2026-02-07 19:00:00", requiredHeadcount: 2 }] });
+    });
+    try {
+      await page.click("快速排班");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.click());
+      await page.click("返回月曆");
+      expect(document.querySelector('[aria-label="2026-02-07 排班"]')!.getAttribute("aria-description")).toContain("1 筆排班");
+      await page.click("快速排班");
+      expect(document.querySelector('[aria-label="2026-02-07 快速排班"]')!.getAttribute("aria-pressed")).toBe("true");
+      await page.click("返回月曆"); expect(page.writes).toHaveLength(1);
+    } finally { await page.cleanup(); }
+  });
+
+  it("手機快速模式 PATCH 成功但重抓失敗可返回，不能重送同一份差異", async () => {
+    const page = await renderMobilePage(data(), 200, 1);
+    try {
+      await page.click("快速排班");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.click());
+      await page.click("返回月曆");
+      expect(document.querySelector("h1")!.textContent).toBe("排班");
+      expect(document.body.textContent).toContain("已儲存，重新載入班表");
+      expect(document.body.textContent).not.toContain("尚未儲存：");
+      await page.click("快速排班"); await page.click("儲存排班");
+      expect(document.querySelector("h1")!.textContent).toBe("排班");
+      expect(page.writes).toHaveLength(1);
+      await page.click("返回工作");
+      expect(page.router.state.location.pathname).toBe("/work");
+    } finally { await page.cleanup(); }
+  });
+
+  it("手機快速模式連點返回與儲存只送一次，PATCH 與 GET 都完成前不能離開", async () => {
+    const page = await renderMobilePage(data());
+    const originalFetch = globalThis.fetch;
+    let finishPatch!: () => void; let finishGet!: () => void;
+    const patchGate = new Promise<void>((resolve) => { finishPatch = resolve; });
+    const getGate = new Promise<void>((resolve) => { finishGet = resolve; });
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await originalFetch(input, init);
+      await (init?.method === "PATCH" ? patchGate : getGate);
+      return response;
+    });
+    try {
+      await page.click("快速排班");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.click());
+      await act(async () => {
+        const back = document.querySelector<HTMLButtonElement>('[aria-label="返回月曆"]')!;
+        back.click(); back.click();
+        document.querySelector<HTMLButtonElement>('[aria-label="儲存排班"]')!.click();
+      });
+      expect(page.writes).toHaveLength(1);
+      await act(async () => { finishPatch(); await new Promise((resolve) => setTimeout(resolve, 10)); });
+      expect(document.querySelector("h1")!.textContent).toBe("快速排班");
+      await act(async () => { await page.router.navigate("/profile"); });
+      expect(page.router.state.location.pathname).toBe("/scheduling");
+      await act(async () => { finishGet(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+      expect(document.querySelector("h1")!.textContent).toBe("排班");
+      expect(page.writes).toHaveLength(1);
+    } finally { finishPatch(); finishGet(); await page.cleanup(); }
+  });
+
+  it("自動保存途中新的導覽請求被拒絕，不放行已重設的 blocker", async () => {
+    const page = await renderMobilePage(data());
+    const originalFetch = globalThis.fetch;
+    let finish!: () => void;
+    const gate = new Promise<void>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await originalFetch(input, init);
+      if (init?.method === "PATCH") await gate;
+      return response;
+    });
+    try {
+      await page.click("快速排班");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.click());
+      await act(async () => { await page.router.navigate("/profile"); });
+      expect(page.router.state.location.pathname).toBe("/scheduling");
+      expect(page.writes).toHaveLength(1);
+      await act(async () => { await page.router.navigate("/work"); });
+      await act(async () => { finish(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+      expect(page.router.state.location.pathname).toBe("/scheduling");
+      await page.click("返回月曆");
+      expect(page.writes).toHaveLength(1);
+    } finally { finish(); await page.cleanup(); }
+  });
+
+  it("手機同頁快速排班儲存中不能返回月曆或離頁，完成後回一般模式", async () => {
+    const page = await renderMobilePage(data());
+    const originalFetch = globalThis.fetch;
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const response = await originalFetch(input, init);
+      if (init?.method === "PATCH") await pending;
+      return response;
+    });
+    try {
+      await page.click("快速排班");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.click());
+      await page.click("儲存排班");
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="返回月曆"]')!.disabled).toBe(true);
+      await page.click("返回月曆"); expect(document.querySelector("h1")!.textContent).toBe("快速排班");
+      const confirm = vi.spyOn(window, "confirm");
+      await act(async () => { await page.router.navigate("/profile"); });
+      expect(page.router.state.location.pathname).toBe("/scheduling"); expect(confirm).not.toHaveBeenCalled();
+      await act(async () => { finish(); await new Promise((resolve) => setTimeout(resolve, 20)); });
+      expect(page.router.state.location.pathname).toBe("/scheduling");
+      expect(document.querySelector("h1")!.textContent).toBe("排班");
+    } finally { finish(); await page.cleanup(); }
+  });
+
+  it("手機空名單仍可檢視並移除歷史排班，但不能新增", async () => {
+    const initial = data(); initial.shifts = initial.shifts.map((item) => ({ ...item, allowedPersonIds: [] }));
+    const page = await renderMobilePage(initial);
+    try {
+      await page.clickDate("2026-02-06");
+      await openMobileQuick();
+      expect(document.body.textContent).toContain("尚未納入可排人員");
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.disabled).toBe(true);
+      await page.click("返回月曆");
+      await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
+      await page.clickDate("2026-02-06");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="移除 2026-02-06 小明 早班"]')!.click());
+      await page.click("返回月曆");
+      expect(page.writes[0]!.values.removedIds).toEqual(["saved"]);
+    } finally { await page.cleanup(); }
+  });
+
+  it("手機節慶日期以綠點與日期描述標示，已有其他人排班以粉橘底呈現", async () => {
+    const initial = data();
+    initial.employees.push({ employmentId: "other", userId: "other", employeeNumber: "E2", name: "小華" });
+    initial.entries.push({ ...savedEntry, id: "other-entry", employmentId: "other", employeeNumber: "E2", personName: "小華", workDate: "2026-02-07" });
+    initial.calendar[6]!.name = "公司節慶"; initial.calendar[6]!.overridden = true;
+    const page = await renderMobilePage(initial);
+    try {
+      await page.click("快速排班");
+      const holiday = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!;
+      expect(holiday.className).toContain("bg-tone-peach/15");
+      expect(holiday.querySelector(".bg-ok")).not.toBeNull();
+      expect(document.querySelector('[aria-label="月曆圖例"]')).toBeNull();
+      expect(holiday.getAttribute("aria-description")).toContain("公司行事曆特別日");
+      expect(holiday.getAttribute("aria-description")).toContain("1 筆排班");
+      expect(holiday.getAttribute("aria-description")).toContain("其他人 1 筆");
+      expect(document.querySelector('[aria-label="本月節慶"]')!.textContent).toContain("2/7 公司節慶");
+      await act(async () => holiday.click());
+      expect(holiday.getAttribute("aria-pressed")).toBe("true");
+      expect(holiday.className).toContain("bg-tone-peach/15");
+      expect(holiday.className).toContain("ring-brand-dark");
+      expect(holiday.querySelector(".bg-ok")).not.toBeNull();
+    } finally { await page.cleanup(); }
+  });
+
+  it("綠點只標示公司設定日期，據點限定災防日不誤標其他店", async () => {
+    const initial = data();
+    initial.calendar[5] = { ...initial.calendar[5]!, name: "颱風停班", specialKind: "typhoon_stop", specialScopeIds: ["elsewhere"], overridden: true };
+    initial.calendar[6]!.overridden = false;
+    initial.calendar[7]!.overridden = true;
+    const page = await renderMobilePage(initial);
+    try {
+      expect(document.querySelector('[aria-label="2026-02-06 排班"] .bg-ok')).toBeNull();
+      expect(document.querySelector('[aria-label="2026-02-07 排班"] .bg-ok')).toBeNull();
+      expect(document.querySelector('[aria-label="2026-02-08 排班"] .bg-ok')).not.toBeNull();
+    } finally { await page.cleanup(); }
+  });
+
+  it.each(["present", "absent"] as const)("手機可檢視已確認 %s 的日期，但明細與快速排班都不能移除", async (attendanceStatus) => {
+    const page = await renderMobilePage({ ...data(), entries: [{ ...savedEntry, attendanceStatus }] });
+    try {
+      await page.clickDate("2026-02-06");
+      expect(document.body.textContent).toContain("出勤已確認");
+      expect(document.querySelector('[aria-label="移除 2026-02-06 小明 早班"]')).toBeNull();
+      await openMobileQuick();
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 快速排班"]')!.disabled).toBe(true);
+      expect(page.writes).toHaveLength(0);
+    } finally { await page.cleanup(); }
+  });
+
+  it("手機 409 在快速排班內顯示錯誤，保留日期草稿並阻止重送", async () => {
+    const page = await renderMobilePage(data(), 409);
+    try {
+      await page.clickDate("2026-02-07"); await openMobileQuick();
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 快速排班"]')!.click());
+      await page.click("儲存排班");
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.body.textContent).toContain("同一據點排班重疊");
+      expect(document.querySelector('[aria-label="2026-02-07 快速排班"]')!.getAttribute("aria-pressed")).toBe("true");
+      await page.click("儲存排班"); expect(page.writes).toHaveLength(1);
+    } finally { await page.cleanup(); }
+  });
+
+  it("手機鎖定月份只提供日期明細，不開放快速排班或移除", async () => {
+    const page = await renderMobilePage(data(true));
+    try {
+      await page.clickDate("2026-02-06");
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="移除 2026-02-06 小明 早班"]')!.disabled).toBe(true);
+      expect([...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((button) => button.textContent === "快速排班")?.disabled).toBe(true);
+      expect(page.writes).toHaveLength(0);
+    } finally { await page.cleanup(); }
+  });
+
+  it("切換月份顯示動態載入骨架，班表載入後按月份方向淡入滑動", async () => {
+    const page = await renderPage(data());
+    const originalFetch = globalThis.fetch;
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("periodKey=2026-03")) {
+        await pending;
+        const march = data();
+        march.periodKey = "2026-03";
+        march.period = { start: "2026-03-01", end: "2026-04-01" };
+        march.calendar = Array.from({ length: 31 }, (_, index) => ({ ...march.calendar[0]!, date: `2026-03-${String(index + 1).padStart(2, "0")}` }));
+        return Response.json(march);
+      }
+      return originalFetch(input, init);
+    });
+    try {
+      await page.click("下個月");
+      const loading = document.querySelector('[role="status"][aria-label="載入班表中"]')!;
+      expect(loading.getAttribute("aria-busy")).toBe("true");
+      expect(loading.querySelector(".animate-spin")).not.toBeNull();
+      expect(loading.querySelector(".motion-safe\\:animate-pulse")).not.toBeNull();
+      await act(async () => { finish(); await new Promise((resolve) => setTimeout(resolve, 30)); });
+      expect(document.querySelector('[role="status"][aria-label="載入班表中"]')).toBeNull();
+      expect(document.querySelector('[aria-label="排班月份"]')!.textContent).toContain("2026 年 3 月");
+      const calendar = document.querySelector(".hr-front-schedule-page section.panel.min-w-0")!;
+      expect(calendar.className).toContain("transition-[opacity,translate]");
+      expect(calendar.className).toContain("duration-150");
+      expect(calendar.className).toContain("motion-reduce:transition-none");
+    } finally { finish(); await page.cleanup(); }
+  });
+
+  it("手機快速排班會提示既有班別過期，不在未告知下重套歷史排班", async () => {
+    const initial = data(); initial.shifts = initial.shifts.map((shift) => ({ ...shift, startSecond: shift.startSecond + 3600 }));
+    const page = await renderMobilePage(initial);
+    try {
+      await page.clickDate("2026-02-07"); await openMobileQuick();
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.body.textContent).toContain("有 1 筆班別設定已變更");
+      expect(document.body.textContent).toContain("重新套用目前的日型、時間與需求人力");
+      await page.click("返回月曆"); expect(page.writes[0]!.values.refreshIds).toEqual(["saved"]);
+    } finally { await page.cleanup(); }
+  });
+
+  it("桌機選中日期保留色環及卡片色調，與已有排班粉橘底並存", async () => {
+    const page = await renderPage(data());
+    try {
+      const button = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]')!;
+      expect(button.getAttribute("aria-pressed")).toBe("true");
+      expect(button.className).toContain("ring-brand-dark");
+      expect(button.className).toContain("bg-tone-peach/15");
+      expect(button.parentElement!.querySelector(":scope > div.bg-brand-soft")).not.toBeNull();
+      await page.clickDate("2026-02-06");
+      expect(button.getAttribute("aria-pressed")).toBe("false");
+      expect(button.className).not.toContain("ring-brand-dark");
+    } finally { await page.cleanup(); }
+  });
+
+  it("桌機將已排天數顯示在人員欄位旁，不顯示據點或月休摘要", async () => {
+    const initial = data(); initial.employees = initial.employees.map((person) => ({ ...person, monthlyRestDays: 8 }));
+    const page = await renderPage(initial);
+    try {
+      const personField = document.querySelector('[aria-label="人員"]')?.closest("label");
+      expect(personField?.textContent).toContain("人員已排 1 天");
+      expect(personField?.textContent).not.toContain("本據點");
+      expect(personField?.textContent).not.toContain("約定月休");
     } finally { await page.cleanup(); }
   });
 
@@ -119,7 +618,7 @@ describe("HR 前台快速排班", () => {
     const page = await renderPage(data());
     try {
       await page.clickDate("2026-02-07"); await page.clickDate("2026-02-07");
-      expect(document.body.textContent).toContain("沒有未儲存變更");
+      expect(document.body.textContent).not.toContain("尚未儲存");
       await page.clickDate("2026-02-06"); await page.save();
       expect(page.writes[0]!.values).toMatchObject({ entries: [], removedIds: ["saved"], refreshIds: [] });
     } finally { await page.cleanup(); }
@@ -175,6 +674,17 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
+  it("桌機未儲存時返回工作只詢問一次，不重複跳確認", async () => {
+    const page = await renderPage(data());
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      await page.clickDate("2026-02-07"); await page.click("返回工作");
+      expect(confirm).toHaveBeenCalledTimes(1);
+      expect(page.router.state.location.pathname).toBe("/work");
+      expect(page.writes).toHaveLength(0);
+    } finally { await page.cleanup(); }
+  });
+
   it("儲存期間拒絕離頁；儲存成功後解除阻擋", async () => {
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const page = await renderPage(data());
@@ -199,7 +709,7 @@ describe("HR 前台快速排班", () => {
       expect((document.querySelector('[aria-label="2026-02-06 排班"]') as HTMLButtonElement).disabled).toBe(true);
       expect(document.querySelector('[aria-label="移除 2026-02-06 小明 早班"]')).toBeNull();
       await page.clickDate("2026-02-06");
-      expect(document.body.textContent).toContain("沒有未儲存變更");
+      expect(document.body.textContent).not.toContain("尚未儲存");
     } finally { await page.cleanup(); }
   });
 

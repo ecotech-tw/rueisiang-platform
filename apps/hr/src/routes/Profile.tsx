@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 import { useSignOut } from "../auth/session.js";
 import { Icon, type IconName } from "../shell/icons.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
@@ -94,7 +94,6 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
 export function HrProfile() {
   usePageTitle("個人中心");
   const query = useHrQuery<{ profile: HrProfile | null }>("/me");
-  const managedScopes = useHrQuery<{ scopes: Array<{ id: string; name: string }> }>("/me/schedule-scopes");
   const signOut = useSignOut();
   const [showSignOutConfirm, setShowSignOutConfirm] = useState(false);
   const [signOutPending, setSignOutPending] = useState(false);
@@ -113,7 +112,6 @@ export function HrProfile() {
     <PageHeader title="個人中心" description="管理自己的大頭貼，查看帳號、任職與工作地點資料；其他資料如有錯誤，請聯絡管理者。" />
     {query.isPending ? <Panel className="hr-profile-loading"><p className="muted">正在載入個人資料…</p></Panel> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
-    {managedScopes.data?.scopes?.length ? <Panel title={<ProfileSectionTitle icon="calendar">據點排班</ProfileSectionTitle>} description={`你負責：${managedScopes.data.scopes.map((scope) => scope.name).join("、")}`}><Link className="button secondary" to="/scheduling">快速排班</Link></Panel> : null}
     {query.data?.profile ? <ProfileDetails key={query.data.profile.employee.userId} profile={query.data.profile} /> : null}
     {!query.isPending && !query.error && !query.data?.profile ? <Alert>尚未指派為員工，請聯絡管理者。</Alert> : null}
     <div className="hr-profile-signout"><Button size="lg" className="w-full justify-center" icon="logout" onClick={() => setShowSignOutConfirm(true)}>登出此裝置</Button></div>

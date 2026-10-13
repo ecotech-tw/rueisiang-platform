@@ -4,6 +4,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, EmptyState, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type AnnualLeavePeriod, type AnnualLeaveResponse, type LeaveMonth, type LeaveMonthsResponse } from "./api.js";
 import { dateBefore, dateLabel, formatHours } from "./format.js";
+import { HrBackBar } from "./HrBackBar.js";
 
 function AnnualLeaveCard({ period }: { period: AnnualLeavePeriod }) {
   const remaining = Math.max(0, period.balanceHalfHours);
@@ -46,9 +47,7 @@ export function HrLeaveSummary() {
   const selectYear = (next: number) => setSelectedYear(next === range?.currentYear ? null : next);
 
   return <div className="page hr-payroll-history-page hr-payslip-page">
-    <div className="hr-form-back-bar">
-      <Button variant="text" icon="chevronLeft" className="w-max" onClick={() => navigate("/profile")}>返回個人中心</Button>
-    </div>
+    <HrBackBar label="返回個人中心" onBack={() => navigate("/profile")} />
     <PageHeader title="我的假勤" description="可用特休與已核准的請假時數。" />
 
     <Panel title="特休" description="每個週期的額度各自計算，到期後不會遞延到下一期。">
