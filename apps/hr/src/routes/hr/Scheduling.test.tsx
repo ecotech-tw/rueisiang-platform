@@ -241,8 +241,9 @@ describe("HR 前台快速排班", () => {
       expect(quickButton.textContent).toBe("");
       expect(quickButton.querySelector("svg")).not.toBeNull();
       expect(quickButton.classList.contains("rounded-field")).toBe(true);
-      expect(quickButton.classList.contains("border-line")).toBe(true);
-      expect(quickButton.classList.contains("text-ink")).toBe(true);
+      expect(quickButton.classList.contains("border-info")).toBe(true);
+      expect(quickButton.classList.contains("bg-info-soft")).toBe(true);
+      expect(quickButton.classList.contains("text-info")).toBe(true);
       expect(quickButton.classList.contains("size-11")).toBe(true);
       await page.click("快速排班");
       expect(document.querySelector("h1")!.parentElement!.contains(scope)).toBe(true);
@@ -251,8 +252,9 @@ describe("HR 前台快速排班", () => {
       expect(save).not.toBeNull(); expect(save.querySelector("svg")).not.toBeNull();
       expect(save.textContent).toBe("");
       expect(save.classList.contains("rounded-field")).toBe(true);
-      expect(save.classList.contains("border-line")).toBe(true);
-      expect(save.classList.contains("text-ink")).toBe(true);
+      expect(save.classList.contains("border-ok")).toBe(true);
+      expect(save.classList.contains("bg-ok-soft")).toBe(true);
+      expect(save.classList.contains("text-ok")).toBe(true);
       expect(save.classList.contains("size-11")).toBe(true);
       expect([...document.querySelectorAll("button")].some((button) => button.textContent === "快速排班")).toBe(false);
       expect(document.querySelector<HTMLButtonElement>('[aria-label="上個月"]')!.disabled).toBe(true);
