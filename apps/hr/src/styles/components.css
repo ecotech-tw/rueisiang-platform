@@ -269,6 +269,10 @@
 .hr-form-add-button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-form-add-button svg { width: 20px; height: 20px; }
 .hr-form-add-portal { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .hr-form-add-button { transition: none; }
+  .hr-form-add-button:active:not(:disabled) { scale: 1; }
+}
 .page > .hr-form-sticky-controls { margin-top: 0; }
 .hr-form-sticky-controls { position: sticky; top: 0; z-index: 10; margin: 0 -2px; padding: 8px 2px; background: --alpha(var(--color-canvas) / 92%); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .hr-form-tabs-shell { margin: 0; padding: 0; background: transparent; }
@@ -955,9 +959,6 @@
   .hr-form-add-portal { position: fixed; inset: 0; z-index: 21; display: block; pointer-events: none; }
   .hr-form-add-portal > .tooltip-anchor { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: calc(var(--hr-safe-bottom) + 72px); pointer-events: auto; }
   .hr-form-add-button-floating { width: 52px; height: 52px; border-radius: 50%; }
-  .hr-form-add-button { transition: none; }
-  .hr-form-add-button:active:not(:disabled) { scale: 1; }
-  @media (prefers-reduced-motion: reduce) { .hr-form-add-button { transition: none; } }
   .hr-form-sticky-controls { margin-inline: -14px; padding: 8px 14px; }
   .hr-form-page > .page-head { margin-top: 8px; }
   .hr-form-tabs button { min-height: 42px; padding-inline: 8px; font-size: 13px; }

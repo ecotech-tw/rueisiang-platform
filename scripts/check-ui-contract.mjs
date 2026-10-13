@@ -35,12 +35,6 @@ const sharedPrimitiveSelectors = [
   ".confirm-body",
   ".panel",
   ".field",
-  ".primary-button",
-  ".ghost-button",
-  ".icon-button",
-  ".filter-chip",
-  ".chip-action",
-  ".link-button",
   ".tooltip-anchor",
   ".tooltip",
 ];
