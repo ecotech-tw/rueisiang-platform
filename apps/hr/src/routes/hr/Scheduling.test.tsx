@@ -67,16 +67,31 @@ async function openMobileQuick() {
 }
 
 describe("HR 前台快速排班", () => {
-  it("按各班別需求標示足額與缺額，不把不同班別的人數互相抵銷", async () => {
-    const page = await renderPage(data());
+  it("保留右下角已排人數，只用背景色呈現足額與缺額", async () => {
+    const initial = data();
+    initial.entries.push({ ...savedEntry, id: "weekend-entry", workDate: "2026-02-07", shiftVersionId: "weekend", requiredHeadcount: 2 });
+    const page = await renderPage(initial);
     try {
       const fullDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
       const shortDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 排班"]');
-      expect(fullDay?.textContent).toContain("1/1");
+      expect(fullDay?.querySelector("span.absolute")?.textContent).toBe("1");
       expect(fullDay?.getAttribute("aria-description")).toContain("早班 足額");
       expect(fullDay?.querySelector("span.absolute")?.className).toContain("bg-ok-soft");
-      expect(shortDay?.textContent).toContain("缺2");
+      expect(shortDay?.querySelector("span.absolute")?.textContent).toBe("1");
+      expect(shortDay?.getAttribute("aria-description")).toContain("早班 缺 1 人");
       expect(shortDay?.querySelector("span.absolute")?.className).toContain("bg-warn-soft");
+    } finally { await page.cleanup(); }
+  });
+
+  it("排班超額時保留原人數並以品牌色背景提示", async () => {
+    const initial = data();
+    initial.entries.push({ ...savedEntry, id: "extra", employmentId: "employee-2" });
+    const page = await renderPage(initial);
+    try {
+      const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
+      expect(day?.querySelector("span.absolute")?.textContent).toBe("2");
+      expect(day?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
+      expect(day?.getAttribute("aria-description")).toContain("早班 超 1 人");
     } finally { await page.cleanup(); }
   });
 
@@ -90,7 +105,8 @@ describe("HR 前台快速排班", () => {
     const page = await renderPage(initial);
     try {
       const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
-      expect(day?.textContent).toContain("缺2");
+      expect(day?.querySelector("span.absolute")?.textContent).toBe("3");
+      expect(day?.querySelector("span.absolute")?.className).toContain("bg-warn-soft");
       expect(day?.getAttribute("aria-description")).toContain("早班 超 2 人");
       expect(day?.getAttribute("aria-description")).toContain("晚班 缺 2 人");
     } finally { await page.cleanup(); }
@@ -98,7 +114,8 @@ describe("HR 前台快速排班", () => {
     const absentPage = await renderPage({ ...data(), entries: [{ ...savedEntry, attendanceStatus: "absent" }] });
     try {
       const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
-      expect(day?.textContent).toContain("缺1");
+      expect(day?.querySelector("span.absolute")?.textContent).toBe("1");
+      expect(day?.querySelector("span.absolute")?.className).toContain("bg-warn-soft");
     } finally { await absentPage.cleanup(); }
   });
 
