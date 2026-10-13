@@ -10,6 +10,7 @@ import { hoursToMinutes } from "./hours-entry.js";
 import { emptyRecordsMessage } from "./notification-link.js";
 import { batchDialogItems, reviewableOvertimeBatches } from "./overtime-batch.js";
 import { swipeTarget, type SlideDirection } from "./page-direction.js";
+import { HrBackBar } from "./HrBackBar.js";
 
 const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "info" | "success" | "danger" }> = {
   draft: { label: "草稿", tone: "neutral" },
@@ -86,9 +87,7 @@ function matchesRequest(searchText: string, status: string, search: string, stat
 function FormPageHeader({ title, description, returnTo = "/forms" }: { title: string; description: string; returnTo?: string }) {
   const navigate = useNavigate();
   return <>
-    <div className="hr-form-back-bar">
-      <Button variant="text" icon="chevronLeft" className="w-max" onClick={() => navigate(returnTo)}>返回表單</Button>
-    </div>
+    <HrBackBar label="返回表單" onBack={() => navigate(returnTo)} />
     <PageHeader title={title} description={description} />
   </>;
 }
@@ -499,8 +498,8 @@ export function HrForms() {
   });
 
   return <div className="page hr-forms-page hr-forms-index-page" onTouchStart={startSwipe} onTouchEnd={endSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
-    <Button variant="text" icon="chevronLeft" className="w-max" onClick={() => navigate("/work")}>返回工作</Button>
-    <PageHeader className="hr-forms-index-head" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><Button variant="icon" icon="plus" className="hr-form-add-button" aria-label="新增申請" onClick={openNewForm} /></Tooltip>} />
+    <HrBackBar label="返回工作" onBack={() => navigate("/work")} />
+    <PageHeader className="hr-forms-index-head mt-2" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><Button variant="icon" icon="plus" className="hr-form-add-button" aria-label="新增申請" onClick={openNewForm} /></Tooltip>} />
     {isLoading ? <p className="muted">載入申請紀錄…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}

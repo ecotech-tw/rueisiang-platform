@@ -2,7 +2,7 @@
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { Dialog, DialogScope, Panel } from "./index.js";
+import { Button, Dialog, DialogScope, Panel } from "./index.js";
 import { Icon } from "../shell/icons.js";
 
 let root: Root | null = null;
@@ -35,6 +35,17 @@ describe("Icon 線寬契約", () => {
   it("預設 consumer 不變，可明確配合 regular 與 semibold 字重", async () => {
     await render(<><Icon name="calendar" /><Icon name="calendar" weight="regular" /><Icon name="calendar" weight="semibold" /></>);
     expect([...host!.querySelectorAll("svg")].map((icon) => icon.getAttribute("stroke-width"))).toEqual(["1.8", "1.5", "2"]);
+  });
+});
+
+describe("圖示按鈕觸控尺寸", () => {
+  it("預設圖示維持 40px，lg 儲存圖示提供 44px 且只有一個尺寸 class", async () => {
+    await render(<><Button variant="icon" icon="save" aria-label="預設儲存" /><Button variant="icon" size="lg" icon="save" aria-label="儲存排班" /></>);
+    const buttons = [...host!.querySelectorAll("button")];
+    expect(buttons[0]!.classList.contains("size-10")).toBe(true);
+    expect(buttons[1]!.classList.contains("size-11")).toBe(true);
+    expect(buttons[1]!.classList.contains("size-10")).toBe(false);
+    expect(buttons[1]!.querySelector("svg")).not.toBeNull();
   });
 });
 

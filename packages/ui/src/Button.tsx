@@ -52,7 +52,7 @@ const MOBILE_ICON_ONLY = "whitespace-nowrap max-[760px]:size-11 max-[760px]:flex
 const FILLED = "rounded-field border-0 px-3.5 py-[7px] text-[13px] font-bold disabled:opacity-55";
 const OUTLINED = "rounded-field border px-3 py-1.5 text-[12px] whitespace-nowrap disabled:opacity-45";
 const OUTLINED_ACTIVE = "border-secondary bg-brand-soft text-brand-dark";
-const ICON_ONLY = "grid size-10 place-items-center rounded-[50%] border-0 p-0 disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5";
+const ICON_ONLY = "grid place-items-center rounded-[50%] border-0 p-0 disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5";
 
 const FILLED_TONE: Record<ButtonTone, string> = {
   brand: "bg-brand text-white not-disabled:hover:bg-brand-dark",
@@ -102,8 +102,9 @@ function appearance(variant: ButtonVariant, tone: ButtonTone, size: ButtonSize, 
   // paper／floating 只把透明底換成紙色；有語意色的按鈕本來就有底，不受影響。
   const onSurface = (look: string, fill: string) => (skin === "paper" || skin === "floating" ? look.replace("bg-transparent", fill) : look);
   if (variant === "icon") {
-    if (glass) return [ICON_ONLY, GLASS, GLASS_ICON_TONE[tone]];
-    return [ICON_ONLY, onSurface(ICON_TONE[tone], skin === "paper" ? "bg-paper/88" : "bg-paper"), lifted];
+    const sizeClass = size === "lg" ? "size-11" : "size-10";
+    if (glass) return [ICON_ONLY, sizeClass, GLASS, GLASS_ICON_TONE[tone]];
+    return [ICON_ONLY, sizeClass, onSurface(ICON_TONE[tone], skin === "paper" ? "bg-paper/88" : "bg-paper"), lifted];
   }
   if (variant === "link") return ["border-0 bg-transparent p-0 text-[12px] text-brand underline disabled:opacity-45", FOCUS, hasIcon ? "inline-flex items-center gap-1.5 [&_svg]:size-[18px] [&_svg]:flex-none" : ""];
   if (variant === "text") return ["inline-flex min-h-11 items-center gap-1 border-0 bg-transparent px-0 py-1 text-[13px] font-bold text-brand disabled:opacity-45 [&_svg]:size-[18px] [&_svg]:flex-none", FOCUS];

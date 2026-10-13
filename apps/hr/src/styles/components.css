@@ -291,7 +291,6 @@
 .hr-form-list-end { padding: 18px 0 2px; color: var(--color-muted); font-size: 12px; text-align: center; }
 .hr-form-page { min-height: calc(100dvh - 48px); }
 .hr-form-page > .page-head { margin-top: 8px; }
-.hr-form-back-bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; min-height: 42px; background: --alpha(var(--color-canvas) / 94%); border-bottom: 1px solid var(--color-soft-line); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .hr-leave-duration-card,
 .hr-leave-credit-card { display: grid; gap: 5px; padding: 14px 16px; border: 1px solid var(--color-soft-line); border-radius: 14px; background: var(--color-canvas); }
 .hr-leave-duration-card > div,
@@ -845,7 +844,6 @@
   .content:has(.hr-forms-index-page),
   .content:has(.hr-form-page),
   .content:has(.hr-payslip-page) { padding-top: 0; }
-  .hr-forms-index-page { padding-top: 16px; }
   .hr-form-page,
   .hr-payslip-page { padding-top: 0; }
   .hr-module-self { gap: 14px; padding-bottom: calc(var(--hr-safe-bottom) + 72px); }
@@ -948,7 +946,6 @@
   .hr-forms-index-head > :last-child { width: auto; }
   .hr-forms-index-head > :first-child > .muted { font-size: 13px; line-height: 1.55; }
   .hr-form-sticky-controls { margin-inline: -14px; padding: 8px 14px; }
-  .hr-form-back-bar { margin-inline: -14px; padding-inline: 14px; }
   .hr-form-page > .page-head { margin-top: 8px; }
   .hr-form-tabs button { min-height: 42px; padding-inline: 8px; font-size: 13px; }
   .hr-form-tabs.hr-overtime-presets button { padding-inline: 4px; }

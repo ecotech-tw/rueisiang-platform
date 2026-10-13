@@ -102,6 +102,23 @@ describe("班別前台可排人員", () => {
 });
 
 describe("據點負責人的 HR 前台排班", () => {
+  it("保留公司節慶與適用特別日，但不把別店的災防名單濾空成全域", async () => {
+    await assign("scheduler");
+    expect((await request("/calendar/2026-02", "PUT", { days: [
+      { date: "2026-02-05", dayType: "weekday", name: "別店災防停班", specialKind: "typhoon_stop", specialScopeIds: ["store-b"] },
+      { date: "2026-02-06", dayType: "weekday", name: "本店災防停班", specialKind: "typhoon_stop", specialScopeIds: ["store-a"] },
+      { date: "2026-02-09", dayType: "weekday", name: "全公司特別日", specialKind: "typhoon_stop", specialScopeIds: [] },
+      { date: "2026-02-10", dayType: "holiday", name: "公司節慶" },
+    ] })).status).toBe(200);
+    const response = await request("/me/schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "scheduler");
+    expect(response.status).toBe(200);
+    const data = await response.json() as { calendar: Array<{ date: string; name: string; specialKind: string; specialScopeIds: string[]; overridden: boolean }> };
+    expect(data.calendar.find((day) => day.date === "2026-02-05")).toMatchObject({ name: "", specialKind: "none", specialScopeIds: [], overridden: false });
+    expect(data.calendar.find((day) => day.date === "2026-02-06")).toMatchObject({ name: "本店災防停班", specialKind: "typhoon_stop", specialScopeIds: ["store-a"], overridden: true });
+    expect(data.calendar.find((day) => day.date === "2026-02-09")).toMatchObject({ name: "全公司特別日", specialKind: "typhoon_stop", specialScopeIds: [], overridden: true });
+    expect(data.calendar.find((day) => day.date === "2026-02-10")).toMatchObject({ name: "公司節慶", specialKind: "none", overridden: true });
+  });
+
   it("指派後可用本人裝置 session 排班，但不能讀寫其他據點或後台", async () => {
     expect((await assign("scheduler")).status).toBe(200);
     cookies.scheduler = `${DEVICE_SESSION_COOKIE}=${serializeDeviceToken(await createDeviceSession(db, "scheduler", "測試手機"))}`;

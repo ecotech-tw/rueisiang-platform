@@ -43,7 +43,9 @@ function RedirectIfSignedIn({ children }: { children: React.ReactNode }) {
 }
 
 function HrShell() {
-  return <div className="shell hr-app-shell"><main className="content"><Outlet /></main></div>;
+  const pathname = useLocation().pathname.toLowerCase();
+  const hasBackBar = pathname === "/scheduling" || pathname === "/forms" || pathname.startsWith("/forms/");
+  return <div className="shell hr-app-shell"><main className={`content${hasBackBar ? " max-[760px]:pt-0" : ""}`}><Outlet /></main></div>;
 }
 
 export function App() {

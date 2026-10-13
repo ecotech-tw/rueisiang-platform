@@ -37,6 +37,7 @@ export type IconName =
   | "analytics"
   | "report"
   | "download"
+  | "save"
   | "link"
   | "tune"
   | "chat"
@@ -86,6 +87,7 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <path d="M15.2 8.2 19 12l-3.8 3.8M19 12H9.8" />
     </>
   ),
+  save: <><path d="M5 3.5h12l3.5 3.5v12a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 19V5A1.5 1.5 0 0 1 5 3.5Z" /><path d="M7 3.5v6h9v-6M7 20.5v-7h10v7" /></>,
   plus: <path d="M12 5.5v13M5.5 12h13" />,
   search: (
     <>
