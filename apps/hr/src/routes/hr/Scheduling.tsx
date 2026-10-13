@@ -197,7 +197,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
         {specialDays.length ? <p className="m-0 text-[11px] text-muted" aria-label="本月節慶">{specialDays.map((day) => `${Number(day.date.slice(5, 7))}/${Number(day.date.slice(8))} ${day.name || "公司特別日"}`).join("、")}</p> : null}
       </div>
     </Panel>
-    {isMobile && quick ? <Panel density="compact">{fields}<p className="m-0 text-xs text-muted">{personSummary}</p>{summary ? <p className="m-0 text-xs text-muted">{summary}</p> : null}{availability}</Panel> : null}
+    {isMobile && quick ? <Panel density="compact" className="pt-6">{fields}<p className="m-0 text-xs text-muted">{personSummary}</p>{summary ? <p className="m-0 text-xs text-muted">{summary}</p> : null}{availability}</Panel> : null}
     {alerts}
     {!quick && (!isMobile || summary) ? <div className="flex flex-wrap items-center gap-2">
       {!isMobile ? <Button size="lg" loading={pending} disabled={pending || !dirty && !changes.refreshIds.length || disabled} onClick={() => void persist()}>儲存</Button> : null}
@@ -275,7 +275,7 @@ export function HrScheduling() {
     if (!quick) { void navigate("/work"); return; }
     if (await exitRequestRef.current?.()) setQuick(false);
   };
-  return <div className="page hr-front-schedule-page grid min-w-0 content-start gap-2 pt-2 sm:pt-3 [&>*+*]:!mt-0">
+  return <div className="page hr-front-schedule-page grid min-w-0 content-start gap-2 pt-6 sm:pt-8 [&>*+*]:!mt-0">
     <HrBackBar label={quick ? "返回月曆" : "返回工作"} disabled={editState.pending} onBack={() => void goBack()} />
     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
       <h1 ref={headingRef} tabIndex={-1} className="m-0 text-xl outline-none">{quick ? "快速排班" : "排班"}</h1>

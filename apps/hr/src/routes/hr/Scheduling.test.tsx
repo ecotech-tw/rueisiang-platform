@@ -67,6 +67,17 @@ async function openMobileQuick() {
 }
 
 describe("HR 前台快速排班", () => {
+  it("快速排班選人區上方留有足夠間距", async () => {
+    const page = await renderMobilePage(data());
+    try {
+      await page.click("快速排班");
+      const pageSurface = document.querySelector(".hr-front-schedule-page");
+      const fieldsPanel = document.querySelector<HTMLElement>('[aria-label="人員"]')?.closest("section.panel");
+      expect(pageSurface?.classList.contains("pt-6")).toBe(true);
+      expect(fieldsPanel?.classList.contains("pt-6")).toBe(true);
+    } finally { await page.cleanup(); }
+  });
+
   it("桌面一般模式也提供據點鎖定入口", async () => {
     const page = await renderPage(data());
     try {
