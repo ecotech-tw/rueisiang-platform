@@ -91,7 +91,7 @@ export function HrLeaveGrants() {
     leaveTypeId: filters.leaveTypeId,
     expiry: filters.expiry,
   });
-  const grants = useHrQuery<HrLeaveGrantResponse>(`/leave-grants?${query}`, canRead, { keepPreviousData: false });
+  const grants = useHrQuery<HrLeaveGrantResponse>(`/leave-grants?${query}`, canRead);
   const employees = useHrQuery<{ employees: HrLeaveGrantEmployee[] }>("/leave-grants/employees", canRead, { keepPreviousData: false });
   const leaveTypes = useHrQuery<{ leaveTypes: HrLeaveType[] }>("/leave-types", canRead, { keepPreviousData: false });
   const revoke = useHrWrite();
