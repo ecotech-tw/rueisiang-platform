@@ -4,7 +4,7 @@ export interface ScheduleEntry extends ScheduleDraftEntry { scheduleVersionId: s
 export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null }
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
 export interface ScheduleScope { id: string; name: string }
-export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopes: ScheduleScope[]; calendar: Array<{ date: string; dayType: ScheduleShift["dayType"]; name: string; specialKind: "none" | "typhoon_stop"; specialScopeIds: string[]; overridden: boolean }>; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
+export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopeLock?: { revision: number; locked: boolean; lockedAt: string | null }; scopes: ScheduleScope[]; calendar: Array<{ date: string; dayType: ScheduleShift["dayType"]; name: string; specialKind: "none" | "typhoon_stop"; specialScopeIds: string[]; overridden: boolean }>; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
 
 export function canSchedulePerson(shift: Pick<ScheduleShift, "allowedPersonIds"> | undefined, personId: string) {
   return Boolean(shift && personId && (shift.allowedPersonIds == null || shift.allowedPersonIds.includes(personId)));

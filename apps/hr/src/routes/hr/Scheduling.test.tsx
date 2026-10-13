@@ -10,7 +10,7 @@ import { HrScheduling } from "./Scheduling.js";
 const shift = { versionId: "weekday", templateId: "early", scopeId: "store", name: "早班", dayType: "weekday" as const, revision: 1, startSecond: 32400, endSecond: 64800, endDayOffset: 0, standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1 };
 const savedEntry: ScheduleEntry = { id: "saved", scheduleVersionId: "version", personKind: "employee", employmentId: "employee", workerId: null, scopeId: "store", shiftVersionId: "weekday", shiftGroupId: "group", workDate: "2026-02-06", startsAt: "2026-02-06 09:00:00", endsAt: "2026-02-06 18:00:00", standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1, attendanceStatus: "scheduled", employeeNumber: "E1", personName: "小明", archivedAt: null, scopeName: "門市", shiftName: "早班" };
 function data(locked = false): HrScheduleResponse {
-  return { periodKey: "2026-02", period: { start: "2026-02-01", end: "2026-03-01" }, version: { id: "version", revision: 2, status: "published", locked, lockedAt: locked ? "now" : null }, scopes: [{ id: "store", name: "門市" }], employees: [{ employmentId: "employee", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [], shifts: [shift, { ...shift, versionId: "weekend", dayType: "weekend", startSecond: 36000, endSecond: 68400, requiredHeadcount: 2 }], entries: [savedEntry], calendar: Array.from({ length: 28 }, (_, index) => ({ date: `2026-02-${String(index + 1).padStart(2, "0")}`, dayType: index === 6 ? "weekend" as const : "weekday" as const, name: "", specialKind: "none" as const, specialScopeIds: [], overridden: false })) };
+  return { periodKey: "2026-02", period: { start: "2026-02-01", end: "2026-03-01" }, version: { id: "version", revision: 2, status: "published", locked, lockedAt: locked ? "now" : null }, scopeLock: { revision: 0, locked: false, lockedAt: null }, scopes: [{ id: "store", name: "門市" }], employees: [{ employmentId: "employee", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [], shifts: [shift, { ...shift, versionId: "weekend", dayType: "weekend", startSecond: 36000, endSecond: 68400, requiredHeadcount: 2 }], entries: [savedEntry], calendar: Array.from({ length: 28 }, (_, index) => ({ date: `2026-02-${String(index + 1).padStart(2, "0")}`, dayType: index === 6 ? "weekend" as const : "weekday" as const, name: "", specialKind: "none" as const, specialScopeIds: [], overridden: false })) };
 }
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
@@ -25,13 +25,21 @@ async function renderPage(initial: HrScheduleResponse, mutationStatus = 200, get
   client.setQueryData(["hr", "/me/schedule-scopes"], { scopes: [{ id: "store", name: "門市" }] });
   client.setQueryData(["hr", "/me/schedules?periodKey=2026-02&scopeId=store"], initial);
   const writes: Array<{ path: string; method: string; values: Record<string, unknown> }> = [];
+  let currentScopeLock = initial.scopeLock ?? { revision: 0, locked: false, lockedAt: null };
   vi.stubGlobal("fetch", async (path: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === "PATCH") {
       writes.push({ path: String(path), method: init.method, values: JSON.parse(String(init.body)) });
       return Response.json(mutationStatus === 200 ? { id: "version", revision: 3 } : { error: "同一據點排班重疊，草稿仍保留" }, { status: mutationStatus });
     }
+    if (init?.method === "POST") {
+      const values = JSON.parse(String(init.body)) as Record<string, unknown>;
+      writes.push({ path: String(path), method: init.method, values });
+      currentScopeLock = { revision: Number(values.revision) + 1, locked: Boolean(values.locked), lockedAt: values.locked ? "now" : null };
+      return Response.json({ scopeId: values.scopeId, ...currentScopeLock });
+    }
     if (getFailures-- > 0) return Response.json({ error: "最新班表暫時無法載入" }, { status: 500 });
-    return Response.json({ ...initial, version: { ...initial.version, revision: 3 } });
+    const globalLock = Boolean(initial.version?.locked && !initial.scopeLock?.locked);
+    return Response.json({ ...initial, version: { ...initial.version, revision: 3, locked: globalLock || currentScopeLock.locked, lockedAt: globalLock ? initial.version?.lockedAt ?? null : currentScopeLock.lockedAt }, scopeLock: currentScopeLock });
   });
   const container = document.createElement("div"); document.body.append(container);
   const root = createRoot(container);
@@ -59,6 +67,22 @@ async function openMobileQuick() {
 }
 
 describe("HR 前台快速排班", () => {
+  it("確認鎖定與開鎖只更新本據點月份，並在鎖定後停用排班入口", async () => {
+    const page = await renderMobilePage(data());
+    try {
+      await page.click("鎖定本據點排班");
+      expect(document.body.textContent).toContain("其他據點不受影響");
+      await page.click("確認鎖定");
+      expect(page.writes[0]).toMatchObject({ path: "/api/hr/me/schedules/lock", method: "POST", values: { periodKey: "2026-02", scopeId: "store", revision: 0, locked: true } });
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="開鎖本據點排班"]')?.disabled).toBe(false);
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="快速排班"]')?.disabled).toBe(true);
+      await page.click("開鎖本據點排班");
+      await page.click("確認開鎖");
+      expect(page.writes[1]?.values).toMatchObject({ scopeId: "store", revision: 1, locked: false });
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="鎖定本據點排班"]')?.disabled).toBe(false);
+    } finally { await page.cleanup(); }
+  });
+
   it("單一選單同時列正式與支援人員，選支援直接保存正確身分", async () => {
     const initial = data(); initial.workers = [{ id: "worker", name: "支援小美", active: 1 }];
     const page = await renderPage(initial);

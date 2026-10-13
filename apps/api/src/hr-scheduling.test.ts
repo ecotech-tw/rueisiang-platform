@@ -216,6 +216,30 @@ describe("據點負責人的 HR 前台排班", () => {
     for (const id of ["other", "nonemployee", "worker-1"]) expect((await assign(id)).status).toBe(400);
   });
 
+  it("據點負責人只能鎖定自己的單店月份，且不影響其他據點或全域鎖定範圍", async () => {
+    await assign("scheduler");
+    expect((await changes({ entries: [entry("worker-1")] })).status).toBe(200);
+    const locked = await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 0, locked: true }, "scheduler");
+    expect(locked.status, await locked.clone().text()).toBe(200);
+    expect(await locked.json()).toMatchObject({ scopeId: "store-a", revision: 1, locked: true });
+    const own = await request("/me/schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "scheduler");
+    expect(await own.json()).toMatchObject({ version: { locked: true }, scopeLock: { revision: 1, locked: true } });
+    expect((await changes({ entries: [entry("worker-2", "2026-02-09")] }, "scheduler")).status).toBe(409);
+    expect((await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-b", revision: 0, locked: true }, "scheduler")).status).toBe(403);
+
+    const otherShift = await request("/shift-templates", "POST", { scopeId: "store-b", name: "B早班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
+    const otherShiftId = (await otherShift.json() as { versionId: string }).versionId;
+    expect((await changes({ entries: [{ ...entry("worker-2", "2026-02-09", "store-b"), shiftVersionId: otherShiftId }] })).status).toBe(200);
+    const globalWriteToLockedScope = await changes({ entries: [entry("worker-2", "2026-02-10")] });
+    expect(globalWriteToLockedScope.status).toBe(409);
+    expect((await getHrSchedule(db, "2026-02")).entries.map((row) => row.scopeId).sort()).toEqual(["store-a", "store-b"]);
+
+    const unlocked = await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 1, locked: false }, "scheduler");
+    expect(unlocked.status).toBe(200);
+    expect(await unlocked.json()).toMatchObject({ scopeId: "store-a", revision: 2, locked: false });
+    expect((await changes({ entries: [entry("worker-2", "2026-02-11")] }, "scheduler")).status).toBe(200);
+  });
+
   it("負責人指派限全域管理權限、有效員工及有效門市", async () => {
     expect((await request("/schedule-managers/store-a", "PUT", { userId: "scheduler", revision: 0 }, "scheduler")).status).toBe(403);
     expect((await assign("missing")).status).toBe(400);

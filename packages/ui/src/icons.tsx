@@ -50,6 +50,8 @@ export type IconName =
   | "copy"
   | "block"
   | "unblock"
+  | "lock"
+  | "lockOpen"
   | "archive"
   | "trash"
   | "close"
@@ -359,6 +361,18 @@ const PATHS: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="12" cy="12" r="8.2" />
       <path d="m6.2 6.2 11.6 11.6" />
+    </>
+  ),
+  lock: (
+    <>
+      <rect x="5.5" y="10.5" width="13" height="9.5" rx="1.8" />
+      <path d="M8 10.5V7.8a4 4 0 0 1 8 0v2.7M12 14v2.5" />
+    </>
+  ),
+  lockOpen: (
+    <>
+      <rect x="5.5" y="10.5" width="13" height="9.5" rx="1.8" />
+      <path d="M8 10.5V7.8a4 4 0 0 1 7.6-1.7M12 14v2.5" />
     </>
   ),
   unblock: (

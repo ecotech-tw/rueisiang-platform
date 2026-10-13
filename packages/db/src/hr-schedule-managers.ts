@@ -4,7 +4,7 @@ import { activityRow } from "./activity.js";
 import { type Database } from "./client.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, type HrActor } from "./hr-people.js";
 import { calendarSpecialAppliesToScope, defaultDayType } from "./hr-calendar.js";
-import { getHrSchedule, saveHrScheduleChanges, type HrScheduleChangesInput } from "./hr-scheduling.js";
+import { getHrSchedule, getHrScheduleScopeLock, saveHrScheduleChanges, setHrScheduleScopeLock, type HrScheduleChangesInput } from "./hr-scheduling.js";
 import { users } from "./schema/auth.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrScheduleManagers } from "./schema/hr-scheduling.js";
@@ -57,7 +57,9 @@ async function assertManagedScope(db: Database, userId: string, scopeId: string)
 export async function getHrManagedSchedule(db: Database, userId: string, periodKey: string, scopeId: string) {
   await assertManagedScope(db, userId, scopeId);
   const data = await getHrSchedule(db, periodKey, scopeId);
-  return { ...data, employees: data.employees.filter((person) => data.shifts.some((shift) => canSchedulePerson(shift, person.employmentId))), workers: data.workers.filter((person) => data.shifts.some((shift) => canSchedulePerson(shift, person.id))), scopes: data.scopes.filter((scope) => scope.id === scopeId), calendar: data.calendar.map((day) => {
+  const scopeLock = await getHrScheduleScopeLock(db, periodKey, scopeId);
+  const globallyLocked = Boolean(data.version?.locked);
+  return { ...data, version: data.version ? { ...data.version, locked: globallyLocked || scopeLock.locked, lockedAt: globallyLocked ? data.version.lockedAt : scopeLock.lockedAt } : null, scopeLock, employees: data.employees.filter((person) => data.shifts.some((shift) => canSchedulePerson(shift, person.employmentId))), workers: data.workers.filter((person) => data.shifts.some((shift) => canSchedulePerson(shift, person.id))), scopes: data.scopes.filter((scope) => scope.id === scopeId), calendar: data.calendar.map((day) => {
     // 空適用名單代表全域；不能先濾空別店的名單，反而讓前台判成全域特別日。
     if (day.specialKind !== "none" && !calendarSpecialAppliesToScope({ kind: day.specialKind, scopeIds: day.specialScopeIds }, scopeId)) {
       return { ...day, name: "", specialKind: "none" as const, specialScopeIds: [], overridden: day.dayType !== defaultDayType(day.date) };
@@ -69,4 +71,9 @@ export async function getHrManagedSchedule(db: Database, userId: string, periodK
 export async function saveHrManagedSchedule(db: Database, scopeId: string, input: HrScheduleChangesInput, actor: HrActor) {
   await assertManagedScope(db, actor.id, scopeId);
   return saveHrScheduleChanges(db, input, actor, scopeId);
+}
+
+export async function setHrManagedScheduleLock(db: Database, periodKey: string, scopeId: string, actor: HrActor, input: { revision: number; locked: boolean }) {
+  await assertManagedScope(db, actor.id, scopeId);
+  return setHrScheduleScopeLock(db, periodKey, scopeId, input, actor);
 }
