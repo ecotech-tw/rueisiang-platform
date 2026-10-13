@@ -67,6 +67,41 @@ async function openMobileQuick() {
 }
 
 describe("HR 前台快速排班", () => {
+  it("按各班別需求標示足額與缺額，不把不同班別的人數互相抵銷", async () => {
+    const page = await renderPage(data());
+    try {
+      const fullDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
+      const shortDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 排班"]');
+      expect(fullDay?.textContent).toContain("1/1");
+      expect(fullDay?.getAttribute("aria-description")).toContain("早班 足額");
+      expect(fullDay?.querySelector("span.absolute")?.className).toContain("bg-ok-soft");
+      expect(shortDay?.textContent).toContain("缺2");
+      expect(shortDay?.querySelector("span.absolute")?.className).toContain("bg-warn-soft");
+    } finally { await page.cleanup(); }
+  });
+
+  it("某班別超額不能抵銷另一班別缺額，且明確未出勤不算補足需求", async () => {
+    const initial = data();
+    initial.shifts = [
+      { ...shift, requiredHeadcount: 1 },
+      { ...shift, versionId: "late", templateId: "late", name: "晚班", requiredHeadcount: 2 },
+    ];
+    initial.entries = [savedEntry, { ...savedEntry, id: "extra-1", employmentId: "employee-2" }, { ...savedEntry, id: "extra-2", employmentId: "employee-3" }];
+    const page = await renderPage(initial);
+    try {
+      const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
+      expect(day?.textContent).toContain("缺2");
+      expect(day?.getAttribute("aria-description")).toContain("早班 超 2 人");
+      expect(day?.getAttribute("aria-description")).toContain("晚班 缺 2 人");
+    } finally { await page.cleanup(); }
+
+    const absentPage = await renderPage({ ...data(), entries: [{ ...savedEntry, attendanceStatus: "absent" }] });
+    try {
+      const day = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
+      expect(day?.textContent).toContain("缺1");
+    } finally { await absentPage.cleanup(); }
+  });
+
   it("快速排班選人與摘要之間保留間距，不額外撐高頁面頂部", async () => {
     const page = await renderMobilePage(data());
     try {

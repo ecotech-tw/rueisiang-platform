@@ -37,6 +37,36 @@ function dayTypeLabel(dayType: HrScheduleResponse["calendar"][number]["dayType"]
   return dayType === "holiday" ? "國定假日" : dayType === "weekend" ? "週末" : "平日";
 }
 
+function getDateCoverage(day: HrScheduleResponse["calendar"][number], shifts: HrScheduleResponse["shifts"], entries: ScheduleEntry[]) {
+  const templateIds = [...new Set(shifts.map((shift) => shift.templateId))];
+  const requiredShifts = templateIds.flatMap((templateId) => {
+    const versions = shifts.filter((shift) => shift.templateId === templateId);
+    const applicable = pickShiftForDay(versions, day.dayType);
+    return applicable ? [applicable] : [];
+  });
+  if (!requiredShifts.length) return null;
+
+  const assignedByTemplate = new Map<string, number>();
+  for (const entry of entries) {
+    if (entry.archivedAt || entry.attendanceStatus === "absent") continue;
+    const assignedShift = shifts.find((shift) => shift.versionId === entry.shiftVersionId && shift.scopeId === entry.scopeId);
+    if (assignedShift) assignedByTemplate.set(assignedShift.templateId, (assignedByTemplate.get(assignedShift.templateId) ?? 0) + 1);
+  }
+  const shortage = requiredShifts.reduce((total, shift) => total + Math.max(0, shift.requiredHeadcount - (assignedByTemplate.get(shift.templateId) ?? 0)), 0);
+  const excess = requiredShifts.reduce((total, shift) => total + Math.max(0, (assignedByTemplate.get(shift.templateId) ?? 0) - shift.requiredHeadcount), 0);
+  const requiredTotal = requiredShifts.reduce((total, shift) => total + shift.requiredHeadcount, 0);
+  const breakdown = requiredShifts.map((shift) => {
+    const assigned = assignedByTemplate.get(shift.templateId) ?? 0;
+    return assigned < shift.requiredHeadcount ? `${shift.name} 缺 ${shift.requiredHeadcount - assigned} 人` : assigned > shift.requiredHeadcount ? `${shift.name} 超 ${assigned - shift.requiredHeadcount} 人` : `${shift.name} 足額`;
+  }).join("、");
+
+  return {
+    label: shortage ? `缺${shortage}` : excess ? `超${excess}` : `${requiredTotal}/${requiredTotal}`,
+    tone: shortage ? "short" as const : excess ? "excess" as const : "full" as const,
+    description: `人數需求：${breakdown}；合計需求 ${requiredTotal} 人。`,
+  };
+}
+
 const dateClass = "relative grid min-h-11 w-full min-w-0 place-items-center rounded-field border-0 text-sm font-semibold tabular-nums transition-[background-color,color,scale] duration-150 ease-out enabled:hover:bg-brand/7 enabled:active:scale-[.96] focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:enabled:active:scale-100";
 
 function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitRequestRef, onReload, onChangeState }: { data: HrScheduleResponse; quick: boolean; monthDirection: -1 | 0 | 1; onQuickChange: (quick: boolean) => void; exitRequestRef: ExitRequestRef; onReload: () => Promise<HrScheduleResponse | undefined>; onChangeState: (dirty: boolean, pending: boolean) => void }) {
@@ -171,16 +201,18 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
           {Array.from({ length: offset }, (_, index) => <div aria-hidden="true" key={`empty-${index}`} />)}
           {data.calendar.map((day) => {
             const entries = draft.filter((entry) => !entry.archivedAt && entry.workDate === day.date);
+            const coverage = getDateCoverage(day, data.shifts, entries);
             const otherCount = entries.filter((entry) => !matchesPerson(entry)).length;
             const occupied = quick ? otherCount > 0 : entries.length > 0;
             const special = specialDates.has(day.date);
-            const description = `${day.name || dayTypeLabel(day.dayType)}${special ? "・公司行事曆特別日" : ""}・${entries.length} 筆排班${quick && otherCount ? `・其他人 ${otherCount} 筆` : ""}`;
+            const description = `${day.name || dayTypeLabel(day.dayType)}${special ? "・公司行事曆特別日" : ""}・${entries.length} 筆排班${quick && otherCount ? `・其他人 ${otherCount} 筆` : ""}${coverage ? `・${coverage.description}` : ""}`;
             const selectable = quick || !isMobile;
             const background = occupied ? "bg-tone-peach/15" : selectable && picked(day.date) ? "bg-brand-soft" : day.dayType !== "weekday" ? "bg-canvas" : "";
+            const coverageBadge = coverage?.tone === "full" ? "bg-ok-soft text-ok" : coverage?.tone === "short" ? "bg-warn-soft text-warn" : "bg-brand-soft text-brand-dark";
             return <div key={day.date} className={`relative min-w-0 border-t border-soft-line ${!isMobile && !quick ? "min-h-32 p-1" : ""}`}>
               <button type="button" className={`${dateClass} ${background} ${day.dayType === "weekday" ? "text-ink" : "text-brand-dark"} ${selectable && picked(day.date) ? "ring-1 ring-inset ring-brand-dark" : ""}`} aria-label={`${day.date} ${quick ? "快速排班" : "排班"}`} aria-description={description} aria-pressed={!isMobile || quick ? picked(day.date) : undefined} disabled={!isMobile || quick ? toggleDisabled(day.date) : undefined} onClick={() => isMobile && !quick ? setDetailsDate(day.date) : toggle(day.date)}>
                 {Number(day.date.slice(8))}
-                {entries.length ? <span className="absolute bottom-0 right-0 rounded-full bg-brand-soft px-1 text-[9px] font-semibold leading-3 text-brand-dark" aria-hidden="true">{entries.length}</span> : null}
+                {coverage ? <span className={`absolute bottom-0 right-0 rounded-full px-1 text-[10px] font-semibold leading-3 tabular-nums ${coverageBadge}`} aria-hidden="true">{coverage.label}</span> : null}
                 {special ? <span className="absolute left-1 top-1 size-2 rounded-full bg-ok" aria-hidden="true" /> : null}
               </button>
               {!isMobile && !quick ? <>
@@ -193,6 +225,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
             </div>;
           })}
         </div>
+        <p className="m-0 text-[10px] text-muted" aria-label="需求人力圖例">人數提示：<span className="text-ok">足額</span>・<span className="text-warn">缺額</span>・<span className="text-brand-dark">超額</span>（待確認／已出勤計入，未出勤不計）</p>
         {specialDays.length ? <p className="m-0 text-[11px] text-muted" aria-label="本月節慶">{specialDays.map((day) => `${Number(day.date.slice(5, 7))}/${Number(day.date.slice(8))} ${day.name || "公司特別日"}`).join("、")}</p> : null}
       </div>
     </Panel>
