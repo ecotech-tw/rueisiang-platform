@@ -829,6 +829,16 @@
 .line-group-name { width: 150px; min-width: 0; padding: 7px 9px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
 .line-groups-table code { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
 
+/* 權限管理頁 */
+/* 跟在 .panel-head 後面時，距離由 panel-head 的 margin-bottom 決定，這裡不再疊加。 */
+/*
+ * 修飾詞叫 row 不叫 inline。
+ *
+ * `inline` 是 Tailwind 的 utility（display: inline），而 utility 的 layer 永遠贏
+ * component——寫成 `.admin-form.inline` 的話，`.admin-form` 的 display: flex 會被蓋掉，
+ * 整排欄位退回 inline 排版，gap 也跟著失效（gap 只對 flex/grid 有作用）。
+ * 命名修飾詞之前先確認它不是 Tailwind 已經有的 utility。
+ */
 .admin-form.row { margin-top: 16px; }
 .panel-head + .admin-form.row { margin-top: 0; }
 .sku-mapping-form { display: grid; gap: 16px; align-items: stretch; }
@@ -2577,6 +2587,11 @@
 
   .data-table td:not([data-label])::before { display: none; }
 
+  /*
+   * 卡片本來是「每個欄位一列標籤＋值」，量出來一張 287px，一個螢幕只看得到
+   * 1.4 張——滑三下才換一個人。壓縮的作法是把「不必解釋的欄位」拿掉標籤：
+   * 看到一串數字就知道是電話，看到地址就知道是地址。
+   */
   .data-table td:first-child { order: 1; width: 100%; }
   .data-table td[data-label="電話"] { order: 2; width: 100%; }
   .data-table td[data-label="地址"] { order: 3; width: 100%; }

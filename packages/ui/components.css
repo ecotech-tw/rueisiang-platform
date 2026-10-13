@@ -910,16 +910,6 @@
 .muted { color: var(--color-muted); margin: 0; }
 /* 間距改由 .page 統一負責，見上面的說明；這裡只保留非 .page 容器內的相鄰 Panel。 */
 .panel + .panel { margin-top: 20px; }
-/* 權限管理頁 */
-/* 跟在 .panel-head 後面時，距離由 panel-head 的 margin-bottom 決定，這裡不再疊加。 */
-/*
- * 修飾詞叫 row 不叫 inline。
- *
- * `inline` 是 Tailwind 的 utility（display: inline），而 utility 的 layer 永遠贏
- * component——寫成 `.admin-form.inline` 的話，`.admin-form` 的 display: flex 會被蓋掉，
- * 整排欄位退回 inline 排版，gap 也跟著失效（gap 只對 flex/grid 有作用）。
- * 命名修飾詞之前先確認它不是 Tailwind 已經有的 utility。
- */
 /*
  * 有 .field 的那種排要另外處理。.field 是「標籤在上、輸入框在下」的兩層，
  * 旁邊的按鈕只有一層，兩件事都會歪：
@@ -1142,11 +1132,6 @@
   /* 沒有 data-label 的欄位（例如純操作欄）不要留一格空白。 */
   .data-table td:not([data-label]) { grid-template-columns: minmax(0, 1fr); }
   .data-table .numeric { text-align: left; }
-  /*
-   * 卡片本來是「每個欄位一列標籤＋值」，量出來一張 287px，一個螢幕只看得到
-   * 1.4 張——滑三下才換一個人。壓縮的作法是把「不必解釋的欄位」拿掉標籤：
-   * 看到一串數字就知道是電話，看到地址就知道是地址。
-   */
   /*
    * 卡片改成 flex-wrap，再用 order 重排欄位。markup 的順序是為了桌機表格
    * （電話→通路→地址→狀態），照那個順序疊在手機上，兩個標記膠囊會被地址隔開、
