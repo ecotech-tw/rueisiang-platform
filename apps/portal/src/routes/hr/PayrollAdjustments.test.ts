@@ -38,7 +38,6 @@ describe("薪資加扣項操作欄", () => {
     expect(cells[1]).toContain('class="inline-flex size-6 shrink-0 items-center"');
     expect(cells[1]).toContain('<svg class="size-6 shrink-0"');
     expect(cells[1]).not.toContain("<button");
-    expect(cells[1]).not.toContain("icon-button");
   });
 
   it("只有讀取權限時顯示禁止圖示與所需權限，不顯示可操作按鈕", () => {

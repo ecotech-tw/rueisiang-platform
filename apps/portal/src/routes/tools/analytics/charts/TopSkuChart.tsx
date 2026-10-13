@@ -7,7 +7,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { LegacyButton, Panel } from "../../../../ui/index.js";
+import { Chip, Panel } from "../../../../ui/index.js";
 import { AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
 import type { SalesSkuBreakdown, SalesTopSkuMetric } from "../api.js";
 
@@ -39,8 +39,8 @@ export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, va
       actions={(
         <div className="analytics-panel-actions">
           <div className="analytics-chart-actions" role="group" aria-label="Top SKU 排序方式">
-            <LegacyButton variant="chip" selected={metric === "netQuantity"} onClick={() => onMetricChange("netQuantity")}>依淨銷量</LegacyButton>
-            <LegacyButton variant="chip" selected={metric === "salesAmount"} onClick={() => onMetricChange("salesAmount")}>依售額</LegacyButton>
+            <Chip size="sm" selected={metric === "netQuantity"} onClick={() => onMetricChange("netQuantity")}>依淨銷量</Chip>
+            <Chip size="sm" selected={metric === "salesAmount"} onClick={() => onMetricChange("salesAmount")}>依售額</Chip>
           </div>
           <AnalyticsDataDialog
             title={`商品銷售資料（依${metricLabel}）`}

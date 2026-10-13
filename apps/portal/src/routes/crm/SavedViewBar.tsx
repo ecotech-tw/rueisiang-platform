@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, LegacyButton, FilterInput } from "../../ui/index.js";
+import { Alert, Button, Chip, ChipGroup, FilterInput } from "../../ui/index.js";
 import {
   DEFAULT_FILTERS,
   matchesView,
@@ -54,33 +54,31 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
   return (
     <>
       <div className="view-bar">
-        <LegacyButton
+        <Chip
           type="button"
-          variant="chip"
           selected={!active && isDefault}
           icon={!active && isDefault ? "check" : undefined}
           onClick={() => onApply(DEFAULT_FILTERS)}
           title="回到預設條件"
         >
           全部客戶
-        </LegacyButton>
+        </Chip>
 
         {rows.map((view) => (
-          <span className={`filter-chip${active?.id === view.id ? " selected" : ""}`} key={view.id}>
-            <LegacyButton
+          <ChipGroup selected={active?.id === view.id} key={view.id}>
+            <Chip variant="label"
               type="button"
-              variant="chip-label"
               selected={active?.id === view.id}
               icon={active?.id === view.id ? "check" : undefined}
               onClick={() => onApply(view)}
               title={`${describe(view)}${view.createdByEmail ? `　—　${view.createdByEmail} 建立` : ""}`}
             >
               {view.name}
-            </LegacyButton>
+            </Chip>
             {canManage ? (
-              <LegacyButton
+              <Chip variant="remove"
+                selected={active?.id === view.id}
                 type="button"
-                variant="chip-remove"
                 icon="close"
                 onClick={() => remove.mutate(view.id)}
                 disabled={remove.isPending}
@@ -88,13 +86,12 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
                 aria-label={`刪除視圖 ${view.name}`}
               />
             ) : null}
-          </span>
+          </ChipGroup>
         ))}
 
         {canManage && name === null ? (
-          <LegacyButton
+          <Chip variant="action"
             type="button"
-            variant="chip-action"
             icon="bookmark"
             onClick={() => setName("")}
             disabled={saved}
@@ -103,7 +100,7 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
                 ? "目前的條件已經是一個視圖了"
                 : "把現在的搜尋、篩選與排序存成一個視圖，所有人都看得到"
             }
-          >儲存為視圖</LegacyButton>
+          >儲存為視圖</Chip>
         ) : null}
 
         {canManage && name !== null ? (

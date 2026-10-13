@@ -7,7 +7,7 @@ import {
   Alert,
   Button,
   ButtonSkin,
-  LegacyButton,
+  Chip,
   ConfirmDialog,
   DataTable,
   Dialog,
@@ -234,8 +234,8 @@ export function StyleGuide() {
             <Button variant="icon" icon="search" aria-label="搜尋" />
             <Button disabled>停用</Button>
             <Button loading loadingLabel="同步中…">同步資料</Button>
-            <LegacyButton variant="chip" selected icon="check">已選取</LegacyButton>
-            <LegacyButton variant="chip-action" icon="bookmark">新增視圖</LegacyButton>
+            <Chip selected icon="check">已選取</Chip>
+            <Chip variant="action" icon="bookmark">新增視圖</Chip>
             <Button variant="secondary" onClick={() => setDialogOpen(true)}>預覽 Dialog</Button>
             <Button variant="danger" onClick={() => setConfirmOpen(true)}>預覽 ConfirmDialog</Button>
           </div>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, LegacyButton, DataTable, Dialog, DropdownSelect, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, isDefaultHrCalendarSpecialName, type HrCalendarDay, type HrCalendarResponse, type HrCalendarSpecialKind, type HrDayType, type ScheduleScope } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
@@ -54,7 +54,7 @@ export function CalendarScopePicker({ scopeIds, scopes, disabled, onChange }: { 
         ...scopes.map((scope) => ({ value: scope.id, label: scope.name, disabled: scopeIds.includes(scope.id) && scope.id !== scopeId })),
         ...(scopes.some((scope) => scope.id === scopeId) ? [] : [{ value: scopeId, label: scopeLabel(scopeId, scopes), disabled: true }]),
       ]} onChange={(event) => updateScope(index, event.target.value)} /><Button type="button" variant="icon" icon="trash" aria-label={`移除適用門市 ${scopeLabel(scopeId, scopes)}`} title="移除適用門市／地區" disabled={disabled} onClick={() => onChange(scopeIds.filter((_, currentIndex) => currentIndex !== index))} /></div>)}
-    <LegacyButton type="button" variant="chip-action" icon="plus" className="add-action" disabled={disabled || scopeIds.length >= scopes.length} onClick={addScope}>{scopeIds.length ? "新增門市／地區" : "指定門市／地區"}</LegacyButton>
+    <Chip variant="action" tone="success" type="button" icon="plus" disabled={disabled || scopeIds.length >= scopes.length} onClick={addScope}>{scopeIds.length ? "新增門市／地區" : "指定門市／地區"}</Chip>
   </div>;
 }
 

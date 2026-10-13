@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
+import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
-import { Alert, Button, ConfirmDialog, Dialog, Field, LegacyButton, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, ConfirmDialog, Dialog, Field, PageHeader, Panel, SelectField, SegmentedControl, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrLeaveEnd, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type HrOvertimeDay, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
 import { dateBefore, formatHours, taipeiDay, taipeiTimeRange, utcStampDate } from "./format.js";
 import { hoursToMinutes } from "./hours-entry.js";
@@ -498,7 +499,7 @@ export function HrForms() {
   });
 
   return <div className="page hr-forms-page hr-forms-index-page" onTouchStart={startSwipe} onTouchEnd={endSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
-    <PageHeader className="hr-forms-index-head" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><LegacyButton variant="icon" icon="plus" className="hr-form-add-button" aria-label="新增申請" onClick={openNewForm} /></Tooltip>} />
+    <PageHeader className="hr-forms-index-head" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><button type="button" className="grid size-10 flex-none place-items-center rounded-[50%] border-0 bg-brand p-0 text-paper [box-shadow:0_5px_14px_color-mix(in_oklab,var(--color-brand)_24%,transparent)] transition-[background-color,color,scale] duration-120 ease-out motion-reduce:transition-none not-disabled:hover:bg-brand-dark enabled:active:scale-[.96] motion-reduce:enabled:active:scale-100 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5 max-[760px]:fixed max-[760px]:right-[max(16px,env(safe-area-inset-right))] max-[760px]:bottom-[calc(var(--hr-safe-bottom)+72px)] max-[760px]:z-[21] max-[760px]:size-[52px]" aria-label="新增申請" onClick={openNewForm}><Icon name="plus" /></button></Tooltip>} />
     {isLoading ? <p className="muted">載入申請紀錄…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
