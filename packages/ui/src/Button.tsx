@@ -55,42 +55,42 @@ const OUTLINED_ACTIVE = "border-secondary bg-brand-soft text-brand-dark";
 const ICON_ONLY = "grid size-10 place-items-center rounded-[50%] border-0 p-0 disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5";
 
 const FILLED_TONE: Record<ButtonTone, string> = {
-  brand: "bg-brand text-white enabled:hover:bg-brand-dark",
-  success: "bg-ok text-paper enabled:hover:bg-[color-mix(in_srgb,var(--color-ok)_86%,var(--color-ink))]",
-  info: "bg-info text-paper enabled:hover:bg-[color-mix(in_srgb,var(--color-info)_86%,var(--color-ink))]",
-  danger: "bg-brand-dark text-white enabled:hover:bg-[color-mix(in_srgb,var(--color-brand-dark)_86%,var(--color-ink))]",
+  brand: "bg-brand text-white not-disabled:hover:bg-brand-dark",
+  success: "bg-ok text-paper not-disabled:hover:bg-[color-mix(in_srgb,var(--color-ok)_86%,var(--color-ink))]",
+  info: "bg-info text-paper not-disabled:hover:bg-[color-mix(in_srgb,var(--color-info)_86%,var(--color-ink))]",
+  danger: "bg-brand-dark text-white not-disabled:hover:bg-[color-mix(in_srgb,var(--color-brand-dark)_86%,var(--color-ink))]",
 };
 const OUTLINED_TONE: Record<ButtonTone, string> = {
-  brand: "border-line bg-transparent text-ink enabled:hover:border-secondary",
-  success: "border-ok bg-ok-soft text-ok enabled:hover:bg-[color-mix(in_srgb,var(--color-ok-soft)_86%,var(--color-ok))]",
-  info: "border-info bg-info-soft text-info enabled:hover:bg-[color-mix(in_srgb,var(--color-info-soft)_86%,var(--color-info))]",
-  danger: "border-line bg-transparent text-brand-dark enabled:hover:border-secondary",
+  brand: "border-line bg-transparent text-ink not-disabled:hover:border-secondary",
+  success: "border-ok bg-ok-soft text-ok not-disabled:hover:bg-[color-mix(in_srgb,var(--color-ok-soft)_86%,var(--color-ok))]",
+  info: "border-info bg-info-soft text-info not-disabled:hover:bg-[color-mix(in_srgb,var(--color-info-soft)_86%,var(--color-info))]",
+  danger: "border-line bg-transparent text-brand-dark not-disabled:hover:border-secondary",
 };
 const ICON_TONE: Record<ButtonTone, string> = {
-  brand: "bg-transparent text-muted enabled:hover:bg-brand/8 enabled:hover:text-brand",
-  success: "bg-transparent text-ok enabled:hover:bg-ok-soft",
-  info: "bg-transparent text-info enabled:hover:bg-info-soft",
-  danger: "bg-transparent text-muted enabled:hover:bg-brand-soft enabled:hover:text-brand-dark",
+  brand: "bg-transparent text-muted not-disabled:hover:bg-brand/8 not-disabled:hover:text-brand",
+  success: "bg-transparent text-ok not-disabled:hover:bg-ok-soft",
+  info: "bg-transparent text-info not-disabled:hover:bg-info-soft",
+  danger: "bg-transparent text-muted not-disabled:hover:bg-brand-soft not-disabled:hover:text-brand-dark",
 };
 
 const GLASS = "[backdrop-filter:blur(6px)_saturate(145%)]";
 const GLASS_FILLED_TONE: Record<ButtonTone, string> = {
-  brand: "bg-info/74 text-paper [box-shadow:var(--shadow-glass-info)] enabled:hover:bg-info/92",
-  success: "bg-ok/78 text-paper [box-shadow:var(--shadow-glass-ok)] enabled:hover:bg-ok/92",
-  info: "bg-info/74 text-paper [box-shadow:var(--shadow-glass-info)] enabled:hover:bg-info/92",
-  danger: "bg-brand-dark/86 text-paper [box-shadow:var(--shadow-glass-danger)] enabled:hover:bg-brand-dark",
+  brand: "bg-info/74 text-paper [box-shadow:var(--shadow-glass-info)] not-disabled:hover:bg-info/92",
+  success: "bg-ok/78 text-paper [box-shadow:var(--shadow-glass-ok)] not-disabled:hover:bg-ok/92",
+  info: "bg-info/74 text-paper [box-shadow:var(--shadow-glass-info)] not-disabled:hover:bg-info/92",
+  danger: "bg-brand-dark/86 text-paper [box-shadow:var(--shadow-glass-danger)] not-disabled:hover:bg-brand-dark",
 };
 const GLASS_OUTLINED_TONE: Record<ButtonTone, string> = {
-  brand: "border-transparent bg-paper/22 text-ink [box-shadow:var(--shadow-glass)] enabled:hover:border-secondary enabled:hover:bg-brand/10",
-  success: "border-transparent bg-ok/12 text-ok [box-shadow:var(--shadow-glass-tint-ok)] enabled:hover:bg-ok-soft",
-  info: "border-transparent bg-info/12 text-info [box-shadow:var(--shadow-glass-tint-info)] enabled:hover:border-secondary enabled:hover:bg-info-soft",
-  danger: "border-transparent bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] enabled:hover:border-secondary enabled:hover:bg-brand/10",
+  brand: "border-transparent bg-paper/22 text-ink [box-shadow:var(--shadow-glass)] not-disabled:hover:border-secondary not-disabled:hover:bg-brand/10",
+  success: "border-transparent bg-ok/12 text-ok [box-shadow:var(--shadow-glass-tint-ok)] not-disabled:hover:bg-ok-soft",
+  info: "border-transparent bg-info/12 text-info [box-shadow:var(--shadow-glass-tint-info)] not-disabled:hover:border-secondary not-disabled:hover:bg-info-soft",
+  danger: "border-transparent bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] not-disabled:hover:border-secondary not-disabled:hover:bg-brand/10",
 };
 const GLASS_ICON_TONE: Record<ButtonTone, string> = {
-  brand: "bg-paper/22 text-muted [box-shadow:var(--shadow-glass)] enabled:hover:bg-brand/10 enabled:hover:text-brand",
-  success: "bg-paper/22 text-ok [box-shadow:var(--shadow-glass)] enabled:hover:bg-ok-soft",
-  info: "bg-paper/22 text-info [box-shadow:var(--shadow-glass)] enabled:hover:bg-info-soft",
-  danger: "bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] enabled:hover:bg-brand-soft",
+  brand: "bg-paper/22 text-muted [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-brand/10 not-disabled:hover:text-brand",
+  success: "bg-paper/22 text-ok [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-ok-soft",
+  info: "bg-paper/22 text-info [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-info-soft",
+  danger: "bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-brand-soft",
 };
 
 const FLOATING = "[box-shadow:var(--shadow-panel)]";

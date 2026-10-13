@@ -380,6 +380,7 @@ export function StyleGuide() {
         </div>
       </Panel>
 
+      <ButtonSkin skin="glass">
       {dialogOpen ? (
         <Dialog
           title="共用 Dialog 預覽"
@@ -400,6 +401,7 @@ export function StyleGuide() {
           <p>這個區塊示範危險動作的取消焦點、Escape 與 pending 狀態。</p>
         </ConfirmDialog>
       ) : null}
+      </ButtonSkin>
     </div>
     </DialogScope>
   );
