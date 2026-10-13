@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons.js";
-import { LegacyButton } from "../ui/Button.js";
+import { Button, LegacyButton } from "../ui/Button.js";
 
 /**
  * 區間選擇器：一次打開一張日曆，點起日再點迄日。
@@ -179,27 +179,23 @@ export function DateRangePicker({ start, end, onChange, disabled }: Props) {
           </div>
 
           <div className="range-head">
-            <button
-              type="button"
-              className="icon-button"
+            <Button
+              variant="icon"
+              icon="chevronLeft"
               onClick={() => setAnchor((current) => addMonths(current, -1))}
               title="上一個月"
               aria-label="上一個月"
-            >
-              <Icon name="chevronLeft" />
-            </button>
+            />
             <span className="range-hint">
               {pendingStart ? "再點一次選迄日" : "點一下選起日"}
             </span>
-            <button
-              type="button"
-              className="icon-button"
+            <Button
+              variant="icon"
+              icon="chevronRight"
               onClick={() => setAnchor((current) => addMonths(current, 1))}
               title="下一個月"
               aria-label="下一個月"
-            >
-              <Icon name="chevronRight" />
-            </button>
+            />
           </div>
 
           <div className="range-months" onMouseLeave={() => setHovered(null)}>

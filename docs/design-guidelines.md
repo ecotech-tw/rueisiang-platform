@@ -56,7 +56,10 @@
 |---|---|
 | 一般動作、危險動作、圖示動作、文字動作、loading | `packages/ui` 的 `Button`：`variant` 選種類、`tone` 選語意色（`success`／`info`／`danger`）、`size="lg"` 是 44px 高度（手機動作列、跟輸入框同列）、`active` 是 secondary 的開啟狀態、`mobileIconOnly` 讓頁首新增鈕在手機收成圓形圖示鈕；外觀寫在元件內，`className` 只給版面用 |
 | HRIS 管理介面的玻璃樣式按鈕 | 同一個 `Button`，由外層的 `<ButtonSkin skin="glass">` 決定皮膚（`HrLayout` 已包好）；頁面不必也不可以自己指定。皮膚用 context 傳，portal 出去的對話框也跟得到 |
-| chip、浮在地圖上的按鈕、樣式指南，以及少數外觀完全客製的按鈕 | `LegacyButton`（class-based）。共用的 `Dialog`／`ConfirmDialog` 內部也用它，兩個站才會長得一樣 |
+| 按鈕放在有底色的區塊或圖片上 | 外層包 `<ButtonSkin skin="paper">`，透明底的 secondary／icon 會改成紙色底 |
+| 浮在地圖這類內容上的按鈕 | 外層包 `<ButtonSkin skin="floating">`，紙色底再加陰影 |
+| 長得像按鈕、但會換頁的連結 | `ButtonLink`（輸出 `<a>`），不要在 `<a>` 上寫按鈕的 class |
+| chip 系列，以及三顆外觀完全客製的按鈕（薪資試算進度分頁、員工站表單頁的浮動新增鈕、頭像相機鈕） | `LegacyButton`（class-based） |
 | 對話框、確認、編輯表單 | `packages/ui` 的 `Dialog`；不要在 route 自己寫 backdrop、`role="dialog"` 或關閉動畫 |
 | 單選、多選、搜尋選單 | `packages/ui` 的 `DropdownSelect` 或 `SelectField` |
 | 搜尋與篩選 toolbar | `FilterToolbar` 搭配 `FilterInput`、`FilterSelect`、`SearchFilterInput` |

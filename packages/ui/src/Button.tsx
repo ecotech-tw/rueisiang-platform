@@ -1,16 +1,19 @@
-import { createContext, useContext, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
+import { createContext, useContext, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Icon, type IconName } from "./icons.js";
 import { DialogContext } from "./dialog-context.js";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "icon" | "link" | "text";
 type ButtonTone = "brand" | "success" | "info" | "danger";
 type ButtonSize = "md" | "lg";
-type ButtonSkinName = "solid" | "glass";
+type ButtonSkinName = "solid" | "glass" | "paper" | "floating";
 
 const ButtonSkinContext = createContext<ButtonSkinName>("solid");
 
 /**
- * 這個範圍裡的按鈕換一層皮膚。glass 是 HRIS 管理介面的半透明玻璃樣式。
+ * 這個範圍裡的按鈕換一層皮膚：
+ * - glass：HRIS 管理介面的半透明玻璃樣式。
+ * - paper：按鈕放在有底色的區塊或圖片上，透明底的 secondary／icon 改成紙色底才看得清楚。
+ * - floating：浮在地圖這類內容上面，紙色底再加陰影。
  * 用 context 而不是祖先選擇器：皮膚的每一條樣式仍然寫在 Button 裡，portal 出去的對話框也跟得到。
  */
 export function ButtonSkin({ skin, children }: { skin: ButtonSkinName; children: ReactNode }) {
@@ -90,18 +93,27 @@ const GLASS_ICON_TONE: Record<ButtonTone, string> = {
   danger: "bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] enabled:hover:bg-brand-soft",
 };
 
-function appearance(variant: ButtonVariant, tone: ButtonTone, size: ButtonSize, hasIcon: boolean, active: boolean, glass: boolean) {
+const FLOATING = "[box-shadow:var(--shadow-panel)]";
+
+function appearance(variant: ButtonVariant, tone: ButtonTone, size: ButtonSize, hasIcon: boolean, active: boolean, skin: ButtonSkinName) {
   const touch = size === "lg" ? "min-h-11" : "";
-  if (variant === "icon") return glass ? [ICON_ONLY, GLASS, GLASS_ICON_TONE[tone]] : [ICON_ONLY, ICON_TONE[tone]];
+  const glass = skin === "glass";
+  const lifted = skin === "floating" ? FLOATING : "";
+  // paper／floating 只把透明底換成紙色；有語意色的按鈕本來就有底，不受影響。
+  const onSurface = (look: string, fill: string) => (skin === "paper" || skin === "floating" ? look.replace("bg-transparent", fill) : look);
+  if (variant === "icon") {
+    if (glass) return [ICON_ONLY, GLASS, GLASS_ICON_TONE[tone]];
+    return [ICON_ONLY, onSurface(ICON_TONE[tone], skin === "paper" ? "bg-paper/88" : "bg-paper"), lifted];
+  }
   if (variant === "link") return ["border-0 bg-transparent p-0 text-[12px] text-brand underline disabled:opacity-45", FOCUS, hasIcon ? "inline-flex items-center gap-1.5 [&_svg]:size-[18px] [&_svg]:flex-none" : ""];
   if (variant === "text") return ["inline-flex min-h-11 items-center gap-1 border-0 bg-transparent px-0 py-1 text-[13px] font-bold text-brand disabled:opacity-45 [&_svg]:size-[18px] [&_svg]:flex-none", FOCUS];
   if (variant === "secondary") {
     // 玻璃皮膚的開啟狀態只換文字色，底與邊框維持玻璃，跟原本 .hr-system 蓋過 .active 的結果一致。
-    const look = glass ? [GLASS, GLASS_OUTLINED_TONE[active ? "danger" : tone]] : [active ? OUTLINED_ACTIVE : OUTLINED_TONE[tone]];
+    const look = glass ? [GLASS, GLASS_OUTLINED_TONE[active ? "danger" : tone]] : [active ? OUTLINED_ACTIVE : onSurface(OUTLINED_TONE[tone], "bg-paper"), lifted];
     return [OUTLINED, ...look, FOCUS, touch, hasIcon ? WITH_ICON : ""];
   }
   const fillTone = variant === "danger" ? "danger" : tone;
-  return [FILLED, ...(glass ? [GLASS, GLASS_FILLED_TONE[fillTone]] : [FILLED_TONE[fillTone]]), FOCUS, touch, hasIcon ? WITH_ICON : ""];
+  return [FILLED, ...(glass ? [GLASS, GLASS_FILLED_TONE[fillTone]] : [FILLED_TONE[fillTone], lifted]), FOCUS, touch, hasIcon ? WITH_ICON : ""];
 }
 
 /**
@@ -127,11 +139,11 @@ export function Button({
   children,
   ...props
 }: ButtonProps) {
-  const glass = useContext(ButtonSkinContext) === "glass";
+  const skin = useContext(ButtonSkinContext);
   const classes = [
     MOTION,
     isStatic ? "" : PRESS,
-    ...appearance(variant, tone, size, Boolean(icon), active, glass),
+    ...appearance(variant, tone, size, Boolean(icon), active, skin),
     mobileIconOnly ? MOBILE_ICON_ONLY : "",
     className,
   ].filter(Boolean).join(" ");
@@ -155,5 +167,32 @@ export function Button({
       {icon ? <Icon name={icon} /> : null}
       {mobileIconOnly ? <span className="max-[760px]:hidden">{label}</span> : label}
     </button>
+  );
+}
+
+interface ButtonLinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className"> {
+  variant?: "primary" | "secondary";
+  tone?: ButtonTone;
+  size?: ButtonSize;
+  icon?: IconName;
+  /** 只給版面用，規則同 Button。 */
+  className?: string;
+  children?: ReactNode;
+}
+
+/** 長得像按鈕、但語意是「前往另一頁」的連結。會換頁的動作用它，不要拿 Button 包 navigate。 */
+export function ButtonLink({ variant = "primary", tone = "brand", size = "md", icon, className = "", children, ...props }: ButtonLinkProps) {
+  const skin = useContext(ButtonSkinContext);
+  const classes = [
+    MOTION,
+    "no-underline active:scale-[.96] motion-reduce:active:scale-100",
+    ...appearance(variant, tone, size, Boolean(icon), false, skin),
+    className,
+  ].filter(Boolean).join(" ");
+  return (
+    <a {...props} className={classes}>
+      {icon ? <Icon name={icon} /> : null}
+      {children}
+    </a>
   );
 }

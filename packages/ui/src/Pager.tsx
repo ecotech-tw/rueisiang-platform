@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Icon } from "./icons.js";
+import { Button } from "./Button.js";
 
 export interface PagerProps {
   page: number;
@@ -88,12 +88,8 @@ export function Pager({
       </div>
 
       <nav className="pager-nav" aria-label="分頁">
-        <button type="button" className="icon-button" disabled={atFirst} onClick={() => onPage(1)} title="第一頁" aria-label="第一頁">
-          <Icon name="pageFirst" />
-        </button>
-        <button type="button" className="icon-button" disabled={atFirst} onClick={() => onPage(page - 1)} title="上一頁" aria-label="上一頁">
-          <Icon name="chevronLeft" />
-        </button>
+        <Button variant="icon" icon="pageFirst" disabled={atFirst} onClick={() => onPage(1)} title="第一頁" aria-label="第一頁" />
+        <Button variant="icon" icon="chevronLeft" disabled={atFirst} onClick={() => onPage(page - 1)} title="上一頁" aria-label="上一頁" />
 
         {pages.map((value) => (
           <button
@@ -107,12 +103,8 @@ export function Pager({
           </button>
         ))}
 
-        <button type="button" className="icon-button" disabled={atLast} onClick={() => onPage(page + 1)} title="下一頁" aria-label="下一頁">
-          <Icon name="chevronRight" />
-        </button>
-        <button type="button" className="icon-button" disabled={atLast} onClick={() => onPage(totalPages)} title="最後一頁" aria-label="最後一頁">
-          <Icon name="pageLast" />
-        </button>
+        <Button variant="icon" icon="chevronRight" disabled={atLast} onClick={() => onPage(page + 1)} title="下一頁" aria-label="下一頁" />
+        <Button variant="icon" icon="pageLast" disabled={atLast} onClick={() => onPage(totalPages)} title="最後一頁" aria-label="最後一頁" />
       </nav>
     </div>
   );

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, LegacyButton } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin } from "../../ui/index.js";
 import {
   useCountItem,
   useDeleteZoneImage,
@@ -224,14 +224,17 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
                 */}
               <img src={`/api/wms/images/${image.id}`} alt={image.filename} loading="lazy" />
               {canWrite ? (
-                <LegacyButton
-                  variant="icon"
-                  className="danger"
-                  icon="trash"
-                  aria-label={`刪除 ${image.filename}`}
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate(image.id, { onSuccess: () => toast.show("照片已刪除") })}
-                />
+                <ButtonSkin skin="paper">
+                  <Button
+                    variant="icon"
+                    tone="danger"
+                    className="absolute top-1 right-1"
+                    icon="trash"
+                    aria-label={`刪除 ${image.filename}`}
+                    disabled={remove.isPending}
+                    onClick={() => remove.mutate(image.id, { onSuccess: () => toast.show("照片已刪除") })}
+                  />
+                </ButtonSkin>
               ) : null}
             </figure>
           ))}

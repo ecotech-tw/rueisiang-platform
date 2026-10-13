@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, LegacyButton, Dialog, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
 import { useUpdateSettings } from "./api.js";
 
 /**
@@ -65,13 +65,12 @@ export function CanvasDialog({
 
           <div className="preset-row">
             {PRESETS.map((preset) => (
-              <LegacyButton
+              <Button
                 key={preset.label}
                 type="button"
                 variant="secondary"
-                className={
-                  Number(width) === preset.width && Number(height) === preset.height ? " active" : ""
-                }
+                active={Number(width) === preset.width && Number(height) === preset.height}
+                className="inline-flex flex-col items-center"
                 onClick={() => {
                   setWidth(String(preset.width));
                   setHeight(String(preset.height));
@@ -79,7 +78,7 @@ export function CanvasDialog({
               >
                 {preset.label}
                 <small>{preset.width} × {preset.height}</small>
-              </LegacyButton>
+              </Button>
             ))}
           </div>
 

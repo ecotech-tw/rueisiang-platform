@@ -464,36 +464,12 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .panel:has(> .table-scroll)::before,
 .hr-system .panel:has(> .table-scroll)::after { content: none; }
 .hr-system .table-scroll { min-width: 0; }
-.hr-system .primary-button,
-.hr-system .ghost-button,
-.hr-system .icon-button {
-  -webkit-backdrop-filter: blur(6px) saturate(145%);
-  backdrop-filter: blur(6px) saturate(145%);
-}
 .hr-system .row-actions { gap: 8px; }
 /*
  * 頁首並排的操作鍵。沒有這條時 .button-row 是 block，按鈕靠文字基線排：次要鍵與主要鍵
  * 高度差 1–2px，底邊就錯開好幾 px，而且兩顆幾乎貼在一起。間距跟表格列的操作鍵一致。
  */
 .hr-system .button-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-.hr-system .ghost-button,
-.hr-system .icon-button {
-  border-color: transparent;
-  background: --alpha(var(--color-paper) / 22%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 52%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
-    0 8px 20px --alpha(var(--color-ink) / 7%);
-}
-.hr-system .primary-button {
-  border-color: transparent;
-  background: --alpha(var(--color-info) / 74%);
-  color: var(--color-paper);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 30%) inset,
-    0 -8px 18px --alpha(var(--color-ink) / 12%) inset,
-    0 10px 24px --alpha(var(--color-info) / 18%);
-}
 .hr-system .chip-action.add-action {
   border-color: transparent;
   background: --alpha(var(--color-ok) / 12%);
@@ -502,27 +478,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
     0 1px 0 --alpha(var(--color-paper) / 58%) inset,
     0 0 0 1px --alpha(var(--color-ok) / 16%) inset;
 }
-.hr-system .primary-button.danger {
-  background: --alpha(var(--color-brand-dark) / 86%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 26%) inset,
-    0 -8px 18px --alpha(var(--color-ink) / 16%) inset,
-    0 10px 24px --alpha(var(--color-brand) / 20%);
-}
-.hr-system .ghost-button:hover:not(:disabled),
-.hr-system .icon-button:hover:not(:disabled) { background: --alpha(var(--color-brand) / 10%); }
-.hr-system .primary-button:hover:not(:disabled) { background: --alpha(var(--color-info) / 92%); }
 .hr-system .chip-action.add-action:hover:not(:disabled) { background: var(--color-ok-soft); color: var(--color-ok); }
-.hr-system .primary-button.danger:hover:not(:disabled) { background: var(--color-brand-dark); }
-.hr-system .hr-row-action-delete {
-  background: --alpha(var(--color-brand) / 12%);
-  color: var(--color-brand-dark);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 56%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 22%) inset,
-    0 8px 20px --alpha(var(--color-brand) / 10%);
-}
-.hr-system .hr-row-action-delete:hover:not(:disabled) { background: --alpha(var(--color-brand) / 20%); color: var(--color-brand-dark); }
 .hr-system .dropdown-control,
 .hr-system input[type="date"],
 .hr-system input[type="month"],
