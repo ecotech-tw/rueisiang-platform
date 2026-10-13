@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useHrQuery, useHrWrite, type HrLeaveGrantEmployee, type HrLeaveGrantResponse, type HrLeaveGrantRow, type HrLeaveType } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -121,7 +121,7 @@ export function HrLeaveGrants() {
       <FilterToolbar>
         <SearchFilterInput label="搜尋發放紀錄" placeholder="員工姓名、編號、假別或備註" value={filters.search} onSearch={(search) => updateFilters({ search })} />
         <FilterSelect label="額度假別" value={filters.leaveTypeId} options={[{ value: "all", label: "全部額度假別" }, ...grantLeaveTypes.map((type) => ({ value: type.id, label: type.name }))]} onChange={(event) => updateFilters({ leaveTypeId: event.target.value })} />
-        <SegmentedControl className="w-fit" aria-label="額度效期篩選" value={filters.expiry} options={[{ value: "unexpired", label: "未過期" }, { value: "expired", label: "已過期" }, { value: "all", label: "全部紀錄" }]} onChange={(expiry) => updateFilters({ expiry: expiry as typeof filters.expiry })} />
+        <FilterSelect label="效期" value={filters.expiry} options={[{ value: "unexpired", label: "未過期" }, { value: "expired", label: "已過期" }, { value: "all", label: "全部紀錄" }]} onChange={(event) => updateFilters({ expiry: event.target.value as typeof filters.expiry })} />
       </FilterToolbar>
       {grants.isFetching ? <p className="muted table-note">更新中…</p> : null}
       <DataTable><thead><tr><th>假別／員工</th><th>發放與效期</th><th>額度</th><th>狀態</th><th>備註</th><th>操作</th></tr></thead><tbody>
