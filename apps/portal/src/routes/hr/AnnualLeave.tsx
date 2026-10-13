@@ -156,7 +156,7 @@ function EntitlementDetailDialog({ row, onClose }: { row: HrAnnualLeaveEntitleme
       <h3>額度台帳</h3>
       <DataTable className="compact hr-annual-ledger-table"><thead><tr><th>寫入時間</th><th>類型</th><th className="numeric">變化</th><th>說明</th></tr></thead><tbody>
         {entitlement.ledger.map((entry) => <tr key={entry.id}><td>{taipeiDateTime(entry.createdAt)}<small>台北時間</small></td><td>{ledgerKindLabel(entry.entryKind)}</td><td className="numeric">{signedHours(entry.deltaHalfHours)}</td><td>{ledgerDisplayNote(entry, entitlement)}</td></tr>)}
-        {!entitlement.ledger.length ? <tr><td colSpan={4}><EmptyState className="mt-[18px]">目前沒有台帳紀錄。</EmptyState></td></tr> : null}
+        {!entitlement.ledger.length ? <tr><td colSpan={4}><EmptyState>目前沒有台帳紀錄。</EmptyState></td></tr> : null}
       </tbody></DataTable>
     </section>
   </Dialog>;
