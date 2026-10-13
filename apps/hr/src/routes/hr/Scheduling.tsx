@@ -141,7 +141,6 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
     if (quick || !dirty || await persist()) closeRequestRef.current?.();
   };
   const enterQuick = () => { onQuickChange(true); closeRequestRef.current?.(); };
-  const employee = kind === "employee" ? data.employees.find((employee) => employee.employmentId === personId) : undefined;
   const selectedDays = new Set(draft.filter((entry) => !entry.archivedAt && matchesPerson(entry)).map((entry) => entry.workDate)).size;
   const focusedDay = detailsDate ? data.calendar.find((day) => day.date === detailsDate) : undefined;
   const focusedEntries = detailsDate ? draft.filter((entry) => entry.workDate === detailsDate) : [];
@@ -149,9 +148,9 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
   const specialDays = data.calendar.filter((day) => (day.specialKind === "none" || !day.specialScopeIds.length || day.specialScopeIds.includes(data.scopes[0]!.id)) && Boolean(day.name || day.overridden || day.specialKind !== "none"));
   const specialDates = new Set(specialDays.map((day) => day.date));
   const summary = dirty && !savedNeedsReload ? `尚未儲存：新增 ${changes.entries.length} 筆、移除 ${changes.removedIds.length} 筆` : "";
-  const personSummary = `本據點已排 ${selectedDays} 天${employee?.monthlyRestDays != null ? `・約定月休 ${employee.monthlyRestDays} 天` : ""}`;
+  const personLabel = <span className="flex min-w-0 items-center justify-between gap-2"><span>人員</span><span className="shrink-0 text-[11px] font-normal text-muted">已排 {selectedDays} 天</span></span>;
   const fields = <div className="grid grid-cols-2 gap-3">
-    <SelectField label="人員" aria-label="人員" searchable value={personValue ?? ""} placeholder="請選擇人員" disabled={disabled || !shifts.length} options={people} onChange={(event) => setPersonValue(event.target.value)} />
+    <SelectField label={personLabel} aria-label="人員" searchable value={personValue ?? ""} placeholder="請選擇人員" disabled={disabled || !shifts.length} options={people} onChange={(event) => setPersonValue(event.target.value)} />
     <SelectField label="班別" aria-label="班別" value={templateId} disabled={disabled || !shifts.length} options={shifts.map((shift) => { const weekday = pickShiftForDay(data.shifts.filter((item) => item.templateId === shift.templateId), "weekday") ?? shift; return { value: shift.templateId, label: `${weekday.name} ${shiftTimeRange(weekday)}` }; })} onChange={(event) => setTemplateId(event.target.value)} />
   </div>;
   const availability = !shifts.length ? <Alert>這個據點尚未設定班別，請聯絡 HR。</Alert> : !people.length ? <Alert>這個班別尚未納入可排人員，請聯絡 HR 設定。</Alert> : null;
@@ -164,7 +163,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
     {savedNeedsReload ? <Button variant="secondary" onClick={() => void reload()}>已儲存，重新載入班表</Button> : null}
   </>;
   return <>
-    {!isMobile ? <Panel>{fields}<p className="mt-1 text-sm text-muted">{personSummary}</p>{availability}</Panel> : null}
+    {!isMobile ? <Panel>{fields}{availability}</Panel> : null}
     <Panel density={isMobile || quick ? "compact" : "default"} className={`min-w-0 transition-[opacity,translate] duration-150 ease-out motion-reduce:transition-none ${monthEntered ? "translate-x-0 opacity-100" : `${monthDirection > 0 ? "translate-x-2" : "-translate-x-2"} opacity-0`}`}>
       <div className="grid gap-1" aria-label={quick ? "快速排班日期" : "據點月曆"}>
         <div className="grid grid-cols-7 text-center text-xs text-muted" aria-hidden="true">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div>
@@ -197,7 +196,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
         {specialDays.length ? <p className="m-0 text-[11px] text-muted" aria-label="本月節慶">{specialDays.map((day) => `${Number(day.date.slice(5, 7))}/${Number(day.date.slice(8))} ${day.name || "公司特別日"}`).join("、")}</p> : null}
       </div>
     </Panel>
-    {isMobile && quick ? <Panel density="compact" className="grid gap-2">{fields}<p className="m-0 text-xs text-muted">{personSummary}</p>{summary ? <p className="m-0 text-xs text-muted">{summary}</p> : null}{availability}</Panel> : null}
+    {isMobile && quick ? <Panel density="compact" className="grid gap-2">{fields}{summary ? <p className="m-0 text-xs text-muted">{summary}</p> : null}{availability}</Panel> : null}
     {alerts}
     {!quick && (!isMobile || summary) ? <div className="flex flex-wrap items-center gap-2">
       {!isMobile ? <Button size="lg" loading={pending} disabled={pending || !dirty && !changes.refreshIds.length || disabled} onClick={() => void persist()}>儲存</Button> : null}

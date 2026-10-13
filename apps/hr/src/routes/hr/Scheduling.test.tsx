@@ -77,6 +77,9 @@ describe("HR 前台快速排班", () => {
       expect(fieldsPanel?.classList.contains("grid")).toBe(true);
       expect(fieldsPanel?.classList.contains("gap-2")).toBe(true);
       expect(fieldsPanel?.querySelector(".grid-cols-2.gap-3")).not.toBeNull();
+      const personField = document.querySelector('[aria-label="人員"]')?.closest("label");
+      expect(personField?.textContent).toContain("人員已排 1 天");
+      expect(personField?.textContent).not.toContain("本據點");
     } finally { await page.cleanup(); }
   });
 
@@ -599,11 +602,15 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
-  it("桌機保留目前人員已排天數與約定月休摘要", async () => {
+  it("桌機將已排天數顯示在人員欄位旁，不顯示據點或月休摘要", async () => {
     const initial = data(); initial.employees = initial.employees.map((person) => ({ ...person, monthlyRestDays: 8 }));
     const page = await renderPage(initial);
-    try { expect(document.body.textContent).toContain("本據點已排 1 天・約定月休 8 天"); }
-    finally { await page.cleanup(); }
+    try {
+      const personField = document.querySelector('[aria-label="人員"]')?.closest("label");
+      expect(personField?.textContent).toContain("人員已排 1 天");
+      expect(personField?.textContent).not.toContain("本據點");
+      expect(personField?.textContent).not.toContain("約定月休");
+    } finally { await page.cleanup(); }
   });
 
   it("再次點選已排日期只送移除 ID，新增後取消不產生變更", async () => {
