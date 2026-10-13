@@ -1,16 +1,19 @@
-import { createContext, useContext, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
+import { createContext, useContext, type AnchorHTMLAttributes, type ButtonHTMLAttributes, type ReactNode, type Ref } from "react";
 import { Icon, type IconName } from "./icons.js";
 import { DialogContext } from "./dialog-context.js";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "icon" | "link" | "text";
 type ButtonTone = "brand" | "success" | "info" | "danger";
 type ButtonSize = "md" | "lg";
-type ButtonSkinName = "solid" | "glass";
+type ButtonSkinName = "solid" | "glass" | "paper" | "floating";
 
 const ButtonSkinContext = createContext<ButtonSkinName>("solid");
 
 /**
- * 這個範圍裡的按鈕換一層皮膚。glass 是 HRIS 管理介面的半透明玻璃樣式。
+ * 這個範圍裡的按鈕換一層皮膚：
+ * - glass：HRIS 管理介面的半透明玻璃樣式。
+ * - paper：按鈕放在有底色的區塊或圖片上，透明底的 secondary／icon 改成紙色底才看得清楚。
+ * - floating：浮在地圖這類內容上面，紙色底再加陰影。
  * 用 context 而不是祖先選擇器：皮膚的每一條樣式仍然寫在 Button 裡，portal 出去的對話框也跟得到。
  */
 export function ButtonSkin({ skin, children }: { skin: ButtonSkinName; children: ReactNode }) {
@@ -52,56 +55,65 @@ const OUTLINED_ACTIVE = "border-secondary bg-brand-soft text-brand-dark";
 const ICON_ONLY = "grid size-10 place-items-center rounded-[50%] border-0 p-0 disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5";
 
 const FILLED_TONE: Record<ButtonTone, string> = {
-  brand: "bg-brand text-white enabled:hover:bg-brand-dark",
-  success: "bg-ok text-paper enabled:hover:bg-[color-mix(in_srgb,var(--color-ok)_86%,var(--color-ink))]",
-  info: "bg-info text-paper enabled:hover:bg-[color-mix(in_srgb,var(--color-info)_86%,var(--color-ink))]",
-  danger: "bg-brand-dark text-white enabled:hover:bg-[color-mix(in_srgb,var(--color-brand-dark)_86%,var(--color-ink))]",
+  brand: "bg-brand text-white not-disabled:hover:bg-brand-dark",
+  success: "bg-ok text-paper not-disabled:hover:bg-[color-mix(in_srgb,var(--color-ok)_86%,var(--color-ink))]",
+  info: "bg-info text-paper not-disabled:hover:bg-[color-mix(in_srgb,var(--color-info)_86%,var(--color-ink))]",
+  danger: "bg-brand-dark text-white not-disabled:hover:bg-[color-mix(in_srgb,var(--color-brand-dark)_86%,var(--color-ink))]",
 };
 const OUTLINED_TONE: Record<ButtonTone, string> = {
-  brand: "border-line bg-transparent text-ink enabled:hover:border-secondary",
-  success: "border-ok bg-ok-soft text-ok enabled:hover:bg-[color-mix(in_srgb,var(--color-ok-soft)_86%,var(--color-ok))]",
-  info: "border-info bg-info-soft text-info enabled:hover:bg-[color-mix(in_srgb,var(--color-info-soft)_86%,var(--color-info))]",
-  danger: "border-line bg-transparent text-brand-dark enabled:hover:border-secondary",
+  brand: "border-line bg-transparent text-ink not-disabled:hover:border-secondary",
+  success: "border-ok bg-ok-soft text-ok not-disabled:hover:bg-[color-mix(in_srgb,var(--color-ok-soft)_86%,var(--color-ok))]",
+  info: "border-info bg-info-soft text-info not-disabled:hover:bg-[color-mix(in_srgb,var(--color-info-soft)_86%,var(--color-info))]",
+  danger: "border-line bg-transparent text-brand-dark not-disabled:hover:border-secondary",
 };
 const ICON_TONE: Record<ButtonTone, string> = {
-  brand: "bg-transparent text-muted enabled:hover:bg-brand/8 enabled:hover:text-brand",
-  success: "bg-transparent text-ok enabled:hover:bg-ok-soft",
-  info: "bg-transparent text-info enabled:hover:bg-info-soft",
-  danger: "bg-transparent text-muted enabled:hover:bg-brand-soft enabled:hover:text-brand-dark",
+  brand: "bg-transparent text-muted not-disabled:hover:bg-brand/8 not-disabled:hover:text-brand",
+  success: "bg-transparent text-ok not-disabled:hover:bg-ok-soft",
+  info: "bg-transparent text-info not-disabled:hover:bg-info-soft",
+  danger: "bg-transparent text-muted not-disabled:hover:bg-brand-soft not-disabled:hover:text-brand-dark",
 };
 
 const GLASS = "[backdrop-filter:blur(6px)_saturate(145%)]";
 const GLASS_FILLED_TONE: Record<ButtonTone, string> = {
-  brand: "bg-info/74 text-paper [box-shadow:var(--shadow-glass-info)] enabled:hover:bg-info/92",
-  success: "bg-ok/78 text-paper [box-shadow:var(--shadow-glass-ok)] enabled:hover:bg-ok/92",
-  info: "bg-info/74 text-paper [box-shadow:var(--shadow-glass-info)] enabled:hover:bg-info/92",
-  danger: "bg-brand-dark/86 text-paper [box-shadow:var(--shadow-glass-danger)] enabled:hover:bg-brand-dark",
+  brand: "bg-info/74 text-paper [box-shadow:var(--shadow-glass-info)] not-disabled:hover:bg-info/92",
+  success: "bg-ok/78 text-paper [box-shadow:var(--shadow-glass-ok)] not-disabled:hover:bg-ok/92",
+  info: "bg-info/74 text-paper [box-shadow:var(--shadow-glass-info)] not-disabled:hover:bg-info/92",
+  danger: "bg-brand-dark/86 text-paper [box-shadow:var(--shadow-glass-danger)] not-disabled:hover:bg-brand-dark",
 };
 const GLASS_OUTLINED_TONE: Record<ButtonTone, string> = {
-  brand: "border-transparent bg-paper/22 text-ink [box-shadow:var(--shadow-glass)] enabled:hover:border-secondary enabled:hover:bg-brand/10",
-  success: "border-transparent bg-ok/12 text-ok [box-shadow:var(--shadow-glass-tint-ok)] enabled:hover:bg-ok-soft",
-  info: "border-transparent bg-info/12 text-info [box-shadow:var(--shadow-glass-tint-info)] enabled:hover:border-secondary enabled:hover:bg-info-soft",
-  danger: "border-transparent bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] enabled:hover:border-secondary enabled:hover:bg-brand/10",
+  brand: "border-transparent bg-paper/22 text-ink [box-shadow:var(--shadow-glass)] not-disabled:hover:border-secondary not-disabled:hover:bg-brand/10",
+  success: "border-transparent bg-ok/12 text-ok [box-shadow:var(--shadow-glass-tint-ok)] not-disabled:hover:bg-ok-soft",
+  info: "border-transparent bg-info/12 text-info [box-shadow:var(--shadow-glass-tint-info)] not-disabled:hover:border-secondary not-disabled:hover:bg-info-soft",
+  danger: "border-transparent bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] not-disabled:hover:border-secondary not-disabled:hover:bg-brand/10",
 };
 const GLASS_ICON_TONE: Record<ButtonTone, string> = {
-  brand: "bg-paper/22 text-muted [box-shadow:var(--shadow-glass)] enabled:hover:bg-brand/10 enabled:hover:text-brand",
-  success: "bg-paper/22 text-ok [box-shadow:var(--shadow-glass)] enabled:hover:bg-ok-soft",
-  info: "bg-paper/22 text-info [box-shadow:var(--shadow-glass)] enabled:hover:bg-info-soft",
-  danger: "bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] enabled:hover:bg-brand-soft",
+  brand: "bg-paper/22 text-muted [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-brand/10 not-disabled:hover:text-brand",
+  success: "bg-paper/22 text-ok [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-ok-soft",
+  info: "bg-paper/22 text-info [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-info-soft",
+  danger: "bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-brand-soft",
 };
 
-function appearance(variant: ButtonVariant, tone: ButtonTone, size: ButtonSize, hasIcon: boolean, active: boolean, glass: boolean) {
+const FLOATING = "[box-shadow:var(--shadow-panel)]";
+
+function appearance(variant: ButtonVariant, tone: ButtonTone, size: ButtonSize, hasIcon: boolean, active: boolean, skin: ButtonSkinName) {
   const touch = size === "lg" ? "min-h-11" : "";
-  if (variant === "icon") return glass ? [ICON_ONLY, GLASS, GLASS_ICON_TONE[tone]] : [ICON_ONLY, ICON_TONE[tone]];
+  const glass = skin === "glass";
+  const lifted = skin === "floating" ? FLOATING : "";
+  // paper／floating 只把透明底換成紙色；有語意色的按鈕本來就有底，不受影響。
+  const onSurface = (look: string, fill: string) => (skin === "paper" || skin === "floating" ? look.replace("bg-transparent", fill) : look);
+  if (variant === "icon") {
+    if (glass) return [ICON_ONLY, GLASS, GLASS_ICON_TONE[tone]];
+    return [ICON_ONLY, onSurface(ICON_TONE[tone], skin === "paper" ? "bg-paper/88" : "bg-paper"), lifted];
+  }
   if (variant === "link") return ["border-0 bg-transparent p-0 text-[12px] text-brand underline disabled:opacity-45", FOCUS, hasIcon ? "inline-flex items-center gap-1.5 [&_svg]:size-[18px] [&_svg]:flex-none" : ""];
   if (variant === "text") return ["inline-flex min-h-11 items-center gap-1 border-0 bg-transparent px-0 py-1 text-[13px] font-bold text-brand disabled:opacity-45 [&_svg]:size-[18px] [&_svg]:flex-none", FOCUS];
   if (variant === "secondary") {
     // 玻璃皮膚的開啟狀態只換文字色，底與邊框維持玻璃，跟原本 .hr-system 蓋過 .active 的結果一致。
-    const look = glass ? [GLASS, GLASS_OUTLINED_TONE[active ? "danger" : tone]] : [active ? OUTLINED_ACTIVE : OUTLINED_TONE[tone]];
+    const look = glass ? [GLASS, GLASS_OUTLINED_TONE[active ? "danger" : tone]] : [active ? OUTLINED_ACTIVE : onSurface(OUTLINED_TONE[tone], "bg-paper"), lifted];
     return [OUTLINED, ...look, FOCUS, touch, hasIcon ? WITH_ICON : ""];
   }
   const fillTone = variant === "danger" ? "danger" : tone;
-  return [FILLED, ...(glass ? [GLASS, GLASS_FILLED_TONE[fillTone]] : [FILLED_TONE[fillTone]]), FOCUS, touch, hasIcon ? WITH_ICON : ""];
+  return [FILLED, ...(glass ? [GLASS, GLASS_FILLED_TONE[fillTone]] : [FILLED_TONE[fillTone], lifted]), FOCUS, touch, hasIcon ? WITH_ICON : ""];
 }
 
 /**
@@ -127,11 +139,11 @@ export function Button({
   children,
   ...props
 }: ButtonProps) {
-  const glass = useContext(ButtonSkinContext) === "glass";
+  const skin = useContext(ButtonSkinContext);
   const classes = [
     MOTION,
     isStatic ? "" : PRESS,
-    ...appearance(variant, tone, size, Boolean(icon), active, glass),
+    ...appearance(variant, tone, size, Boolean(icon), active, skin),
     mobileIconOnly ? MOBILE_ICON_ONLY : "",
     className,
   ].filter(Boolean).join(" ");
@@ -155,5 +167,32 @@ export function Button({
       {icon ? <Icon name={icon} /> : null}
       {mobileIconOnly ? <span className="max-[760px]:hidden">{label}</span> : label}
     </button>
+  );
+}
+
+interface ButtonLinkProps extends Omit<AnchorHTMLAttributes<HTMLAnchorElement>, "className"> {
+  variant?: "primary" | "secondary";
+  tone?: ButtonTone;
+  size?: ButtonSize;
+  icon?: IconName;
+  /** 只給版面用，規則同 Button。 */
+  className?: string;
+  children?: ReactNode;
+}
+
+/** 長得像按鈕、但語意是「前往另一頁」的連結。會換頁的動作用它，不要拿 Button 包 navigate。 */
+export function ButtonLink({ variant = "primary", tone = "brand", size = "md", icon, className = "", children, ...props }: ButtonLinkProps) {
+  const skin = useContext(ButtonSkinContext);
+  const classes = [
+    MOTION,
+    "no-underline active:scale-[.96] motion-reduce:active:scale-100",
+    ...appearance(variant, tone, size, Boolean(icon), false, skin),
+    className,
+  ].filter(Boolean).join(" ");
+  return (
+    <a {...props} className={classes}>
+      {icon ? <Icon name={icon} /> : null}
+      {children}
+    </a>
   );
 }

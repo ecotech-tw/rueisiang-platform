@@ -1,4 +1,4 @@
-export { Button, ButtonSkin, LegacyButton } from "./Button.js";
+export { Button, ButtonLink, ButtonSkin, LegacyButton } from "./Button.js";
 export { DataTable } from "./DataTable.js";
 export { Dialog, DialogScope, useDialogScope } from "./Dialog.js";
 export { DropdownSelect } from "./DropdownSelect.js";

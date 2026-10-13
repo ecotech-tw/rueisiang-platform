@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Icon } from "../../../shell/icons.js";
-import { Alert, Button, Panel } from "../../../ui/index.js";
+import { Alert, Button, ButtonLink, Panel } from "../../../ui/index.js";
 import { CategoryBreakdownChart } from "./charts/CategoryBreakdownChart.js";
 import { ChannelBreakdownChart } from "./charts/ChannelBreakdownChart.js";
 import { SalesTrendChart } from "./charts/SalesTrendChart.js";
@@ -131,10 +131,7 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
             ) : importerKeys(query).map((key) => {
                 const importer = SALES_IMPORTERS[key];
                 return (
-                  <a className="primary-button with-icon" href={importer.href} key={key}>
-                    <Icon name={importer.icon} />
-                    {importer.label}
-                  </a>
+                  <ButtonLink icon={importer.icon} href={importer.href} key={key} className="mt-1">{importer.label}</ButtonLink>
                 );
               })}
           </div>

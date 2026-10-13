@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, LegacyButton, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -322,10 +322,12 @@ export function Sandbox() {
                   <h3>可調用的 tools</h3>
                   <p className="muted">Sandbox 可測試「開發中」與「已啟用」；停用工具不會送給模型。</p>
                 </div>
-                <LegacyButton variant="secondary" icon="widgets" className="assistant-tool-config-button" onClick={() => setToolsOpen(true)}>
-                  設定 tools
-                  <span className="assistant-tool-count">{activeToolKeys.length}</span>
-                </LegacyButton>
+                <ButtonSkin skin="paper">
+                  <Button variant="secondary" icon="widgets" className="flex-none" onClick={() => setToolsOpen(true)}>
+                    設定 tools
+                    <span className="assistant-tool-count">{activeToolKeys.length}</span>
+                  </Button>
+                </ButtonSkin>
               </div>
               <div className="assistant-selection-summary">
                 {activeToolKeys.length

@@ -587,9 +587,6 @@
 .assistant-subsection { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--color-soft-line); }
 .assistant-subsection h3 { margin: 0 0 4px; font-size: 14px; }
 .assistant-subsection-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.assistant-tool-config-button { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 6px 8px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-paper); color: var(--color-ink); font: inherit; font-size: 12px; font-weight: 700; white-space: nowrap; }
-.assistant-tool-config-button:hover { border-color: var(--color-secondary); background: var(--color-canvas); }
-.assistant-tool-config-button svg { width: 17px; height: 17px; color: var(--color-secondary); }
 .assistant-tool-count { min-width: 18px; padding: 1px 5px; border-radius: 999px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 11px; text-align: center; }
 .assistant-selection-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 24px; }
 .assistant-tool-list { display: grid; gap: 8px; }
@@ -1250,16 +1247,11 @@
  * 浮起來的東西都要有自己的底，不然壓在地圖的方塊上就讀不到了。
  * 這是 Material 的 elevation：不是換顏色，是墊高一層。
  */
-.map-float .ghost-button,
-.map-float .primary-button,
-.map-float .icon-button,
 .map-float .zoom-control,
 .map-float .map-search,
 .map-float .map-note {
   box-shadow: var(--shadow-panel);
 }
-.map-float .ghost-button,
-.map-float .icon-button { background: var(--color-paper); }
 
 .map-note {
   max-width: 100%;
@@ -1400,7 +1392,6 @@
 .map-zone.tone-lime, .map-element.tone-lime { background: --alpha(var(--color-tone-lime) / 15%); color: var(--color-tone-lime); }
 .map-zone.tone-sand, .map-element.tone-sand { background: --alpha(var(--color-tone-sand) / 15%); color: var(--color-tone-sand); }
 
-.ghost-button.active { border-color: var(--color-brand); background: var(--color-brand-soft); color: var(--color-brand-dark); }
 
 .zoom-control {
   display: flex;
@@ -1451,7 +1442,6 @@
 
 /* 畫布尺寸的預設值。 */
 .preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.preset-row .ghost-button { flex-direction: column; gap: 0; padding: 8px 14px; }
 .preset-row small { color: var(--color-muted); font-size: 11px; font-weight: 400; }
 
 /*
@@ -1775,12 +1765,6 @@
   border-radius: var(--radius-field);
   background: var(--color-canvas);
 }
-.zone-images .icon-button {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: --alpha(var(--color-paper) / 88%);
-}
 
 @media (max-width: 760px) {
   /* 抽屜在手機上是滿版的，不然商品那幾列擠不下。 */
@@ -2047,7 +2031,6 @@
 .hr-bonus-weight-input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-bonus-edit-note { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--color-brand-soft); }
 /* 盤點按鈕比旁邊的圖示鈕高一點才對得齊，而且它有文字，要窄一點的內距。 */
-.count-action { padding: 4px 12px; font-size: 13px; }
 
 /* 表單裡的唯讀值。長得像輸入框的位置，但明確不是輸入框。 */
 .field-static {
@@ -2594,11 +2577,6 @@
   font-variant-numeric: tabular-nums;
 }
 /* 面板打開時按鈕維持「按下去」的樣子，不然看不出這片是誰展開的。 */
-.ghost-button.active {
-  border-color: var(--color-secondary);
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-}
 
 /*
  * 桌機：篩選下拉直接參與工具列的排版（display: contents 讓中間這層容器消失），
@@ -2668,7 +2646,6 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
-.invite-link-row .ghost-button { background: var(--color-paper); }
 
 /* 危險動作靠左，跟右邊的「關閉／儲存」拉開距離——想關掉的人不該手滑按到刪除。 */
 
@@ -3011,11 +2988,6 @@
    * flex 就沒有理由把按鈕留在同一行——改用 flex-basis: 0 讓它只吃「剩下的」。
    */
   .admin-form.toolbar .search-input { flex: 1 1 0; width: auto; min-width: 0; }
-  .admin-form.toolbar .ghost-button.with-icon {
-    flex: none;
-    padding: 0 12px;
-    gap: 6px;
-  }
 
   /* 檢視列的膠囊改成水平捲，不要換行疊高。 */
   .view-bar {
@@ -3513,9 +3485,6 @@
 .analytics-empty-panel { display: grid; justify-items: start; gap: 10px; padding: 30px; }
 .analytics-empty-panel h2 { margin: 0; font-size: 18px; }
 .analytics-empty-panel p { margin: 0; color: var(--color-muted); }
-.analytics-empty-panel .primary-button { display: inline-flex; align-items: center; gap: 8px; margin-top: 4px; text-decoration: none; }
-.analytics-empty-panel .primary-button svg { width: 18px; height: 18px; }
-.analytics-empty-panel .primary-button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 
 @media (max-width: 1180px) {
   .analytics-kpi-grid { grid-template-columns: repeat(3, minmax(150px, 1fr)); }

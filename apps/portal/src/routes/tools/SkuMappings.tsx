@@ -184,9 +184,8 @@ export function SkuMappings() {
               <span className="status status-tone-slate" key={ignore.id}>
                 {productSkuChannelLabel(ignore.channel)} · {ignore.externalSku}
                 {ignore.reason ? `（${ignore.reason}）` : ""}
-                <button
-                  type="button"
-                  className="link-button"
+                <Button
+                  variant="link"
                   aria-label={`取消忽略 ${ignore.externalSku}`}
                   disabled={removeIgnore.isPending}
                   onClick={() => removeIgnore.mutate(ignore.id, {
@@ -194,7 +193,7 @@ export function SkuMappings() {
                   })}
                 >
                   取消
-                </button>
+                </Button>
               </span>
             ))}
           </div>

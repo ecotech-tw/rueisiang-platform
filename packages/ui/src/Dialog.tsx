@@ -1,6 +1,6 @@
 import { useCallback, useContext, useEffect, useId, useRef, useState, type FormHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { LegacyButton as Button } from "./LegacyButton.js";
+import { Button } from "./Button.js";
 import { DialogContext, DialogScopeContext, type DialogCloseRef } from "./dialog-context.js";
 
 interface DialogProps {

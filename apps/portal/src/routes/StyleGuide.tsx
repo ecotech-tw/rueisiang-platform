@@ -5,7 +5,9 @@ import { usePageTitle } from "../shell/usePageTitle.js";
 import { PageTabs, WorkflowRunPanel } from "../ui/index.js";
 import {
   Alert,
-  LegacyButton as Button,
+  Button,
+  ButtonSkin,
+  LegacyButton,
   ConfirmDialog,
   DataTable,
   Dialog,
@@ -68,7 +70,7 @@ function LiquidGlassPreview() {
 
   return (
     <div className="style-guide-liquid-preview">
-      <div className="hr-module hr-system style-guide-liquid-system">
+      <ButtonSkin skin="glass"><div className="hr-module hr-system style-guide-liquid-system">
         <svg className="hr-liquid-defs" aria-hidden="true" focusable="false">
           <filter id="hr-liquid-glass-soft" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
             <feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="2" seed="7" result="noise" />
@@ -125,7 +127,7 @@ function LiquidGlassPreview() {
             </Panel>
           </div>
         </div>
-      </div>
+      </div></ButtonSkin>
     </div>
   );
 }
@@ -232,8 +234,8 @@ export function StyleGuide() {
             <Button variant="icon" icon="search" aria-label="搜尋" />
             <Button disabled>停用</Button>
             <Button loading loadingLabel="同步中…">同步資料</Button>
-            <Button variant="chip" selected icon="check">已選取</Button>
-            <Button variant="chip-action" icon="bookmark">新增視圖</Button>
+            <LegacyButton variant="chip" selected icon="check">已選取</LegacyButton>
+            <LegacyButton variant="chip-action" icon="bookmark">新增視圖</LegacyButton>
             <Button variant="secondary" onClick={() => setDialogOpen(true)}>預覽 Dialog</Button>
             <Button variant="danger" onClick={() => setConfirmOpen(true)}>預覽 ConfirmDialog</Button>
           </div>
@@ -378,6 +380,7 @@ export function StyleGuide() {
         </div>
       </Panel>
 
+      <ButtonSkin skin="glass">
       {dialogOpen ? (
         <Dialog
           title="共用 Dialog 預覽"
@@ -398,6 +401,7 @@ export function StyleGuide() {
           <p>這個區塊示範危險動作的取消焦點、Escape 與 pending 狀態。</p>
         </ConfirmDialog>
       ) : null}
+      </ButtonSkin>
     </div>
     </DialogScope>
   );

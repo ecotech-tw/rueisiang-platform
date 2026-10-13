@@ -19,7 +19,7 @@ import {
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, LegacyButton, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
   invited: "已邀請",
@@ -65,9 +65,9 @@ function InviteLink({ email, url, onDismiss }: { email: string; url: string; onD
           而且<b>只會出現這一次</b>——關掉之後要重發才拿得到新的。
         </p>
       </div>
-      <div className="invite-link-row">
+      <div className="invite-link-row"><ButtonSkin skin="paper">
         <input readOnly value={url} onFocus={(event) => event.target.select()} />
-        <LegacyButton
+        <Button
           variant="secondary"
           onClick={async () => {
             /*
@@ -83,8 +83,8 @@ function InviteLink({ email, url, onDismiss }: { email: string; url: string; onD
           }}
         >
           {copied ? "已複製" : "複製"}
-        </LegacyButton>
-        <LegacyButton variant="secondary" onClick={onDismiss}>知道了</LegacyButton>
+        </Button>
+        <Button variant="secondary" onClick={onDismiss}>知道了</Button></ButtonSkin>
       </div>
     </div>
   );

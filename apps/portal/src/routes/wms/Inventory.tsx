@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, LegacyButton, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -136,22 +136,20 @@ function ItemRow({
         <td data-label="操作">
           <div className="row-actions">
             {canCount ? (
-              <LegacyButton
+              <Button
                 variant="secondary"
-                className="count-action"
                 onClick={onCount}
                 disabled={busy}
                 title="盤點這項商品"
                 aria-label={`盤點 ${item.name}`}
               >
                 盤點
-              </LegacyButton>
+              </Button>
             ) : null}
             {canSync && item.cyberbiz ? (
-              <LegacyButton
+              <Button
                 variant="secondary"
                 icon="sync"
-                className="sync-action"
                 loading={syncing}
                 loadingLabel="同步中…"
                 onClick={onSync}
@@ -159,7 +157,7 @@ function ItemRow({
                 aria-label={`同步 ${item.name}`}
               >
                 同步
-              </LegacyButton>
+              </Button>
             ) : null}
             {canWrite ? (
               <>

@@ -1,5 +1,5 @@
 import { Icon } from "../../../shell/icons.js";
-import { Alert, Panel } from "../../../ui/index.js";
+import { Alert, ButtonLink, Panel } from "../../../ui/index.js";
 import { AnalyticsKpiHint, AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
 import { PayoutTrendChart } from "./charts/PayoutTrendChart.js";
 import { ScopeBreakdownChart } from "./charts/ScopeBreakdownChart.js";
@@ -51,10 +51,7 @@ export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
         <span className="analytics-empty-icon"><Icon name="report" /></span>
         <h2>{scopeLabel}在這段期間沒有出金資料</h2>
         <p>{summary.message ?? "這段期間沒有已匯入的出金資料。"}</p>
-        <a className="primary-button with-icon" href="/tools/payout">
-          <Icon name="payments" />
-          前往執行出金表
-        </a>
+        <ButtonLink icon="payments" href="/tools/payout" className="mt-1">前往執行出金表</ButtonLink>
       </Panel>
     );
   }

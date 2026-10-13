@@ -4,7 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { LegacyButton as Button } from "../../ui/index.js";
+import { Button, ButtonSkin } from "../../ui/index.js";
 import {
   useDeleteElement,
   useDeleteZone,
@@ -412,12 +412,12 @@ export function WarehouseMap() {
       </div>
 
       {/* 右上：所有動作。 */}
-      <div className="map-float end">
+      <ButtonSkin skin="floating"><div className="map-float end">
         {canWrite ? (
           <>
             <Button
               variant="secondary"
-              className={editing ? "active" : ""}
+              active={editing}
               aria-pressed={editing}
               onClick={() => setEditing((on) => !on)}
             >
@@ -438,10 +438,10 @@ export function WarehouseMap() {
         <Button variant="secondary" type="button" disabled={exporting} onClick={() => void exportImage()}>
           {exporting ? "匯出中…" : "⇩ 下載整張圖"}
         </Button>
-      </div>
+      </div></ButtonSkin>
 
       {/* 右下：縮放。離內容最遠的角落，最不會擋到東西。 */}
-      <div className="map-float corner">
+      <ButtonSkin skin="floating"><div className="map-float corner">
         <div className="zoom-control">
           <button type="button" aria-label="縮小" disabled={!view.canZoomOut} onClick={() => view.zoomTo(view.zoom - 0.1)}>−</button>
           <span>{Math.round(view.zoom * 100)}%</span>
@@ -456,7 +456,7 @@ export function WarehouseMap() {
         >
           <span aria-hidden="true">{view.fullscreen ? "↙" : "⛶"}</span>
         </Button>
-      </div>
+      </div></ButtonSkin>
 
       {selectedZone && !editing ? (
         <ZoneDrawer
