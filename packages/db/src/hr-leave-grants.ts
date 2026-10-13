@@ -178,7 +178,6 @@ export async function listHrLeaveGrantBatches(db: Database, input: HrLeaveGrantL
 
 export async function listHrSelfLeaveGrantCredits(db: Database, employeeUserId: string, asOfDate = formatTaipeiDate(Date.now()), leaveTypeId?: string): Promise<HrLeaveGrantCredit[]> {
   assertDate(asOfDate, "額度查詢日期");
-  const issuedToday = formatTaipeiDate(Date.now());
   const rows = await db.select({
     grantId: hrLeaveGrants.id,
     issuedOn: hrLeaveGrantBatches.issuedOn,
@@ -193,7 +192,7 @@ export async function listHrSelfLeaveGrantCredits(db: Database, employeeUserId: 
       isNull(hrEmployments.archivedAt),
       eq(hrLeaveGrants.status, "active"),
       leaveTypeId ? eq(hrLeaveGrantBatches.leaveTypeId, leaveTypeId) : undefined,
-      sql`${hrLeaveGrantBatches.issuedOn} <= ${issuedToday}`,
+      sql`${hrLeaveGrantBatches.issuedOn} <= ${asOfDate}`,
       sql`${hrLeaveGrantBatches.expiresOn} >= ${asOfDate}`,
     )).orderBy(asc(hrLeaveGrantBatches.expiresOn), asc(hrLeaveGrantBatches.issuedOn), asc(hrLeaveGrants.createdAt));
   return rows.map((row) => ({ ...row, balanceMinutes: Number(row.balanceMinutes) }));
@@ -205,7 +204,6 @@ export async function allocateHrLeaveGrant(db: Database, input: HrLeaveGrantAllo
   if (input.endsOn <= input.startsOn || !Number.isSafeInteger(input.durationMinutes) || input.durationMinutes <= 0 || input.durationMinutes % 60 !== 0) {
     throw new HrError(400, "此假別請假時數必須是 1 小時的整數倍。");
   }
-  const today = formatTaipeiDate(Date.now());
   const lastDay = lastIncludedDate(input.endsOn);
   const grants = await db.select({
     grantId: hrLeaveGrants.id,
@@ -221,7 +219,6 @@ export async function allocateHrLeaveGrant(db: Database, input: HrLeaveGrantAllo
       eq(hrLeaveTypes.id, input.leaveTypeId),
       eq(hrLeaveTypes.leaveKind, "grant"),
       eq(hrLeaveTypes.active, 1),
-      sql`${hrLeaveGrantBatches.issuedOn} <= ${today}`,
       sql`${hrLeaveGrantBatches.issuedOn} <= ${input.startsOn}`,
       sql`${hrLeaveGrantBatches.expiresOn} >= ${lastDay}`,
     )).orderBy(asc(hrLeaveGrantBatches.expiresOn), asc(hrLeaveGrantBatches.issuedOn), asc(hrLeaveGrants.createdAt), asc(hrLeaveGrants.id));
