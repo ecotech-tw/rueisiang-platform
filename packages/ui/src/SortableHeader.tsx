@@ -30,14 +30,18 @@ export function SortableHeader({
     <th className={className} aria-sort={isActive ? (direction === "asc" ? "ascending" : "descending") : "none"}>
       <button
         type="button"
-        className={`sort-header${isActive ? " active" : ""}`}
+        className={`group inline-flex items-center gap-1 border-none bg-transparent p-0 focus-visible:rounded-[4px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary ${isActive ? "text-brand-dark" : "text-inherit"}`}
         onClick={() => {
           if (!isActive) onSort(field, "asc");
           else onSort(field, direction === "asc" ? "desc" : "asc");
         }}
       >
         {label}
-        <Icon name={isActive && direction === "desc" ? "chevronDown" : "chevronUp"} />
+        {/* 箭頭只在 hover 或排序中才顯示，避免每欄都有灰箭頭而看不出目前是哪一欄。 */}
+        <Icon
+          name={isActive && direction === "desc" ? "chevronDown" : "chevronUp"}
+          className={`size-4 transition-opacity duration-[120ms] ease-[ease-out] ${isActive ? "text-brand opacity-100" : "opacity-0 group-hover:opacity-35"}`}
+        />
       </button>
     </th>
   );

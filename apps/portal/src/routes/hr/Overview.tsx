@@ -53,7 +53,7 @@ export function HrOverview() {
         <p>{card.description}</p>
         <span className="hr-overview-action">{card.action} <span aria-hidden="true">→</span></span>
       </Link>)}</div>
-      {!cards.length ? <EmptyState>目前帳號沒有可顯示的 HRIS 待辦。</EmptyState> : null}
+      {!cards.length ? <EmptyState className="mt-[18px]">目前帳號沒有可顯示的 HRIS 待辦。</EmptyState> : null}
     </Panel>
   </div>;
 }

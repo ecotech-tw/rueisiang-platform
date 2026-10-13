@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -454,8 +454,8 @@ export function Sandbox() {
                   <small className="assistant-message-duration">本次總耗時 · {message.durationMs.toLocaleString()} ms</small>
                 ) : null}
               </div>
-            )) : <p className="empty-state">這個 session 還沒有訊息。</p>
-          ) : <p className="empty-state">請按「清除對話」建立一個新的 session。</p>}
+            )) : <EmptyState className="mt-[18px]">這個 session 還沒有訊息。</EmptyState>
+          ) : <EmptyState className="mt-[18px]">請按「清除對話」建立一個新的 session。</EmptyState>}
           {run.isPending && pendingSessionId === sessionId ? (
             <div className="assistant-message assistant-message-model assistant-message-pending" role="status" aria-label="小香正在回覆">
               <div className="assistant-message-meta">

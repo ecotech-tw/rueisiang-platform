@@ -83,7 +83,7 @@ export function HrLeaveTypes() {
           <td data-label="操作"><div className="row-actions">{canWrite ? <><Button variant="secondary" icon="edit" tone="info" onClick={() => setEditor(leaveType)}>編輯</Button><Button variant="secondary" icon={leaveType.active ? "archive" : "check"} loading={toggle.isPending} onClick={() => toggle.mutate({ path: `/leave-types/${leaveType.id}/status`, method: "POST", values: { active: !leaveType.active } }, { onSuccess: () => void leaveTypes.refetch() })}>{leaveType.active ? "停用" : "啟用"}</Button></> : null}</div></td>
         </tr>)}
       </tbody></DataTable>
-      {!rows.length ? <EmptyState>尚未建立假別，請先新增一個假別再建立請假申請。</EmptyState> : null}
+      {!rows.length ? <EmptyState className="mt-[18px]">尚未建立假別，請先新增一個假別再建立請假申請。</EmptyState> : null}
     </Panel>
     {editor === "new" ? <LeaveTypeDialog onClose={() => { setEditor(null); void leaveTypes.refetch(); }} /> : null}
     {editor && editor !== "new" ? <LeaveTypeDialog leaveType={editor} onClose={() => { setEditor(null); void leaveTypes.refetch(); }} /> : null}

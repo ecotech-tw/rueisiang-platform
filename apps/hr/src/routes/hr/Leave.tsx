@@ -54,7 +54,7 @@ export function HrLeaveSummary() {
       {annual.isPending ? <p className="muted">載入特休額度…</p> : null}
       {annual.error ? <Alert tone="danger">{annual.error.message}</Alert> : null}
       {periods.length ? <div className="hr-profile-card-list">{periods.map((period) => <AnnualLeaveCard key={period.entitlementId} period={period} />)}</div> : null}
-      {!annual.isPending && !annual.error && !periods.length ? <EmptyState className="hr-profile-empty-note">目前沒有可用的特休額度。</EmptyState> : null}
+      {!annual.isPending && !annual.error && !periods.length ? <EmptyState size="compact">目前沒有可用的特休額度。</EmptyState> : null}
     </Panel>
 
     <Panel title="請假紀錄" description="只計入已核准的請假申請；審核中的申請請到表單申請查看。">
@@ -66,7 +66,7 @@ export function HrLeaveSummary() {
       {loadingMonths && !leave.error ? <p className="muted">載入請假紀錄…</p> : null}
       {leave.error ? <Alert tone="danger">{leave.error.message}</Alert> : null}
       {months.length ? <div className="hr-profile-card-list">{months.map((month) => <MonthCard key={month.month} month={month} />)}</div> : null}
-      {!loadingMonths && !leave.error && !months.length ? <EmptyState className="hr-profile-empty-note">{year} 年沒有已核准的請假。</EmptyState> : null}
+      {!loadingMonths && !leave.error && !months.length ? <EmptyState size="compact">{year} 年沒有已核准的請假。</EmptyState> : null}
     </Panel>
   </div>;
 }

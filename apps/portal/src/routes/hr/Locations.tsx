@@ -97,7 +97,7 @@ export function HrAttendanceScopeManagement() {
       <DataTable className="hr-location-assignment-table"><thead><tr><th>員工</th><th>目前任職</th><th>出勤方式</th><th>有效辦公位置</th><th>操作</th></tr></thead><tbody>
         {(employees.data?.employees ?? []).filter(isHrFormalEmployee).map((employee) => <EmployeeLocationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
       </tbody></DataTable>
-      {!employees.data?.employees.length ? <EmptyState>沒有符合條件的員工。</EmptyState> : null}
+      {!employees.data?.employees.length ? <EmptyState className="mt-[18px]">沒有符合條件的員工。</EmptyState> : null}
       {employees.data && employees.data.total > 0 ? <Pager page={employees.data.page} pageSize={employees.data.pageSize} pageSizes={[25, 50, 100]} totalPages={Math.max(1, Math.ceil(employees.data.total / employees.data.pageSize))} totalLabel={`共 ${employees.data.total.toLocaleString("zh-TW")} 位員工`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {editing?.kind === "scope" ? <AttendanceScopeDialog profile={editing.profile} locations={locations.data?.locations ?? []} onClose={() => setEditing(null)} /> : null}

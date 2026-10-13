@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Switch } from "../../shell/Switch.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, EmptyState, FilterInput, FilterSelect, PageHeader, Panel, TextField } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -227,7 +227,7 @@ export function LineSettings() {
       >
 
         {lineTools.length === 0 ? (
-          <p className="empty-state">目前沒有支援 LINE 的工具。</p>
+          <EmptyState className="mt-[18px]">目前沒有支援 LINE 的工具。</EmptyState>
         ) : grantedTools.length === 0 ? (
           <Alert tone="warning">
             一個工具都沒開，小香在 LINE 只能靠對話本身回答，查不了倉庫或客戶資料。
@@ -303,7 +303,7 @@ export function LineSettings() {
               </tbody>
             </table>
           </div>
-        ) : <p className="empty-state">尚未有對話。可以先貼上 LINE webhook 收到的對話 ID，或讓使用者先傳一則訊息給小香。</p>}
+        ) : <EmptyState className="mt-[18px]">尚未有對話。可以先貼上 LINE webhook 收到的對話 ID，或讓使用者先傳一則訊息給小香。</EmptyState>}
         {saveGroup.error ? <Alert tone="danger">{saveGroup.error.message}</Alert> : null}
       </Panel>
 
@@ -531,7 +531,7 @@ function GroupToolsDialog({
                   </label>
                 ))}
               </div>
-            ) : <p className="empty-state">channel 還沒授權任何工具，這裡沒有東西可以挑。</p>
+            ) : <EmptyState className="mt-[18px]">channel 還沒授權任何工具，這裡沒有東西可以挑。</EmptyState>
           ) : null}
           {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
     </Dialog>

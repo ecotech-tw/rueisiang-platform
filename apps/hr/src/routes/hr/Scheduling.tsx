@@ -248,7 +248,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
       {focusedEntries.length ? <div className="grid divide-y divide-soft-line">{focusedEntries.map((entry) => <div className="flex min-w-0 items-center justify-between gap-2 py-2" key={entry.id}>
         <div className="grid min-w-0 gap-0.5"><strong className="break-words">{entry.employeeNumber ? `${entry.employeeNumber}・` : ""}{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</strong><small className="text-muted">{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}・{attendanceStatusLabel(entry.attendanceStatus)}</small></div>
         {!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <Button variant="icon" icon="trash" aria-label={`移除 ${detailsDate} ${entry.personName} ${entry.shiftName}`} disabled={disabled} className="shrink-0" onClick={() => setDraft((current) => current.filter((other) => other.id !== entry.id))} /> : <span className="shrink-0 text-xs text-muted">{entry.archivedAt ? "已封存" : attendanceStatusLabel(entry.attendanceStatus)}</span>}
-      </div>)}</div> : <EmptyState>這一天尚無排班。</EmptyState>}
+      </div>)}</div> : <EmptyState className="mt-[18px]">這一天尚無排班。</EmptyState>}
       {alerts}
     </Dialog> : null}
   </>;
@@ -321,7 +321,7 @@ export function HrScheduling() {
     </div>
     {scopes.error ? <Alert tone="danger">{scopes.error.message}</Alert> : null}
     {scopes.isPending ? <p>載入據點中…</p> : null}
-    {scopes.data && !scopes.data.scopes.length ? <EmptyState>目前沒有負責的排班據點，請聯絡 HR 指派。</EmptyState> : null}
+    {scopes.data && !scopes.data.scopes.length ? <EmptyState className="mt-[18px]">目前沒有負責的排班據點，請聯絡 HR 指派。</EmptyState> : null}
     {selectedScopeId ? <Panel density="compact" className="grid gap-1">
       <div className="flex items-center gap-1" aria-label="排班月份"><Button variant="icon" icon="chevronLeft" aria-label="上個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(-1); setMonth(nextMonth(month, -1)); setEditState({ dirty: false, pending: false }); } }} /><strong className="flex-1 text-center text-sm tabular-nums">{month.slice(0, 4)} 年 {Number(month.slice(5))} 月</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(1); setMonth(nextMonth(month, 1)); setEditState({ dirty: false, pending: false }); } }} />{isMobile || quick ? <div className="flex w-[92px] shrink-0 justify-end gap-1">{scopeLockAction}{quick ? <Tooltip label="儲存排班" focusable={false}><Button variant="tonal-icon" tone="success" size="lg" icon="save" aria-label="儲存排班" loading={editState.pending} loadingLabel={<span className="sr-only">儲存中…</span>} onClick={() => void goBack()} /></Tooltip> : <Tooltip label="快速排班" focusable={false}><Button variant="tonal-icon" tone="info" size="lg" icon="edit" aria-label="快速排班" disabled={editState.pending || Boolean(schedule.data?.version?.locked) || !schedule.data?.shifts.length} onClick={() => setQuick(true)} /></Tooltip>}</div> : <div className="flex w-11 shrink-0 justify-end">{scopeLockAction}</div>}</div>
     </Panel> : null}

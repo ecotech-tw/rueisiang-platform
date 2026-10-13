@@ -119,7 +119,7 @@ HRIS 語意 class 一覽（都是加在 `Button` 的 `className`，`variant` 照
 - 狀態顏色是語意，不是頁面自行挑色：`success`、`info`、`warning`、`danger`、`neutral`。
 - 同一個 domain status 的 label／tone mapping 放在 domain module 的單一函式或 map；視覺套用由 `StatusBadge` 完成。
 - `Alert tone="danger"` 用於錯誤或需要立即注意的訊息；成功回饋不得只靠動畫或顏色。
-- 表格無資料使用 `empty-state`／`EmptyState`；查詢仍在進行使用 `HrSkeleton` 或明確的 loading state；不要在空資料時顯示錯誤訊息。
+- 表格無資料使用 `EmptyState`；查詢仍在進行使用 `HrSkeleton` 或明確的 loading state；不要在空資料時顯示錯誤訊息。
 
 ### Table
 

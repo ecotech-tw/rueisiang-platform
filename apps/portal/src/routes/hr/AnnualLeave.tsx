@@ -156,7 +156,7 @@ function EntitlementDetailDialog({ row, onClose }: { row: HrAnnualLeaveEntitleme
       <h3>額度台帳</h3>
       <DataTable className="compact hr-annual-ledger-table"><thead><tr><th>寫入時間</th><th>類型</th><th className="numeric">變化</th><th>說明</th></tr></thead><tbody>
         {entitlement.ledger.map((entry) => <tr key={entry.id}><td>{taipeiDateTime(entry.createdAt)}<small>台北時間</small></td><td>{ledgerKindLabel(entry.entryKind)}</td><td className="numeric">{signedHours(entry.deltaHalfHours)}</td><td>{ledgerDisplayNote(entry, entitlement)}</td></tr>)}
-        {!entitlement.ledger.length ? <tr><td colSpan={4}><EmptyState>目前沒有台帳紀錄。</EmptyState></td></tr> : null}
+        {!entitlement.ledger.length ? <tr><td colSpan={4}><EmptyState className="mt-[18px]">目前沒有台帳紀錄。</EmptyState></td></tr> : null}
       </tbody></DataTable>
     </section>
   </Dialog>;
@@ -173,7 +173,7 @@ function EntitlementTable({ rows, canWrite, onAdjust, onDetail }: { rows: HrAnnu
       <td data-label="狀態"><StatusBadge tone={row.status === "open" ? "success" : "neutral"}>{row.status === "open" ? "可使用" : "已結算"}</StatusBadge></td>
       <td data-label="操作"><div className="hr-annual-row-actions"><Button variant="secondary" icon="info" tone="info" onClick={() => onDetail(row)}>查看明細</Button>{canWrite && row.status === "open" ? <Button variant="secondary" icon="edit" tone="info" onClick={() => onAdjust(row)}>人工調整</Button> : null}</div></td>
     </tr>)}
-    {!rows.length ? <tr><td colSpan={7}><EmptyState>目前沒有可建立的特休週期；請確認員工已設定月薪敘薪版本，或執行回溯／補建額度。</EmptyState></td></tr> : null}
+    {!rows.length ? <tr><td colSpan={7}><EmptyState className="mt-[18px]">目前沒有可建立的特休週期；請確認員工已設定月薪敘薪版本，或執行回溯／補建額度。</EmptyState></td></tr> : null}
   </tbody></DataTable>;
 }
 

@@ -67,46 +67,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* 可排序表頭的箭頭只在 hover 或 active 時顯示，避免每欄都有灰箭頭而看不出目前欄位。 */
-.sort-header {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-}
-
-.sort-header svg {
-  width: 16px;
-  height: 16px;
-  opacity: 0;
-  transition-property: opacity;
-  transition-duration: 120ms;
-  transition-timing-function: ease-out;
-}
-
-.sort-header:hover svg {
-  opacity: .35;
-}
-
-.sort-header.active {
-  color: var(--color-brand-dark);
-}
-
-.sort-header.active svg {
-  opacity: 1;
-  color: var(--color-brand);
-}
-
-.sort-header:focus-visible {
-  outline: 2px solid var(--color-secondary);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
 .cell-strong {
   font-weight: 700;
 }
@@ -218,43 +178,6 @@
 .ui-alert-neutral {
   background: var(--color-soft-line);
   color: var(--color-muted);
-}
-
-.empty-state {
-  margin: 18px 0 0;
-  padding: 18px;
-  border: 1px dashed var(--color-line);
-  border-radius: 10px;
-  color: var(--color-muted);
-  text-align: center;
-}
-
-.selection-action-bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  position: absolute;
-  right: 16px;
-  bottom: 16px;
-  z-index: 3;
-  gap: 12px;
-  padding: 10px 12px 10px 16px;
-  border: 1px solid var(--color-line);
-  border-radius: 12px;
-  background: var(--color-paper);
-  box-shadow: var(--shadow-panel);
-}
-
-.selection-action-bar__count { margin-right: auto; color: var(--color-muted); }
-.selection-action-bar > button { flex: none; }
-
-@media (max-width: 760px) {
-  .selection-action-bar {
-    right: 14px;
-    bottom: 14px;
-    left: 14px;
-    padding: 8px 10px 8px 14px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -193,7 +193,7 @@ export function HrPayrollAdjustments() {
             </tr>)}</tbody>
         </DataTable>
       </div>
-      {adjustments.data && !adjustments.data.adjustments.length ? <EmptyState>目前沒有符合條件的薪資加扣項。</EmptyState> : null}
+      {adjustments.data && !adjustments.data.adjustments.length ? <EmptyState className="mt-[18px]">目前沒有符合條件的薪資加扣項。</EmptyState> : null}
     </Panel>
     {dialogOpen ? <PayrollAdjustmentDialog key={editing?.id ?? "new"} employees={employees.data?.employees ?? []} employeesPending={employees.isPending} employeesError={employees.error instanceof Error ? employees.error : null} adjustment={editing ?? undefined} onClose={closeDialog} onSuccess={() => { closeDialog(); void adjustments.refetch(); }} /> : null}
     {deleting ? <ConfirmDialog title="刪除這筆薪資加扣項？" confirmLabel="刪除加扣項" pending={remove.isPending} onCancel={() => { if (!remove.isPending) setDeleting(null); }} onConfirm={confirmRemove}>

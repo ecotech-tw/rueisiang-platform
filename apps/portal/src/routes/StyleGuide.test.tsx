@@ -18,11 +18,9 @@ describe("StyleGuide", () => {
       "預覽 ConfirmDialog",
       "搜尋與篩選",
       "資料表、排序、分頁與空狀態",
-      "sort-header",
       "pager",
       "segmented-control",
       "tooltip-anchor",
-      "empty-state",
     ]) {
       expect(markup).toContain(contract);
     }
