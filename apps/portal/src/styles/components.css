@@ -2023,7 +2023,6 @@
 .hr-bonus-employee-row { grid-template-columns: minmax(0, 1fr) 116px; }
 .hr-bonus-selected-employee { min-width: 0; overflow: hidden; color: var(--color-ink); font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
 .hr-bonus-picker-row .select-trigger { width: 100%; min-width: 0; }
-.hr-bonus-picker-list > .chip-action { justify-self: start; }
 .hr-bonus-picker-empty { margin: 0; padding: 6px 2px; }
 .hr-bonus-weight-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
 .hr-bonus-weight-field span { color: var(--color-muted); font-size: 13px; font-weight: 700; }
@@ -3451,7 +3450,6 @@
 .analytics-sku-chart { height: 360px; }
 .analytics-panel-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
 .analytics-chart-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; }
-.analytics-chart-actions .filter-chip { min-height: 30px; padding-inline: 10px; font-size: 11px; }
 .analytics-chart-empty { display: grid; place-items: center; height: 260px; margin: 0; color: var(--color-muted); font-size: 13px; }
 .analytics-chart-pending { display: grid; place-items: center; height: 360px; margin: 0; color: var(--color-muted); font-size: 13px; }
 .analytics-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
@@ -3552,8 +3550,6 @@
   border-radius: 999px;
   background: var(--color-canvas);
 }
-.manual-report-tabs .filter-chip { min-width: 128px; justify-content: center; }
-.manual-report-tabs .filter-chip svg { width: 18px; height: 18px; }
 .manual-report-actions {
   display: flex;
   align-items: center;
@@ -3703,7 +3699,6 @@
   .manual-report-panel > .panel-head > div:last-child { width: 100%; }
   .manual-report-toolbar { align-items: stretch; flex-direction: column; gap: 12px; }
   .manual-report-tabs { width: 100%; margin-right: 0; margin-left: 0; }
-  .manual-report-tabs .filter-chip { flex: 1; min-width: 0; }
   .manual-report-actions { width: 100%; }
   .manual-report-actions > button { flex: 1 1 0; }
   .manual-report-mobile-select-all {
@@ -4142,8 +4137,6 @@
 .hr-payroll-secondary-content > .muted { font-size: 12px; line-height: 1.7; }
 .hr-payroll-adjustment-form { align-items: flex-end; }
 .hr-payroll-adjustment-form > .field { flex: 1 1 150px; min-width: 130px; }
-.hr-payroll-adjustment-form > .primary-button,
-.hr-payroll-adjustment-form > .ghost-button { min-height: var(--size-field); }
 .hr-payroll-create-dialog { width: min(720px, 100%); }
 .hr-payroll-create-dialog .modal-body { gap: 18px; }
 .hr-payroll-employee-picker-section { display: grid; gap: 10px; }
@@ -4240,7 +4233,6 @@
 .hr-payroll-adjustment-items-head small { color: var(--color-muted); font-size: 12px; }
 .hr-payroll-adjustment-item-list { display: grid; gap: 10px; }
 .hr-payroll-adjustment-item-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) 132px 40px; align-items: end; gap: 10px; padding: 10px; border: 1px solid var(--color-soft-line); border-radius: 12px; background: var(--color-canvas); }
-.hr-payroll-adjustment-item-row > .icon-button { align-self: end; margin-bottom: 2px; }
 .hr-payroll-record-detail-panel { display: grid; gap: 16px; }
 .hr-payroll-record-items { display: grid; gap: 12px; }
 .hr-payroll-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--color-soft-line); }
@@ -4303,7 +4295,6 @@
   .hr-payroll-adjustment-table td[data-label="原因"] { max-width: none; }
   .hr-payroll-adjustment-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .hr-payroll-adjustment-item-row > .field:nth-child(2) { grid-column: 1 / -1; }
-  .hr-payroll-adjustment-item-row > .icon-button { justify-self: end; }
   .hr-payroll-mobile-select-all { display: flex; padding: 8px 14px; border-bottom: 1px solid var(--color-soft-line); }
   .hr-payroll-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hr-payroll-line-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }

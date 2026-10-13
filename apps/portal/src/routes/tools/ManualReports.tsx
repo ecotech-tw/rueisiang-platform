@@ -7,7 +7,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, LegacyButton, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -912,8 +912,8 @@ export function ManualReports() {
         actions={(
           <div className="manual-report-toolbar">
             <div className="manual-report-tabs" role="tablist" aria-label="報表類型">
-              <LegacyButton
-                variant="chip"
+              <Chip
+                className="min-w-32 justify-center max-[620px]:min-w-0 max-[620px]:flex-1"
                 selected={kind === "payout"}
                 role="tab"
                 aria-selected={kind === "payout"}
@@ -921,9 +921,9 @@ export function ManualReports() {
               >
                 <Icon name="payments" />
                 每日出金
-              </LegacyButton>
-              <LegacyButton
-                variant="chip"
+              </Chip>
+              <Chip
+                className="min-w-32 justify-center max-[620px]:min-w-0 max-[620px]:flex-1"
                 selected={kind === "sales"}
                 role="tab"
                 aria-selected={kind === "sales"}
@@ -931,7 +931,7 @@ export function ManualReports() {
               >
                 <Icon name="report" />
                 每月商品銷售
-              </LegacyButton>
+              </Chip>
             </div>
             <div className="manual-report-actions">
               <Button variant="secondary" icon="attachment" disabled={busy} onClick={() => setImportDialog({ kind })}>匯入報表</Button>

@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, LegacyButton, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -274,10 +274,9 @@ function PayrollJobProgress({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; o
   if (!jobs.length || !host) return null;
   const failedCount = jobs.filter((job) => job.status === "failed").length;
   return createPortal(<section className={`hr-payroll-job-progress${expanded ? "" : " is-collapsed"}${failedCount ? " has-failed" : ""}`} aria-label="薪資試算進度">
-    <LegacyButton
-      variant="link"
-      static
-      className="hr-payroll-job-progress-toggle"
+    <button
+      type="button"
+      className="hr-payroll-job-progress-toggle text-brand transition-[background-color,border-color,color,box-shadow] duration-120 ease-out motion-reduce:transition-none"
       aria-expanded={expanded}
       aria-controls="hr-payroll-job-list"
       aria-label={`${expanded ? "收合" : "展開"}薪資試算，${jobs.length} 筆${failedCount ? `，其中 ${failedCount} 筆失敗` : ""}`}
@@ -290,7 +289,7 @@ function PayrollJobProgress({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; o
       {/* 收合時錯誤原因與「重新試算」都看不到，頁籤自己要說得出有失敗待處理，不能只靠顏色。 */}
       <strong>{failedCount ? "試算失敗" : "薪資試算"}</strong>
       <span className="hr-payroll-job-progress-count">{jobs.length}</span>
-    </LegacyButton>
+    </button>
     <div className="hr-payroll-job-list" id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
       {jobs.map((job) => {
         const hasProgress = job.progressPercent !== null;

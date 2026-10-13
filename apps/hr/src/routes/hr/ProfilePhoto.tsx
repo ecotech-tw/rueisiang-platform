@@ -2,7 +2,8 @@ import { useRef, useState } from "react";
 import { HR_EMPLOYEE_PHOTO_FILE_ERRORS, HR_EMPLOYEE_PHOTO_PREVIEW_LIMITS, HR_EMPLOYEE_PHOTO_TYPES } from "@rueisiang/db/hr-profile-fields";
 import { useImageFilePreview } from "@rueisiang/ui";
 import { API_BASE_URL } from "../../config.js";
-import { Alert, Button, ConfirmDialog, LegacyButton } from "../../ui/index.js";
+import { Icon } from "../../shell/icons.js";
+import { Alert, Button, ConfirmDialog } from "../../ui/index.js";
 import { useHrWrite, type Profile } from "./api.js";
 
 export function selfPhotoUrl(photo: Profile["photo"]) {
@@ -39,7 +40,7 @@ export function HrProfilePhoto({ profile }: { profile: Profile }) {
           if (photoFile.choose(event.target.files?.[0])) { setExpectedRevision(profile.employee.revision); setFeedback(""); upload.reset(); }
           else event.target.value = "";
         }} />
-        <LegacyButton variant="icon" className="hr-profile-avatar-action" icon="camera" aria-label={photoFile.file ? "重新選擇大頭貼" : "更新大頭貼"} disabled={pending} onClick={() => input.current?.click()} />
+        <button type="button" className="absolute -right-2.5 -bottom-1.5 grid size-10 place-items-center rounded-[50%] border-0 bg-transparent p-0 text-white transition-[background-color,color,scale] duration-120 ease-out motion-reduce:transition-none before:pointer-events-none before:absolute before:inset-0 before:m-auto before:size-6 before:rounded-[50%] before:border-2 before:border-paper before:bg-brand before:[box-shadow:0_2px_5px_oklch(0_0_0/.2)] before:content-[''] not-disabled:hover:before:bg-brand-dark enabled:active:scale-[.96] motion-reduce:enabled:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary disabled:cursor-not-allowed disabled:opacity-40 [&_svg]:relative [&_svg]:z-[1] [&_svg]:size-3.5 max-[760px]:-right-[9px] max-[760px]:-bottom-[5px]" aria-label={photoFile.file ? "重新選擇大頭貼" : "更新大頭貼"} disabled={pending} onClick={() => input.current?.click()}><Icon name="camera" /></button>
       </> : null}
     </div>
     {photoFile.file ? <div className="hr-profile-photo-edit">

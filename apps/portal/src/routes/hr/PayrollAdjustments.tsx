@@ -4,7 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, LegacyButton, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrPersonnelRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -120,7 +120,7 @@ function PayrollAdjustmentDialog({
       <TextField label="生效薪資月份" type="month" value={effectivePeriodKey} required onChange={(event) => setEffectivePeriodKey(event.target.value)} />
     </div>
     <div className="hr-payroll-adjustment-items">
-      <div className="hr-payroll-adjustment-items-head"><div><strong>薪資加扣項</strong><small>正數為補發／加給，負數為扣款。</small></div><LegacyButton type="button" variant="chip-action" icon="plus" className="add-action" onClick={addItem}>新增項目</LegacyButton></div>
+      <div className="hr-payroll-adjustment-items-head"><div><strong>薪資加扣項</strong><small>正數為補發／加給，負數為扣款。</small></div><Chip variant="action" tone="success" type="button" icon="plus" onClick={addItem}>新增項目</Chip></div>
       <div className="hr-payroll-adjustment-item-list">
         {items.map((item) => <div className="hr-payroll-adjustment-item-row" key={item.key}>
           <SelectField label="類型" value={item.direction} options={[{ value: "earning", label: "補發／加給" }, { value: "deduction", label: "扣款" }]} onChange={(event) => updateItem(item.key, { direction: event.target.value as AdjustmentItemDraft["direction"] })} />

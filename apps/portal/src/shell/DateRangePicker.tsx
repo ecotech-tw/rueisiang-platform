@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons.js";
-import { Button, LegacyButton } from "../ui/Button.js";
+import { Button, Chip } from "../ui/index.js";
 
 /**
  * 區間選擇器：一次打開一張日曆，點起日再點迄日。
@@ -164,17 +164,16 @@ export function DateRangePicker({ start, end, onChange, disabled }: Props) {
         <div className="range-panel" role="dialog" aria-label="選擇對帳區間">
           <div className="range-presets">
             {presets().map((preset) => (
-              <LegacyButton
+              <Chip
                 type="button"
                 key={preset.label}
-                variant="chip"
                 selected={start === preset.start && end === preset.end}
                 onClick={() => {
                   setPendingStart(null);
                   onChange({ start: preset.start, end: preset.end });
                   setOpen(false);
                 }}
-              >{preset.label}</LegacyButton>
+              >{preset.label}</Chip>
             ))}
           </div>
 
