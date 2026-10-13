@@ -121,6 +121,24 @@ describe("HR 假別額度發放", () => {
     expect(grantRows.every((row) => row.usedMinutes === 0 && row.balanceMinutes === 60)).toBe(true);
   });
 
+  it("預先發放的額度可供生效日之後的請假使用，但不能用於生效日前", async () => {
+    const today = todayTaipei();
+    const issuedOn = dateOffset(today, 3);
+    const leaveDate = dateOffset(today, 5);
+    await issue(8 * 60, dateOffset(today, 14), issuedOn);
+
+    const credits = await request(`/hr/me/leave-types?asOfDate=${leaveDate}`, "GET", undefined, employeeCookie);
+    expect(credits.status, await credits.clone().text()).toBe(200);
+    expect((await credits.json() as { leaveTypes: Array<{ id: string; grantCredits: Array<{ issuedOn: string; balanceMinutes: number }> }> }).leaveTypes.find((row) => row.id === leaveTypeId)?.grantCredits)
+      .toEqual([expect.objectContaining({ issuedOn, balanceMinutes: 8 * 60 })]);
+
+    const beforeEffectiveDate = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: `${dateOffset(today, 2)}T09:00`, endsAt: `${dateOffset(today, 2)}T10:00`, reason: "生效前" }, employeeCookie);
+    expect(beforeEffectiveDate.status).toBe(409);
+
+    const afterEffectiveDate = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: `${leaveDate}T09:00`, endsAt: `${leaveDate}T10:00`, reason: "生效後" }, employeeCookie);
+    expect(afterEffectiveDate.status, await afterEffectiveDate.clone().text()).toBe(201);
+  });
+
   it("額度清單支援到期篩選、假別／關鍵字搜尋與伺服器分頁", async () => {
     const today = todayTaipei();
     for (let index = 0; index < 11; index += 1) await issue(60, dateOffset(today, 10));
