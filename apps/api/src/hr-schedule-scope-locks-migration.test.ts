@@ -9,7 +9,7 @@ describe("據點排班鎖定 migration", () => {
       sqlite.exec("PRAGMA foreign_keys=ON; CREATE TABLE users(id TEXT PRIMARY KEY); CREATE TABLE scopes(id TEXT PRIMARY KEY); INSERT INTO users VALUES('admin'); INSERT INTO scopes VALUES('store-a');");
       sqlite.exec("BEGIN");
       try {
-        sqlite.exec(readFileSync(new URL("../../../packages/db/migrations/0234_add_hr_schedule_scope_locks.sql", import.meta.url), "utf8"));
+        sqlite.exec(readFileSync(new URL("../../../packages/db/migrations/0236_nifty_liz_osborn.sql", import.meta.url), "utf8"));
         sqlite.exec("COMMIT");
       } catch (error) { sqlite.exec("ROLLBACK"); throw error; }
       sqlite.exec("INSERT INTO hr_schedule_scope_locks(period_start, scope_id, locked_at, locked_by, updated_by) VALUES('2026-02-01', 'store-a', CURRENT_TIMESTAMP, 'admin', 'admin');");
