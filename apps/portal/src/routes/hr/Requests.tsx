@@ -18,7 +18,7 @@ type HistoryKind = "all" | RequestKind;
 
 interface EmployeePageResponse { employees: Employee[] }
 interface WorkerCandidate { id: string; displayName: string }
-interface LeaveType { id: string; name: string; leaveKind: "annual" | "grant" | "other" }
+interface LeaveType { id: string; name: string; leaveKind: "annual" | "grant" | "other"; scheduleCheckRequired: number }
 
 interface RequestRow {
   id: string;
@@ -277,9 +277,14 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
   const write = useHrWrite();
   const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees.filter(isHrFormalEmployee)).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
   const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : type.leaveKind === "grant" ? "（額度發放）" : ""}` }))];
-  const leaveDuration = useHrLeaveDuration(employeeUserId && startsAt && endsAt ? { employeeUserId, startsAt, endsAt } : null);
+  const selectedLeaveType = leaveTypes.find((type) => type.id === leaveTypeId);
+  const leaveDuration = useHrLeaveDuration(employeeUserId && startsAt && endsAt ? { employeeUserId, ...(leaveTypeId ? { leaveTypeId } : {}), startsAt, endsAt } : null);
   const durationMinutes = leaveDuration.data?.durationMinutes ?? null;
-  const durationValid = durationMinutes !== null && durationMinutes >= LEAVE_UNIT_MINUTES && durationMinutes % LEAVE_UNIT_MINUTES === 0 && durationMinutes <= MAX_LEAVE_MINUTES;
+  const durationUnitMinutes = selectedLeaveType?.leaveKind === "grant" ? 60 : LEAVE_UNIT_MINUTES;
+  const durationValid = durationMinutes !== null && durationMinutes >= durationUnitMinutes && durationMinutes % durationUnitMinutes === 0 && durationMinutes <= MAX_LEAVE_MINUTES;
+  const durationDescription = selectedLeaveType?.leaveKind === "grant"
+    ? selectedLeaveType.scheduleCheckRequired ? "依班表與休息時間計算，請假時數須為整數小時：" : "不檢查班表，依申請時段計算，請假時數須為整數小時："
+    : "系統依工作日、班表與休息時間計算請假時數：";
   function submit(event: React.FormEvent) {
     event.preventDefault();
     if (!employeeUserId || !leaveTypeId || leaveDuration.isPending || !durationValid) return;
@@ -297,7 +302,7 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
     <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} searchable disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
     <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length || write.isPending} onChange={(event) => setLeaveTypeId(event.target.value)} />
     <div className="form-grid two"><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} disabled={write.isPending} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} disabled={write.isPending} onChange={(event) => setEndsAt(event.target.value)} /></div>
-    <p className="muted field-note">系統依工作日、班表與休息時間計算請假時數：{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</p>
+    <p className="muted field-note">{durationDescription}{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</p>
     <Field label="請假原因"><textarea rows={4} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
     {actionsSlot ? createPortal(<><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" tone="success" mobileIconOnly loading={write.isPending} disabled={!employees.length || !leaveTypes.length || leaveDuration.isPending || !durationValid}>建立請假申請</Button></>, actionsSlot) : null}

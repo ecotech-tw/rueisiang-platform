@@ -440,7 +440,7 @@ export function useHrInsuranceEstimate(employmentId: string, input: InsuranceEst
     retry: false,
   });
 }
-export function useHrLeaveDuration(input: { employeeUserId: string; startsAt: string; endsAt: string } | null) {
+export function useHrLeaveDuration(input: { employeeUserId: string; leaveTypeId?: string; startsAt: string; endsAt: string } | null) {
   const signature = input ? JSON.stringify(input) : "disabled";
   return useQuery({
     queryKey: ["hr", "leave-duration", signature],

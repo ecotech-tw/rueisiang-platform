@@ -79,6 +79,10 @@ afterEach(() => d1.sqlite.close());
 describe("HR 假別額度發放", () => {
   it("發放時數以整數小時、使用期限含最後一天，請假略過班表並依最早到期額度扣除", async () => {
     const today = todayTaipei();
+    const directHrDuration = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T23:00`, endsAt: `${dateOffset(today, 1)}T00:00` });
+    expect(directHrDuration.status, await directHrDuration.clone().text()).toBe(200);
+    expect(await directHrDuration.json()).toMatchObject({ durationMinutes: 60 });
+
     const earliestGrant = await issue(60, today);
     await issue(60, dateOffset(today, 30));
 
