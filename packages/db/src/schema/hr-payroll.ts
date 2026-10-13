@@ -180,8 +180,10 @@ export const hrInsuranceRateTables = sqliteTable("hr_insurance_rate_tables", {
 export const hrLeaveTypes = sqliteTable("hr_leave_types", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  /** 特休額度由週年制台帳扣除；其他假別維持獨立規則與額度。 */
-  leaveKind: text("leave_kind", { enum: ["annual", "other"] as const }).notNull().default("other"),
+  /** 特休由週年政策給予；grant 假別由 HR 逐批發放；other 不扣額度台帳。 */
+  leaveKind: text("leave_kind", { enum: ["annual", "grant", "other"] as const }).notNull().default("other"),
+  /** 額度發放型假別可選擇是否依班表計工時；補休通常不檢查班表。 */
+  scheduleCheckRequired: integer("schedule_check_required").notNull().default(1),
   defaultPayRatePpm: integer("default_pay_rate_ppm").notNull().default(1_000_000),
   active: integer("active").notNull().default(1),
   createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
@@ -193,6 +195,7 @@ export const hrLeaveTypes = sqliteTable("hr_leave_types", {
   // leave_kind 是新增欄位；避免重建既有假別表造成歷史資料搬移風險，值域由 API 與 TypeScript enum 把關。
   check("ck_hr_leave_types_rate", sql`${table.defaultPayRatePpm} BETWEEN 0 AND 1000000`),
   check("ck_hr_leave_types_active", sql`${table.active} IN (0, 1)`),
+  check("ck_hr_leave_types_schedule_check", sql`${table.scheduleCheckRequired} IN (0, 1)`),
 ]);
 
 /** 月度假勤是薪資前的人工登記，不走申請／簽核流程；金額以新臺幣元保存。 */
@@ -363,6 +366,57 @@ export const hrAnnualLeaveLedger = sqliteTable("hr_annual_leave_ledger", {
   check("ck_hr_annual_leave_ledger_kind", sql`${table.entryKind} IN ('grant', 'leave_request', 'manual_adjustment', 'settlement', 'settlement_reversal')`),
   check("ck_hr_annual_leave_ledger_delta", sql`${table.deltaHalfHours} <> 0`),
   check("ck_hr_annual_leave_ledger_note", sql`length(${table.note}) <= 1000`),
+]);
+
+/** HR 批次發放可使用的假別額度；expiresOn 含當日。 */
+export const hrLeaveGrantBatches = sqliteTable("hr_leave_grant_batches", {
+  id: text("id").primaryKey(),
+  leaveTypeId: text("leave_type_id").notNull().references(() => hrLeaveTypes.id, { onDelete: "restrict" }),
+  issuedOn: text("issued_on").notNull(),
+  expiresOn: text("expires_on").notNull(),
+  amountMinutes: integer("amount_minutes").notNull(),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_hr_leave_grant_batches_type_date").on(table.leaveTypeId, table.issuedOn, table.expiresOn),
+  check("ck_hr_leave_grant_batches_dates", sql`length(${table.issuedOn}) = 10 AND length(${table.expiresOn}) = 10 AND ${table.expiresOn} >= ${table.issuedOn}`),
+  check("ck_hr_leave_grant_batches_amount", sql`${table.amountMinutes} > 0 AND ${table.amountMinutes} % 60 = 0`),
+  check("ck_hr_leave_grant_batches_note", sql`length(${table.note}) <= 1000`),
+]);
+
+/** 每位員工各有一筆可撤銷的批次額度；台帳只追加異動，不回寫原發放。 */
+export const hrLeaveGrants = sqliteTable("hr_leave_grants", {
+  id: text("id").primaryKey(),
+  batchId: text("batch_id").notNull().references(() => hrLeaveGrantBatches.id, { onDelete: "restrict" }),
+  employmentId: text("employment_id").notNull().references(() => hrEmployments.id, { onDelete: "restrict" }),
+  status: text("status", { enum: ["active", "revoked"] as const }).notNull().default("active"),
+  revokedAt: text("revoked_at"),
+  revokedBy: text("revoked_by").references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_leave_grants_batch_employment").on(table.batchId, table.employmentId),
+  index("idx_hr_leave_grants_employment").on(table.employmentId, table.status),
+  check("ck_hr_leave_grants_status", sql`${table.status} IN ('active', 'revoked')`),
+]);
+
+export const hrLeaveGrantLedger = sqliteTable("hr_leave_grant_ledger", {
+  id: text("id").primaryKey(),
+  grantId: text("grant_id").notNull().references(() => hrLeaveGrants.id, { onDelete: "restrict" }),
+  entryKind: text("entry_kind", { enum: ["grant", "leave_request", "leave_request_reversal", "revocation"] as const }).notNull(),
+  deltaMinutes: integer("delta_minutes").notNull(),
+  sourceKey: text("source_key").notNull(),
+  leaveRequestId: text("leave_request_id").references(() => hrLeaveRequests.id, { onDelete: "restrict" }),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_hr_leave_grant_ledger_source").on(table.sourceKey),
+  index("idx_hr_leave_grant_ledger_grant").on(table.grantId, table.createdAt),
+  index("idx_hr_leave_grant_ledger_request").on(table.leaveRequestId),
+  check("ck_hr_leave_grant_ledger_kind", sql`${table.entryKind} IN ('grant', 'leave_request', 'leave_request_reversal', 'revocation')`),
+  check("ck_hr_leave_grant_ledger_delta", sql`${table.deltaMinutes} <> 0`),
+  check("ck_hr_leave_grant_ledger_note", sql`length(${table.note}) <= 1000`),
 ]);
 
 export type HrCompensationItem = typeof hrCompensationItems.$inferSelect;

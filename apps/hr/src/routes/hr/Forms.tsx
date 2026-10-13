@@ -742,10 +742,40 @@ export function HrOvertimeForm() {
   return <div className="page hr-form-page"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : mode === "multiple" ? "先選時數再點日期，每一天會建立一筆申請；選好的日期離開頁面後不會保留。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel>{editing || copying ? null : <SegmentedControl className="hr-form-tabs hr-overtime-mode" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending || batchPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} onPendingChange={setBatchPending} onDone={() => { sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }} /> : <><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => changeStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} /></div><TextField label="加班時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (requestedMinutes > 0 ? hoursText(requestedMinutes) : "")} disabled={disabled} onChange={(event) => changeHours(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint="填時數會自動換算結束時間。" error={hoursError} /><Field label="加班原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{existingRequest?.request.settlementKind === "compensatory" ? <Alert tone="info">{editing ? "這筆申請的結算方式是補休，更新後仍是補休、不計加班費。要改成付薪請取消後重新申請。" : "原申請的結算方式是補休；重新送出會改為付薪。需要補休請洽 HR。"}</Alert> : null}{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></>}</Panel></div>;
 }
 
+function previousDate(value: string) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function nextDate(value: string) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  return date.toISOString().slice(0, 10);
+}
+
+function leaveAsOfDate(end: string) {
+  if (end.length < 16) return "";
+  const date = end.slice(0, 10);
+  return end.slice(11, 16) === "00:00" ? previousDate(date) : date;
+}
+
 function leaveTypeLabel(leaveType: LeaveTypeOption) {
-  if (leaveType.leaveKind !== "annual") return leaveType.name;
-  const available = leaveType.credits.reduce((total, credit) => total + Math.max(0, credit.balanceHalfHours), 0);
-  return available > 0 ? `${leaveType.name}・可用 ${formatHours(available * 30)}` : `${leaveType.name}・目前無可用額度`;
+  if (leaveType.leaveKind === "annual") {
+    const available = leaveType.credits.reduce((total, credit) => total + Math.max(0, credit.balanceHalfHours), 0);
+    return available > 0 ? `${leaveType.name}・可用 ${formatHours(available * 30)}` : `${leaveType.name}・目前無可用額度`;
+  }
+  if (leaveType.leaveKind === "grant") {
+    const available = leaveType.grantCredits.reduce((total, credit) => total + Math.max(0, credit.balanceMinutes), 0);
+    return available > 0 ? `${leaveType.name}・可用 ${formatHours(available)}` : `${leaveType.name}・目前無可用額度`;
+  }
+  return leaveType.name;
+}
+
+function matchingGrantCredits(leaveType: LeaveTypeOption | undefined, duration: { startsOn: string; endsOn: string } | undefined) {
+  if (!leaveType || leaveType.leaveKind !== "grant" || !duration) return [];
+  const lastDay = previousDate(duration.endsOn);
+  return leaveType.grantCredits.filter((credit) => credit.balanceMinutes > 0 && credit.issuedOn <= duration.startsOn && credit.expiresOn >= lastDay);
 }
 
 function matchingLeaveCredit(leaveType: LeaveTypeOption | undefined, duration: { startsOn: string; endsOn: string; durationMinutes: number } | undefined) {
@@ -772,14 +802,17 @@ export function HrLeaveForm() {
   const [loadedRevision, setLoadedRevision] = useState<{ id: string; revision: number } | null>(null);
   const existing = useHrQuery<{ requests: LeaveRequest[] }>("/me/leave-requests", editing || copying);
   const existingRequest = existing.data?.requests.find((item) => item.request.id === (requestId ?? copyId));
-  const leaveTypesAsOfDate = end.length >= 10 ? end.slice(0, 10) : "";
+  const leaveTypesAsOfDate = leaveAsOfDate(end);
   const leaveTypesPath = leaveTypesAsOfDate ? `/me/leave-types?asOfDate=${encodeURIComponent(leaveTypesAsOfDate)}` : "/me/leave-types";
   const leaveTypes = useHrQuery<LeaveTypesResponse>(leaveTypesPath);
-  const duration = useHrLeaveDuration(start && end ? { startsAt: start, endsAt: end } : null);
+  const options = leaveTypes.data?.leaveTypes ?? [];
+  const selectedType = options.find((leaveType) => leaveType.id === leaveTypeId);
+  const duration = useHrLeaveDuration(start && end ? { startsAt: start, endsAt: end, leaveTypeId: selectedType?.id } : null);
   // null 代表時數跟著開始與結束算；有值代表使用者正在填時數，結束時間改由後端依班表反推。
   const [hoursDraft, setHoursDraft] = useState<string | null>(null);
   const draftMinutes = hoursDraft === null ? null : hoursToMinutes(hoursDraft);
-  const hoursInvalid = Boolean(hoursDraft?.trim()) && draftMinutes === null;
+  const hoursUnit = selectedType?.leaveKind === "grant" ? 60 : 30;
+  const hoursInvalid = Boolean(hoursDraft?.trim()) && (draftMinutes === null || draftMinutes < hoursUnit || draftMinutes % hoursUnit !== 0);
   // 打「12」會先經過「1」；等輸入停下來才換算，中間值才不會先把結束時間改掉。
   const [settledMinutes, setSettledMinutes] = useState<number | null>(null);
   useEffect(() => {
@@ -790,16 +823,21 @@ export function HrLeaveForm() {
     const timer = window.setTimeout(() => setSettledMinutes(draftMinutes), 400);
     return () => window.clearTimeout(timer);
   }, [draftMinutes]);
-  const leaveEnd = useHrLeaveEnd(start && settledMinutes !== null ? { startsAt: start, durationMinutes: settledMinutes } : null);
+  const leaveEnd = useHrLeaveEnd(start && settledMinutes !== null ? { startsAt: start, durationMinutes: settledMinutes, leaveTypeId: selectedType?.id } : null);
   const hoursPending = settledMinutes !== draftMinutes || leaveEnd.isFetching;
   const save = useHrWrite();
   const restoredDraft = useRef(false);
-  const options = leaveTypes.data?.leaveTypes ?? [];
-  const selectedType = options.find((leaveType) => leaveType.id === leaveTypeId);
   const calculated = duration.data;
-  const durationValid = Boolean(calculated && calculated.durationMinutes >= 30 && calculated.durationMinutes % 30 === 0);
+  const durationUnit = selectedType?.leaveKind === "grant" ? 60 : 30;
+  const durationValid = Boolean(calculated && calculated.durationMinutes >= durationUnit && calculated.durationMinutes % durationUnit === 0);
   const credit = matchingLeaveCredit(selectedType, calculated);
-  const hasEnoughCredit = selectedType?.leaveKind !== "annual" || Boolean(credit && credit.balanceHalfHours * 30 >= (calculated?.durationMinutes ?? Number.MAX_SAFE_INTEGER));
+  const grantCredits = matchingGrantCredits(selectedType, calculated);
+  const availableGrantMinutes = grantCredits.reduce((total, item) => total + item.balanceMinutes, 0);
+  const hasEnoughCredit = selectedType?.leaveKind === "annual"
+    ? Boolean(credit && credit.balanceHalfHours * 30 >= (calculated?.durationMinutes ?? Number.MAX_SAFE_INTEGER))
+    : selectedType?.leaveKind === "grant"
+      ? availableGrantMinutes >= (calculated?.durationMinutes ?? Number.MAX_SAFE_INTEGER)
+      : true;
   const disabled = save.isPending || ((editing || copying) && existing.isPending) || (editing && loadedRevision?.id !== requestId);
   // 時數填錯、換算還在跑或失敗時，結束時間還是舊的；這時送出會送出跟畫面上時數對不起來的時段。
   const canSubmit = Boolean(selectedType && durationValid && hasEnoughCredit && !disabled && !leaveTypes.isPending && !duration.isPending && !hoursInvalid && !hoursPending && !leaveEnd.error && (!editing || existingRequest?.request.status === "pending") && (!copying || existingRequest?.request.status === "rejected"));
@@ -853,7 +891,7 @@ export function HrLeaveForm() {
       return;
     }
     if (!hasEnoughCredit) {
-      setError("所選時段沒有足夠的可用特休額度，請調整日期或時數。");
+      setError(selectedType.leaveKind === "grant" ? "所選日期沒有足夠的已發放額度，請調整日期或時數。" : "所選時段沒有足夠的可用特休額度，請調整日期或時數。");
       return;
     }
     const values = { leaveTypeId: selectedType.id, startsAt: start, endsAt: end, reason, ...(editing ? { revision: loadedRevision?.revision } : {}) };
@@ -872,33 +910,48 @@ export function HrLeaveForm() {
   if (editing && existingRequest?.request.status !== "pending") return <div className="page hr-form-page"><FormPageHeader title="編輯請假申請" description="這筆申請已完成處理。" returnTo="/forms?tab=leave" /><Alert tone="info">這筆請假申請已完成處理，只有審核中的申請可以修改。</Alert></div>;
   if (copying && existingRequest?.request.status !== "rejected") return <div className="page hr-form-page"><FormPageHeader title="重新申請請假" description="只有已駁回申請可以複製重送。" returnTo="/forms?tab=leave" /><Alert tone="info">這筆請假申請不是已駁回狀態，無法從原申請複製重送。</Alert></div>;
 
+  const requestStartDate = start.slice(0, 10);
+  const requestLastDate = leaveAsOfDate(end);
   const leaveTypeOptions = [
     { value: NO_LEAVE_TYPE, label: options.length ? "請選擇假別" : "目前沒有可申請的假別" },
-    ...options.map((leaveType) => ({ value: leaveType.id, label: leaveTypeLabel(leaveType) })),
+    ...options.map((leaveType) => {
+      const grantAvailableForDates = leaveType.grantCredits.some((credit) => credit.balanceMinutes > 0 && credit.issuedOn <= requestStartDate && credit.expiresOn >= requestLastDate);
+      const annualCredit = leaveType.leaveKind === "annual" && requestLastDate
+        ? matchingLeaveCredit(leaveType, { startsOn: requestStartDate, endsOn: nextDate(requestLastDate), durationMinutes: 0 })
+        : null;
+      const unavailableCredit = (leaveType.leaveKind === "grant" && !grantAvailableForDates)
+        || (leaveType.leaveKind === "annual" && (!annualCredit || annualCredit.balanceHalfHours <= 0));
+      return { value: leaveType.id, label: unavailableCredit ? `${leaveType.name}・此時段無可用額度` : leaveTypeLabel(leaveType), disabled: unavailableCredit };
+    }),
   ];
   return <div className="page hr-form-page">
-    <FormPageHeader title={editing ? "編輯請假申請" : copying ? "重新申請請假" : "請假申請"} description={editing ? "只能修改審核中的請假申請；已核准或駁回的申請請重新建立。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : "系統依工作日、班表與休息時間計算請假時數；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=leave" />
+    <FormPageHeader title={editing ? "編輯請假申請" : copying ? "重新申請請假" : "請假申請"} description={editing ? "只能修改審核中的請假申請；已核准或駁回的申請請重新建立。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : selectedType?.leaveKind === "grant" && !selectedType.scheduleCheckRequired ? "此額度假別依申請時數計算，不檢查班表；離開頁面前會暫存未送出的內容。" : "系統依工作日、班表與休息時間計算請假時數；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=leave" />
     <Panel>
       <div className="hr-form-fields">
-        <SelectField label="假別" required value={leaveTypeId || NO_LEAVE_TYPE} options={leaveTypeOptions} disabled={leaveTypes.isPending || disabled} onChange={(event) => setLeaveTypeId(event.target.value === NO_LEAVE_TYPE ? "" : event.target.value)} hint={selectedType?.leaveKind === "annual" ? "特休額度以 0.5 小時為單位，且每個週期獨立計算。" : "此假別的給薪與額度依公司制度及審核結果處理。"} />
+        <SelectField label="假別" required value={leaveTypeId || NO_LEAVE_TYPE} options={leaveTypeOptions} disabled={leaveTypes.isPending || disabled} onChange={(event) => setLeaveTypeId(event.target.value === NO_LEAVE_TYPE ? "" : event.target.value)} hint={selectedType?.leaveKind === "annual" ? "特休額度以 0.5 小時為單位，且每個週期獨立計算。" : selectedType?.leaveKind === "grant" ? "此假別以 1 小時為單位；額度依最早到期批次扣除，使用期限含最後一天。" : "此假別的給薪與額度依公司制度及審核結果處理。"} />
         <div className="hr-form-field-row">
           <TextField label="開始（台北時間）" type="datetime-local" step="1800" required value={start} disabled={disabled} onChange={(event) => { const value = event.target.value; setStart(value); if (end && end <= value) setEnd(""); }} />
           <TextField label="結束（台北時間）" type="datetime-local" step="1800" required min={start} value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} />
         </div>
-        <TextField label="請假時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (calculated && durationValid ? hoursText(calculated.durationMinutes) : "")} disabled={disabled} onChange={(event) => setHoursDraft(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint={hoursPending ? "換算結束時間中…" : "填時數會依班表與休息時間換算結束時間。"} error={hoursInvalid ? "請假時數必須是 0.5 小時的倍數，最多 744 小時。" : hoursPending ? undefined : leaveEnd.error?.message} />
+        <TextField label="請假時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (calculated && durationValid ? hoursText(calculated.durationMinutes) : "")} disabled={disabled} onChange={(event) => setHoursDraft(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint={hoursPending ? "換算結束時間中…" : selectedType?.leaveKind === "grant" && !selectedType.scheduleCheckRequired ? "此假別不檢查班表，填寫整數小時會依時數推算結束時間。" : "填時數會依班表與休息時間換算結束時間。"} error={hoursInvalid ? selectedType?.leaveKind === "grant" ? "額度發放假別請假時數必須是 1 小時的整數倍，最多 744 小時。" : "請假時數必須是 0.5 小時的倍數，最多 744 小時。" : hoursPending ? undefined : leaveEnd.error?.message} />
         <div className="hr-leave-duration-card" aria-live="polite">
           <div><span>系統計算時數</span><strong>{duration.isPending ? "計算中…" : calculated && durationValid ? formatHours(calculated.durationMinutes) : "尚未完成計算"}</strong></div>
-          {calculated ? <small>{calculated.startsOn}～{dateBefore(calculated.endsOn)}，依實際工作日與休息時間計算</small> : null}
+          {calculated ? <small>{calculated.startsOn}～{dateBefore(calculated.endsOn)}，{selectedType?.leaveKind === "grant" && !selectedType.scheduleCheckRequired ? "依申請時數計算（不檢查班表）" : "依實際工作日與休息時間計算"}</small> : null}
         </div>
         {selectedType?.leaveKind === "annual" ? <div className="hr-leave-credit-card" aria-live="polite">
           <div><span>可用特休額度</span><strong>{credit && credit.balanceHalfHours > 0 ? formatHours(credit.balanceHalfHours * 30) : "此時段沒有可用額度"}</strong></div>
           {credit && credit.balanceHalfHours > 0 ? <small>額度週期：{credit.periodStart}～{dateBefore(credit.periodEnd)}；送出後核准才會扣除。</small> : <small>請調整日期至可用額度週期內，或聯絡管理者確認額度。</small>}
+        </div> : null}
+        {selectedType?.leaveKind === "grant" ? <div className="hr-leave-credit-card" aria-live="polite">
+          <div><span>可用額度</span><strong>{availableGrantMinutes > 0 ? formatHours(availableGrantMinutes) : "此時段沒有可用額度"}</strong></div>
+          {grantCredits.length ? <small>適用批次期限：{grantCredits.map((item) => `${item.issuedOn}～${item.expiresOn}`).join("、")}；核准時依最早到期順序扣除。</small> : <small>請調整日期至已發放且未過期的額度期間，或聯絡 HR 發放額度。</small>}
         </div> : null}
         <Field label="請假原因（選填）"><textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} placeholder="請說明請假原因（選填）" /></Field>
       </div>
       {leaveTypes.error ? <Alert tone="danger">{leaveTypes.error.message}</Alert> : null}
       {duration.error ? <Alert tone="danger">{duration.error.message}</Alert> : null}
       {selectedType?.leaveKind === "annual" && calculated && !hasEnoughCredit ? <Alert tone="warning">所選時段超過可用特休額度，請縮短時數或調整到其他額度週期。</Alert> : null}
+      {selectedType?.leaveKind === "grant" && calculated && !hasEnoughCredit ? <Alert tone="warning">所選時段的額度不足或效期不符，請縮短時數、調整日期或聯絡 HR。</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
       <div className="hr-form-actions"><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=leave")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={!canSubmit}>{editing ? "更新請假申請" : copying ? "重新送出請假申請" : "送出請假申請"}</Button></div>
     </Panel>

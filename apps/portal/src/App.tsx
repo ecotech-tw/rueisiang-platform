@@ -32,6 +32,7 @@ import { HrPayrollRecordDetail } from "./routes/hr/PayrollRecordDetail.js";
 import { HrMonthlyData } from "./routes/hr/MonthlyData.js";
 import { HrRequestCenter } from "./routes/hr/Requests.js";
 import { HrLeaveTypes } from "./routes/hr/LeaveTypes.js";
+import { HrLeaveGrants } from "./routes/hr/LeaveGrants.js";
 import { HrAnnualLeave } from "./routes/hr/AnnualLeave.js";
 import { HrAnnualLeaveSettings } from "./routes/hr/AnnualLeaveSettings.js";
 import { ItemCategories } from "./routes/items/Categories.js";
@@ -175,6 +176,7 @@ export function App() {
           <Route path="support-workers" element={<HrSupportWorkers />} />
           <Route path="requests" element={<HrRequestCenter />} />
           <Route path="leave-types" element={<HrLeaveTypes />} />
+          <Route path="leave-grants" element={<HrLeaveGrants />} />
           <Route path="annual-leave" element={<HrAnnualLeave />} />
           <Route path="annual-leave/settings" element={<HrAnnualLeaveSettings />} />
           <Route path="insurance" element={<HrInsuranceManagement />} />

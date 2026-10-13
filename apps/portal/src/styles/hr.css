@@ -1132,9 +1132,14 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-leave-types-page .data-table td:first-child { min-width: 180px; }
 .hr-leave-types-page .data-table td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hr-leave-types-page .data-table td:last-child { min-width: 190px; }
+.hr-leave-grant-dialog .hr-leave-grant-fields { display: grid; gap: 18px; }
+.hr-leave-grant-dialog .hr-leave-grant-fields > .field { gap: 8px; }
+.hr-leave-grant-dialog .hr-leave-grant-date-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @media (max-width: 620px) {
   .hr-leave-types-page { gap: 14px; }
   .hr-leave-types-page .data-table td:last-child { min-width: 0; }
+  .hr-leave-grant-dialog .hr-leave-grant-fields { gap: 16px; }
+  .hr-leave-grant-dialog .hr-leave-grant-date-row { grid-template-columns: 1fr; gap: 14px; }
 }
 
 /* 特休額度先呈現員工目前可用資料；政策級距移至獨立的特休政策頁。 */

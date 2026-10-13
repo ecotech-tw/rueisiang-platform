@@ -34,6 +34,7 @@ export {
 } from "./hr-self-tools.js";
 export { HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage, type HrRequestCenterKind, type HrRequestCenterListQuery, type HrRequestCenterPage, type HrRequestCenterRow, type HrRequestCenterStatus } from "./hr-request-center.js";
 export { calculateHrLeaveDuration, calculateHrLeaveEnd, checkHrSelfLeaveRequest, cancelHrLeaveRequest, createHrLeaveRequest, getHrSelfLeaveMonths, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfAnnualLeave, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest, type HrLeaveCancellationOptions, type HrLeaveCredit, type HrLeaveDurationInput, type HrLeaveEndInput, type HrLeaveRequestCreateOptions, type HrLeaveRequestInput, type HrSelfAnnualLeavePeriod, type HrSelfLeaveMonths, type HrSelfLeaveTypeOption } from "./hr-leave.js";
+export { HR_LEAVE_GRANT_PAGE_SIZES, allocateHrLeaveGrant, createHrLeaveGrantBatch, listHrLeaveGrantBatches, listHrLeaveGrantEmployees, listHrSelfLeaveGrantCredits, revokeHrLeaveGrant, type HrLeaveGrantAllocation, type HrLeaveGrantAllocationInput, type HrLeaveGrantCredit, type HrLeaveGrantInput, type HrLeaveGrantListQuery } from "./hr-leave-grants.js";
 export {
   addCalendarMonths, allocateHrAnnualLeave, buildHrAnnualLeaveSettlementMutations, buildHrAnnualLeaveSettlementReversalMutations, createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements,
   getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates,

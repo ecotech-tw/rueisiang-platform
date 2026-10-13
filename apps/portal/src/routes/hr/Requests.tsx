@@ -18,7 +18,7 @@ type HistoryKind = "all" | RequestKind;
 
 interface EmployeePageResponse { employees: Employee[] }
 interface WorkerCandidate { id: string; displayName: string }
-interface LeaveType { id: string; name: string; leaveKind: "annual" | "other" }
+interface LeaveType { id: string; name: string; leaveKind: "annual" | "grant" | "other" }
 
 interface RequestRow {
   id: string;
@@ -276,7 +276,7 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
   const toast = useToast();
   const write = useHrWrite();
   const employeeOptions = [{ value: "", label: "請選擇員工" }, ...sortHrEmployees(employees.filter(isHrFormalEmployee)).map((employee) => ({ value: employee.userId, label: hrEmployeeLabel(employee) }))];
-  const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : ""}` }))];
+  const leaveTypeOptions = [{ value: "", label: leaveTypes.length ? "請選擇假別" : "尚未建立假別" }, ...leaveTypes.map((type) => ({ value: type.id, label: `${type.name}${type.leaveKind === "annual" ? "（週年制特休）" : type.leaveKind === "grant" ? "（額度發放）" : ""}` }))];
   const leaveDuration = useHrLeaveDuration(employeeUserId && startsAt && endsAt ? { employeeUserId, startsAt, endsAt } : null);
   const durationMinutes = leaveDuration.data?.durationMinutes ?? null;
   const durationValid = durationMinutes !== null && durationMinutes >= LEAVE_UNIT_MINUTES && durationMinutes % LEAVE_UNIT_MINUTES === 0 && durationMinutes <= MAX_LEAVE_MINUTES;
