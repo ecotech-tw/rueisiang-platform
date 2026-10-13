@@ -8,6 +8,7 @@ import { useHrQuery, useHrWrite } from "./api.js";
 import { HrBackBar } from "./HrBackBar.js";
 
 type ExitRequestRef = { current: (() => Promise<boolean>) | null };
+const noPersonOptionValue = "__no_person__";
 
 function currentMonth() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -73,8 +74,10 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
   const shifts = [...new Map(data.shifts.map((shift) => [shift.templateId, shift])).values()];
   const selectedShift = shifts.find((shift) => shift.templateId === templateId);
   const people = schedulePersonOptions(data, selectedShift);
+  const personOptions = [{ value: noPersonOptionValue, label: "不選擇人員" }, ...people];
   const person = resolveSchedulePerson(people, selectedPersonValue);
   const personValue = person?.value ?? (selectedPersonValue === "" ? "" : null);
+  const personDropdownValue = selectedPersonValue === "" ? noPersonOptionValue : personValue ?? "";
   if (selectedPersonValue !== personValue) setPersonValue(personValue);
   const kind = person?.personKind ?? "employee";
   const personId = person?.personId ?? "";
@@ -150,7 +153,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
   const summary = dirty && !savedNeedsReload ? `尚未儲存：新增 ${changes.entries.length} 筆、移除 ${changes.removedIds.length} 筆` : "";
   const personLabel = <span className="flex min-w-0 items-center justify-between gap-2"><span>人員</span><span className="shrink-0 text-[11px] font-normal text-muted">已排 {selectedDays} 天</span></span>;
   const fields = <div className="grid grid-cols-2 gap-3">
-    <SelectField label={personLabel} aria-label="人員" searchable value={personValue ?? ""} placeholder="請選擇人員" disabled={disabled || !shifts.length} options={people} onChange={(event) => setPersonValue(event.target.value)} />
+    <SelectField label={personLabel} aria-label="人員" value={personDropdownValue} placeholder="請選擇人員" disabled={disabled || !shifts.length} options={personOptions} onChange={(event) => setPersonValue(event.target.value === noPersonOptionValue ? "" : event.target.value)} />
     <SelectField label="班別" aria-label="班別" value={templateId} disabled={disabled || !shifts.length} options={shifts.map((shift) => { const weekday = pickShiftForDay(data.shifts.filter((item) => item.templateId === shift.templateId), "weekday") ?? shift; return { value: shift.templateId, label: `${weekday.name} ${shiftTimeRange(weekday)}` }; })} onChange={(event) => setTemplateId(event.target.value)} />
   </div>;
   const availability = !shifts.length ? <Alert>這個據點尚未設定班別，請聯絡 HR。</Alert> : !people.length ? <Alert>這個班別尚未納入可排人員，請聯絡 HR 設定。</Alert> : null;
