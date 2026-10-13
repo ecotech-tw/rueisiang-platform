@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { EmployeeFilterBar } from "./EmployeeFilterBar.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
@@ -252,7 +252,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
     } }}
     actions={<>
       {canVoid ? <Button variant="danger" icon="history" disabled={save.isPending || voidCompensation.isPending} onClick={() => setVoidConfirmation(true)}>解除最新敘薪</Button> : null}
-      <Button type="submit" className={isEditing ? "hr-action-update" : "add-action"} loading={save.isPending} disabled={!employment || voidCompensation.isPending}>儲存敘薪</Button>
+      <Button type="submit" tone={isEditing ? "info" : "success"} loading={save.isPending} disabled={!employment || voidCompensation.isPending}>儲存敘薪</Button>
     </>}
   >
     <p>{allVoided ? "所有敘薪版本已撤回；請重新填寫要建立的敘薪版本，生效日可自行指定。" : isEditing ? "更新會建立新的敘薪版本，不會覆寫既有紀錄；生效日請填實際薪資異動日，系統會自動收尾前一個尚未結束的版本。" : "敘薪採版本保存；新增版本的生效期間不能覆蓋既有薪資版本。勞健保費率與勞保／健保級距由系統依已啟用的設定套用，不在這裡填。"}</p>
@@ -300,10 +300,10 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
           onChange={(event) => updateItem(item.key, { basis: event.target.value as CompensationVersion["payBasis"] })}
         />
         <TextField aria-label={`${item.name.trim() || "項目"}金額（元）`} type="number" min="0" step="1" value={item.amount} onChange={(event) => updateItem(item.key, { amount: event.target.value })} />
-        <Button variant="icon" icon="trash" title={`刪除${item.name.trim() || "這個項目"}`} aria-label={`刪除${item.name.trim() || "這個項目"}`} onClick={() => setItems((list) => list.filter((row) => row.key !== item.key))} />
+        <Button className="max-[640px]:mb-0.5 max-[640px]:self-end" variant="icon" icon="trash" title={`刪除${item.name.trim() || "這個項目"}`} aria-label={`刪除${item.name.trim() || "這個項目"}`} onClick={() => setItems((list) => list.filter((row) => row.key !== item.key))} />
       </div>)}
       <div className="salary-items-foot">
-        <Button variant="secondary" icon="plus" className="add-action" onClick={() => setItems((list) => [...list, { key: `item-${Date.now()}-${list.length}`, name: "", amount: "", custom: false, basis: "monthly" }])}>新增項目</Button>
+        <Button variant="secondary" icon="plus" tone="success" onClick={() => setItems((list) => [...list, { key: `item-${Date.now()}-${list.length}`, name: "", amount: "", custom: false, basis: "monthly" }])}>新增項目</Button>
         <p className="salary-items-total">合計：<strong>{totalsText(draftTotals)}</strong></p>
       </div>
     </div>
@@ -376,16 +376,16 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: HrF
     <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}{current?.overtimeHourlyMinor != null ? <><br /><span className="muted">加班固定 {money(current.overtimeHourlyMinor)}／時</span></> : null}</td>
     <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : allVoided ? "已全部撤回" : "—"}</td>
     <td>{canWrite && employment ? latest
-      ? <Button variant="icon" icon="edit" className="compensation-action-update" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />
+      ? <Button variant="icon" icon="edit" tone="info" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />
       : allVoided
-        ? <Button variant="icon" icon="edit" className="compensation-action-update" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />
-        : <Button variant="icon" icon="plus" className="compensation-action-add" title="新增敘薪" aria-label="新增敘薪" onClick={() => onEdit(employee.userId)} /> : null}</td>
+        ? <Button variant="icon" icon="edit" tone="info" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />
+        : <Button variant="icon" icon="plus" tone="success" title="新增敘薪" aria-label="新增敘薪" onClick={() => onEdit(employee.userId)} /> : null}</td>
   </tr>;
 }
 
 export function WorkerCompensationRow({ employee, worker, canWrite, onEdit }: { employee: Employee; worker: ScheduleWorkerRecord | undefined; canWrite: boolean; onEdit: () => void }) {
   const current = currentVersion(worker?.compensation ?? []);
-  return <tr><td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}・排班支援人員</span></td><td>支援人員／排班</td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite && worker ? <Button variant="icon" icon={current ? "edit" : "plus"} className={current ? "compensation-action-update" : "compensation-action-add"} title={current ? "更新版本" : "新增版本"} aria-label={`為${employee.legalName}${current ? "更新" : "新增"}敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
+  return <tr><td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}・排班支援人員</span></td><td>支援人員／排班</td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite && worker ? <Button variant="icon" icon={current ? "edit" : "plus"} tone={current ? "info" : "success"} title={current ? "更新版本" : "新增版本"} aria-label={`為${employee.legalName}${current ? "更新" : "新增"}敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
 }
 
 export function HrCompensationManagement({ settingsOnly = false }: { settingsOnly?: boolean } = {}) {
@@ -424,7 +424,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
     {settingsOnly ? <>
       <Panel>
         <div className="panel-head"><div><h2>公司採用負擔規則</h2><p className="muted">勞保總基金費率 12.5%＝普通事故保險 11.5%＋就業保險 1%；兩項都是獨立基金，員工與雇主負擔各自套用。薪資試算會將兩筆員工金額分別四捨五入到元後再加總。若公司適用特殊身分類別，可在此建立覆核版本覆蓋對應項目。</p></div></div>
-        <div className="admin-form toolbar"><SelectField label="保險項目" value={contributionTarget} options={CONTRIBUTION_TARGETS.map((item) => ({ value: item.value, label: item.label }))} onChange={(event) => setContributionTarget(event.target.value as ContributionTarget)} /><TextField label="生效日" type="date" value={contributionFrom} onChange={(event) => setContributionFrom(event.target.value)} /><TextField label="員工實際負擔（%）" type="number" min="0" max="100" step="0.0001" value={employeeRate} onChange={(event) => setEmployeeRate(event.target.value)} /><TextField label="雇主實際負擔（%）" type="number" min="0" max="100" step="0.0001" value={employerRate} onChange={(event) => setEmployerRate(event.target.value)} />{selectedContributionTarget.scheme === "health" ? <TextField label="眷屬倍率（%）" type="number" min="0" max="100" step="0.0001" value={dependentRate} onChange={(event) => setDependentRate(event.target.value)} /> : null}{canWrite ? <Button icon="plus" className="add-action" loading={createContribution.isPending} disabled={!employeeRate || !employerRate} onClick={() => createContribution.mutate({ path: "/insurance-contribution-rules", method: "POST", values: { scheme: selectedContributionTarget.scheme, component: selectedContributionTarget.component, validFrom: contributionFrom, validTo: null, employeeRatePpm: Math.round(Number(employeeRate) * 10_000), employerRatePpm: Math.round(Number(employerRate) * 10_000), dependentRatePpm: selectedContributionTarget.scheme === "health" ? Math.round(Number(dependentRate || "100") * 10_000) : 0, sourceKind: "manual", note: `公司確認${selectedContributionTarget.label}規則` } }, { onSuccess: () => { setEmployeeRate(""); setEmployerRate(""); void contributionRules.refetch(); } })}>保存負擔規則</Button> : null}</div>
+        <div className="admin-form toolbar"><SelectField label="保險項目" value={contributionTarget} options={CONTRIBUTION_TARGETS.map((item) => ({ value: item.value, label: item.label }))} onChange={(event) => setContributionTarget(event.target.value as ContributionTarget)} /><TextField label="生效日" type="date" value={contributionFrom} onChange={(event) => setContributionFrom(event.target.value)} /><TextField label="員工實際負擔（%）" type="number" min="0" max="100" step="0.0001" value={employeeRate} onChange={(event) => setEmployeeRate(event.target.value)} /><TextField label="雇主實際負擔（%）" type="number" min="0" max="100" step="0.0001" value={employerRate} onChange={(event) => setEmployerRate(event.target.value)} />{selectedContributionTarget.scheme === "health" ? <TextField label="眷屬倍率（%）" type="number" min="0" max="100" step="0.0001" value={dependentRate} onChange={(event) => setDependentRate(event.target.value)} /> : null}{canWrite ? <Button size="lg" icon="plus" tone="success" loading={createContribution.isPending} disabled={!employeeRate || !employerRate} onClick={() => createContribution.mutate({ path: "/insurance-contribution-rules", method: "POST", values: { scheme: selectedContributionTarget.scheme, component: selectedContributionTarget.component, validFrom: contributionFrom, validTo: null, employeeRatePpm: Math.round(Number(employeeRate) * 10_000), employerRatePpm: Math.round(Number(employerRate) * 10_000), dependentRatePpm: selectedContributionTarget.scheme === "health" ? Math.round(Number(dependentRate || "100") * 10_000) : 0, sourceKind: "manual", note: `公司確認${selectedContributionTarget.label}規則` } }, { onSuccess: () => { setEmployeeRate(""); setEmployerRate(""); void contributionRules.refetch(); } })}>保存負擔規則</Button> : null}</div>
         {contributionRules.error || createContribution.error ? <Alert tone="danger">{contributionRules.error?.message ?? createContribution.error?.message}</Alert> : null}
         <DataTable className="compact"><thead><tr><th>保險項目</th><th>基金費率</th><th>員工分攤</th><th>雇主分攤</th><th>生效日</th><th>員工實際負擔</th><th>雇主實際負擔</th><th>眷屬倍率</th><th>來源</th></tr></thead><tbody>{(contributionRules.data?.rules ?? []).map((rule) => <tr key={rule.id}><td>{contributionLabel(rule)}</td><td>{contributionPercent(rule.totalRatePpm)}</td><td>{contributionPercent(rule.employeeSharePpm)}</td><td>{contributionPercent(rule.employerSharePpm)}</td><td>{rule.validFrom}</td><td>{contributionPercent(rule.employeeRatePpm)}</td><td>{contributionPercent(rule.employerRatePpm)}</td><td>{rule.scheme === "health" ? contributionPercent(rule.dependentRatePpm) : "—"}</td><td><div className="hr-rate-source"><StatusBadge tone={rule.isSystemDefault ? "success" : "warning"}>{rule.isSystemDefault ? "系統預設" : "公司覆核"}</StatusBadge>{rule.sourceUrl ? <a href={rule.sourceUrl} target="_blank" rel="noreferrer">官方資料</a> : null}</div></td></tr>)}</tbody></DataTable>
       </Panel>

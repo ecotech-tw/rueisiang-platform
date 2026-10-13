@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, DataTable, PageHeader, Panel } from "../../ui/index.js";
 import { useHrQuery, type HrAnnualLeaveBracket, type HrAnnualLeavePolicy } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 

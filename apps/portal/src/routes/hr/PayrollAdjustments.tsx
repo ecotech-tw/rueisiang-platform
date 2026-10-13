@@ -4,7 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, LegacyButton, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrPersonnelRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -112,7 +112,7 @@ function PayrollAdjustmentDialog({
     closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending}
     formProps={{ onSubmit: submit }}
-    actions={<><Button variant="secondary" onClick={onClose} disabled={save.isPending}>取消</Button><Button type="submit" icon="check" className={adjustment ? "hr-action-update" : "add-action"} loading={save.isPending} disabled={employeesPending || !personnelOptions.length}>{adjustment ? "保存加扣項" : "建立加扣項"}</Button></>}
+    actions={<><Button variant="secondary" onClick={onClose} disabled={save.isPending}>取消</Button><Button type="submit" icon="check" tone={adjustment ? "info" : "success"} loading={save.isPending} disabled={employeesPending || !personnelOptions.length}>{adjustment ? "保存加扣項" : "建立加扣項"}</Button></>}
   >
     <p className="form-hint hr-payroll-adjustment-dialog-note">這筆加扣項會在生效月份試算時自動帶入，可用於一次性獎金、補發或扣款。</p>
     <div className="form-grid two">
@@ -120,7 +120,7 @@ function PayrollAdjustmentDialog({
       <TextField label="生效薪資月份" type="month" value={effectivePeriodKey} required onChange={(event) => setEffectivePeriodKey(event.target.value)} />
     </div>
     <div className="hr-payroll-adjustment-items">
-      <div className="hr-payroll-adjustment-items-head"><div><strong>薪資加扣項</strong><small>正數為補發／加給，負數為扣款。</small></div><Button type="button" variant="chip-action" icon="plus" className="add-action" onClick={addItem}>新增項目</Button></div>
+      <div className="hr-payroll-adjustment-items-head"><div><strong>薪資加扣項</strong><small>正數為補發／加給，負數為扣款。</small></div><LegacyButton type="button" variant="chip-action" icon="plus" className="add-action" onClick={addItem}>新增項目</LegacyButton></div>
       <div className="hr-payroll-adjustment-item-list">
         {items.map((item) => <div className="hr-payroll-adjustment-item-row" key={item.key}>
           <SelectField label="類型" value={item.direction} options={[{ value: "earning", label: "補發／加給" }, { value: "deduction", label: "扣款" }]} onChange={(event) => updateItem(item.key, { direction: event.target.value as AdjustmentItemDraft["direction"] })} />
@@ -173,7 +173,7 @@ export function HrPayrollAdjustments() {
   }
 
   return <div className="page fills hr-payroll-page hr-payroll-adjustments-page">
-    <PageHeader title="薪資加扣項" description="登記指定薪資月份的補發與扣款，於試算時自動帶入。" actions={canCalculate ? <Button icon="plus" className="add-action" onClick={openCreate}>新增薪資加扣項</Button> : null} />
+    <PageHeader title="薪資加扣項" description="登記指定薪資月份的補發與扣款，於試算時自動帶入。" actions={canCalculate ? <Button icon="plus" tone="success" mobileIconOnly onClick={openCreate}>新增薪資加扣項</Button> : null} />
     {!canCalculate ? <Alert tone="info">目前只有薪資檢視權限；新增、編輯與刪除需要「執行薪資試算」權限。</Alert> : null}
     <Panel className="grows hr-payroll-adjustments-panel">
       <FilterToolbar className="hr-payroll-adjustment-filter">
@@ -189,7 +189,7 @@ export function HrPayrollAdjustments() {
               <td data-label="加扣項目"><div className="hr-payroll-adjustment-item-summary">{adjustment.items.map((item) => <span key={item.id}><strong>{item.itemName}</strong><small>{item.amountMinor < 0 ? "扣款" : "補發／加給"}</small></span>)}</div></td>
               <td data-label="加扣金額" className="numeric"><strong>{signedMoney(totalMinor(adjustment))}</strong></td>
               <td data-label="原因" className="hr-payroll-adjustment-reason">{adjustment.reason}</td>
-              <td data-label="操作"><div className="hr-payroll-adjustment-actions">{!canCalculate || !adjustment.canEdit ? <Tooltip label={canCalculate ? "已發放或月份結帳，不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"} className="muted"><span role="img" aria-label={canCalculate ? "不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"} className="inline-flex size-6 shrink-0 items-center"><Icon name="block" className="size-6 shrink-0" /></span></Tooltip> : <><Button variant="secondary" icon="edit" className="hr-action-update" onClick={() => openEdit(adjustment)}>編輯</Button><Button variant="danger" icon="trash" onClick={() => { remove.reset(); setDeleting(adjustment); }}>刪除</Button></>}</div></td>
+              <td data-label="操作"><div className="hr-payroll-adjustment-actions">{!canCalculate || !adjustment.canEdit ? <Tooltip label={canCalculate ? "已發放或月份結帳，不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"} className="muted"><span role="img" aria-label={canCalculate ? "不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"} className="inline-flex size-6 shrink-0 items-center"><Icon name="block" className="size-6 shrink-0" /></span></Tooltip> : <><Button variant="secondary" icon="edit" tone="info" onClick={() => openEdit(adjustment)}>編輯</Button><Button variant="danger" icon="trash" onClick={() => { remove.reset(); setDeleting(adjustment); }}>刪除</Button></>}</div></td>
             </tr>)}</tbody>
         </DataTable>
       </div>

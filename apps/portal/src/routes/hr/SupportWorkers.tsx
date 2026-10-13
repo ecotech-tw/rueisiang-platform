@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type ScheduleWorkerPageResponse, type ScheduleWorkerRecord } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -47,7 +47,7 @@ function WorkerDialog({ worker, onClose }: { worker: ScheduleWorkerRecord | null
       method: worker ? "PATCH" : "POST",
       values: worker ? { displayName, active, revision: worker.revision } : { displayName },
     }, { onSuccess: () => { (closeRequestRef.current ?? onClose)(); } });
-  } }} actions={<Button type="submit" className={isEditing ? "hr-action-update" : "add-action"} loading={save.isPending}>儲存</Button>}>
+  } }} actions={<Button type="submit" tone={isEditing ? "info" : "success"} loading={save.isPending}>儲存</Button>}>
     <TextField label="姓名" value={displayName} maxLength={100} required onChange={(event) => setDisplayName(event.target.value)} />
     {isEditing ? <SelectField label="狀態" value={active ? "active" : "inactive"} options={[{ value: "active", label: "啟用中" }, { value: "inactive", label: "已停用" }]} onChange={(event) => setActive(event.target.value === "active")} /> : null}
     <p className="form-hint">支援人員沒有平台帳號，但會建立共用人員主檔與 canonical 任職資料；停用只會停止後續排班，歷史排班與薪資資料仍會保留。</p>
@@ -70,7 +70,7 @@ export function HrSupportWorkers() {
   const update = (patch: Partial<Filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   return <div className="page fills">
-    <PageHeader title="支援人員" description="管理可排班、可計薪但不屬於平台員工的外部人力；停用取代刪除，以保留歷史排班與薪資快照。" actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditing(null)}>新增支援人員</Button> : null} />
+    <PageHeader title="支援人員" description="管理可排班、可計薪但不屬於平台員工的外部人力；停用取代刪除，以保留歷史排班與薪資快照。" actions={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditing(null)}>新增支援人員</Button> : null} />
     <Panel className="grows">
       <FilterToolbar>
         <SearchFilterInput label="搜尋" placeholder="搜尋支援人員姓名" value={filters.search} onSearch={(search) => update({ search })} />
@@ -89,7 +89,7 @@ export function HrSupportWorkers() {
             <td data-label="狀態"><StatusBadge tone={isActive(worker) ? "success" : "danger"}>{isActive(worker) ? "啟用中" : "已停用"}</StatusBadge></td>
             <td data-label="目前薪資" className="numeric">{compensation ? <>{PAY_BASIS_LABEL[compensation.payBasis]} · {money(compensation.baseAmountMinor)}<br /><span className="muted">{overtimeLabel(compensation)}</span></> : <span className="muted">尚未設定</span>}</td>
             <td data-label="生效日">{compensation?.validFrom ?? "—"}</td>
-            {canWrite ? <td data-label="操作"><Button variant="secondary" className="hr-action-update" onClick={() => setEditing(worker)}>管理</Button></td> : null}
+            {canWrite ? <td data-label="操作"><Button variant="secondary" tone="info" onClick={() => setEditing(worker)}>管理</Button></td> : null}
           </tr>;
         })}
       </tbody></DataTable>

@@ -3,7 +3,7 @@ import { canSchedulePerson, outdatedScheduleIds, resolveSchedulePerson, schedule
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { groupShiftsByTemplate, isDefaultHrCalendarSpecialName, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, SCHEDULE_ATTENDANCE_STATUS_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { GuardedNavLink, useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
@@ -164,7 +164,7 @@ function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAd
     if (!entry) return;
     onAdd(entry);
     (closeRequestRef.current ?? onClose)();
-  } }} actions={<Button type="submit" icon="check" className="add-action" disabled={!selectedShift || !personId}>加入排班</Button>}>
+  } }} actions={<Button type="submit" icon="check" tone="success" disabled={!selectedShift || !personId}>加入排班</Button>}>
     <SelectField label="人員類型" aria-label="新增排班人員類型" value={personKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "臨時支援人員" }]} onChange={(event) => setPersonKind(event.target.value as "employee" | "worker")} />
     <SelectField label="人員" aria-label="新增排班人員" value={personId} placeholder="請選擇人員" searchable options={personKind === "employee" ? employees.map((employee) => ({ value: employee.employmentId, label: `${employee.employeeNumber}・${employee.name}` })) : workers.map((worker) => ({ value: worker.id, label: worker.name }))} onChange={(event) => setPersonId(event.target.value)} />
     <SelectField label="營運據點" aria-label="新增排班據點" value={scopeId} options={data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => setScopeId(event.target.value)} />

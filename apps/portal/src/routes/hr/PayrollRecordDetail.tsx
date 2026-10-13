@@ -5,7 +5,7 @@ import { Icon } from "../../shell/icons.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { downloadPayslipImage } from "./exportPayslip.js";
 import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail, type PayrollScheduleAllocationDetail, type PayrollWorker } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -289,7 +289,7 @@ function PayrollRecordItemDialog({ detail, onClose, onSuccess }: PayrollRecordIt
     onClose={onClose}
     closeDisabled={createItem.isPending}
     formProps={{ onSubmit: submit }}
-    actions={<><Button variant="secondary" onClick={onClose} disabled={createItem.isPending}>取消</Button><Button type="submit" icon="check" className="add-action" loading={createItem.isPending}>保存加扣項</Button></>}
+    actions={<><Button variant="secondary" onClick={onClose} disabled={createItem.isPending}>取消</Button><Button type="submit" icon="check" tone="success" loading={createItem.isPending}>保存加扣項</Button></>}
   >
     <Alert tone="info">加扣項會直接附加到這筆尚未結算的發放紀錄，不需要對應原薪資月份。</Alert>
     <div className="form-grid two">
@@ -407,8 +407,8 @@ export function HrPayrollRecordDetail() {
       <div className="hr-payroll-detail-head">
         <div className="hr-payroll-detail-status"><span className="hr-payroll-detail-status-label">發放狀態</span><StatusBadge tone={detail.record.status === "closed" ? "success" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : "尚未結算"}</StatusBadge><small>{detail.record.personNumber ? `${detail.record.personNumber}・` : ""}{PERSON_KIND_LABEL[detail.record.personKind]}・建立於 {detail.record.createdAt}</small></div>
         <div className="hr-payroll-detail-actions" role="group" aria-label="薪資發放操作">
-          {canCalculate && detail.record.status === "unsettled" ? <div className="hr-payroll-detail-action-group" role="group" aria-label="未結算操作"><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={() => { approve.reset(); setApproveOpen(true); }}>確定發放此筆</Button><Button variant="secondary" icon="plus" className="add-action" disabled={deleteRun.isPending || withdraw.isPending} onClick={() => setItemDialogOpen(true)}>新增薪資加扣項</Button></div> : null}
-          <div className="hr-payroll-detail-action-group" role="group" aria-label="其他操作"><Button variant="secondary" icon="eye" className="hr-action-info" onClick={() => setPayslipPreviewOpen(true)}>預覽薪資條</Button>{canCalculate && detail.record.status === "unsettled" && detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除整批試算</Button> : null}{canCalculate && detail.record.status === "closed" && !detail.run.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回整批發放</Button> : null}</div>
+          {canCalculate && detail.record.status === "unsettled" ? <div className="hr-payroll-detail-action-group" role="group" aria-label="未結算操作"><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={() => { approve.reset(); setApproveOpen(true); }}>確定發放此筆</Button><Button variant="secondary" icon="plus" tone="success" disabled={deleteRun.isPending || withdraw.isPending} onClick={() => setItemDialogOpen(true)}>新增薪資加扣項</Button></div> : null}
+          <div className="hr-payroll-detail-action-group" role="group" aria-label="其他操作"><Button variant="secondary" icon="eye" tone="info" onClick={() => setPayslipPreviewOpen(true)}>預覽薪資條</Button>{canCalculate && detail.record.status === "unsettled" && detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除整批試算</Button> : null}{canCalculate && detail.record.status === "closed" && !detail.run.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回整批發放</Button> : null}</div>
         </div>
       </div>
       <div className="hr-payroll-overview" aria-label="薪資合計">

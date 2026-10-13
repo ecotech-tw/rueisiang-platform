@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, LegacyButton, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -210,7 +210,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
     closeRequestRef={closeRequestRef}
     closeDisabled={calculatePayroll.isPending}
     formProps={{ onSubmit: submit }}
-    actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" className="add-action" loading={calculatePayroll.isPending} disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || supportWorkers.isPending || Boolean(supportWorkers.error) || candidateExclusions.isPending || Boolean(candidateExclusions.error) || Boolean(selectionLimitError) || peopleCount === 0}>開始試算</Button></>}
+    actions={<><Button variant="secondary" onClick={onClose} disabled={calculatePayroll.isPending}>取消</Button><Button type="submit" icon="payments" tone="success" loading={calculatePayroll.isPending} disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || supportWorkers.isPending || Boolean(supportWorkers.error) || candidateExclusions.isPending || Boolean(candidateExclusions.error) || Boolean(selectionLimitError) || peopleCount === 0}>開始試算</Button></>}
   >
     <div className="form-grid two">
       <TextField type="month" label="計算月份" value={periodKey} required onChange={(event) => setPeriodKey(event.target.value)} />
@@ -274,7 +274,7 @@ function PayrollJobProgress({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; o
   if (!jobs.length || !host) return null;
   const failedCount = jobs.filter((job) => job.status === "failed").length;
   return createPortal(<section className={`hr-payroll-job-progress${expanded ? "" : " is-collapsed"}${failedCount ? " has-failed" : ""}`} aria-label="薪資試算進度">
-    <Button
+    <LegacyButton
       variant="link"
       static
       className="hr-payroll-job-progress-toggle"
@@ -290,7 +290,7 @@ function PayrollJobProgress({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; o
       {/* 收合時錯誤原因與「重新試算」都看不到，頁籤自己要說得出有失敗待處理，不能只靠顏色。 */}
       <strong>{failedCount ? "試算失敗" : "薪資試算"}</strong>
       <span className="hr-payroll-job-progress-count">{jobs.length}</span>
-    </Button>
+    </LegacyButton>
     <div className="hr-payroll-job-list" id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
       {jobs.map((job) => {
         const hasProgress = job.progressPercent !== null;
@@ -308,7 +308,7 @@ function PayrollJobProgress({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; o
             {job.status === "failed"
               ? <span className="hr-payroll-job-error">{job.error ?? "試算沒有完成，請重新試算。"}</span>
               : <span>{job.expectedCount > 0 ? `${job.completedCount.toLocaleString("zh-TW")} / ${job.expectedCount.toLocaleString("zh-TW")} 人` : "正在準備試算資料…"}</span>}
-            {job.status === "failed" ? (canRetry ? <Button variant="secondary" icon="sync" className="hr-action-info" onClick={() => onRetry(job)}>重新試算</Button> : null) : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : null}
+            {job.status === "failed" ? (canRetry ? <Button className="max-[760px]:self-stretch max-[760px]:justify-center" variant="secondary" icon="sync" tone="info" onClick={() => onRetry(job)}>重新試算</Button> : null) : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : null}
           </div>
         </article>;
       })}
@@ -400,7 +400,7 @@ export function HrPayrollSettlement() {
   const payrollJobList = visiblePayrollJobs(payrollJobs.data?.jobs ?? []);
 
   return <div className="page fills hr-payroll-page">
-    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={canCalculate ? <Button className="add-action" icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
+    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={canCalculate ? <Button tone="success" mobileIconOnly icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     {payrollJobs.error ? <Alert tone="danger">薪資試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
     <PayrollJobProgress jobs={payrollJobList} onRetry={retryJob} canRetry={canCalculate} />
@@ -432,7 +432,7 @@ export function HrPayrollSettlement() {
               <td data-label="扣款" className="numeric">{record.deductionMinor ? deductionMoney(record.deductionMinor) : "—"}</td>
               <td data-label="實領" className="numeric"><strong>{money(record.netMinor)}</strong></td>
               <td data-label="狀態"><StatusBadge tone={recordStatusTone(record.status)}>{PAYROLL_RECORD_STATUS_LABEL[record.status]}</StatusBadge></td>
-              <td data-label="操作"><Button variant="secondary" icon="eye" className="hr-action-info" onClick={() => openRecord(record)}>查看明細</Button></td>
+              <td data-label="操作"><Button variant="secondary" icon="eye" tone="info" onClick={() => openRecord(record)}>查看明細</Button></td>
             </tr>)}</tbody>
         </DataTable>
         {selectedRecords.length ? <SelectionActionBar count={selectedRecords.length} countLabel="筆">{canCalculate ? <Button icon="check" loading={approvePayroll.isPending} onClick={() => setApproveOpen(true)}>確定發放</Button> : null}</SelectionActionBar> : null}

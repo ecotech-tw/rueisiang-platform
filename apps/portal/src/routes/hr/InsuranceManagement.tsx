@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, EmptyState, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, PageHeader, Panel } from "../../ui/index.js";
 import { isHrFormalEmployee, useHrQuery, type Employee, type Employment, type InsuranceVersion, type Profile, type HrFormalEmployee } from "./api.js";
 import { InsuranceEditor } from "./InsuranceEditor.js";
 import { InsuranceRateManagementDialog } from "./InsuranceRateManagementDialog.js";
@@ -72,7 +72,7 @@ function InsuranceRow({ employee, canWrite, onEdit }: { employee: HrFormalEmploy
     <td data-label="眷屬">{health?.status === "enrolled" ? health.dependentCount : "—"}</td>
     <td data-label="資料提醒">{labor?.sourceKind === "manual" || health?.sourceKind === "manual" ? "需人工覆核" : hasInsurance ? "—" : hasHistory ? "待修正" : "待新增"}</td>
     <td data-label="操作"><div className="row-actions">
-      {canWrite && employment ? <Button variant="icon" icon={hasHistory ? "edit" : "plus"} className={hasHistory ? "compensation-action-update" : "compensation-action-add"} title={`${actionLabel}：${employee.legalName}`} aria-label={`${actionLabel}：${employee.legalName}`} onClick={() => onEdit({ employment, existing: hasHistory, insuranceVersions: insurance, defaultSalary: defaultSalary === undefined ? undefined : defaultSalary / 100, dependentCount: health?.dependentCount ?? latestHealth?.dependentCount })} /> : null}
+      {canWrite && employment ? <Button variant="icon" icon={hasHistory ? "edit" : "plus"} tone={hasHistory ? "info" : "success"} title={`${actionLabel}：${employee.legalName}`} aria-label={`${actionLabel}：${employee.legalName}`} onClick={() => onEdit({ employment, existing: hasHistory, insuranceVersions: insurance, defaultSalary: defaultSalary === undefined ? undefined : defaultSalary / 100, dependentCount: health?.dependentCount ?? latestHealth?.dependentCount })} /> : null}
     </div></td>
   </tr>;
 }

@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, LegacyButton as Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, LegacyButton, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { isHrFormalEmployee, useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type HrFormalEmployee, type Profile } from "./api.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
@@ -50,12 +50,12 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
       attendanceMode: mode, monthlyRestDays: mode === "scheduled" ? Number(monthlyRestDays) : null, revision: employment.revision,
       locationIds: toAdd, assignmentsToEnd: toEnd.map((assignment) => ({ id: assignment.id, revision: assignment.revision })),
     } }, { onSuccess: () => { toast.show("出勤範圍已更新。"); (closeRequestRef.current ?? onClose)(); } });
-  } }} actions={<Button type="submit" icon="check" className="hr-action-update" disabled={!employment} loading={save.isPending}>儲存</Button>}>
+  } }} actions={<Button type="submit" icon="check" tone="info" disabled={!employment} loading={save.isPending}>儲存</Button>}>
     <p>出勤範圍決定員工可在哪些辦公位置打卡；排班不會限制員工只能在當日排班位置打卡。移除辦公位置並儲存後，今天起停止可打卡，歷史資料仍會保留。</p>
     {!employment ? <Alert tone="danger">目前沒有活動員工資料，無法設定出勤範圍。</Alert> : null}
     <SelectField label="出勤方式" value={mode} required options={[{ value: "general", label: "一般辦公" }, { value: "scheduled", label: "排班" }]} onChange={(event) => setMode(event.target.value as "general" | "scheduled")} />
     {mode === "scheduled" ? <TextField label="每月休假天數" type="number" min="0" max="31" step="1" required value={monthlyRestDays} onChange={(event) => setMonthlyRestDays(event.target.value)} hint="薪資結算時依實際上班日數與約定月休天數調整月薪。" /> : null}
-    <div className="field hr-attendance-scope-field"><span>可打卡辦公位置</span><div className="hr-bonus-picker-list">{selectedLocationIds.map((locationId, index) => <div key={`${locationId}-${index}`} className="hr-bonus-picker-row"><DropdownSelect value={locationId} aria-label="選擇辦公位置" options={locationOptions.map((option) => ({ ...option, disabled: selectedLocationIds.includes(option.value) && option.value !== locationId }))} onChange={(event) => setSelectedLocationIds((current) => current.map((id, currentIndex) => currentIndex === index ? event.target.value : id))} /><Button type="button" variant="icon" icon="trash" aria-label="移除辦公位置" title="移除辦公位置" onClick={() => setSelectedLocationIds((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></div>)}{!selectedLocationIds.length ? <p className="muted hr-bonus-picker-empty">尚未設定可打卡辦公位置。</p> : null}<Button type="button" variant="chip-action" icon="plus" className="add-action" onClick={addLocation} disabled={selectedLocationIds.length >= locationOptions.length}>{selectedLocationIds.length ? "新增辦公位置" : "新增第一個辦公位置"}</Button></div></div>
+    <div className="field hr-attendance-scope-field"><span>可打卡辦公位置</span><div className="hr-bonus-picker-list">{selectedLocationIds.map((locationId, index) => <div key={`${locationId}-${index}`} className="hr-bonus-picker-row"><DropdownSelect value={locationId} aria-label="選擇辦公位置" options={locationOptions.map((option) => ({ ...option, disabled: selectedLocationIds.includes(option.value) && option.value !== locationId }))} onChange={(event) => setSelectedLocationIds((current) => current.map((id, currentIndex) => currentIndex === index ? event.target.value : id))} /><Button className="justify-self-end" type="button" variant="icon" icon="trash" aria-label="移除辦公位置" title="移除辦公位置" onClick={() => setSelectedLocationIds((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></div>)}{!selectedLocationIds.length ? <p className="muted hr-bonus-picker-empty">尚未設定可打卡辦公位置。</p> : null}<LegacyButton type="button" variant="chip-action" icon="plus" className="add-action" onClick={addLocation} disabled={selectedLocationIds.length >= locationOptions.length}>{selectedLocationIds.length ? "新增辦公位置" : "新增第一個辦公位置"}</LegacyButton></div></div>
     {message || save.error ? <Alert tone="danger">{message || save.error?.message}</Alert> : null}
   </Dialog>;
 }
@@ -72,7 +72,7 @@ function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: HrForma
     <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td>{employment?.attendanceMode === "scheduled" ? "排班" : employment ? "一般辦公" : "—"}</td>
     <td><div className="hr-location-assignment-list">{assignments.length ? assignments.map((assignment) => <span className="hr-location-assignment" key={assignment.id}><span>{assignment.locationName}</span></span>) : <span className="muted">尚未指派</span>}</div></td>
-    <td>{canWrite ? <div className="row-actions"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" className="hr-action-update" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></div> : null}</td>
+    <td>{canWrite ? <div className="row-actions"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></div> : null}</td>
   </tr>;
 }
 

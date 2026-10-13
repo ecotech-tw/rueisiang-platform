@@ -4,7 +4,7 @@ import { useImageFilePreview } from "@rueisiang/ui";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, LegacyButton as Button } from "../../ui/index.js";
+import { Alert, Button } from "../../ui/index.js";
 import { useHrWrite } from "./api.js";
 
 export function EmployeePhoto({ employmentId, revision, name, photo, canWrite, disabled, onBusyChange, onSaved }: { employmentId: string; revision: number; name: string; photo?: { id: string } | null; canWrite: boolean; disabled: boolean; onBusyChange: (busy: boolean) => void; onSaved: () => void }) {
@@ -35,8 +35,8 @@ export function EmployeePhoto({ employmentId, revision, name, photo, canWrite, d
       {canWrite ? <>
         <input ref={input} type="file" accept={HR_EMPLOYEE_PHOTO_TYPES.join(",")} aria-label="選擇員工大頭貼" hidden disabled={disabled || pending} onChange={(event) => choose(event.target.files?.[0])} />
         <div className="hr-employee-photo-actions">
-          <Button variant="secondary" className="hr-action-update" icon="edit" disabled={disabled || pending} onClick={() => input.current?.click()}>{file ? "重選照片" : photo ? "更換大頭貼" : "上傳大頭貼"}</Button>
-          {file ? <><Button variant="secondary" disabled={disabled || pending} onClick={cancel}>取消</Button><Button className="hr-action-update" icon="check" loading={upload.isPending} disabled={disabled || remove.isPending || !photoFile.canSave} onClick={() => {
+          <Button variant="secondary" tone="info" icon="edit" disabled={disabled || pending} onClick={() => input.current?.click()}>{file ? "重選照片" : photo ? "更換大頭貼" : "上傳大頭貼"}</Button>
+          {file ? <><Button variant="secondary" disabled={disabled || pending} onClick={cancel}>取消</Button><Button tone="info" icon="check" loading={upload.isPending} disabled={disabled || remove.isPending || !photoFile.canSave} onClick={() => {
             const formData = new FormData(); formData.set("file", file); formData.set("revision", String(expectedRevision));
             upload.mutate({ path: `/employees/${encodeURIComponent(employmentId)}/photo`, method: "POST", formData }, { onSuccess: () => { cancel(); toast.show("大頭貼已更新"); onSaved(); } });
           }}>儲存大頭貼</Button></> : photo ? <Button variant="secondary" disabled={disabled || pending} onClick={() => { remove.reset(); setExpectedRevision(revision); setConfirmRemove(true); }}>移除大頭貼</Button> : null}

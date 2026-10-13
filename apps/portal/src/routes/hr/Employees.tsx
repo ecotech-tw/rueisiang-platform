@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, LegacyButton as Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type Candidate, type CompensationVersion, type Employee, type Employment, type InsuranceVersion, type LeaveRequest, type NamedOption, type Profile } from "./api.js";
 import { EmployeeProfile } from "./EmployeeProfile.js";
 import { EmployeeSectionNav } from "./EmployeeSectionNav.js";
@@ -45,7 +45,7 @@ function EditorDialog({ editor, onClose, onSuccess }: { editor: Editor; onClose:
   return <Dialog title={editor.title} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     save.mutate({ path: "/employees", method: "POST", values }, { onSuccess: () => { onSuccess(); (closeRequestRef.current ?? onClose)(); } });
-  } }} actions={<Button type="submit" className="add-action" loading={save.isPending}>儲存</Button>}>
+  } }} actions={<Button type="submit" tone="success" loading={save.isPending}>儲存</Button>}>
     <p>{editor.description}</p>
     <fieldset disabled={save.isPending} className="hr-employee-detail-fields hr-employee-create-fields">
       {editor.fields.map((field) => field.options ? <SelectField key={field.key} label={field.label} value={values[field.key] ?? ""} options={[{ value: "", label: "請選擇" }, ...field.options.map((option) => ({ value: option.id, label: option.name }))]} onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} required /> : <TextField key={field.key} label={field.label} type={field.type ?? "text"} value={values[field.key] ?? ""} maxLength={field.maxLength} required onChange={(event) => setValues({ ...values, [field.key]: event.target.value })} />)}
@@ -151,7 +151,7 @@ export function HrEmployees() {
   const sort = (sortField: string, sortDirection: "asc" | "desc") => update({ sortField, sortDirection });
   const candidateOptions: NamedOption[] = (candidates.data?.users ?? []).map((candidate) => ({ id: candidate.userId, name: `${candidate.displayName}（${candidate.email}）` }));
   return <div className="page fills">
-    <PageHeader title="人員列表" description="點選人員進入內頁，維護基本資料並查看完整人事紀錄。" actions={canWrite ? <Button icon="plus" className="add-action" onClick={() => setEditor({ title: "指派新員工", description: "員工必須先存在於平台使用者名單；正式姓名請依身分證件填寫。出勤方式與辦公位置由出勤範圍管理維護。", fields: [{ key: "userId", label: "使用者", options: candidateOptions }, { key: "legalName", label: "正式姓名（身分證）", maxLength: 100 }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }, { key: "serviceStartOn", label: "服務年資起算日", type: "date" }] })}>新增員工</Button> : null} />
+    <PageHeader title="人員列表" description="點選人員進入內頁，維護基本資料並查看完整人事紀錄。" actions={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditor({ title: "指派新員工", description: "員工必須先存在於平台使用者名單；正式姓名請依身分證件填寫。出勤方式與辦公位置由出勤範圍管理維護。", fields: [{ key: "userId", label: "使用者", options: candidateOptions }, { key: "legalName", label: "正式姓名（身分證）", maxLength: 100 }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }, { key: "serviceStartOn", label: "服務年資起算日", type: "date" }] })}>新增員工</Button> : null} />
     <Panel className="grows">
       <div className="hr-employee-status-tabs" role="tablist" aria-label="人員狀態">
         <button type="button" role="tab" aria-selected={filters.employmentStatus === "active"} className={filters.employmentStatus === "active" ? "active" : ""} onClick={() => update({ employmentStatus: "active" })}>在職 <span>{data?.counts.active ?? "—"}</span></button>

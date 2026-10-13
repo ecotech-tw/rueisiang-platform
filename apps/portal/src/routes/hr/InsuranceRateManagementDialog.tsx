@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, LegacyButton as Button, Dialog, SegmentedControl, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, Dialog, SegmentedControl, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type InsuranceRateTableRecord } from "./api.js";
 import { InsuranceRateTableEditor } from "./InsuranceRateTableEditor.js";
 
@@ -37,7 +37,7 @@ export function InsuranceRateManagementDialog({ year, onClose }: { year: number;
         />
         <div className="row-actions">
           <Button icon="sync" loading={getRates.isPending} loadingLabel="取得中…" onClick={() => getRates.mutate({ path: "/insurance-rates/sync", method: "POST", values: { year } }, { onSuccess: refresh })}>取得級距</Button>
-          {draft ? <Button variant="secondary" className="hr-action-update" loading={activateRate.isPending} onClick={() => activateRate.mutate({ path: `/insurance-rates/${draft.id}/activate`, method: "POST", values: { contentHash: draft.contentHash } }, { onSuccess: refresh })}>啟用{SCHEME_LABEL[scheme]}草稿</Button> : null}
+          {draft ? <Button variant="secondary" tone="info" loading={activateRate.isPending} onClick={() => activateRate.mutate({ path: `/insurance-rates/${draft.id}/activate`, method: "POST", values: { contentHash: draft.contentHash } }, { onSuccess: refresh })}>啟用{SCHEME_LABEL[scheme]}草稿</Button> : null}
         </div>
       </div>
       {rates.error || getRates.error || activateRate.error ? <Alert tone="danger">{rates.error?.message ?? getRates.error?.message ?? activateRate.error?.message}</Alert> : null}
