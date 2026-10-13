@@ -244,7 +244,7 @@ describe("HR 前台快速排班", () => {
       expect(quickButton.textContent).toBe("");
       expect(quickButton.querySelector("svg")).not.toBeNull();
       expect(quickButton.classList.contains("rounded-field")).toBe(true);
-      expect(quickButton.classList.contains("border-info")).toBe(true);
+      expect(quickButton.classList.contains("border-0")).toBe(true);
       expect(quickButton.classList.contains("bg-info-soft")).toBe(true);
       expect(quickButton.classList.contains("text-info")).toBe(true);
       expect(quickButton.classList.contains("size-11")).toBe(true);
@@ -255,7 +255,7 @@ describe("HR 前台快速排班", () => {
       expect(save).not.toBeNull(); expect(save.querySelector("svg")).not.toBeNull();
       expect(save.textContent).toBe("");
       expect(save.classList.contains("rounded-field")).toBe(true);
-      expect(save.classList.contains("border-ok")).toBe(true);
+      expect(save.classList.contains("border-0")).toBe(true);
       expect(save.classList.contains("bg-ok-soft")).toBe(true);
       expect(save.classList.contains("text-ok")).toBe(true);
       expect(save.classList.contains("size-11")).toBe(true);

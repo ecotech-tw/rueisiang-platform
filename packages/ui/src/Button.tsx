@@ -2,7 +2,7 @@ import { createContext, useContext, type AnchorHTMLAttributes, type ButtonHTMLAt
 import { Icon, type IconName } from "./icons.js";
 import { DialogContext } from "./dialog-context.js";
 
-type ButtonVariant = "primary" | "secondary" | "danger" | "icon" | "filled-icon" | "link" | "text";
+type ButtonVariant = "primary" | "secondary" | "danger" | "icon" | "filled-icon" | "tonal-icon" | "link" | "text";
 type ButtonTone = "brand" | "success" | "info" | "danger";
 type ButtonSize = "md" | "lg";
 type ButtonSkinName = "solid" | "glass" | "paper" | "floating";
@@ -53,6 +53,7 @@ const FILLED = "rounded-field border-0 px-3.5 py-[7px] text-[13px] font-bold dis
 const OUTLINED = "rounded-field border px-3 py-1.5 text-[12px] whitespace-nowrap disabled:opacity-45";
 const OUTLINED_ACTIVE = "border-secondary bg-brand-soft text-brand-dark";
 const ICON_ONLY = "grid place-items-center rounded-[50%] border-0 p-0 disabled:opacity-40 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5";
+const TONAL_ICON_ONLY = "grid place-items-center rounded-field border-0 p-0 disabled:opacity-50 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5";
 
 const FILLED_TONE: Record<ButtonTone, string> = {
   brand: "bg-brand text-white not-disabled:hover:bg-brand-dark",
@@ -71,6 +72,12 @@ const ICON_TONE: Record<ButtonTone, string> = {
   success: "bg-transparent text-ok not-disabled:hover:bg-ok-soft",
   info: "bg-transparent text-info not-disabled:hover:bg-info-soft",
   danger: "bg-transparent text-muted not-disabled:hover:bg-brand-soft not-disabled:hover:text-brand-dark",
+};
+const TONAL_ICON_TONE: Record<ButtonTone, string> = {
+  brand: "bg-brand-soft text-brand-dark not-disabled:hover:bg-brand/12",
+  success: "bg-ok-soft text-ok not-disabled:hover:bg-[color-mix(in_srgb,var(--color-ok-soft)_86%,var(--color-ok))]",
+  info: "bg-info-soft text-info not-disabled:hover:bg-[color-mix(in_srgb,var(--color-info-soft)_86%,var(--color-info))]",
+  danger: "bg-brand-soft text-brand-dark not-disabled:hover:bg-[color-mix(in_srgb,var(--color-brand-soft)_86%,var(--color-brand))]",
 };
 
 const GLASS = "[backdrop-filter:blur(6px)_saturate(145%)]";
@@ -92,6 +99,12 @@ const GLASS_ICON_TONE: Record<ButtonTone, string> = {
   info: "bg-paper/22 text-info [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-info-soft",
   danger: "bg-paper/22 text-brand-dark [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-brand-soft",
 };
+const GLASS_TONAL_ICON_TONE: Record<ButtonTone, string> = {
+  brand: "bg-brand/12 text-brand-dark [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-brand/18",
+  success: "bg-ok/12 text-ok [box-shadow:var(--shadow-glass-tint-ok)] not-disabled:hover:bg-ok-soft",
+  info: "bg-info/12 text-info [box-shadow:var(--shadow-glass-tint-info)] not-disabled:hover:bg-info-soft",
+  danger: "bg-brand/12 text-brand-dark [box-shadow:var(--shadow-glass)] not-disabled:hover:bg-brand/18",
+};
 
 const FLOATING = "[box-shadow:var(--shadow-panel)]";
 
@@ -101,12 +114,13 @@ function appearance(variant: ButtonVariant, tone: ButtonTone, size: ButtonSize, 
   const lifted = skin === "floating" ? FLOATING : "";
   // paper／floating 只把透明底換成紙色；有語意色的按鈕本來就有底，不受影響。
   const onSurface = (look: string, fill: string) => (skin === "paper" || skin === "floating" ? look.replace("bg-transparent", fill) : look);
-  if (variant === "icon" || variant === "filled-icon") {
+  if (variant === "icon" || variant === "filled-icon" || variant === "tonal-icon") {
     const sizeClass = size === "lg" ? "size-11" : "size-10";
     const filled = variant === "filled-icon";
-    const solidTone = filled ? FILLED_TONE[tone] : onSurface(ICON_TONE[tone], skin === "paper" ? "bg-paper/88" : "bg-paper");
-    const glassTone = filled ? GLASS_FILLED_TONE[tone] : GLASS_ICON_TONE[tone];
-    return [ICON_ONLY, sizeClass, ...(glass ? [GLASS, glassTone] : [solidTone, lifted])];
+    const tonal = variant === "tonal-icon";
+    const solidTone = filled ? FILLED_TONE[tone] : tonal ? TONAL_ICON_TONE[tone] : onSurface(ICON_TONE[tone], skin === "paper" ? "bg-paper/88" : "bg-paper");
+    const glassTone = filled ? GLASS_FILLED_TONE[tone] : tonal ? GLASS_TONAL_ICON_TONE[tone] : GLASS_ICON_TONE[tone];
+    return [tonal ? TONAL_ICON_ONLY : ICON_ONLY, sizeClass, ...(glass ? [GLASS, glassTone] : [solidTone, lifted])];
   }
   if (variant === "link") return ["border-0 bg-transparent p-0 text-[12px] text-brand underline disabled:opacity-45", FOCUS, hasIcon ? "inline-flex items-center gap-1.5 [&_svg]:size-[18px] [&_svg]:flex-none" : ""];
   if (variant === "text") return ["inline-flex min-h-11 items-center gap-1 border-0 bg-transparent px-0 py-1 text-[13px] font-bold text-brand disabled:opacity-45 [&_svg]:size-[18px] [&_svg]:flex-none", FOCUS];
