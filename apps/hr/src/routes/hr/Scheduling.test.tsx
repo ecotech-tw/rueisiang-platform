@@ -107,7 +107,8 @@ describe("HR 前台快速排班", () => {
       await page.click("鎖定本據點排班");
       expect(document.body.textContent).toContain("其他據點不受影響");
       await page.click("確認鎖定");
-      expect(page.writes[0]).toMatchObject({ path: "/api/hr/me/schedules/lock", method: "POST", values: { periodKey: "2026-02", scopeId: "store", revision: 0, locked: true } });
+      expect(new URL(page.writes[0]!.path, "https://hr.test").pathname).toBe("/api/hr/me/schedules/lock");
+      expect(page.writes[0]).toMatchObject({ method: "POST", values: { periodKey: "2026-02", scopeId: "store", revision: 0, locked: true } });
       expect(document.querySelector<HTMLButtonElement>('[aria-label="開鎖本據點排班"]')?.disabled).toBe(false);
       expect(document.querySelector<HTMLButtonElement>('[aria-label="快速排班"]')?.disabled).toBe(true);
       await page.click("開鎖本據點排班");
