@@ -100,7 +100,7 @@ export function HrLeaveGrants() {
   const rows = grants.data?.grants ?? [];
   const total = grants.data?.total ?? 0;
   const issueTypes = (leaveTypes.data?.leaveTypes ?? []).filter((type) => type.active && type.leaveKind === "grant");
-  const allLeaveTypes = leaveTypes.data?.leaveTypes ?? [];
+  const grantLeaveTypes = (leaveTypes.data?.leaveTypes ?? []).filter((type) => type.leaveKind === "grant");
   const today = todayTaipei();
   const updateFilters = (patch: Partial<typeof filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
 
@@ -117,10 +117,11 @@ export function HrLeaveGrants() {
     {grants.error || employees.error || leaveTypes.error || revoke.error ? <Alert tone="danger">{grants.error?.message ?? employees.error?.message ?? leaveTypes.error?.message ?? revoke.error?.message}</Alert> : null}
     {!issueTypes.length ? <Alert tone="warning">尚無啟用中的額度發放假別；請先至「假別管理」新增或啟用一個額度發放假別。</Alert> : null}
     {!employees.data?.employees.length ? <Alert tone="warning">目前沒有可發放額度的在職員工。</Alert> : null}
-    <Panel className="grows" title="發放紀錄" description="依效期、假別或員工查找發放批次；已撤銷與已用完的紀錄仍保留供查核。" actions={<SegmentedControl aria-label="額度效期篩選" value={filters.expiry} options={[{ value: "unexpired", label: "未過期" }, { value: "expired", label: "已過期" }, { value: "all", label: "全部紀錄" }]} onChange={(expiry) => updateFilters({ expiry: expiry as typeof filters.expiry })} />}>
+    <Panel className="grows" title="發放紀錄">
       <FilterToolbar>
         <SearchFilterInput label="搜尋發放紀錄" placeholder="員工姓名、編號、假別或備註" value={filters.search} onSearch={(search) => updateFilters({ search })} />
-        <FilterSelect label="假別" value={filters.leaveTypeId} options={[{ value: "all", label: "全部假別" }, ...allLeaveTypes.map((type) => ({ value: type.id, label: type.name }))]} onChange={(event) => updateFilters({ leaveTypeId: event.target.value })} />
+        <FilterSelect label="額度假別" value={filters.leaveTypeId} options={[{ value: "all", label: "全部額度假別" }, ...grantLeaveTypes.map((type) => ({ value: type.id, label: type.name }))]} onChange={(event) => updateFilters({ leaveTypeId: event.target.value })} />
+        <SegmentedControl className="w-fit" aria-label="額度效期篩選" value={filters.expiry} options={[{ value: "unexpired", label: "未過期" }, { value: "expired", label: "已過期" }, { value: "all", label: "全部紀錄" }]} onChange={(expiry) => updateFilters({ expiry: expiry as typeof filters.expiry })} />
       </FilterToolbar>
       {grants.isFetching ? <p className="muted table-note">更新中…</p> : null}
       <DataTable><thead><tr><th>假別／員工</th><th>發放與效期</th><th>額度</th><th>狀態</th><th>備註</th><th>操作</th></tr></thead><tbody>
