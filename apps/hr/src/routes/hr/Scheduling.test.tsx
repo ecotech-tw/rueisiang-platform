@@ -66,6 +66,8 @@ async function openMobileQuick() {
   });
 }
 
+function personSelection() { return document.querySelector<HTMLButtonElement>('[aria-label="人員"]')?.textContent ?? ""; }
+
 describe("HR 前台快速排班", () => {
   it("保留右下角人數；足額才特別上色，缺額沿用既有透明或排班底色", async () => {
     const initial = data();
@@ -189,8 +191,9 @@ describe("HR 前台快速排班", () => {
     const page = await renderPage(initial);
     try {
       expect(document.body.textContent).not.toContain("人員類型");
-      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="開啟人員選單"]')!.click());
-      expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual([expect.stringContaining("E1・小明"), expect.stringContaining("支援小美（支援）")]);
+      expect(document.querySelector('input[aria-label="人員"]')).toBeNull();
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="人員"]')!.click());
+      expect([...document.querySelectorAll('[role="option"]')].map((option) => option.textContent)).toEqual([expect.stringContaining("不選擇人員"), expect.stringContaining("E1・小明"), expect.stringContaining("支援小美（支援）")]);
       await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("支援小美"))!.click());
       await page.clickDate("2026-02-07"); await page.save();
       expect(page.writes[0]!.values.entries).toEqual([expect.objectContaining({ personKind: "worker", workerId: "worker", shiftVersionId: "weekend" })]);
@@ -206,13 +209,14 @@ describe("HR 前台快速排班", () => {
       await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes(text))!.click());
     };
     try {
-      expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toContain("支援小美");
-      await select("晚班"); expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toContain("支援小美");
+      expect(personSelection()).toContain("支援小美");
+      await select("晚班"); expect(personSelection()).toContain("支援小美");
       await select("空名單"); expect(document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 排班"]')!.disabled).toBe(true);
-      await select("早班"); expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toContain("支援小美");
-      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="清除選擇"]')!.click());
-      expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toBe("");
-      await select("晚班"); expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toBe("");
+      await select("早班"); expect(personSelection()).toContain("支援小美");
+      await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="人員"]')!.click());
+      await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("不選擇人員"))!.click());
+      expect(personSelection()).toContain("不選擇人員");
+      await select("晚班"); expect(personSelection()).toContain("不選擇人員");
       expect(document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 排班"]')!.disabled).toBe(true);
       await page.clickDate("2026-02-07"); await page.save(); expect(page.writes).toHaveLength(0);
     } finally { await page.cleanup(); }
@@ -224,10 +228,10 @@ describe("HR 前台快速排班", () => {
     initial.shifts = [...initial.shifts.map((shift) => ({ ...shift, allowedPersonIds: ["employee"] })), { ...shift, name: "晚班", templateId: "late", versionId: "late-weekday", allowedPersonIds: ["other"] }];
     const page = await renderPage(initial);
     try {
-      expect((document.querySelector('[aria-label="人員"]') as HTMLInputElement).value).toContain("小明");
+      expect(personSelection()).toContain("小明");
       await act(async () => (document.querySelector('[aria-label="班別"]') as HTMLButtonElement).click());
       await act(async () => ([...document.querySelectorAll('[role="option"]')].find((option) => option.textContent?.includes("晚班")) as HTMLElement).click());
-      expect((document.querySelector('[aria-label="人員"]') as HTMLInputElement).value).toContain("小華");
+      expect(personSelection()).toContain("小華");
       await page.clickDate("2026-02-07"); await page.save();
       expect(page.writes[0]!.values.entries).toMatchObject([{ employmentId: "other" }]);
     } finally { await page.cleanup(); }
@@ -271,10 +275,10 @@ describe("HR 前台快速排班", () => {
       expect(document.querySelector('[role="dialog"]')).toBeNull();
       expect(document.querySelector('h1')!.textContent).toBe("快速排班");
       expect(document.querySelector('[aria-label="據點月曆"]')).toBeNull();
-      await act(async () => (document.querySelector('[aria-label="開啟人員選單"]') as HTMLButtonElement).click());
+      await act(async () => (document.querySelector('[aria-label="人員"]') as HTMLButtonElement).click());
       await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("支援小美"))!.click());
       for (const day of ["07", "08", "09", "09"]) await act(async () => (document.querySelector(`[aria-label="2026-02-${day} 快速排班"]`) as HTMLButtonElement).click());
-      expect(document.querySelector<HTMLInputElement>('[aria-label="人員"]')!.value).toContain("支援小美");
+      expect(personSelection()).toContain("支援小美");
       expect(document.body.textContent).toContain("尚未儲存：新增 2 筆");
       await page.click("儲存排班");
       expect(page.writes[0]!.values.entries).toMatchObject([
