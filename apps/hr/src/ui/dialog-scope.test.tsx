@@ -4,6 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import { Button, Dialog, DialogScope, Panel } from "./index.js";
 import { Icon } from "../shell/icons.js";
+import { ButtonSkin } from "@rueisiang/ui";
 
 let root: Root | null = null;
 let host: HTMLElement | null = null;
@@ -40,12 +41,17 @@ describe("Icon 線寬契約", () => {
 
 describe("圖示按鈕觸控尺寸", () => {
   it("預設圖示維持 40px，lg 儲存圖示提供 44px 且只有一個尺寸 class", async () => {
-    await render(<><Button variant="icon" icon="save" aria-label="預設儲存" /><Button variant="icon" size="lg" icon="save" aria-label="儲存排班" /></>);
+    await render(<><Button variant="icon" icon="save" aria-label="預設儲存" /><Button variant="icon" size="lg" icon="save" aria-label="儲存排班" /><ButtonSkin skin="glass"><Button variant="icon" icon="save" aria-label="玻璃預設儲存" /><Button variant="icon" size="lg" icon="save" aria-label="玻璃儲存排班" /></ButtonSkin></>);
     const buttons = [...host!.querySelectorAll("button")];
     expect(buttons[0]!.classList.contains("size-10")).toBe(true);
     expect(buttons[1]!.classList.contains("size-11")).toBe(true);
     expect(buttons[1]!.classList.contains("size-10")).toBe(false);
     expect(buttons[1]!.querySelector("svg")).not.toBeNull();
+    expect(buttons[2]!.classList.contains("size-10")).toBe(true);
+    expect(buttons[3]!.classList.contains("size-11")).toBe(true);
+    expect(buttons[3]!.classList.contains("size-10")).toBe(false);
+    expect(buttons[3]!.classList.contains("bg-paper/22")).toBe(true);
+    expect(buttons[3]!.classList.contains("bg-transparent")).toBe(false);
   });
 });
 

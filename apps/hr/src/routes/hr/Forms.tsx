@@ -508,7 +508,7 @@ export function HrForms() {
     {/* 從通知點進來只會看到那一筆（或那一批）；待審清單還有別的時要有路回到全部。 */}
     {reviewFiltered && reviewTotal > reviewShown ? <Button variant="text" className="justify-self-start" onClick={() => clearParams("review", "reviewBatch")}>查看全部 {reviewTotal} 筆待審</Button> : null}
     {recordsFiltered ? <Button variant="text" className="justify-self-start" onClick={() => clearParams("batch", "focus")}>{focusId ? "目前只顯示通知提到的申請，改看全部" : "目前只顯示同一批送出的加班，改看全部"}</Button> : null}
-    <div className="hr-form-sticky-controls">
+    <div className="hr-form-sticky-controls top-12">
       <div className="hr-form-tabs-shell">
         <SegmentedControl className="hr-form-tabs" aria-label="申請表單類型" options={tabOptions} value={activeTab} onChange={(value) => selectTab(formTab(value))} />
       </div>

@@ -27,6 +27,8 @@ it.each([
       <Route path="/forms/overtime" element={<p>加班表單</p>} />
       <Route path="/forms/new" element={<p>補打卡表單</p>} />
     </Routes></MemoryRouter></QueryClientProvider>));
+    expect(container.querySelector('[aria-label="返回導覽"]')!.classList.contains("h-12")).toBe(true);
+    expect(container.querySelector(".hr-form-sticky-controls")!.classList.contains("top-12")).toBe(true);
     const button = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label || item.getAttribute("aria-label") === label)!;
     expect(button).toBeDefined();
     await act(async () => button.click());
