@@ -387,10 +387,6 @@
 .hr-payslip-lines li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--color-soft-line); font-size: 13px; }
 .hr-payslip-lines li strong { flex: none; font-variant-numeric: tabular-nums; }
 
-.page.fills > .page-head,
-.page.fills > details,
-.page.fills > .ui-alert { flex: none; }
-
 .page > * + * { margin-top: 20px; }
  
 .page > .panel + .panel { margin-top: 20px; }
