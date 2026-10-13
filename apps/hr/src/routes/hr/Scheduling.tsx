@@ -229,7 +229,6 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
             </div>;
           })}
         </div>
-        <p className="m-0 text-[10px] text-muted" aria-label="需求人力圖例">右下角為已排人數；日期底色：<span className="text-ok">足額</span>・<span className="text-brand-dark">超額</span>（缺額不特別著色；待確認／已出勤計入，未出勤不計）</p>
         {specialDays.length ? <p className="m-0 text-[11px] text-muted" aria-label="本月節慶">{specialDays.map((day) => `${Number(day.date.slice(5, 7))}/${Number(day.date.slice(8))} ${day.name || "公司特別日"}`).join("、")}</p> : null}
       </div>
     </Panel>

@@ -75,6 +75,7 @@ describe("HR 前台快速排班", () => {
       const fullDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-06 排班"]');
       const shortDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 排班"]');
       const emptyDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-08 排班"]');
+      expect(document.querySelector('[aria-label="需求人力圖例"]')).toBeNull();
       expect(fullDay?.querySelector("span.absolute")?.textContent).toBe("1");
       expect(fullDay?.className).toContain("bg-ok/32");
       expect(fullDay?.className).toContain("enabled:hover:bg-ok/40");
