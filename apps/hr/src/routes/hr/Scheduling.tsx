@@ -39,7 +39,7 @@ function dayTypeLabel(dayType: HrScheduleResponse["calendar"][number]["dayType"]
 
 const dateClass = "relative grid min-h-11 w-full min-w-0 place-items-center rounded-field border-0 text-sm font-semibold tabular-nums transition-[background-color,color,scale] duration-150 ease-out enabled:hover:bg-brand/7 enabled:active:scale-[.96] focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:enabled:active:scale-100";
 
-function ScheduleEditor({ data, quick, onQuickChange, exitRequestRef, onReload, onChangeState }: { data: HrScheduleResponse; quick: boolean; onQuickChange: (quick: boolean) => void; exitRequestRef: ExitRequestRef; onReload: () => Promise<HrScheduleResponse | undefined>; onChangeState: (dirty: boolean, pending: boolean) => void }) {
+function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitRequestRef, onReload, onChangeState }: { data: HrScheduleResponse; quick: boolean; monthDirection: -1 | 0 | 1; onQuickChange: (quick: boolean) => void; exitRequestRef: ExitRequestRef; onReload: () => Promise<HrScheduleResponse | undefined>; onChangeState: (dirty: boolean, pending: boolean) => void }) {
   const [baseline, setBaseline] = useState(data);
   const [draft, setDraft] = useState(data.entries);
   const [selectedPersonValue, setPersonValue] = useState<string | null>(null);
@@ -49,6 +49,7 @@ function ScheduleEditor({ data, quick, onQuickChange, exitRequestRef, onReload, 
   const saving = useRef(false);
   const [settling, setSettling] = useState(false);
   const isMobile = useMobileScheduleView();
+  const [monthEntered, setMonthEntered] = useState(monthDirection === 0);
   const [message, setMessage] = useState<string | null>(null);
   const [savedNeedsReload, setSavedNeedsReload] = useState(false);
   const [reloadRequired, setReloadRequired] = useState(false);
@@ -59,6 +60,12 @@ function ScheduleEditor({ data, quick, onQuickChange, exitRequestRef, onReload, 
   const pending = save.isPending || settling;
   const disabled = pending || savedNeedsReload || reloadRequired || Boolean(data.version?.locked) || stale;
   useEffect(() => { onChangeState((dirty || (quick && changes.refreshIds.length > 0)) && !savedNeedsReload, pending); }, [dirty, quick, changes.refreshIds.length, savedNeedsReload, pending, onChangeState]);
+  useEffect(() => {
+    if (monthDirection === 0) { setMonthEntered(true); return; }
+    setMonthEntered(false);
+    const frame = requestAnimationFrame(() => setMonthEntered(true));
+    return () => cancelAnimationFrame(frame);
+  }, [data.periodKey, monthDirection]);
   // 背景重抓不能吃掉草稿；保留舊 revision，讓 API 拒絕覆蓋他人的變更。
   useEffect(() => {
     if (!dirty && !pending && !savedNeedsReload) { setBaseline(data); setDraft(data.entries); }
@@ -158,7 +165,7 @@ function ScheduleEditor({ data, quick, onQuickChange, exitRequestRef, onReload, 
   </>;
   return <>
     {!isMobile ? <Panel>{fields}<p className="mt-1 text-sm text-muted">{personSummary}</p>{availability}</Panel> : null}
-    <Panel density={isMobile || quick ? "compact" : "default"} className="min-w-0">
+    <Panel density={isMobile || quick ? "compact" : "default"} className={`min-w-0 transition-[opacity,translate] duration-150 ease-out motion-reduce:transition-none ${monthEntered ? "translate-x-0 opacity-100" : `${monthDirection > 0 ? "translate-x-2" : "-translate-x-2"} opacity-0`}`}>
       <div className="grid gap-1" aria-label={quick ? "快速排班日期" : "據點月曆"}>
         <div className="grid grid-cols-7 text-center text-xs text-muted" aria-hidden="true">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div>
         <div className={`grid grid-cols-7 ${isMobile ? "gap-0.5" : "gap-1"}`}>
@@ -222,6 +229,7 @@ export function HrScheduling() {
   const scopes = useHrQuery<{ scopes: ScheduleScope[] }>("/me/schedule-scopes");
   const [scopeId, setScopeId] = useState("");
   const [month, setMonth] = useState(currentMonth);
+  const [monthDirection, setMonthDirection] = useState<-1 | 0 | 1>(0);
   const [quick, setQuick] = useState(false);
   const exitRequestRef: ExitRequestRef = useRef(null);
   const handledNavigation = useRef<ReturnType<typeof useBlocker> | null>(null);
@@ -269,16 +277,23 @@ export function HrScheduling() {
     <HrBackBar label={quick ? "返回月曆" : "返回工作"} disabled={editState.pending} onBack={() => void goBack()} />
     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
       <h1 ref={headingRef} tabIndex={-1} className="m-0 text-xl outline-none">{quick ? "快速排班" : "排班"}</h1>
-      {selectedScopeId ? <div className="w-full min-w-0 max-w-xs justify-self-end"><SelectField aria-label="營運據點" value={selectedScopeId} disabled={quick || editState.pending} options={(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => { if (confirmLeave()) { setScopeId(event.target.value); setEditState({ dirty: false, pending: false }); } }} /></div> : null}
+      {selectedScopeId ? <div className="w-full min-w-0 max-w-xs justify-self-end"><SelectField aria-label="營運據點" value={selectedScopeId} disabled={quick || editState.pending} options={(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => { if (confirmLeave()) { setMonthDirection(0); setScopeId(event.target.value); setEditState({ dirty: false, pending: false }); } }} /></div> : null}
     </div>
     {scopes.error ? <Alert tone="danger">{scopes.error.message}</Alert> : null}
     {scopes.isPending ? <p>載入據點中…</p> : null}
     {scopes.data && !scopes.data.scopes.length ? <EmptyState>目前沒有負責的排班據點，請聯絡 HR 指派。</EmptyState> : null}
     {selectedScopeId ? <Panel density="compact" className="grid gap-1">
-      <div className="flex items-center gap-1" aria-label="排班月份"><Button variant="icon" icon="chevronLeft" aria-label="上個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonth(nextMonth(month, -1)); setEditState({ dirty: false, pending: false }); } }} /><strong className="flex-1 text-center text-sm tabular-nums">{month.slice(0, 4)} 年 {Number(month.slice(5))} 月</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonth(nextMonth(month, 1)); setEditState({ dirty: false, pending: false }); } }} />{isMobile || quick ? <div className="flex w-20 shrink-0 justify-end">{quick ? <Tooltip label="儲存排班" focusable={false}><Button variant="filled-icon" size="lg" icon="save" aria-label="儲存排班" loading={editState.pending} loadingLabel={<span className="sr-only">儲存中…</span>} onClick={() => void goBack()} /></Tooltip> : <Button variant="primary" size="lg" disabled={editState.pending || Boolean(schedule.data?.version?.locked) || !schedule.data?.shifts.length} onClick={() => setQuick(true)}>快速排班</Button>}</div> : null}</div>
+      <div className="flex items-center gap-1" aria-label="排班月份"><Button variant="icon" icon="chevronLeft" aria-label="上個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(-1); setMonth(nextMonth(month, -1)); setEditState({ dirty: false, pending: false }); } }} /><strong className="flex-1 text-center text-sm tabular-nums">{month.slice(0, 4)} 年 {Number(month.slice(5))} 月</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(1); setMonth(nextMonth(month, 1)); setEditState({ dirty: false, pending: false }); } }} />{isMobile || quick ? <div className="flex w-20 shrink-0 justify-end">{quick ? <Tooltip label="儲存排班" focusable={false}><Button variant="filled-icon" size="lg" icon="save" aria-label="儲存排班" loading={editState.pending} loadingLabel={<span className="sr-only">儲存中…</span>} onClick={() => void goBack()} /></Tooltip> : <Button variant="primary" size="lg" disabled={editState.pending || Boolean(schedule.data?.version?.locked) || !schedule.data?.shifts.length} onClick={() => setQuick(true)}>快速排班</Button>}</div> : null}</div>
     </Panel> : null}
-    {selectedScopeId && schedule.isPending ? <p>載入班表中…</p> : null}
+    {selectedScopeId && schedule.isPending ? <div role="status" aria-label="載入班表中" aria-live="polite" aria-busy="true">
+      <Panel density="compact" className="grid gap-2">
+        <div className="flex items-center gap-2 text-sm text-muted"><span className="size-4 animate-spin rounded-full border-2 border-line border-t-brand motion-reduce:animate-none" aria-hidden="true" />載入班表中…</div>
+        <div className="grid grid-cols-7 gap-0.5" aria-hidden="true">
+          {Array.from({ length: 35 }, (_, index) => <div className="min-h-11 rounded-field bg-canvas motion-safe:animate-pulse" key={index} />)}
+        </div>
+      </Panel>
+    </div> : null}
     {schedule.error ? <Alert tone="danger">{schedule.error.message}</Alert> : null}
-    {selectedScopeId && schedule.data ? <ScheduleEditor key={`${month}:${selectedScopeId}`} data={schedule.data} quick={quick} onQuickChange={setQuick} exitRequestRef={exitRequestRef} onChangeState={(dirty, pending) => setEditState((current) => current.dirty === dirty && current.pending === pending ? current : { dirty, pending })} onReload={async () => { const result = await schedule.refetch(); return result.isError ? undefined : result.data; }} /> : null}
+    {selectedScopeId && schedule.data ? <ScheduleEditor key={`${month}:${selectedScopeId}`} data={schedule.data} quick={quick} monthDirection={monthDirection} onQuickChange={setQuick} exitRequestRef={exitRequestRef} onChangeState={(dirty, pending) => setEditState((current) => current.dirty === dirty && current.pending === pending ? current : { dirty, pending })} onReload={async () => { const result = await schedule.refetch(); return result.isError ? undefined : result.data; }} /> : null}
   </div>;
 }

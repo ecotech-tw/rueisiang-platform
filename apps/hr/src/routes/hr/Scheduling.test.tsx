@@ -476,6 +476,38 @@ describe("HR 前台快速排班", () => {
     } finally { await page.cleanup(); }
   });
 
+  it("切換月份顯示動態載入骨架，班表載入後按月份方向淡入滑動", async () => {
+    const page = await renderPage(data());
+    const originalFetch = globalThis.fetch;
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => { finish = resolve; });
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes("periodKey=2026-03")) {
+        await pending;
+        const march = data();
+        march.periodKey = "2026-03";
+        march.period = { start: "2026-03-01", end: "2026-04-01" };
+        march.calendar = Array.from({ length: 31 }, (_, index) => ({ ...march.calendar[0]!, date: `2026-03-${String(index + 1).padStart(2, "0")}` }));
+        return Response.json(march);
+      }
+      return originalFetch(input, init);
+    });
+    try {
+      await page.click("下個月");
+      const loading = document.querySelector('[role="status"][aria-label="載入班表中"]')!;
+      expect(loading.getAttribute("aria-busy")).toBe("true");
+      expect(loading.querySelector(".animate-spin")).not.toBeNull();
+      expect(loading.querySelector(".motion-safe\\:animate-pulse")).not.toBeNull();
+      await act(async () => { finish(); await new Promise((resolve) => setTimeout(resolve, 30)); });
+      expect(document.querySelector('[role="status"][aria-label="載入班表中"]')).toBeNull();
+      expect(document.querySelector('[aria-label="排班月份"]')!.textContent).toContain("2026 年 3 月");
+      const calendar = document.querySelector(".hr-front-schedule-page section.panel.min-w-0")!;
+      expect(calendar.className).toContain("transition-[opacity,translate]");
+      expect(calendar.className).toContain("duration-150");
+      expect(calendar.className).toContain("motion-reduce:transition-none");
+    } finally { finish(); await page.cleanup(); }
+  });
+
   it("手機快速排班會提示既有班別過期，不在未告知下重套歷史排班", async () => {
     const initial = data(); initial.shifts = initial.shifts.map((shift) => ({ ...shift, startSecond: shift.startSecond + 3600 }));
     const page = await renderMobilePage(initial);
