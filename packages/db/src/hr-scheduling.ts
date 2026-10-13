@@ -483,7 +483,9 @@ export async function setHrScheduleScopeLock(db: Database, periodKey: string, sc
       SELECT ${event.id}, ${event.entityType}, ${event.entityId}, ${event.eventType}, ${event.summary}, ${event.source}, ${event.actorType}, ${event.actorId}, ${event.actorEmail}, ${event.payloadJson} WHERE changes()=1`,
   ]), true);
   const rows = result[0]?.results as Array<{ revision?: number }> | undefined;
-  return { scopeId, revision: rows?.[0]?.revision ?? input.revision + 1, locked: input.locked };
+  const revision = rows?.[0]?.revision;
+  if (revision === undefined) throw new HrError(409, "據點排班鎖定狀態已變更，請重新整理。 ");
+  return { scopeId, revision, locked: input.locked };
 }
 
 export async function setHrScheduleLock(db: Database, periodKey: string, input: { revision: number; locked: boolean }, actor: HrActor) {

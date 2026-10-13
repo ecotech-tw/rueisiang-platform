@@ -224,6 +224,7 @@ describe("據點負責人的 HR 前台排班", () => {
     expect(await locked.json()).toMatchObject({ scopeId: "store-a", revision: 1, locked: true });
     const own = await request("/me/schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "scheduler");
     expect(await own.json()).toMatchObject({ version: { locked: true }, scopeLock: { revision: 1, locked: true } });
+    expect((await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 0, locked: false }, "scheduler")).status).toBe(409);
     expect((await changes({ entries: [entry("worker-2", "2026-02-09")] }, "scheduler")).status).toBe(409);
     expect((await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-b", revision: 0, locked: true }, "scheduler")).status).toBe(403);
 
