@@ -1764,13 +1764,16 @@ describe("AI 助理 Sandbox", () => {
   it("訂單編號 mapping 後仍找不到時不暴露 CYBERBIZ internal order ID", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
 
+    // 14 位數：送給模型的內容還帶著 tool call id 裡的 Date.now()（13 位）與 retrievedAt，
+    // 短的 ID（原本是 301）偶爾會剛好是時間戳的一段，讓下面的 not.toContain 誤判成外洩。
+    const internalOrderId = 90_000_000_000_301;
     let geminiCalls = 0;
     const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = String(input);
       if (url.includes("/v1/orders/get_order_id")) {
         const parsed = new URL(url);
         if (parsed.searchParams.get("order_numbers") === "56714") {
-          return new Response(JSON.stringify([{ order_number: 56714, order_id: 301 }]), {
+          return new Response(JSON.stringify([{ order_number: 56714, order_id: internalOrderId }]), {
             status: 200,
             headers: { "Content-Type": "application/json" },
           });
@@ -1780,7 +1783,7 @@ describe("AI 助理 Sandbox", () => {
           headers: { "Content-Type": "application/json" },
         });
       }
-      if (url.endsWith("/v1/orders/301")) {
+      if (url.endsWith(`/v1/orders/${internalOrderId}`)) {
         return new Response(JSON.stringify({ error: "找不到訂單" }), {
           status: 404,
           headers: { "Content-Type": "application/json" },
@@ -1802,7 +1805,7 @@ describe("AI 助理 Sandbox", () => {
       expect(contents).toContain("notFoundOrderNumbers");
       expect(contents).toContain("56714");
       expect(contents).not.toContain("notFoundOrderIds");
-      expect(contents).not.toContain("301");
+      expect(contents).not.toContain(String(internalOrderId));
       return new Response(JSON.stringify({
         candidates: [{ content: { parts: [{ text: "找不到訂單 #56714。" }] } }],
       }), { status: 200, headers: { "Content-Type": "application/json" } });
