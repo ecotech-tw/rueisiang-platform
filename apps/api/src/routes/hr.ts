@@ -14,8 +14,8 @@ import {
   isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
   approveHrOvertimeBatch, cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, MAX_OVERTIME_CANCELLATION_ENTRIES, reviewHrOvertimeRequest, updateHrOvertimeRequest,
-  HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
-  calculateHrLeaveDuration, calculateHrLeaveEnd, cancelHrLeaveRequest, createHrLeaveRequest, getHrSelfLeaveMonths, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfAnnualLeave, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, updateHrLeaveRequest,
+  HR_LEAVE_GRANT_PAGE_SIZES, HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
+  calculateHrLeaveDuration, calculateHrLeaveEnd, cancelHrLeaveRequest, createHrLeaveGrantBatch, createHrLeaveRequest, getHrSelfLeaveMonths, listHrLeaveGrantBatches, listHrLeaveGrantEmployees, listHrLeaveRequests, listHrLeaveReviewRequests, listHrSelfAnnualLeave, listHrSelfLeaveTypeOptions, reviewHrLeaveRequest, revokeHrLeaveGrant, updateHrLeaveRequest,
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, deleteHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
@@ -454,6 +454,7 @@ function leaveDateTimeValue(input: Record<string, unknown>, key: "startsAt" | "e
 function leaveDurationInput(input: Record<string, unknown>, employeeUserId: string) {
   return {
     employeeUserId,
+    ...(input.leaveTypeId === undefined ? {} : { leaveTypeId: text(input, "leaveTypeId", "假別", 200) }),
     startsAt: leaveDateTimeValue(input, "startsAt", "startAt", "請假開始時間"),
     endsAt: leaveDateTimeValue(input, "endsAt", "endAt", "請假結束時間"),
   } as const;
@@ -467,11 +468,12 @@ function leaveRequestInput(input: Record<string, unknown>, employeeUserId: strin
   } as const;
 }
 function leaveTypeInput(input: Record<string, unknown>) {
-  const leaveKind = input.leaveKind === undefined ? "other" : input.leaveKind === "annual" ? "annual" : input.leaveKind === "other" ? "other" : null;
+  const leaveKind = input.leaveKind === undefined ? "other" : input.leaveKind === "annual" ? "annual" : input.leaveKind === "grant" ? "grant" : input.leaveKind === "other" ? "other" : null;
   if (!leaveKind) throw new HTTPException(400, { message: "假別類型不正確。" });
   return {
     name: text(input, "name", "假別名稱", 80),
     leaveKind,
+    scheduleCheckRequired: booleanValue(input, "scheduleCheckRequired", "班表檢查", true),
     defaultPayRatePpm: integerValue(input, "defaultPayRatePpm", "預設給薪比例（ppm）", 0, 1_000_000),
   } as const;
 }
@@ -835,6 +837,7 @@ export const hr = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await calculateHrLeaveEnd(c.get("db"), {
       employeeUserId: c.get("user").id,
+      ...(input.leaveTypeId === undefined ? {} : { leaveTypeId: text(input, "leaveTypeId", "假別", 200) }),
       startsAt: leaveDateTimeValue(input, "startsAt", "startAt", "請假開始時間"),
       durationMinutes: integerValue(input, "durationMinutes", "請假時數（分鐘）", 1, Number.MAX_SAFE_INTEGER),
     }));
@@ -865,6 +868,46 @@ export const hr = new Hono<AppEnv>()
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
     const input = await body(c);
     return c.json(await setHrLeaveTypeActive(c.get("db"), c.req.param("id"), booleanValue(input, "active", "啟用狀態"), c.get("user")));
+  })
+  .get("/leave-grants/employees", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json({ employees: await listHrLeaveGrantEmployees(c.get("db")) });
+  })
+  .get("/leave-grants", requirePermission("hr:payroll:read"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const page = Number(c.req.query("page") ?? 1);
+    const rawPageSize = c.req.query("pageSize");
+    const pageSize = rawPageSize === undefined ? 25 : Number(rawPageSize);
+    const search = c.req.query("search")?.trim() ?? "";
+    const rawLeaveTypeId = c.req.query("leaveTypeId") ?? "";
+    const leaveTypeId = rawLeaveTypeId && rawLeaveTypeId !== "all" ? rawLeaveTypeId : null;
+    const expiry = c.req.query("expiry") ?? "unexpired";
+    if (!Number.isSafeInteger(page) || page < 1 || page > 10000 || !HR_LEAVE_GRANT_PAGE_SIZES.includes(pageSize as (typeof HR_LEAVE_GRANT_PAGE_SIZES)[number]) || search.length > 100 || rawLeaveTypeId.length > 200) {
+      throw new HTTPException(400, { message: "額度發放查詢條件不正確。" });
+    }
+    if (expiry !== "unexpired" && expiry !== "expired" && expiry !== "all") throw new HTTPException(400, { message: "效期篩選條件不正確。" });
+    return c.json(await listHrLeaveGrantBatches(c.get("db"), { page, pageSize, search, leaveTypeId, expiry, asOfDate: formatTaipeiDate(new Date()) }));
+  })
+  .post("/leave-grants", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    if (!Array.isArray(input.employmentIds)) throw new HTTPException(400, { message: "請選擇發放對象。" });
+    const employmentIds = input.employmentIds.map((id: unknown) => {
+      if (typeof id !== "string" || !id.trim() || id.length > 200) throw new HTTPException(400, { message: "發放對象格式不正確。" });
+      return id;
+    });
+    return c.json(await createHrLeaveGrantBatch(c.get("db"), {
+      leaveTypeId: text(input, "leaveTypeId", "假別", 200),
+      employmentIds,
+      issuedOn: date(input, "issuedOn")!,
+      expiresOn: date(input, "expiresOn")!,
+      amountMinutes: integerValue(input, "amountMinutes", "發放時數（分鐘）", 60, 525600),
+      note: nullableText(input, "note", "備註", 1000) ?? "",
+    }, c.get("user")), 201);
+  })
+  .post("/leave-grants/:id/revoke", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    return c.json(await revokeHrLeaveGrant(c.get("db"), c.req.param("id"), c.get("user")));
   })
   .get("/annual-leave/policy", requirePermission("hr:payroll:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

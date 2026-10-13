@@ -128,12 +128,21 @@ export interface LeaveCredit {
   entitledHalfHours: number;
   balanceHalfHours: number;
 }
+export interface LeaveGrantCredit {
+  grantId: string;
+  issuedOn: string;
+  expiresOn: string;
+  amountMinutes: number;
+  balanceMinutes: number;
+}
 export interface LeaveTypeOption {
   id: string;
   name: string;
-  leaveKind: "annual" | "other";
+  leaveKind: "annual" | "grant" | "other";
+  scheduleCheckRequired: number;
   defaultPayRatePpm: number;
   credits: LeaveCredit[];
+  grantCredits: LeaveGrantCredit[];
 }
 export interface LeaveTypesResponse { leaveTypes: LeaveTypeOption[] }
 export interface AnnualLeavePeriod extends LeaveCredit { usedHalfHours: number; grantedHalfHours: number }
@@ -242,7 +251,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export function useHrQuery<T>(path: string, enabled = true, keepPrevious = false) {
   return useQuery({ queryKey: ["hr", path], queryFn: () => request<T>(path), enabled, retry: false, placeholderData: keepPrevious ? keepPreviousData : undefined });
 }
-export function useHrLeaveDuration(input: { startsAt: string; endsAt: string } | null) {
+export function useHrLeaveDuration(input: { startsAt: string; endsAt: string; leaveTypeId?: string } | null) {
   const signature = input ? JSON.stringify(input) : "disabled";
   return useQuery({
     queryKey: ["hr", "leave-duration", signature],
@@ -251,7 +260,7 @@ export function useHrLeaveDuration(input: { startsAt: string; endsAt: string } |
     retry: false,
   });
 }
-export function useHrLeaveEnd(input: { startsAt: string; durationMinutes: number } | null) {
+export function useHrLeaveEnd(input: { startsAt: string; durationMinutes: number; leaveTypeId?: string } | null) {
   const signature = input ? JSON.stringify(input) : "disabled";
   return useQuery({
     queryKey: ["hr", "leave-end", signature],

@@ -3,7 +3,8 @@ import type { Database } from "./client.js";
 import { HrError, reviewWriteConflict, hrEmployeeName, isHrAdministrator, writeHrMutation, type HrActor } from "./hr-people.js";
 import { insertHrNotification } from "./hr-notifications.js";
 import { allocateHrAnnualLeave, listHrAnnualLeaveEntitlements } from "./hr-annual-leave.js";
-import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
+import { allocateHrLeaveGrant, listHrSelfLeaveGrantCredits } from "./hr-leave-grants.js";
+import { hrAnnualLeaveEntitlements, hrAnnualLeaveLedger, hrLeaveGrantLedger, hrLeaveGrants, hrLeaveRequests, hrLeaveTypes } from "./schema/hr-payroll.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
@@ -20,6 +21,8 @@ const displayName = hrEmployeeName;
 
 export interface HrLeaveDurationInput {
   employeeUserId: string;
+  /** 提供假別後可套用該假別的工時計算規則。 */
+  leaveTypeId?: string;
   /** API 已將使用者選的台北時間轉成 canonical UTC wall-clock。 */
   startsAt: string;
   endsAt: string;
@@ -64,9 +67,11 @@ export interface HrLeaveCredit {
 export interface HrSelfLeaveTypeOption {
   id: string;
   name: string;
-  leaveKind: "annual" | "other";
+  leaveKind: "annual" | "grant" | "other";
+  scheduleCheckRequired: number;
   defaultPayRatePpm: number;
   credits: HrLeaveCredit[];
+  grantCredits: Awaited<ReturnType<typeof listHrSelfLeaveGrantCredits>>;
 }
 
 function stamp(value: string, label: string) {
@@ -284,9 +289,15 @@ async function ensureEmploymentForPeriod(db: Database, employeeUserId: string, _
 async function resolveLeaveInterval(db: Database, input: HrLeaveDurationInput) {
   const normalized = normalizeInterval(input.startsAt, input.endsAt);
   const employmentId = await ensureEmploymentForPeriod(db, input.employeeUserId, normalized.startsOn, normalized.endsOn);
-  const durationMinutes = await calculateLeaveWorkMinutes(db, employmentId, stamp(normalized.startsAt, "請假開始時間"), stamp(normalized.endsAt, "請假結束時間"), normalized.startsOn, normalized.endsOn);
-  if (!Number.isSafeInteger(durationMinutes) || durationMinutes < HALF_HOUR_MINUTES || durationMinutes % HALF_HOUR_MINUTES !== 0) {
-    throw new HrError(400, "請假時數必須依工作日、班表與休息時間計算為 0.5 小時的倍數，且至少 0.5 小時。 ");
+  const [leaveType] = input.leaveTypeId
+    ? await db.select({ leaveKind: hrLeaveTypes.leaveKind, scheduleCheckRequired: hrLeaveTypes.scheduleCheckRequired }).from(hrLeaveTypes).where(eq(hrLeaveTypes.id, input.leaveTypeId)).limit(1)
+    : [];
+  const isGrantLeave = leaveType?.leaveKind === "grant";
+  const ignoresSchedule = isGrantLeave && !leaveType.scheduleCheckRequired;
+  const durationMinutes = ignoresSchedule ? normalized.durationMinutes : await calculateLeaveWorkMinutes(db, employmentId, stamp(normalized.startsAt, "請假開始時間"), stamp(normalized.endsAt, "請假結束時間"), normalized.startsOn, normalized.endsOn);
+  const unit = isGrantLeave ? 60 : HALF_HOUR_MINUTES;
+  if (!Number.isSafeInteger(durationMinutes) || durationMinutes < unit || durationMinutes % unit !== 0) {
+    throw new HrError(400, isGrantLeave ? "額度發放假別請假時數必須是 1 小時的整數倍，且至少 1 小時。" : "請假時數必須依工作日、班表與休息時間計算為 0.5 小時的倍數，且至少 0.5 小時。 ");
   }
   return { employmentId, interval: { ...normalized, durationMinutes } };
 }
@@ -324,6 +335,7 @@ function leaveWorkSegments(schedules: LeaveScheduleRow[], scheduled: boolean, st
 
 export interface HrLeaveEndInput {
   employeeUserId: string;
+  leaveTypeId?: string;
   startsAt: string;
   durationMinutes: number;
 }
@@ -333,10 +345,21 @@ export interface HrLeaveEndInput {
  * 跨午休、跨班次或跨日時，結束時間會比「開始＋時數」晚。
  */
 export async function calculateHrLeaveEnd(db: Database, input: HrLeaveEndInput) {
-  if (!Number.isSafeInteger(input.durationMinutes) || input.durationMinutes < HALF_HOUR_MINUTES || input.durationMinutes % HALF_HOUR_MINUTES !== 0) {
-    throw new HrError(400, "請假時數必須是 0.5 小時的倍數，且至少 0.5 小時。");
-  }
   const startMs = stamp(input.startsAt, "請假開始時間");
+  const [leaveType] = input.leaveTypeId
+    ? await db.select({ leaveKind: hrLeaveTypes.leaveKind, scheduleCheckRequired: hrLeaveTypes.scheduleCheckRequired }).from(hrLeaveTypes).where(eq(hrLeaveTypes.id, input.leaveTypeId)).limit(1)
+    : [];
+  const isGrantLeave = leaveType?.leaveKind === "grant";
+  const unit = isGrantLeave ? 60 : HALF_HOUR_MINUTES;
+  if (!Number.isSafeInteger(input.durationMinutes) || input.durationMinutes < unit || input.durationMinutes % unit !== 0) {
+    throw new HrError(400, isGrantLeave ? "額度發放假別請假時數必須是 1 小時的整數倍，且至少 1 小時。" : "請假時數必須是 0.5 小時的倍數，且至少 0.5 小時。");
+  }
+  if (isGrantLeave && !leaveType.scheduleCheckRequired) {
+    if (input.durationMinutes < 60 || input.durationMinutes % 60 !== 0) throw new HrError(400, "額度發放假別請假時數必須是 1 小時的整數倍，且至少 1 小時。");
+    const endMs = startMs + input.durationMinutes * 60_000;
+    if (input.durationMinutes > MAX_LEAVE_MINUTES) throw new HrError(400, "請假期間不可超過 31 天。");
+    return calculateHrLeaveDuration(db, { employeeUserId: input.employeeUserId, leaveTypeId: input.leaveTypeId, startsAt: input.startsAt, endsAt: new Date(endMs).toISOString().slice(0, 19).replace("T", " ") });
+  }
   const limitMs = startMs + MAX_LEAVE_MINUTES * 60_000;
   const startsOn = formatTaipeiDate(startMs);
   const endsOn = nextTaipeiDate(formatTaipeiDate(limitMs));
@@ -351,7 +374,7 @@ export async function calculateHrLeaveEnd(db: Database, input: HrLeaveEndInput) 
     .sort((a, b) => a - b);
   for (const endMs of candidates) {
     try {
-      const interval = await calculateHrLeaveDuration(db, { employeeUserId: input.employeeUserId, startsAt: input.startsAt, endsAt: new Date(endMs).toISOString().slice(0, 19).replace("T", " ") });
+      const interval = await calculateHrLeaveDuration(db, { employeeUserId: input.employeeUserId, leaveTypeId: input.leaveTypeId, startsAt: input.startsAt, endsAt: new Date(endMs).toISOString().slice(0, 19).replace("T", " ") });
       if (interval.durationMinutes === input.durationMinutes) return interval;
     } catch (cause) {
       // 400 是「這個結束時間算出來的時數不合」，換下一個候選；409 是班表或工時設定有問題，要讓使用者看到真正的原因。
@@ -390,19 +413,25 @@ export async function listHrSelfLeaveTypeOptions(db: Database, employeeUserId: s
     id: hrLeaveTypes.id,
     name: hrLeaveTypes.name,
     leaveKind: hrLeaveTypes.leaveKind,
+    scheduleCheckRequired: hrLeaveTypes.scheduleCheckRequired,
     defaultPayRatePpm: hrLeaveTypes.defaultPayRatePpm,
   }).from(hrLeaveTypes)
     .where(eq(hrLeaveTypes.active, 1))
     .orderBy(asc(hrLeaveTypes.name));
-  if (!leaveTypes.some((leaveType) => leaveType.leaveKind === "annual")) {
-    return leaveTypes.map((leaveType) => ({ ...leaveType, credits: [] }));
-  }
-
-  const entitlements = await listHrAnnualLeaveEntitlements(db, { employeeUserId, asOfDate });
-  const credits = entitlements
-    .filter((entitlement) => entitlement.status === "open")
-    .map(leaveCredit);
-  return leaveTypes.map((leaveType) => ({ ...leaveType, credits: leaveType.leaveKind === "annual" ? credits : [] }));
+  const [entitlements, grantCreditSets] = await Promise.all([
+    leaveTypes.some((leaveType) => leaveType.leaveKind === "annual")
+      ? listHrAnnualLeaveEntitlements(db, { employeeUserId, asOfDate })
+      : Promise.resolve([]),
+    Promise.all(leaveTypes.filter((leaveType) => leaveType.leaveKind === "grant")
+      .map(async (leaveType) => [leaveType.id, await listHrSelfLeaveGrantCredits(db, employeeUserId, asOfDate, leaveType.id)] as const)),
+  ]);
+  const credits = entitlements.filter((entitlement) => entitlement.status === "open").map(leaveCredit);
+  const grantCreditsByType = new Map(grantCreditSets);
+  return leaveTypes.map((leaveType) => ({
+    ...leaveType,
+    credits: leaveType.leaveKind === "annual" ? credits : [],
+    grantCredits: grantCreditsByType.get(leaveType.id) ?? [],
+  }));
 }
 
 export interface HrSelfAnnualLeavePeriod extends HrLeaveCredit {
@@ -618,6 +647,16 @@ export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestIn
   const annualAllocation = autoApprove && leaveType.leaveKind === "annual"
     ? await allocateHrAnnualLeave(db, { employmentId, startsOn: interval.startsOn, endsOn: interval.endsOn, durationMinutes: interval.durationMinutes })
     : null;
+  const grantAllocations = leaveType.leaveKind === "grant"
+    ? await allocateHrLeaveGrant(db, { employmentId, leaveTypeId: leaveType.id, startsOn: interval.startsOn, endsOn: interval.endsOn, durationMinutes: interval.durationMinutes })
+    : [];
+  const grantEligibilityGuard = grantAllocations.length
+    ? sql`AND ${sql.join(grantAllocations.map((allocation) => sql`EXISTS (
+        SELECT 1 FROM hr_leave_grants AS grant_row
+        WHERE grant_row.id=${allocation.grantId} AND grant_row.status='active'
+          AND coalesce((SELECT sum(delta_minutes) FROM hr_leave_grant_ledger WHERE grant_id=${allocation.grantId}), 0) >= ${allocation.amountMinutes}
+      )`), sql` AND `)}`
+    : sql``;
   const requestStatement = sql`INSERT INTO hr_leave_requests
       (id, employment_id, leave_type_id, leave_type, status, approver_user_id, starts_at, ends_at, starts_on, ends_on, duration_minutes, pay_rate_ppm, reason, reviewed_by, reviewed_at, review_comment, created_by)
       SELECT ${id}, ${employmentId}, ${leaveType.id}, ${leaveType.name}, ${status}, ${approverUserId}, ${interval.startsAt}, ${interval.endsAt}, ${interval.startsOn}, ${interval.endsOn}, ${interval.durationMinutes}, ${payRatePpm}, ${input.reason.trim()}, ${autoApprove ? actor.id : null}, ${autoApprove ? sql`CURRENT_TIMESTAMP` : sql`NULL`}, ${reviewComment}, ${actor.id}
@@ -627,6 +666,7 @@ export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestIn
           AND current_employment.employee_user_id=${input.employeeUserId}
           AND current_employment.archived_at IS NULL
       )
+        ${grantEligibilityGuard}
         AND NOT EXISTS (
         SELECT 1 FROM hr_leave_requests AS existing_request
         WHERE existing_request.employment_id=${employmentId}
@@ -636,12 +676,21 @@ export async function createHrLeaveRequest(db: Database, input: HrLeaveRequestIn
             OR (existing_request.starts_at = '' AND existing_request.starts_on < ${interval.endsOn} AND existing_request.ends_on > ${interval.startsOn})
           )
       ) RETURNING id`;
-  const statements = annualAllocation ? [requestStatement, sql`INSERT INTO hr_annual_leave_ledger
+  const grantMutations = autoApprove ? grantAllocations.map((allocation) => sql`INSERT INTO hr_leave_grant_ledger
+      (id, grant_id, entry_kind, delta_minutes, source_key, leave_request_id, note, created_by)
+      SELECT ${crypto.randomUUID()}, ${allocation.grantId}, 'leave_request', ${-allocation.amountMinutes}, ${`grant-leave:${id}:${allocation.grantId}`}, ${id}, '補休申請核准扣除', ${actor.id}
+      WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE id=${id} AND status='approved')
+        AND EXISTS (SELECT 1 FROM hr_leave_grants WHERE id=${allocation.grantId} AND status='active')
+        AND coalesce((SELECT sum(delta_minutes) FROM hr_leave_grant_ledger WHERE grant_id=${allocation.grantId}), 0) >= ${allocation.amountMinutes}
+      RETURNING id`) : [];
+  const statements = annualAllocation
+    ? [requestStatement, sql`INSERT INTO hr_annual_leave_ledger
       (id, entitlement_id, entry_kind, delta_half_hours, source_key, leave_request_id, note, created_by)
       SELECT ${crypto.randomUUID()}, ${annualAllocation.entitlementId}, 'leave_request', ${-annualAllocation.durationHalfHours}, ${`leave-request:${id}`}, ${id}, '特休申請核准扣除', ${actor.id}
       WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE id=${id} AND status='approved')
         AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${annualAllocation.entitlementId}), 0) >= ${annualAllocation.durationHalfHours}
-      RETURNING id`] : requestStatement;
+      RETURNING id`]
+    : autoApprove && grantMutations.length ? [requestStatement, ...grantMutations] : requestStatement;
   const mutations = approverUserId && !autoApprove
     ? [...(Array.isArray(statements) ? statements : [statements]), insertHrNotification({
       userId: approverUserId, sourceKey: `leave-request:${id}:submitted`, kind: "request_submitted", entityKind: "leave", entityId: id,
@@ -674,11 +723,12 @@ export async function updateHrLeaveRequest(db: Database, id: string, input: HrLe
   if (current.status !== "pending") throw new HrError(409, "只有待審核的請假申請可以修改。 ");
   if (current.revision !== input.revision) throw new HrError(409, "請假申請不存在或版本已過期，請重新整理。 ");
   if (current.archivedAt) throw new HrError(409, "員工任職已結束，無法修改請假申請。 ");
-  const resolved = await resolveLeaveInterval(db, { employeeUserId: actor.id, startsAt: input.startsAt, endsAt: input.endsAt });
+  const resolved = await resolveLeaveInterval(db, { employeeUserId: actor.id, leaveTypeId: input.leaveTypeId, startsAt: input.startsAt, endsAt: input.endsAt });
   if (resolved.employmentId !== current.employmentId) throw new HrError(409, "請假日期不在原任職期間內，請重新整理後再試。 ");
-  const [leaveType] = await db.select({ id: hrLeaveTypes.id, name: hrLeaveTypes.name, defaultPayRatePpm: hrLeaveTypes.defaultPayRatePpm })
+  const [leaveType] = await db.select({ id: hrLeaveTypes.id, name: hrLeaveTypes.name, leaveKind: hrLeaveTypes.leaveKind, defaultPayRatePpm: hrLeaveTypes.defaultPayRatePpm })
     .from(hrLeaveTypes).where(and(eq(hrLeaveTypes.id, input.leaveTypeId), eq(hrLeaveTypes.active, 1))).limit(1);
   if (!leaveType) throw new HrError(404, "找不到啟用中的假別。 ");
+  if (leaveType.leaveKind === "grant") await allocateHrLeaveGrant(db, { employmentId: current.employmentId, leaveTypeId: leaveType.id, startsOn: resolved.interval.startsOn, endsOn: resolved.interval.endsOn, durationMinutes: resolved.interval.durationMinutes });
 
   const nextRevision = current.revision + 1;
   const update = sql`UPDATE hr_leave_requests SET
@@ -724,8 +774,10 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
     status: hrLeaveRequests.status,
     approverUserId: hrLeaveRequests.approverUserId,
     revision: hrLeaveRequests.revision,
+    leaveKind: hrLeaveTypes.leaveKind,
   }).from(hrLeaveRequests)
     .innerJoin(hrEmployments, eq(hrEmployments.id, hrLeaveRequests.employmentId))
+    .leftJoin(hrLeaveTypes, eq(hrLeaveTypes.id, hrLeaveRequests.leaveTypeId))
     .where(eq(hrLeaveRequests.id, id)).limit(1);
   if (!current) throw new HrError(404, "找不到請假申請。 ");
   if (!options.allowAny && current.employeeUserId !== actor.id) throw new HrError(404, "找不到可取消的請假申請。 ");
@@ -743,6 +795,20 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
       title: "請假申請已取消", body: "申請人已取消一筆待審請假申請。",
     })] : update;
     return writeHrMutation(db, mutations, id, actor, "leave_request_cancelled", "請假申請已變更或完成處理，請重新整理。 ");
+  }
+
+  if (current.leaveKind === "grant") {
+    const usages = await db.select({ grantId: hrLeaveGrantLedger.grantId, deltaMinutes: hrLeaveGrantLedger.deltaMinutes }).from(hrLeaveGrantLedger)
+      .innerJoin(hrLeaveGrants, eq(hrLeaveGrants.id, hrLeaveGrantLedger.grantId))
+      .where(and(eq(hrLeaveGrantLedger.leaveRequestId, id), eq(hrLeaveGrantLedger.entryKind, "leave_request"), eq(hrLeaveGrants.status, "active")));
+    const reversals = usages.map((usage) => sql`INSERT INTO hr_leave_grant_ledger
+      (id, grant_id, entry_kind, delta_minutes, source_key, leave_request_id, note, created_by)
+      SELECT ${crypto.randomUUID()}, ${usage.grantId}, 'leave_request_reversal', ${-usage.deltaMinutes}, ${`grant-leave-reversal:${id}:${usage.grantId}`}, ${id}, '取消已核准請假，返還仍有效的額度', ${actor.id}
+      WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE id=${id} AND status='cancelled')
+        AND EXISTS (SELECT 1 FROM hr_leave_grants WHERE id=${usage.grantId} AND status='active')
+        AND NOT EXISTS (SELECT 1 FROM hr_leave_grant_ledger WHERE source_key=${`grant-leave-reversal:${id}:${usage.grantId}`})
+      RETURNING id`);
+    return writeHrMutation(db, [update, ...reversals], id, actor, "leave_request_cancelled", "請假申請已變更或完成處理，請重新整理。 ");
   }
 
   const [usage] = await db.select({
@@ -778,6 +844,7 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
     status: hrLeaveRequests.status,
     approverUserId: hrLeaveRequests.approverUserId,
     revision: hrLeaveRequests.revision,
+    leaveTypeId: hrLeaveRequests.leaveTypeId,
     leaveKind: hrLeaveTypes.leaveKind,
     startsOn: hrLeaveRequests.startsOn,
     endsOn: hrLeaveRequests.endsOn,
@@ -805,6 +872,9 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
       durationMinutes: current.durationMinutes,
     })
     : null;
+  const grantAllocations = decision === "approved" && current.leaveKind === "grant"
+    ? await allocateHrLeaveGrant(db, { employmentId: current.employmentId, leaveTypeId: current.leaveTypeId!, startsOn: current.startsOn, endsOn: current.endsOn, durationMinutes: current.durationMinutes })
+    : [];
   const updateStatement = sql`UPDATE hr_leave_requests SET
     status=${decision}, reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, review_comment=${comment.trim()}
     WHERE id=${id} AND status='pending' AND revision=${current.revision}
@@ -814,7 +884,7 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
           AND employee_user_id <> ${actor.id}
       )
     RETURNING id`;
-  const statements = annualAllocation ? [sql`INSERT INTO hr_annual_leave_ledger
+  const annualStatements = annualAllocation ? [sql`INSERT INTO hr_annual_leave_ledger
     (id, entitlement_id, entry_kind, delta_half_hours, source_key, leave_request_id, note, created_by)
     SELECT ${crypto.randomUUID()}, ${annualAllocation.entitlementId}, 'leave_request', ${-annualAllocation.durationHalfHours}, ${`leave-request:${id}`}, ${id}, '特休申請核准扣除', ${actor.id}
     WHERE EXISTS (
@@ -822,12 +892,19 @@ export async function reviewHrLeaveRequest(db: Database, id: string, decision: "
         INNER JOIN hr_employments AS employment ON employment.id=request.employment_id
         WHERE request.id=${id}
           AND request.status='pending'
-          -- 扣多少是用讀到的那一版時數算的；版本對不上就不扣，整個 batch 跟著退回。
           AND request.revision=${current.revision}
           AND employment.employee_user_id <> ${actor.id}
       )
       AND coalesce((SELECT sum(delta_half_hours) FROM hr_annual_leave_ledger WHERE entitlement_id=${annualAllocation.entitlementId}), 0) >= ${annualAllocation.durationHalfHours}
-    RETURNING id`, updateStatement] : updateStatement;
+    RETURNING id`, updateStatement] : null;
+  const grantStatements = grantAllocations.map((allocation) => sql`INSERT INTO hr_leave_grant_ledger
+    (id, grant_id, entry_kind, delta_minutes, source_key, leave_request_id, note, created_by)
+    SELECT ${crypto.randomUUID()}, ${allocation.grantId}, 'leave_request', ${-allocation.amountMinutes}, ${`grant-leave:${id}:${allocation.grantId}`}, ${id}, '補休申請核准扣除', ${actor.id}
+    WHERE EXISTS (SELECT 1 FROM hr_leave_requests WHERE id=${id} AND status='pending' AND revision=${current.revision})
+      AND EXISTS (SELECT 1 FROM hr_leave_grants WHERE id=${allocation.grantId} AND status='active')
+      AND coalesce((SELECT sum(delta_minutes) FROM hr_leave_grant_ledger WHERE grant_id=${allocation.grantId}), 0) >= ${allocation.amountMinutes}
+    RETURNING id`);
+  const statements = annualStatements ?? (grantStatements.length ? [...grantStatements, updateStatement] : updateStatement);
   const mutations = current.employeeUserId
     ? [...(Array.isArray(statements) ? statements : [statements]), insertHrNotification({
       userId: current.employeeUserId, sourceKey: `leave-request:${id}:reviewed:${decision}`, kind: "request_reviewed", entityKind: "leave", entityId: id,

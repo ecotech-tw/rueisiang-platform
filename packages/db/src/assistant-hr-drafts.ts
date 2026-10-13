@@ -227,7 +227,7 @@ async function problemOf<T>(check: () => Promise<T>): Promise<{ value: T | null;
  */
 function leaveInterval(userId: string, fields: HrRequestDraftFields): HrLeaveDurationInput | null {
   if (!fields.startsAt || !fields.endsAt) return null;
-  return { employeeUserId: userId, startsAt: taipeiMinute(fields.startsAt, "開始時間"), endsAt: taipeiMinute(fields.endsAt, "結束時間") };
+  return { employeeUserId: userId, leaveTypeId: fields.leaveTypeId ?? undefined, startsAt: taipeiMinute(fields.startsAt, "開始時間"), endsAt: taipeiMinute(fields.endsAt, "結束時間") };
 }
 
 function overtimeInput(userId: string, fields: HrRequestDraftFields): (HrOvertimeInput & { employeeUserId: string }) | null {
@@ -286,8 +286,10 @@ const leaveHandler: DraftKindHandler = {
       leaveTypeOptions: leaveType ? [] : leaveTypes.map((option) => ({
         id: option.id,
         name: option.name,
-        ...(option.leaveKind === "annual" ? { remainingMinutes: option.credits.reduce((total, credit) => total + credit.balanceHalfHours * 30, 0) } : {}),
+        ...(option.leaveKind === "annual" ? { remainingMinutes: option.credits.reduce((total, credit) => total + credit.balanceHalfHours * 30, 0), minimumUnitMinutes: 30 } : {}),
+        ...(option.leaveKind === "grant" ? { remainingMinutes: option.grantCredits.reduce((total, credit) => total + credit.balanceMinutes, 0), minimumUnitMinutes: 60 } : {}),
       })),
+      minimumUnitMinutes: leaveType?.leaveKind === "grant" ? 60 : 30,
       cardRows: ready ? [
         { label: "假別", value: ready.leaveType.name },
         { label: "開始", value: withWeekday(fields.startsAt!) },
