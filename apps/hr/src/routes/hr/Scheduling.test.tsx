@@ -77,6 +77,7 @@ describe("HR 前台快速排班", () => {
       const emptyDay = document.querySelector<HTMLButtonElement>('[aria-label="2026-02-08 排班"]');
       expect(fullDay?.querySelector("span.absolute")?.textContent).toBe("1");
       expect(fullDay?.className).toContain("bg-ok/24");
+      expect(fullDay?.className).toContain("enabled:hover:bg-ok/32");
       expect(fullDay?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
       expect(fullDay?.getAttribute("aria-description")).toContain("早班 足額");
       expect(shortDay?.querySelector("span.absolute")?.textContent).toBe("1");
@@ -100,6 +101,7 @@ describe("HR 前台快速排班", () => {
       expect(day?.querySelector("span.absolute")?.textContent).toBe("2");
       expect(day?.querySelector("span.absolute")?.className).toContain("bg-brand-soft");
       expect(day?.className).toContain("bg-brand/20");
+      expect(day?.className).toContain("enabled:hover:bg-brand/28");
       expect(day?.getAttribute("aria-description")).toContain("早班 超 1 人");
     } finally { await page.cleanup(); }
   });

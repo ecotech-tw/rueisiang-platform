@@ -70,7 +70,7 @@ function getDateCoverage(day: HrScheduleResponse["calendar"][number], shifts: Hr
   };
 }
 
-const dateClass = "relative grid min-h-11 w-full min-w-0 place-items-center rounded-field border-0 text-sm font-semibold tabular-nums transition-[background-color,color,scale] duration-150 ease-out enabled:hover:bg-brand/7 enabled:active:scale-[.96] focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:enabled:active:scale-100";
+const dateClass = "relative grid min-h-11 w-full min-w-0 place-items-center rounded-field border-0 text-sm font-semibold tabular-nums transition-[background-color,color,scale] duration-150 ease-out enabled:active:scale-[.96] focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none motion-reduce:enabled:active:scale-100";
 
 function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitRequestRef, onReload, onChangeState }: { data: HrScheduleResponse; quick: boolean; monthDirection: -1 | 0 | 1; onQuickChange: (quick: boolean) => void; exitRequestRef: ExitRequestRef; onReload: () => Promise<HrScheduleResponse | undefined>; onChangeState: (dirty: boolean, pending: boolean) => void }) {
   const [baseline, setBaseline] = useState(data);
@@ -211,9 +211,10 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
             const description = `${day.name || dayTypeLabel(day.dayType)}${special ? "・公司行事曆特別日" : ""}・${entries.length} 筆排班${quick && otherCount ? `・其他人 ${otherCount} 筆` : ""}${coverage ? `・${coverage.description}` : ""}`;
             const selectable = quick || !isMobile;
             const coverageBackground = coverage?.tone === "full" ? "bg-ok/24" : coverage?.tone === "excess" ? "bg-brand/20" : "";
+            const coverageHoverBackground = coverage?.tone === "full" ? "enabled:hover:bg-ok/32" : coverage?.tone === "excess" ? "enabled:hover:bg-brand/28" : "enabled:hover:bg-brand/7";
             const background = coverageBackground || (occupied ? "bg-tone-peach/15" : selectable && picked(day.date) ? "bg-brand-soft" : day.dayType !== "weekday" ? "bg-canvas" : "");
             return <div key={day.date} className={`relative min-w-0 border-t border-soft-line ${!isMobile && !quick ? "min-h-32 p-1" : ""}`}>
-              <button type="button" className={`${dateClass} ${background} ${day.dayType === "weekday" ? "text-ink" : "text-brand-dark"} ${selectable && picked(day.date) ? "ring-1 ring-inset ring-brand-dark" : ""}`} aria-label={`${day.date} ${quick ? "快速排班" : "排班"}`} aria-description={description} aria-pressed={!isMobile || quick ? picked(day.date) : undefined} disabled={!isMobile || quick ? toggleDisabled(day.date) : undefined} onClick={() => isMobile && !quick ? setDetailsDate(day.date) : toggle(day.date)}>
+              <button type="button" className={`${dateClass} ${coverageHoverBackground} ${background} ${day.dayType === "weekday" ? "text-ink" : "text-brand-dark"} ${selectable && picked(day.date) ? "ring-1 ring-inset ring-brand-dark" : ""}`} aria-label={`${day.date} ${quick ? "快速排班" : "排班"}`} aria-description={description} aria-pressed={!isMobile || quick ? picked(day.date) : undefined} disabled={!isMobile || quick ? toggleDisabled(day.date) : undefined} onClick={() => isMobile && !quick ? setDetailsDate(day.date) : toggle(day.date)}>
                 {Number(day.date.slice(8))}
                 {entries.length ? <span className="absolute bottom-0 right-0 rounded-full bg-brand-soft px-1 text-[9px] font-semibold leading-3 text-brand-dark" aria-hidden="true">{entries.length}</span> : null}
                 {special ? <span className="absolute left-1 top-1 size-2 rounded-full bg-ok" aria-hidden="true" /> : null}
