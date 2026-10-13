@@ -210,7 +210,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
             const special = specialDates.has(day.date);
             const description = `${day.name || dayTypeLabel(day.dayType)}${special ? "・公司行事曆特別日" : ""}・${entries.length} 筆排班${quick && otherCount ? `・其他人 ${otherCount} 筆` : ""}${coverage ? `・${coverage.description}` : ""}`;
             const selectable = quick || !isMobile;
-            const coverageBackground = coverage?.tone === "full" ? "bg-ok-soft" : coverage?.tone === "excess" ? "bg-brand-soft" : "";
+            const coverageBackground = coverage?.tone === "full" ? "bg-ok/24" : coverage?.tone === "excess" ? "bg-brand/20" : "";
             const background = coverageBackground || (occupied ? "bg-tone-peach/15" : selectable && picked(day.date) ? "bg-brand-soft" : day.dayType !== "weekday" ? "bg-canvas" : "");
             return <div key={day.date} className={`relative min-w-0 border-t border-soft-line ${!isMobile && !quick ? "min-h-32 p-1" : ""}`}>
               <button type="button" className={`${dateClass} ${background} ${day.dayType === "weekday" ? "text-ink" : "text-brand-dark"} ${selectable && picked(day.date) ? "ring-1 ring-inset ring-brand-dark" : ""}`} aria-label={`${day.date} ${quick ? "快速排班" : "排班"}`} aria-description={description} aria-pressed={!isMobile || quick ? picked(day.date) : undefined} disabled={!isMobile || quick ? toggleDisabled(day.date) : undefined} onClick={() => isMobile && !quick ? setDetailsDate(day.date) : toggle(day.date)}>
