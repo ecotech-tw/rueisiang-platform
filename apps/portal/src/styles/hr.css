@@ -384,9 +384,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   100% { opacity: 1; translate: 0 0; filter: blur(0); }
 }
 .hr-system .panel:not(.hr-overview-panel),
-.hr-system .hr-payroll-employee,
-.hr-system .hr-payroll-worker-results .hr-payroll-result,
-.hr-system .hr-profile-section,
 .hr-overview-card {
   position: relative;
   isolation: isolate;
@@ -402,9 +399,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   backdrop-filter: blur(7px) saturate(150%) contrast(102%);
 }
 .hr-system .panel:not(.hr-overview-panel)::before,
-.hr-system .hr-payroll-employee::before,
-.hr-system .hr-payroll-worker-results .hr-payroll-result::before,
-.hr-system .hr-profile-section::before,
 .hr-overview-card::before {
   position: absolute;
   inset: 1px;
@@ -418,9 +412,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   pointer-events: none;
 }
 .hr-system .panel:not(.hr-overview-panel)::after,
-.hr-system .hr-payroll-employee::after,
-.hr-system .hr-payroll-worker-results .hr-payroll-result::after,
-.hr-system .hr-profile-section::after,
 .hr-overview-card::after {
   position: absolute;
   inset: 0;
@@ -581,20 +572,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   outline: 2px solid var(--color-info);
   outline-offset: 3px;
 }
-.hr-module-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 18px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--color-line);
-}
-.hr-module-title { display: flex; align-items: baseline; gap: 10px; flex: none; }
-.hr-module-title strong { color: var(--color-ink); font-size: 19px; letter-spacing: .02em; }
-.hr-module-kicker { color: var(--color-brand); font-size: 12px; font-weight: 800; letter-spacing: .14em; }
-.hr-module-current { color: var(--color-ink); font-size: 16px; font-weight: 800; }
-.hr-module-subnav { display: flex; min-width: 0; }
-.hr-module-subnav .page-tabs { align-self: flex-start; }
 
 @media (max-width: 900px) {
   .hr-shell .content { padding: 0; }
