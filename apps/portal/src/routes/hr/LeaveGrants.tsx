@@ -113,7 +113,6 @@ export function HrLeaveGrants() {
       description="依假別、有效期間與員工建立可追溯的額度批次；員工申請時會先使用最早到期的額度。"
       actions={canWrite ? <Button icon="plus" tone="success" mobileIconOnly disabled={!issueTypes.length || !employees.data?.employees.length} onClick={() => setIssuing(true)}>發放額度</Button> : undefined}
     />
-    <Alert tone="info">額度與效期以每位員工的獨立批次保存。到期日包含當日；尚未生效、已到期或餘額不足的額度不能用於請假申請。</Alert>
     {grants.error || employees.error || leaveTypes.error || revoke.error ? <Alert tone="danger">{grants.error?.message ?? employees.error?.message ?? leaveTypes.error?.message ?? revoke.error?.message}</Alert> : null}
     {!issueTypes.length ? <Alert tone="warning">尚無啟用中的額度發放假別；請先至「假別管理」新增或啟用一個額度發放假別。</Alert> : null}
     {!employees.data?.employees.length ? <Alert tone="warning">目前沒有可發放額度的在職員工。</Alert> : null}
