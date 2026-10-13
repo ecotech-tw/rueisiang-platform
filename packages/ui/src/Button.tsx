@@ -2,7 +2,7 @@ import { createContext, useContext, type AnchorHTMLAttributes, type ButtonHTMLAt
 import { Icon, type IconName } from "./icons.js";
 import { DialogContext } from "./dialog-context.js";
 
-type ButtonVariant = "primary" | "secondary" | "danger" | "icon" | "link" | "text";
+type ButtonVariant = "primary" | "secondary" | "danger" | "icon" | "filled-icon" | "link" | "text";
 type ButtonTone = "brand" | "success" | "info" | "danger";
 type ButtonSize = "md" | "lg";
 type ButtonSkinName = "solid" | "glass" | "paper" | "floating";
@@ -101,10 +101,12 @@ function appearance(variant: ButtonVariant, tone: ButtonTone, size: ButtonSize, 
   const lifted = skin === "floating" ? FLOATING : "";
   // paper／floating 只把透明底換成紙色；有語意色的按鈕本來就有底，不受影響。
   const onSurface = (look: string, fill: string) => (skin === "paper" || skin === "floating" ? look.replace("bg-transparent", fill) : look);
-  if (variant === "icon") {
+  if (variant === "icon" || variant === "filled-icon") {
     const sizeClass = size === "lg" ? "size-11" : "size-10";
-    if (glass) return [ICON_ONLY, sizeClass, GLASS, GLASS_ICON_TONE[tone]];
-    return [ICON_ONLY, sizeClass, onSurface(ICON_TONE[tone], skin === "paper" ? "bg-paper/88" : "bg-paper"), lifted];
+    const filled = variant === "filled-icon";
+    const solidTone = filled ? FILLED_TONE[tone] : onSurface(ICON_TONE[tone], skin === "paper" ? "bg-paper/88" : "bg-paper");
+    const glassTone = filled ? GLASS_FILLED_TONE[tone] : GLASS_ICON_TONE[tone];
+    return [ICON_ONLY, sizeClass, ...(glass ? [GLASS, glassTone] : [solidTone, lifted])];
   }
   if (variant === "link") return ["border-0 bg-transparent p-0 text-[12px] text-brand underline disabled:opacity-45", FOCUS, hasIcon ? "inline-flex items-center gap-1.5 [&_svg]:size-[18px] [&_svg]:flex-none" : ""];
   if (variant === "text") return ["inline-flex min-h-11 items-center gap-1 border-0 bg-transparent px-0 py-1 text-[13px] font-bold text-brand disabled:opacity-45 [&_svg]:size-[18px] [&_svg]:flex-none", FOCUS];
