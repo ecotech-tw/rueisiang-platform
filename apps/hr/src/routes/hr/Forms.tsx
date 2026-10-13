@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type TouchEvent } from "react";
+import { createPortal } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -485,6 +486,8 @@ export function HrForms() {
     navigate(activeTab === "leave" ? "/forms/leave" : activeTab === "overtime" ? "/forms/overtime" : "/forms/new");
   }
 
+  const addRequestAction = (placement: "inline" | "floating") => <Tooltip label="新增申請" focusable={false}><button type="button" className={`hr-form-add-button hr-form-add-button-${placement}`} aria-label="新增申請" onClick={openNewForm}><Icon name="plus" /></button></Tooltip>;
+
   const tabOptions = FORM_TAB_OPTIONS.map((option) => {
     const count = option.value === "leave"
       ? requestBadgeCount(leave.data?.requests.map((item) => item.request.status)) + (leave.data?.reviewRequests.length ?? 0)
@@ -499,7 +502,8 @@ export function HrForms() {
 
   return <div className="page hr-forms-page hr-forms-index-page" onTouchStart={startSwipe} onTouchEnd={endSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
     <HrBackBar label="返回工作" onBack={() => navigate("/work")} />
-    <PageHeader className="hr-forms-index-head mt-2" title="表單申請" actions={<Tooltip label="新增申請" focusable={false}><Button variant="icon" icon="plus" className="hr-form-add-button" aria-label="新增申請" onClick={openNewForm} /></Tooltip>} />
+    <PageHeader className="hr-forms-index-head mt-2" title="表單申請" actions={<span className="hr-form-add-inline">{addRequestAction("inline")}</span>} />
+    {typeof document !== "undefined" ? createPortal(<div className="hr-form-add-portal">{addRequestAction("floating")}</div>, document.body) : null}
     {isLoading ? <p className="muted">載入申請紀錄…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}

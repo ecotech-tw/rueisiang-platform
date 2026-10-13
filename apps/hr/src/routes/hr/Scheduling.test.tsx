@@ -183,15 +183,16 @@ describe("HR 前台快速排班", () => {
       expect(document.querySelector("h1")!.parentElement!.contains(scope)).toBe(true);
       expect(document.body.textContent).not.toContain("營運據點");
       const quickButton = [...document.querySelectorAll("button")].find((button) => button.textContent === "快速排班")!;
-      expect(quickButton.classList.contains("bg-brand")).toBe(true);
+      expect(quickButton.classList.contains("bg-info")).toBe(true);
+      expect(quickButton.classList.contains("text-paper")).toBe(true);
       await page.click("快速排班");
       expect(document.querySelector("h1")!.parentElement!.contains(scope)).toBe(true);
       const month = document.querySelector('[aria-label="排班月份"]')!;
       const save = month.querySelector<HTMLButtonElement>('[aria-label="儲存排班"]')!;
       expect(save).not.toBeNull(); expect(save.querySelector("svg")).not.toBeNull();
       expect(save.textContent).toBe("");
-      expect(save.classList.contains("bg-brand")).toBe(true);
-      expect(save.classList.contains("text-white")).toBe(true);
+      expect(save.classList.contains("bg-ok")).toBe(true);
+      expect(save.classList.contains("text-paper")).toBe(true);
       expect(save.classList.contains("size-11")).toBe(true);
       expect([...document.querySelectorAll("button")].some((button) => button.textContent === "快速排班")).toBe(false);
       expect(document.querySelector<HTMLButtonElement>('[aria-label="上個月"]')!.disabled).toBe(true);
@@ -200,6 +201,7 @@ describe("HR 前台快速排班", () => {
       expect(calendar.compareDocumentPosition(person) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(calendar.querySelector(".border-t")).not.toBeNull();
       expect(calendar.querySelector(".grid-cols-7.gap-0\\.5")).not.toBeNull();
+      expect(document.querySelector('[aria-label="月曆圖例"]')!.textContent).not.toContain("小數字");
       await page.click("儲存排班"); expect(page.writes).toHaveLength(0);
     } finally { await page.cleanup(); }
   });

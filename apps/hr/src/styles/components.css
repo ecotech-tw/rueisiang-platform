@@ -263,6 +263,12 @@
 .hr-form-review-actions,
 .hr-form-request-actions { justify-content: flex-start; padding-top: 0; }
 .hr-forms-index-head { align-items: center; }
+.hr-form-add-button { display: grid; width: 40px; height: 40px; flex: none; place-items: center; border: 0; border-radius: 50%; background: var(--color-brand); color: var(--color-paper); box-shadow: 0 5px 14px --alpha(var(--color-brand) / 24%); transition: background-color 120ms ease-out, scale 120ms ease-out; }
+.hr-form-add-button:hover:not(:disabled) { background: var(--color-brand-dark); color: var(--color-paper); }
+.hr-form-add-button:active:not(:disabled) { scale: .96; }
+.hr-form-add-button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
+.hr-form-add-button svg { width: 20px; height: 20px; }
+.hr-form-add-portal { display: none; }
 .page > .hr-form-sticky-controls { margin-top: 0; }
 .hr-form-sticky-controls { position: sticky; top: 0; z-index: 10; margin: 0 -2px; padding: 8px 2px; background: --alpha(var(--color-canvas) / 92%); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .hr-form-tabs-shell { margin: 0; padding: 0; background: transparent; }
@@ -945,6 +951,13 @@
   .hr-forms-index-head > :first-child { flex: 1; width: auto; min-width: 0; }
   .hr-forms-index-head > :last-child { width: auto; }
   .hr-forms-index-head > :first-child > .muted { font-size: 13px; line-height: 1.55; }
+  .hr-form-add-inline { display: none; }
+  .hr-form-add-portal { position: fixed; inset: 0; z-index: 21; display: block; pointer-events: none; }
+  .hr-form-add-portal > .tooltip-anchor { position: absolute; right: max(16px, env(safe-area-inset-right)); bottom: calc(var(--hr-safe-bottom) + 72px); pointer-events: auto; }
+  .hr-form-add-button-floating { width: 52px; height: 52px; border-radius: 50%; }
+  .hr-form-add-button { transition: none; }
+  .hr-form-add-button:active:not(:disabled) { scale: 1; }
+  @media (prefers-reduced-motion: reduce) { .hr-form-add-button { transition: none; } }
   .hr-form-sticky-controls { margin-inline: -14px; padding: 8px 14px; }
   .hr-form-page > .page-head { margin-top: 8px; }
   .hr-form-tabs button { min-height: 42px; padding-inline: 8px; font-size: 13px; }
