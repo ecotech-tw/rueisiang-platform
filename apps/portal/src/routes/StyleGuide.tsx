@@ -371,7 +371,7 @@ export function StyleGuide() {
           onPage={(nextPage) => { setPage(nextPage); setMessage(`目前在第 ${nextPage} 頁。`); }}
           onPageSize={(size) => { setPageSize(size); setPage(1); setMessage(`每頁筆數改為 ${size}。`); }}
         />
-        <EmptyState>沒有資料時使用 EmptyState，保留清楚的下一步說明。</EmptyState>
+        <EmptyState className="mt-[18px]">沒有資料時使用 EmptyState，保留清楚的下一步說明。</EmptyState>
       </Panel>
 
       <Panel title="圖示系統" description="沿用 packages/ui 的 24px、currentColor、線性 SVG。">

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, DropdownSelect } from "../../ui/index.js";
+import { Alert, Button, DropdownSelect, EmptyState } from "../../ui/index.js";
 import { useHrSandboxEmployees, type HrSandboxEmployee } from "./api.js";
 
 export function hrSandboxEmployeeLabel(employee: HrSandboxEmployee): string {
@@ -64,7 +64,7 @@ export function HrImpersonation({ employee, bindingConfigured, disabled, onChang
       ) : null}
       <div className="mt-3 grid gap-2 empty:hidden">
         {employees.error ? <Alert tone="danger">{employees.error.message}</Alert> : null}
-        {employees.data && !listed.length ? <p className="empty-state">沒有符合搜尋條件的在職員工。</p> : null}
+        {employees.data && !listed.length ? <EmptyState className="mt-[18px]">沒有符合搜尋條件的在職員工。</EmptyState> : null}
         {!bindingConfigured ? <Alert tone="danger">平台尚未設定 LINE_LIFF_CHANNEL_ID，無法驗證既有員工綁定；HR 工具不會送出，一般工具照常可用。</Alert> : null}
         {employee ? (
           <Alert>

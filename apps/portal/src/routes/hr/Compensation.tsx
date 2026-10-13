@@ -446,7 +446,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
           ? <WorkerCompensationRow key={employee.employmentId ?? employee.userId} employee={employee} worker={(workers.data?.workers ?? []).find((item) => item.id === employee.employmentId)} canWrite={canWrite} onEdit={() => { const worker = (workers.data?.workers ?? []).find((item) => item.id === employee.employmentId); if (worker) setEditingWorker(worker); }} />
           : isHrFormalEmployee(employee) ? <EmployeeCompensationRow key={employee.employmentId ?? employee.userId} employee={employee} canWrite={canWrite} onEdit={(userId) => setEditing({ userId })} /> : null)}
       </tbody></DataTable>
-      {!employeeTable.data?.employees.length ? <EmptyState>{employeeTable.data?.total ? "沒有符合條件的人員。" : "尚無人員。"}</EmptyState> : null}
+      {!employeeTable.data?.employees.length ? <EmptyState className="mt-[18px]">{employeeTable.data?.total ? "沒有符合條件的人員。" : "尚無人員。"}</EmptyState> : null}
       {employeeTable.data && employeeTable.data.total > 0 ? <Pager page={employeeTable.data.page} pageSize={employeeTable.data.pageSize} pageSizes={EMPLOYEE_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(employeeTable.data.total / employeeTable.data.pageSize))} totalLabel={`共 ${employeeTable.data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => setEmployeeFilters((current) => ({ ...current, page }))} onPageSize={(pageSize) => setEmployeeFilters((current) => ({ ...current, pageSize, page: 1 }))} /> : null}
     </Panel>
       {workers.error ? <Alert tone="danger">{workers.error.message}</Alert> : null}

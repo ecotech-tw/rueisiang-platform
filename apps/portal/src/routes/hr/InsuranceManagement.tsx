@@ -107,7 +107,7 @@ export function HrInsuranceManagement() {
       </tr></thead><tbody>
         {(employeeTable.data?.employees ?? []).filter(isHrFormalEmployee).map((employee) => <InsuranceRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
       </tbody></DataTable>
-      {!employeeTable.data?.employees.length ? <EmptyState>{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</EmptyState> : null}
+      {!employeeTable.data?.employees.length ? <EmptyState className="mt-[18px]">{employeeTable.data?.total ? "沒有符合條件的員工。" : "尚無員工。"}</EmptyState> : null}
       {employeeTable.data && employeeTable.data.total > 0 ? <Pager page={employeeTable.data.page} pageSize={employeeTable.data.pageSize} pageSizes={EMPLOYEE_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(employeeTable.data.total / employeeTable.data.pageSize))} totalLabel={`共 ${employeeTable.data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => setEmployeeFilters((current) => ({ ...current, page }))} onPageSize={(pageSize) => setEmployeeFilters((current) => ({ ...current, pageSize, page: 1 }))} /> : null}
     </Panel>
     {editing ? <InsuranceEditor employment={editing.employment} existing={editing.existing} insuranceVersions={editing.insuranceVersions} defaultSalary={editing.defaultSalary} defaultDependentCount={editing.dependentCount} onClose={() => setEditing(null)} /> : null}

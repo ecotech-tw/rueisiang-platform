@@ -338,7 +338,6 @@
 .hr-profile-date-range > div { display: grid; gap: 3px; min-width: 0; }
 .hr-profile-date-range span { color: var(--color-muted); font-size: 11px; }
 .hr-profile-date-range strong { font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-.hr-profile-empty-note { margin: 0; padding: 8px 0; }
 .hr-profile-loading { display: grid; min-height: 84px; place-items: center; }
 .hr-notifications-page { width: 100%; max-width: 760px; margin-inline: auto; }
 .hr-notification-panel { min-height: 0; }

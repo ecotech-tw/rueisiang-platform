@@ -173,7 +173,7 @@ function EntitlementTable({ rows, canWrite, onAdjust, onDetail }: { rows: HrAnnu
       <td data-label="狀態"><StatusBadge tone={row.status === "open" ? "success" : "neutral"}>{row.status === "open" ? "可使用" : "已結算"}</StatusBadge></td>
       <td data-label="操作"><div className="hr-annual-row-actions"><Button variant="secondary" icon="info" tone="info" onClick={() => onDetail(row)}>查看明細</Button>{canWrite && row.status === "open" ? <Button variant="secondary" icon="edit" tone="info" onClick={() => onAdjust(row)}>人工調整</Button> : null}</div></td>
     </tr>)}
-    {!rows.length ? <tr><td colSpan={7}><EmptyState>目前沒有可建立的特休週期；請確認員工已設定月薪敘薪版本，或執行回溯／補建額度。</EmptyState></td></tr> : null}
+    {!rows.length ? <tr><td colSpan={7}><EmptyState className="mt-[18px]">目前沒有可建立的特休週期；請確認員工已設定月薪敘薪版本，或執行回溯／補建額度。</EmptyState></td></tr> : null}
   </tbody></DataTable>;
 }
 

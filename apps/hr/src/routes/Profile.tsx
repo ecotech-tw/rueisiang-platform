@@ -77,15 +77,15 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
       </Panel>
 
       <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="people">任職紀錄</ProfileSectionTitle>} description="包含目前與已封存的任職資料。">
-        {profile.employments.length ? <div className="hr-profile-card-list">{profile.employments.map((job) => <EmploymentCard key={job.id} job={job} />)}</div> : <EmptyState className="hr-profile-empty-note">尚未建立任職資料。</EmptyState>}
+        {profile.employments.length ? <div className="hr-profile-card-list">{profile.employments.map((job) => <EmploymentCard key={job.id} job={job} />)}</div> : <EmptyState size="compact">尚未建立任職資料。</EmptyState>}
       </Panel>
 
       <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="storefront">營運櫃點</ProfileSectionTitle>} description="依日期記錄的營運櫃點歸屬。">
-        {profile.assignments?.length ? <div className="hr-profile-card-list">{profile.assignments.map((assignment) => <AssignmentCard key={assignment.id} name={assignment.scopeName} from={assignment.validFrom} to={assignment.validTo} />)}</div> : <EmptyState className="hr-profile-empty-note">尚無營運櫃點歸屬。</EmptyState>}
+        {profile.assignments?.length ? <div className="hr-profile-card-list">{profile.assignments.map((assignment) => <AssignmentCard key={assignment.id} name={assignment.scopeName} from={assignment.validFrom} to={assignment.validTo} />)}</div> : <EmptyState size="compact">尚無營運櫃點歸屬。</EmptyState>}
       </Panel>
 
       <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="warehouse">辦公位置</ProfileSectionTitle>} description="出勤打卡所使用的辦公位置。">
-        {profile.attendanceAssignments?.length ? <div className="hr-profile-card-list">{profile.attendanceAssignments.map((assignment) => <AssignmentCard key={assignment.id} name={assignment.locationName} from={assignment.validFrom} to={assignment.validTo} primary={assignment.isPrimary} />)}</div> : <EmptyState className="hr-profile-empty-note">尚未指派辦公位置。</EmptyState>}
+        {profile.attendanceAssignments?.length ? <div className="hr-profile-card-list">{profile.attendanceAssignments.map((assignment) => <AssignmentCard key={assignment.id} name={assignment.locationName} from={assignment.validFrom} to={assignment.validTo} primary={assignment.isPrimary} />)}</div> : <EmptyState size="compact">尚未指派辦公位置。</EmptyState>}
       </Panel>
     </div>
   </>;

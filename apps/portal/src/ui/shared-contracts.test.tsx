@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { ConfirmDialog, SelectField, SelectionActionBar } from "@rueisiang/ui";
+import { ConfirmDialog, EmptyState, SelectField, SelectionActionBar } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -35,7 +35,7 @@ describe("shared HRIS UI contracts", () => {
       </SelectionActionBar>,
     );
 
-    expect(markup).toContain('class="selection-action-bar" role="status" aria-live="polite"');
+    expect(markup).toContain('role="status" aria-live="polite"');
     expect(markup).toContain("已選取 3 筆加班申請");
     expect(markup).toContain("取消並刪除所選加班");
   });
@@ -87,9 +87,19 @@ describe("shared HRIS UI contracts", () => {
     );
 
     expect(markup).toContain('aria-sort="ascending"');
-    expect(markup).toContain('class="sort-header active"');
+    expect(markup).toMatch(/<button[^>]*class="[^"]*\btext-brand-dark\b/);
     expect(markup).toContain('aria-sort="none"');
-    expect(markup).toContain('class="sort-header"');
+    expect(markup).toMatch(/<button[^>]*class="[^"]*\btext-inherit\b/);
+  });
+
+  it("EmptyState 的內距由 size 決定，外距交給呼叫端", () => {
+    const normal = renderToStaticMarkup(<EmptyState>沒有資料</EmptyState>);
+    const compact = renderToStaticMarkup(<EmptyState size="compact">尚無紀錄</EmptyState>);
+
+    expect(normal).toContain("p-[18px]");
+    expect(normal).not.toMatch(/\bm[trblxy]?-/);
+    expect(compact).toContain("py-2");
+    expect(compact).not.toContain("p-[18px]");
   });
 
   it("renders filters with shared labels and compact control wrappers", () => {

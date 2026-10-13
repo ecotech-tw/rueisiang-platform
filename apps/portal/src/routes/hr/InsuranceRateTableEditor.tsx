@@ -110,7 +110,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
               </tr>)}
             </tbody>
         </DataTable>
-        {!brackets.length ? <EmptyState>尚無級距，請新增一筆。</EmptyState> : null}
+        {!brackets.length ? <EmptyState className="mt-[18px]">尚無級距，請新增一筆。</EmptyState> : null}
         <div className="hr-rate-editor-foot"><Button type="button" icon="plus" tone="success" mobileIconOnly onClick={addBracket}>新增級距</Button><span className="muted">薪資下限填 0 代表「以下」級距；員工負擔由該年度費率計算，健保欄先以 0 位眷屬呈現。</span></div>
       </div>
       <div className="field-grid">
