@@ -10,7 +10,7 @@ import { HrScheduling } from "./Scheduling.js";
 const shift = { versionId: "weekday", templateId: "early", scopeId: "store", name: "早班", dayType: "weekday" as const, revision: 1, startSecond: 32400, endSecond: 64800, endDayOffset: 0, standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1 };
 const savedEntry: ScheduleEntry = { id: "saved", scheduleVersionId: "version", personKind: "employee", employmentId: "employee", workerId: null, scopeId: "store", shiftVersionId: "weekday", shiftGroupId: "group", workDate: "2026-02-06", startsAt: "2026-02-06 09:00:00", endsAt: "2026-02-06 18:00:00", standardMinutes: 480, breakMinutes: 60, requiredHeadcount: 1, attendanceStatus: "scheduled", employeeNumber: "E1", personName: "小明", archivedAt: null, scopeName: "門市", shiftName: "早班" };
 function data(locked = false): HrScheduleResponse {
-  return { periodKey: "2026-02", period: { start: "2026-02-01", end: "2026-03-01" }, version: { id: "version", revision: 2, status: "published", locked, lockedAt: locked ? "now" : null }, scopeLock: { revision: 0, locked: false, lockedAt: null }, scopes: [{ id: "store", name: "門市" }], employees: [{ employmentId: "employee", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [], shifts: [shift, { ...shift, versionId: "weekend", dayType: "weekend", startSecond: 36000, endSecond: 68400, requiredHeadcount: 2 }], entries: [savedEntry], calendar: Array.from({ length: 28 }, (_, index) => ({ date: `2026-02-${String(index + 1).padStart(2, "0")}`, dayType: index === 6 ? "weekend" as const : "weekday" as const, name: "", specialKind: "none" as const, specialScopeIds: [], overridden: false })) };
+  return { periodKey: "2026-02", period: { start: "2026-02-01", end: "2026-03-01" }, version: { id: "version", revision: 2, status: "published", locked, lockedAt: locked ? "now" : null }, scopeLock: { revision: 0, locked: false, lockedAt: null, globallyLocked: false }, scopes: [{ id: "store", name: "門市" }], employees: [{ employmentId: "employee", userId: "user", employeeNumber: "E1", name: "小明" }], workers: [], shifts: [shift, { ...shift, versionId: "weekend", dayType: "weekend", startSecond: 36000, endSecond: 68400, requiredHeadcount: 2 }], entries: [savedEntry], calendar: Array.from({ length: 28 }, (_, index) => ({ date: `2026-02-${String(index + 1).padStart(2, "0")}`, dayType: index === 6 ? "weekend" as const : "weekday" as const, name: "", specialKind: "none" as const, specialScopeIds: [], overridden: false })) };
 }
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
@@ -25,7 +25,8 @@ async function renderPage(initial: HrScheduleResponse, mutationStatus = 200, get
   client.setQueryData(["hr", "/me/schedule-scopes"], { scopes: [{ id: "store", name: "門市" }] });
   client.setQueryData(["hr", "/me/schedules?periodKey=2026-02&scopeId=store"], initial);
   const writes: Array<{ path: string; method: string; values: Record<string, unknown> }> = [];
-  let currentScopeLock = initial.scopeLock ?? { revision: 0, locked: false, lockedAt: null };
+  let currentScopeLock = initial.scopeLock ?? { revision: 0, locked: false, lockedAt: null, globallyLocked: Boolean(initial.version?.locked) };
+  const currentGlobalLock = Boolean(initial.scopeLock?.globallyLocked ?? (initial.version?.locked && !initial.scopeLock?.locked));
   vi.stubGlobal("fetch", async (path: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === "PATCH") {
       writes.push({ path: String(path), method: init.method, values: JSON.parse(String(init.body)) });
@@ -34,12 +35,11 @@ async function renderPage(initial: HrScheduleResponse, mutationStatus = 200, get
     if (init?.method === "POST") {
       const values = JSON.parse(String(init.body)) as Record<string, unknown>;
       writes.push({ path: String(path), method: init.method, values });
-      currentScopeLock = { revision: Number(values.revision) + 1, locked: Boolean(values.locked), lockedAt: values.locked ? "now" : null };
+      currentScopeLock = { revision: Number(values.revision) + 1, locked: Boolean(values.locked), lockedAt: values.locked ? "now" : null, globallyLocked: currentGlobalLock };
       return Response.json({ scopeId: values.scopeId, ...currentScopeLock });
     }
     if (getFailures-- > 0) return Response.json({ error: "最新班表暫時無法載入" }, { status: 500 });
-    const globalLock = Boolean(initial.version?.locked && !initial.scopeLock?.locked);
-    return Response.json({ ...initial, version: { ...initial.version, revision: 3, locked: globalLock || currentScopeLock.locked, lockedAt: globalLock ? initial.version?.lockedAt ?? null : currentScopeLock.lockedAt }, scopeLock: currentScopeLock });
+    return Response.json({ ...initial, version: { ...initial.version, revision: 3, locked: currentGlobalLock || currentScopeLock.locked, lockedAt: currentGlobalLock ? initial.version?.lockedAt ?? null : currentScopeLock.lockedAt }, scopeLock: currentScopeLock });
   });
   const container = document.createElement("div"); document.body.append(container);
   const root = createRoot(container);
@@ -67,6 +67,24 @@ async function openMobileQuick() {
 }
 
 describe("HR 前台快速排班", () => {
+  it("桌面一般模式也提供據點鎖定入口", async () => {
+    const page = await renderPage(data());
+    try {
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="鎖定本據點排班"]')?.disabled).toBe(false);
+    } finally { await page.cleanup(); }
+  });
+
+  it("全月與單據點同時鎖定時明確提示全月鎖定，且不提供本據點開鎖操作", async () => {
+    const initial = data(true);
+    initial.scopeLock = { revision: 1, locked: true, lockedAt: "store-lock", globallyLocked: true };
+    const page = await renderMobilePage(initial);
+    try {
+      expect(document.body.textContent).toContain("整個月份已由 HR 鎖定");
+      expect(document.querySelector<HTMLButtonElement>('[aria-label="整個月份已由 HR 鎖定"]')?.disabled).toBe(true);
+      expect(document.querySelector('[aria-label="開鎖本據點排班"]')).toBeNull();
+    } finally { await page.cleanup(); }
+  });
+
   it("確認鎖定與開鎖只更新本據點月份，並在鎖定後停用排班入口", async () => {
     const page = await renderMobilePage(data());
     try {

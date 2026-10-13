@@ -158,7 +158,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
   const alerts = <>
     {changes.refreshIds.length ? <Alert tone="warning">有 {changes.refreshIds.length} 筆班別設定已變更，儲存會重新套用目前的日型、時間與需求人力。</Alert> : null}
     {reloadRequired && !stale ? <Alert tone="warning">載入最新班表失敗，草稿仍保留。<Button variant="secondary" onClick={() => { if (!dirty || window.confirm("重新載入會放棄尚未儲存的排班，確定繼續？")) void reload(); }}>重新載入</Button></Alert> : null}
-    {data.version?.locked ? <Alert>{data.scopeLock?.locked ? "本據點本月排班已鎖定，請先開鎖再調整。" : "整個月份已由 HR 鎖定，請聯絡 HR 開鎖後再調整。"}</Alert> : null}
+    {data.version?.locked ? <Alert>{data.scopeLock?.globallyLocked ? "整個月份已由 HR 鎖定，請聯絡 HR 開鎖後再調整。" : "本據點本月排班已鎖定，請先開鎖再調整。"}</Alert> : null}
     {stale ? <Alert tone="warning">排班已被其他人修改，草稿仍保留。請重新載入後再安排。<Button variant="secondary" onClick={() => { if (!dirty || window.confirm("重新載入會放棄尚未儲存的排班，確定繼續？")) void reload(); }}>重新載入</Button></Alert> : null}
     {message ? <Alert tone="danger">{message}</Alert> : null}
     {savedNeedsReload ? <Button variant="secondary" onClick={() => void reload()}>已儲存，重新載入班表</Button> : null}
@@ -240,9 +240,10 @@ export function HrScheduling() {
   const selectedScopeId = scopeId || scopes.data?.scopes[0]?.id || "";
   const schedule = useHrQuery<HrScheduleResponse>(`/me/schedules?periodKey=${month}&scopeId=${encodeURIComponent(selectedScopeId)}`, Boolean(selectedScopeId));
   const scopeLock = schedule.data?.scopeLock;
-  const globallyLocked = Boolean(schedule.data?.version?.locked && !scopeLock?.locked);
+  const globallyLocked = Boolean(scopeLock?.globallyLocked ?? (schedule.data?.version?.locked && !scopeLock?.locked));
   const lockLabel = globallyLocked ? "整個月份已由 HR 鎖定" : scopeLock?.locked ? "開鎖本據點排班" : "鎖定本據點排班";
   const canChangeScopeLock = Boolean(schedule.data?.version) && !globallyLocked && !quick && !editState.dirty && !editState.pending;
+  const scopeLockAction = <Tooltip label={lockLabel} focusable={false}><Button variant="filled-icon" tone="brand" size="lg" icon={scopeLock?.locked || globallyLocked ? "lock" : "lockOpen"} aria-label={lockLabel} disabled={!canChangeScopeLock} onClick={() => { setLockError(null); setLockDialogOpen(true); }} /></Tooltip>;
   const confirmLeave = () => !editState.pending && (!editState.dirty || window.confirm("排班還沒儲存，確定要放棄變更？"));
   const blocker = useBlocker(editState.dirty || editState.pending);
   const currentBlocker = useRef(blocker);
@@ -284,7 +285,7 @@ export function HrScheduling() {
     {scopes.isPending ? <p>載入據點中…</p> : null}
     {scopes.data && !scopes.data.scopes.length ? <EmptyState>目前沒有負責的排班據點，請聯絡 HR 指派。</EmptyState> : null}
     {selectedScopeId ? <Panel density="compact" className="grid gap-1">
-      <div className="flex items-center gap-1" aria-label="排班月份"><Button variant="icon" icon="chevronLeft" aria-label="上個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(-1); setMonth(nextMonth(month, -1)); setEditState({ dirty: false, pending: false }); } }} /><strong className="flex-1 text-center text-sm tabular-nums">{month.slice(0, 4)} 年 {Number(month.slice(5))} 月</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(1); setMonth(nextMonth(month, 1)); setEditState({ dirty: false, pending: false }); } }} />{isMobile || quick ? <div className="flex w-[92px] shrink-0 justify-end gap-1"><Tooltip label={lockLabel} focusable={false}><Button variant="filled-icon" tone="brand" size="lg" icon={scopeLock?.locked || globallyLocked ? "lock" : "lockOpen"} aria-label={lockLabel} disabled={!canChangeScopeLock} onClick={() => { setLockError(null); setLockDialogOpen(true); }} /></Tooltip>{quick ? <Tooltip label="儲存排班" focusable={false}><Button variant="filled-icon" tone="success" size="lg" icon="save" aria-label="儲存排班" loading={editState.pending} loadingLabel={<span className="sr-only">儲存中…</span>} onClick={() => void goBack()} /></Tooltip> : <Tooltip label="快速排班" focusable={false}><Button variant="filled-icon" tone="info" size="lg" icon="edit" aria-label="快速排班" disabled={editState.pending || Boolean(schedule.data?.version?.locked) || !schedule.data?.shifts.length} onClick={() => setQuick(true)} /></Tooltip>}</div> : null}</div>
+      <div className="flex items-center gap-1" aria-label="排班月份"><Button variant="icon" icon="chevronLeft" aria-label="上個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(-1); setMonth(nextMonth(month, -1)); setEditState({ dirty: false, pending: false }); } }} /><strong className="flex-1 text-center text-sm tabular-nums">{month.slice(0, 4)} 年 {Number(month.slice(5))} 月</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" disabled={quick || editState.pending} onClick={() => { if (confirmLeave()) { setMonthDirection(1); setMonth(nextMonth(month, 1)); setEditState({ dirty: false, pending: false }); } }} />{isMobile || quick ? <div className="flex w-[92px] shrink-0 justify-end gap-1">{scopeLockAction}{quick ? <Tooltip label="儲存排班" focusable={false}><Button variant="filled-icon" tone="success" size="lg" icon="save" aria-label="儲存排班" loading={editState.pending} loadingLabel={<span className="sr-only">儲存中…</span>} onClick={() => void goBack()} /></Tooltip> : <Tooltip label="快速排班" focusable={false}><Button variant="filled-icon" tone="info" size="lg" icon="edit" aria-label="快速排班" disabled={editState.pending || Boolean(schedule.data?.version?.locked) || !schedule.data?.shifts.length} onClick={() => setQuick(true)} /></Tooltip>}</div> : <div className="flex w-11 shrink-0 justify-end">{scopeLockAction}</div>}</div>
     </Panel> : null}
     {selectedScopeId && schedule.isPending ? <div role="status" aria-label="載入班表中" aria-live="polite" aria-busy="true">
       <Panel density="compact" className="grid gap-2">

@@ -238,6 +238,18 @@ describe("據點負責人的 HR 前台排班", () => {
     expect(unlocked.status).toBe(200);
     expect(await unlocked.json()).toMatchObject({ scopeId: "store-a", revision: 2, locked: false });
     expect((await changes({ entries: [entry("worker-2", "2026-02-11")] }, "scheduler")).status).toBe(200);
+
+    const relocked = await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 2, locked: true }, "scheduler");
+    expect(relocked.status).toBe(200);
+    const globalLock = await request("/schedules/2026-02/lock", "POST", { revision: (await getHrSchedule(db, "2026-02")).version!.revision, locked: true });
+    expect(globalLock.status).toBe(200);
+    const bothLocked = await request("/me/schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "scheduler");
+    expect(await bothLocked.json()).toMatchObject({ version: { locked: true }, scopeLock: { locked: true, globallyLocked: true } });
+    expect((await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 3, locked: false }, "scheduler")).status).toBe(409);
+    expect((await request("/schedules/2026-02/lock", "POST", { revision: (await getHrSchedule(db, "2026-02")).version!.revision, locked: false })).status).toBe(200);
+    const onlyStoreLocked = await request("/me/schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "scheduler");
+    expect(await onlyStoreLocked.json()).toMatchObject({ version: { locked: true }, scopeLock: { locked: true, globallyLocked: false } });
+    expect((await request("/me/schedules/lock", "POST", { periodKey: "2026-02", scopeId: "store-a", revision: 3, locked: false }, "scheduler")).status).toBe(200);
   });
 
   it("負責人指派限全域管理權限、有效員工及有效門市", async () => {
