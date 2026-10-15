@@ -396,12 +396,12 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
   }
 
   const hoursField = <TextField label={mode === "single" ? "加班時數（小時）" : "每天加班時數（小時）"} type="number" inputMode="decimal" min={0.5} max={24} step={0.5} required value={hours} disabled={write.isPending} error={hours.trim() && !minutesValid ? OVERTIME_UNIT_ERROR : undefined} onChange={(event) => setHours(event.target.value)} />;
-  const presets = <SegmentedControl className="hr-overtime-presets" aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={write.isPending} onChange={setHours} />;
+  const presets = <SegmentedControl dense className="m-0" aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={write.isPending} onChange={setHours} />;
 
   return <form id={REQUEST_FORM_ID} className="hr-request-form" onSubmit={submit}>
-    <SegmentedControl className="hr-request-kind-tabs" aria-label="申請對象" value={targetKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "支援人員" }]} disabled={write.isPending} onChange={(value) => { const next = value === "worker" ? "worker" : "employee"; setTargetKind(next); setEmployeeUserId(""); setWorkerId(""); resetDayDefaults(); }} />
+    <SegmentedControl size="lg" className="m-0" aria-label="申請對象" value={targetKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "支援人員" }]} disabled={write.isPending} onChange={(value) => { const next = value === "worker" ? "worker" : "employee"; setTargetKind(next); setEmployeeUserId(""); setWorkerId(""); resetDayDefaults(); }} />
     <SelectField label={targetKind === "employee" ? "申請員工" : "申請支援人員"} required value={targetId} options={targetKind === "employee" ? employeeOptions : workerOptions} searchable disabled={write.isPending} onChange={(event) => { if (targetKind === "employee") setEmployeeUserId(event.target.value); else setWorkerId(event.target.value); resetDayDefaults(); }} />
-    <SegmentedControl className="hr-request-kind-tabs" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={write.isPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />
+    <SegmentedControl size="lg" className="m-0" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={write.isPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />
     {mode === "single" ? <>
       <div className="form-grid two">
         <TextField label="加班日期" type="date" required value={date} disabled={write.isPending} onChange={(event) => { setDate(event.target.value); resetDayDefaults(); }} />
@@ -458,7 +458,7 @@ function CreateRequestDialog({ initialKind, employees, workers, leaveTypes, onCl
     <div className="hr-request-kind-picker">
       <span className="muted">申請類型</span>
       <SegmentedControl
-        className="hr-request-kind-tabs"
+        size="lg" className="m-0"
         aria-label="申請類型"
         value={kind}
         options={[{ value: "leave", label: "請假" }, { value: "overtime", label: "加班" }]}

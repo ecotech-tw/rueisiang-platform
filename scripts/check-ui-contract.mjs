@@ -26,7 +26,6 @@ const sharedPrimitiveSelectors = [
   ".pager-size",
   ".pager-nav",
   ".pager-page",
-  ".segmented-control",
   ".modal-backdrop",
   ".modal-card",
   ".confirm-card",

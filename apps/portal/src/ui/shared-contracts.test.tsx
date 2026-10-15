@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { ConfirmDialog, EmptyState, SelectField, SelectionActionBar } from "@rueisiang/ui";
+import { ConfirmDialog, EmptyState, SegmentedControl, SelectField, SelectionActionBar } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -90,6 +90,23 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toMatch(/<button[^>]*class="[^"]*\btext-brand-dark\b/);
     expect(markup).toContain('aria-sort="none"');
     expect(markup).toMatch(/<button[^>]*class="[^"]*\btext-inherit\b/);
+  });
+
+  it("SegmentedControl 的皮膚、高度與密度是 prop，選中狀態跟著皮膚走", () => {
+    const options = [{ value: "a", label: "甲", badge: "3 筆" }, { value: "b", label: "乙", badge: "0 筆" }];
+    const buttons = (markup: string) => [...markup.matchAll(/<button[^>]*class="([^"]*)"[^>]*aria-pressed="(true|false)"/g)].map((match) => ({ classes: (match[1] ?? "").split(/\s+/), pressed: match[2] === "true" }));
+
+    const glass = buttons(renderToStaticMarkup(<SegmentedControl aria-label="檢視" options={options} value="a" onChange={() => {}} />));
+    expect(glass.find((button) => button.pressed)?.classes).toContain("bg-paper/56");
+    expect(glass.find((button) => !button.pressed)?.classes).toEqual(expect.arrayContaining(["text-muted", "hover:bg-brand/8", "min-h-[38px]"]));
+    // 選中的那顆不帶 hover 樣式，hover 才不會把選中的底色蓋掉。
+    expect(glass.find((button) => button.pressed)?.classes).not.toContain("hover:bg-brand/8");
+
+    const tabsMarkup = renderToStaticMarkup(<SegmentedControl aria-label="表單" skin="tabs" size="lg" dense options={options} value="a" onChange={() => {}} />);
+    const tabs = buttons(tabsMarkup);
+    expect(tabs.find((button) => button.pressed)?.classes).toEqual(expect.arrayContaining(["bg-brand-soft", "min-h-10", "max-[760px]:px-1"]));
+    expect(tabsMarkup).toMatch(/<span>甲<\/span><small class="[^"]*\bbg-brand\b[^"]*">3 筆<\/small>/);
+    expect(tabsMarkup).toMatch(/<span>乙<\/span><small class="[^"]*\btext-muted\b[^"]*">0 筆<\/small>/);
   });
 
   it("EmptyState 的內距由 size 決定，外距交給呼叫端", () => {
