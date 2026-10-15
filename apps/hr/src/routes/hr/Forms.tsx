@@ -618,7 +618,7 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
         <TextField label="月份" type="month" required value={month} disabled={save.isPending} onChange={(event) => { setMonth(event.target.value); reset(); }} />
         <TextField label="每天加班時數（小時）" type="number" inputMode="decimal" min={0.5} max={24} step={0.5} required value={hours} disabled={save.isPending} error={hours.trim() && !minutesValid ? "時數要以 0.5 小時為單位，最多 24 小時。" : undefined} onChange={(event) => setHours(event.target.value)} />
       </div>
-      <SegmentedControl skin="tabs" dense className="m-0" aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={save.isPending} onChange={setHours} />
+      <SegmentedControl skin="tabs" dense aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={save.isPending} onChange={setHours} />
       <p className="muted hr-overtime-note">先選時數，再點日期；換個時數可以繼續點別天，再點一次同樣時數就取消。有排班的日期從下班時間起算。</p>
       {dayQuery.error ? <Alert tone="danger">{dayQuery.error.message}</Alert>
         : !range ? <p className="muted">請先選擇月份。</p>
