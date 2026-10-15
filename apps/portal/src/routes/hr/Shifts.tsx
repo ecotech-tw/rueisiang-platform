@@ -233,6 +233,8 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
               <span className="muted shift-day-inherited @max-[400px]/shift-settings:col-span-full">沿用平日時段與需求人力（{row.times.weekday?.requiredHeadcount ?? 1} 人）</span>
               {canWrite ? <Button variant="secondary" icon="plus" tone="success" className="col-start-2 row-start-2 @max-[400px]/shift-settings:col-span-full @max-[400px]/shift-settings:row-start-3 justify-self-start" disabled={disabled} onClick={() => updateTime(row.key, dayType, {})}>設定{label}時間</Button> : <span className="shift-item-spacer @max-[400px]/shift-settings:col-span-full @max-[400px]/shift-settings:row-start-3" aria-hidden="true" />}
             </div>;
+            // 「改回同平日」與沒有它時的佔位格必須站在同一格，所以共用同一組位置。
+            const resetSlot = "@max-[640px]/shift-settings:col-start-2 @max-[640px]/shift-settings:row-start-1 @max-[640px]/shift-settings:[justify-self:end]";
             return <div className="shift-day-row" key={dayType}>
               <span className="shift-day-label">{label}</span>
               <ShiftTimeField label="開始時間" ariaLabel={`${row.name || "班別"}${label}開始時間`} value={draft.startTime} disabled={disabled} onChange={(startTime) => updateTime(row.key, dayType, { startTime })} />
@@ -240,9 +242,9 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
               <TextField label="休息分鐘" aria-label={`${row.name || "班別"}${label}休息分鐘`} type="number" min="0" step="30" value={draft.breakMinutes} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { breakMinutes: Number(event.target.value) })} />
               <TextField label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
               {/* 平日是其他日型的退路，拿掉就沒有東西可退；所以只有另外兩個日型能取消。 */}
-              {canWrite && dayType !== "weekday" ? <Tooltip label={`改回同平日`} focusable={false} className="max-[640px]:col-start-2 max-[640px]:row-start-1 max-[640px]:[justify-self:end]">
+              {canWrite && dayType !== "weekday" ? <Tooltip label={`改回同平日`} focusable={false} className={resetSlot}>
                 <Button className="self-center" variant="icon" icon="close" aria-label={`${label}改回同平日`} disabled={disabled} onClick={() => updateTime(row.key, dayType, null)} />
-              </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
+              </Tooltip> : <span className={`shift-item-spacer ${resetSlot}`} aria-hidden="true" />}
             </div>;
           })}
           {legacyOvernight ? <small className="shift-item-note">跨午夜的舊班別，請刪除後重新建立。</small> : null}

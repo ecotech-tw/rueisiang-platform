@@ -2105,11 +2105,10 @@
   .shift-day-row > .field:nth-child(3) { grid-column: 2; grid-row: 2; }
   .shift-day-row > .field:nth-child(4) { grid-column: 1; grid-row: 3; }
   .shift-day-row > .field:nth-child(5) { grid-column: 2; grid-row: 3; }
-  .shift-day-row > .shift-item-spacer { grid-column: 2; grid-row: 1; justify-self: end; }
   .shift-day-row-empty { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
   .shift-day-row-empty .shift-day-label { grid-column: 1 / -1; }
   .shift-day-row-empty .shift-day-inherited { grid-column: 1; grid-row: 2; }
-  .shift-day-row-empty > .shift-item-spacer { grid-column: 2; grid-row: 2; }
+  .shift-day-row-empty > .shift-item-spacer { grid-column: 2; grid-row: 2; justify-self: end; }
 }
 /*
  * 好幾個 HR 對話框用 form-grid／form-grid two 排兩欄，但這個 class 一直沒有定義，
