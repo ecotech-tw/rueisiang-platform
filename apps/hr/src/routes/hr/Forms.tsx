@@ -486,7 +486,7 @@ export function HrForms() {
     navigate(activeTab === "leave" ? "/forms/leave" : activeTab === "overtime" ? "/forms/overtime" : "/forms/new");
   }
 
-  const addRequestAction = (placement: "inline" | "floating") => <Tooltip label="新增申請" focusable={false}><button type="button" className={`hr-form-add-button hr-form-add-button-${placement}`} aria-label="新增申請" onClick={openNewForm}><Icon name="plus" /></button></Tooltip>;
+  const addRequestAction = (placement: "inline" | "floating") => <Tooltip label="新增申請" focusable={false} className={placement === "floating" ? "max-[760px]:pointer-events-auto max-[760px]:absolute max-[760px]:right-[max(16px,env(safe-area-inset-right))] max-[760px]:bottom-[calc(var(--hr-safe-bottom)+96px)]" : ""}><button type="button" className={`hr-form-add-button hr-form-add-button-${placement}`} aria-label="新增申請" onClick={openNewForm}><Icon name="plus" /></button></Tooltip>;
 
   const tabOptions = FORM_TAB_OPTIONS.map((option) => {
     const count = option.value === "leave"

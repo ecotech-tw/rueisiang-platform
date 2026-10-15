@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { ConfirmDialog, EmptyState, SegmentedControl, SelectField, SelectionActionBar } from "@rueisiang/ui";
+import { ConfirmDialog, EmptyState, SegmentedControl, SelectField, SelectionActionBar, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -107,6 +107,17 @@ describe("shared HRIS UI contracts", () => {
     expect(tabs.find((button) => button.pressed)?.classes).toEqual(expect.arrayContaining(["bg-brand-soft", "min-h-10", "max-[760px]:px-1"]));
     expect(tabsMarkup).toMatch(/<span>甲<\/span><small class="[^"]*\bbg-brand\b[^"]*">3 筆<\/small>/);
     expect(tabsMarkup).toMatch(/<span>乙<\/span><small class="[^"]*\btext-muted\b[^"]*">0 筆<\/small>/);
+  });
+
+  it("Tooltip 的錨點預設跟內容一樣寬，block 才撐滿整行", () => {
+    const anchorClasses = (markup: string) => (markup.match(/^<span class="([^"]*)"/)?.[1] ?? "").split(/\s+/);
+    const inline = anchorClasses(renderToStaticMarkup(<Tooltip label="完整數字"><strong>NT$3,011…</strong></Tooltip>));
+    const block = anchorClasses(renderToStaticMarkup(<Tooltip block label="完整數字" className="cursor-help"><strong>NT$3,011…</strong></Tooltip>));
+    expect(inline).toContain("inline-flex");
+    expect(inline).not.toContain("block");
+    // 兩個 display utility 同時出現時誰贏要看產生順序，所以 block 必須取代 inline-flex，不能疊上去。
+    expect(block).toEqual(expect.arrayContaining(["block", "cursor-help"]));
+    expect(block).not.toContain("inline-flex");
   });
 
   it("EmptyState 的內距由 size 決定，外距交給呼叫端", () => {

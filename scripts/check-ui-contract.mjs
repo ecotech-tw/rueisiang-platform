@@ -32,8 +32,6 @@ const sharedPrimitiveSelectors = [
   ".confirm-body",
   ".panel",
   ".field",
-  ".tooltip-anchor",
-  ".tooltip",
 ];
 
 async function walk(directory) {

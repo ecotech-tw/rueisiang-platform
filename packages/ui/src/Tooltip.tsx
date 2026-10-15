@@ -13,6 +13,8 @@ interface TooltipProps {
    * 內層元素 focus 時事件會冒泡到外層，所以提示照樣出現。
    */
   focusable?: boolean;
+  /** 錨點撐滿整行（裡面是要靠父層寬度截斷的文字）；預設跟內容一樣寬。 */
+  block?: boolean;
 }
 
 /** 與錨點的間距，以及貼齊視窗邊界時保留的留白。 */
@@ -41,7 +43,7 @@ interface Placement {
  * 位置用 `position: fixed` 加 getBoundingClientRect 算，不是相對定位——
  * KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的提示會被裁掉。
  */
-export function Tooltip({ label, children, className = "", focusable = true }: TooltipProps) {
+export function Tooltip({ label, children, className = "", focusable = true, block = false }: TooltipProps) {
   const [anchor, setAnchor] = useState<AnchorRect | null>(null);
   const [placement, setPlacement] = useState<Placement | null>(null);
   const tipRef = useRef<HTMLSpanElement>(null);
@@ -101,7 +103,9 @@ export function Tooltip({ label, children, className = "", focusable = true }: T
   const tooltip = anchor ? (
     <span
       ref={tipRef}
-      className="tooltip"
+      // 垂直位置由 JS 決定，transform 只負責水平置中。transform 與 box-shadow 用任意屬性寫：
+      // -translate-x-1/2 走的是 translate 屬性、shadow-* 會疊上 ring 變數，算出來的值都跟原本對不起來。
+      className="pointer-events-none fixed z-90 w-max max-w-[min(280px,calc(100vw-16px))] rounded-[10px] bg-ink px-3 py-1.5 text-[12px] leading-normal font-medium text-canvas tabular-nums [overflow-wrap:anywhere] [box-shadow:var(--shadow-panel)] [transform:translateX(-50%)]"
       role="tooltip"
       id={id}
       style={placement
@@ -115,7 +119,8 @@ export function Tooltip({ label, children, className = "", focusable = true }: T
 
   return (
     <span
-      className={`tooltip-anchor ${className}`.trim()}
+      // 停用的按鈕會吞掉滑鼠事件，錨點收不到 hover；讓指標穿過它落在錨點上，停用原因的提示才出得來。
+      className={`relative min-w-0 max-w-full focus-visible:rounded-[6px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&>:disabled]:pointer-events-none ${block ? "block" : "inline-flex"} ${className}`.trim()}
       tabIndex={focusable ? 0 : undefined}
       aria-describedby={anchor ? id : undefined}
       onMouseEnter={show}

@@ -2105,12 +2105,10 @@
   .shift-day-row > .field:nth-child(3) { grid-column: 2; grid-row: 2; }
   .shift-day-row > .field:nth-child(4) { grid-column: 1; grid-row: 3; }
   .shift-day-row > .field:nth-child(5) { grid-column: 2; grid-row: 3; }
-  .shift-day-row > .tooltip-anchor,
-  .shift-day-row > .shift-item-spacer { grid-column: 2; grid-row: 1; justify-self: end; }
   .shift-day-row-empty { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
   .shift-day-row-empty .shift-day-label { grid-column: 1 / -1; }
   .shift-day-row-empty .shift-day-inherited { grid-column: 1; grid-row: 2; }
-  .shift-day-row-empty > .shift-item-spacer { grid-column: 2; grid-row: 2; }
+  .shift-day-row-empty > .shift-item-spacer { grid-column: 2; grid-row: 2; justify-self: end; }
 }
 /*
  * 好幾個 HR 對話框用 form-grid／form-grid two 排兩欄，但這個 class 一直沒有定義，
@@ -3086,9 +3084,7 @@
 .analytics-kpi strong { overflow: hidden; color: var(--color-ink); font-size: clamp(19px, 2.1vw, 27px); line-height: 1.2; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .analytics-kpi-primary strong { color: var(--color-brand-dark); }
 .analytics-kpi small { overflow: hidden; color: var(--color-muted); font-size: 11px; line-height: 1.45; text-overflow: ellipsis; white-space: nowrap; }
-/* 數字與說明現在包在 .tooltip-anchor 裡，截斷規則要穿過那一層才生效。 */
-.analytics-kpi-value,
-.analytics-kpi-hint { display: block; min-width: 0; cursor: help; }
+/* 數字與說明包在 Tooltip 的錨點裡，截斷規則要穿過那一層才生效。 */
 .analytics-kpi-value > strong,
 .analytics-kpi-hint > small { display: block; min-width: 0; }
 .analytics-refreshing { margin: -4px 0 0; color: var(--color-muted); font-size: 12px; }
