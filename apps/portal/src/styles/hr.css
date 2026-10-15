@@ -1067,7 +1067,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-request-table .hr-request-select-cell { min-width: 48px; padding: 0 !important; }
   .hr-request-table th,
   .hr-request-table td { white-space: nowrap; }
-  .hr-request-table .tooltip-anchor { display: block; max-width: 100%; }
   .hr-request-table .hr-request-cell-truncate { display: block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 

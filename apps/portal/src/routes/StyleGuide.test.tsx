@@ -19,7 +19,6 @@ describe("StyleGuide", () => {
       "搜尋與篩選",
       "資料表、排序、分頁與空狀態",
       "pager",
-      "tooltip-anchor",
     ]) {
       expect(markup).toContain(contract);
     }

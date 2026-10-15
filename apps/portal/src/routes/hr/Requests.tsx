@@ -612,10 +612,10 @@ export function HrRequestCenter() {
             <td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td>
             <td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td>
             <td data-label="期間">{row.period}</td>
-            <td data-label="內容"><Tooltip label={row.detail} focusable={false}><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td>
-            <td data-label="原因"><Tooltip label={row.reason} focusable={false}><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td>
+            <td data-label="內容"><Tooltip label={row.detail} focusable={false} className="min-[761px]:block"><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td>
+            <td data-label="原因"><Tooltip label={row.reason} focusable={false} className="min-[761px]:block"><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td>
             <td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td>
-            <td data-label="操作">{row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false}><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
+            <td data-label="操作">{row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false} className="min-[761px]:block"><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
           </tr>;
         })}</tbody>
       </DataTable>

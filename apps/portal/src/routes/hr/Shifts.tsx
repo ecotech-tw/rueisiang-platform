@@ -240,7 +240,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
               <TextField label="休息分鐘" aria-label={`${row.name || "班別"}${label}休息分鐘`} type="number" min="0" step="30" value={draft.breakMinutes} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { breakMinutes: Number(event.target.value) })} />
               <TextField label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
               {/* 平日是其他日型的退路，拿掉就沒有東西可退；所以只有另外兩個日型能取消。 */}
-              {canWrite && dayType !== "weekday" ? <Tooltip label={`改回同平日`} focusable={false}>
+              {canWrite && dayType !== "weekday" ? <Tooltip label={`改回同平日`} focusable={false} className="max-[640px]:col-start-2 max-[640px]:row-start-1 max-[640px]:[justify-self:end]">
                 <Button className="self-center" variant="icon" icon="close" aria-label={`${label}改回同平日`} disabled={disabled} onClick={() => updateTime(row.key, dayType, null)} />
               </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
             </div>;

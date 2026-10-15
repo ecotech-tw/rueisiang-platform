@@ -71,7 +71,7 @@ export function AnalyticsLegend({ payload, formatValue }: AnalyticsLegendProps):
  */
 export function AnalyticsKpiValue({ children }: { children: string }) {
   return (
-    <Tooltip label={children} className="analytics-kpi-value">
+    <Tooltip block label={children} className="analytics-kpi-value cursor-help">
       <strong>{children}</strong>
     </Tooltip>
   );
@@ -80,7 +80,7 @@ export function AnalyticsKpiValue({ children }: { children: string }) {
 /** KPI 卡下方那行成長率說明，句子比欄寬長，同樣交給 tooltip。 */
 export function AnalyticsKpiHint({ children }: { children: string }) {
   return (
-    <Tooltip label={children} className="analytics-kpi-hint">
+    <Tooltip block label={children} className="analytics-kpi-hint cursor-help">
       <small>{children}</small>
     </Tooltip>
   );
