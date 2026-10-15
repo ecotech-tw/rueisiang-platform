@@ -74,9 +74,19 @@ describe("支援人員逐日計薪依據", () => {
       allocationDetail({ shiftGroupId: "second", scheduledHours: 2, payableHours: 1, allocatedUnits: 0.5, unitNumerator: 1, unitDenominator: 2 }),
       allocationDetail({ date: "2026-09-04", scheduledHours: 6, payableHours: 6 }),
     ])).toEqual([
-      { date: "2026-09-03", allocatedUnits: 1.5, payBasis: null, scheduledHours: 10, payableHours: 5 },
-      { date: "2026-09-04", allocatedUnits: 1, payBasis: null, scheduledHours: 6, payableHours: 6 },
+      { date: "2026-09-03", allocatedUnits: 1.5, payBasis: null, scheduledHours: 10, payableHours: 5, overlapDeductedHours: 0 },
+      { date: "2026-09-04", allocatedUnits: 1, payBasis: null, scheduledHours: 6, payableHours: 6, overlapDeductedHours: 0 },
     ]);
+  });
+
+  it("明列時薪排班中的重疊扣除分鐘", () => {
+    const html = renderToStaticMarkup(createElement(PayrollWorkerWorkSummary, {
+      worker: { payBasis: "hourly" } as PayrollWorker,
+      details: [allocationDetail({ payBasis: "hourly", scheduledHours: 9.5, payableHours: 9.5 }), allocationDetail({ shiftGroupId: "late", payBasis: "hourly", scheduledHours: 8.5, payableHours: 2, overlapDeductedHours: 6.5 })],
+    }));
+
+    expect(html).toContain("重疊扣除 6.5 小時");
+    expect(html).toContain("排班 18 小時・重疊扣除 6.5 小時・計薪 11.5 小時");
   });
 
   it("日薪明列計薪日期，時薪明列每日排班與分配工時", () => {

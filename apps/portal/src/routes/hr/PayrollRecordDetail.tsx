@@ -113,7 +113,8 @@ function isScheduleAllocationDetail(value: unknown): value is PayrollScheduleAll
     && [detail.requiredHeadcount, detail.assignedCount, detail.effectiveCount, detail.allocatedUnits, detail.unitNumerator, detail.unitDenominator].every((item) => typeof item === "number" && Number.isFinite(item))
     && (detail.payBasis === undefined || detail.payBasis === null || detail.payBasis === "monthly" || detail.payBasis === "daily" || detail.payBasis === "hourly")
     && (detail.scheduledHours === undefined || (typeof detail.scheduledHours === "number" && Number.isFinite(detail.scheduledHours) && detail.scheduledHours >= 0))
-    && (detail.payableHours === undefined || (typeof detail.payableHours === "number" && Number.isFinite(detail.payableHours) && detail.payableHours >= 0));
+    && (detail.payableHours === undefined || (typeof detail.payableHours === "number" && Number.isFinite(detail.payableHours) && detail.payableHours >= 0))
+    && (detail.overlapDeductedHours === undefined || (typeof detail.overlapDeductedHours === "number" && Number.isFinite(detail.overlapDeductedHours) && detail.overlapDeductedHours >= 0));
 }
 function scheduleAllocationDetailsOf(value: PayrollLine | PayrollWorker | null | undefined): PayrollScheduleAllocationDetail[] {
   if (!value) return [];
@@ -147,6 +148,7 @@ export interface PayrollWorkerWorkDay {
   payBasis: "monthly" | "daily" | "hourly" | null;
   scheduledHours: number | null;
   payableHours: number | null;
+  overlapDeductedHours: number;
 }
 
 export function payrollWorkerWorkDays(details: PayrollScheduleAllocationDetail[]): PayrollWorkerWorkDay[] {
@@ -160,6 +162,7 @@ export function payrollWorkerWorkDays(details: PayrollScheduleAllocationDetail[]
         payBasis: detail.payBasis ?? null,
         scheduledHours: typeof detail.scheduledHours === "number" ? detail.scheduledHours : null,
         payableHours: typeof detail.payableHours === "number" ? detail.payableHours : null,
+        overlapDeductedHours: detail.overlapDeductedHours ?? 0,
       });
       continue;
     }
@@ -169,6 +172,7 @@ export function payrollWorkerWorkDays(details: PayrollScheduleAllocationDetail[]
       payBasis: current.payBasis === (detail.payBasis ?? null) ? current.payBasis : null,
       scheduledHours: current.scheduledHours === null || typeof detail.scheduledHours !== "number" ? null : current.scheduledHours + detail.scheduledHours,
       payableHours: current.payableHours === null || typeof detail.payableHours !== "number" ? null : current.payableHours + detail.payableHours,
+      overlapDeductedHours: current.overlapDeductedHours + (detail.overlapDeductedHours ?? 0),
     });
   }
   return [...byDate.values()].sort((left, right) => left.date.localeCompare(right.date));
@@ -184,7 +188,7 @@ function payrollWorkerWorkDayBasisLabel(day: PayrollWorkerWorkDay): string {
     : "日薪・未分配";
   if (day.payBasis === "hourly") return day.scheduledHours === null || day.payableHours === null
     ? "時薪・工時未保存"
-    : `時薪・排班 ${payrollHours(day.scheduledHours)}・計薪 ${payrollHours(day.payableHours)}`;
+    : `時薪・排班 ${payrollHours(day.scheduledHours)}${day.overlapDeductedHours > 0 ? `・重疊扣除 ${payrollHours(day.overlapDeductedHours)}` : ""}・計薪 ${payrollHours(day.payableHours)}`;
   return day.payBasis === "monthly" ? "月薪計算" : "當日敘薪方式未保存";
 }
 
@@ -222,8 +226,8 @@ export function PayrollWorkerWorkSummary({ worker, details }: { worker: PayrollW
   const payableHours = hasHours ? workDays.reduce((sum, day) => sum + day.payableHours!, 0) : 0;
   return <section className="hr-payroll-worker-work-summary" aria-label="時薪逐日工時">
     <PayrollWorkerWorkSummaryDisclosure title="時薪逐日工時" count={workDays.length} emptyMessage="此筆歷史快照未保存逐日工時明細。">
-      <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{day.scheduledHours === null || day.payableHours === null ? "工時未保存" : `排班 ${payrollHours(day.scheduledHours)}・計薪 ${payrollHours(day.payableHours)}`}</strong></li>)}</ul>
-      {hasHours ? <p>合計排班 {payrollHours(scheduledHours)}・有效排班計薪 {payrollHours(payableHours)}。依此次薪資試算保存的排班單位計算；歷史批次保留當時分配結果。</p> : <p>此筆歷史試算未保存逐日工時，無法回溯工時數。</p>}
+      <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{day.scheduledHours === null || day.payableHours === null ? "工時未保存" : `排班 ${payrollHours(day.scheduledHours)}${day.overlapDeductedHours > 0 ? `・重疊扣除 ${payrollHours(day.overlapDeductedHours)}` : ""}・計薪 ${payrollHours(day.payableHours)}`}</strong></li>)}</ul>
+      {hasHours ? <p>合計排班 {payrollHours(scheduledHours)}・重疊扣除 {payrollHours(workDays.reduce((sum, day) => sum + day.overlapDeductedHours, 0))}・計薪 {payrollHours(payableHours)}。依此次薪資試算保存的排班單位計算；歷史批次保留當時分配結果。</p> : <p>此筆歷史試算未保存逐日工時，無法回溯工時數。</p>}
     </PayrollWorkerWorkSummaryDisclosure>
   </section>;
 }
