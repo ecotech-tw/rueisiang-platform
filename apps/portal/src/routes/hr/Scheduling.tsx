@@ -131,6 +131,27 @@ function diffEntries(draft: ScheduleEntry[], saved: ScheduleEntry[]) {
   return { added, removed, changed: added > 0 || removed > 0 };
 }
 
+function ScheduleOverlapRulesDialog({ onClose }: { onClose: () => void }) {
+  return <Dialog title="重疊排班規則" onClose={onClose} actions={<Button onClick={onClose}>知道了</Button>}>
+    <Alert tone="info">規則預覽：這是討論稿，尚未改變現行排班或計薪行為。</Alert>
+    <div className="grid gap-3 sm:grid-cols-2">
+      <section className="rounded-xl border border-soft-line p-4">
+        <StatusBadge tone="success">同一櫃點</StatusBadge>
+        <h3 className="mt-3 text-base font-semibold">重疊班可由同一人承接</h3>
+        <p className="mt-2 text-sm text-muted">例如早班 10:00–19:30、晚班 13:00–21:30，可視為同一人於該櫃點連續工作。</p>
+        <p className="mt-3 text-sm"><strong>計薪：</strong>重疊時段只計一次，不因班次筆數重複計薪。</p>
+      </section>
+      <section className="rounded-xl border border-soft-line p-4">
+        <StatusBadge tone="warning">不同櫃點</StatusBadge>
+        <h3 className="mt-3 text-base font-semibold">重疊時須明確安排代班</h3>
+        <p className="mt-2 text-sm text-muted">同一人不能同時作為兩個櫃點的到班人力；由排班者將其中一個班次改派給代班人員。</p>
+        <p className="mt-3 text-sm"><strong>發布前：</strong>確認兩個櫃點各有實際負責人。</p>
+      </section>
+    </div>
+    <p className="text-sm text-muted">計薪規則建議依實際出勤與任用關係計算；不同櫃點的成本歸屬另行記錄，不重複增加員工工時。</p>
+  </Dialog>;
+}
+
 /**
  * 單日新增排班。班別選的是班別本身，帶出來的時間依當天日型而定。
  *
@@ -248,6 +269,7 @@ export function HrScheduling() {
   const [addingDay, setAddingDay] = useState<string | null>(null);
   const [quickSelection, setQuick] = useState<QuickSelection | null>(null);
   const [editingCalendar, setEditingCalendar] = useState(false);
+  const [viewingOverlapRules, setViewingOverlapRules] = useState(false);
   const toast = useToast();
   const confirmLeave = useConfirmLeave();
   const save = useHrWrite<{ id: string; revision: number }>({ invalidate: false });
@@ -401,9 +423,18 @@ export function HrScheduling() {
         ? { tone: "success" as const, label: "已發布", detail: `共 ${data.entries.length} 筆排班，隨時可以再調整。` }
         : { tone: "neutral" as const, label: "尚未排班", detail: "排好之後按「儲存」即發布。" };
   const today = taipeiToday();
+  const pageActions = <div className="button-row">
+    <Button variant="secondary" onClick={() => setViewingOverlapRules(true)}>重疊規則</Button>
+    {canWrite ? <>
+      {quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}
+      <Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>
+      {version ? <Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}
+      <Button loading={save.isPending} disabled={(!changed && !outdatedShiftCount) || Boolean(data.version?.locked) || loading || stale || savedNeedsReload || reloadRequired} onClick={() => save.mutate({ path: "/schedules", method: "PATCH", values: { periodKey: key, revision: version?.revision ?? 0, ...scheduleChanges(draftEntries, baseline?.entries ?? data.entries, outdatedScheduleIds(draftEntries, data.shifts, data.calendar)) } }, { onSuccess: async (saved) => { setSavedVersion(saved); toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`); await reloadSchedule(true); }, onError: async () => { setReloadRequired(true); await reloadSchedule(); } })}>儲存</Button>
+    </> : null}
+  </div>;
 
   return <div className="page fills hr-schedule-page">
-    <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人；需求人力為薪資單位池上限，待確認與已出勤人員平均分配、明確未出勤者不計；跨據點同日排班會提醒但不阻擋，日薪依班別計薪單位累計。正式員工依排班出勤；支援人員日薪依排班單位、時薪依計薪時數計算，且不套用獎金。" actions={canWrite ? <div className="button-row">{quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}<Button variant="secondary" disabled={loading} onClick={() => setEditingCalendar(true)}>行事曆</Button>{version ?<Button variant="secondary" disabled={loading} onClick={() => lock.mutate({ path: `/schedules/${key}/lock`, method: "POST", values: { revision: version.revision, locked: !version.locked } })}>{version.locked ? "開鎖" : "鎖定排班"}</Button> : null}<Button loading={save.isPending} disabled={(!changed && !outdatedShiftCount) || Boolean(data.version?.locked) || loading || stale || savedNeedsReload || reloadRequired} onClick={() => save.mutate({ path: "/schedules", method: "PATCH", values: { periodKey: key, revision: version?.revision ?? 0, ...scheduleChanges(draftEntries, baseline?.entries ?? data.entries, outdatedScheduleIds(draftEntries, data.shifts, data.calendar)) } }, { onSuccess: async (saved) => { setSavedVersion(saved); toast.show(`排班已儲存，共 ${draftEntries.length} 筆。`); await reloadSchedule(true); }, onError: async () => { setReloadRequired(true); await reloadSchedule(); } })}>儲存</Button></div> : undefined} />
+    <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人；需求人力為薪資單位池上限，待確認與已出勤人員平均分配、明確未出勤者不計；跨據點同日排班會提醒但不阻擋，日薪依班別計薪單位累計。正式員工依排班出勤；支援人員日薪依排班單位、時薪依計薪時數計算，且不套用獎金。" actions={pageActions} />
     {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
     {outdatedShiftCount ? <Alert tone="warning">有 {outdatedShiftCount} 筆排班仍保存舊日型或需求人力。{version?.locked ? "請先開鎖，再按「儲存」重新發布。" : "按「儲存」可依目前行事曆及班別設定重新發布時段、工時與需求人力。"}未結帳的薪資需重新試算；已結帳薪資不會自動改寫。</Alert> : null}
     {stale ? <Alert tone="warning">排班已被其他人修改，未儲存草稿仍保留。<Button variant="secondary" onClick={() => { void confirmLeave().then((confirmed) => { if (confirmed) { setBaseline(data); setDraftEntries(data.entries); } }); }}>放棄草稿並載入最新班表</Button></Alert> : null}
@@ -487,5 +518,6 @@ export function HrScheduling() {
     </Panel>
     {addingDay && defaultScope ? <ScheduleEntryDialog data={data} entries={draftEntries} day={addingDay} dayType={dayTypeOf(addingDay)} defaultScopeId={defaultScope} onAdd={(entry) => setDraftEntries((current) => [...current, entry])} onClose={() => setAddingDay(null)} /> : null}
     {editingCalendar ? <CalendarDialog periodKey={key} days={data.calendar} scopes={data.scopes} canWrite={canWrite} onClose={() => setEditingCalendar(false)} onSaved={() => schedule.refetch()} /> : null}
+    {viewingOverlapRules ? <ScheduleOverlapRulesDialog onClose={() => setViewingOverlapRules(false)} /> : null}
   </div>;
 }
