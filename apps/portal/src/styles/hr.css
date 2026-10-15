@@ -1045,8 +1045,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-request-form { display: grid; gap: 16px; }
 .hr-request-form textarea { min-height: 96px; resize: vertical; }
 .hr-request-kind-picker { display: grid; gap: 8px; }
-.hr-request-kind-tabs { margin: 0; }
-.hr-request-kind-tabs button { min-height: 40px; }
 .hr-request-dialog { width: min(680px, 100%); }
 .hr-request-dialog-body { padding-bottom: 20px; }
 /* 只是表單把按鈕 portal 進 footer 用的掛點，版面交給 .modal-actions。 */

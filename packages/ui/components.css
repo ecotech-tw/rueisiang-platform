@@ -181,13 +181,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .segmented-control button,
   .data-table tbody tr {
     transition: none;
-  }
-
-  .segmented-control button:active {
-    scale: 1;
   }
 }
 
@@ -662,58 +657,6 @@
   background-image: none;
 }
 
-/* Segmented control base styles; route-specific shell modifiers stay in app CSS. */
-.segmented-control {
-  display: inline-flex;
-  gap: 4px;
-  width: 100%;
-  padding: 5px;
-  border-radius: 999px;
-  background: --alpha(var(--color-paper) / 34%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
-  -webkit-backdrop-filter: blur(8px) saturate(155%);
-  backdrop-filter: blur(8px) saturate(155%);
-}
-
-.segmented-control button {
-  flex: 1;
-  min-height: 38px;
-  padding: 0 14px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-muted);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 800;
-  cursor: pointer;
-  transition-property: background-color, color, scale, box-shadow;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-
-.segmented-control button:hover {
-  background: --alpha(var(--color-brand) / 8%);
-  color: var(--color-brand-dark);
-}
-
-.segmented-control button.selected {
-  background: --alpha(var(--color-paper) / 56%);
-  color: var(--color-brand-dark);
-  box-shadow: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 8px 18px --alpha(var(--color-ink) / 8%);
-}
-
-.segmented-control button:active {
-  scale: .96;
-}
-
-.segmented-control button:focus-visible {
-  outline: 2px solid var(--color-secondary);
-  outline-offset: 2px;
-}
-
 .row-actions {
   display: flex;
   justify-content: flex-end;
@@ -776,7 +719,6 @@
 }
 
 /* 多日加班的月曆：格子是可點的列，所以用膠囊以外的小元件圓角，選中走色調容器。 */
-.hr-overtime-presets { margin: 0; }
 .hr-overtime-summary { margin: 0; color: var(--color-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .hr-overtime-summary strong { color: var(--color-ink); font-weight: 700; }
 .hr-overtime-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
@@ -820,7 +762,6 @@
   .hr-overtime-days { gap: 4px; }
   .hr-overtime-day small { font-size: 10px; }
   .hr-overtime-day-unit { display: none; }
-  .hr-overtime-presets button { padding-inline: 4px; white-space: nowrap; }
 }
 
 /*
