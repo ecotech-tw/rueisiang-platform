@@ -245,7 +245,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     .where(eq(hrEmployments.personKind, "worker"));
   const workerMap = new Map(workers.map((worker) => [worker.id, worker]));
   const enriched: EnrichedScheduleEntry[] = [];
-  // 跨據點代班由現場自行安排；只有同一據點的重疊會阻擋排班。
+  // 正式員工同據點重疊仍禁止；支援人員可排不同重疊班，時薪重疊扣除由薪資引擎處理。
   const occupied = new Map<string, Array<{ start: number; end: number }>>();
   for (const entry of entries) {
     if (!datePeriodContains(entry.workDate, period)) throw new HrError(400, "排班日期必須位於指定月份。 ");
@@ -276,7 +276,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     const personAtScope = `${personId}:${entry.scopeId}`;
     const interval = { start: dateToDayNumber(entry.workDate) * DAY_SECONDS + shift.startSecond, end: dateToDayNumber(entry.workDate) * DAY_SECONDS + shift.endDayOffset * DAY_SECONDS + shift.endSecond };
     const personIntervals = occupied.get(personAtScope) ?? [];
-    if (personIntervals.some((current) => interval.start < current.end && current.start < interval.end)) throw new HrError(409, "同一人員在同一營運據點的排班時段重疊。 ");
+    if (personIntervals.some((current) => interval.start < current.end && current.start < interval.end && (entry.personKind === "employee" || interval.start === current.start))) throw new HrError(409, "同一人員在同一營運據點的排班時段重疊。 ");
     personIntervals.push(interval);
     occupied.set(personAtScope, personIntervals);
     enriched.push({ ...entry, shiftVersionId: shift.versionId, startsAt, endsAt, standardMinutes: shift.standardMinutes, breakMinutes: shift.breakMinutes, shiftTemplateId: shift.templateId, requiredHeadcount: shift.requiredHeadcount, attendanceStatus });
@@ -431,7 +431,7 @@ export async function saveHrScheduleChanges(db: Database, input: HrScheduleChang
     for (const other of retained) {
       if (other.scopeId !== entry.scopeId) continue;
       const samePerson = entry.personKind === other.personKind && (entry.personKind === "employee" ? "employmentId" in other && other.employmentId === entry.employmentId : "workerId" in other && other.workerId === entry.workerId);
-      if (samePerson && entry.startsAt < other.endsAt && other.startsAt < entry.endsAt) throw new HrError(409, "同一人員在同一營運據點的排班時段重疊。 ");
+      if (samePerson && entry.startsAt < other.endsAt && other.startsAt < entry.endsAt && (entry.personKind === "employee" || entry.startsAt === other.startsAt)) throw new HrError(409, "同一人員在同一營運據點的排班時段重疊。 ");
       if (!other.archivedAt && other.workDate === entry.workDate && other.shiftTemplateId === entry.shiftTemplateId && other.requiredHeadcount !== entry.requiredHeadcount) throw new HrError(409, "同班排班需求人力已變更，請一併重新套用該班的活動人員排班。 ");
     }
   }

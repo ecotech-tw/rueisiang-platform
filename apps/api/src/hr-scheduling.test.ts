@@ -287,6 +287,23 @@ describe("排班差異儲存", () => {
     expect((await getHrSchedule(db, "2026-02")).version).toEqual(original.version);
   });
 
+  it("支援人員可在同一據點排重疊班，正式員工與完全重複班次仍拒絕", async () => {
+    const lateShift = await request("/shift-templates", "POST", { scopeId: "store-a", name: "晚班", times: [{ dayType: "weekday", startTime: "13:00", endTime: "21:30" }] });
+    expect(lateShift.status, await lateShift.clone().text()).toBe(201);
+    const lateShiftVersionId = (await lateShift.json() as { versionId: string }).versionId;
+    const lateWorkerEntry = { ...entry("worker-1"), shiftVersionId: lateShiftVersionId };
+
+    expect((await changes({ entries: [entry("worker-1")] })).status).toBe(200);
+    expect((await changes({ entries: [lateWorkerEntry] })).status).toBe(200);
+    expect((await getHrSchedule(db, "2026-02")).entries).toHaveLength(2);
+    expect((await changes({ entries: [entry("worker-2"), entry("worker-2")] })).status).toBe(409);
+
+    const employeeEarly = { personKind: "employee" as const, employmentId: "employment-admin", scopeId: "store-a", shiftVersionId: shiftId, workDate: "2026-02-07" };
+    const employeeLate = { ...employeeEarly, shiftVersionId: lateShiftVersionId };
+    expect((await changes({ entries: [employeeEarly] })).status).toBe(200);
+    expect((await changes({ entries: [employeeLate] })).status).toBe(409);
+  });
+
   it("鎖定月份、封存人員及重複 ID 都拒絕變更", async () => {
     await changes({ entries: [entry("worker-1")] });
     const original = await getHrSchedule(db, "2026-02");
