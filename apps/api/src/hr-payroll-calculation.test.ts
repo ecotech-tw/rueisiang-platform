@@ -1732,6 +1732,31 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
   });
 
+  it("支援人員同櫃點重疊班的時薪只計一次重疊時數", async () => {
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "重疊班時薪支援人員" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const workerId = (await worker.json() as { id: string }).id;
+    expect((await request(`/hr/schedule-workers/${workerId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "hourly", baseAmountMinor: 50_000, note: "重疊班去重測試" })).status).toBe(201);
+    const early = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "重疊測試早班", times: [{ dayType: "weekday", startTime: "10:00", endTime: "19:30" }] });
+    const late = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "重疊測試晚班", times: [{ dayType: "weekday", startTime: "13:00", endTime: "21:30" }] });
+    expect(early.status, await early.clone().text()).toBe(201);
+    expect(late.status, await late.clone().text()).toBe(201);
+    const earlyShiftVersionId = (await early.json() as { versionId: string }).versionId;
+    const lateShiftVersionId = (await late.json() as { versionId: string }).versionId;
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
+      { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: earlyShiftVersionId, workDate: "2026-09-03" },
+      { personKind: "worker", workerId, scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: lateShiftVersionId, workDate: "2026-09-03" },
+    ] });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", employeeUserIds: [], requestId: "test-payroll-worker-overlap-hourly" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { workers: Array<{ workerId: string; amountMinor: number; scheduleAllocationDetails: Array<{ scheduledHours?: number; payableHours?: number; overlapDeductedHours?: number }> }> } };
+    const result = body.run.workers.find((item) => item.workerId === workerId)!;
+    expect(result.amountMinor).toBe(575_000);
+    expect(result.scheduleAllocationDetails.reduce((sum, item) => sum + (item.payableHours ?? 0), 0)).toBe(11.5);
+    expect(result.scheduleAllocationDetails.reduce((sum, item) => sum + (item.overlapDeductedHours ?? 0), 0)).toBe(6.5);
+  });
+
   it("支援人員時薪套用特殊上班日倍率時仍依排班工時計算", async () => {
     const worker = await request("/hr/schedule-workers", "POST", { displayName: "特殊日時薪支援人員" });
     expect(worker.status, await worker.clone().text()).toBe(201);
@@ -2094,7 +2119,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { runId: string; engineVersion: string; employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }>; warnings: string[] } };
     const employee = body.run.employees[0]!;
-    expect(body.run.engineVersion).toBe("hr-payroll-demo-v7");
+    expect(body.run.engineVersion).toBe("hr-payroll-demo-v8");
     expect(employee.earningMinor).toBe(3_080_000);
     expect(employee.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 3_000_000 }),

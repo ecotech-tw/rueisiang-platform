@@ -133,22 +133,22 @@ function diffEntries(draft: ScheduleEntry[], saved: ScheduleEntry[]) {
 
 function ScheduleOverlapRulesDialog({ onClose }: { onClose: () => void }) {
   return <Dialog title="重疊排班規則" onClose={onClose} actions={<Button onClick={onClose}>知道了</Button>}>
-    <Alert tone="info">規則預覽：這是討論稿，尚未改變現行排班或計薪行為。</Alert>
+    <Alert tone="info">支援人員同櫃點重疊排班可儲存；同日跨櫃點排班會提醒，由現場確認代班。</Alert>
     <div className="grid gap-3 sm:grid-cols-2">
       <section className="rounded-xl border border-soft-line p-4">
         <StatusBadge tone="success">同一櫃點</StatusBadge>
-        <h3 className="mt-3 text-base font-semibold">重疊班可由同一人承接</h3>
-        <p className="mt-2 text-sm text-muted">例如早班 10:00–19:30、晚班 13:00–21:30，可視為同一人於該櫃點連續工作。</p>
-        <p className="mt-3 text-sm"><strong>計薪：</strong>重疊時段只計一次，不因班次筆數重複計薪。</p>
+        <h3 className="mt-3 text-base font-semibold">支援人員可排重疊班次</h3>
+        <p className="mt-2 text-sm text-muted">例如早班 10:00–19:30、晚班 13:00–21:30，可由同一人於同櫃點連續工作。</p>
+        <p className="mt-3 text-sm"><strong>時薪：</strong>班別計薪分鐘合計後，重疊時段扣除一次；日薪仍依班別計薪單位。</p>
       </section>
       <section className="rounded-xl border border-soft-line p-4">
         <StatusBadge tone="warning">不同櫃點</StatusBadge>
-        <h3 className="mt-3 text-base font-semibold">重疊時須明確安排代班</h3>
-        <p className="mt-2 text-sm text-muted">同一人不能同時作為兩個櫃點的到班人力；由排班者將其中一個班次改派給代班人員。</p>
-        <p className="mt-3 text-sm"><strong>發布前：</strong>確認兩個櫃點各有實際負責人。</p>
+        <h3 className="mt-3 text-base font-semibold">同日跨櫃點排班會提醒</h3>
+        <p className="mt-2 text-sm text-muted">不論時段是否重疊都可儲存，由現場自行確認是否安排代班；系統不會記錄接手人員。</p>
+        <p className="mt-3 text-sm"><strong>排班提醒：</strong>同一人不能同時出現在兩個櫃點。</p>
       </section>
     </div>
-    <p className="text-sm text-muted">計薪規則建議依實際出勤與任用關係計算；不同櫃點的成本歸屬另行記錄，不重複增加員工工時。</p>
+    <p className="text-sm text-muted">支援人員時薪以已發布班別的計薪分鐘為基礎；跨櫃點代班與成本歸屬由現場處理，不會自動改派或拆分。</p>
   </Dialog>;
 }
 

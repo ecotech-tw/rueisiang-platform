@@ -95,7 +95,7 @@ function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const PAYROLL_RUN_NAME_MAX_LENGTH = 20;
 const PAYROLL_RUN_NAME_ELLIPSIS = "...";
-const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v7";
+const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v8";
 const displayName = hrEmployeeName;
 
 function shortenPayrollRunName(value: string): string {
@@ -513,11 +513,41 @@ export interface ScheduleAllocationDetail {
   payBasis?: "monthly" | "daily" | "hourly" | null;
   scheduledHours?: number;
   payableHours?: number;
+  /** 時薪支援人員逐筆班別扣除的同據點重疊計薪時數。 */
+  overlapDeductedHours?: number;
 }
 
 interface SchedulePayAllocation {
   detail: ScheduleAllocationDetail;
   row: SchedulePayrollRow;
+}
+
+function workerScheduleOverlapDeductions<T extends Pick<SchedulePayrollRow, "id" | "scopeId" | "startsAt" | "endsAt" | "standardMinutes" | "breakMinutes">>(rows: T[], allocatedUnitsFor: (row: T) => number) {
+  const deductions = new Map<string, number>();
+  const coveredByScope = new Map<string, Array<{ start: number; end: number; units: number }>>();
+  const sorted = [...rows].sort((left, right) => left.startsAt.localeCompare(right.startsAt) || left.endsAt.localeCompare(right.endsAt) || left.id.localeCompare(right.id));
+  for (const row of sorted) {
+    const units = Math.max(0, allocatedUnitsFor(row));
+    const start = utcWallClockMilliseconds(row.startsAt);
+    const end = utcWallClockMilliseconds(row.endsAt);
+    if (!units || !Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+      deductions.set(row.id, 0);
+      continue;
+    }
+    const covered = coveredByScope.get(row.scopeId) ?? [];
+    const points = [...new Set([start, end, ...covered.flatMap((interval) => [Math.max(start, interval.start), Math.min(end, interval.end)]).filter((point) => point > start && point < end)])].sort((left, right) => left - right);
+    let overlapHours = 0;
+    for (let index = 0; index < points.length - 1; index += 1) {
+      const segmentStart = points[index]!;
+      const segmentEnd = points[index + 1]!;
+      const existingUnits = Math.max(0, ...covered.filter((interval) => interval.start <= segmentStart && interval.end >= segmentEnd).map((interval) => interval.units));
+      overlapHours += (segmentEnd - segmentStart) / 3_600_000 * Math.min(units, existingUnits);
+    }
+    deductions.set(row.id, Math.min(scheduledHours(row) * units, overlapHours));
+    covered.push({ start, end, units });
+    coveredByScope.set(row.scopeId, covered);
+  }
+  return deductions;
 }
 
 function scheduleAllocationGroupKey(row: Pick<SchedulePayrollRow, "scopeId" | "shiftTemplateId" | "workDate">) {
@@ -1585,7 +1615,6 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     for (const date of dates) {
       const dateRows = rows.filter((row) => row.workDate === date);
       const dateAllocations = dateRows.map((row) => allocationFor(row)).filter((allocation): allocation is SchedulePayAllocation => Boolean(allocation));
-      const allocatedHours = dateRows.reduce((sum, row) => sum + scheduledHours(row) * (allocationFor(row)?.detail.allocatedUnits ?? 1), 0);
       const compensation = covering(workerCompensationsForPeriod, date);
       if (!compensation) {
         missingCompensation = true;
@@ -1594,6 +1623,20 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       compensationIds.add(compensation.id);
       payBases.add(compensation.payBasis);
       const special = workerSpecialAssignments.find((item) => item.workDate === date);
+      const hasHourlyBasis = compensation.payBasis === "hourly" || special?.wageKindSnapshot === "fixed_hourly";
+      const overlapDeductions = hasHourlyBasis
+        ? workerScheduleOverlapDeductions(dateRows, (row) => allocationFor(row)?.detail.allocatedUnits ?? 1)
+        : new Map<string, number>();
+      for (const row of dateRows) {
+        const allocation = allocationFor(row);
+        const overlapDeductedHours = overlapDeductions.get(row.id) ?? 0;
+        if (allocation && overlapDeductedHours > 0) {
+          allocation.detail.overlapDeductedHours = overlapDeductedHours;
+          allocation.detail.payableHours = Math.max(0, (allocation.detail.payableHours ?? scheduledHours(row) * allocation.detail.allocatedUnits) - overlapDeductedHours);
+        }
+      }
+      const overlapDeductedHours = [...overlapDeductions.values()].reduce((sum, hours) => sum + hours, 0);
+      const allocatedHours = dateRows.reduce((sum, row) => sum + (allocationFor(row)?.detail.payableHours ?? scheduledHours(row)), 0);
       const typhoonRows = typhoonRowsForDate(date, dateRows);
       const typhoonStop = typhoonStopTouchesRows(date, dateRows) && !special;
       if (special) {
@@ -1601,10 +1644,13 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const requiresHours = special.wageKindSnapshot === "fixed_hourly" || compensation.payBasis === "hourly";
         if (!hours && requiresHours) calculationWarnings.add(`${workerName} 的特殊上班日 ${date} 缺少工時資料，薪資列為異常且不自動補 0。`);
         else if (special.wageKindSnapshot === "fixed_hourly" && special.fixedAmountMinorSnapshot !== null) {
+          const hourlyBaseAmount = compensation.payBasis === "hourly"
+            ? dateRows.reduce((sum, row) => sum + allocatedAmount(Math.round(compensation.baseAmountMinor * scheduledHours(row)), row), 0)
+            : 0;
           const baseAmount = compensation.payBasis === "monthly"
             ? dateRows.reduce((sum, row) => sum + allocatedAmount(Math.floor(compensation.baseAmountMinor / monthlyDivisorDays), row), 0)
             : compensation.payBasis === "hourly"
-              ? dateRows.reduce((sum, row) => sum + allocatedAmount(Math.round(compensation.baseAmountMinor * scheduledHours(row)), row), 0)
+              ? Math.max(0, hourlyBaseAmount - Math.min(hourlyBaseAmount, Math.round(compensation.baseAmountMinor * overlapDeductedHours)))
               : allocatedDailyAmount(compensation.baseAmountMinor, dateRows);
           const specialAmount = Math.round(special.fixedAmountMinorSnapshot * hours);
           amountMinor += specialAmount;
@@ -1652,10 +1698,17 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         const typhoonAmount = allocatedDailyAmount(compensation.baseAmountMinor, typhoonRows);
         if (typhoonStop && typhoonAmount > 0) { typhoonStopDays += 1; typhoonStopPayMinor += typhoonAmount; }
       } else {
-        const amount = dateRows.reduce((sum, row) => sum + allocatedAmount(Math.round(compensation.baseAmountMinor * scheduledHours(row)), row), 0);
-        const typhoonAmount = typhoonRows.reduce((sum, row) => sum + allocatedAmount(Math.round(compensation.baseAmountMinor * scheduledHours(row)), row), 0);
+        const grossAmount = dateRows.reduce((sum, row) => sum + allocatedAmount(Math.round(compensation.baseAmountMinor * scheduledHours(row)), row), 0);
+        const overlapDeductionAmount = Math.min(grossAmount, Math.round(compensation.baseAmountMinor * overlapDeductedHours));
+        const amount = grossAmount - overlapDeductionAmount;
+        const typhoonGrossAmount = typhoonRows.reduce((sum, row) => sum + allocatedAmount(Math.round(compensation.baseAmountMinor * scheduledHours(row)), row), 0);
+        const typhoonOverlapDeductions = workerScheduleOverlapDeductions(typhoonRows, (row) => allocationFor(row)?.detail.allocatedUnits ?? 1);
+        const typhoonOverlapHours = [...typhoonOverlapDeductions.values()].reduce((sum, hours) => sum + hours, 0);
+        const typhoonAmount = Math.max(0, typhoonGrossAmount - Math.min(typhoonGrossAmount, Math.round(compensation.baseAmountMinor * typhoonOverlapHours)));
         amountMinor += amount;
-        recordBaseAmount(`${date}：時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × 分配後 ${payrollFormulaHours(allocatedHours)} 小時`, amount);
+        recordBaseAmount(overlapDeductedHours
+          ? `${date}：Σ round(時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × 各班工時) − round(時薪 × 重疊 ${payrollFormulaHours(overlapDeductedHours)} 小時)`
+          : `${date}：時薪 ${payrollFormulaMoney(compensation.baseAmountMinor)} × 分配後 ${payrollFormulaHours(allocatedHours)} 小時`, amount);
         if (typhoonStop && typhoonAmount > 0) { typhoonStopDays += 1; typhoonStopPayMinor += typhoonAmount; }
       }
     }
