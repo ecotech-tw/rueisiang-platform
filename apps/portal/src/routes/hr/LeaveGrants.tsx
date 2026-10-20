@@ -137,7 +137,7 @@ export function HrLeaveGrants() {
         })}
       </tbody></DataTable>
       {!grants.isFetching && !grants.error && !rows.length ? <EmptyState className="mt-[18px]">{filters.search || filters.leaveTypeId !== "all" || filters.expiry !== "unexpired" ? "沒有符合條件的發放紀錄，請調整搜尋或篩選。" : "尚無額度發放紀錄；請先建立額度發放假別，再發放給在職員工。"}</EmptyState> : null}
-      {total > 0 ? <Pager page={grants.data?.page ?? filters.page} pageSize={grants.data?.pageSize ?? filters.pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.max(1, Math.ceil(total / filters.pageSize))} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
+      {total > 0 ? <Pager className="mt-4 shrink-0" page={grants.data?.page ?? filters.page} pageSize={grants.data?.pageSize ?? filters.pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.max(1, Math.ceil(total / filters.pageSize))} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {issuing && issueTypes.length && employees.data?.employees.length ? <IssueGrantDialog leaveTypes={issueTypes} employees={employees.data.employees} onClose={() => { setIssuing(false); void grants.refetch(); }} /> : null}
     {revoking ? <ConfirmDialog

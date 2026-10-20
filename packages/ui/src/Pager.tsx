@@ -10,6 +10,7 @@ export interface PagerProps {
   totalLabel: string;
   onPage: (page: number) => void;
   onPageSize: (size: number) => void;
+  className?: string;
 }
 
 /**
@@ -60,21 +61,24 @@ export function Pager({
   totalLabel,
   onPage,
   onPageSize,
+  className = "",
 }: PagerProps) {
   const pages = pageWindow(page, Math.max(totalPages, 1), useWindowSize());
   const atFirst = page <= 1;
   const atLast = page >= totalPages;
 
   return (
-    <div className="pager">
-      <div className="pager-meta">
+    // 手機上疊成兩列，導覽才不會被推出畫面右緣。
+    <div className={`flex items-center justify-between gap-3 border-t border-t-soft-line pt-3.5 max-[760px]:flex-col max-[760px]:items-stretch max-[760px]:gap-2.5 ${className}`.trim()}>
+      <div className="flex items-center gap-3.5 max-[760px]:justify-between">
         <span className="muted">{totalLabel}</span>
-        <label className="pager-size">
+        <label className="flex items-center gap-1.5 text-[13px] text-muted">
           每頁
-          <span className="select-control">
+          {/* 比一般表單欄位窄，footer 在小螢幕才不會被這個 select 撐寬。 */}
+          <span className="select-control inline-flex w-max after:right-2.5 after:h-1.5 after:w-1.5">
             <select
               aria-label="每頁筆數"
-              className="dropdown-control"
+              className="dropdown-control min-h-8 rounded-[9px] py-[5px] pr-[30px] pl-2 [background-position:calc(100%-12px)_50%,calc(100%-7px)_50%] [background-size:5px_5px,5px_5px]"
               value={String(pageSize)}
               onChange={(event) => onPageSize(Number(event.target.value))}
             >
@@ -87,7 +91,7 @@ export function Pager({
         </label>
       </div>
 
-      <nav className="pager-nav" aria-label="分頁">
+      <nav className="flex items-center gap-0.5 max-[760px]:justify-center" aria-label="分頁">
         <Button variant="icon" icon="pageFirst" disabled={atFirst} onClick={() => onPage(1)} title="第一頁" aria-label="第一頁" />
         <Button variant="icon" icon="chevronLeft" disabled={atFirst} onClick={() => onPage(page - 1)} title="上一頁" aria-label="上一頁" />
 
@@ -95,7 +99,8 @@ export function Pager({
           <button
             key={value}
             type="button"
-            className={`pager-page${value === page ? " active" : ""}`}
+            // 目前頁不疊 hover：選中的色調容器本身就是狀態，滑過時不該再變色。
+            className={`h-[34px] min-w-[34px] rounded-[999px] border-none px-2 text-[13px] tabular-nums focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary ${value === page ? "bg-brand-soft font-bold text-brand-dark" : "bg-transparent text-ink hover:bg-brand/7"}`}
             aria-current={value === page ? "page" : undefined}
             onClick={() => onPage(value)}
           >

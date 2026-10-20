@@ -442,92 +442,6 @@
   background-size: 5px 5px, 5px 5px;
 }
 
-/* 分頁器負責頁碼與每頁筆數的共用排列；列表資料與 query state 仍由 route 管理。 */
-.pager-meta {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.pager-size {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--color-muted);
-  font-size: 13px;
-}
-
-.pager-size select {
-  padding: 5px 8px;
-}
-
-.pager-nav {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.pager-page {
-  min-width: 34px;
-  height: 34px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-ink);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-.pager-page:hover {
-  background: --alpha(var(--color-brand) / 7%);
-}
-
-.pager-page.active {
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-  font-weight: 700;
-}
-
-.pager-page:focus-visible {
-  outline: 2px solid var(--color-secondary);
-  outline-offset: -2px;
-}
-
-.pager {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--color-soft-line);
-}
-
-/* Pager 的原生 select 需要比一般表單欄位更窄，避免 footer 在小螢幕被撐寬。 */
-.pager-size .select-trigger {
-  width: auto;
-}
-
-.pager-size .select-control {
-  display: inline-flex;
-  width: max-content;
-}
-
-.pager-size .dropdown-control {
-  min-height: 32px;
-  padding: 5px 30px 5px 8px;
-  border-radius: 9px;
-  background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
-  background-size: 5px 5px, 5px 5px;
-}
-
-.pager-size .select-control::after {
-  right: 10px;
-  width: 6px;
-  height: 6px;
-}
-
 /* Field and dropdown base styles; filters and domain forms add their own layout modifiers. */
 .field {
   display: grid;
@@ -661,23 +575,6 @@
   display: flex;
   justify-content: flex-end;
   gap: 2px;
-}
-
-@media (max-width: 760px) {
-  /* 分頁器在手機上疊成兩列，導覽不會被推出畫面右緣。 */
-  .pager {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 10px;
-  }
-
-  .pager-meta {
-    justify-content: space-between;
-  }
-
-  .pager-nav {
-    justify-content: center;
-  }
 }
 
 /* 多日加班的月曆：格子是可點的列，所以用膠囊以外的小元件圓角，選中走色調容器。 */

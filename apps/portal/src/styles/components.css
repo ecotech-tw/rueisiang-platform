@@ -533,7 +533,6 @@
 .page.fills > .panel.grows > .manual-report-toolbar,
 .page.fills > .panel.grows > .muted,
 .page.fills > .panel.grows > .admin-form,
-.page.fills > .panel.grows > .pager,
 .page.fills > .panel.grows > .ui-alert,
 .page.fills > .panel.grows > .table-note { flex: none; }
 .page.fills > .panel.grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
@@ -1942,8 +1941,6 @@
   white-space: pre-wrap;
   word-break: break-all;
 }
-
-.pager-buttons { display: flex; gap: 8px; }
 
 .progress-bar {
   height: 6px;

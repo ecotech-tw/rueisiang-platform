@@ -172,7 +172,7 @@ export function Sync() {
 
       <Panel
         title="手動同步"
-        actions={<div className="pager-buttons">
+        actions={<div className="flex gap-2">
             {running ? (
               <Button variant="secondary" onClick={() => { stopRequested.current = true; }}>
                 跑完這一輪就停
@@ -223,7 +223,7 @@ export function Sync() {
       <Panel
         className="grows"
         title="Webhook"
-        actions={<div className="pager-buttons">
+        actions={<div className="flex gap-2">
             <Button
               variant="secondary"
               icon="trash"

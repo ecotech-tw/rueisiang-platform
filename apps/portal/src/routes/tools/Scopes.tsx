@@ -371,6 +371,7 @@ export function Scopes() {
         {visible.length === 0 ? <p className="muted table-note">沒有符合條件的通路。</p> : null}
         {visible.length > 0 ? (
           <Pager
+            className="mt-4 shrink-0"
             page={currentPage}
             pageSize={pageSize}
             pageSizes={[10, 25, 50, 100]}

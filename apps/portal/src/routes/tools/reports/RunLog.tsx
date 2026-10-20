@@ -140,6 +140,7 @@ export function RunLog() {
       {!query.isPending && !filtered.length ? <p className="muted table-note">沒有符合的執行紀錄。</p> : null}
 
       <Pager
+        className="mt-4 shrink-0"
         page={current}
         pageSize={pageSize}
         pageSizes={[...PAGE_SIZES]}
