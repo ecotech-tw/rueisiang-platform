@@ -95,7 +95,7 @@ export function HrSupportWorkers() {
       </tbody></DataTable>
       {workers.isFetching ? <p className="muted table-note">載入中…</p> : null}
       {data && !data.workers.length ? <p className="muted table-note">{data.total ? "沒有符合條件的支援人員，調整一下搜尋或篩選看看。" : "尚無支援人員，請先新增一位可排班的外部人力。"}</p> : null}
-      {data && data.total > 0 ? <Pager page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}
+      {data && data.total > 0 ? <Pager className="mt-4 shrink-0" page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}
     </Panel>
     {editing !== undefined ? <WorkerDialog worker={editing} onClose={() => { setEditing(undefined); void workers.refetch(); }} /> : null}
   </div>;

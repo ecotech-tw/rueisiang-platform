@@ -67,11 +67,14 @@ describe("shared HRIS UI contracts", () => {
       />,
     );
 
-    expect(markup).toContain('class="pager"');
     expect(markup).toContain('aria-label="每頁筆數"');
     expect(markup).toContain('aria-label="分頁"');
-    expect(markup).toContain('class="pager-page active"');
-    expect(markup).toContain('aria-current="page"');
+    // 目前頁的色調容器不能被 hover 蓋掉，所以 hover 只給其他頁。
+    const current = markup.match(/<button[^>]*aria-current="page"[^>]*>/)?.[0] ?? "";
+    expect(current).toContain("bg-brand-soft");
+    expect(current).not.toContain("hover:");
+    // 外距由呼叫端決定。
+    expect(markup.match(/^<div class="([^"]*)"/)?.[1]).not.toMatch(/(^|s)m[tbxy]?-/);
   });
 
   it("renders sortable headers with shared sort contracts", () => {

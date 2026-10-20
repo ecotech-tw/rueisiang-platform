@@ -287,6 +287,7 @@ export function Customers() {
 
         {data && data.total > 0 ? (
           <Pager
+            className="mt-4 shrink-0"
             page={data.page}
             pageSize={data.pageSize}
             pageSizes={PAGE_SIZES}

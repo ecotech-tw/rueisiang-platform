@@ -363,6 +363,7 @@ export function StyleGuide() {
           </tbody>
         </DataTable>
         <Pager
+          className="mt-4"
           page={page}
           pageSize={pageSize}
           pageSizes={[10, 20, 50]}

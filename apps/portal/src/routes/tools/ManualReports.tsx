@@ -976,6 +976,7 @@ export function ManualReports() {
             />
             {payoutPage && payoutPage.total > 0 ? (
               <Pager
+                className="mt-4 shrink-0"
                 page={payoutPage.page}
                 pageSize={payoutPage.pageSize}
                 pageSizes={PAGE_SIZES}
@@ -1013,6 +1014,7 @@ export function ManualReports() {
             />
             {salesPage && salesPage.total > 0 ? (
               <Pager
+                className="mt-4 shrink-0"
                 page={salesPage.page}
                 pageSize={salesPage.pageSize}
                 pageSizes={PAGE_SIZES}

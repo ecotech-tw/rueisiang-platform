@@ -18,7 +18,7 @@ describe("StyleGuide", () => {
       "預覽 ConfirmDialog",
       "搜尋與篩選",
       "資料表、排序、分頁與空狀態",
-      "pager",
+      'aria-label="分頁"',
     ]) {
       expect(markup).toContain(contract);
     }

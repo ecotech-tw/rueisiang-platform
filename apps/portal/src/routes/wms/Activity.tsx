@@ -254,9 +254,9 @@ export function Activity() {
         ) : null}
 
         {data && (data.hasMore || data.page > 1) ? (
-          <footer className="pager">
+          <footer className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-t-soft-line pt-3.5 max-[760px]:flex-col max-[760px]:items-stretch max-[760px]:gap-2.5">
             <span className="cell-sub">第 {data.page} 頁</span>
-            <div className="pager-buttons">
+            <div className="flex gap-2">
               <Button
                 variant="secondary"
                 disabled={data.page <= 1}

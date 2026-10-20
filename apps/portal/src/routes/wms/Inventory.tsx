@@ -295,7 +295,7 @@ export function Inventory() {
           </>
         }
         actions={canSync || canWrite ? (
-          <div className="pager-buttons">
+          <div className="flex gap-2">
             {canSync ? (
               <Button
                 variant="secondary"
@@ -429,6 +429,7 @@ export function Inventory() {
 
         {filtered.length > 0 ? (
           <Pager
+            className="mt-4 shrink-0"
             page={page}
             pageSize={filters.pageSize}
             pageSizes={PAGE_SIZES}
