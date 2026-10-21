@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { ConfirmDialog, EmptyState, SegmentedControl, SelectField, SelectionActionBar, Tooltip } from "@rueisiang/ui";
+import { Alert, ConfirmDialog, EmptyState, SegmentedControl, SelectField, SelectionActionBar, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -121,6 +121,17 @@ describe("shared HRIS UI contracts", () => {
     // 兩個 display utility 同時出現時誰贏要看產生順序，所以 block 必須取代 inline-flex，不能疊上去。
     expect(block).toEqual(expect.arrayContaining(["block", "cursor-help"]));
     expect(block).not.toContain("inline-flex");
+  });
+
+  it("Alert 的字級由 size 決定，外距交給呼叫端", () => {
+    const rootClasses = (markup: string) => (markup.match(/^<div class="([^"]*)"/)?.[1] ?? "").split(/\s+/);
+    const normal = rootClasses(renderToStaticMarkup(<Alert tone="danger">儲存失敗</Alert>));
+    const compact = rootClasses(renderToStaticMarkup(<Alert size="compact" tone="success">已打卡</Alert>));
+    expect(normal).toEqual(expect.arrayContaining(["text-[13px]", "bg-brand-soft", "text-brand-dark"]));
+    expect(compact).toEqual(expect.arrayContaining(["text-[12px]", "bg-ok-soft", "text-ok"]));
+    // 兩個字級同時出現時誰贏要看產生順序，所以 compact 必須取代 13px，不能疊上去。
+    expect(compact).not.toContain("text-[13px]");
+    expect([...normal, ...compact].filter((name) => /^-?m[tbxylr]?-/.test(name))).toEqual([]);
   });
 
   it("EmptyState 的內距由 size 決定，外距交給呼叫端", () => {
