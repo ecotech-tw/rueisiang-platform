@@ -132,54 +132,6 @@
   color: var(--color-muted);
 }
 
-.ui-alert {
-  display: flex;
-  flex: 0 0 100%;
-  align-items: flex-start;
-  gap: 10px;
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid currentColor;
-  border-radius: 10px;
-  font-size: 13px;
-}
-
-.ui-alert > svg {
-  width: 19px;
-  height: 19px;
-  flex: none;
-  margin-top: 1px;
-}
-
-.ui-alert > div {
-  min-width: 0;
-}
-
-.ui-alert-success {
-  background: var(--color-ok-soft);
-  color: var(--color-ok);
-}
-
-.ui-alert-info {
-  background: var(--color-info-soft);
-  color: var(--color-info);
-}
-
-.ui-alert-warning {
-  background: var(--color-warn-soft);
-  color: var(--color-warn);
-}
-
-.ui-alert-danger {
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-}
-
-.ui-alert-neutral {
-  background: var(--color-soft-line);
-  color: var(--color-muted);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .data-table tbody tr {
     transition: none;

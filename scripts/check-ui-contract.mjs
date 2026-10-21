@@ -16,7 +16,6 @@ const sharedPrimitiveSelectors = [
   ".table-scroll",
   ".data-table",
   ".status",
-  ".ui-alert",
   ".admin-form",
   ".admin-form.toolbar",
   ".filter-control",

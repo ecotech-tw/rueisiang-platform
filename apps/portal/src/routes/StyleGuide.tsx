@@ -177,7 +177,7 @@ export function StyleGuide() {
         actions={<Button icon="bookmark" variant="secondary" onClick={() => setMessage("這個頁面本身也是 UI layer 的使用範例。")}>使用規則</Button>}
       />
 
-      <Alert tone="info">目前這一頁只需要登入，不會出現在一般 sidebar；可直接開啟 <code>/style-guide</code> 檢查元件。</Alert>
+      <Alert tone="info" className="mb-5">目前這一頁只需要登入，不會出現在一般 sidebar；可直接開啟 <code>/style-guide</code> 檢查元件。</Alert>
 
       <Panel title="HRIS 共用元件索引" description="所有共用元件都從 packages/ui 統一 export；route 只負責資料、狀態與 domain rendering。">
         <div className="style-guide-principles">

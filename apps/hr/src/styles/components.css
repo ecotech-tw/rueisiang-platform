@@ -153,7 +153,6 @@
 .hr-clock-full-page .hr-clock-deep-links a > span:nth-child(2) { display: inline; }
 .hr-clock-last-event { margin: -2px 0 0; color: var(--color-muted); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
 .hr-clock-full-page .hr-clock-feedback-corner { position: absolute; top: 88px; left: clamp(16px, 5vw, 72px); z-index: 4; display: grid; gap: 8px; max-width: min(400px, calc(100vw - 32px)); }
-.hr-clock-full-page .hr-clock-feedback-corner .ui-alert { font-size: 12px; }
 .hr-clock-now { margin: 0; color: var(--color-muted); font-size: 32px; font-variant-numeric: tabular-nums; letter-spacing: .03em; }
 .hr-clock-main-action { width: 100%; min-height: 58px; font-size: 18px; }
 .hr-clock-blocked { margin: 0; color: var(--color-muted); font-size: 14px; }

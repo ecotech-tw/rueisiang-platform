@@ -424,12 +424,12 @@ export function HrClock() {
         {lineLiffAuthenticated ? <Button variant="link" disabled={unlink.isPending} onClick={() => setUnlinkConfirmOpen(true)}>解除 LINE 綁定</Button> : null}
       </div>
       {successMessage || status?.message || query.error || visibleLocationError || clock.error || unlinkError ? <div className="hr-clock-feedback-corner">
-        {successMessage ? <Alert tone="success">{successMessage}</Alert> : null}
-        {unlinkError ? <Alert tone="danger">{unlinkError}</Alert> : null}
+        {successMessage ? <Alert size="compact" tone="success">{successMessage}</Alert> : null}
+        {unlinkError ? <Alert size="compact" tone="danger">{unlinkError}</Alert> : null}
         {status?.message ? <p className="hr-clock-blocked">{status.message}</p> : null}
-        {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
-        {visibleLocationError ? <Alert tone="danger">{visibleLocationError}</Alert> : null}
-        {clock.error ? <Alert tone="danger">{clock.error.message}</Alert> : null}
+        {query.error ? <Alert size="compact" tone="danger">{query.error.message}</Alert> : null}
+        {visibleLocationError ? <Alert size="compact" tone="danger">{visibleLocationError}</Alert> : null}
+        {clock.error ? <Alert size="compact" tone="danger">{clock.error.message}</Alert> : null}
       </div> : null}
     </section>
     {confirmOpen ? <Dialog title="確認打卡" role="alertdialog" portal={false} onClose={closeConfirm} closeRequestRef={confirmCloseRef} actions={<><Button variant="secondary" onClick={closeConfirm}>取消</Button><Button onClick={() => { (confirmCloseRef.current ?? closeConfirm)(); void confirmClock(); }}>確認{actionLabel}打卡</Button></>}>
