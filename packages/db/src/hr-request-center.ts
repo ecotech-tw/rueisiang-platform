@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { ensurePayrollRequestSourcesIndexed } from "./hr-payroll-request-sources.js";
 import type { Database } from "./client.js";
 
 export const HR_REQUEST_CENTER_PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -36,6 +37,7 @@ export interface HrRequestCenterRow {
   correctionDate: string | null;
   requestedEventKind: "clock_in" | "clock_out" | null;
   requestedAt: string | null;
+  payrollLocked: boolean;
 }
 
 export interface HrRequestCenterPage {
@@ -66,6 +68,7 @@ interface HrRequestCenterDbRow {
   correction_date: string | null;
   requested_event_kind: "clock_in" | "clock_out" | null;
   requested_at: string | null;
+  payroll_locked: number;
 }
 
 function requestCenterCte() {
@@ -253,6 +256,7 @@ function requestCenterWhere(query: HrRequestCenterListQuery) {
 }
 
 export async function listHrRequestCenterPage(db: Database, query: HrRequestCenterListQuery): Promise<HrRequestCenterPage> {
+  await ensurePayrollRequestSourcesIndexed(db);
   const requestedPage = Math.max(1, Math.floor(query.page));
   const pageSize = Math.max(1, Math.floor(query.pageSize));
   const countRows = await db.all<{ total: number }>(sql`${requestCenterCte()}
@@ -266,7 +270,16 @@ export async function listHrRequestCenterPage(db: Database, query: HrRequestCent
       kind, id, employee_name, employee_number, status, reason, created_at,
       starts_at, ends_at, starts_on, ends_on, leave_type, duration_minutes,
       requested_start, requested_end, settlement_kind, revision,
-      correction_date, requested_event_kind, requested_at
+      correction_date, requested_event_kind, requested_at,
+      EXISTS (SELECT 1 FROM hr_payroll_request_sources AS payroll_source
+        INNER JOIN hr_payroll_runs AS source_run ON source_run.id = payroll_source.payroll_run_id
+        WHERE payroll_source.source_id = request_rows.id
+          AND payroll_source.source_kind = CASE request_rows.kind
+            WHEN 'leave' THEN 'leave'
+            WHEN 'clock_correction' THEN 'clock_correction'
+            ELSE payroll_source.source_kind END
+          AND (request_rows.kind <> 'overtime' OR payroll_source.source_kind IN ('overtime', 'worker_overtime'))
+      ) AS payroll_locked
     FROM request_rows
     WHERE ${requestCenterWhere(query)}
     ORDER BY created_at DESC, id DESC
@@ -293,6 +306,7 @@ export async function listHrRequestCenterPage(db: Database, query: HrRequestCent
       correctionDate: row.correction_date,
       requestedEventKind: row.requested_event_kind,
       requestedAt: row.requested_at,
+      payrollLocked: row.payroll_locked === 1,
     })),
     total,
     page,

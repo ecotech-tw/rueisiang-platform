@@ -198,6 +198,7 @@ export interface HrRequestCenterRow {
   correctionDate: string | null;
   requestedEventKind: "clock_in" | "clock_out" | null;
   requestedAt: string | null;
+  payrollLocked: boolean;
 }
 export interface HrRequestCenterResponse {
   leaves?: HrLeaveRequest[];

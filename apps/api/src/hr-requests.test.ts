@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { cancelHrLeaveRequest, cancelHrOvertimeRequest, createDatabase, HrError, reviewHrLeaveRequest, reviewHrOvertimeRequest, syncSystemRoles } from "@rueisiang/db";
-import { hrEmployments, hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrEmployments, hrPayrollPeriods, hrPayrollRequestSourceRuns, hrPayrollRequestSources, hrPayrollRuns, hrScheduleEntries, hrScheduleVersions, hrShiftTemplates, hrShiftVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, afterEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -91,6 +91,39 @@ describe("HR 申請中心", () => {
     const body = await center.json() as { leaves: Array<{ request: { status: string; reviewComment: string | null } }>; overtime: Array<{ request: { status: string; actualStart: string | null; actualEnd: string | null } }> };
     expect(body.leaves[0]?.request).toMatchObject({ status: "approved", reviewComment: "HR 後台建立後直接核准" });
     expect(body.overtime[0]?.request).toMatchObject({ status: "approved", actualStart: expect.any(String), actualEnd: expect.any(String) });
+  });
+
+  it("已被薪資批次採用的請假與加班不能取消", async () => {
+    await assignEmployee();
+    const leaveType = await request("/hr/leave-types", "POST", { name: "鎖定測試假", defaultPayRatePpm: 1_000_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+    const leaveResponse = await request("/hr/requests/leave", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: "2026-01-05T09:00", endsAt: "2026-01-05T17:00", reason: "薪資鎖定" });
+    const leaveId = (await leaveResponse.json() as { id: string }).id;
+    const overtimeResponse = await request("/hr/requests/overtime", "POST", { employeeUserId: "employee", requestedStart: "2026-01-06T18:00", requestedEnd: "2026-01-06T20:00", settlementKind: "pay", reason: "薪資鎖定" });
+    const overtimeId = (await overtimeResponse.json() as { id: string }).id;
+    const db = createDatabase(d1 as never);
+    await db.insert(hrPayrollPeriods).values({ id: "locked-period", periodKey: "2026-01", attendanceStart: "2026-01-01", attendanceEnd: "2026-02-01", createdBy: "admin" });
+    await db.insert(hrPayrollRuns).values({ id: "locked-run", payrollPeriodId: "locked-period", versionNumber: 1, requestId: "locked-request", inputRevision: 1, engineVersion: "test", status: "ready", createdBy: "admin" });
+    await db.insert(hrPayrollRequestSourceRuns).values({ payrollRunId: "locked-run" });
+    await db.insert(hrPayrollRequestSources).values([
+      { id: "locked-leave", payrollRunId: "locked-run", sourceKind: "leave", sourceId: leaveId },
+      { id: "locked-overtime", payrollRunId: "locked-run", sourceKind: "overtime", sourceId: overtimeId },
+    ]);
+
+    const center = await request("/hr/requests?page=1&pageSize=25");
+    const listed = await center.json() as { rows: Array<{ id: string; payrollLocked: boolean }> };
+    expect(listed.rows.filter((row) => row.id === leaveId || row.id === overtimeId).every((row) => row.payrollLocked)).toBe(true);
+
+    const leaveCancel = await request(`/hr/requests/leave/${leaveId}/cancel`, "POST");
+    const overtimeCancel = await request(`/hr/requests/overtime/${overtimeId}/cancel`, "POST");
+    expect(leaveCancel.status, await leaveCancel.clone().text()).toBe(409);
+    expect(overtimeCancel.status, await overtimeCancel.clone().text()).toBe(409);
+
+    const batchRequest = await request("/hr/requests/overtime", "POST", { employeeUserId: "employee", requestedStart: "2026-01-07T18:00", requestedEnd: "2026-01-07T20:00", settlementKind: "pay", reason: "薪資鎖定批次" });
+    const batchRequestId = (await batchRequest.json() as { id: string }).id;
+    await db.insert(hrPayrollRequestSources).values({ id: "locked-batch-overtime", payrollRunId: "locked-run", sourceKind: "overtime", sourceId: batchRequestId });
+    const batchCancel = await request("/hr/requests/overtime/cancel-batch", "POST", { ids: [batchRequestId] });
+    expect(batchCancel.status, await batchCancel.clone().text()).toBe(409);
   });
 
   it("申請中心的搜尋、篩選與分頁由 API 在資料庫端完成", async () => {

@@ -10,6 +10,7 @@ import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
 import { formatTaipeiDate, taipeiWallClockToUtc } from "./taipei-time.js";
 import { users } from "./schema/auth.js";
+import { ensurePayrollRequestSourcesIndexed, payrollRequestSourceReference } from "./hr-payroll-request-sources.js";
 
 const HALF_HOUR_MINUTES = 30;
 const MAX_LEAVE_MINUTES = 44_640;
@@ -769,6 +770,7 @@ export interface HrLeaveCancellationOptions {
 const LEAVE_CHANGED_MESSAGE = "這筆請假申請在你開啟之後被申請人修改過，請看過最新的內容再處理。 ";
 
 export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrActor, options: HrLeaveCancellationOptions = {}) {
+  await ensurePayrollRequestSourcesIndexed(db);
   const [current] = await db.select({
     employeeUserId: hrEmployments.employeeUserId,
     status: hrLeaveRequests.status,
@@ -783,12 +785,15 @@ export async function cancelHrLeaveRequest(db: Database, id: string, actor: HrAc
   if (!options.allowAny && current.employeeUserId !== actor.id) throw new HrError(404, "找不到可取消的請假申請。 ");
   if (current.status !== "pending" && current.status !== "approved") throw new HrError(409, "請假申請不存在或已完成處理。 ");
   if (options.pendingOnly && current.status !== "pending") throw new HrError(409, "請假申請已經審核過了。 ");
+  const [payrollSource] = await db.all<{ locked: number }>(sql`SELECT ${payrollRequestSourceReference("leave", id)} AS locked`);
+  if (payrollSource?.locked) throw new HrError(409, "這筆請假已納入薪資計算，不能取消或修改。 ");
   // 管理端替人取消也是「看著某一版內容下的決定」，跟核准、駁回守同一條。
   if (options.expectedRevision !== undefined && current.revision !== options.expectedRevision) throw new HrError(409, LEAVE_CHANGED_MESSAGE);
 
   const update = sql`UPDATE hr_leave_requests SET
     status='cancelled', reviewed_by=${actor.id}, reviewed_at=CURRENT_TIMESTAMP, review_comment='申請已取消'
-    WHERE id=${id} AND status=${current.status} AND revision=${current.revision} RETURNING id`;
+    WHERE id=${id} AND status=${current.status} AND revision=${current.revision}
+      AND NOT ${payrollRequestSourceReference("leave", sql`${id}`)} RETURNING id`;
   if (current.status === "pending") {
     const mutations = current.approverUserId ? [update, insertHrNotification({
       userId: current.approverUserId, sourceKey: `leave-request:${id}:cancelled`, kind: "request_cancelled", entityKind: "leave", entityId: id,

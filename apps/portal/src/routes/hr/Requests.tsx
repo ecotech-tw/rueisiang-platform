@@ -34,6 +34,7 @@ interface RequestRow {
   requestedEnd?: string;
   /** 列表載入時的版本；補打卡待審後不能修改，沒有版本。 */
   revision?: number;
+  payrollLocked?: boolean;
 }
 
 const REQUEST_KIND_LABEL: Record<RequestKind, string> = {
@@ -120,6 +121,7 @@ function toRequestRow(row: HrRequestCenterRow): RequestRow {
       status: row.status,
       createdAt: row.createdAt,
       revision: row.revision ?? undefined,
+      payrollLocked: row.payrollLocked,
     };
   }
   if (row.kind === "overtime") {
@@ -136,6 +138,7 @@ function toRequestRow(row: HrRequestCenterRow): RequestRow {
       requestedStart: row.requestedStart ?? undefined,
       requestedEnd: row.requestedEnd ?? undefined,
       revision: row.revision ?? undefined,
+      payrollLocked: row.payrollLocked,
     };
   }
   return {
@@ -148,6 +151,7 @@ function toRequestRow(row: HrRequestCenterRow): RequestRow {
     reason: row.reason || "—",
     status: row.status,
     createdAt: row.createdAt,
+    payrollLocked: row.payrollLocked,
   };
 }
 
@@ -219,7 +223,7 @@ function ReviewDialog({ row, latest, onReload, onClose, onDone }: { row: Request
     onReload(latest);
   }
   const isApprovedCancellable = (row.kind === "leave" || row.kind === "overtime") && row.status === "approved";
-  const canCancel = row.kind !== "clock_correction" && (row.status === "pending" || isApprovedCancellable);
+  const canCancel = !row.payrollLocked && row.kind !== "clock_correction" && (row.status === "pending" || isApprovedCancellable);
   function decide(decision: "approved" | "rejected" | "cancelled") {
     if (decision === "rejected" && !comment.trim()) return;
     const isCancellation = decision === "cancelled";
@@ -249,6 +253,7 @@ function ReviewDialog({ row, latest, onReload, onClose, onDone }: { row: Request
     {row.kind === "overtime" && !isApprovedCancellable ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><input type="datetime-local" step="1800" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><input type="datetime-local" step="1800" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
     {isApprovedCancellable ? <p className="muted field-note">{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</p> : <Field label="審核意見" hint="駁回時必填"><textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
     {row.kind === "overtime" && row.status === "pending" ? <p className="muted field-note">按「取消申請」會直接刪除這筆加班，不會留在申請紀錄。</p> : null}
+    {row.payrollLocked ? <Alert tone="info">此申請已納入薪資計算，不能取消或修改。</Alert> : null}
     {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
     {snapshot === "changed" ? <Button type="button" variant="secondary" tone="info" onClick={reload}>載入最新內容</Button> : null}
   </Dialog>;
@@ -523,7 +528,7 @@ export function HrRequestCenter() {
   const visibleRows = isServerPaged ? rows : filteredRows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
   const loadedPage = requests.data?.pagination?.page;
   const activeFilterCount = [filters.kind, filters.status].filter((value) => value !== "all").length;
-  const cancellableOvertimeRows = useMemo(() => visibleRows.filter((row) => row.kind === "overtime" && row.status === "approved"), [visibleRows]);
+  const cancellableOvertimeRows = useMemo(() => visibleRows.filter((row) => row.kind === "overtime" && row.status === "approved" && !row.payrollLocked), [visibleRows]);
   const cancellableOvertimeIds = useMemo(() => cancellableOvertimeRows.map((row) => row.id), [cancellableOvertimeRows]);
   const selectedOvertimeRows = cancellableOvertimeRows.filter((row) => selectedOvertimeIds.includes(row.id));
   const selectedVisibleCount = cancellableOvertimeIds.filter((id) => selectedOvertimeIds.includes(id)).length;
@@ -606,7 +611,7 @@ export function HrRequestCenter() {
           <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th>
         </tr></thead>
         <tbody>{visibleRows.map((row) => {
-          const canBulkCancel = row.kind === "overtime" && row.status === "approved";
+          const canBulkCancel = row.kind === "overtime" && row.status === "approved" && !row.payrollLocked;
           return <tr key={`${row.kind}-${row.id}`} className={selectedOvertimeIds.includes(row.id) ? "selected" : undefined}>
             <td data-label="選取" className="hr-request-select-cell">{canBulkCancel ? <label className="hr-request-row-select"><input className="table-checkbox" type="checkbox" checked={selectedOvertimeIds.includes(row.id)} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => setSelectedOvertimeIds((current) => event.target.checked ? [...new Set([...current, row.id])] : current.filter((id) => id !== row.id))} aria-label={`選取 ${row.employeeName} ${row.period} 的已核准加班申請`} /></label> : null}</td>
             <td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td>
@@ -614,8 +619,8 @@ export function HrRequestCenter() {
             <td data-label="期間">{row.period}</td>
             <td data-label="內容"><Tooltip label={row.detail} focusable={false} className="min-[761px]:block"><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td>
             <td data-label="原因"><Tooltip label={row.reason} focusable={false} className="min-[761px]:block"><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td>
-            <td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge></td>
-            <td data-label="操作">{row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false} className="min-[761px]:block"><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
+            <td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge>{row.payrollLocked ? <span className="cell-sub">薪資已鎖定</span> : null}</td>
+            <td data-label="操作">{row.payrollLocked ? <span className="muted">薪資已鎖定</span> : row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false} className="min-[761px]:block"><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
           </tr>;
         })}</tbody>
       </DataTable>
