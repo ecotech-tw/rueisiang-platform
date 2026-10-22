@@ -18,7 +18,7 @@ async function render(tree: ReactNode, hostClassName = "page") {
   document.body.append(host);
   root = createRoot(host);
   await act(async () => root!.render(tree));
-  return document.body.querySelector(".modal-scope");
+  return document.body.querySelector('[role="presentation"] > div');
 }
 
 afterEach(async () => {
@@ -67,17 +67,17 @@ describe("Panel 內距契約", () => {
 describe("Dialog 補回站的樣式範圍", () => {
   it("在 DialogScope 裡開的對話框帶回站台給的 class，而且殼已經移到範圍外面", async () => {
     const scope = await render(<DialogScope className="hr-module-self">{dialog}</DialogScope>, "hr-module hr-module-self");
-    expect(scope?.className).toBe("modal-scope hr-module-self");
+    expect(scope?.className).toBe("contents hr-module-self");
     expect(host!.contains(scope)).toBe(false);
-    expect(scope?.querySelector(".modal-actions button")?.textContent).toBe("核准");
+    expect(scope?.querySelector('[role="dialog"] > :last-child button')?.textContent).toBe("核准");
   });
 
   it("範圍跟的是開對話框的元件，不是畫面上剛好有沒有那個 class", async () => {
     // 頁面上有 .hr-system，但對話框不是從那個範圍裡開的（例如掛在 shell 層的確認框）。
-    expect((await render(dialog, "hr-module hr-system"))?.className).toBe("modal-scope");
+    expect((await render(dialog, "hr-module hr-system"))?.className).toBe("contents");
   });
 
   it("內層的範圍蓋過外層；空字串等於不帶範圍", async () => {
-    expect((await render(<DialogScope className="hr-system"><DialogScope className="">{dialog}</DialogScope></DialogScope>))?.className).toBe("modal-scope");
+    expect((await render(<DialogScope className="hr-system"><DialogScope className="">{dialog}</DialogScope></DialogScope>))?.className).toBe("contents");
   });
 });

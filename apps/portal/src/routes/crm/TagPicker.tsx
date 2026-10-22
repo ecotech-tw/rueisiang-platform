@@ -171,7 +171,7 @@ export function TagPicker({
       {/*
         * 下拉用 portal 掛到 body，fixed 定位。
         *
-        * 留在原地的話會被 .modal-card 的 overflow: hidden 裁掉（選項看得到卻
+        * 留在原地的話會被對話框卡片的 overflow: hidden 裁掉（選項看得到卻
         * 點不到）；改成在流內展開又會把表單推長、讓對話框長出捲軸——那是使用者
         * 回報「很奇怪」的那一版。掛到 body 兩個問題都沒有：它浮在最上層，
         * 表單的高度完全不受影響。

@@ -38,7 +38,7 @@ export function ElementDialog({
   return (
     <Dialog
       title={element ? "編輯標籤" : "新增標籤"}
-      className="confirm-card"
+      width={420}
       onClose={onClose}
       closeDisabled={pending}
       formProps={{

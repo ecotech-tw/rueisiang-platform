@@ -175,8 +175,7 @@ export function SkuMappingDialog({
     <Dialog
       title={mapping ? "編輯 SKU 對應" : "新增 SKU 對應"}
       titleMeta="通路商品先對應到品項列表；所有用料都直接對應到品項。"
-      className="sku-mapping-dialog"
-      bodyClassName="sku-mapping-dialog-body"
+      width={780}
       onClose={onClose}
       closeDisabled={pending}
       formProps={{ onSubmit: submit }}

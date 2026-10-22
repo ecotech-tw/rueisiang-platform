@@ -117,7 +117,7 @@ function EditDialog({ category, categories, onClose }: { category: ItemCategory;
   return (
     <Dialog
       title="編輯品項分類"
-      className="confirm-card"
+      width={420}
       onClose={onClose}
       closeDisabled={update.isPending}
       formProps={{

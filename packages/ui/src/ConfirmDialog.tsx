@@ -49,8 +49,8 @@ export function ConfirmDialog({
   return (
     <Dialog
       title={title}
-      className="confirm-card"
-      bodyClassName="confirm-body"
+      width={420}
+      bodyLayout="grid gap-2 px-6 pb-1 [&_p]:m-0 [&_strong]:text-brand-dark"
       role="alertdialog"
       showClose={false}
       closeDisabled={pending}

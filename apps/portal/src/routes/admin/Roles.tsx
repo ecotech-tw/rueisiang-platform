@@ -196,7 +196,7 @@ export function Roles() {
       {editor ? (
         <Dialog
           title={editor.readOnly ? editor.name : editor.key ? "編輯角色" : "新增角色"}
-          className="wide"
+          width={760}
           onClose={() => setEditor(null)}
           closeDisabled={pending}
           formProps={{

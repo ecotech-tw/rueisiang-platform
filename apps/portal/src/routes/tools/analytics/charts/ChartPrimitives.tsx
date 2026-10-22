@@ -112,8 +112,7 @@ export function AnalyticsDataDialog({ title, description, children, disabled = f
         <Dialog
           title={title}
           titleMeta={description}
-          className="wide analytics-data-dialog"
-          bodyClassName="analytics-data-dialog-body"
+          width={760}
           onClose={() => setOpen(false)}
         >
           <div className="table-scroll analytics-data-dialog-table">{children}</div>

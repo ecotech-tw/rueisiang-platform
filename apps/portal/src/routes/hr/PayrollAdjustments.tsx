@@ -105,7 +105,7 @@ function PayrollAdjustmentDialog({
   }
 
   return <Dialog
-    className="hr-payroll-adjustment-dialog"
+    width={760}
     title={adjustment ? "編輯薪資加扣項" : "新增薪資加扣項"}
     titleMeta={personnelOptions.find((person) => person.employmentId === employmentId)?.legalName ?? "選擇人員"}
     onClose={onClose}

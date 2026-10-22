@@ -248,7 +248,7 @@ function ManualReportDialog({
   return (
     <Dialog
       title={`${state.row ? "編輯" : "新增"}${state.kind === "payout" ? "出金資料" : "商品銷售資料"}`}
-      className="manual-report-dialog"
+      width={720}
       onClose={onClose}
       closeDisabled={pending}
       formProps={{
@@ -512,7 +512,7 @@ function ImportRecordDialog({
   return (
     <Dialog
       title={`編輯匯入資料（第 ${state.row.sourceRow} 列）`}
-      className="manual-report-dialog manual-report-import-row-dialog"
+      width={720}
       onClose={onClose}
       formProps={{ onSubmit: (event) => { event.preventDefault(); submit(); } }}
       actions={
@@ -676,9 +676,9 @@ function StandardReportImportDialog({
     <>
       <Dialog
         title={`匯入${kind === "payout" ? "出金" : "商品銷售"}報表`}
-        className="manual-report-import-dialog"
-        backdropClassName="manual-report-import-backdrop"
-        bodyClassName="manual-report-import-body"
+        width={980}
+        compact
+        bodyLayout="flex max-h-[calc(100dvh-140px)] flex-col px-6 pb-2 max-[620px]:max-h-[calc(100dvh-120px)] max-[620px]:px-4"
         onClose={onClose}
         closeDisabled={pending}
         formProps={{ onSubmit: (event) => { event.preventDefault(); submit(); } }}

@@ -287,7 +287,6 @@ function PayrollRecordItemDialog({ detail, onClose, onSuccess }: PayrollRecordIt
   }
 
   return <Dialog
-    className="hr-payroll-item-dialog"
     title="薪資加扣項"
     titleMeta={`${detail.record.personName}・${periodLabel(detail.record.periodKey)}`}
     onClose={onClose}
@@ -441,8 +440,9 @@ export function HrPayrollRecordDetail() {
       {deleteItem.error ? <Alert tone="danger">{deleteItem.error.message}</Alert> : null}
     </ConfirmDialog> : null}
     {payslipPreviewOpen ? <Dialog
-      className="hr-payroll-preview-dialog"
-      bodyClassName="hr-payroll-payslip-preview-body"
+      width={900}
+      // 畫布底色貼齊 footer：-mb-2 抵掉 footer 上方的 mt-2。
+      bodyLayout="grid max-h-[calc(100vh-180px)] content-start gap-4 bg-canvas -mb-2"
       title="薪資條預覽"
       titleMeta={`${detail.record.personName}・${periodLabel(detail.record.periodKey)}`}
       onClose={() => setPayslipPreviewOpen(false)}
