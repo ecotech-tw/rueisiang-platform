@@ -111,8 +111,8 @@ function EntitlementAdjustmentDialog({ row, onClose }: { row: HrAnnualLeaveEntit
 
 function EntitlementDetailDialog({ row, onClose }: { row: HrAnnualLeaveEntitlement; onClose: () => void }) {
   const detail = useHrQuery<{ entitlement: HrAnnualLeaveEntitlementDetail }>(`/annual-leave/entitlements/${encodeURIComponent(row.id)}`, true, { keepPreviousData: false });
-  if (detail.isPending) return <Dialog title={`特休額度明細 · ${row.employeeName}`} onClose={onClose} width={760} bodyClassName="grid gap-[18px] px-6 pb-2"><p className="muted">載入額度依據與台帳明細…</p></Dialog>;
-  if (detail.error || !detail.data) return <Dialog title={`特休額度明細 · ${row.employeeName}`} onClose={onClose} width={760} bodyClassName="grid gap-[18px] px-6 pb-2"><Alert tone="danger">{detail.error?.message ?? "額度明細載入失敗。"}</Alert></Dialog>;
+  if (detail.isPending) return <Dialog title={`特休額度明細 · ${row.employeeName}`} onClose={onClose} width={760} bodyLayout="grid gap-[18px] px-6 pb-2"><p className="muted">載入額度依據與台帳明細…</p></Dialog>;
+  if (detail.error || !detail.data) return <Dialog title={`特休額度明細 · ${row.employeeName}`} onClose={onClose} width={760} bodyLayout="grid gap-[18px] px-6 pb-2"><Alert tone="danger">{detail.error?.message ?? "額度明細載入失敗。"}</Alert></Dialog>;
 
   const entitlement = detail.data.entitlement;
   const grant = entitlement.ledger.find((entry) => entry.entryKind === "grant");
@@ -124,7 +124,7 @@ function EntitlementDetailDialog({ row, onClose }: { row: HrAnnualLeaveEntitleme
     title={`特休額度明細 · ${entitlement.employeeName}`}
     titleMeta={`${entitlement.employeeNumber} · ${entitlement.periodStart}～${dateMinusOne(entitlement.periodEnd)}`}
     onClose={onClose}
-    width={760} bodyClassName="grid gap-[18px] px-6 pb-2"
+    width={760} bodyLayout="grid gap-[18px] px-6 pb-2"
   >
     <Alert tone="info">這一期的額度不是人工輸入：只有月薪制員工會取得特休，系統以實際服務起算日與第一筆有效月薪敘薪生效日的較晚者作為特休起算日，再套用取得時的政策版本與年資級距；後續核准請假、人工調整與折現都只追加台帳紀錄。</Alert>
     <div className="hr-annual-detail-overview">

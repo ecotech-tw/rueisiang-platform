@@ -577,7 +577,7 @@ export function Sandbox() {
         <Dialog
           title="Revision history"
           width={760}
-          bodyClassName="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
+          bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
           onClose={() => setRevisionsOpen(false)}
           actions={<Button variant="secondary" type="button" onClick={() => setRevisionsOpen(false)}>關閉</Button>}
         >
@@ -605,7 +605,7 @@ export function Sandbox() {
         <Dialog
           title="設定可調用的 tools"
           width={760}
-          bodyClassName="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
+          bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
           onClose={() => setToolsOpen(false)}
           actions={<Button type="button" onClick={() => setToolsOpen(false)}>完成</Button>}
         >

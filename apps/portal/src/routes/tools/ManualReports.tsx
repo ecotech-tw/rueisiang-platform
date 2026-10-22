@@ -678,7 +678,7 @@ function StandardReportImportDialog({
         title={`匯入${kind === "payout" ? "出金" : "商品銷售"}報表`}
         width={980}
         compact
-        bodyClassName="flex max-h-[calc(100dvh-140px)] flex-col px-6 pb-2 max-[620px]:max-h-[calc(100dvh-120px)] max-[620px]:px-4"
+        bodyLayout="flex max-h-[calc(100dvh-140px)] flex-col px-6 pb-2 max-[620px]:max-h-[calc(100dvh-120px)] max-[620px]:px-4"
         onClose={onClose}
         closeDisabled={pending}
         formProps={{ onSubmit: (event) => { event.preventDefault(); submit(); } }}

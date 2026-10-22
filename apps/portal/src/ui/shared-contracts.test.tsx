@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { Alert, ConfirmDialog, EmptyState, SegmentedControl, SelectField, SelectionActionBar, Tooltip } from "@rueisiang/ui";
+import { Alert, ConfirmDialog, Dialog, EmptyState, SegmentedControl, SelectField, SelectionActionBar, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -52,6 +52,17 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toContain('role="alertdialog"');
     expect(markup).toContain("取消");
     expect(markup).toContain("確定");
+  });
+
+  it("Dialog 的 bodyLayout 整組取代預設版面，不跟預設的 gap 或 padding 疊在一起", () => {
+    const body = (markup: string) => markup.match(/<div class="([^"]*overflow-y-auto[^"]*)"><p>內容<\/p>/)?.[1]?.split(" ") ?? [];
+    const plain = body(renderToStaticMarkup(<Dialog title="預設"><p>內容</p></Dialog>));
+    const custom = body(renderToStaticMarkup(<Dialog title="自訂" bodyLayout="flex flex-col gap-5 px-6 pb-2"><p>內容</p></Dialog>));
+
+    expect(plain).toEqual(expect.arrayContaining(["grid", "gap-4", "px-6", "pb-2"]));
+    expect(custom).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-5"]));
+    expect(custom).not.toContain("grid");
+    expect(custom).not.toContain("gap-4");
   });
 
   it("renders pagers with shared navigation and page-size contracts", () => {

@@ -120,7 +120,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       onClose={onClose}
       closeRequestRef={closeRequestRef}
       closeDisabled={save.isPending}
-      bodyClassName="flex flex-col gap-5 px-6 pb-2"
+      bodyLayout="flex flex-col gap-5 px-6 pb-2"
       formProps={{ onSubmit: submit }}
       actions={<Button type="submit" tone={editing ? "info" : "success"} loading={save.isPending}>儲存</Button>}
     >

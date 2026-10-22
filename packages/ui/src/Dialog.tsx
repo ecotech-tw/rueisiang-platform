@@ -12,8 +12,11 @@ interface DialogProps {
   width?: DialogWidth;
   /** 只放版面用途；寬度用 width。 */
   className?: string;
-  /** 傳了就整組取代內容區預設的 `grid gap-4 px-6 pb-2`，所以要自己寫齊。 */
-  bodyClassName?: string;
+  /**
+   * 內容區的版面，整組取代預設的 `grid gap-4 px-6 pb-2`，所以 display、間距、左右與下方內距要自己寫齊。
+   * 不是疊加：同一個屬性有兩個 utility 時，誰贏看 Tailwind 的產生順序。
+   */
+  bodyLayout?: string;
   /** 邊距收窄，把高度留給內容；給內容自己會捲的大表格預覽用。 */
   compact?: boolean;
   onClose?: () => void;
@@ -23,7 +26,10 @@ interface DialogProps {
   showClose?: boolean;
   closeLabel?: string;
   role?: "dialog" | "alertdialog";
-  /** 需要保留在全頁容器內的沉浸式頁面可關閉 portal；一般 dialog 應維持 portal。 */
+  /**
+   * 需要保留在全頁容器內的沉浸式頁面可關閉 portal；一般 dialog 應維持 portal。
+   * 關掉時遮罩是 absolute inset-0，蓋住最近一個有定位的祖先，所以外層容器要自己有定位。
+   */
   portal?: boolean;
   formProps?: Omit<FormHTMLAttributes<HTMLFormElement>, "children" | "className">;
 }
@@ -59,7 +65,7 @@ export function Dialog({
   actions,
   width = 560,
   className = "",
-  bodyClassName = "grid gap-4 px-6 pb-2",
+  bodyLayout = "grid gap-4 px-6 pb-2",
   compact = false,
   onClose,
   closeRequestRef,
@@ -145,7 +151,7 @@ export function Dialog({
       {actions}
     </div>
   ) : null;
-  const body = <div className={`min-h-0 min-w-0 flex-auto overflow-x-hidden overflow-y-auto *:min-w-0 ${bodyClassName}`}>{children}</div>;
+  const body = <div className={`min-h-0 min-w-0 flex-auto overflow-x-hidden overflow-y-auto *:min-w-0 ${bodyLayout}`}>{children}</div>;
 
   const dialog = (
     <DialogContext.Provider value={{ onClose, requestClose: () => requestClose() }}>

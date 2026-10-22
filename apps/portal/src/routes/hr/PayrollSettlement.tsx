@@ -204,7 +204,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
 
   return <Dialog
     width={720}
-    bodyClassName="grid gap-[18px] px-6 pb-2"
+    bodyLayout="grid gap-[18px] px-6 pb-2"
     title="新增薪資試算"
     titleMeta={`${periodKey || "尚未選擇月份"}・已選 ${selectedCount} 位人員`}
     onClose={onClose}

@@ -442,7 +442,7 @@ export function HrPayrollRecordDetail() {
     {payslipPreviewOpen ? <Dialog
       width={900}
       // 畫布底色貼齊 footer：-mb-2 抵掉 footer 上方的 mt-2。
-      bodyClassName="grid max-h-[calc(100vh-180px)] content-start gap-4 bg-canvas -mb-2"
+      bodyLayout="grid max-h-[calc(100vh-180px)] content-start gap-4 bg-canvas -mb-2"
       title="薪資條預覽"
       titleMeta={`${detail.record.personName}・${periodLabel(detail.record.periodKey)}`}
       onClose={() => setPayslipPreviewOpen(false)}

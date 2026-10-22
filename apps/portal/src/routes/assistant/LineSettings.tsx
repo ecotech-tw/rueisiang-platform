@@ -311,7 +311,7 @@ export function LineSettings() {
         <Dialog
           title="設定小香在 LINE 能用的工具"
           width={760}
-          bodyClassName="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
+          bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
           onClose={() => setToolsOpen(false)}
           actions={
             <>
@@ -474,7 +474,7 @@ function GroupToolsDialog({
     <Dialog
       title={`${group.displayName || group.lineGroupId} 的工具`}
       width={760}
-      bodyClassName="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
+      bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
       onClose={onClose}
       actions={
         <>

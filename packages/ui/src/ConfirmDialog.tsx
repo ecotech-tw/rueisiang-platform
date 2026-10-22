@@ -50,7 +50,7 @@ export function ConfirmDialog({
     <Dialog
       title={title}
       width={420}
-      bodyClassName="grid gap-2 px-6 pb-1 [&_p]:m-0 [&_strong]:text-brand-dark"
+      bodyLayout="grid gap-2 px-6 pb-1 [&_p]:m-0 [&_strong]:text-brand-dark"
       role="alertdialog"
       showClose={false}
       closeDisabled={pending}
