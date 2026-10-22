@@ -9,6 +9,7 @@ import { users } from "./schema/auth.js";
 import { datesBetween, listHrWorkdayEnds } from "./hr-leave.js";
 import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
 import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
+import { ensurePayrollRequestSourcesIndexed, payrollRequestSourceReference } from "./hr-payroll-request-sources.js";
 
 /** 同一天前 2 小時的加班倍率，建立申請時凍結在申請上；超過 2 小時的級距由薪資試算套用。倍率不是請款人可自由輸入的金額。 */
 export const DEFAULT_OVERTIME_RATE_PPM = 1_333_333;
@@ -534,10 +535,15 @@ export async function cancelHrOvertimeRequest(db: Database, id: string, actor: H
   const { request } = current;
   if (request.status !== "pending" && request.status !== "approved") throw new HrError(409, "加班申請不存在或已完成處理。 ");
   if (options.pendingOnly && request.status !== "pending") throw new HrError(409, "加班申請已經審核過了。 ");
+  await ensurePayrollRequestSourcesIndexed(db);
+  const sourceKind = current.personKind === "employee" ? "overtime" : "worker_overtime";
+  const [payrollSource] = await db.all<{ locked: number }>(sql`SELECT ${payrollRequestSourceReference(sourceKind, id)} AS locked`);
+  if (payrollSource?.locked) throw new HrError(409, "這筆加班已納入薪資計算，不能取消或修改。 ");
   if (options.expectedRevision !== undefined && current.personKind === "employee" && request.revision !== options.expectedRevision) throw new HrError(409, OVERTIME_CHANGED_MESSAGE);
   const tableName = current.personKind === "employee" ? "hr_overtime_requests" : "hr_worker_overtime_requests";
   const eventPayload = current.personKind === "employee" ? { employeeUserId: current.employeeUserId, ...request } : { workerId: current.workerId, ...request };
-  const deletion = sql`DELETE FROM ${sql.raw(tableName)} WHERE id=${id} AND status=${request.status} AND revision=${request.revision} RETURNING id`;
+  const deletion = sql`DELETE FROM ${sql.raw(tableName)} WHERE id=${id} AND status=${request.status} AND revision=${request.revision}
+    AND NOT ${payrollRequestSourceReference(sourceKind, sql`${id}`)} RETURNING id`;
   const approverUserId = current.personKind === "employee" ? current.request.approverUserId : null;
   const batchId = current.personKind === "employee" ? current.request.batchId : null;
   const cancelledDate = taipeiDate(stamp(request.requestedStart));
@@ -573,6 +579,11 @@ export async function cancelHrOvertimeRequests(db: Database, ids: string[], acto
   const found = [...employeeRows.map(({ request }) => request), ...workerRows.map(({ request }) => request)];
   if (found.length !== ids.length) throw new HrError(404, "找不到完整的加班申請清單。 ");
   if (found.some((request) => request.status !== "approved")) throw new HrError(409, "只有已核准的加班申請可以批次取消，請重新整理後再試。 ");
+  await ensurePayrollRequestSourcesIndexed(db);
+  const [referenced] = await db.all<{ id: string }>(sql`SELECT source_id AS id FROM hr_payroll_request_sources AS payroll_source
+    INNER JOIN hr_payroll_runs AS source_run ON source_run.id = payroll_source.payroll_run_id
+    WHERE payroll_source.source_id IN (${jsonArrayValues(ids)}) AND payroll_source.source_kind IN ('overtime', 'worker_overtime') LIMIT 1`);
+  if (referenced) throw new HrError(409, "所選加班中有已納入薪資計算的申請，不能批次取消。 ");
 
   const employeeById = new Map(employeeRows.map(({ request, employeeUserId, employeeName }) => [request.id, { personKind: "employee" as const, employeeUserId, employeeName, ...request }]));
   const workerById = new Map(workerRows.map(({ request, employeeName }) => [request.id, { personKind: "worker" as const, employeeName, ...request }]));
@@ -582,10 +593,12 @@ export async function cancelHrOvertimeRequests(db: Database, ids: string[], acto
   const deletions = [
     employeeIds.length ? sql`DELETE FROM hr_overtime_requests
       WHERE id IN (${jsonArrayValues(employeeIds)}) AND status='approved'
+        AND NOT EXISTS (SELECT 1 FROM hr_payroll_request_sources AS payroll_source INNER JOIN hr_payroll_runs AS source_run ON source_run.id=payroll_source.payroll_run_id WHERE payroll_source.source_kind='overtime' AND payroll_source.source_id IN (${jsonArrayValues(employeeIds)}))
         AND (SELECT count(*) FROM hr_overtime_requests WHERE id IN (${jsonArrayValues(employeeIds)}) AND status='approved')=${employeeIds.length}
       RETURNING id` : null,
     workerIds.length ? sql`DELETE FROM hr_worker_overtime_requests
       WHERE id IN (${jsonArrayValues(workerIds)}) AND status='approved'
+        AND NOT EXISTS (SELECT 1 FROM hr_payroll_request_sources AS payroll_source INNER JOIN hr_payroll_runs AS source_run ON source_run.id=payroll_source.payroll_run_id WHERE payroll_source.source_kind='worker_overtime' AND payroll_source.source_id IN (${jsonArrayValues(workerIds)}))
         AND (SELECT count(*) FROM hr_worker_overtime_requests WHERE id IN (${jsonArrayValues(workerIds)}) AND status='approved')=${workerIds.length}
       RETURNING id` : null,
   ].filter((statement): statement is NonNullable<typeof statement> => statement !== null);

@@ -9,6 +9,7 @@ import { listHrMonthlyEntriesForPayroll } from "./hr-monthly-data.js";
 import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributionRules, listHrInsuranceContributionRules, resolveHrInsuranceContributionRules } from "./hr-payroll.js";
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
 import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, payrollSpecialWorkdaySourceStatements } from "./hr-special-workdays.js";
+import { payrollRequestSourceStatements } from "./hr-payroll-request-sources.js";
 import { HrError, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { listEffectiveDailyPayouts } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
@@ -2581,6 +2582,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   ]),
   ...Array.from(workerStatements.values()).map((worker) => db.insert(hrPayrollWorkerResults).values({ id: crypto.randomUUID(), payrollRunId: runId, workerId: worker.workerId, workerName: worker.workerName, compensationVersionId: worker.compensationVersionId, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanationJson: JSON.stringify(worker.overtimeExplanation), payrollLinesJson: JSON.stringify(worker.lines), scheduleAllocationJson: JSON.stringify(worker.scheduleAllocationDetails), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor })),
   ...payrollSpecialWorkdaySourceStatements(db, runId, sourceSnapshotJson),
+  ...payrollRequestSourceStatements(db, runId, sourceSnapshotJson),
   db.insert(activityEvents).values(activityRow({ entityType: "hr_payroll", entityId: runId, source: "hr", eventType: "payroll_calculated", summary: "薪資試算完成", actor, payload: { periodKey: period.periodKey, resultCount: totalResults, engineVersion: PAYROLL_ENGINE_VERSION } }))];
   try {
     await db.batch(batchStatements(statements));
@@ -3486,6 +3488,10 @@ export async function deleteHrPayrollRun(db: Database, runId: string, actor: HrA
   addOptionalDelete(sql`DELETE FROM hr_payroll_special_workday_sources WHERE payroll_run_id=${runId}
     OR payroll_run_id NOT IN (SELECT id FROM hr_payroll_runs) RETURNING id`);
   addOptionalDelete(sql`DELETE FROM hr_payroll_special_workday_source_runs WHERE payroll_run_id=${runId}
+    OR payroll_run_id NOT IN (SELECT id FROM hr_payroll_runs) RETURNING payroll_run_id`);
+  addOptionalDelete(sql`DELETE FROM hr_payroll_request_sources WHERE payroll_run_id=${runId}
+    OR payroll_run_id NOT IN (SELECT id FROM hr_payroll_runs) RETURNING id`);
+  addOptionalDelete(sql`DELETE FROM hr_payroll_request_source_runs WHERE payroll_run_id=${runId}
     OR payroll_run_id NOT IN (SELECT id FROM hr_payroll_runs) RETURNING payroll_run_id`);
   mutations.push(sql`DELETE FROM hr_payroll_runs WHERE id=${runId} AND status <> 'closed'
     AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE payroll_run_id=${runId})

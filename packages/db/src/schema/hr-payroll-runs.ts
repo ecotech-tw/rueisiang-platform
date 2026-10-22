@@ -136,6 +136,21 @@ export const hrPayrollSpecialWorkdaySourceRuns = sqliteTable("hr_payroll_special
   payrollRunId: text("payroll_run_id").primaryKey(),
 });
 
+/** 薪資批次實際採用的申請資料；批次刪除後，沒有 live run 的索引不再鎖定來源。 */
+export const hrPayrollRequestSources = sqliteTable("hr_payroll_request_sources", {
+  id: text("id").primaryKey(),
+  payrollRunId: text("payroll_run_id").notNull(),
+  sourceKind: text("source_kind", { enum: ["leave", "overtime", "worker_overtime", "clock_correction"] as const }).notNull(),
+  sourceId: text("source_id").notNull(),
+}, (table) => [
+  index("idx_hr_payroll_request_sources_source").on(table.sourceKind, table.sourceId),
+  index("idx_hr_payroll_request_sources_run").on(table.payrollRunId),
+]);
+
+export const hrPayrollRequestSourceRuns = sqliteTable("hr_payroll_request_source_runs", {
+  payrollRunId: text("payroll_run_id").primaryKey(),
+});
+
 /** 撤回原因是稽核紀錄；批次退回 ready 並釋放當期 claim，供重新覆核、試算或刪除。一般不可改寫 marker，刪除整批時由受控交易一併清除。 */
 export const hrPayrollWithdrawals = sqliteTable("hr_payroll_withdrawals", {
   payrollRunId: text("payroll_run_id").primaryKey().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
