@@ -8,9 +8,14 @@ interface DialogProps {
   titleMeta?: ReactNode;
   children: ReactNode;
   actions?: ReactNode;
+  /** 卡片寬度（px）；手機上一律縮成可用寬度。 */
+  width?: DialogWidth;
+  /** 只放版面用途；寬度用 width。 */
   className?: string;
-  backdropClassName?: string;
+  /** 傳了就整組取代內容區預設的 `grid gap-4 px-6 pb-2`，所以要自己寫齊。 */
   bodyClassName?: string;
+  /** 邊距收窄，把高度留給內容；給內容自己會捲的大表格預覽用。 */
+  compact?: boolean;
   onClose?: () => void;
   /** 非 actions 的非同步 callback 要關閉 Dialog 時，也必須走同一個退場流程。 */
   closeRequestRef?: DialogCloseRef;
@@ -25,6 +30,22 @@ interface DialogProps {
 
 const DIALOG_EXIT_DURATION_MS = 180;
 
+// 寬度寫成完整的 class 字串，Tailwind 才掃得到；同一個屬性只留一個 utility，不靠產生順序決勝負。
+const DIALOG_WIDTH = {
+  420: "w-[min(420px,100%)]",
+  560: "w-[min(560px,100%)]",
+  680: "w-[min(680px,100%)]",
+  720: "w-[min(720px,100%)]",
+  760: "w-[min(760px,100%)]",
+  780: "w-[min(780px,100%)]",
+  820: "w-[min(820px,100%)]",
+  860: "w-[min(860px,100%)]",
+  900: "w-[min(900px,100%)]",
+  980: "w-[min(980px,100%)]",
+} as const;
+
+export type DialogWidth = keyof typeof DIALOG_WIDTH;
+
 /**
  * 共用對話框外框。
  *
@@ -36,9 +57,10 @@ export function Dialog({
   titleMeta,
   children,
   actions,
+  width = 560,
   className = "",
-  backdropClassName = "",
-  bodyClassName = "",
+  bodyClassName = "grid gap-4 px-6 pb-2",
+  compact = false,
   onClose,
   closeRequestRef,
   closeDisabled = false,
@@ -102,7 +124,6 @@ export function Dialog({
     closeAfterRef.current = null;
   }, []);
 
-  const cardClassName = ["modal-card", className, closing ? "closing" : ""].filter(Boolean).join(" ");
   /*
    * 遮罩是 position: fixed，但只要祖先有 transform、filter 或 backdrop-filter，
    * 那個祖先就會變成 fixed 的定位基準，對話框會被關進頁面容器裡（HRIS 的玻璃效果與
@@ -110,34 +131,47 @@ export function Dialog({
    *
    * 站台的語意色與玻璃效果是寫在範圍 class 底下的（管理介面 .hr-system、員工 HR 站
    * .hr-module-self），移出去之後會全部失效——核准會落回品牌紅，跟旁邊的駁回分不出來。
-   * 所以用一層 display: contents 的殼把範圍補回來，範圍由站台透過 DialogScope 提供。
+   * 所以用一層 contents 的殼把範圍補回來，範圍由站台透過 DialogScope 提供。
    * 不能直接加在遮罩上——.hr-system 自己帶著 grid-template-rows 與 align-content: stretch，
    * 會把遮罩的垂直置中蓋掉。
    */
   const scopeClass = useContext(DialogScopeContext);
-  const backdropClassNameValue = ["modal-backdrop", backdropClassName, closing ? "closing" : ""].filter(Boolean).join(" ");
-  const bodyClassNameValue = ["modal-body", bodyClassName].filter(Boolean).join(" ");
-  const actionFooter = actions ? <div className="modal-actions">{actions}</div> : null;
+  /*
+   * footer 是 card 或 form 的最後一層，不跟著內容捲走，也用實色底，捲動的內容不會透到按鈕下面。
+   * compact 的內容不會捲到 footer 底下，footer 就不建立疊層，陰影壓在內容後面。
+   */
+  const actionFooter = actions ? (
+    <div className={`mt-2 flex flex-none justify-end gap-2 border-t border-t-soft-line bg-paper px-6 pt-4 pb-5 shadow-dialog-footer ${compact ? "static max-[620px]:px-4" : "relative z-1"}`}>
+      {actions}
+    </div>
+  ) : null;
+  const body = <div className={`min-h-0 min-w-0 flex-auto overflow-x-hidden overflow-y-auto *:min-w-0 ${bodyClassName}`}>{children}</div>;
 
   const dialog = (
     <DialogContext.Provider value={{ onClose, requestClose: () => requestClose() }}>
       <div
-        className={backdropClassNameValue}
+        // 不 portal 時留在全頁容器裡，只蓋住那個容器，並疊在容器裡其他浮層之上。
+        className={`${portal ? "fixed z-60" : "absolute z-100"} inset-0 grid place-items-center ${compact ? "p-4 max-[620px]:p-2" : "p-6"} [transition-property:background-color] duration-180 ease-[ease-out] motion-reduce:animate-none motion-reduce:[transition:none] ${closing ? "pointer-events-none animate-none bg-ink/0" : "animate-dialog-backdrop-enter bg-ink/42"}`}
         role="presentation"
         onMouseDown={(event) => {
           if (event.target === event.currentTarget) requestClose();
         }}
       >
-        <div className={scopeClass ? `modal-scope ${scopeClass}` : "modal-scope"}>
-        <div className={cardClassName} role={role} aria-modal="true" aria-labelledby={titleId}>
-        <div className="modal-head">
+        <div className={scopeClass ? `contents ${scopeClass}` : "contents"}>
+        <div
+          className={`flex origin-center flex-col overflow-hidden rounded-[28px] bg-paper shadow-dialog ${DIALOG_WIDTH[width]} ${compact ? "max-h-[calc(100dvh-32px)] max-[620px]:max-h-[calc(100dvh-16px)]" : "max-h-[calc(100vh-48px)]"} [transition-property:opacity,filter,transform] duration-180 ease-[ease-out] motion-reduce:animate-none motion-reduce:[transition:none] ${closing ? "animate-none opacity-0 [filter:blur(4px)] [transform:translateY(8px)_scale(.98)]" : "animate-dialog-card-enter opacity-100 [filter:blur(0)] [transform:translateY(0)_scale(1)]"} ${className}`.trim()}
+          role={role}
+          aria-modal="true"
+          aria-labelledby={titleId}
+        >
+        <div className="flex items-center justify-between gap-3 px-6 pt-[22px] pb-3.5">
           {titleMeta ? (
             <div>
-              <h2 id={titleId}>{title}</h2>
+              <h2 id={titleId} className="m-0 text-[20px]">{title}</h2>
               <p className="muted">{titleMeta}</p>
             </div>
           ) : (
-            <h2 id={titleId}>{title}</h2>
+            <h2 id={titleId} className="m-0 text-[20px]">{title}</h2>
           )}
           {showClose && onClose ? (
             <Button
@@ -152,12 +186,12 @@ export function Dialog({
         </div>
 
         {formProps ? (
-          <form {...formProps} className="modal-form">
-            <div className={bodyClassNameValue}>{children}</div>
+          <form {...formProps} className="flex min-h-0 min-w-0 flex-auto flex-col">
+            {body}
             {actionFooter}
           </form>
         ) : (
-          <div className={bodyClassNameValue}>{children}</div>
+          body
         )}
         {!formProps ? actionFooter : null}
         </div>

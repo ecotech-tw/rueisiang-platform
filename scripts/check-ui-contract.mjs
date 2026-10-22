@@ -20,10 +20,6 @@ const sharedPrimitiveSelectors = [
   ".admin-form.toolbar",
   ".filter-control",
   ".filter-select-control",
-  ".modal-backdrop",
-  ".modal-card",
-  ".confirm-card",
-  ".confirm-body",
   ".panel",
   ".field",
 ];

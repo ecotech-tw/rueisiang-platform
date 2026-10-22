@@ -47,8 +47,8 @@ describe("shared HRIS UI contracts", () => {
       </ConfirmDialog>,
     );
 
-    expect(markup).toContain('class="modal-card confirm-card"');
-    expect(markup).toContain('class="modal-body confirm-body"');
+    expect(markup).toContain("w-[min(420px,100%)]");
+    expect(markup).toContain("grid gap-2 px-6 pb-1");
     expect(markup).toContain('role="alertdialog"');
     expect(markup).toContain("取消");
     expect(markup).toContain("確定");

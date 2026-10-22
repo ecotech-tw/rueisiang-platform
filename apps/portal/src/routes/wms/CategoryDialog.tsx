@@ -55,7 +55,7 @@ export function CategoryDialog({
   return (
     <Dialog
       title="編輯分類"
-      className="confirm-card"
+      width={420}
       onClose={onClose}
       closeDisabled={update.isPending}
       formProps={{

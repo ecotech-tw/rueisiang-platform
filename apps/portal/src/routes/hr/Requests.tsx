@@ -459,7 +459,7 @@ function CreateRequestDialog({ initialKind, employees, workers, leaveTypes, onCl
   const [kind, setKind] = useState<"leave" | "overtime">(initialKind);
   const [pending, setPending] = useState(false);
   const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
-  return <Dialog title="新增申請" titleMeta="建立後會出現在申請紀錄" className="hr-request-dialog" bodyClassName="hr-request-dialog-body" onClose={onClose} closeDisabled={pending} actions={<div ref={setActionsSlot} className="hr-request-dialog-actions" />}>
+  return <Dialog title="新增申請" titleMeta="建立後會出現在申請紀錄" width={680} className="hr-request-dialog" bodyClassName="grid gap-4 px-6 pb-5" onClose={onClose} closeDisabled={pending} actions={<div ref={setActionsSlot} className="hr-request-dialog-actions" />}>
     <div className="hr-request-kind-picker">
       <span className="muted">申請類型</span>
       <SegmentedControl

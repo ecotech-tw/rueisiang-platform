@@ -478,7 +478,6 @@
 .hr-location-table td > small { display: block; margin-top: 4px; }
 .attendance-records-toolbar .attendance-date-filter { min-width: 150px; }
 .attendance-event-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.modal-body.hr-location-dialog-body { display: flex; flex-direction: column; gap: 20px; }
 .hr-location-section { display: grid; gap: 12px; }
 .hr-location-section + .hr-location-section { padding-top: 20px; border-top: 1px solid var(--color-soft-line); }
 .hr-location-section-heading { display: flex; align-items: center; min-height: 22px; }
@@ -651,8 +650,6 @@
 .assistant-composer-actions { position: absolute; right: 8px; bottom: 8px; left: 8px; display: flex; align-items: center; gap: 8px; }
 .assistant-input-shortcut { margin: 0 auto; pointer-events: none; color: var(--color-muted); opacity: .65; font-size: 11px; }
 .assistant-composer-note { margin-top: 6px; }
-.assistant-modal-card { width: min(680px, 100%); }
-.assistant-modal-body { max-height: calc(100vh - 190px); }
 .assistant-modal-body .assistant-tool { cursor: pointer; }
 .line-channel-form { display: grid; gap: 14px; }
 /* channel 已授權工具的一覽；被別層擋住的會帶一個狀態標籤。 */
@@ -841,7 +838,6 @@
 .sku-mapping-form > .field,
 .sku-mapping-form > .field-grid,
 .sku-mapping-form > .sku-mapping-components { min-width: 0; }
-.sku-mapping-dialog { width: min(780px, 100%); }
 .sku-mapping-components {
   flex: 1 1 100%;
   display: grid;
@@ -1868,7 +1864,6 @@
 .hr-bonus-member-field,
 .hr-bonus-edit-note { grid-column: 1 / -1; }
 .hr-bonus-form > button { flex: 0 0 auto; }
-.hr-bonus-policy-dialog { width: min(860px, 100%); }
 .hr-bonus-assignment-summary { display: inline-grid; max-width: 220px; gap: 2px; }
 .hr-bonus-assignment-summary span { color: var(--color-ink); font-weight: 700; white-space: nowrap; }
 .hr-bonus-assignment-summary small { overflow: hidden; color: var(--color-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1985,15 +1980,6 @@
  */
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 
-/*
- * 底部的按鈕列與可捲動內容分開：footer 永遠是 modal-card 的最後一層，不會跟著內容捲走，
- * 也不會讓半透明內容穿透到按鈕下面。form footer 與非 form dialog 都使用實色 surface。
- */
-/*
- * footer 若直接掛在 card 或 form 下方，就不需要抵銷 body 的左右 padding；負 margin 會把它
- * 拉出 card 邊界，靠 overflow hidden 裁掉圓角。
- */
-
 .analytics-filter-field .select-trigger,
 .field .select-trigger { width: 100%; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
@@ -2007,7 +1993,7 @@
 /*
  * 地址那三格。原本外面包一層 .field 加「地址」標題，但裡面的標籤已經寫著
  * 縣市／區域／地址，標題只是重複。拿掉標題之後這一組跟上面那排就黏在一起了
- * （.modal-body 的 16px 對「一組」來說不夠），多給 8px 把它推開。
+ * （對話框內容區的 16px 對「一組」來說不夠），多給 8px 把它推開。
  */
 .address-fields { display: grid; gap: 16px; margin-top: 8px; }
 /*
@@ -2359,7 +2345,6 @@
 .perm-item:has(input:checked) { color: var(--color-brand-dark); font-weight: 500; }
 
 /* 權限清單本來就寬，對話框跟著放寬，兩欄才排得下。 */
-.modal-card.wide { width: min(760px, 100%); }
 
 /*
  * ── 客戶列表的篩選 ────────────────────────────────────────────────────────
@@ -2864,7 +2849,7 @@
 /*
  * 下拉浮在最上層。位置由 JS 量出來後用 inline style 給（fixed，視窗座標）。
  *
- * 為什麼是 portal ＋ fixed：這張表單在 .modal-body（會捲）裡，外層 .modal-card
+ * 為什麼是 portal ＋ fixed：這張表單在對話框的內容區（會捲）裡，外層卡片
  * 又是 overflow: hidden。留在原地會被裁掉——選項看得到卻點不到；改成在流內
  * 展開又會把表單推長、讓對話框長出捲軸。掛到 body 兩個問題都沒有。
  *
@@ -3134,8 +3119,6 @@
 .analytics-chart-empty { display: grid; place-items: center; height: 260px; margin: 0; color: var(--color-muted); font-size: 13px; }
 .analytics-chart-pending { display: grid; place-items: center; height: 360px; margin: 0; color: var(--color-muted); font-size: 13px; }
 .analytics-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.analytics-data-dialog { width: min(920px, 100%); }
-.analytics-data-dialog-body { min-height: 0; }
 .analytics-data-dialog-table { max-height: calc(100vh - 170px); overflow: auto; }
 .analytics-table-selected { background: --alpha(var(--color-brand) / 6%); }
 .analytics-table th,
@@ -3282,7 +3265,6 @@
   background: var(--color-canvas);
 }
 .manual-report-import-format-note p { margin: 0; }
-.manual-report-import-row-dialog { width: min(720px, 100%); }
 .manual-report-empty {
   margin: 0;
   padding: 28px 16px 12px;
@@ -3302,7 +3284,6 @@
   font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
-.manual-report-dialog { width: min(720px, 100%); }
 .manual-report-form { display: grid; gap: 16px; }
 .manual-report-filters {
   align-items: center;
@@ -3312,26 +3293,6 @@
 .manual-report-filters .filter-control input[type="month"] {
   min-width: 150px;
 }
-.manual-report-import-backdrop {
-  overflow: hidden;
-  padding: 16px;
-}
-.manual-report-import-dialog {
-  box-sizing: border-box;
-  width: min(980px, 100%);
-  max-width: 100%;
-  max-height: calc(100dvh - 32px);
-  min-width: 0;
-}
-.manual-report-import-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  min-width: 0;
-  min-height: 0;
-  max-height: calc(100dvh - 140px);
-  overflow: hidden;
-}
 .manual-report-import-form {
   flex: 1 1 auto;
   display: grid;
@@ -3339,9 +3300,6 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-}
-.manual-report-import-dialog .modal-form > .modal-actions {
-  position: static;
 }
 .manual-report-file-picker {
   display: grid;
@@ -3398,19 +3356,8 @@
   .manual-report-table th,
   .manual-report-table td { white-space: normal; }
   .manual-report-table td[data-label="SKU"] code { overflow-wrap: anywhere; }
-  .manual-report-import-backdrop { padding: 8px; }
-  .manual-report-import-dialog { max-height: calc(100dvh - 16px); }
-  .manual-report-import-body {
-    max-height: calc(100dvh - 120px);
-    padding-right: 16px;
-    padding-left: 16px;
-  }
   .manual-report-import-form { gap: 14px; }
   .manual-report-import-table-scroll { max-height: min(32dvh, 280px); }
-  .manual-report-import-dialog .modal-form > .modal-actions {
-    padding-right: 16px;
-    padding-left: 16px;
-  }
   .manual-report-import-preview-head { display: grid; gap: 4px; }
 }
 
@@ -3719,8 +3666,6 @@
 .hr-payroll-worker-work-summary li span { flex: none; overflow-wrap: anywhere; }
 .hr-payroll-worker-work-summary li strong { flex: 1 1 auto; min-width: 0; color: var(--color-ink); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
 .hr-payroll-worker-work-summary p { margin: 0; color: var(--color-muted); font-size: 11px; line-height: 1.6; }
-.hr-payroll-create-dialog { width: min(720px, 100%); }
-.hr-payroll-create-dialog .modal-body { gap: 18px; }
 .hr-payroll-employee-picker-section { display: grid; gap: 10px; }
 .hr-payroll-picker-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hr-payroll-picker-heading > div { display: grid; gap: 2px; min-width: 0; }
@@ -3733,8 +3678,6 @@
 .hr-payroll-picker-group + .hr-payroll-picker-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-soft-line); }
 .hr-payroll-picker-group-title { padding: 6px 10px 3px; color: var(--color-muted); font-size: 12px; font-weight: 700; }
 .hr-payroll-picker-empty { margin: 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
-.special-workday-assign-dialog { width: min(820px, 100%); }
-.special-workday-assign-dialog .modal-body { gap: 18px; }
 .special-workday-target-section { display: grid; gap: 10px; }
 /*
  * 載入中的提示佔的是下拉的位置，給它同樣的外框與高度（輸入框 + chip 區上下留白 + 外框），換成下拉時版面才不會跳。
@@ -3803,7 +3746,6 @@
 .hr-payroll-adjustment-item-summary { display: grid; gap: 3px; min-width: 150px; }
 .hr-payroll-adjustment-item-summary > span { display: flex; align-items: baseline; gap: 8px; }
 .hr-payroll-adjustment-item-summary small { color: var(--color-muted); font-size: 12px; white-space: nowrap; }
-.hr-payroll-adjustment-dialog { width: min(760px, 100%); }
 .hr-payroll-adjustment-dialog-note { margin: 0; }
 .hr-payroll-adjustment-items { display: grid; gap: 10px; }
 .hr-payroll-adjustment-items-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -3825,9 +3767,6 @@
 .hr-payroll-detail-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .hr-payroll-detail-action-group { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
 .hr-payroll-detail-action-group + .hr-payroll-detail-action-group { margin-inline-start: 4px; padding-inline-start: 12px; border-inline-start: 1px solid var(--color-soft-line); }
-.hr-payroll-preview-dialog { width: min(900px, 100%); }
-.hr-payroll-preview-dialog > .modal-actions { margin-top: 0; }
-.modal-body.hr-payroll-payslip-preview-body { flex: 0 1 auto; align-content: start; max-height: calc(100vh - 180px); padding: 0; background: var(--color-canvas); }
 .hr-payroll-payslip-preview { display: block; width: min(794px, 100%); margin: 36px auto; padding: 42px 48px; background: var(--color-paper); box-shadow: 0 0 0 1px --alpha(var(--color-ink) / 6%), 0 14px 36px rgba(53, 28, 29, .12); }
 .hr-payroll-payslip-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding-bottom: 18px; border-bottom: 2px solid var(--color-ink); }
 .hr-payroll-payslip-head p { margin: 0 0 4px; color: var(--color-muted); font-size: 13px; font-weight: 700; letter-spacing: .08em; }

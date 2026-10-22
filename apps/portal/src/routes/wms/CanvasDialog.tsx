@@ -35,7 +35,7 @@ export function CanvasDialog({
   return (
     <Dialog
       title="畫布大小"
-      className="confirm-card"
+      width={420}
       onClose={onClose}
       closeDisabled={update.isPending}
       formProps={{

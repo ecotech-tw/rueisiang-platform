@@ -209,7 +209,7 @@ function UserEditor({
       <Dialog
       title={displayNameOf(user)}
       titleMeta={user.email}
-      className="wide"
+      width={760}
       onClose={onClose}
       closeDisabled={pending}
       actions={
