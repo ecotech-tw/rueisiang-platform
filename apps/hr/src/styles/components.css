@@ -260,7 +260,6 @@
 .hr-form-filters { display: grid; grid-template-columns: minmax(0, 1fr) 170px; align-items: end; gap: 12px; padding: 14px 0 2px; }
 .hr-form-sticky-controls > .hr-form-filters { padding-top: 8px; }
 .page > .hr-form-request-panel { margin-top: 8px; }
-.hr-form-filters .field { min-width: 0; }
 @keyframes hr-form-tab-enter {
   from { opacity: 0; transform: translateX(16px); }
   to { opacity: 1; transform: translateX(0); }
@@ -411,8 +410,8 @@
 
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 
-.field .select-trigger { width: 100%; }
-.field > .combobox-group { width: 100%; min-width: 0; }
+[data-field] .select-trigger { width: 100%; }
+[data-field] > .combobox-group { width: 100%; min-width: 0; }
 
 @media (max-width: 900px) {
   .shell {
@@ -425,7 +424,7 @@
 
 }
 
-.login-form .field input { width: 100%; }
+.login-form [data-field] input { width: 100%; }
 
 @media (max-width: 760px) {
 

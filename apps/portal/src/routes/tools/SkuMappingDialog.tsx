@@ -2,7 +2,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import { useState, type FormEvent } from "react";
 import { useToast } from "../../shell/Toast.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateProductSkuMapping,
   useUpdateProductSkuMapping,
@@ -46,6 +46,7 @@ function Combo<T>({
   disabled = false,
   itemToStringLabel,
   renderItem,
+  className,
 }: {
   items: T[];
   value: T | null;
@@ -56,10 +57,10 @@ function Combo<T>({
   disabled?: boolean;
   itemToStringLabel: (item: T | null) => string;
   renderItem: (item: T) => React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="field">
-      <span>{label}</span>
+    <Field as="div" label={label} className={className}>
       <Combobox.Root
         items={items}
         value={value}
@@ -84,7 +85,7 @@ function Combo<T>({
           </Combobox.Positioner>
         </Combobox.Portal>
       </Combobox.Root>
-    </div>
+    </Field>
   );
 }
 
@@ -191,7 +192,7 @@ export function SkuMappingDialog({
             </>
           ) : <TextField label="外部 SKU" required value={externalSku} onChange={(event) => setExternalSku(event.target.value)} disabled={pending} />}
         </div>
-        <TextField label="通路商品名稱" required value={externalName} onChange={(event) => setExternalName(event.target.value)} disabled={pending} />
+        <TextField className="min-w-0" label="通路商品名稱" required value={externalName} onChange={(event) => setExternalName(event.target.value)} disabled={pending} />
 
         <div className="sku-mapping-components">
           <div className="sku-mapping-components-head">
@@ -204,6 +205,7 @@ export function SkuMappingDialog({
               <div className="sku-mapping-component" key={index}>
                 <div className="sku-mapping-component-row">
                   <Combo
+                    className="min-w-0 max-[620px]:col-span-full"
                     items={items}
                     value={selectedItem}
                     onChange={(item) => patchComponent(index, { itemId: item?.id ?? "" })}
@@ -214,7 +216,7 @@ export function SkuMappingDialog({
                     itemToStringLabel={(item) => item ? itemLabel(item) : ""}
                     renderItem={(item) => <><strong>{item.sku}</strong><span>{item.name} · {item.category}</span></>}
                   />
-                  <TextField label="數量" aria-label={`每組數量 ${index + 1}`} placeholder="1" type="number" min="1" step="1" value={component.quantity} onChange={(event) => patchComponent(index, { quantity: event.target.value })} disabled={pending} />
+                  <TextField className="min-w-0 max-[620px]:col-start-1" label="數量" aria-label={`每組數量 ${index + 1}`} placeholder="1" type="number" min="1" step="1" value={component.quantity} onChange={(event) => patchComponent(index, { quantity: event.target.value })} disabled={pending} />
                   <Button type="button" variant="icon" icon="close" title={`移除用料 ${index + 1}`} aria-label={`移除用料 ${index + 1}`} onClick={() => setComponents((current) => current.filter((_item, itemIndex) => itemIndex !== index))} disabled={pending} />
                 </div>
               </div>

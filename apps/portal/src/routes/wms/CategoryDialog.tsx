@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, TextField } from "../../ui/index.js";
 import { WAREHOUSE_CATEGORY_COLORS, useUpdateWarehouseCategory, type ProductCategory } from "./api.js";
 
 /**
@@ -88,10 +88,9 @@ export function CategoryDialog({
               : undefined}
           />
 
-          <div className="field">
-            <span>顏色</span>
+          <Field as="div" label="顏色">
             <ColorPicker value={color} onChange={setColor} />
-          </div>
+          </Field>
 
           {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
     </Dialog>

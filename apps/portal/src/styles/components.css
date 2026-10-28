@@ -483,9 +483,7 @@
 .hr-location-section-heading { display: flex; align-items: center; min-height: 22px; }
 .hr-location-section-heading h3 { margin: 0; color: var(--color-ink); font-size: 15px; line-height: 1.35; }
 .hr-location-form-grid { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 14px; align-items: start; }
-.hr-location-form-grid > .field { min-width: 0; }
 .hr-location-map-search { display: flex; align-items: end; gap: 10px; min-width: 0; }
-.hr-location-map-search .field { min-width: 0; flex: 1 1 auto; }
 .hr-location-map-link { display: inline-flex; align-items: center; align-self: start; min-height: 40px; padding: 0 10px; border-radius: 999px; color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
 .hr-location-map-link:hover { background: --alpha(var(--color-brand) / 7%); }
 .hr-location-map-link:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
@@ -498,7 +496,6 @@
 .hr-location-selected-place { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: var(--radius-field); background: var(--color-canvas); color: var(--color-ink); }
 .hr-location-selected-place small { color: var(--color-muted); }
 .hr-location-rule-card { display: grid; gap: 14px; padding: 14px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-canvas); }
-.hr-location-rule-card > .field { gap: 8px; }
 .hr-location-radius-field { width: min(100%, 280px); }
 .hr-location-toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 32px; }
 
@@ -638,8 +635,6 @@
 .assistant-message-attachments { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
 .assistant-message-attachments img { width: 132px; height: 96px; object-fit: cover; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-canvas); }
 .assistant-chat-panel .assistant-input { min-height: 72px; max-height: 120px; }
-.assistant-chat-panel > .field { flex: none; gap: 4px; }
-.assistant-composer-field > small { margin-top: 2px; }
 .assistant-attachment-input { display: none; }
 .assistant-pending-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 5px 0 7px; }
 .assistant-pending-attachments button { padding: 5px 8px; border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-canvas); color: var(--color-ink); font: inherit; font-size: 12px; cursor: pointer; }
@@ -835,7 +830,6 @@
 .admin-form.row { margin-top: 16px; }
 .panel-head + .admin-form.row { margin-top: 0; }
 .sku-mapping-form { display: grid; gap: 16px; align-items: stretch; }
-.sku-mapping-form > .field,
 .sku-mapping-form > .field-grid,
 .sku-mapping-form > .sku-mapping-components { min-width: 0; }
 .sku-mapping-components {
@@ -864,11 +858,8 @@
 /* 同一列用料的兩排靠得更近，看起來是一組，不是兩列。 */
 .sku-mapping-component { gap: 6px; }
 .sku-mapping-component + .sku-mapping-component { padding-top: 6px; }
-.sku-mapping-component-row > .field { min-width: 0; }
 @media (max-width: 620px) {
   .sku-mapping-component-row { grid-template-columns: minmax(0, 1fr) 40px; }
-  .sku-mapping-component-row > .field:first-child { grid-column: 1 / -1; }
-  .sku-mapping-component-row > .field:nth-child(2) { grid-column: 1; }
 }
 /*
  * 儲存的檢視，做成 Material 的 filter chip：一列膠囊，選中的用色調容器
@@ -1858,17 +1849,11 @@
 
 /* HR 薪資與獎金：兩個獨立計算上下文。 */
 .hr-bonus-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
-.hr-bonus-form > .field { min-width: 0; }
-.hr-bonus-form > .field:first-child,
-.hr-bonus-scope-field,
-.hr-bonus-member-field,
 .hr-bonus-edit-note { grid-column: 1 / -1; }
 .hr-bonus-form > button { flex: 0 0 auto; }
 .hr-bonus-assignment-summary { display: inline-grid; max-width: 220px; gap: 2px; }
 .hr-bonus-assignment-summary span { color: var(--color-ink); font-weight: 700; white-space: nowrap; }
 .hr-bonus-assignment-summary small { overflow: hidden; color: var(--color-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.hr-bonus-scope-field,
-.hr-bonus-member-field { min-width: 0; }
 .hr-bonus-picker-list { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-paper); }
 .hr-bonus-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
 .hr-bonus-employee-row { grid-template-columns: minmax(0, 1fr) 116px; }
@@ -1981,17 +1966,17 @@
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 
 .analytics-filter-field .select-trigger,
-.field .select-trigger { width: 100%; }
+[data-field] .select-trigger { width: 100%; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
-.field-grid > .field { min-width: 0; }
-.field > .combobox-group { width: 100%; min-width: 0; }
+.field-grid > * { min-width: 0; }
+[data-field] > .combobox-group { width: 100%; min-width: 0; }
 /*
  * 三個窄欄位（數量、單位、安全庫存）。auto-fit 在對話框的寬度下只排得下兩欄，
  * 第三個會自己掉到下一列、旁邊空一大格。這種一組的數字欄位就明講要三欄。
  */
 .field-grid.trio { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 /*
- * 地址那三格。原本外面包一層 .field 加「地址」標題，但裡面的標籤已經寫著
+ * 地址那三格。原本外面包一層 Field 加「地址」標題，但裡面的標籤已經寫著
  * 縣市／區域／地址，標題只是重複。拿掉標題之後這一組跟上面那排就黏在一起了
  * （對話框內容區的 16px 對「一組」來說不夠），多給 8px 把它推開。
  */
@@ -2023,17 +2008,11 @@
 /* 特殊上班日補貼沿用敘薪的「欄位標題／逐列編輯／底部新增」結構，但只有單價欄。 */
 .special-allowance-items .salary-items-head,
 .special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 130px 44px; }
-.special-allowance-items .salary-item-row > .field { min-width: 0; margin: 0; }
 .special-allowance-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 /* 特殊日加班費級距拆成兩行，讓欄位標籤與輸入框在窄 Modal 裡仍有呼吸空間。 */
 .special-overtime-items,
 .special-allowance-items { min-width: 0; }
 .special-overtime-item-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 10px; }
-.special-overtime-item-row > .field { min-width: 0; margin: 0; }
-.special-overtime-item-row > .field:nth-child(1) { grid-column: 1; grid-row: 1; }
-.special-overtime-item-row > .field:nth-child(2) { grid-column: 2; grid-row: 1; }
-.special-overtime-item-row > .field:nth-child(3) { grid-column: 1; grid-row: 2; }
-.special-overtime-item-row > .field:nth-child(4) { grid-column: 2; grid-row: 2; }
 .special-overtime-item-row + .special-overtime-item-row { padding-top: 14px; border-top: 1px solid var(--color-soft-line); }
 .special-overtime-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 .salary-items-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding-top: 12px; border-top: 1px solid var(--color-soft-line); }
@@ -2055,8 +2034,6 @@
 .shift-day-row-empty { grid-template-columns: 62px minmax(0, 1fr) auto; }
 .shift-day-label { padding-left: 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; }
 .shift-day-inherited { min-width: 0; }
-.shift-group .field { min-width: 0; margin: 0; }
-.shift-day-row .field > span:first-child { display: none; }
 .shift-item-spacer { display: block; }
 .shift-item-note { grid-column: 1 / -1; margin-top: -4px; color: var(--color-muted); font-size: 12px; }
 .shift-items-empty { grid-column: 1 / -1; margin: 2px 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
@@ -2067,23 +2044,13 @@
   .salary-items-head { display: none; }
   .salary-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
   .salary-item-row > :first-child { grid-column: 1 / -1; }
-  .salary-item-row > .field:nth-child(2)::before,
-  .salary-item-row > .field:nth-child(3)::before { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
-  .salary-item-row > .field:nth-child(2)::before { content: "計算單位"; }
-  .salary-item-row > .field:nth-child(3)::before { content: "金額（元）"; }
   .special-allowance-items .salary-item-row { grid-template-columns: minmax(0, 1fr) 44px; }
-  .special-allowance-items .salary-item-row > .field:nth-child(2)::before { content: "補貼單價（元）"; }
 }
 /* 依對話框可用寬度換行，不依螢幕寬度猜測欄位是否放得下。 */
 @container shift-settings (max-width: 640px) {
   .shift-day-head { display: none; }
   .shift-day-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 6px 8px; }
   .shift-day-label { grid-column: 1; grid-row: 1; padding-left: 2px; }
-  .shift-day-row > .field > span:first-child { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
-  .shift-day-row > .field:nth-child(2) { grid-column: 1; grid-row: 2; }
-  .shift-day-row > .field:nth-child(3) { grid-column: 2; grid-row: 2; }
-  .shift-day-row > .field:nth-child(4) { grid-column: 1; grid-row: 3; }
-  .shift-day-row > .field:nth-child(5) { grid-column: 2; grid-row: 3; }
   .shift-day-row-empty { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
   .shift-day-row-empty .shift-day-label { grid-column: 1 / -1; }
   .shift-day-row-empty .shift-day-inherited { grid-column: 1; grid-row: 2; }
@@ -2094,12 +2061,9 @@
  * 所以那些欄位其實是一欄一欄疊著、標題與輸入框的間距看起來鬆掉。補上定義比逐一改頁面安全。
  */
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
-.form-grid > .field { min-width: 0; }
+.form-grid > * { min-width: 0; }
 .form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (max-width: 560px) { .form-grid.two { grid-template-columns: minmax(0, 1fr); } }
-.field.checkbox { grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 10px; }
-.field.checkbox input { width: 18px; height: 18px; margin-top: 2px; }
-.field.checkbox small { display: block; margin-top: 2px; color: var(--color-muted); font-size: 12px; font-weight: 400; }
 
 /*
  * 欄位底下的說明文字。
@@ -2375,7 +2339,7 @@
  * 就看得到的東西前面。
  */
 .filter-fields { display: contents; }
-.login-form .field input { width: 100%; }
+.login-form [data-field] input { width: 100%; }
 
 /*
  * 邀請連結。用 primary-container 的淡底標出「這是剛剛才產生、要你現在處理」的東西，
@@ -3378,8 +3342,6 @@
 .hr-calendar-scroll { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; margin: 0 -22px -20px; padding: 0 22px 20px; }
 .hr-schedule-month { display: flex; align-items: center; gap: 2px; }
 .hr-schedule-month > strong { min-width: 112px; text-align: center; font-variant-numeric: tabular-nums; }
-.hr-calendar-head .field { margin: 0; min-width: 168px; }
-.hr-quick-bar .field { flex: 1 1 150px; min-width: 132px; max-width: 240px; margin: 0; }
 .hr-schedule-status { display: flex; align-items: center; align-self: center; gap: 8px; margin: 0 0 0 auto; color: var(--color-muted); font-size: 13px; }
 .hr-schedule-status .status { flex: none; }
 .hr-schedule-rest-summary { display: flex; align-items: flex-start; gap: 12px; margin-top: 14px; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); }
@@ -3405,7 +3367,7 @@
 .hr-calendar-holiday.hr-calendar-typhoon { background: var(--color-warn-soft); color: var(--color-warn); }
 .hr-calendar-scope-picker { display: grid; gap: 4px; min-width: 0; }
 .hr-calendar-scope-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.hr-calendar-scope-row .dropdown-control, .hr-calendar-scope-row .field { flex: 1; min-width: 0; }
+.hr-calendar-scope-row .dropdown-control { flex: 1; min-width: 0; }
 .hr-calendar-scope-row > button { flex: 0 0 auto; }
 .hr-calendar-date { display: flex; justify-content: space-between; align-items: center; color: var(--color-ink); }
 .hr-calendar-date button, .hr-calendar-entry button { border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
@@ -3425,7 +3387,6 @@
 .hr-calendar-editor-row { display: grid; grid-template-columns: 54px 132px 180px 230px minmax(0, 1fr); align-items: center; gap: 10px; padding: 3px 6px; border-radius: 12px; }
 .hr-calendar-editor-row.day-weekend { background: --alpha(var(--color-ink) / 3%); }
 .hr-calendar-editor-row.day-holiday { background: --alpha(var(--color-brand) / 7%); }
-.hr-calendar-editor-row .field { min-width: 0; margin: 0; }
 .hr-calendar-editor-row .hr-calendar-scope-picker { grid-column: 4; }
 .hr-calendar-editor-row > .muted { min-width: 0; }
 .hr-calendar-editor-date { display: flex; align-items: baseline; gap: 5px; color: var(--color-ink); font-size: 14px; font-variant-numeric: tabular-nums; }
@@ -3433,7 +3394,7 @@
 .field-note { margin: 0 0 4px; font-size: 12px; }
 @media (max-width: 560px) {
   .hr-calendar-editor-row { grid-template-columns: 44px minmax(0, 1fr); gap: 6px 8px; }
-  .hr-calendar-editor-row .field:nth-child(2), .hr-calendar-editor-row .field:nth-child(3), .hr-calendar-editor-row .field:last-child, .hr-calendar-editor-row .hr-calendar-scope-picker, .hr-calendar-editor-row > .muted { grid-column: 2; }
+  .hr-calendar-editor-row .hr-calendar-scope-picker, .hr-calendar-editor-row > .muted { grid-column: 2; }
 }
 .hr-quick-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 8px 8px 16px; border-radius: 12px; background: --alpha(var(--color-brand) / 7%); }
 .hr-quick-bar > strong { color: var(--color-brand-dark); }
@@ -3690,17 +3651,14 @@
 .special-workday-allowance-row { display: grid; grid-template-columns: minmax(0, 1fr) 130px 100px; align-items: center; gap: 10px; }
 .special-workday-allowance-head { color: var(--color-muted); font-size: 12px; font-weight: 600; }
 .special-workday-allowance-row + .special-workday-allowance-row { padding-top: 10px; border-top: 1px solid var(--color-soft-line); }
-.special-workday-allowance-row > .field { min-width: 0; margin: 0; }
 .special-workday-allowance-unit { color: var(--color-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .special-workday-allowance-empty { margin: 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 @media (max-width: 640px) {
   .special-workday-allowance-head { display: none; }
   .special-workday-allowance-row { grid-template-columns: minmax(0, 1fr) 44px; align-items: start; gap: 8px; }
   .special-workday-allowance-row > .salary-item-name { grid-column: 1 / -1; }
-  .special-workday-allowance-row > .special-workday-allowance-unit::before,
-  .special-workday-allowance-row > .field::before { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
+  .special-workday-allowance-row > .special-workday-allowance-unit::before { display: block; margin-bottom: 6px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
   .special-workday-allowance-row > .special-workday-allowance-unit::before { content: "補貼單價"; }
-  .special-workday-allowance-row > .field::before { content: "數量"; }
 }
 
 .hr-payroll-table-region { position: relative; min-width: 0; }
@@ -3811,7 +3769,6 @@
   .hr-payroll-adjustment-table { min-width: 0; }
   .hr-payroll-adjustment-table td[data-label="原因"] { max-width: none; }
   .hr-payroll-adjustment-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .hr-payroll-adjustment-item-row > .field:nth-child(2) { grid-column: 1 / -1; }
   .hr-payroll-mobile-select-all { display: flex; padding: 8px 14px; border-bottom: 1px solid var(--color-soft-line); }
   .hr-payroll-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hr-payroll-line-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -3861,9 +3818,6 @@
 .hr-calendar-year-count { margin: 0; margin-inline-start: auto; color: var(--color-muted); font-size: 13px; }
 .hr-calendar-year-count strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
 .hr-calendar-year-bar .hr-schedule-status { margin: 0; }
-/* 表格裡的欄位不該撐出一格高度；拿掉標籤與外距，列高才跟其他資料表一致。 */
-.data-table .field { margin: 0; min-width: 0; }
-.data-table .field > span:first-child { display: none; }
 .hr-calendar-type-fields { display: grid; gap: 6px; min-width: 0; }
 .hr-calendar-type-fields .dropdown-control { width: 100%; max-width: 100%; }
 .data-table .hr-calendar-scope-picker { max-width: 240px; }

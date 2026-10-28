@@ -21,7 +21,6 @@ const sharedPrimitiveSelectors = [
   ".filter-control",
   ".filter-select-control",
   ".panel",
-  ".field",
 ];
 
 async function walk(directory) {

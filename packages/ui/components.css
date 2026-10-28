@@ -243,36 +243,14 @@
   background-size: 5px 5px, 5px 5px;
 }
 
-/* Field and dropdown base styles; filters and domain forms add their own layout modifiers. */
-.field {
-  display: grid;
-  align-content: start;
-  gap: 6px;
-}
-
-.field input:not([type="checkbox"]):not([type="radio"]),
-.field select {
+/* 輸入框外觀還沒搬進元件；先掛在 Field 的 data-field 上。 */
+[data-field] input:not([type="checkbox"]):not([type="radio"]),
+[data-field] select {
   min-height: var(--size-field);
 }
 
-.field > span {
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.field > span b {
-  margin-left: 6px;
-  color: var(--color-brand);
-  font-size: 11px;
-}
-
-.field > small {
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
-.field input,
-.field textarea {
+[data-field] input,
+[data-field] textarea {
   padding: 10px 12px;
   border: 1px solid var(--color-line);
   border-radius: 10px;
@@ -281,14 +259,14 @@
   font: inherit;
 }
 
-.field textarea {
+[data-field] textarea {
   width: 100%;
   min-height: 96px;
   border-radius: var(--radius-field);
   resize: vertical;
 }
 
-.field select,
+[data-field] select,
 .dropdown-control {
   appearance: none;
   min-height: var(--size-field);
@@ -308,7 +286,7 @@
   cursor: pointer;
 }
 
-.field select:disabled,
+[data-field] select:disabled,
 .dropdown-control:disabled {
   background-color: var(--color-soft-line);
   color: var(--color-muted);
@@ -339,25 +317,25 @@
   background-image: none;
 }
 
-.field input:disabled {
+[data-field] input:disabled {
   background: var(--color-soft-line);
   color: var(--color-muted);
   cursor: not-allowed;
 }
 
-.field input,
-.field select {
+[data-field] input,
+[data-field] select {
   min-width: 0;
 }
 
-.field input:focus-visible,
-.field select:focus-visible,
-.field textarea:focus-visible {
+[data-field] input:focus-visible,
+[data-field] select:focus-visible,
+[data-field] textarea:focus-visible {
   outline: 2px solid var(--color-secondary);
   outline-offset: 1px;
 }
 
-.field textarea:focus {
+[data-field] textarea:focus {
   outline: 2px solid var(--color-secondary);
   outline-offset: 1px;
 }
@@ -435,19 +413,19 @@
 /* 間距改由 .page 統一負責，見上面的說明；這裡只保留非 .page 容器內的相鄰 Panel。 */
 .panel + .panel { margin-top: 20px; }
 /*
- * 有 .field 的那種排要另外處理。.field 是「標籤在上、輸入框在下」的兩層，
+ * 有 Field 的那種排要另外處理。Field 是「標籤在上、輸入框在下」的兩層，
  * 旁邊的按鈕只有一層，兩件事都會歪：
  *
- * 1. 置中的話按鈕對到的是整塊 .field 的中線，也就是浮在輸入框上方 → 底部對齊。
+ * 1. 置中的話按鈕對到的是整塊 Field 的中線，也就是浮在輸入框上方 → 底部對齊。
  * 2. 只靠 padding 撐出來的按鈕是 33.5px、輸入框是 44px，光是底部對齊仍然
  *    看得出一高一矮 → 拉成同一個高度。
  *
- * 條件寫成 :has(> .field) 而不是套在整個 .admin-form 上，因為沒有 .field 的排
+ * 條件寫成 :has(> [data-field]) 而不是套在整個 .admin-form 上，因為沒有 Field 的排
  * 兩種修正都會幫倒忙：工具列的「對帳區間」這類純文字標籤只有 19.5px 高，底部
  * 對齊會讓它比旁邊的膠囊低 7px；而工具列的控制項是另一個較密的尺寸（約 34px），
  * 一起拉高會讓篩選列變笨重。
  */
-.admin-form:has(> .field) { align-items: flex-end; }
+.admin-form:has(> [data-field]) { align-items: flex-end; }
 /*
  * 操作紀錄裡的「舊值 → 新值」。
  *
@@ -467,7 +445,7 @@
 .dropdown-combobox-chips { display: flex; flex: 1; min-width: 0; max-height: 112px; overflow-y: auto; flex-wrap: wrap; align-items: center; gap: 4px; margin-right: 64px; padding: 4px 8px; }
 .dropdown-combobox-chips .combobox-input { min-width: 90px; padding: 6px 0 !important; }
 /*
- * 多選放在 .field 裡時，`.field input` 的底色、圓角與 focus 外框會落在 chip 旁邊這個小輸入框上，變成框中框。
+ * 多選放在 Field 裡時，`[data-field] input` 的底色、圓角與 focus 外框會落在 chip 旁邊這個小輸入框上，變成框中框。
  * 外框與焦點由外層的 .combobox-group 負責，這裡把那幾樣壓回來。只管多選：單選的輸入框佔滿整個控制項，
  * 沒有框中框的問題，動它會改到全站表單裡下拉的底色。停用狀態也不碰，灰底是那個狀態的提示。
  */
@@ -546,7 +524,6 @@
 .boot { padding: 48px; color: var(--color-muted); }
 .page-head-row > :last-child { flex: none; }
 /* 共用 UI layer：page 只傳入語意 props，視覺狀態集中在這裡。 */
-.ui-field-error { color: var(--color-brand-dark) !important; }
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .login-card {
   width: min(400px, 100%);
@@ -586,7 +563,7 @@
 }
 /*
  * 登入卡片裡的表單。卡片本身是置中的窄欄，所以欄位要撐滿寬度——
- * 沿用一般表單的 .field，只補「在這張卡片裡該有多寬」這件事。
+ * 沿用一般表單的 Field，只補「在這張卡片裡該有多寬」這件事。
  */
 .login-form { width: 100%; display: grid; gap: 14px; margin-top: 16px; text-align: left; }
 /*

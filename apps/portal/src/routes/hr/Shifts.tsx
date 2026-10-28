@@ -214,13 +214,13 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
         const disabled = !canWrite || legacyOvernight || save.isPending;
         return <div key={row.key} className={`shift-group grid gap-3 p-0${rowIndex > 0 ? " mt-3 border-t border-soft-line pt-6" : ""}`}>
           <div className="shift-group-head items-end">
-            <TextField label="班別名稱" aria-label={`${row.name || "班別"}名稱`} required maxLength={100} placeholder="例如：早班" value={row.name} disabled={disabled} onChange={(event) => updateRow(row.key, { name: event.target.value })} />
+            <TextField className="min-w-0" label="班別名稱" aria-label={`${row.name || "班別"}名稱`} required maxLength={100} placeholder="例如：早班" value={row.name} disabled={disabled} onChange={(event) => updateRow(row.key, { name: event.target.value })} />
             {canWrite ? <Tooltip className="self-end mb-0.5" label={`刪除${row.name ? ` ${row.name}` : "這個班別"}`} focusable={false}>
               <Button className="self-center" variant="icon" icon="trash" tone="danger" aria-label={`刪除${row.name || "這個班別"}`} disabled={save.isPending} onClick={() => removeRow(row)} />
             </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
           </div>
           <div className="shift-members">
-            <SelectField label="排班人員" aria-label={`${row.name || "班別"}排班人員`} multiple searchable value={row.allowedPersonIds ?? people.map((person) => person.id)} disabled={disabled} options={[...people.map((person) => ({ value: person.id, label: `${person.employeeNumber}・${person.name}${person.personKind === "worker" ? "（支援）" : ""}` })), ...(row.allowedPersonIds ?? []).filter((id) => !people.some((person) => person.id === id)).map((id) => ({ value: id, label: "已封存人員" }))]} onValueChange={(allowedPersonIds: string[]) => updateRow(row.key, { allowedPersonIds })} />
+            <SelectField className="min-w-0" label="排班人員" aria-label={`${row.name || "班別"}排班人員`} multiple searchable value={row.allowedPersonIds ?? people.map((person) => person.id)} disabled={disabled} options={[...people.map((person) => ({ value: person.id, label: `${person.employeeNumber}・${person.name}${person.personKind === "worker" ? "（支援）" : ""}` })), ...(row.allowedPersonIds ?? []).filter((id) => !people.some((person) => person.id === id)).map((id) => ({ value: id, label: "已封存人員" }))]} onValueChange={(allowedPersonIds: string[]) => updateRow(row.key, { allowedPersonIds })} />
           </div>
           <div className="shift-day-head" aria-hidden="true">
             <span>日型</span><span>開始</span><span>結束</span><span>休息（分）</span><span>需求人力</span><span />
@@ -237,10 +237,10 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
             const resetSlot = "@max-[640px]/shift-settings:col-start-2 @max-[640px]/shift-settings:row-start-1 @max-[640px]/shift-settings:[justify-self:end]";
             return <div className="shift-day-row" key={dayType}>
               <span className="shift-day-label">{label}</span>
-              <ShiftTimeField label="開始時間" ariaLabel={`${row.name || "班別"}${label}開始時間`} value={draft.startTime} disabled={disabled} onChange={(startTime) => updateTime(row.key, dayType, { startTime })} />
-              <ShiftTimeField label="結束時間" ariaLabel={`${row.name || "班別"}${label}結束時間`} value={draft.endTime} disabled={disabled} onChange={(endTime) => updateTime(row.key, dayType, { endTime })} />
-              <TextField label="休息分鐘" aria-label={`${row.name || "班別"}${label}休息分鐘`} type="number" min="0" step="30" value={draft.breakMinutes} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { breakMinutes: Number(event.target.value) })} />
-              <TextField label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
+              <ShiftTimeField className="min-w-0 @max-[640px]/shift-settings:col-start-1 @max-[640px]/shift-settings:row-start-2" stackedLabel="container" label="開始時間" ariaLabel={`${row.name || "班別"}${label}開始時間`} value={draft.startTime} disabled={disabled} onChange={(startTime) => updateTime(row.key, dayType, { startTime })} />
+              <ShiftTimeField className="min-w-0 @max-[640px]/shift-settings:col-start-2 @max-[640px]/shift-settings:row-start-2" stackedLabel="container" label="結束時間" ariaLabel={`${row.name || "班別"}${label}結束時間`} value={draft.endTime} disabled={disabled} onChange={(endTime) => updateTime(row.key, dayType, { endTime })} />
+              <TextField className="min-w-0 @max-[640px]/shift-settings:col-start-1 @max-[640px]/shift-settings:row-start-3" stackedLabel="container" label="休息分鐘" aria-label={`${row.name || "班別"}${label}休息分鐘`} type="number" min="0" step="30" value={draft.breakMinutes} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { breakMinutes: Number(event.target.value) })} />
+              <TextField className="min-w-0 @max-[640px]/shift-settings:col-start-2 @max-[640px]/shift-settings:row-start-3" stackedLabel="container" label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
               {/* 平日是其他日型的退路，拿掉就沒有東西可退；所以只有另外兩個日型能取消。 */}
               {canWrite && dayType !== "weekday" ? <Tooltip label={`改回同平日`} focusable={false} className={resetSlot}>
                 <Button className="self-center" variant="icon" icon="close" aria-label={`${label}改回同平日`} disabled={disabled} onClick={() => updateTime(row.key, dayType, null)} />
