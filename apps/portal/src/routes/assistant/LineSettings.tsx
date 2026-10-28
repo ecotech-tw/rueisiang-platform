@@ -310,8 +310,8 @@ export function LineSettings() {
       {toolsOpen ? (
         <Dialog
           title="設定小香在 LINE 能用的工具"
-          className="wide assistant-modal-card"
-          bodyClassName="assistant-modal-body"
+          width={760}
+          bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
           onClose={() => setToolsOpen(false)}
           actions={
             <>
@@ -473,8 +473,8 @@ function GroupToolsDialog({
   return (
     <Dialog
       title={`${group.displayName || group.lineGroupId} 的工具`}
-      className="wide assistant-modal-card"
-      bodyClassName="assistant-modal-body"
+      width={760}
+      bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
       onClose={onClose}
       actions={
         <>

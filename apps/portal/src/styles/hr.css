@@ -1045,9 +1045,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-request-form { display: grid; gap: 16px; }
 .hr-request-form textarea { min-height: 96px; resize: vertical; }
 .hr-request-kind-picker { display: grid; gap: 8px; }
-.hr-request-dialog { width: min(680px, 100%); }
-.hr-request-dialog-body { padding-bottom: 20px; }
-/* 只是表單把按鈕 portal 進 footer 用的掛點，版面交給 .modal-actions。 */
+/* 只是表單把按鈕 portal 進 footer 用的掛點，版面交給 Dialog 的 footer。 */
 .hr-request-dialog-actions { display: contents; }
 .hr-request-dialog .hr-request-form { padding-top: 2px; }
 .hr-request-toolbar .search-input { width: min(360px, 100%); }
@@ -1098,7 +1096,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 
 @media (max-width: 620px) {
   .hr-request-page > * + * { margin-top: 14px; }
-  .hr-request-dialog .modal-actions > .hr-request-dialog-actions > * { flex: 1; }
+  .hr-request-dialog-actions > * { flex: 1; }
 }
 
 /* 假別是出勤主檔；保留足夠留白讓狀態與操作在窄螢幕仍可辨識。 */
@@ -1135,8 +1133,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-annual-progress { display: block; width: 100%; height: 5px; margin-top: 5px; overflow: hidden; border-radius: 999px; background: --alpha(var(--color-ink) / 10%); }
 .hr-annual-progress > span { display: block; height: 100%; border-radius: inherit; background: var(--color-brand); }
 .hr-annual-row-actions { display: flex; flex-wrap: wrap; gap: 8px; min-width: 190px; }
-.hr-annual-detail-dialog { width: min(760px, calc(100vw - 32px)); }
-.hr-annual-detail-dialog .modal-body { display: grid; gap: 18px; }
 .hr-annual-detail-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .hr-annual-detail-overview > div { display: grid; gap: 4px; padding: 13px 14px; border-radius: 14px; background: --alpha(var(--color-brand) / 7%); }
 .hr-annual-detail-overview span { color: var(--color-muted); font-size: 12px; }

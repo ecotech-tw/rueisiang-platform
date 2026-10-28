@@ -200,7 +200,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
 
   return <Dialog
     title={scope.name}
-    className="wide"
+    width={760}
     onClose={onClose}
     closeRequestRef={closeRequestRef}
     closeDisabled={save.isPending}

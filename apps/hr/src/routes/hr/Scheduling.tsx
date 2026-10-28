@@ -241,7 +241,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
       {!isMobile ? <Button size="lg" loading={pending} disabled={pending || !dirty && !changes.refreshIds.length || disabled} onClick={() => void persist()}>儲存</Button> : null}
       {summary ? <span className="text-xs text-muted">{summary}</span> : null}
     </div> : null}
-    {focusedDay ? <Dialog title={`${detailsDate} 排班`} titleMeta={focusedDay.name || dayTypeLabel(focusedDay.dayType)} onClose={() => setDetailsDate(null)} closeDisabled={pending || (!quick && dirty && !savedNeedsReload)} closeRequestRef={closeRequestRef} bodyClassName="gap-2" actions={<>
+    {focusedDay ? <Dialog title={`${detailsDate} 排班`} titleMeta={focusedDay.name || dayTypeLabel(focusedDay.dayType)} onClose={() => setDetailsDate(null)} closeDisabled={pending || (!quick && dirty && !savedNeedsReload)} closeRequestRef={closeRequestRef} bodyLayout="grid gap-2 px-6 pb-2" actions={<>
       <Button variant="secondary" size="lg" disabled={pending} onClick={() => void closeDetails()}>返回月曆</Button>
       <Button size="lg" disabled={disabled || !shifts.length} onClick={enterQuick}>快速排班</Button>
     </>}>

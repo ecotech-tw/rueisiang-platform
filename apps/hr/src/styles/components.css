@@ -126,7 +126,6 @@
 .hr-clock-personal-nav a { padding: 8px 13px; }
 .hr-clock-hero { position: relative; z-index: 3; align-self: center; display: grid; justify-items: center; gap: 8px; color: var(--color-paper); text-align: center; text-shadow: 0 2px 3px --alpha(var(--color-ink) / 48%), 0 7px 18px --alpha(var(--color-ink) / 38%); }
 .hr-clock-hero-person { width: 74px; height: 74px; filter: drop-shadow(0 6px 18px --alpha(var(--color-ink) / 20%)); }
-.hr-clock-full-page .modal-backdrop { position: absolute; inset: 0; z-index: 100; width: 100%; min-height: 100%; box-sizing: border-box; }
 .hr-clock-full-page .hr-clock-now { margin: 8px 0 0; color: var(--color-paper); font-size: clamp(40px, 7vw, 64px); font-weight: 800; line-height: 1; letter-spacing: .02em; }
 .hr-clock-date { margin: 0; color: var(--color-paper); font-size: 18px; font-weight: 800; text-shadow: 0 2px 3px --alpha(var(--color-ink) / 50%), 0 6px 16px --alpha(var(--color-ink) / 40%); }
 .hr-clock-action-panel { position: relative; z-index: 3; display: grid; justify-self: stretch; gap: 12px; width: auto; margin: 0 8px; padding: 64px 18px 18px; border-radius: 34px 34px 24px 24px; background: var(--color-paper); box-shadow: 0 -10px 42px --alpha(var(--color-ink) / 16%); }

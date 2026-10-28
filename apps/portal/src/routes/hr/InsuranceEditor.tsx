@@ -153,7 +153,7 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
   };
 
   return <>
-    <Dialog title={existing ? "建立勞健保新版本" : "新增加保資料"} titleMeta="勞保與健保一起建立版本" className="hr-insurance-dialog" onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending || voidInsurance.isPending} formProps={{ onSubmit: (event) => {
+    <Dialog title={existing ? "建立勞健保新版本" : "新增加保資料"} titleMeta="勞保與健保一起建立版本" onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending || voidInsurance.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     const submittedValidFrom = new FormData(event.currentTarget).get("validFrom");
     if (typeof submittedValidFrom !== "string" || !submittedValidFrom) { setMessage("請填寫生效日。"); return; }
