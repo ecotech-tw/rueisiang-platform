@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, DropdownSelect, EmptyState } from "../../ui/index.js";
+import { Alert, Button, DropdownSelect, EmptyState, Field } from "../../ui/index.js";
 import { useHrSandboxEmployees, type HrSandboxEmployee } from "./api.js";
 
 export function hrSandboxEmployeeLabel(employee: HrSandboxEmployee): string {
@@ -30,16 +30,14 @@ export function HrImpersonation({ employee, bindingConfigured, disabled, onChang
       </div>
       {/* 設定欄只有四百多 px，並排會把「姓名（編號）· 狀態」截斷，看不出選到誰。 */}
       <div className="grid gap-3">
-        <label className="field">
-          <span>搜尋員工</span>
+        <Field label="搜尋員工">
           <input
             aria-label="搜尋模擬員工" value={search} maxLength={200} disabled={disabled}
             placeholder="姓名或員工編號"
             onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           />
-        </label>
-        <label className="field">
-          <span>模擬哪位員工本人</span>
+        </Field>
+        <Field label="模擬哪位員工本人">
           <DropdownSelect
             aria-label="模擬員工本人" value={employee?.userId ?? ""} disabled={disabled || employees.isPending}
             onChange={(event) => onChange(listed.find((item) => item.userId === event.target.value) ?? null)}
@@ -51,7 +49,7 @@ export function HrImpersonation({ employee, bindingConfigured, disabled, onChang
               ...listed.map((item) => ({ value: item.userId, label: hrSandboxEmployeeLabel(item) })),
             ]}
           />
-        </label>
+        </Field>
       </div>
       {/* 說明放在兩欄外面：掛在其中一欄底下會把另一欄撐出一塊空白。 */}
       <p className="muted mt-2 text-xs">未綁定或帳號未啟用的員工可測試授權失敗；不會略過正式的綁定與在職檢查。</p>

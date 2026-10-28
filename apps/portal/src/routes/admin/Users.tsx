@@ -19,7 +19,7 @@ import {
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ButtonSkin, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, Field, FieldHint, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
   invited: "已邀請",
@@ -242,8 +242,7 @@ function UserEditor({
             </p>
           ) : null}
 
-          <div className="field">
-            <span>狀態</span>
+          <Field as="div" label="狀態">
             <div className="admin-form row">
               <span className={`status status-${user.status}`}>{STATUS_LABEL[user.status]}</span>
               {user.status === "disabled" ? (
@@ -276,7 +275,7 @@ function UserEditor({
                 </Button>
               )}
             </div>
-          </div>
+          </Field>
 
           <fieldset className="perm-group">
             <legend>
@@ -361,12 +360,8 @@ function UserEditor({
             </div>
           </fieldset>
 
-          <div className="field">
-            <span>
-              這個人實際能做什麼
-              <span className="perm-count">{effective.size}</span>
-            </span>
-            <small>角色帶來的 ＋ 額外授予的，取聯集。</small>
+          <Field as="div" label={<>這個人實際能做什麼<span className="perm-count">{effective.size}</span></>}>
+            <FieldHint>角色帶來的 ＋ 額外授予的，取聯集。</FieldHint>
             {effective.size === 0 ? (
               <p className="muted">沒有任何權限，登入後看不到任何頁面。</p>
             ) : (
@@ -378,7 +373,7 @@ function UserEditor({
                 ))}
               </div>
             )}
-          </div>
+          </Field>
       </Dialog>
 
       {confirmingDelete ? (

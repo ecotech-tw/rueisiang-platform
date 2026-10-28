@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, TextField } from "../../ui/index.js";
 import {
   WAREHOUSE_CATEGORY_COLORS,
   useCreateElement,
@@ -97,8 +97,7 @@ export function ElementDialog({
             hint={!element ? "新標籤會出現在畫布左上角，拖到定位即可。" : undefined}
           />
 
-          <div className="field">
-            <span>顏色</span>
+          <Field as="div" label="顏色">
             <div className="color-picker" role="radiogroup" aria-label="標籤顏色">
               {WAREHOUSE_CATEGORY_COLORS.map((tone) => (
                 <label key={tone} className={`color-swatch tone-${tone}${color === tone ? " selected" : ""}`}>
@@ -113,7 +112,7 @@ export function ElementDialog({
                 </label>
               ))}
             </div>
-          </div>
+          </Field>
 
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
     </Dialog>

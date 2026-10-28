@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { Alert, ConfirmDialog, Dialog, EmptyState, SegmentedControl, SelectField, SelectionActionBar, Tooltip } from "@rueisiang/ui";
+import { Alert, ConfirmDialog, Dialog, EmptyState, Field, SegmentedControl, SelectField, SelectionActionBar, TextField, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -63,6 +63,21 @@ describe("shared HRIS UI contracts", () => {
     expect(custom).toEqual(expect.arrayContaining(["flex", "flex-col", "gap-5"]));
     expect(custom).not.toContain("grid");
     expect(custom).not.toContain("gap-4");
+  });
+
+  it("Field 的間距由 gap 決定、外距交給呼叫端，列內標籤只在窄的時候出現", () => {
+    const root = (markup: string) => markup.match(/^<(?:label|div) data-field="" class="([^"]*)"/)?.[1]?.split(" ") ?? [];
+    const plain = renderToStaticMarkup(<TextField label="名稱" />);
+    const roomy = renderToStaticMarkup(<TextField label="名稱" gap={8} className="min-w-0" />);
+    const stacked = renderToStaticMarkup(<TextField label="金額" stackedLabel="viewport" aria-label="基本薪資金額" />);
+
+    expect(root(plain)).toEqual(expect.arrayContaining(["grid", "gap-1.5"]));
+    // 兩個 gap 同時出現時誰贏要看產生順序，所以 gap={8} 必須取代 gap-1.5，不能疊上去。
+    expect(root(roomy)).toEqual(expect.arrayContaining(["gap-2", "min-w-0"]));
+    expect(root(roomy)).not.toContain("gap-1.5");
+    expect([...root(plain), ...root(roomy)].filter((name) => /^-?m[tbxylr]?-/.test(name))).toEqual([]);
+    expect(stacked).toMatch(/<span class="hidden max-\[640px\]:block [^"]*">金額<\/span>/);
+    expect(renderToStaticMarkup(<Field as="div" label="顏色"><span /></Field>)).toMatch(/^<div data-field=""/);
   });
 
   it("renders pagers with shared navigation and page-size contracts", () => {
