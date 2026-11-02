@@ -37,10 +37,8 @@ export async function dismissOverlays(page, { log } = {}) {
   // 只移除官方通知路徑的 iframe，避免影響其他功能 iframe。
   const notificationFrames = page.locator('iframe[src*="/admin/shop_notifications/"]');
   const notificationCount = await notificationFrames.count();
-  for (let index = 0; index < notificationCount; index += 1) {
-    await notificationFrames.nth(index).evaluate((frame) => frame.remove()).catch(() => {});
-  }
   if (notificationCount) {
+    await notificationFrames.evaluateAll((frames) => frames.forEach((frame) => frame.remove())).catch(() => {});
     log?.(`移除 ${notificationCount} 個 CYBERBIZ 通知遮罩`);
     await page.waitForTimeout(100);
   }

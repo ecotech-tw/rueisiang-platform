@@ -15,10 +15,10 @@ test("關閉覆蓋頁面的 CYBERBIZ 通知 iframe，不碰其他 iframe", async
       if (selector === 'iframe[src*="/admin/shop_notifications/"]') {
         return {
           count: async () => 2,
-          nth: (index) => ({ evaluate: async (callback) => {
-            removed.push(index);
-            callback({ remove() {} });
-          } }),
+          evaluateAll: async (callback) => callback([
+            { remove: () => removed.push(0) },
+            { remove: () => removed.push(1) },
+          ]),
         };
       }
       return { first: () => ({ isVisible: async () => false }) };
