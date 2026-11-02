@@ -25,6 +25,7 @@ import {
   requireEnv,
   salesFilename,
   parseStoresInput,
+  selectStores,
   storeScopeId,
   skillPath,
 } from "../lib/common.mjs";
@@ -89,9 +90,10 @@ async function main() {
   if ((args.start || args.end) && args.month) throw new Error("--month 與 --start/--end 只能擇一。");
   if (Boolean(args.start) !== Boolean(args.end)) throw new Error("--start 與 --end 要一起給。");
 
+  const storesOverride = parseStoresInput(process.env.REPORT_STORES_JSON);
   const config = await loadConfig(undefined, {
     // 平台觸發時店別從 D1 傳進來；手動執行沒有這個輸入，照 config.json 跑。
-    storesOverride: parseStoresInput(process.env.REPORT_STORES_JSON),
+    storesOverride,
   });
   const env = await loadEnv();
   requireEnv(env, ["CYBERBIZ_USERNAME", "CYBERBIZ_PASSWORD"]);
@@ -106,13 +108,11 @@ async function main() {
   const recipientEmail = config.recipientEmail || env.CYBERBIZ_2FA_MAILBOX;
   if (!recipientEmail) throw new Error("config.json 的 recipientEmail 或 .env 的 CYBERBIZ_2FA_MAILBOX 至少要有一個。");
 
-  const selected = args.stores.length ? config.stores.filter((store) => args.stores.includes(store.name)) : config.stores;
+  const selected = args.listStores
+    ? config.stores
+    : selectStores(config.stores, args.stores, { hasStoresOverride: Boolean(storesOverride) });
   const wanted = selected.map((store) => ({ ...store, driveFolderId: driveFolderIdFromUrl(store.driveFolderUrl || store.driveFolderId) }));
-  if (!args.listStores) {
-    const unknown = args.stores.filter((name) => !config.stores.some((store) => store.name === name));
-    if (unknown.length) throw new Error(`config.json 沒有這些店：${unknown.join("、")}`);
-    if (!wanted.length) throw new Error("config.json 的 stores 是空的，請先設定店別。");
-  }
+  if (!args.listStores && !wanted.length) throw new Error("config.json 的 stores 是空的，請先設定店別。");
 
   const stagingDir = await ensureDir(path.isAbsolute(config.stagingDir) ? path.join(config.stagingDir, "sales", range.label) : skillPath(config.stagingDir, "sales", range.label));
   const context = await openBrowser({ headless: Boolean(args.headless), downloadDir: stagingDir });

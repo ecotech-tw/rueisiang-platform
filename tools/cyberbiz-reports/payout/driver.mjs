@@ -25,6 +25,7 @@ import {
   redact,
   requireEnv,
   parseStoresInput,
+  selectStores,
   storeScopeId,
   skillPath,
 } from "../lib/common.mjs";
@@ -73,9 +74,10 @@ async function main() {
     return;
   }
 
+  const storesOverride = parseStoresInput(process.env.REPORT_STORES_JSON);
   const config = await loadConfig(undefined, {
     // 平台觸發時店別從 D1 傳進來；手動執行沒有這個輸入，照 config.json 跑。
-    storesOverride: parseStoresInput(process.env.REPORT_STORES_JSON),
+    storesOverride,
   });
   const env = await loadEnv();
   requireEnv(env, ["CYBERBIZ_USERNAME", "CYBERBIZ_PASSWORD"]);
@@ -103,21 +105,15 @@ async function main() {
     throw new Error("config.json 的 recipientEmail 或 .env 的 CYBERBIZ_2FA_MAILBOX 至少要有一個。");
   }
 
-  const selected = args.stores.length
-    ? config.stores.filter((store) => args.stores.includes(store.name))
-    : config.stores;
+  const selected = args.listStores
+    ? config.stores
+    : selectStores(config.stores, args.stores, { hasStoresOverride: Boolean(storesOverride) });
   const wanted = selected.map((store) => ({
     ...store,
     // 新版設定使用 Drive 連結；保留舊欄位作為相容 fallback。
     driveFolderId: driveFolderIdFromUrl(store.driveFolderUrl || store.driveFolderId),
   }));
-  if (!args.listStores) {
-    const unknown = args.stores.filter(
-      (name) => !config.stores.some((store) => store.name === name),
-    );
-    if (unknown.length) throw new Error(`config.json 沒有這些店：${unknown.join("、")}`);
-    if (!wanted.length) throw new Error("config.json 的 stores 是空的，請先跑 setup.mjs stores。");
-  }
+  if (!args.listStores && !wanted.length) throw new Error("config.json 的 stores 是空的，請先跑 setup.mjs stores。");
 
   const stagingDir = await ensureDir(
     path.isAbsolute(config.stagingDir)
