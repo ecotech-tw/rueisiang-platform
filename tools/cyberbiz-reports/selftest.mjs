@@ -459,6 +459,9 @@ for (const ref of ["H2", "I2", "J2", "K2", "H3", "K3"]) {
     return {
       calls,
       locator(selector) {
+        if (selector === 'iframe[src*="/admin/shop_notifications/"]') {
+          return { count: async () => 0 };
+        }
         const hit = visible.includes(selector);
         return {
           first: () => ({
