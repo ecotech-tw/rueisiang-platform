@@ -130,7 +130,7 @@ it("排班負責人可選尚未啟用或停用帳號的員工，顯示狀態並�
     await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrShifts /></QueryClientProvider></MemoryRouter>));
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="編輯 門市 的班別與排班負責人"]')!.click());
     expect(document.querySelectorAll(".shift-group")).toHaveLength(2);
-    expect(document.querySelector(".shift-group-head .field > span")?.textContent).toContain("班別名稱");
+    expect(document.querySelector(".shift-group-head [data-field] > span")?.textContent).toContain("班別名稱");
     await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="開啟排班負責人選單"]')!.click());
     expect(document.body.textContent).toContain("待啟用同仁（尚未啟用）"); expect(document.body.textContent).toContain("停用同仁（帳號停用）");
     await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((option) => option.textContent?.includes("待啟用同仁"))!.click());

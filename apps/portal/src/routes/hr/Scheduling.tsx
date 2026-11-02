@@ -242,10 +242,10 @@ function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClo
     <div className="hr-calendar-editor">
       {days.map((day) => <div className={`hr-calendar-editor-row day-${day.dayType}`} key={day.date}>
         <span className="hr-calendar-editor-date">{Number(day.date.slice(8))}<small>{["日", "一", "二", "三", "四", "五", "六"][new Date(`${day.date}T00:00:00Z`).getUTCDay()]}</small></span>
-        <SelectField aria-label={`${day.date} 日期類型`} value={day.dayType} disabled={!canWrite || save.isPending} options={HR_DAY_TYPES.map((dayType) => ({ value: dayType, label: HR_DAY_TYPE_LABELS[dayType] }))} onChange={(event) => updateDayType(day, event.target.value as HrDayType)} />
-        {day.dayType === "weekday" ? <SelectField aria-label={`${day.date} 災防標記`} value={day.specialKind} disabled={!canWrite || save.isPending} options={HR_CALENDAR_SPECIAL_KINDS.map((kind) => ({ value: kind, label: HR_CALENDAR_SPECIAL_KIND_LABELS[kind] }))} onChange={(event) => { const specialKind = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind, specialScopeIds: specialKind === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(specialKind === "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "災防停班" } : {}), ...(specialKind !== "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "" } : {}) }); }} /> : <span className="muted hr-calendar-special-empty">—</span>}
+        <SelectField className="min-w-0 max-[560px]:col-start-2" aria-label={`${day.date} 日期類型`} value={day.dayType} disabled={!canWrite || save.isPending} options={HR_DAY_TYPES.map((dayType) => ({ value: dayType, label: HR_DAY_TYPE_LABELS[dayType] }))} onChange={(event) => updateDayType(day, event.target.value as HrDayType)} />
+        {day.dayType === "weekday" ? <SelectField className="min-w-0 max-[560px]:col-start-2" aria-label={`${day.date} 災防標記`} value={day.specialKind} disabled={!canWrite || save.isPending} options={HR_CALENDAR_SPECIAL_KINDS.map((kind) => ({ value: kind, label: HR_CALENDAR_SPECIAL_KIND_LABELS[kind] }))} onChange={(event) => { const specialKind = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind, specialScopeIds: specialKind === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(specialKind === "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "災防停班" } : {}), ...(specialKind !== "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "" } : {}) }); }} /> : <span className="muted hr-calendar-special-empty">—</span>}
         {day.dayType === "weekday" && day.specialKind === "typhoon_stop" ? <CalendarScopePicker scopeIds={day.specialScopeIds ?? []} scopes={scopes} disabled={!canWrite || save.isPending} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} /> : <span className="muted">—</span>}
-        <TextField aria-label={`${day.date} 名稱`} maxLength={100} placeholder="例如：中秋節、補班日" value={day.name} disabled={!canWrite || save.isPending} onChange={(event) => update(day.date, { name: event.target.value })} />
+        <TextField className="min-w-0 max-[560px]:col-start-2" aria-label={`${day.date} 名稱`} maxLength={100} placeholder="例如：中秋節、補班日" value={day.name} disabled={!canWrite || save.isPending} onChange={(event) => update(day.date, { name: event.target.value })} />
       </div>)}
     </div>
     {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
@@ -451,19 +451,19 @@ export function HrScheduling() {
           <strong>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong>
           <Button variant="icon" icon="chevronRight" aria-label="下個月" onClick={() => void switchMonth(1)} />
         </div>
-        <SelectField aria-label="營運據點" value={scopeId} options={[...(quick ? [] : [{ value: "all", label: "全部營運據點" }]), ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => pickScope(event.target.value)} />
+        <SelectField className="min-w-[168px]" aria-label="營運據點" value={scopeId} options={[...(quick ? [] : [{ value: "all", label: "全部營運據點" }]), ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => pickScope(event.target.value)} />
         {/* 不掛 role="status"：快速排班每點一天就會改「新增 N 筆」，做成 live region 等於整月被念一遍。 */}
         <p className="hr-schedule-status"><StatusBadge tone={status.tone}>{status.label}</StatusBadge><span>{status.detail}</span></p>
       </div>
       {quick ? <div className="hr-quick-bar">
         <strong>快速排班</strong>
-        <SelectField aria-label="人員" value={quickPersonValue ?? ""} placeholder="請選擇人員" searchable options={quickPeople} onChange={(event) => setQuick((current) => current ? { ...current, personValue: event.target.value } : current)} />
+        <SelectField className="min-w-[132px] max-w-60 flex-[1_1_150px]" aria-label="人員" value={quickPersonValue ?? ""} placeholder="請選擇人員" searchable options={quickPeople} onChange={(event) => setQuick((current) => current ? { ...current, personValue: event.target.value } : current)} />
         {/*
           * 選班別而不是選某一組時間：點到哪一天就用那天的日型挑。所以 label
           * 只寫平日的時間做代表，後面再註明還有哪些日型有自己的時間。
           */}
         {quickTemplates.length
-          ? <SelectField aria-label="班別" value={quick.shiftTemplateId} options={quickTemplates.flatMap((versions) => {
+          ? <SelectField className="min-w-[132px] max-w-60 flex-[1_1_150px]" aria-label="班別" value={quick.shiftTemplateId} options={quickTemplates.flatMap((versions) => {
               const weekday = pickShiftForDay(versions, "weekday");
               if (!weekday) return [];
               const extras = versions.filter((shift) => shift.dayType !== "weekday").map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]);

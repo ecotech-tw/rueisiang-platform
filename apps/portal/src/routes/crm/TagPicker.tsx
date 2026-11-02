@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../../shell/icons.js";
+import { Field } from "../../ui/index.js";
 
 /** 下拉浮在畫面上的位置。用 fixed，所以直接是視窗座標，不必自己扣捲動位移。 */
 interface DropdownBox {
@@ -112,8 +113,7 @@ export function TagPicker({
   }
 
   return (
-    <div className="field tag-picker">
-      <span>標籤</span>
+    <Field as="div" label="標籤">
 
       {value.length ? (
         <div className="chips tight">
@@ -210,6 +210,6 @@ export function TagPicker({
             document.body,
           )
         : null}
-    </div>
+    </Field>
   );
 }

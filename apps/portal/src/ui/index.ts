@@ -6,7 +6,7 @@ export { DropdownSelect } from "./DropdownSelect.js";
 export { EmptyState } from "./EmptyState.js";
 export { FilterToolbar } from "./FilterToolbar.js";
 export { FilterInput, FilterSelect, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";
-export { Field, SelectField, TextField } from "./Field.js";
+export { Field, FieldHint, SelectField, TextField } from "./Field.js";
 export { Alert, StatusBadge } from "./Feedback.js";
 export { PageHeader, Panel } from "./Panel.js";
 export { PageTabs } from "./PageTabs.js";

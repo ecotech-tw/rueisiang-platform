@@ -7,7 +7,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -327,8 +327,7 @@ function ManualReportDialog({
             </div>
             {skuSource === "cyberbiz" ? (
               <>
-                <div className="field">
-                  <span>CYBERBIZ SKU<b aria-hidden="true">必填</b></span>
+                <Field as="div" label="CYBERBIZ SKU" required>
                   <ManualCombo
                     items={productOptions}
                     value={productOptions.find((product) => product.sku === sku) ?? null}
@@ -343,7 +342,7 @@ function ManualReportDialog({
                     renderItem={(product) => <><strong>{product.sku}</strong><span>{product.name}{product.published ? "" : "（已下架）"}</span></>}
                     disabled={pending}
                   />
-                </div>
+                </Field>
                 <TextField label="商品名稱" value={productName} readOnly hint="名稱會取自 CYBERBIZ 商品目錄。" />
               </>
             ) : (
@@ -362,8 +361,7 @@ function ManualReportDialog({
                   onChange={(event) => setProductName(event.target.value)}
                   disabled={pending}
                 />
-                <div className="field">
-                  <span>商品分類</span>
+                <Field as="div" label="商品分類">
                   <ManualCombo
                     items={categoryOptions}
                     value={selectedCategory}
@@ -378,7 +376,7 @@ function ManualReportDialog({
                     renderItem={(option) => <span>{option.name}</span>}
                     disabled={pending}
                   />
-                </div>
+                </Field>
               </div>
             )}
             <div className="field-grid trio">

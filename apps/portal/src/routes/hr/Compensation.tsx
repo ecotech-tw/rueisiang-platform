@@ -280,8 +280,8 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       <div className="salary-item-row">
         <span className="salary-item-name">基本薪資</span>
         {/* 基本薪資的單位就是這份敘薪的計薪方式（月薪／日薪／時薪），不另外開一個欄位重複設定。 */}
-        <SelectField aria-label="基本薪資的計算單位（即計薪方式）" value={payBasis} options={ITEM_BASIS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))} onChange={(event) => setPayBasis(event.target.value as CompensationVersion["payBasis"])} />
-        <TextField aria-label="基本薪資金額（元）" type="number" min="0" step="1" value={baseAmount} required onChange={(event) => setBaseAmount(event.target.value)} />
+        <SelectField label="計算單位" stackedLabel="viewport" aria-label="基本薪資的計算單位（即計薪方式）" value={payBasis} options={ITEM_BASIS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))} onChange={(event) => setPayBasis(event.target.value as CompensationVersion["payBasis"])} />
+        <TextField label="金額（元）" stackedLabel="viewport" aria-label="基本薪資金額（元）" type="number" min="0" step="1" value={baseAmount} required onChange={(event) => setBaseAmount(event.target.value)} />
         <span className="salary-item-spacer" aria-hidden="true" />
       </div>
       {items.map((item) => <div className="salary-item-row" key={item.key}>
@@ -294,12 +294,14 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
             onChange={(event) => updateItem(item.key, event.target.value === CUSTOM_ITEM ? { custom: true, name: "" } : { name: event.target.value })}
           />}
         <SelectField
+          label="計算單位"
+          stackedLabel="viewport"
           aria-label={`${item.name.trim() || "項目"}的計算單位`}
           value={item.basis}
           options={ITEM_BASIS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))}
           onChange={(event) => updateItem(item.key, { basis: event.target.value as CompensationVersion["payBasis"] })}
         />
-        <TextField aria-label={`${item.name.trim() || "項目"}金額（元）`} type="number" min="0" step="1" value={item.amount} onChange={(event) => updateItem(item.key, { amount: event.target.value })} />
+        <TextField label="金額（元）" stackedLabel="viewport" aria-label={`${item.name.trim() || "項目"}金額（元）`} type="number" min="0" step="1" value={item.amount} onChange={(event) => updateItem(item.key, { amount: event.target.value })} />
         <Button className="max-[640px]:mb-0.5 max-[640px]:self-end" variant="icon" icon="trash" title={`刪除${item.name.trim() || "這個項目"}`} aria-label={`刪除${item.name.trim() || "這個項目"}`} onClick={() => setItems((list) => list.filter((row) => row.key !== item.key))} />
       </div>)}
       <div className="salary-items-foot">

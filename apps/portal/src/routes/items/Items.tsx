@@ -3,7 +3,7 @@ import { Combobox } from "@base-ui/react/combobox";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Icon } from "../../shell/icons.js";
@@ -165,8 +165,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
         options={[{ label: "可販售", value: "sellable" }, { label: "包材／半成品", value: "supply" }]}
         hint="0076 搬移時只憑「有沒有 SKU」分過一輪，分錯的請改回來。"
       />
-      <div className="field">
-        <span>品項分類</span>
+      <Field as="div" label="品項分類">
         <Combobox.Root
           items={arrangeCategories(categories)}
           value={categories.find((category) => category.id === categoryId) ?? null}
@@ -180,7 +179,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
           </Combobox.InputGroup>
           <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span className="combobox-category-label">{category.parentId ? <>{category.name}<small> · {categoryPath(category, categories).split(" / ")[0]}</small></> : category.name}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
         </Combobox.Root>
-      </div>
+      </Field>
       {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
     </Dialog>
   );

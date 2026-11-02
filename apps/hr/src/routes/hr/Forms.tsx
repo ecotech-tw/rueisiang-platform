@@ -518,8 +518,8 @@ export function HrForms() {
         <SegmentedControl skin="tabs" aria-label="申請表單類型" options={tabOptions} value={activeTab} onChange={(value) => selectTab(formTab(value))} />
       </div>
       <div className="hr-form-filters" aria-label="申請列表篩選">
-        <TextField aria-label="搜尋申請" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜尋申請編號、假別、日期或原因" inputClassName="hr-form-search-input" />
-        <SelectField aria-label="狀態" value={statusFilter} options={REQUEST_STATUS_OPTIONS} onChange={(event) => setStatusFilter(event.target.value as RequestStatusFilter)} />
+        <TextField className="min-w-0" aria-label="搜尋申請" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜尋申請編號、假別、日期或原因" inputClassName="hr-form-search-input" />
+        <SelectField className="min-w-0" aria-label="狀態" value={statusFilter} options={REQUEST_STATUS_OPTIONS} onChange={(event) => setStatusFilter(event.target.value as RequestStatusFilter)} />
       </div>
     </div>
     {/* 從審核結果通知進來時先收起待審面板：身兼審核者的人，通知提到的那一筆會被一長串待審擠到要捲才看得到。 */}

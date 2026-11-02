@@ -124,7 +124,7 @@ function PayrollAdjustmentDialog({
       <div className="hr-payroll-adjustment-item-list">
         {items.map((item) => <div className="hr-payroll-adjustment-item-row" key={item.key}>
           <SelectField label="類型" value={item.direction} options={[{ value: "earning", label: "補發／加給" }, { value: "deduction", label: "扣款" }]} onChange={(event) => updateItem(item.key, { direction: event.target.value as AdjustmentItemDraft["direction"] })} />
-          <TextField label="項目名稱" value={item.itemName} required placeholder="例如：一次性獎金" onChange={(event) => updateItem(item.key, { itemName: event.target.value })} />
+          <TextField className="max-[760px]:col-span-full" label="項目名稱" value={item.itemName} required placeholder="例如：一次性獎金" onChange={(event) => updateItem(item.key, { itemName: event.target.value })} />
           <TextField label="金額（元）" type="number" min="1" step="1" value={item.amount} required onChange={(event) => updateItem(item.key, { amount: event.target.value })} />
           <Tooltip label="移除薪資加扣項" focusable={false}><Button type="button" variant="icon" icon="trash" aria-label="移除薪資加扣項" onClick={() => removeItem(item.key)} disabled={items.length === 1} /></Tooltip>
         </div>)}

@@ -127,8 +127,9 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       <section className="hr-location-section">
         <div className="hr-location-section-heading"><h3>基本資料</h3></div>
         <div className="hr-location-form-grid">
-          <SelectField label="營運據點" value={draft.scopeId ?? ""} options={[{ value: "", label: "請選擇營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => setDraft({ ...draft, scopeId: event.target.value || null })} />
+          <SelectField className="min-w-0" label="營運據點" value={draft.scopeId ?? ""} options={[{ value: "", label: "請選擇營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => setDraft({ ...draft, scopeId: event.target.value || null })} />
           <TextField
+            className="min-w-0"
             label="辦公位置名稱"
             required
             maxLength={100}
@@ -141,6 +142,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
         <div className="hr-location-section-heading"><h3>位置座標</h3></div>
         <div className="hr-location-map-search">
           <TextField
+            className="min-w-0 flex-auto"
             label="Google Maps 搜尋地點"
             value={mapQuery}
             onChange={(event) => setMapQuery(event.target.value)}
@@ -180,7 +182,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       <section className="hr-location-section">
         <div className="hr-location-section-heading"><h3>打卡規則</h3></div>
         <div className="hr-location-rule-card">
-          <Field label="定位判斷">
+          <Field label="定位判斷" gap={8}>
             <div className="hr-location-toggle">
               <input
                 type="checkbox"

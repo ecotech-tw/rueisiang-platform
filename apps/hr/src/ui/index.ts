@@ -5,7 +5,7 @@ export { Dialog, DialogScope } from "./Dialog.js";
 export { DropdownSelect } from "./DropdownSelect.js";
 export { EmptyState } from "./EmptyState.js";
 export { FilterToolbar } from "./FilterToolbar.js";
-export { Field, SelectField, TextField } from "./Field.js";
+export { Field, FieldHint, SelectField, TextField } from "./Field.js";
 export { Alert, StatusBadge } from "./Feedback.js";
 export { PageHeader, Panel } from "./Panel.js";
 export { SegmentedControl } from "./SegmentedControl.js";

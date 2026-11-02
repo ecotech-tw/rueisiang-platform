@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, TextField } from "../../ui/index.js";
 import {
   WAREHOUSE_CATEGORY_COLORS,
   useCreateZone,
@@ -110,8 +110,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
             hint="只是給人看的倉位用途說明，跟商品分類是兩回事。"
           />
 
-          <div className="field">
-            <span>顏色</span>
+          <Field as="div" label="顏色">
             <div className="color-picker" role="radiogroup" aria-label="倉位顏色">
               {WAREHOUSE_CATEGORY_COLORS.map((color) => (
                 <label
@@ -129,7 +128,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
                 </label>
               ))}
             </div>
-          </div>
+          </Field>
 
           {/*
             * 層架。
@@ -138,8 +137,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
             * 已經填完整張表單了。這裡沒有商品資料，所以擋不了，只能靠後端；
             * 訊息會照原樣顯示在下面。
             */}
-          <div className="field">
-            <span>層架</span>
+          <Field as="div" label="層架">
             <div className="shelf-levels">
               {levels.map((level, index) => (
                 <div className="shelf-level" key={level.id}>
@@ -178,7 +176,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
             >
               加一層
             </Button>
-          </div>
+          </Field>
 
           <TextField label="備註" value={fields.notes} onChange={(event) => set({ notes: event.target.value })} />
 

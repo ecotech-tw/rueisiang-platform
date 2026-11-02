@@ -1,7 +1,7 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FieldHint, SelectField, TextField } from "../../ui/index.js";
 import { Icon } from "../../shell/icons.js";
 import type { ProductCategory, Zone } from "./api.js";
 
@@ -15,8 +15,7 @@ async function readError(response: Response): Promise<never> {
 function CategoryPicker({ categories, value, onChange, disabled }: { categories: ProductCategory[]; value: string; onChange: (value: string) => void; disabled: boolean }) {
   const selected = categories.find((category) => category.id === value) ?? null;
   return (
-    <div className="field">
-      <span>倉儲分類</span>
+    <Field as="div" label="倉儲分類">
       <Combobox.Root
         items={categories}
         value={selected}
@@ -32,7 +31,7 @@ function CategoryPicker({ categories, value, onChange, disabled }: { categories:
         </Combobox.InputGroup>
         <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到倉儲分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span>{category.name}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
       </Combobox.Root>
-    </div>
+    </Field>
   );
 }
 
@@ -84,8 +83,7 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
 
   return (
     <Dialog title="新增入庫" titleMeta="選擇既有品項建立倉儲庫存，不會在 WMS 重建品項主檔。" onClose={onClose} closeDisabled={pending} formProps={{ onSubmit: (event) => { event.preventDefault(); void submit(); } }} actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending} disabled={!selected || !categoryId}>新增入庫</Button></>}>
-      <div className="field">
-        <span>品項<b aria-hidden="true">必填</b></span>
+      <Field as="div" label="品項" required>
         <Combobox.Root items={available} value={selected} onValueChange={setSelected} itemToStringLabel={(item) => item ? `${item.sku} ${item.name}` : ""} autoHighlight disabled={pending}>
           <Combobox.InputGroup className="combobox-group">
             <Combobox.Input className="combobox-input" placeholder="搜尋 SKU 或品項名稱" autoFocus />
@@ -94,8 +92,8 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
           </Combobox.InputGroup>
           <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>沒有可新增入庫的品項</Combobox.Empty><Combobox.List>{(item: CatalogItem) => <Combobox.Item key={item.id} value={item} className="combobox-item"><strong>{item.sku || "無 SKU"}</strong><span>{item.name}{item.source === "cyberbiz" ? " · CYBERBIZ" : " · 自訂"}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
         </Combobox.Root>
-        {selected ? <small>已選擇：{selected.name}（{selected.sku || "無 SKU"}）</small> : <small>只顯示尚未納入倉儲的品項，選取後直接建立庫存資料。</small>}
-      </div>
+        {selected ? <FieldHint>已選擇：{selected.name}（{selected.sku || "無 SKU"}）</FieldHint> : <FieldHint>只顯示尚未納入倉儲的品項，選取後直接建立庫存資料。</FieldHint>}
+      </Field>
       <CategoryPicker categories={categories} value={categoryId} onChange={setCategoryId} disabled={pending} />
       <div className="field-grid"><SelectField label="倉位" value={zoneId} onChange={(event) => { setZoneId(event.target.value); setShelfLevel(""); }} options={[{ label: "未指定倉位", value: "" }, ...zones.map((item) => ({ label: `${item.code} ${item.name}`, value: item.id }))]} disabled={pending} /><SelectField label="層架" value={shelfLevel} disabled={!zone || pending} onChange={(event) => setShelfLevel(event.target.value)} options={[{ label: zone ? "不指定層架" : "請先選倉位", value: "" }, ...(zone?.shelfLevels ?? []).map((item) => ({ label: item.name, value: item.id }))]} /></div>
       <div className="field-grid trio"><TextField label="初始數量" type="number" min={0} value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={pending} /><TextField label="單位" value={unit} onChange={(event) => setUnit(event.target.value)} disabled={pending} /><TextField label="安全庫存" type="number" min={0} value={minStock} onChange={(event) => setMinStock(event.target.value)} disabled={pending} /></div>

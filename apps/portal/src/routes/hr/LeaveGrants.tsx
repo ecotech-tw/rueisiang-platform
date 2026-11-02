@@ -65,14 +65,14 @@ function IssueGrantDialog({ leaveTypes, employees, onClose }: { leaveTypes: HrLe
     actions={<><Button type="button" variant="secondary" onClick={onClose}>取消</Button><Button type="submit" tone="success" loading={save.isPending}>確認發放</Button></>}
   >
     <div className="hr-leave-grant-fields">
-      <SelectField label="假別" required value={leaveTypeId} options={leaveTypes.map((type) => ({ value: type.id, label: type.name }))} onValueChange={setLeaveTypeId} hint="只列出額度規則設為「HR 逐批發放」的啟用假別。" />
-      <SelectField label="發放對象" required multiple searchable value={employmentIds} options={employeeOptions} onValueChange={(values: string[]) => setEmploymentIds(values)} hint={`已選 ${employmentIds.length} 位員工；單批上限 100 人。`} />
+      <SelectField gap={8} label="假別" required value={leaveTypeId} options={leaveTypes.map((type) => ({ value: type.id, label: type.name }))} onValueChange={setLeaveTypeId} hint="只列出額度規則設為「HR 逐批發放」的啟用假別。" />
+      <SelectField gap={8} label="發放對象" required multiple searchable value={employmentIds} options={employeeOptions} onValueChange={(values: string[]) => setEmploymentIds(values)} hint={`已選 ${employmentIds.length} 位員工；單批上限 100 人。`} />
       <div className="hr-leave-grant-date-row">
         <TextField label="發放日期" type="date" required value={issuedOn} onChange={(event) => setIssuedOn(event.target.value)} />
         <TextField label="使用期限（含當日）" type="date" required min={issuedOn} value={expiresOn} onChange={(event) => setExpiresOn(event.target.value)} />
       </div>
-      <TextField label="每位員工發放時數" type="number" inputMode="numeric" min="1" max="8760" step="1" required value={hours} onChange={(event) => setHours(event.target.value)} hint="以整數小時發放；每位選定員工都會建立獨立批次台帳。" />
-      <TextField label="備註（選填）" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
+      <TextField gap={8} label="每位員工發放時數" type="number" inputMode="numeric" min="1" max="8760" step="1" required value={hours} onChange={(event) => setHours(event.target.value)} hint="以整數小時發放；每位選定員工都會建立獨立批次台帳。" />
+      <TextField gap={8} label="備註（選填）" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
     </div>
     {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
   </Dialog>;

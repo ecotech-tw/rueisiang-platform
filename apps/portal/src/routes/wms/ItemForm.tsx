@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Combobox } from "@base-ui/react/combobox";
 import { useToast } from "../../shell/Toast.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FieldHint, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateCatalogItem,
   useLinkCyberbiz,
@@ -166,8 +166,7 @@ export function ItemForm({
                 ? "已連結 CYBERBIZ，SKU 必須與官網連結一致，請到官網修改。"
                 : isCatalogCreate ? "會自動轉成大寫。包材或半成品可以留白，系統會自動編號。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
             />
-            <div className="field">
-              <span>分類<b aria-hidden="true">必填</b></span>
+            <Field as="div" label="分類" required>
               <Combobox.Root
                 items={arrangeCategories(categories)}
                 value={(catalogOnly ? categories.find((category) => category.id === selectedCategoryId) : categories.find((category) => category.name === fields.category)) ?? null}
@@ -185,8 +184,8 @@ export function ItemForm({
                 </Combobox.InputGroup>
                 <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span className="combobox-category-label">{category.parentId ? <>{category.name}<small> · {categoryPath(category, categories).split(" / ")[0]}</small></> : category.name}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
               </Combobox.Root>
-              <small>{categories.length === 0 ? (catalogOnly ? "還沒有任何品項分類，請先去「品項分類」建立一個。" : "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。") : "可搜尋分類名稱或選擇階層分類。"}</small>
-            </div>
+              <FieldHint>{categories.length === 0 ? (catalogOnly ? "還沒有任何品項分類，請先去「品項分類」建立一個。" : "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。") : "可搜尋分類名稱或選擇階層分類。"}</FieldHint>
+            </Field>
           </div>
 
           {!catalogOnly ? (
@@ -197,13 +196,12 @@ export function ItemForm({
                   * 「誰、什麼時候、從幾改到幾」的紀錄，直接在這裡改就沒有了。
                   */}
                 {item ? (
-                  <div className="field">
-                    <span>目前數量</span>
+                  <Field as="div" label="目前數量">
                     <p className="field-static">
                       {item.quantity.toLocaleString("zh-TW")} {item.unit}
                       <small>要改數量請用列表上的「盤點」。</small>
                     </p>
-                  </div>
+                  </Field>
                 ) : (
                   <TextField
                     label="初始數量"
@@ -276,8 +274,7 @@ export function ItemForm({
             * 使用者會停在一個「到底建了沒」的狀態。分成兩步比較清楚。
             */}
           {item ? (
-            <div className="field">
-              <span>CYBERBIZ 連結</span>
+            <Field as="div" label="CYBERBIZ 連結">
               {item.cyberbiz ? (
                 <div className="link-panel linked">
                   <div>
@@ -322,8 +319,8 @@ export function ItemForm({
                   </Button>
                 </div>
               )}
-              {link.error ? <small className="ui-field-error">{link.error.message}</small> : null}
-            </div>
+              {link.error ? <FieldHint tone="danger">{link.error.message}</FieldHint> : null}
+            </Field>
           ) : null}
 
           {error ? <Alert tone="danger">{error.message}</Alert> : null}

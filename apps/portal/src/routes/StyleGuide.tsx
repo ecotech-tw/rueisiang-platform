@@ -287,7 +287,7 @@ export function StyleGuide() {
         </div>
         <div className="style-guide-control-row">
           <div className="style-guide-switch-copy"><Switch checked={enabled} onChange={setEnabled} label="即時同步" /><span><strong>即時同步</strong><small>{enabled ? "目前開啟" : "目前關閉"}</small></span></div>
-          <div className="field"><span>對帳區間</span><DateRangePicker start={range.start} end={range.end} onChange={setRange} /></div>
+          <Field as="div" label="對帳區間"><DateRangePicker start={range.start} end={range.end} onChange={setRange} /></Field>
         </div>
       </Panel>
 

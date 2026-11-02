@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -273,15 +273,14 @@ export function Sandbox() {
         <div className="assistant-settings-column">
           <Panel title="執行設定" className="assistant-settings-panel">
             <div className="field-grid">
-              <label className="field">
-                <span>Pi 模型</span>
+              <Field label="Pi 模型">
                 <DropdownSelect options={modelOptions} value={model} onChange={(event) => setModel(event.target.value)} aria-label="Pi 模型" />
-                <small>{selectedModel?.note ?? "GPT 使用 ChatGPT OAuth；Gemini 使用 Cloudflare secret 裡的 API key。"}</small>
-                <small>模型清單來自安裝的 Pi catalog；選擇模型只影響測試，按「儲存並套用到小香」才會更新正式設定。</small>
-                {selectedModel?.supportsVision ? <small>此模型支援圖片輸入，可在下方附加 JPEG、PNG、WebP 或 GIF。</small> : null}
-                <small>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</small>
-                {!sessionId ? <small>尚未選擇 session，建立新 session 時會使用目前小香的 active model 與 active revision。</small> : null}
-                {sessionOpen ? <small>目前 session 可直接切換模型；下一次送出時會套用選取的模型。</small> : null}
+                <FieldHint>{selectedModel?.note ?? "GPT 使用 ChatGPT OAuth；Gemini 使用 Cloudflare secret 裡的 API key。"}</FieldHint>
+                <FieldHint>模型清單來自安裝的 Pi catalog；選擇模型只影響測試，按「儲存並套用到小香」才會更新正式設定。</FieldHint>
+                {selectedModel?.supportsVision ? <FieldHint>此模型支援圖片輸入，可在下方附加 JPEG、PNG、WebP 或 GIF。</FieldHint> : null}
+                <FieldHint>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</FieldHint>
+                {!sessionId ? <FieldHint>尚未選擇 session，建立新 session 時會使用目前小香的 active model 與 active revision。</FieldHint> : null}
+                {sessionOpen ? <FieldHint>目前 session 可直接切換模型；下一次送出時會套用選取的模型。</FieldHint> : null}
                 <div className="assistant-actions">
                   <Button
                     loading={saveModel.isPending}
@@ -294,13 +293,12 @@ export function Sandbox() {
                   {saveModel.isSuccess ? <span className="form-hint">已更新，小香之後會使用這個模型。</span> : null}
                   {saveModel.error ? <Alert tone="danger">{saveModel.error.message}</Alert> : null}
                 </div>
-              </label>
-              <label className="field">
-                <span>模型失敗時的 fallback</span>
+              </Field>
+              <Field label="模型失敗時的 fallback">
                 <DropdownSelect options={fallbackOptions} value={fallbackModel} onChange={(event) => setFallbackModel(event.target.value)} aria-label="模型失敗時的 fallback" />
-                <small>主要模型回傳 error 時，這一輪會改用選定的模型重試；不會固定綁死 Gemini。</small>
-                {selectedFallbackModel?.supportsVision ? <small>此 fallback 支援圖片輸入。</small> : null}
-                {fallbackModel === data.activeModel || fallbackModel === model ? <small>fallback 不能與選取中的 active model 相同。</small> : null}
+                <FieldHint>主要模型回傳 error 時，這一輪會改用選定的模型重試；不會固定綁死 Gemini。</FieldHint>
+                {selectedFallbackModel?.supportsVision ? <FieldHint>此 fallback 支援圖片輸入。</FieldHint> : null}
+                {fallbackModel === data.activeModel || fallbackModel === model ? <FieldHint>fallback 不能與選取中的 active model 相同。</FieldHint> : null}
                 <div className="assistant-actions">
                   <Button
                     loading={saveFallbackModel.isPending}
@@ -313,7 +311,7 @@ export function Sandbox() {
                   {saveFallbackModel.isSuccess ? <span className="form-hint">fallback 設定已更新。</span> : null}
                   {saveFallbackModel.error ? <Alert tone="danger">{saveFallbackModel.error.message}</Alert> : null}
                 </div>
-              </label>
+              </Field>
             </div>
 
             <div className="assistant-subsection">
@@ -357,11 +355,9 @@ export function Sandbox() {
                 </div>
                 <span className="status status-active">編輯中</span>
               </div>
-              <label className="field">
-                <span>目前編輯內容</span>
+              <Field label="目前編輯內容" hint="儲存後會建立新的 revision，並立即成為之後執行與未來 LINE channel 的 active prompt。">
                 <textarea className="assistant-textarea" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
-                <small>儲存後會建立新的 revision，並立即成為之後執行與未來 LINE channel 的 active prompt。</small>
-              </label>
+              </Field>
               <div className="assistant-actions">
                 <Button loading={savePrompt.isPending} loadingLabel="儲存中…" disabled={!prompt.trim()} onClick={submitPrompt}>
                   儲存新 revision
@@ -491,8 +487,7 @@ export function Sandbox() {
             </details>
           </div>
         ) : null}
-        <div className="field assistant-composer-field">
-          <span>輸入內容</span>
+        <Field as="div" label="輸入內容" gap={4} className="flex-none">
           {attachments.length ? (
             <div className="assistant-pending-attachments">
               {attachments.map((attachment) => (
@@ -559,9 +554,9 @@ export function Sandbox() {
               </Button>
             </div>
           </div>
-          {!selectedModel?.supportsVision ? <small>目前模型不支援圖片輸入</small> : null}
-          {uploadAttachment.isPending ? <small>圖片上傳中…</small> : null}
-        </div>
+          {!selectedModel?.supportsVision ? <FieldHint>目前模型不支援圖片輸入</FieldHint> : null}
+          {uploadAttachment.isPending ? <FieldHint>圖片上傳中…</FieldHint> : null}
+        </Field>
         <div className="assistant-actions assistant-composer-note">
           <span className="form-hint">
             {sessionOpen

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, Field, FieldHint, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
 import { useSaveAssistantToolStatus, useSavePiCodexCredential, useSandboxConfig, type AssistantTool } from "./api.js";
 
 function statusLabel(status: AssistantTool["status"]): string {
@@ -52,8 +52,7 @@ export function AssistantSettings() {
           目前狀態：<strong>{data.credentialStatus.codex === "needs_reauth" ? "需要重新授權" : data.credentialStatus.codex === "ready" ? "可使用" : "尚未設定"}</strong>。
           可貼上 Pi `auth.json` 全文，或只貼 `openai-codex` credential JSON；儲存成功後輸入內容會立即清除。
         </p>
-        <label className="field">
-          <span>Pi／Codex credential JSON</span>
+        <Field label="Pi／Codex credential JSON">
           <textarea
             className="assistant-textarea"
             value={credential}
@@ -62,8 +61,8 @@ export function AssistantSettings() {
             spellCheck={false}
             placeholder={'{"openai-codex":{"access":"...","refresh":"...","expires":...}}'}
           />
-          <small>只會送到目前平台的 HTTPS API；API 回應不包含 access 或 refresh token。</small>
-        </label>
+          <FieldHint>只會送到目前平台的 HTTPS API；API 回應不包含 access 或 refresh token。</FieldHint>
+        </Field>
         <div className="assistant-actions">
           <Button
             loading={saveCodexCredential.isPending}

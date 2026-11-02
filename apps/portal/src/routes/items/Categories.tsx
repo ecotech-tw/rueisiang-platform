@@ -8,7 +8,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { WAREHOUSE_CATEGORY_COLORS, type ProductCategory } from "../wms/api.js";
 
 interface ItemCategory extends ProductCategory {
@@ -90,7 +90,7 @@ function CreateDialog({ categories, onClose }: { categories: ItemCategory[]; onC
   return <Dialog title="新增品項分類" onClose={onClose} closeDisabled={create.isPending} formProps={{ onSubmit: (event) => { event.preventDefault(); if (trimmed) create.mutate({ name: trimmed, color, parentId }, { onSuccess: () => { toast.show(`已新增「${trimmed}」`); onClose(); } }); } }} actions={<><Button variant="secondary" type="button" onClick={onClose}>取消</Button><Button type="submit" loading={create.isPending} disabled={!trimmed}>新增分類</Button></>}>
     <TextField label="分類名稱" required autoFocus maxLength={40} placeholder="例如：香氛用品" value={name} onChange={(event) => setName(event.target.value)} />
     <SelectField label="上層分類" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "無", value: "" }, ...categories.filter((category) => category.depth === 0).map((category) => ({ label: category.name, value: category.id }))]} />
-    <div className="field"><span>顏色</span><ColorPicker value={color} onChange={setColor} /></div>
+    <Field as="div" label="顏色"><ColorPicker value={color} onChange={setColor} /></Field>
     {create.error ? <Alert tone="danger">{create.error.message}</Alert> : null}
   </Dialog>;
 }
@@ -130,7 +130,7 @@ function EditDialog({ category, categories, onClose }: { category: ItemCategory;
     >
       <TextField label="名稱" required autoFocus maxLength={40} value={name} onChange={(event) => setName(event.target.value)} />
       <SelectField label="上層分類" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "無", value: "" }, ...categories.filter((candidate) => candidate.depth === 0 && candidate.id !== category.id).map((candidate) => ({ label: candidate.name, value: candidate.id }))]} />
-      <div className="field"><span>顏色</span><ColorPicker value={color} onChange={setColor} /></div>
+      <Field as="div" label="顏色"><ColorPicker value={color} onChange={setColor} /></Field>
       {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
     </Dialog>
   );
