@@ -33,6 +33,16 @@ const OVERLAY_CLOSE_SELECTORS = [
 ];
 
 export async function dismissOverlays(page, { log } = {}) {
+  // CYBERBIZ 的通知廣告用整頁 iframe 覆蓋後台；它不在主頁 DOM 裡，無法按裡面的關閉鈕。
+  // 只移除官方通知路徑的 iframe，避免影響其他功能 iframe。
+  const notificationFrames = page.locator('iframe[src*="/admin/shop_notifications/"]');
+  const notificationCount = await notificationFrames.count();
+  if (notificationCount) {
+    await notificationFrames.evaluateAll((frames) => frames.forEach((frame) => frame.remove())).catch(() => {});
+    log?.(`移除 ${notificationCount} 個 CYBERBIZ 通知遮罩`);
+    await page.waitForTimeout(100);
+  }
+
   for (const selector of OVERLAY_CLOSE_SELECTORS) {
     const button = page.locator(selector).first();
     const visible = await button.isVisible().catch(() => false);
@@ -50,7 +60,7 @@ export async function dismissOverlays(page, { log } = {}) {
     .first()
     .isVisible()
     .catch(() => false);
-  if (!blocked) return false;
+  if (!blocked) return notificationCount > 0;
   await page.keyboard.press("Escape").catch(() => {});
   await page.waitForTimeout(300);
   log?.("畫面上有彈窗但找不到關閉鈕，已試過 Escape");
@@ -387,8 +397,18 @@ export async function exportSalesReport(page, {
       reportIndexUrl,
     });
   }
-  await reportLink.click();
+  // 連結目的地是報表頁，直接導覽可避開偶發在 click 座標上方出現的廣告 iframe。
+  const href = await reportLink.getAttribute("href");
+  if (!href) {
+    fail("REPORT_LINK_INVALID", "商品銷售報表連結缺少目的網址。", { reportIndexUrl });
+  }
+  const reportUrl = new URL(href, reportIndexUrl);
+  if (reportUrl.origin !== new URL(reportIndexUrl).origin) {
+    fail("REPORT_LINK_INVALID", "商品銷售報表連結指向非 CYBERBIZ 網域。", { reportIndexUrl });
+  }
+  await page.goto(reportUrl.href, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(1000);
+  await dismissOverlays(page);
 
   const text = await page.locator("body").innerText();
   if (!text.includes("商品銷售報表") && !text.includes("商品銷售總表")) {
