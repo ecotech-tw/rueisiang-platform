@@ -110,6 +110,17 @@ export function parseStoresInput(raw) {
   return stores;
 }
 
+/**
+ * 平台觸發時 stores_json 已是這次選定的 runner 店別（名稱為 CYBERBIZ 外部店名）；
+ * workflow 的 --store 則是平台顯示名，不能再拿來比對。手動執行沒有 override，才用 --store 篩 config。
+ */
+export function selectStores(stores, requestedNames, { hasStoresOverride = false } = {}) {
+  if (hasStoresOverride || requestedNames.length === 0) return stores;
+  const unknown = requestedNames.filter((name) => !stores.some((store) => store.name === name));
+  if (unknown.length) throw new Error(`config.json 沒有這些店：${unknown.join("、")}`);
+  return stores.filter((store) => requestedNames.includes(store.name));
+}
+
 export async function saveConfig(config, file = skillPath("config.json")) {
   await fs.writeFile(file, `${JSON.stringify(config, null, 2)}\n`, "utf8");
 }

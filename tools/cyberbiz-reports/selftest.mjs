@@ -12,6 +12,7 @@ import zlib from "node:zlib";
 import {
   loadConfig,
   parseStoresInput,
+  selectStores,
   storeScopeId,
   dateRange,
   driveFolderIdFromUrl,
@@ -333,6 +334,21 @@ const config = await loadConfig();
   const after = await loadConfig(configPath, { storesOverride: override });
   check("有 stores_json 就以它為準", after.stores.map((item) => item.name), ["平台傳來的店"]);
   check("其他設定不受影響", after.recipientEmail, "x@y.z");
+
+  const runnerStores = [{ name: "新北中和環球", scopeId: "manual:store:abc" }];
+  check(
+    "平台已傳 runner 店別時不再用平台顯示名篩選",
+    selectStores(runnerStores, ["中和環球"], { hasStoresOverride: true }).map((item) => item.name),
+    ["新北中和環球"],
+  );
+  check(
+    "手動執行仍可用 --store 篩 config.json 店名",
+    selectStores([{ name: "甲店" }, { name: "乙店" }], ["乙店"]).map((item) => item.name),
+    ["乙店"],
+  );
+  let unknownStoreThrew = false;
+  try { selectStores([{ name: "甲店" }], ["不存在"]); } catch { unknownStoreThrew = true; }
+  check("手動執行的未知 --store 仍會報錯", unknownStoreThrew, true);
 
   // 手動執行不會有這個輸入，那時候照 config.json 跑，不是跑零家店。
   check("空字串等於沒有傳", parseStoresInput(""), null);
