@@ -38,7 +38,6 @@ interface StatusBadgeProps {
    * 同一欄一半有底色、一半沒有，看起來像哪一列沒渲染完。
    */
   quiet?: boolean;
-  title?: string;
   /** 只放版面用途。 */
   className?: string;
   children: ReactNode;
@@ -50,9 +49,9 @@ interface StatusBadgeProps {
  */
 const BADGE_BASE = "inline-block shrink-0 justify-self-start rounded-full px-[9px] py-0.5 text-[12px] whitespace-nowrap max-[760px]:[.data-table_td>&+&]:ml-1.5";
 
-export function StatusBadge({ tone = "neutral", palette, quiet = false, title, className = "", children }: StatusBadgeProps) {
+export function StatusBadge({ tone = "neutral", palette, quiet = false, className = "", children }: StatusBadgeProps) {
   const color = palette ? (PALETTE_COLOR[palette] ?? PALETTE_COLOR.slate) : TONE_COLOR[quiet ? "neutral" : tone];
-  return <span title={title} className={`${BADGE_BASE} ${quiet ? "font-medium" : "font-bold"} ${color} ${className}`.trim()}>{children}</span>;
+  return <span className={`${BADGE_BASE} ${quiet ? "font-medium" : "font-bold"} ${color} ${className}`.trim()}>{children}</span>;
 }
 
 const ALERT_ICON: Record<StatusTone, IconName> = {

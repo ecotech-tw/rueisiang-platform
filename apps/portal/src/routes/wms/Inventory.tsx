@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, Tooltip } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -122,14 +122,16 @@ function ItemRow({
           * 每一列都掛一個「未連結」只是把整欄變成雜訊。官網目錄同步失敗才要跳出來。
           */}
         {item.cyberbiz ? (
-          <StatusBadge
-            tone={item.cyberbiz.syncStatus === "failed" ? "danger" : "success"}
-            title={`已連結 CYBERBIZ 款式 ${item.cyberbiz.cyberbizVariantId}`}
-          >
-            {item.cyberbiz.syncStatus === "failed" ? "目錄同步失敗" : "CYBERBIZ"}
-          </StatusBadge>
+          // 包一層 Tooltip 之後它才是格子裡的 grid item：手機上要自己貼齊左邊、跟前一個標記隔開。
+          <Tooltip label={`已連結 CYBERBIZ 款式 ${item.cyberbiz.cyberbizVariantId}`} focusable={false} className="justify-self-start max-[760px]:ml-1.5">
+            <StatusBadge tone={item.cyberbiz.syncStatus === "failed" ? "danger" : "success"}>
+              {item.cyberbiz.syncStatus === "failed" ? "目錄同步失敗" : "CYBERBIZ"}
+            </StatusBadge>
+          </Tooltip>
         ) : item.source === "cyberbiz" ? (
-          <StatusBadge tone="success" title="品項主檔由 cyberbiz_products 同步">CYBERBIZ</StatusBadge>
+          <Tooltip label="品項主檔由 cyberbiz_products 同步" focusable={false} className="justify-self-start max-[760px]:ml-1.5">
+            <StatusBadge tone="success">CYBERBIZ</StatusBadge>
+          </Tooltip>
         ) : null}
       </td>
       {canWrite || canCount || canSync ? (
