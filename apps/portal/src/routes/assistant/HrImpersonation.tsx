@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, DropdownSelect, EmptyState, Field } from "../../ui/index.js";
+import { Alert, Button, DropdownSelect, EmptyState, Field, Input } from "../../ui/index.js";
 import { useHrSandboxEmployees, type HrSandboxEmployee } from "./api.js";
 
 export function hrSandboxEmployeeLabel(employee: HrSandboxEmployee): string {
@@ -31,7 +31,7 @@ export function HrImpersonation({ employee, bindingConfigured, disabled, onChang
       {/* 設定欄只有四百多 px，並排會把「姓名（編號）· 狀態」截斷，看不出選到誰。 */}
       <div className="grid gap-3">
         <Field label="搜尋員工">
-          <input
+          <Input
             aria-label="搜尋模擬員工" value={search} maxLength={200} disabled={disabled}
             placeholder="姓名或員工編號"
             onChange={(event) => { setSearch(event.target.value); setPage(1); }}

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { Button, Field } from "../../ui/index.js";
+import { Button, Field, Input } from "../../ui/index.js";
 
 const VALID_TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -19,9 +19,9 @@ export function ShiftTimeField({ label, ariaLabel, value, disabled, onChange, cl
   };
   return <Field label={label} required className={className} stackedLabel={stackedLabel}>
     <div className="shift-time-control">
-      <input type="text" aria-label={ariaLabel} placeholder="HH:mm" maxLength={5} autoComplete="off" required value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+      <Input className="w-full pr-11 tabular-nums" type="text" aria-label={ariaLabel} placeholder="HH:mm" maxLength={5} autoComplete="off" required value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
       <Button variant="icon" icon="clock" className="absolute inset-y-0 right-0.5 my-auto" aria-label={`點選${ariaLabel}`} disabled={disabled} onClick={openPicker} />
     </div>
-    <input ref={pickerRef} type="time" aria-label={`${ariaLabel}時間選擇器`} aria-hidden={!nativeFallback} tabIndex={nativeFallback ? 0 : -1} className={nativeFallback ? "shift-time-fallback" : "sr-only"} value={VALID_TIME.test(value) ? value : ""} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+    <Input ref={pickerRef} type="time" aria-label={`${ariaLabel}時間選擇器`} aria-hidden={!nativeFallback} tabIndex={nativeFallback ? 0 : -1} className={nativeFallback ? "w-full" : "sr-only"} value={VALID_TIME.test(value) ? value : ""} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
   </Field>;
 }

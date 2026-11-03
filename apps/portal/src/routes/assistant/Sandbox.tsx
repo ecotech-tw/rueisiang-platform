@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, PageHeader, Panel, Textarea } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -356,7 +356,7 @@ export function Sandbox() {
                 <span className="status status-active">編輯中</span>
               </div>
               <Field label="目前編輯內容" hint="儲存後會建立新的 revision，並立即成為之後執行與未來 LINE channel 的 active prompt。">
-                <textarea className="assistant-textarea" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+                <Textarea className="max-h-60 min-h-40" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
               </Field>
               <div className="assistant-actions">
                 <Button loading={savePrompt.isPending} loadingLabel="儲存中…" disabled={!prompt.trim()} onClick={submitPrompt}>
@@ -518,9 +518,9 @@ export function Sandbox() {
                 selectAttachment(file);
               }}
             />
-            <textarea
+            <Textarea
               aria-label="輸入內容"
-              className="assistant-input"
+              className="max-h-30 min-h-18 pb-13"
               value={input}
               disabled={!sessionOpen || run.isPending}
               onChange={(event) => setInput(event.target.value)}

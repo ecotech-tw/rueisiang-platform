@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { Alert, ConfirmDialog, Dialog, EmptyState, Field, SegmentedControl, SelectField, SelectionActionBar, TextField, Tooltip } from "@rueisiang/ui";
+import { Alert, ConfirmDialog, Dialog, EmptyState, Field, Input, InputSkin, SegmentedControl, SelectField, SelectionActionBar, Textarea, TextField, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -78,6 +78,26 @@ describe("shared HRIS UI contracts", () => {
     expect([...root(plain), ...root(roomy)].filter((name) => /^-?m[tbxylr]?-/.test(name))).toEqual([]);
     expect(stacked).toMatch(/<span class="hidden max-\[640px\]:block [^"]*">金額<\/span>/);
     expect(renderToStaticMarkup(<Field as="div" label="顏色"><span /></Field>)).toMatch(/^<div data-field=""/);
+  });
+
+  it("輸入框的玻璃外觀只跟著 InputSkin 走、只套日期類欄位，Textarea 的高度整組取代預設", () => {
+    const classes = (markup: string) => markup.match(/class="([^"]*)"/)?.[1]?.split(" ") ?? [];
+    const solidDate = classes(renderToStaticMarkup(<Input type="date" />));
+    const glassDate = classes(renderToStaticMarkup(<InputSkin skin="glass"><Input type="date" /></InputSkin>));
+    const glassText = classes(renderToStaticMarkup(<InputSkin skin="glass"><Input /></InputSkin>));
+    expect(solidDate).toEqual(expect.arrayContaining(["bg-paper", "border-line"]));
+    expect(glassDate).toEqual(expect.arrayContaining(["bg-paper/38", "border-transparent"]));
+    expect(glassDate).not.toContain("bg-paper");
+    expect(glassText).toContain("bg-paper");
+
+    const plain = classes(renderToStaticMarkup(<Textarea />));
+    const tall = classes(renderToStaticMarkup(<Textarea className="min-h-40 max-h-60" />));
+    expect(plain).toContain("min-h-24");
+    // 兩個 min-h 同時出現時誰贏要看產生順序，所以呼叫端的高度必須取代預設值。
+    expect(tall).toEqual(expect.arrayContaining(["min-h-40", "max-h-60"]));
+    expect(tall).not.toContain("min-h-24");
+    // 斷點前綴的高度只在那個寬度生效，其他寬度仍要有預設值。
+    expect(classes(renderToStaticMarkup(<Textarea className="sm:min-h-40" />))).toEqual(expect.arrayContaining(["min-h-24", "sm:min-h-40"]));
   });
 
   it("renders pagers with shared navigation and page-size contracts", () => {

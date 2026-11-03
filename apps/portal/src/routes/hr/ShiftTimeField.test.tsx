@@ -39,7 +39,7 @@ it.each(["不存在", "拒絕"])("showPicker %s 時保留可操作的原生欄�
     Object.assign(field.native, { showPicker: mode === "拒絕" ? () => { throw new DOMException("禁止開啟", "NotAllowedError"); } : undefined });
     await act(async () => field.trigger.click());
     expect(field.native.getAttribute("aria-hidden")).toBe("false");
-    expect(field.native.tabIndex).toBe(0); expect(field.native.className).toBe("shift-time-fallback");
+    expect(field.native.tabIndex).toBe(0); expect(field.native.classList.contains("sr-only")).toBe(false);
     await field.change(field.native, "12:15"); expect(field.text.value).toBe("12:15");
   } finally { await field.cleanup(); }
 });

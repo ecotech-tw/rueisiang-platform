@@ -15,6 +15,7 @@ import {
   DropdownSelect,
   EmptyState,
   Field,
+  Input,
   FilterInput,
   FilterSelect,
   FilterToolbar,
@@ -271,7 +272,7 @@ export function StyleGuide() {
             options={[{ label: "啟用", value: "active" }, { label: "停用", value: "disabled" }]}
           />
           <Field label="錯誤狀態" error="請輸入有效的資料。">
-            <input defaultValue="格式錯誤" aria-invalid="true" />
+            <Input defaultValue="格式錯誤" aria-invalid="true" />
           </Field>
           <Field label="報表類型">
             <DropdownSelect aria-label="報表類型" defaultValue="sales" options={DROPDOWN_OPTIONS} />

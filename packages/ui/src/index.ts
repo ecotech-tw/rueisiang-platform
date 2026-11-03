@@ -13,7 +13,7 @@ export {
   type DropdownSelectSingleProps,
 } from "./DropdownSelect.js";
 export { Alert, StatusBadge } from "./Feedback.js";
-export { Field, FieldHint, SelectField, TextField } from "./Field.js";
+export { Field, FieldHint, Input, InputSkin, SelectField, Textarea, TextField } from "./Field.js";
 export { EmptyState } from "./EmptyState.js";
 export { FilterInput, FilterSelect, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";
 export { FilterToolbar } from "./FilterToolbar.js";

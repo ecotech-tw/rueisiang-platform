@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Field, PageHeader, Panel, TextField, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, Field, Input, PageHeader, Panel, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import { useRunShopeeSales, useShopeeSalesState, useShopeeSalesStatus } from "./api.js";
 
 export function ShopeeSales() {
@@ -32,8 +32,8 @@ export function ShopeeSales() {
           if (!file) return;
           run.mutate({ file, password }, { onSuccess: (result) => { setTracking(result.requestId); setFile(null); setPassword(""); } });
         }}>
-          <Field label="蝦皮報表（.xlsx）"><input className="cell-input wide" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></Field>
-          <TextField label="報表密碼" type="password" inputClassName="cell-input" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="請輸入報表密碼" autoComplete="off" />
+          <Field label="蝦皮報表（.xlsx）"><Input className="w-full" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></Field>
+          <TextField label="報表密碼" type="password" inputClassName="w-full" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="請輸入報表密碼" autoComplete="off" />
           <Button type="submit" size="lg" icon="analytics" loading={run.isPending} loadingLabel="送出中…" disabled={blocked}>上傳並整理</Button>
           {running ? <span className="form-hint">GitHub Actions 處理中…可以關閉這一頁</span> : null}
         </form>

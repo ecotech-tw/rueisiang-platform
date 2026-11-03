@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../../shell/icons.js";
-import { Field } from "../../ui/index.js";
+import { Field, Input } from "../../ui/index.js";
 
 /** 下拉浮在畫面上的位置。用 fixed，所以直接是視窗座標，不必自己扣捲動位移。 */
 interface DropdownBox {
@@ -140,7 +140,8 @@ export function TagPicker({
       <div className="tag-combo" ref={comboRef}>
       <div className="tag-search">
         <Icon name="search" />
-        <input
+        <Input
+          className="w-full pl-9"
           ref={inputRef}
           aria-label="搜尋或新增標籤"
           placeholder="搜尋標籤，找不到就按 Enter 新增"
