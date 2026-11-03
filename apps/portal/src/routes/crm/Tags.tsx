@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterToolbar, PageHeader, Panel } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -113,8 +113,7 @@ export function Tags() {
 
       <Panel className="grows">
         {canWrite ? (
-          <form
-            className="admin-form toolbar"
+          <FilterToolbar
             onSubmit={(event) => {
               event.preventDefault();
               create.mutate(newTag);
@@ -131,7 +130,7 @@ export function Tags() {
               新增標籤
             </Button>
             {busy ? <span className="form-hint">{busy}</span> : null}
-          </form>
+          </FilterToolbar>
         ) : null}
 
         {create.error ? <Alert tone="danger">{create.error.message}</Alert> : null}

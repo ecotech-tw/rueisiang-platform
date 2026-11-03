@@ -40,7 +40,7 @@
 | 候選元件 | 現況盤點 | 規範 |
 |---|---|---|
 | `SegmentedControl` | 原有 4 個 `segmented-control` 已集中到 `packages/ui`，並由特休、申請類型、勞健保狀態、級距種類使用 | 用 `options`、`value`、`onChange`、`aria-label` 表達；selected／`aria-pressed` 不可由每頁自行拼 class |
-| `FilterToolbar` | 11 個 HR route 已改用 `FilterToolbar`；`admin-form toolbar` 只留給非 form 的內嵌欄位群 | 保留表單語意；搜尋、篩選、清除動作與 responsive 排列集中管理 |
+| `FilterToolbar` | 面板頂端的搜尋／篩選列一律用 `FilterToolbar`，不要自己拼工具列的 class | 保留表單語意；搜尋、篩選、清除動作與 responsive 排列集中管理 |
 | `StatusBadge` 的所有狀態呈現 | 上述 6 個 HR route 已改用 `StatusBadge`；domain status 的 label／tone mapping 仍留在 route | 一律使用 `StatusBadge`。禁止新增裸 `.status` 或 `.status-badge`；`SupportWorkers.tsx` 的錯誤 class 已移除 |
 | `EmptyState` | 17 個 HRIS 空資料訊息已改用 `EmptyState`；仍保留語意不同的 `muted table-note` | 列表沒有資料用 `EmptyState`；載入中用 skeleton／loading；錯誤用 `Alert`，三者不要混成一個狀態 |
 | `EmployeeFilterBar` | 敘薪與勞健保頁重複同一組員工搜尋、帳號狀態篩選、分頁 query 組合 | 兩頁的業務資料不同，但篩選 UI 與 query state 可共用；共用元件不得承擔薪資或保險規則 |

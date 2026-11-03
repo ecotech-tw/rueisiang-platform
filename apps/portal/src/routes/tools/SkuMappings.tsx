@@ -9,7 +9,9 @@ import {
   Button,
   FilterInput,
   FilterSelect,
+  FilterToolbar,
   PageHeader,
+  SEARCH_INPUT_WIDTH,
   Panel,
   SelectField,
   TextField,
@@ -138,7 +140,7 @@ export function SkuMappings() {
           </summary>
           <div className="sku-ignore-body">
             <p className="cell-sub">補寄、已下架這類永遠不該進統計的通路 SKU。標記之後匯入會照樣略過，但不再列進「未對應」的提醒。</p>
-        <div className="admin-form toolbar">
+        <div className="flex flex-wrap items-end gap-2.5 max-[760px]:gap-2">
           <SelectField
             label="通路"
             value={ignoreChannel}
@@ -203,10 +205,10 @@ export function SkuMappings() {
       ) : null}
 
       <Panel className="grows">
-        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <FilterToolbar>
           <FilterInput
             label="搜尋"
-            className="search-input"
+            className={SEARCH_INPUT_WIDTH}
             type="search"
             placeholder="搜尋通路商品、外部 SKU 或品項 SKU"
             value={search}
@@ -223,7 +225,7 @@ export function SkuMappings() {
               清除篩選
             </Button>
           ) : null}
-        </form>
+        </FilterToolbar>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
         {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}

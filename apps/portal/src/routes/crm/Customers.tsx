@@ -14,7 +14,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterSelect, PageHeader, Panel, SearchFilterInput } from "../../ui/index.js";
+import { Alert, Button, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput } from "../../ui/index.js";
 
 const SYNC_LABEL: Record<string, string> = {
   synced: "已同步",
@@ -174,7 +174,7 @@ export function Customers() {
       <Panel className="grows">
         <SavedViewBar filters={filters} onApply={applyView} canManage={permissions.has("crm:view:write")} />
 
-        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <FilterToolbar>
           <SearchFilterInput
             label="搜尋"
             placeholder="搜尋姓名、電話、Email、地址或標籤"
@@ -236,7 +236,7 @@ export function Customers() {
             />
           ) : null}
           </div>
-        </form>
+        </FilterToolbar>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
         {block.error ? <Alert tone="danger">{block.error.message}</Alert> : null}

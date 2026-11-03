@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
@@ -253,10 +253,10 @@ export function Items() {
       </div>
 
       <Panel className="grows">
-        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <FilterToolbar>
           <FilterInput
             label="搜尋"
-            className="search-input"
+            className={SEARCH_INPUT_WIDTH}
             type="search"
             placeholder="搜尋品名、SKU、分類或備註"
             value={search}
@@ -278,7 +278,7 @@ export function Items() {
               ...arrangeCategories(categories).map((category) => ({ value: category.id, label: category.parentId ? categoryPath(category, categories) : category.name })),
             ]}
           />
-        </form>
+        </FilterToolbar>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
         {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}

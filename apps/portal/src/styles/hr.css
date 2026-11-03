@@ -461,36 +461,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
  * 高度差 1–2px，底邊就錯開好幾 px，而且兩顆幾乎貼在一起。間距跟表格列的操作鍵一致。
  */
 .hr-system .button-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-/* 日期篩選（FilterInput）還是原生 input，先照舊從這裡拿玻璃外觀；Field 裡的日期欄位與下拉由 InputSkin 負責。 */
-.hr-system input[type="date"],
-.hr-system input[type="month"],
-.hr-system input[type="datetime-local"] {
-  border-color: transparent;
-  background-color: --alpha(var(--color-paper) / 38%);
-  box-shadow: var(--shadow-glass-field);
-  -webkit-backdrop-filter: blur(8px) saturate(155%) contrast(103%);
-  backdrop-filter: blur(8px) saturate(155%) contrast(103%);
-  transition-property: background-color, box-shadow, border-color;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.hr-system input[type="date"]:hover,
-.hr-system input[type="month"]:hover,
-.hr-system input[type="datetime-local"]:hover { background-color: --alpha(var(--color-paper) / 50%); }
-.hr-system input[type="date"]:focus-visible,
-.hr-system input[type="month"]:focus-visible,
-.hr-system input[type="datetime-local"]:focus-visible {
-  outline: 2px solid var(--color-secondary);
-  outline-offset: 2px;
-}
-.hr-system input[type="date"]::-webkit-calendar-picker-indicator,
-.hr-system input[type="month"]::-webkit-calendar-picker-indicator,
-.hr-system input[type="datetime-local"]::-webkit-calendar-picker-indicator {
-  border-radius: 999px;
-  padding: 6px;
-  background-color: --alpha(var(--color-brand) / 12%);
-  cursor: pointer;
-}
 
 @media (max-width: 900px) {
   .hr-shell .content { padding: 0; }
@@ -967,7 +937,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 /* 只是表單把按鈕 portal 進 footer 用的掛點，版面交給 Dialog 的 footer。 */
 .hr-request-dialog-actions { display: contents; }
 .hr-request-dialog .hr-request-form { padding-top: 2px; }
-.hr-request-toolbar .search-input { width: min(360px, 100%); }
 .hr-request-history-panel > .hr-request-table-region { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .hr-request-table-region > .table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .hr-request-mobile-select-all { display: none; }
@@ -979,7 +948,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-request-mobile-select-all input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 
 @media (min-width: 761px) {
-  .hr-request-toolbar .filter-select-control { flex: 0 1 190px; }
   .hr-request-table { min-width: 1168px; }
   .hr-request-table .hr-request-select-cell { min-width: 48px; padding: 0 !important; }
   .hr-request-table th,
@@ -1010,7 +978,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
     font-weight: 600;
   }
   .hr-request-table tbody tr > td[data-label="類型"]::before { display: none; }
-  .hr-request-toolbar .filter-fields.open .filter-select-control { flex: 1 1 100%; width: 100%; }
 }
 
 @media (max-width: 620px) {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterToolbar, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   useCyberbizSalesState,
@@ -60,15 +60,14 @@ export function CyberbizSales() {
       ) : null}
 
       <Panel className="grows">
-        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <FilterToolbar>
           <span className="inline-label">報表月份</span>
-          <input
-            className="text-input"
+          <FilterInput
+            label="報表月份"
             type="month"
             value={month}
             disabled={blocked}
             onChange={(event) => setMonth(event.target.value)}
-            aria-label="報表月份"
           />
           <Button
             icon="analytics"
@@ -81,7 +80,7 @@ export function CyberbizSales() {
           </Button>
           <span className="form-hint">已選 {selectedNames.length} / {stores.length} 家</span>
           {running ? <span className="form-hint">執行中…可以關閉這一頁</span> : null}
-        </form>
+        </FilterToolbar>
 
 
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}

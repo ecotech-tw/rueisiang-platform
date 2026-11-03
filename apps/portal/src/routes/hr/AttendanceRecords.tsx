@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, DataTable, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, DataTable, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type AttendanceEvent } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -48,12 +48,12 @@ export function HrAttendanceRecords() {
   return <div className="page fills">
     <PageHeader title="出勤紀錄" description="查看全體員工的打卡明細；時間由伺服器保存，歷史辦公位置與營運據點使用當時快照。" />
     <Panel className="grows">
-      <FilterToolbar className="attendance-records-toolbar">
-        <FilterInput label="搜尋員工" type="search" className="search-input" placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => update({ search: event.target.value })} />
+      <FilterToolbar>
+        <FilterInput label="搜尋員工" type="search" className={SEARCH_INPUT_WIDTH} placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => update({ search: event.target.value })} />
         <FilterSelect label="打卡類型" value={filters.eventKind} options={[{ value: "all", label: "全部類型" }, { value: "clock_in", label: "上班" }, { value: "clock_out", label: "下班" }]} onChange={(event) => update({ eventKind: event.target.value })} />
         <FilterSelect label="來源" value={filters.sourceKind} options={[{ value: "all", label: "全部來源" }, { value: "portal", label: "本人打卡" }, { value: "manual", label: "手動補登" }, { value: "rfid", label: "RFID" }, { value: "line", label: "LINE" }]} onChange={(event) => update({ sourceKind: event.target.value })} />
-        <FilterInput label="開始日期" type="date" className="attendance-date-filter" value={filters.startDate} onChange={(event) => update({ startDate: event.target.value })} />
-        <FilterInput label="結束日期（不含）" type="date" className="attendance-date-filter" value={filters.endDate} onChange={(event) => update({ endDate: event.target.value })} />
+        <FilterInput label="開始日期" type="date" className="min-w-[150px]" value={filters.startDate} onChange={(event) => update({ startDate: event.target.value })} />
+        <FilterInput label="結束日期（不含）" type="date" className="min-w-[150px]" value={filters.endDate} onChange={(event) => update({ endDate: event.target.value })} />
       </FilterToolbar>
       {events.isFetching ? <p className="form-hint">更新中…</p> : null}
       <DataTable className="attendance-event-table"><thead><tr><SortableHeader label="打卡時間" field="occurredAt" active={filters.sortField} direction={filters.sortDirection} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} /><SortableHeader label="員工" field="employee" active={filters.sortField} direction={filters.sortDirection} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} /><SortableHeader label="來源" field="source" active={filters.sortField} direction={filters.sortDirection} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} /><th>類型</th><th>營運據點／辦公位置</th><th className="numeric">距離（公尺）</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td data-label="打卡時間">{dateTime(row.occurredAt)}</td><td data-label="員工"><div className="cell-strong">{row.employeeName}</div><div className="cell-sub">{row.employeeNumber}</div></td><td data-label="來源"><StatusBadge tone="neutral">{row.sourceKind ? (SOURCE_LABEL[row.sourceKind] ?? row.sourceKind) : "未知來源"}</StatusBadge></td><td data-label="類型"><StatusBadge tone="neutral">{row.eventKind === "clock_in" ? "上班" : "下班"}</StatusBadge></td><td data-label="營運據點／辦公位置"><div>{row.scopeName ?? "—"}</div><div className="cell-sub">{row.locationName ?? "未指定位置"}</div>{row.manualReason ? <div className="cell-sub">原因：{row.manualReason}</div> : null}</td><td data-label="距離（公尺）" className="numeric">{row.distanceMeters ?? "—"}</td></tr>)}</tbody></DataTable>
