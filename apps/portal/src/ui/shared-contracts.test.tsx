@@ -147,7 +147,7 @@ describe("shared HRIS UI contracts", () => {
     expect(current).toContain("bg-brand-soft");
     expect(current).not.toContain("hover:");
     // 外距由呼叫端決定。
-    expect(markup.match(/^<div class="([^"]*)"/)?.[1]).not.toMatch(/(^|s)m[tbxy]?-/);
+    expect(markup.match(/^<div class="([^"]*)"/)?.[1]).not.toMatch(/(^|\s)m[tbxy]?-/);
   });
 
   it("renders sortable headers with shared sort contracts", () => {
