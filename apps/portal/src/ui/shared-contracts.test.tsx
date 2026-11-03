@@ -5,7 +5,7 @@ import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input,
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
-import { FilterInput, FilterSelect, FilterToolbar, SearchFilterInput } from "./index.js";
+import { FilterInput, FilterSelect, FilterToolbar, SEARCH_INPUT_WIDTH, SearchFilterInput } from "./index.js";
 
 describe("shared HRIS UI contracts", () => {
   it("人員未選取時保留指定提示，不冒充第一個選項", () => {
@@ -217,7 +217,7 @@ describe("shared HRIS UI contracts", () => {
     expect(compact).not.toContain("p-[18px]");
   });
 
-  it("renders filters with shared labels and compact control wrappers", () => {
+  it("renders filters with shared labels and compact controls", () => {
     const inputMarkup = renderToStaticMarkup(
       <FilterInput label="搜尋員工" type="search" placeholder="姓名或員工編號" />,
     );
@@ -230,13 +230,12 @@ describe("shared HRIS UI contracts", () => {
       </MemoryRouter>,
     );
 
-    expect(inputMarkup).toContain('class="filter-control"');
     expect(inputMarkup).toContain('aria-label="搜尋員工"');
-    expect(searchMarkup).toContain('class="filter-control"');
-    expect(searchMarkup).toContain('class="search-input"');
-    expect(selectMarkup).toContain('class="filter-control"');
-    expect(selectMarkup).toContain('class="filter-select-control"');
+    expect(inputMarkup).toContain("py-[7px]");
+    expect(inputMarkup).not.toContain("<label");
+    expect(searchMarkup).toContain(SEARCH_INPUT_WIDTH);
     expect(selectMarkup).toContain('aria-label="狀態"');
+    expect(selectMarkup).toMatch(/^<span class="inline-flex w-max max-w-full min-w-0">/);
   });
 
   it("renders filters as a form with the shared toolbar contract", () => {
@@ -246,7 +245,9 @@ describe("shared HRIS UI contracts", () => {
       </FilterToolbar>,
     );
 
-    expect(markup).toContain('<form aria-label="員工篩選" class="admin-form toolbar">');
+    expect(markup).toContain('<form aria-label="員工篩選" class="');
+    expect(markup).toContain("border-b border-line");
+    expect(markup).not.toContain("admin-form");
     expect(markup).toContain('name="query"');
   });
 });

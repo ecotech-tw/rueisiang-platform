@@ -203,33 +203,6 @@
   min-width: 260px;
 }
 
-.admin-form.toolbar {
-  gap: 10px;
-  margin: -4px -22px 0;
-  padding: 4px 22px 18px;
-  border-bottom: 1px solid var(--color-line);
-}
-
-.admin-form.toolbar select {
-  max-width: 190px;
-}
-
-.admin-form.toolbar .search-input {
-  width: min(340px, 100%);
-}
-
-/* 篩選控制項的 wrapper 不佔工具列額外欄位，並讓下拉維持緊湊高度。 */
-.filter-control {
-  display: contents;
-}
-
-.filter-select-control {
-  display: inline-flex;
-  width: max-content;
-  max-width: 100%;
-  min-width: 0;
-}
-
 .row-actions {
   display: flex;
   justify-content: flex-end;
@@ -460,19 +433,4 @@
    */
   .page-head { margin-bottom: 12px; }
   .page-head h1 { font-size: 20px; }
-  /*
-   * 搜尋與篩選併成一行。搜尋框原本的 min-width: 220px 會把篩選鈕擠到下一列，
-   * 而那顆按鈕本身只要一個圖示就講得完。
-   */
-  /*
-   * 要 wrap，不然 flex-basis: 100% 的篩選區沒地方去，只會被壓成一條 96px。
-   * 搜尋與篩選鈕靠 min-width: 0 ＋ flex: none 待在第一行，篩選區用 100% 的
-   * basis 自己換到第二行。
-   */
-  .admin-form.toolbar { flex-wrap: wrap; gap: 8px; }
-  /*
-   * 搜尋要縮到跟篩選鈕共用第一行。width: min(340px, 100%) 讓它宣告成滿寬，
-   * flex 就沒有理由把按鈕留在同一行——改用 flex-basis: 0 讓它只吃「剩下的」。
-   */
-  .admin-form.toolbar .search-input { flex: 1 1 0; width: auto; min-width: 0; }
 }

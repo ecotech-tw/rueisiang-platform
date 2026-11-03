@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, FilterToolbar, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   usePayoutState,
@@ -71,7 +71,7 @@ export function Payout() {
       ) : null}
 
       <Panel className="grows">
-        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <FilterToolbar>
           <span className="inline-label">對帳區間</span>
           <DateRangePicker
             start={start}
@@ -92,7 +92,7 @@ export function Payout() {
           </Button>
           <span className="form-hint">已選 {selectedNames.length} / {stores.length} 家</span>
           {running ? <span className="form-hint">執行中…可以關掉這一頁</span> : null}
-        </form>
+        </FilterToolbar>
 
         {rangeError ? <Alert tone="danger">{rangeError}</Alert> : null}
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}

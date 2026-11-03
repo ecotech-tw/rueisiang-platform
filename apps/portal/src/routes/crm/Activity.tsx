@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel } from "../../ui/index.js";
 
 interface EventRow {
   id: string;
@@ -91,7 +91,7 @@ export function Activity() {
       />
 
       <Panel className="grows">
-        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <FilterToolbar>
           <FilterInput
             label="搜尋"
             type="search"
@@ -116,7 +116,7 @@ export function Activity() {
             onChange={(event) => update({ pageSize: Number(event.target.value) })}
             options={[25, 50, 100].map((size) => ({ value: String(size), label: `每頁 ${size} 筆` }))}
           />
-        </form>
+        </FilterToolbar>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
 

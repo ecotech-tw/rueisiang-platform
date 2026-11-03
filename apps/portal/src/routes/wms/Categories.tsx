@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterToolbar, PageHeader, Panel } from "../../ui/index.js";
 import {
   WAREHOUSE_CATEGORY_COLORS,
   useCreateWarehouseCategory,
@@ -64,8 +64,7 @@ export function Categories() {
 
       <Panel className="grows">
         {canWrite ? (
-          <form
-            className="admin-form toolbar category-form"
+          <FilterToolbar
             onSubmit={(event) => {
               event.preventDefault();
               const name = newName.trim();
@@ -80,8 +79,10 @@ export function Categories() {
               );
             }}
           >
+            {/* 分類名稱最多 40 個字，不必吃掉整條工具列；寬的螢幕上放五個字的長框看起來像壞掉。 */}
             <FilterInput
               label="新分類名稱"
+              className="flex-[0_1_280px]"
               placeholder="新增一個分類"
               maxLength={40}
               value={newName}
@@ -90,7 +91,7 @@ export function Categories() {
             <Button type="submit" loading={create.isPending} loadingLabel="新增中…" disabled={!newName.trim()}>
               新增分類
             </Button>
-          </form>
+          </FilterToolbar>
         ) : null}
 
         {error ? <Alert tone="danger">{error.message}</Alert> : null}

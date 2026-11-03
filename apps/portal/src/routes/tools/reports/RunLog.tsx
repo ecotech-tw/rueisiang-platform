@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Pager } from "../../../shell/Pager.js";
 import { SortableHeader } from "../../../shell/SortableHeader.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
-import { Alert, FilterSelect, Panel, SearchFilterInput } from "../../../ui/index.js";
+import { Alert, FilterSelect, FilterToolbar, Panel, SearchFilterInput } from "../../../ui/index.js";
 import { useReportRuns, type ReportRunKind, type ReportRunListRow } from "../api.js";
 import { useReportTabs } from "./ReportsLayout.js";
 
@@ -89,7 +89,7 @@ export function RunLog() {
   return (
     <div className="page fills">
       <Panel className="grows">
-      <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+      <FilterToolbar>
         <SearchFilterInput
           label="搜尋"
           placeholder="搜尋報表、通路、區間或執行的人"
@@ -105,7 +105,7 @@ export function RunLog() {
             ...runTabs.map((tab) => ({ value: tab.kind, label: KIND_LABELS[tab.kind] })),
           ]}
         />
-      </form>
+      </FilterToolbar>
 
       {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
 

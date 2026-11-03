@@ -17,7 +17,7 @@ export { SearchCombobox, type SearchComboboxProps } from "./Combobox.js";
 export { Field, FieldHint, Input, SelectField, Textarea, TextField } from "./Field.js";
 export { InputSkin } from "./InputSkin.js";
 export { EmptyState } from "./EmptyState.js";
-export { FilterInput, FilterSelect, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";
+export { FilterInput, FilterSelect, SEARCH_INPUT_WIDTH, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";
 export { FilterToolbar } from "./FilterToolbar.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
 export { SelectionActionBar, type SelectionActionBarProps } from "./SelectionActionBar.js";

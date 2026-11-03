@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -318,10 +318,10 @@ export function Inventory() {
       />
 
       <Panel className="grows">
-        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <FilterToolbar>
           <FilterInput
             label="搜尋"
-            className="search-input"
+            className={SEARCH_INPUT_WIDTH}
             type="search"
             placeholder="搜尋名稱、SKU、分類或備註"
             value={filters.search}
@@ -376,7 +376,7 @@ export function Inventory() {
               ]}
             />
           </div>
-        </form>
+        </FilterToolbar>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
         {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}

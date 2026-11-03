@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, EmptyState, Field, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, EmptyState, Field, FilterInput, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { isHrFormalEmployee, useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type HrFormalEmployee, type Profile } from "./api.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
@@ -91,7 +91,7 @@ export function HrAttendanceScopeManagement() {
   return <div className="page fills">
     <PageHeader title="出勤範圍管理" description="以員工為操作主體管理可打卡辦公位置與出勤方式；排班員工可在此設定每月休假天數。" />
     <Panel className="grows">
-      <FilterToolbar><FilterInput label="搜尋員工" type="search" className="search-input" placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => updateFilters({ search: event.target.value })} /></FilterToolbar>
+      <FilterToolbar><FilterInput label="搜尋員工" type="search" className={SEARCH_INPUT_WIDTH} placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => updateFilters({ search: event.target.value })} /></FilterToolbar>
       {employees.error || locations.error ? <Alert tone="danger">{employees.error?.message ?? locations.error?.message}</Alert> : null}
       {employees.isFetching || locations.isFetching ? <p className="form-hint">更新中…</p> : null}
       <DataTable className="hr-location-assignment-table"><thead><tr><th>員工</th><th>目前任職</th><th>出勤方式</th><th>有效辦公位置</th><th>操作</th></tr></thead><tbody>

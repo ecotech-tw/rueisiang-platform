@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -1073,7 +1073,7 @@ function PayoutFilters({
 }) {
   const active = hasPayoutFilters(filters);
   return (
-    <form className="admin-form toolbar manual-report-filters" onSubmit={(event) => event.preventDefault()}>
+    <FilterToolbar>
       <SearchFilterInput
         label="搜尋出金紀錄"
         placeholder="搜尋據點或日期"
@@ -1095,17 +1095,19 @@ function PayoutFilters({
       <FilterInput
         label="出金開始日期"
         type="date"
+        className="min-w-[150px]"
         value={filters.startDate}
         onChange={(event) => onChange({ startDate: event.target.value })}
       />
       <FilterInput
         label="出金結束日期"
         type="date"
+        className="min-w-[150px]"
         value={filters.endDate}
         onChange={(event) => onChange({ endDate: event.target.value })}
       />
       {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_PAYOUT_FILTERS })}>清除篩選</Button> : null}
-    </form>
+    </FilterToolbar>
   );
 }
 
@@ -1120,7 +1122,7 @@ function SalesFilters({
 }) {
   const active = hasSalesFilters(filters);
   return (
-    <form className="admin-form toolbar manual-report-filters" onSubmit={(event) => event.preventDefault()}>
+    <FilterToolbar>
       <SearchFilterInput
         label="搜尋商品銷售紀錄"
         placeholder="搜尋據點、SKU、商品或分類"
@@ -1142,17 +1144,19 @@ function SalesFilters({
       <FilterInput
         label="商品銷售開始月份"
         type="month"
+        className="min-w-[150px]"
         value={filters.startMonth}
         onChange={(event) => onChange({ startMonth: event.target.value })}
       />
       <FilterInput
         label="商品銷售結束月份"
         type="month"
+        className="min-w-[150px]"
         value={filters.endMonth}
         onChange={(event) => onChange({ endMonth: event.target.value })}
       />
       {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_SALES_FILTERS })}>清除篩選</Button> : null}
-    </form>
+    </FilterToolbar>
   );
 }
 

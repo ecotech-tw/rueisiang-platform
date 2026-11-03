@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { FilterInput } from "./Filter.js";
+import { FilterInput, SEARCH_INPUT_WIDTH } from "./Filter.js";
 
 /*
  * 搜尋框要延遲送出。這些列表的每一次查詢都要掃過整張表（LIKE '%關鍵字%' 用不到
@@ -13,9 +13,11 @@ export interface SearchFilterInputProps {
   /** 已經套用的關鍵字。外部改動（例如「清除篩選」）時輸入框會跟著回到這個值。 */
   value: string;
   onSearch: (search: string) => void;
+  /** 只放版面用途。給了就整組取代預設的 SEARCH_INPUT_WIDTH。 */
+  className?: string;
 }
 
-export function SearchFilterInput({ label, placeholder, value, onSearch }: SearchFilterInputProps) {
+export function SearchFilterInput({ label, placeholder, value, onSearch, className = SEARCH_INPUT_WIDTH }: SearchFilterInputProps) {
   const [draft, setDraft] = useState(value);
   const onSearchRef = useRef(onSearch);
   useEffect(() => {
@@ -36,7 +38,7 @@ export function SearchFilterInput({ label, placeholder, value, onSearch }: Searc
   return (
     <FilterInput
       label={label}
-      className="search-input"
+      className={className}
       type="search"
       placeholder={placeholder}
       value={draft}

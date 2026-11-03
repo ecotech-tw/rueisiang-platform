@@ -403,7 +403,7 @@ function LineGroupRow({
             </div>
             <FilterInput
               label={`${group.displayName || group.lineGroupId} 對話名稱`}
-              className="line-group-name"
+              className="w-[150px]"
               value={name}
               placeholder="未命名對話"
               onChange={(event) => setName(event.target.value)}

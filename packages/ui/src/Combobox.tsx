@@ -1,5 +1,6 @@
 import { Combobox } from "@base-ui/react/combobox";
 import type { ReactNode } from "react";
+import { defaultUnless } from "./class-defaults.js";
 import { Icon } from "./icons.js";
 import { GLASS_FIELD, useInputSkin, type InputSkinName } from "./InputSkin.js";
 
@@ -20,9 +21,7 @@ const SELECT_TRIGGER_SKIN: Record<InputSkinName, string> = {
 };
 
 export function selectTriggerClass(skin: InputSkinName, size: keyof typeof SELECT_TRIGGER_SIZE, className: string) {
-  // 呼叫端給了最小寬度就整組取代預設的 min-w-0；兩個 min-w 同時出現時誰贏要看產生順序。
-  const minWidth = /(^|s)min-w-/.test(className) ? "" : "min-w-0";
-  return `relative flex w-full ${minWidth} cursor-pointer appearance-none items-center rounded-[10px] border text-left text-ink disabled:cursor-not-allowed disabled:text-muted ${SELECT_TRIGGER_SIZE[size]} ${SELECT_TRIGGER_SKIN[skin]} ${className}`.trim();
+  return `relative flex w-full ${defaultUnless(className, "min-w-", "min-w-0")} cursor-pointer appearance-none items-center rounded-[10px] border text-left text-ink disabled:cursor-not-allowed disabled:text-muted ${SELECT_TRIGGER_SIZE[size]} ${SELECT_TRIGGER_SKIN[skin]} ${className}`.trim();
 }
 
 export const SELECT_TRIGGER_VALUE = "min-w-0 truncate";

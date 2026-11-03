@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField } from "../../ui/index.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type GoogleMapPlace, type NamedOption } from "./api.js";
@@ -250,7 +250,7 @@ export function HrAttendanceSettings() {
       />
       <Panel className="grows">
         <FilterToolbar>
-          <FilterInput label="搜尋辦公位置或據點" type="search" className="search-input" placeholder="搜尋辦公位置或營運據點" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
+          <FilterInput label="搜尋辦公位置或據點" type="search" className={SEARCH_INPUT_WIDTH} placeholder="搜尋辦公位置或營運據點" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
           <FilterSelect label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => { setScopeId(event.target.value); setPage(1); }} />
         </FilterToolbar>
         {locations.isFetching ? <p className="form-hint">更新中…</p> : null}

@@ -476,7 +476,6 @@
 }
 .hr-location-table td { vertical-align: top; }
 .hr-location-table td > small { display: block; margin-top: 4px; }
-.attendance-records-toolbar .attendance-date-filter { min-width: 150px; }
 .attendance-event-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hr-location-section { display: grid; gap: 12px; }
 .hr-location-section + .hr-location-section { padding-top: 20px; border-top: 1px solid var(--color-soft-line); }
@@ -805,7 +804,6 @@
 }
 .line-group-main { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .line-group-label { display: flex; align-items: center; flex: none; }
-.line-group-name { width: 150px; min-width: 0; padding: 7px 9px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
 .line-groups-table code { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
 
 /* 權限管理頁 */
@@ -1764,12 +1762,6 @@
 .color-swatch.tone-lime { background: var(--color-tone-lime); color: var(--color-tone-lime); }
 .color-swatch.tone-sand { background: var(--color-tone-sand); color: var(--color-tone-sand); }
 
-/* 新增分類那一列：名稱不必吃掉整條，色票跟按鈕要跟得上。 */
-/*
- * 分類名稱最多 40 個字，輸入框不必吃掉整條工具列——990px 的框裡放五個字，
- * 看起來像壞掉。給它一個上限，剩下的空間留給色票。
- */
-.category-form input { flex: 0 1 280px; min-width: 0; }
 .category-drag-handle {
   display: inline-flex;
   width: 28px;
@@ -2596,7 +2588,6 @@
     flex-basis: 100%;
     padding-top: 4px;
   }
-  .filter-fields.open select { flex: 1 1 100%; width: 100%; max-width: none; }
 
   /* 提示改從上面下來：手機的右下角是拇指區，浮卡片在那裡會擋住要按的東西。 */
   .toast-stack {
@@ -2857,7 +2848,6 @@
   gap: 12px;
   padding: 0 18px 18px;
 }
-.sku-ignore-body > .toolbar { margin: 0; padding: 0; border-bottom: 0; }
 
 /* ── 營運統計 ────────────────────────────────────────────────────────────
    這一頁的主角是「比較」：篩選器固定在上方，KPI 先給結論，圖表再讓人追問
@@ -3195,14 +3185,6 @@
   font-variant-numeric: tabular-nums;
 }
 .manual-report-form { display: grid; gap: 16px; }
-.manual-report-filters {
-  align-items: center;
-  flex-wrap: wrap;
-}
-.manual-report-filters .filter-control input[type="date"],
-.manual-report-filters .filter-control input[type="month"] {
-  min-width: 150px;
-}
 .manual-report-import-form {
   flex: 1 1 auto;
   display: grid;
@@ -3471,19 +3453,6 @@
 .hr-payroll-job-card-foot { align-items: flex-start; color: var(--color-muted); font-size: 12px; }
 /* 錯誤是後端例外的原文，最長兩千字；不截的話一張卡就把整個面板撐滿。 */
 .hr-payroll-job-error { display: -webkit-box; min-width: 0; overflow: hidden; color: var(--color-brand-dark); overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; }
-.hr-payroll-record-filter { align-items: flex-end; }
-/* 原生 month input 會被日曆圖示的內距撐高；固定工具列控制項高度，避免月份欄比其他篩選器高。 */
-.hr-payroll-record-filter .filter-control > input {
-  box-sizing: border-box;
-  height: 34px;
-  min-height: 34px;
-}
-.hr-payroll-record-filter .filter-control > input[type="month"]::-webkit-calendar-picker-indicator { padding: 2px; }
-.hr-payroll-record-filter .search-input { flex: 1 1 220px; width: auto; min-width: 130px; }
-.hr-payroll-record-filter input:not(.search-input),
-.hr-payroll-record-filter .filter-select-control { flex: 1 1 150px; min-width: 130px; }
-.hr-payroll-record-filter input,
-.hr-payroll-record-filter select { min-width: 0; }
 .hr-payroll-record-table { min-width: 960px; }
 .hr-payroll-record-table th,
 .hr-payroll-record-table td { vertical-align: middle; }
@@ -3628,7 +3597,6 @@
 }
 .hr-payroll-select-cell input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-payroll-adjustments-panel { display: grid; gap: 14px; }
-.hr-payroll-adjustment-filter { align-items: flex-end; }
 .hr-payroll-adjustments-table-region { position: relative; min-width: 0; }
 .page.fills > .panel.grows > .hr-payroll-adjustments-table-region {
   display: flex;
@@ -3707,9 +3675,6 @@
   .hr-payroll-mobile-select-all { flex: none; }
   .hr-payroll-job-card-head,
   .hr-payroll-job-card-foot { align-items: flex-start; flex-direction: column; }
-  .hr-payroll-record-filter .search-input,
-  .hr-payroll-record-filter input:not(.search-input),
-  .hr-payroll-record-filter .filter-select-control { flex-basis: 100%; }
   .hr-payroll-record-table { min-width: 0; }
   .hr-payroll-adjustment-table { min-width: 0; }
   .hr-payroll-adjustment-table td[data-label="原因"] { max-width: none; }

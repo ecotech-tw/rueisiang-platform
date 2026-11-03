@@ -593,13 +593,13 @@ export function HrRequestCenter() {
     {employees.error || leaveTypes.error || workers.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message ?? workers.error?.message}</Alert> : null}
     <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登（正式員工與支援人員）及正式員工前台產生的申請；待審核資料可直接在此處理。">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
-      <FilterToolbar className="hr-request-toolbar">
+      <FilterToolbar>
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
         <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[761px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選{activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}</Button>
         {activeFilterCount ? <Button variant="link" onClick={() => updateFilters({ kind: "all", status: "all" })}>清除篩選</Button> : null}
         <div className={`filter-fields${showFilters ? " open" : ""}`}>
-          <FilterSelect label="申請類型" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
-          <FilterSelect label="狀態" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
+          <FilterSelect label="申請類型" className="min-[761px]:flex-[0_1_190px] max-[760px]:flex-[1_1_100%] max-[760px]:w-full" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
+          <FilterSelect label="狀態" className="min-[761px]:flex-[0_1_190px] max-[760px]:flex-[1_1_100%] max-[760px]:w-full" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
         </div>
       </FilterToolbar>
       {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}

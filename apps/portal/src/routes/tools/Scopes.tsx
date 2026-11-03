@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 
 /**
  * 通路管理。
@@ -254,10 +254,10 @@ export function Scopes() {
       />
 
       <Panel className="grows">
-        <form className="admin-form toolbar" onSubmit={(event) => event.preventDefault()}>
+        <FilterToolbar>
           <FilterInput
             label="搜尋"
-            className="search-input"
+            className={SEARCH_INPUT_WIDTH}
             type="search"
             placeholder="搜尋通路名稱、外部店名或來源"
             value={search}
@@ -280,7 +280,7 @@ export function Scopes() {
             onChange={(event) => { setKindFilter(event.target.value); setPage(1); }}
             options={[{ value: "all", label: "全部種類" }, ...KIND_OPTIONS.map((kind) => ({ value: kind.value, label: kind.label }))]}
           />
-        </form>
+        </FilterToolbar>
 
         {saveScope.error ? <Alert tone="danger">{saveScope.error.message}</Alert> : null}
         {archiveScope.error ? <Alert tone="danger">{archiveScope.error.message}</Alert> : null}

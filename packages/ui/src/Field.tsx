@@ -1,27 +1,43 @@
 import type { ChangeEventHandler, InputHTMLAttributes, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { DropdownSelect, type DropdownSelectMultipleChangeEvent } from "./DropdownSelect.js";
+import { defaultUnless } from "./class-defaults.js";
 import { GLASS_FIELD, useInputSkin } from "./InputSkin.js";
 
 const GLASS_TYPES = new Set(["date", "month", "datetime-local"]);
 
-const INPUT_BASE = "min-h-(--size-field) min-w-0 rounded-[10px] border px-3 py-2.5 text-ink disabled:cursor-not-allowed disabled:text-muted focus-visible:outline-2 focus-visible:outline-secondary";
+const INPUT_BASE = "border text-ink disabled:cursor-not-allowed disabled:text-muted focus-visible:outline-2 focus-visible:outline-secondary";
+
+// sm 是工具列與行內編輯用的精簡尺寸，高度跟 size="sm" 的下拉一致。
+const INPUT_SIZE = {
+  md: "min-h-(--size-field) rounded-[10px] px-3 py-2.5",
+  sm: "rounded-[9px] px-2.5 py-[7px]",
+} as const;
 
 const INPUT_SKIN = {
   solid: "border-line bg-paper disabled:bg-soft-line focus-visible:outline-offset-1",
-  glass: `${GLASS_FIELD} [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:rounded-full [&::-webkit-calendar-picker-indicator]:bg-brand/12 [&::-webkit-calendar-picker-indicator]:p-1.5`,
+  glass: `${GLASS_FIELD} [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:rounded-full [&::-webkit-calendar-picker-indicator]:bg-brand/12`,
 } as const;
 
-interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
+// 日曆圖示的內距會把日期欄撐高；精簡尺寸要縮小它，才會跟同一列的搜尋框、下拉一樣高。
+const GLASS_PICKER_PADDING = {
+  md: "[&::-webkit-calendar-picker-indicator]:p-1.5",
+  sm: "[&::-webkit-calendar-picker-indicator]:p-0.5",
+} as const;
+
+export type InputSize = keyof typeof INPUT_SIZE;
+
+interface InputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "size"> {
   ref?: Ref<HTMLInputElement>;
-  /** 只放版面用途（寬度、伸縮、右側留給圖示的空間）。 */
+  size?: InputSize;
+  /** 只放版面用途（寬度、伸縮、右側留給圖示的空間）。給了 min-w-* 就取代預設的 min-w-0。 */
   className?: string;
 }
 
 /** 單行輸入框。勾選框與單選鈕不要用它，它們沒有外框與內距。 */
-export function Input({ className = "", type, ...props }: InputProps) {
+export function Input({ className = "", type, size = "md", ...props }: InputProps) {
   const skin = useInputSkin();
-  const look = skin === "glass" && type && GLASS_TYPES.has(type) ? INPUT_SKIN.glass : INPUT_SKIN.solid;
-  return <input {...props} type={type} className={`${INPUT_BASE} ${look} ${className}`.trim()} />;
+  const look = skin === "glass" && type && GLASS_TYPES.has(type) ? `${INPUT_SKIN.glass} ${GLASS_PICKER_PADDING[size]}` : INPUT_SKIN.solid;
+  return <input {...props} type={type} className={`${INPUT_BASE} ${defaultUnless(className, "min-w-", "min-w-0")} ${INPUT_SIZE[size]} ${look} ${className}`.trim()} />;
 }
 
 interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -32,10 +48,7 @@ interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
 
 /** 多行輸入框。滑鼠點進去也顯示外框：打字的地方比較大，看不出焦點在哪一格。 */
 export function Textarea({ className = "", ...props }: TextareaProps) {
-  // 兩個 min-h 同時出現時誰贏要看產生順序，所以呼叫端的高度要整組取代預設值，不能疊上去。
-  // 帶前綴的（sm:min-h-40）不算：Tailwind 一律把有 variant 的排在後面，疊上去本來就是它贏。
-  const minHeight = /(^|\s)min-h-/.test(className) ? "" : "min-h-24";
-  return <textarea {...props} className={`${minHeight} w-full resize-y rounded-(--radius-field) border border-line bg-paper px-3 py-2.5 text-ink focus:outline-2 focus:outline-offset-1 focus:outline-secondary ${className}`.trim()} />;
+  return <textarea {...props} className={`${defaultUnless(className, "min-h-", "min-h-24")} w-full resize-y rounded-(--radius-field) border border-line bg-paper px-3 py-2.5 text-ink focus:outline-2 focus:outline-offset-1 focus:outline-secondary ${className}`.trim()} />;
 }
 
 // 寫成完整的 class 字串，Tailwind 才掃得到；同一個屬性只留一個 utility，不靠產生順序決勝負。
@@ -93,7 +106,7 @@ export function FieldHint({ tone = "muted", children }: { tone?: "muted" | "dang
 
 type FieldLayoutProps = Pick<FieldProps, "label" | "required" | "hint" | "error" | "className" | "gap" | "stackedLabel">;
 
-interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "className">, FieldLayoutProps {
+interface TextFieldProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "className" | "size">, FieldLayoutProps {
   inputClassName?: string;
 }
 
