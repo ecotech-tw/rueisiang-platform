@@ -526,7 +526,6 @@
 .page.fills > .panel.grows > .panel-head,
 .page.fills > .panel.grows > .manual-report-toolbar,
 .page.fills > .panel.grows > .muted,
-.page.fills > .panel.grows > .admin-form,
 .page.fills > .panel.grows > .table-note { flex: none; }
 .page.fills > .panel.grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
 
