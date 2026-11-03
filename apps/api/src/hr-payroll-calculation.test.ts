@@ -2173,6 +2173,32 @@ describe("HR 薪資與櫃點獎金試算", () => {
     ]));
   });
 
+  it("月休差額已補休假日底薪時，特殊上班日倍率只補足到約定總額", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "月休差額與休假日倍率測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", monthlyRestDays: 10, revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+    const scheduleResponse = await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen");
+    const schedule = await scheduleResponse.json() as { shifts: Array<{ versionId: string }> };
+    const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: Array.from({ length: 20 }, (_, index) => ({ personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: schedule.shifts[0]!.versionId, workDate: `2026-09-${String(index + 1).padStart(2, "0")}` })) });
+    expect(saved.status, await saved.clone().text()).toBe(200);
+    const rule = await request("/hr/special-workdays/rules", "POST", { name: "月休抵扣測試", validFrom: "2026-09-01", wageKind: "multiplier", multiplierPpm: 1_800_000, overtimeRules: [], allowances: [] });
+    expect(rule.status, await rule.clone().text()).toBe(201);
+    const ruleBody = await rule.json() as { id: string };
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: ruleBody.id, assignments: [{ employmentId: "dev-employment-chen", workDate: "2026-09-27", allowanceQuantities: [] }] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-rest-adjustment-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: { formulaDetail?: string } }> }> } };
+    const employee = body.run.employees[0]!;
+    expect(employee.earningMinor).toBe(3_180_000);
+    expect(employee.lines).toEqual(expect.arrayContaining([
+      expect.objectContaining({ lineKey: "monthly_rest_adjustment", amountMinor: 100_000 }),
+      expect.objectContaining({ lineKey: "special_workday", amountMinor: 80_000, explanation: expect.objectContaining({ formulaDetail: expect.stringContaining("2026-09-27・月休抵扣測試：floor(NT$ 1,000 × 180%) − NT$ 1,000") }) }),
+    ]));
+  });
+
   it("特殊上班日補貼依規則名稱與補貼項目分開列示", async () => {
     const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "monthly", baseAmountMinor: 3_000_000, note: "特殊日補貼項目測試" });
     expect(compensation.status, await compensation.clone().text()).toBe(201);

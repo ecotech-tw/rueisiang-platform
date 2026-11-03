@@ -1844,6 +1844,18 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       .map((key) => key.slice(employee.employmentId.length + 1))
       .filter((date) => scheduleUnitsForDate(date) > 0));
     const specialDates = new Set(specialAssignments.map((item) => item.workDate));
+    const allEmploymentDaysMonthly = employmentDays.length > 0 && employmentDays.every((day) => covering(employeeCompensations, day)?.payBasis === "monthly");
+    const monthlyRestAdjustment = allEmploymentDaysMonthly
+      ? resolveMonthlyRestWorkdayAdjustment(employee, employmentDaySet, scheduledDates, specialDates)
+      : null;
+    // 月休差額按超額工作日補發基薪；把該差額涵蓋的休假日特殊出勤視為已含一日薪，避免再發一次完整倍率。
+    const specialRestDates = [...specialDates].filter((date) => !scheduledDates.has(date) && dayTypes.get(date) !== "weekday").sort();
+    const monthlyRestPaidSpecialDates = new Set<string>();
+    if (monthlyRestAdjustment && monthlyRestAdjustment.deltaDays > 0) {
+      const scheduledOverage = Math.max(0, scheduledDates.size - monthlyRestAdjustment.expectedWorkDays);
+      const extraSpecialDays = Math.min(specialRestDates.length, Math.max(0, monthlyRestAdjustment.deltaDays - scheduledOverage));
+      for (const date of specialRestDates.slice(0, extraSpecialDays)) monthlyRestPaidSpecialDates.add(date);
+    }
     const addBaseAmount = (compensation: (typeof employeeCompensations)[number], amount: number, hours = 0, units = 1) => {
       if (amount <= 0) return;
       baseMinor += amount;
@@ -1898,7 +1910,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const typhoonRowsForDay = typhoonRowsForDate(day, scheduledRowsForDay);
       const typhoonStop = typhoonStopDateSet.has(day) && !special;
       if (special) {
-        // 特殊出勤倍率是當日應發總額；平日底薪已含在本薪中，週末／假日僅原排班薪資可抵扣。
+        // 特殊出勤倍率是當日應發總額；平日底薪已含於本薪，週末／假日若原排班或月休差額已補基薪才抵扣。
         let hours = 0;
         if (special.workSourceSnapshot === "hourly") {
           const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
@@ -1916,7 +1928,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
             ? scheduleAllocations.length ? allocateDailyAmount(Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)) : Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
             : compensation.payBasis === "daily" ? allocateDailyAmount(compensation.baseAmountMinor) : Math.round(compensation.baseAmountMinor * hours);
           const specialAmount = Math.round(special.fixedAmountMinorSnapshot * hours);
-          const includedBase = dayTypes.get(day) === "weekday" || scheduledRowsForDay.length > 0 ? dailyBase : 0;
+          const includedBase = dayTypes.get(day) === "weekday" || scheduledDates.has(day) || monthlyRestPaidSpecialDates.has(day) ? dailyBase : 0;
           addBaseAmount(compensation, includedBase, compensation.payBasis === "hourly" ? hours : 0, compensation.payBasis === "daily" || compensation.payBasis === "monthly" && scheduleAllocations.length ? payableDailyUnits : 1);
           const adjustment = specialAmount - includedBase;
           specialAdjustmentMinor += adjustment;
@@ -1926,7 +1938,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
             ? scheduleAllocations.length ? allocateDailyAmount(Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)) : Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
             : compensation.payBasis === "daily" ? allocateDailyAmount(compensation.baseAmountMinor) : Math.round(compensation.baseAmountMinor * hours);
           const specialAmount = Math.floor(dailyBase * special.multiplierPpmSnapshot / PPM);
-          const includedBase = dayTypes.get(day) === "weekday" || scheduledRowsForDay.length > 0 ? dailyBase : 0;
+          const includedBase = dayTypes.get(day) === "weekday" || scheduledDates.has(day) || monthlyRestPaidSpecialDates.has(day) ? dailyBase : 0;
           addBaseAmount(compensation, includedBase, compensation.payBasis === "hourly" ? hours : 0, compensation.payBasis === "daily" || compensation.payBasis === "monthly" && scheduleAllocations.length ? payableDailyUnits : 1);
           const adjustment = specialAmount - includedBase;
           specialAdjustmentMinor += adjustment;
@@ -2028,13 +2040,9 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     // 只在月薪涵蓋整段在職日時回推月薪，避免逐日 floor 造成少幾分；薪資版本若從到職日才生效也要走同一條規則。
     const fullMonthComp = covering(employeeCompensations, period.start) ?? covering(employeeCompensations, employmentDays[0] ?? period.start);
     const monthlyCompensationSegments = new Map<string, { compensation: (typeof employeeCompensations)[number]; employedDays: number }>();
-    let allEmploymentDaysMonthly = employmentDays.length > 0;
     for (const day of employmentDays) {
       const compensation = covering(employeeCompensations, day);
-      if (!compensation || compensation.payBasis !== "monthly") {
-        allEmploymentDaysMonthly = false;
-        break;
-      }
+      if (!compensation || compensation.payBasis !== "monthly") continue;
       const segment = monthlyCompensationSegments.get(compensation.id);
       if (segment) segment.employedDays += 1;
       else monthlyCompensationSegments.set(compensation.id, { compensation, employedDays: 1 });
@@ -2082,9 +2090,6 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
         }
       }
     }
-    const monthlyRestAdjustment = allEmploymentDaysMonthly
-      ? resolveMonthlyRestWorkdayAdjustment(employee, employmentDaySet, scheduledDates, specialDates)
-      : null;
     const monthlyRestDailyAmount = monthlyRestAdjustment
       ? Math.floor(employmentDays.reduce((sum, day) => {
         const compensation = covering(employeeCompensations, day);
