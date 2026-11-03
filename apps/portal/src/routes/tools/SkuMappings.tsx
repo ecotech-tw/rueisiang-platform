@@ -11,9 +11,10 @@ import {
   FilterSelect,
   FilterToolbar,
   PageHeader,
-  SEARCH_INPUT_WIDTH,
   Panel,
+  SEARCH_INPUT_WIDTH,
   SelectField,
+  StatusBadge,
   TextField,
 } from "../../ui/index.js";
 import {
@@ -113,7 +114,7 @@ export function SkuMappings() {
               <tbody>
                 {unmappedProducts.map((product) => (
                   <tr key={`${product.channel}:${product.externalSku}`}>
-                    <td data-label="通路"><span className="status status-tone-amber">{productSkuChannelLabel(product.channel)}</span></td>
+                    <td data-label="通路"><StatusBadge palette="amber">{productSkuChannelLabel(product.channel)}</StatusBadge></td>
                     <td data-label="外部商品"><span className="cell-strong">{product.externalName || "未提供名稱"}</span><small className="cell-sub"><code>{product.externalSku}</code></small></td>
                     <td data-label="最近出現" className="cell-sub">{formatTime(product.lastSeenAt)}</td>
                     <td data-label="資料列" className="numeric">{product.rowCount.toLocaleString("zh-TW")}</td>
@@ -183,7 +184,7 @@ export function SkuMappings() {
         {ignores.length ? (
           <div className="row-actions">
             {ignores.map((ignore) => (
-              <span className="status status-tone-slate" key={ignore.id}>
+              <StatusBadge palette="slate" key={ignore.id}>
                 {productSkuChannelLabel(ignore.channel)} · {ignore.externalSku}
                 {ignore.reason ? `（${ignore.reason}）` : ""}
                 <Button
@@ -196,7 +197,7 @@ export function SkuMappings() {
                 >
                   取消
                 </Button>
-              </span>
+              </StatusBadge>
             ))}
           </div>
         ) : <p className="cell-sub">目前沒有標記任何 SKU。</p>}
@@ -245,7 +246,7 @@ export function SkuMappings() {
             <tbody>
               {pagedVisible.map((mapping) => (
                 <tr key={mapping.id}>
-                  <td data-label="通路"><span className="status status-tone-slate">{productSkuChannelLabel(mapping.channel)}</span></td>
+                  <td data-label="通路"><StatusBadge palette="slate">{productSkuChannelLabel(mapping.channel)}</StatusBadge></td>
                   <td data-label="通路商品">
                     <div className="cell-strong">{mapping.externalName || "未設定通路商品名稱"}</div>
                   </td>
@@ -254,7 +255,7 @@ export function SkuMappings() {
                     {mapping.components.map((component) => (
                       <div className="cell-sub" key={component.itemId}>
                         {component.sku} × {component.quantity}
-                        {component.source === "custom" ? <span className="status status-tone-slate">舊自訂</span> : null}
+                        {component.source === "custom" ? <StatusBadge palette="slate">舊自訂</StatusBadge> : null}
                       </div>
                     ))}
                   </td>

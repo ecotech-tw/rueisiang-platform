@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, DropdownSelect, EmptyState, Field, Input } from "../../ui/index.js";
+import { Alert, Button, DropdownSelect, EmptyState, Field, Input, StatusBadge } from "../../ui/index.js";
 import { useHrSandboxEmployees, type HrSandboxEmployee } from "./api.js";
 
 export function hrSandboxEmployeeLabel(employee: HrSandboxEmployee): string {
@@ -26,7 +26,7 @@ export function HrImpersonation({ employee, bindingConfigured, disabled, onChang
           <h3>模擬員工本人</h3>
           <p className="muted">僅平台管理者可用。選了員工，HR 工具才會送給模型；不選就是一般 Sandbox。切換或清除對話會取消選取。</p>
         </div>
-        {employee ? <span className="status status-active">模擬中</span> : null}
+        {employee ? <StatusBadge tone="success">模擬中</StatusBadge> : null}
       </div>
       {/* 設定欄只有四百多 px，並排會把「姓名（編號）· 狀態」截斷，看不出選到誰。 */}
       <div className="grid gap-3">

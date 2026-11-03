@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 /**
  * 倉儲的操作紀錄。
@@ -50,6 +50,11 @@ const ENTITY_LABEL: Record<string, string> = {
   cyberbiz_product_category: "CYBERBIZ 商品分類",
   layout_element: "地圖標示",
   warehouse: "倉庫設定",
+};
+
+const SOURCE_TONE: Record<string, StatusTone> = {
+  cyberbiz_webhook: "info",
+  cyberbiz_sync: "success",
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -232,9 +237,9 @@ export function Activity() {
                   <td data-label="操作者" className="cell-sub">
                     <div>{event.actorType === "system" ? "系統" : (event.actorEmail ?? "—")}</div>
                     {event.source !== "wms" ? (
-                      <span className={`status status-source-${event.source}`}>
+                      <StatusBadge tone={SOURCE_TONE[event.source]}>
                         {SOURCE_LABEL[event.source] ?? event.source}
-                      </span>
+                      </StatusBadge>
                     ) : null}
                   </td>
                 </tr>

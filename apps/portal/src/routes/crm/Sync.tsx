@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 interface SyncStatus {
   configured: boolean;
@@ -42,6 +42,13 @@ interface SyncProgress {
   done: boolean;
   stopped: boolean;
 }
+
+const WEBHOOK_TONE: Record<string, StatusTone> = {
+  processed: "success",
+  ignored: "neutral",
+  failed: "danger",
+  processing: "warning",
+};
 
 const STATUS_LABEL: Record<string, string> = {
   processed: "已處理",
@@ -272,9 +279,9 @@ export function Sync() {
                   <td className="cell-sub whitespace-nowrap">{formatTime(event.receivedAt)}</td>
                   <td className="whitespace-nowrap">{event.topic}</td>
                   <td>
-                    <span className={`status status-webhook-${event.status}`}>
+                    <StatusBadge tone={WEBHOOK_TONE[event.status]}>
                       {STATUS_LABEL[event.status] ?? event.status}
-                    </span>
+                    </StatusBadge>
                   </td>
                   <td className="cell-sub">{event.cyberbizCustomerId ?? "—"}</td>
                   <td className="cell-sub">

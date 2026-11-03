@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -101,7 +101,7 @@ function ItemRow({
       </td>
       <td data-label="分類">
         {/* 顏色沿用分類自己的設定，跟分類管理頁看到的一致。 */}
-        <span className={`status status-tone-${category?.color ?? "slate"}`}>{item.category}</span>
+        <StatusBadge palette={category?.color ?? "slate"}>{item.category}</StatusBadge>
       </td>
       <td data-label="位置" className="whitespace-nowrap">{placeOf(item, zones)}</td>
       {/*
@@ -116,20 +116,20 @@ function ItemRow({
       </td>
       <td data-label="安全庫存" className="numeric cell-sub">{Number(item.minStock ?? 0).toLocaleString("zh-TW")}</td>
       <td data-label="狀態">
-        {low ? <span className="status status-sync-failed">需要補貨</span> : <span className="status quiet">正常</span>}
+        {low ? <StatusBadge tone="danger">需要補貨</StatusBadge> : <StatusBadge quiet>正常</StatusBadge>}
         {/*
           * 有官網鏡像才顯示，沒有鏡像不顯示「未連結」——大部分自訂品項本來就不連，
           * 每一列都掛一個「未連結」只是把整欄變成雜訊。官網目錄同步失敗才要跳出來。
           */}
         {item.cyberbiz ? (
-          <span
-            className={`status ${item.cyberbiz.syncStatus === "failed" ? "status-sync-failed" : "status-sync-synced"}`}
+          <StatusBadge
+            tone={item.cyberbiz.syncStatus === "failed" ? "danger" : "success"}
             title={`已連結 CYBERBIZ 款式 ${item.cyberbiz.cyberbizVariantId}`}
           >
             {item.cyberbiz.syncStatus === "failed" ? "目錄同步失敗" : "CYBERBIZ"}
-          </span>
+          </StatusBadge>
         ) : item.source === "cyberbiz" ? (
-          <span className="status status-sync-synced" title="品項主檔由 cyberbiz_products 同步">CYBERBIZ</span>
+          <StatusBadge tone="success" title="品項主檔由 cyberbiz_products 同步">CYBERBIZ</StatusBadge>
         ) : null}
       </td>
       {canWrite || canCount || canSync ? (

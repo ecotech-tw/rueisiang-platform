@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 interface EventRow {
   id: string;
@@ -34,6 +34,12 @@ interface Filters {
 }
 
 const DEFAULTS: Filters = { search: "", source: "all", page: 1, pageSize: 25 };
+
+const SOURCE_TONE: Record<string, StatusTone> = {
+  crm: "neutral",
+  cyberbiz_webhook: "info",
+  cyberbiz_sync: "success",
+};
 
 const SOURCE_LABEL: Record<string, string> = {
   crm: "本系統",
@@ -148,9 +154,9 @@ export function Activity() {
                     {event.actorType === "system" ? "系統" : (event.actorEmail ?? "—")}
                   </td>
                   <td>
-                    <span className={`status status-source-${event.source}`}>
+                    <StatusBadge tone={SOURCE_TONE[event.source]}>
                       {SOURCE_LABEL[event.source] ?? event.source}
-                    </span>
+                    </StatusBadge>
                   </td>
                 </tr>
               ))}

@@ -779,7 +779,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .hr-insurance-estimate-total strong { font-size: 17px; }
 
 /* 級距維護：輸入欄位保持表格密度，手機則沿用 data-label 卡片排版。 */
-.hr-system .status-manual { background: var(--color-warn-soft); color: var(--color-warn); }
 .hr-system .hr-rate-management-intro { display: grid; gap: 8px; padding-inline: 4px; }
 .hr-system .hr-rate-management-intro strong { color: var(--color-ink); font-size: 14px; }
 .hr-system .hr-rate-management-intro p { margin: 0; color: var(--color-muted); font-size: 12px; line-height: 1.7; }

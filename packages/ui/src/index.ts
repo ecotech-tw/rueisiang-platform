@@ -12,7 +12,7 @@ export {
   type DropdownSelectProps,
   type DropdownSelectSingleProps,
 } from "./DropdownSelect.js";
-export { Alert, StatusBadge } from "./Feedback.js";
+export { Alert, StatusBadge, type StatusTone } from "./Feedback.js";
 export { SearchCombobox, type SearchComboboxProps } from "./Combobox.js";
 export { Field, FieldHint, Input, SelectField, Textarea, TextField } from "./Field.js";
 export { InputSkin } from "./InputSkin.js";

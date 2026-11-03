@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input, InputSkin, SearchCombobox, SegmentedControl, SelectField, SelectionActionBar, Textarea, TextField, Tooltip } from "@rueisiang/ui";
+import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input, InputSkin, SearchCombobox, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, Textarea, TextField, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -205,6 +205,25 @@ describe("shared HRIS UI contracts", () => {
     // 兩個字級同時出現時誰贏要看產生順序，所以 compact 必須取代 13px，不能疊上去。
     expect(compact).not.toContain("text-[13px]");
     expect([...normal, ...compact].filter((name) => /^-?m[tbxylr]?-/.test(name))).toEqual([]);
+  });
+
+  it("StatusBadge 跟 Alert 用同一組色調，色階與 quiet 整組取代 tone", () => {
+    const classes = (markup: string) => (markup.match(/^<span class="([^"]*)"/)?.[1] ?? "").split(/\s+/);
+    const colors = (names: string[]) => names.filter((name) => /^(bg|text)-(?!\[)/.test(name)).sort();
+    const danger = classes(renderToStaticMarkup(<StatusBadge tone="danger">失敗</StatusBadge>));
+    const alert = (renderToStaticMarkup(<Alert tone="danger">失敗</Alert>).match(/^<div class="([^"]*)"/)?.[1] ?? "").split(/\s+/);
+    expect(colors(danger)).toEqual(colors(alert).filter((name) => name !== "text-[13px]"));
+    expect(danger).toContain("font-bold");
+
+    const quiet = classes(renderToStaticMarkup(<StatusBadge tone="danger" quiet>正常</StatusBadge>));
+    expect(colors(quiet)).toEqual(["bg-soft-line", "text-muted"]);
+    expect(quiet).toContain("font-medium");
+    expect(quiet).not.toContain("font-bold");
+
+    const palette = classes(renderToStaticMarkup(<StatusBadge tone="success" palette="sky">包材</StatusBadge>));
+    expect(colors(palette)).toEqual(["bg-tone-sky/12", "text-tone-sky"]);
+    // 後端擋掉不認得的色階，但舊資料或前端漏補時不能變成沒有底色的裸字。
+    expect(colors(classes(renderToStaticMarkup(<StatusBadge palette="unknown">舊</StatusBadge>)))).toEqual(["bg-tone-slate/12", "text-tone-slate"]);
   });
 
   it("EmptyState 的內距由 size 決定，外距交給呼叫端", () => {

@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterToolbar, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterToolbar, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import {
   WAREHOUSE_CATEGORY_COLORS,
   useCreateWarehouseCategory,
@@ -112,7 +112,7 @@ export function Categories() {
                 return (
                   <tr key={category.id}>
                     <td data-label="分類">
-                      <span className={`status status-tone-${category.color}`}>{category.name}</span>
+                      <StatusBadge palette={category.color}>{category.name}</StatusBadge>
                     </td>
                     <td data-label="使用中的商品" className="numeric">{count}</td>
                     {canWrite ? (

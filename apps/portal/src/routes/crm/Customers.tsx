@@ -14,7 +14,12 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput } from "../../ui/index.js";
+import { Alert, Button, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone } from "../../ui/index.js";
+
+const SYNC_TONE: Record<string, StatusTone> = {
+  synced: "success",
+  failed: "danger",
+};
 
 const SYNC_LABEL: Record<string, string> = {
   synced: "已同步",
@@ -75,10 +80,10 @@ function CustomerRow({
       <td data-label="電話" className="whitespace-nowrap">{customer.phone}</td>
       <td data-label="地址" className="cell-sub">{customer.address || "—"}</td>
       <td data-label="狀態">
-        <span className={customer.cyberbizCustomerId ? `status status-sync-${customer.syncStatus}` : "status quiet"}>
+        <StatusBadge tone={customer.cyberbizCustomerId ? SYNC_TONE[customer.syncStatus] : undefined} quiet={!customer.cyberbizCustomerId}>
           {customer.cyberbizCustomerId ? (SYNC_LABEL[customer.syncStatus] ?? customer.syncStatus) : "僅本地"}
-        </span>
-        {customer.status === "blocked" ? <span className="status status-disabled">已封鎖</span> : null}
+        </StatusBadge>
+        {customer.status === "blocked" ? <StatusBadge tone="danger">已封鎖</StatusBadge> : null}
       </td>
       <td data-label="最近更新" className="cell-sub whitespace-nowrap">{formatDate(customer.updatedAt)}</td>
       {canWrite || canBlock ? (

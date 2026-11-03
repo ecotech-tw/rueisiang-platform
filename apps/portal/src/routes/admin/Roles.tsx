@@ -2,7 +2,7 @@ import type { Permission } from "@rueisiang/auth/permissions";
 import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useCatalog,
   useCreateRole,
@@ -151,9 +151,9 @@ export function Roles() {
                     {role.description ? <div className="cell-sub">{role.description}</div> : null}
                   </td>
                   <td>
-                    <span className={`status ${role.key === PROTECTED_ROLE_KEY ? "status-invited" : "status-active"}`}>
+                    <StatusBadge tone={role.key === PROTECTED_ROLE_KEY ? "neutral" : "success"}>
                       {role.key === PROTECTED_ROLE_KEY ? "系統內建" : "自訂"}
-                    </span>
+                    </StatusBadge>
                   </td>
                   <td className="numeric">{role.permissions.length}</td>
                   <td className="numeric">{catalog.data?.holders[role.key] ?? 0}</td>

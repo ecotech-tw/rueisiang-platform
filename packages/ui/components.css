@@ -76,62 +76,6 @@
   font-size: 12px;
 }
 
-.status {
-  display: inline-block;
-  padding: 2px 9px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-/* 保留尚未遷移頁面的狀態 class，避免 shared primitive 抽離後整個 portal 失去色調。 */
-.status-active,
-.status-enabled {
-  background: var(--color-ok-soft);
-  color: var(--color-ok);
-}
-
-.status-development {
-  background: var(--color-warn-soft);
-  color: var(--color-warn);
-}
-
-.status-invited {
-  background: var(--color-soft-line);
-  color: var(--color-muted);
-}
-
-.status-disabled {
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-}
-
-.ui-status-success {
-  background: var(--color-ok-soft);
-  color: var(--color-ok);
-}
-
-.ui-status-info {
-  background: var(--color-info-soft);
-  color: var(--color-info);
-}
-
-.ui-status-warning {
-  background: var(--color-warn-soft);
-  color: var(--color-warn);
-}
-
-.ui-status-danger {
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-}
-
-.ui-status-neutral {
-  background: var(--color-soft-line);
-  color: var(--color-muted);
-}
-
 @media (prefers-reduced-motion: reduce) {
   .data-table tbody tr {
     transition: none;
@@ -420,8 +364,6 @@
    * 下面那些具名的 order 是「刻意調整過順序」的例外，不是必填項目。
    */
   .data-table td { order: 10; }
-  /* 同一格裡有兩個標記（例如「已同步」＋「已封鎖」）時要能並排。 */
-  .data-table td > .status + .status { margin-left: 6px; }
   /*
    * 頁首壓扁：標題與動作鈕排同一行，動作鈕縮成一顆圓形的圖示。
    *

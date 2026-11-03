@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
@@ -303,9 +303,9 @@ export function Items() {
                     <div className="cell-strong">{item.name}</div>
                     <div className="cell-sub">{item.sku || "沒有 SKU"}</div>
                   </td>
-                  <td data-label="來源"><span className="status quiet">{sourceLabel(item)}</span></td>
-                  <td data-label="用途"><span className="status quiet">{kindLabel(item)}</span></td>
-                  <td data-label="分類"><span className={`status status-tone-${group.color}`}>{group.label}</span></td>
+                  <td data-label="來源"><StatusBadge quiet>{sourceLabel(item)}</StatusBadge></td>
+                  <td data-label="用途"><StatusBadge quiet>{kindLabel(item)}</StatusBadge></td>
+                  <td data-label="分類"><StatusBadge palette={group.color}>{group.label}</StatusBadge></td>
                   <td data-label="倉儲庫存" className="numeric">{item.inWarehouse && item.quantity !== null ? item.quantity.toLocaleString("zh-TW") : "—"} <span className="cell-sub">{item.unit}</span></td>
                   <td data-label="安全庫存" className="numeric cell-sub">{item.inWarehouse && item.minStock !== null ? item.minStock.toLocaleString("zh-TW") : "—"}</td>
                   {canWrite ? (

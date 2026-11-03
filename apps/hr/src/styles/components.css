@@ -576,7 +576,6 @@
   .hr-form-request-card { gap: 11px; padding: 13px; border-radius: 14px; }
   .hr-form-request-title { align-items: flex-start; gap: 8px; }
   .hr-form-request-title strong { min-width: 0; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
-  .hr-form-request-title .status { flex: none; }
   .hr-form-request-card > p { margin: 0; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
   .hr-form-request-actions,
   .hr-form-review-actions { display: grid; grid-template-columns: 1fr; gap: 8px; }
