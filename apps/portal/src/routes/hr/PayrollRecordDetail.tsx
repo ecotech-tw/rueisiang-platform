@@ -119,7 +119,8 @@ export function groupSpecialAllowanceLines(lines: PayrollLine[]): PayrollLine[] 
       groupedLines.push(line);
       continue;
     }
-    const key = JSON.stringify([line.direction, ruleName, itemNames]);
+    const displayLabelKey = payrollLineLabel(line).normalize("NFKC").replace(/\s+/g, " ").trim();
+    const key = JSON.stringify([line.direction, displayLabelKey]);
     const existingIndex = groupedIndexes.get(key);
     if (existingIndex === undefined) {
       groupedIndexes.set(key, groupedLines.length);
