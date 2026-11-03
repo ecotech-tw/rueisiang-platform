@@ -93,28 +93,6 @@ const DEFAULT_SALES_FILTERS: ManualSalesQuery = {
 // 舊人工報表可能保留已刪除的分類名稱；這個值只存在表單狀態，不會送到 API。
 const LEGACY_CATEGORY_OPTION = "__legacy_category__";
 
-function ManualCombo<T>({
-  items,
-  value,
-  onChange,
-  placeholder,
-  emptyLabel,
-  itemToStringLabel,
-  renderItem,
-  disabled = false,
-}: {
-  items: T[];
-  value: T | null;
-  onChange: (item: T | null) => void;
-  placeholder: string;
-  emptyLabel: string;
-  itemToStringLabel: (item: T | null) => string;
-  renderItem: (item: T) => React.ReactNode;
-  disabled?: boolean;
-}) {
-  return <SearchCombobox items={items} value={value} onValueChange={onChange} itemToStringLabel={itemToStringLabel} renderItem={renderItem} placeholder={placeholder} emptyLabel={emptyLabel} disabled={disabled} />;
-}
-
 function ErrorMessage({ error }: { error: Error | null | undefined }) {
   return error ? <Alert tone="danger">{error.message}</Alert> : null;
 }
@@ -318,10 +296,11 @@ function ManualReportDialog({
             {skuSource === "cyberbiz" ? (
               <>
                 <Field as="div" label="CYBERBIZ SKU" required>
-                  <ManualCombo
+                  <SearchCombobox
+                    label="CYBERBIZ SKU"
                     items={productOptions}
                     value={productOptions.find((product) => product.sku === sku) ?? null}
-                    onChange={(product) => {
+                    onValueChange={(product) => {
                       const nextSku = product?.sku ?? "";
                       setSku(nextSku);
                       setProductName(product?.name ?? nextSku);
@@ -352,10 +331,11 @@ function ManualReportDialog({
                   disabled={pending}
                 />
                 <Field as="div" label="商品分類">
-                  <ManualCombo
+                  <SearchCombobox
+                    label="商品分類"
                     items={categoryOptions}
                     value={selectedCategory}
-                    onChange={(option) => {
+                    onValueChange={(option) => {
                       const nextCategoryId = option?.id ?? "";
                       setCategoryId(nextCategoryId);
                       setCategory(nextCategoryId === LEGACY_CATEGORY_OPTION ? legacyCategory ?? "未分類" : option?.name ?? "未分類");

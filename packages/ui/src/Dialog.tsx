@@ -157,7 +157,7 @@ export function Dialog({
     <DialogContext.Provider value={{ onClose, requestClose: () => requestClose() }}>
       <div
         // 不 portal 時留在全頁容器裡，只蓋住那個容器，並疊在容器裡其他浮層之上。
-        className={`${portal ? "fixed z-60" : "absolute z-100"} inset-0 grid place-items-center ${compact ? "p-4 max-[620px]:p-2" : "p-6"} [transition-property:background-color] duration-180 ease-[ease-out] motion-reduce:animate-none motion-reduce:[transition:none] ${closing ? "pointer-events-none animate-none bg-ink/0" : "animate-dialog-backdrop-enter bg-ink/42"}`}
+        className={`${portal ? "fixed z-60" : "absolute z-100"} inset-0 grid place-items-center ${compact ? "p-4 max-[620px]:p-2" : "p-6"} bg-ink/42 motion-reduce:animate-none ${closing ? "pointer-events-none animate-dialog-backdrop-exit" : "animate-dialog-backdrop-enter"}`}
         role="presentation"
         onMouseDown={(event) => {
           if (event.target === event.currentTarget) requestClose();
@@ -165,7 +165,7 @@ export function Dialog({
       >
         <div className={scopeClass ? `contents ${scopeClass}` : "contents"}>
         <div
-          className={`flex origin-center flex-col overflow-hidden rounded-[28px] bg-paper shadow-dialog ${DIALOG_WIDTH[width]} ${compact ? "max-h-[calc(100dvh-32px)] max-[620px]:max-h-[calc(100dvh-16px)]" : "max-h-[calc(100vh-48px)]"} [transition-property:opacity,filter,transform] duration-180 ease-[ease-out] motion-reduce:animate-none motion-reduce:[transition:none] ${closing ? "animate-none opacity-0 [filter:blur(4px)] [transform:translateY(8px)_scale(.98)]" : "animate-dialog-card-enter opacity-100 [filter:blur(0)] [transform:translateY(0)_scale(1)]"} ${className}`.trim()}
+          className={`flex origin-center flex-col overflow-hidden rounded-[28px] bg-paper shadow-dialog ${DIALOG_WIDTH[width]} ${compact ? "max-h-[calc(100dvh-32px)] max-[620px]:max-h-[calc(100dvh-16px)]" : "max-h-[calc(100vh-48px)]"} motion-reduce:animate-none ${closing ? "animate-dialog-card-exit" : "animate-dialog-card-enter"} ${className}`.trim()}
           role={role}
           aria-modal="true"
           aria-labelledby={titleId}

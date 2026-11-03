@@ -51,11 +51,29 @@
   --shadow-dialog-footer: 0 -10px 20px --alpha(var(--color-ink) / 8%);
   --animate-dialog-backdrop-enter: dialog-backdrop-enter 150ms ease-out both;
   --animate-dialog-card-enter: dialog-card-enter 220ms cubic-bezier(0.2, 0, 0, 1) both;
+  /*
+   * 退場用動畫而不是 transition：關閉時進場動畫要同時拿掉，Chrome 把「動畫被移除」跟「屬性改變」
+   * 算在同一次樣式更新裡，transition 不會啟動，卡片會直接消失。換成另一段動畫就一定播得出來。
+   */
+  --animate-dialog-backdrop-exit: dialog-backdrop-exit 180ms ease-out both;
+  --animate-dialog-card-exit: dialog-card-exit 180ms ease-out both;
   --font-sans: Inter, "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
 
   @keyframes dialog-backdrop-enter {
     from { background-color: --alpha(var(--color-ink) / 0%); }
     to { background-color: --alpha(var(--color-ink) / 42%); }
+  }
+
+  @keyframes dialog-backdrop-exit {
+    to { background-color: --alpha(var(--color-ink) / 0%); }
+  }
+
+  @keyframes dialog-card-exit {
+    to {
+      opacity: 0;
+      filter: blur(4px);
+      transform: translateY(8px) scale(.98);
+    }
   }
 
   @keyframes dialog-card-enter {
