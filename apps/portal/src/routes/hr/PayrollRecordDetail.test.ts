@@ -82,7 +82,7 @@ describe("薪資明細項目文案", () => {
     expect(mealAllowance.explanation.calculationParts).toHaveLength(2);
   });
 
-  it("相同顯示名稱的補貼即使全形／半形字元不同仍合併", () => {
+  it("相同顯示名稱的補貼即使斜線全形／半形不同仍合併", () => {
     const line = (lineKey: string, ruleName: string) => ({
       lineKey,
       direction: "earning" as const,
