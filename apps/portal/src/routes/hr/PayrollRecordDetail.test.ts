@@ -82,6 +82,25 @@ describe("薪資明細項目文案", () => {
     expect(mealAllowance.explanation.calculationParts).toHaveLength(2);
   });
 
+  it("相同顯示名稱的補貼即使斜線全形／半形不同仍合併", () => {
+    const line = (lineKey: string, ruleName: string) => ({
+      lineKey,
+      direction: "earning" as const,
+      amountMinor: 20_000,
+      explanation: { ruleName, itemName: "餐費補貼", formulaDetail: `${ruleName}・餐費補貼 = NT$ 200` },
+    }) as Parameters<typeof groupSpecialAllowanceLines>[0][number];
+
+    const grouped = groupSpecialAllowanceLines([
+      line("special_allowance_20261016_1", "夜間進/撤櫃"),
+      line("special_allowance_20261017_1", "夜間進／撤櫃"),
+    ]);
+
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0]?.amountMinor).toBe(40_000);
+    expect(grouped[0]?.explanation.formulaDetail).toContain("夜間進/撤櫃");
+    expect(grouped[0]?.explanation.formulaDetail).toContain("夜間進／撤櫃");
+  });
+
   it("支援人員本薪與特殊上班日補貼沿用正式員工文案", () => {
     const line = (lineKey: string, explanation: Record<string, unknown> = {}) => ({
       lineKey,
