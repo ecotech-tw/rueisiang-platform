@@ -41,6 +41,7 @@
   --shadow-glass-danger: 0 1px 0 --alpha(var(--color-paper) / 26%) inset, 0 -8px 18px --alpha(var(--color-ink) / 16%) inset, 0 10px 24px --alpha(var(--color-brand) / 20%);
   --shadow-glass-tint-info: 0 1px 0 --alpha(var(--color-paper) / 58%) inset, 0 0 0 1px --alpha(var(--color-info) / 16%) inset;
   --shadow-glass-tint-ok: 0 1px 0 --alpha(var(--color-paper) / 58%) inset, 0 0 0 1px --alpha(var(--color-ok) / 16%) inset;
+  --shadow-glass-field: 0 1px 0 --alpha(var(--color-paper) / 66%) inset, 0 0 0 1px --alpha(var(--color-paper) / 24%) inset, 0 8px 22px --alpha(var(--color-ink) / 7%);
   --shadow-dialog: 0 24px 60px --alpha(var(--color-ink) / 28%);
   --shadow-dialog-footer: 0 -10px 20px --alpha(var(--color-ink) / 8%);
   --animate-dialog-backdrop-enter: dialog-backdrop-enter 150ms ease-out both;

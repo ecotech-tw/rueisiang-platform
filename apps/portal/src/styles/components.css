@@ -560,7 +560,6 @@
 .assistant-sandbox-page .assistant-subsection { margin-top: 14px; padding-top: 12px; }
 .assistant-sandbox-page .assistant-tool-list { gap: 6px; }
 .assistant-sandbox-page .assistant-tool { padding: 8px 10px; }
-.assistant-sandbox-page .assistant-textarea { min-height: 160px; max-height: 240px; }
 .assistant-settings-panel { min-height: min-content; }
 .assistant-subsection { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--color-soft-line); }
 .assistant-subsection h3 { margin: 0 0 4px; font-size: 14px; }
@@ -579,9 +578,6 @@
 .assistant-status-select { min-width: 104px; padding: 7px 9px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
 .assistant-status-select:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 .settings-summary { margin: 0; line-height: 1.7; }
-.assistant-textarea, .assistant-input { width: 100%; min-height: 270px; resize: vertical; padding: 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); color: var(--color-ink); font: inherit; line-height: 1.65; }
-.assistant-input { min-height: 110px; }
-.assistant-textarea:focus-visible, .assistant-input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 .assistant-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .assistant-revisions { display: grid; gap: 6px; }
 .assistant-revision { display: flex; justify-content: space-between; gap: 12px; padding: 9px 11px; border: 1px solid var(--color-line); border-radius: 9px; background: transparent; color: var(--color-ink); text-align: left; font: inherit; }
@@ -634,14 +630,12 @@
 .assistant-message-duration { display: block; margin-top: 8px; color: var(--color-muted); font-size: 11px; text-align: right; }
 .assistant-message-attachments { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 8px; }
 .assistant-message-attachments img { width: 132px; height: 96px; object-fit: cover; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-canvas); }
-.assistant-chat-panel .assistant-input { min-height: 72px; max-height: 120px; }
 .assistant-attachment-input { display: none; }
 .assistant-pending-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 5px 0 7px; }
 .assistant-pending-attachments button { padding: 5px 8px; border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-canvas); color: var(--color-ink); font: inherit; font-size: 12px; cursor: pointer; }
 .assistant-pending-attachments button:hover { border-color: var(--color-secondary); background: var(--color-brand-soft); }
 .assistant-pending-attachments button:disabled { opacity: .55; cursor: not-allowed; }
 .assistant-input-wrap { position: relative; }
-.assistant-input-wrap .assistant-input { padding-bottom: 52px; }
 .assistant-composer-actions { position: absolute; right: 8px; bottom: 8px; left: 8px; display: flex; align-items: center; gap: 8px; }
 .assistant-input-shortcut { margin: 0 auto; pointer-events: none; color: var(--color-muted); opacity: .65; font-size: 11px; }
 .assistant-composer-note { margin-top: 6px; }
@@ -893,24 +887,6 @@
 .table-checkbox:disabled { cursor: not-allowed; }
 
 /* 表格內可直接編輯的欄位。邊框只在 hover 或聚焦時出現，不然整張表會滿是框線。 */
-.cell-input {
-  width: 100%;
-  min-width: 120px;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--color-ink);
-  font: inherit;
-}
-.cell-input.wide { min-width: 260px; }
-.cell-input:hover { border-color: var(--color-soft-line); }
-.cell-input:focus-visible {
-  border-color: var(--color-line);
-  background: var(--color-paper);
-  outline: 2px solid var(--color-secondary);
-  outline-offset: 1px;
-}
 
 .inline-label { font-size: 13px; color: var(--color-muted); }
 
@@ -1728,7 +1704,6 @@
 /* 層架清單：一行一層，右邊一顆移除。 */
 .shelf-levels { display: grid; gap: 6px; }
 .shelf-level { display: flex; align-items: center; gap: 6px; }
-.shelf-level input { flex: 1; min-width: 0; }
 
 /*
  * ── 分類的色票 ──────────────────────────────────────────────────────────
@@ -2022,8 +1997,6 @@
 .shift-items { display: grid; gap: 10px; container-type: inline-size; }
 .shift-members { display: grid; gap: 8px; padding: 6px 4px; }
 .shift-time-control { position: relative; min-width: 0; }
-.shift-time-control > input { width: 100%; padding-right: 44px; font-variant-numeric: tabular-nums; }
-.shift-time-fallback { width: 100%; }
 .shift-items-label { color: var(--color-ink); font-size: 13px; font-weight: 600; }
 .shift-group { display: grid; gap: 6px; }
 .shift-group-head { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
@@ -2339,7 +2312,6 @@
  * 就看得到的東西前面。
  */
 .filter-fields { display: contents; }
-.login-form [data-field] input { width: 100%; }
 
 /*
  * 邀請連結。用 primary-container 的淡底標出「這是剛剛才產生、要你現在處理」的東西，
@@ -2805,7 +2777,6 @@
   color: var(--color-muted);
   pointer-events: none;
 }
-.tag-search input { width: 100%; padding-left: 36px; }
 
 /*
  * 下拉浮在上層而不是把表單往下推——推的話每打一個字對話框就跳一次高度。

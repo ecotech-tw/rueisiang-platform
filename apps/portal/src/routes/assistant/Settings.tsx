@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, Field, FieldHint, FilterSelect, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, Field, FieldHint, FilterSelect, PageHeader, Panel, Textarea } from "../../ui/index.js";
 import { useSaveAssistantToolStatus, useSavePiCodexCredential, useSandboxConfig, type AssistantTool } from "./api.js";
 
 function statusLabel(status: AssistantTool["status"]): string {
@@ -53,8 +53,7 @@ export function AssistantSettings() {
           可貼上 Pi `auth.json` 全文，或只貼 `openai-codex` credential JSON；儲存成功後輸入內容會立即清除。
         </p>
         <Field label="Pi／Codex credential JSON">
-          <textarea
-            className="assistant-textarea"
+          <Textarea
             value={credential}
             onChange={(event) => setCredential(event.target.value)}
             autoComplete="off"

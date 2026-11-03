@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog, Field, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, Input, TextField } from "../../ui/index.js";
 import {
   WAREHOUSE_CATEGORY_COLORS,
   useCreateZone,
@@ -141,7 +141,8 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
             <div className="shelf-levels">
               {levels.map((level, index) => (
                 <div className="shelf-level" key={level.id}>
-                  <input
+                  <Input
+                    className="min-w-0 flex-1"
                     aria-label={`第 ${index + 1} 層的名稱`}
                     maxLength={20}
                     value={level.name}

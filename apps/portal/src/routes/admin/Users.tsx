@@ -119,6 +119,7 @@ function InviteForm({
       }}
     >
       <TextField
+        inputClassName="w-65"
         label="電子信箱"
         type="email"
         required
