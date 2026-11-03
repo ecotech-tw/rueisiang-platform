@@ -2084,9 +2084,12 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: { calculationParts?: Array<{ formula: string }> } }> }> } };
     const employee = body.run.employees[0]!;
-    expect(employee.earningMinor).toBe(3_100_000);
+    expect(employee.earningMinor).toBe(3_200_000);
     expect(employee.lines).toEqual(expect.arrayContaining([
-      expect.objectContaining({ lineKey: "special_workday", amountMinor: 100_000, explanation: expect.objectContaining({ calculationParts: expect.arrayContaining([expect.objectContaining({ formula: expect.stringContaining("2026-09-10") }), expect.objectContaining({ formula: expect.stringContaining("2026-09-20") })]) }) }),
+      expect.objectContaining({ lineKey: "special_workday", amountMinor: 200_000, explanation: expect.objectContaining({ calculationParts: expect.arrayContaining([
+        expect.objectContaining({ formula: "2026-09-10・特殊日依日期選版：floor(NT$ 1,000 × 100%) − NT$ 1,000" }),
+        expect.objectContaining({ formula: "2026-09-20・特殊日依日期選版：floor(NT$ 1,000 × 200%)" }),
+      ]) }) }),
     ]));
   });
 
@@ -2119,7 +2122,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(payroll.status, await payroll.clone().text()).toBe(200);
     const body = await payroll.json() as { run: { runId: string; engineVersion: string; employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: Record<string, unknown> }> }>; warnings: string[] } };
     const employee = body.run.employees[0]!;
-    expect(body.run.engineVersion).toBe("hr-payroll-demo-v8");
+    expect(body.run.engineVersion).toBe("hr-payroll-demo-v9");
     expect(employee.earningMinor).toBe(3_080_000);
     expect(employee.lines).toEqual(expect.arrayContaining([
       expect.objectContaining({ lineKey: "base_salary", amountMinor: 3_000_000 }),
@@ -2141,6 +2144,33 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(settledBody.run.employees[0]?.lines).toEqual(expect.arrayContaining([expect.objectContaining({ lineKey: "special_workday", amountMinor: 80_000, explanation: expect.objectContaining({ ruleNames: ["特殊日目前規則測試"] }) })]));
     const persistedAfterRead = d1.sqlite.prepare("SELECT explanation_json AS explanationJson FROM hr_payslip_lines WHERE id=?").get(persistedLine.id) as { explanationJson: string };
     expect((JSON.parse(persistedAfterRead.explanationJson) as Record<string, unknown>).ruleNames).toBeUndefined();
+  });
+
+  it("特殊上班日倍率於平日扣除已含本薪，休假日則加給完整倍率", async () => {
+    const compensation = await request("/hr/employments/dev-employment-chen/compensation", "POST", { validFrom: "2026-09-01", payBasis: "monthly", baseAmountMinor: 3_500_000, note: "特殊日平日與休假日倍率測試" });
+    expect(compensation.status, await compensation.clone().text()).toBe(201);
+    const mode = await request("/hr/employments/dev-employment-chen/attendance-mode", "PATCH", { attendanceMode: "scheduled", revision: 1 });
+    expect(mode.status, await mode.clone().text()).toBe(200);
+    const rule = await request("/hr/special-workdays/rules", "POST", { name: "休假日完整倍率測試", validFrom: "2026-09-01", wageKind: "multiplier", multiplierPpm: 1_800_000, overtimeRules: [], allowances: [] });
+    expect(rule.status, await rule.clone().text()).toBe(201);
+    const ruleBody = await rule.json() as { id: string };
+    const assigned = await request("/hr/special-workdays/assignments", "POST", { ruleId: ruleBody.id, assignments: [
+      { employmentId: "dev-employment-chen", workDate: "2026-09-30", allowanceQuantities: [] },
+      { employmentId: "dev-employment-chen", workDate: "2026-09-27", allowanceQuantities: [] },
+    ] });
+    expect(assigned.status, await assigned.clone().text()).toBe(201);
+
+    const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "scheduled", employeeUserIds: ["dev-chen@ecotech.tw"], requestId: "test-payroll-special-weekday-and-holiday-2026-09" });
+    expect(payroll.status, await payroll.clone().text()).toBe(200);
+    const body = await payroll.json() as { run: { employees: Array<{ earningMinor: number; lines: Array<{ lineKey: string; amountMinor: number; explanation: { calculationParts?: Array<{ formula: string }> } }> }> } };
+    const employee = body.run.employees[0]!;
+    expect(employee.earningMinor).toBe(3_803_330);
+    const specialLine = employee.lines.find((line) => line.lineKey === "special_workday");
+    expect(specialLine?.amountMinor).toBe(303_330);
+    expect(specialLine?.explanation.calculationParts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ formula: "2026-09-30・休假日完整倍率測試：floor(NT$ 1,166.66 × 180%) − NT$ 1,166.66" }),
+      expect.objectContaining({ formula: "2026-09-27・休假日完整倍率測試：floor(NT$ 1,166.66 × 180%)" }),
+    ]));
   });
 
   it("特殊上班日補貼依規則名稱與補貼項目分開列示", async () => {

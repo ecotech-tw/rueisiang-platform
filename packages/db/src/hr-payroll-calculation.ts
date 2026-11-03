@@ -96,7 +96,7 @@ function payrollFormulaTotal(parts: PayrollCalculationPart[], totalMinor: number
 const PAYROLL_DEMO_WARNING = "本版未計算勞健保扣款：員工尚未建立有效的加保版本。";
 const PAYROLL_RUN_NAME_MAX_LENGTH = 20;
 const PAYROLL_RUN_NAME_ELLIPSIS = "...";
-const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v8";
+const PAYROLL_ENGINE_VERSION = "hr-payroll-demo-v9";
 const displayName = hrEmployeeName;
 
 function shortenPayrollRunName(value: string): string {
@@ -1898,6 +1898,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
       const typhoonRowsForDay = typhoonRowsForDate(day, scheduledRowsForDay);
       const typhoonStop = typhoonStopDateSet.has(day) && !special;
       if (special) {
+        // 特殊出勤倍率是當日應發總額；平日底薪已含在本薪中，週末／假日僅原排班薪資可抵扣。
         let hours = 0;
         if (special.workSourceSnapshot === "hourly") {
           const entry = monthlyData.hourly.find((item) => item.employmentId === employee.employmentId && item.workDate === day);
@@ -1915,19 +1916,21 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
             ? scheduleAllocations.length ? allocateDailyAmount(Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)) : Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
             : compensation.payBasis === "daily" ? allocateDailyAmount(compensation.baseAmountMinor) : Math.round(compensation.baseAmountMinor * hours);
           const specialAmount = Math.round(special.fixedAmountMinorSnapshot * hours);
-          addBaseAmount(compensation, dailyBase, compensation.payBasis === "hourly" ? hours : 0, compensation.payBasis === "daily" || compensation.payBasis === "monthly" && scheduleAllocations.length ? payableDailyUnits : 1);
-          const adjustment = specialAmount - dailyBase;
+          const includedBase = dayTypes.get(day) === "weekday" || scheduledRowsForDay.length > 0 ? dailyBase : 0;
+          addBaseAmount(compensation, includedBase, compensation.payBasis === "hourly" ? hours : 0, compensation.payBasis === "daily" || compensation.payBasis === "monthly" && scheduleAllocations.length ? payableDailyUnits : 1);
+          const adjustment = specialAmount - includedBase;
           specialAdjustmentMinor += adjustment;
-          specialCalculationParts.push({ formula: `${day}・${special.ruleNameSnapshot}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
+          specialCalculationParts.push({ formula: `${day}・${special.ruleNameSnapshot}：round(${payrollFormulaMoney(special.fixedAmountMinorSnapshot)} × ${payrollFormulaHours(hours)} 小時)${includedBase ? ` − ${payrollFormulaMoney(includedBase)}` : ""}`, amountMinor: adjustment });
         } else if (special.multiplierPpmSnapshot !== null) {
           const dailyBase = compensation.payBasis === "monthly"
             ? scheduleAllocations.length ? allocateDailyAmount(Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)) : Math.floor(compensation.baseAmountMinor / monthlyDivisorDays)
             : compensation.payBasis === "daily" ? allocateDailyAmount(compensation.baseAmountMinor) : Math.round(compensation.baseAmountMinor * hours);
           const specialAmount = Math.floor(dailyBase * special.multiplierPpmSnapshot / PPM);
-          addBaseAmount(compensation, dailyBase, compensation.payBasis === "hourly" ? hours : 0, compensation.payBasis === "daily" || compensation.payBasis === "monthly" && scheduleAllocations.length ? payableDailyUnits : 1);
-          const adjustment = specialAmount - dailyBase;
+          const includedBase = dayTypes.get(day) === "weekday" || scheduledRowsForDay.length > 0 ? dailyBase : 0;
+          addBaseAmount(compensation, includedBase, compensation.payBasis === "hourly" ? hours : 0, compensation.payBasis === "daily" || compensation.payBasis === "monthly" && scheduleAllocations.length ? payableDailyUnits : 1);
+          const adjustment = specialAmount - includedBase;
           specialAdjustmentMinor += adjustment;
-          specialCalculationParts.push({ formula: `${day}・${special.ruleNameSnapshot}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)}) − ${payrollFormulaMoney(dailyBase)}`, amountMinor: adjustment });
+          specialCalculationParts.push({ formula: `${day}・${special.ruleNameSnapshot}：floor(${payrollFormulaMoney(dailyBase)} × ${payrollFormulaPercent(special.multiplierPpmSnapshot)})${includedBase ? ` − ${payrollFormulaMoney(includedBase)}` : ""}`, amountMinor: adjustment });
         }
       } else if (typhoonStop) {
         const hours = typhoonRowsForDay.reduce((sum, row) => sum + scheduledHours(row) * (scheduleAllocations.find((allocation) => allocation.row.id === row.id)?.detail.allocatedUnits ?? 1), 0);
