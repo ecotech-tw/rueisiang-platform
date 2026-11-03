@@ -15,8 +15,7 @@ export const SELECT_TRIGGER_SIZE = {
 } as const;
 
 const SELECT_TRIGGER_SKIN: Record<InputSkinName, string> = {
-  // 下拉的焦點是品牌色外框加一圈淡暈，跟輸入框的 outline 不同：整塊是可點的按鈕，不是打字的地方。
-  solid: "border-line bg-canvas disabled:bg-soft-line focus-visible:border-brand focus-visible:outline-0 focus-visible:[box-shadow:0_0_0_3px_color-mix(in_oklab,var(--color-brand)_14%,transparent)]",
+  solid: "border-line bg-canvas disabled:bg-soft-line focus-visible:border-brand focus-visible:outline-0 focus-visible:[box-shadow:var(--shadow-focus-ring)]",
   glass: GLASS_FIELD,
 };
 
@@ -71,7 +70,7 @@ export function comboboxItemClass(skin: InputSkinName) {
 }
 
 // 外框與焦點由外層這一圈負責，裡面的輸入框不另外畫，才不會變成框中框。對齊方式由單選（置中）／多選（撐滿）各自加。
-export const COMBOBOX_GROUP = "relative flex w-full min-w-0 min-h-(--size-field) rounded-[10px] border border-line bg-canvas focus-within:border-brand focus-within:[box-shadow:0_0_0_3px_color-mix(in_oklab,var(--color-brand)_14%,transparent)]";
+export const COMBOBOX_GROUP = "relative flex w-full min-w-0 min-h-(--size-field) rounded-[10px] border border-line bg-canvas focus-within:border-brand focus-within:[box-shadow:var(--shadow-focus-ring)]";
 
 /*
  * 單選的輸入框佔滿整個控制項，底色跟一般輸入框一樣是白的。高度扣掉外框的 2px，整塊才是 44px。
@@ -97,7 +96,7 @@ export interface SearchComboboxProps<T> {
   itemKey?: (item: T) => string;
   /** 選項內容。預設只放文字；要第二段說明時放 <strong> 主要識別加 <span> 說明。 */
   renderItem?: (item: T) => ReactNode;
-  /** 清除與展開按鈕的名稱會用到，例如「清除分類」「開啟分類選單」。 */
+  /** 輸入框的可存取名稱；清除與展開按鈕也會用到，例如「清除分類」「開啟分類選單」。 */
   label?: string;
   placeholder: string;
   emptyLabel: string;
@@ -113,7 +112,7 @@ export function SearchCombobox<T>({ items, value, onValueChange, itemToStringLab
   return (
     <Combobox.Root items={items} value={value} onValueChange={onValueChange} itemToStringLabel={itemToStringLabel} autoHighlight disabled={disabled}>
       <Combobox.InputGroup className={`${COMBOBOX_GROUP} items-center ${className}`.trim()}>
-        <Combobox.Input className={COMBOBOX_INPUT} placeholder={placeholder} autoFocus={autoFocus} />
+        <Combobox.Input className={COMBOBOX_INPUT} placeholder={placeholder} autoFocus={autoFocus} aria-label={label} />
         <Combobox.Clear className={COMBOBOX_CLEAR} aria-label={label ? `清除${label}` : "清除選擇"}><Icon name="close" /></Combobox.Clear>
         <Combobox.Trigger className={COMBOBOX_TRIGGER} aria-label={label ? `開啟${label}選單` : "開啟選單"}><Icon name="chevronDown" /></Combobox.Trigger>
       </Combobox.InputGroup>

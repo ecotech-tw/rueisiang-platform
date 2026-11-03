@@ -101,6 +101,8 @@ describe("shared HRIS UI contracts", () => {
     const input = markup.match(/<input[^>]*class="([^"]*)"/)?.[1]?.split(" ") ?? [];
     expect(group).toEqual(expect.arrayContaining(["border", "border-line", "focus-within:border-brand", "min-h-(--size-field)"]));
     expect(input).toEqual(expect.arrayContaining(["border-0", "outline-0", "min-h-[calc(var(--size-field)-2px)]"]));
+    // 外層是 Field as="div"，標籤連不到輸入框；沒有這個名稱，螢幕閱讀器只念得到 placeholder。
+    expect(markup).toMatch(/<input[^>]*aria-label="分類"/);
     // 沒有選取時 Base UI 不畫清除鈕，所以這裡只看得到展開鈕。
     expect(markup).toContain('aria-label="開啟分類選單"');
   });

@@ -4,7 +4,7 @@ import { GLASS_FIELD, useInputSkin, type InputSkinName } from "./InputSkin.js";
 
 // 每頁筆數是原生 select，跟 DropdownSelect 用同一套實心／玻璃外觀。
 const PAGE_SIZE_SKIN: Record<InputSkinName, string> = {
-  solid: "border-line bg-canvas focus-visible:border-brand focus-visible:outline-0 focus-visible:[box-shadow:0_0_0_3px_color-mix(in_oklab,var(--color-brand)_14%,transparent)]",
+  solid: "border-line bg-canvas focus-visible:border-brand focus-visible:outline-0 focus-visible:[box-shadow:var(--shadow-focus-ring)]",
   glass: GLASS_FIELD,
 };
 
