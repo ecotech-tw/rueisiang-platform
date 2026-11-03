@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { PayrollAllocationDetails, payrollLineLabel, payrollWorkerWorkDays, PayrollWorkerWorkSummary, specialWorkdayDifferenceLabel } from "./PayrollRecordDetail.js";
+import { groupSpecialAllowanceLines, PayrollAllocationDetails, payrollLineLabel, payrollWorkerWorkDays, PayrollWorkerWorkSummary, specialWorkdayDifferenceLabel } from "./PayrollRecordDetail.js";
 import type { PayrollScheduleAllocationDetail, PayrollWorker } from "./api.js";
 
 function allocationDetail(patch: Partial<PayrollScheduleAllocationDetail> = {}): PayrollScheduleAllocationDetail {
@@ -51,6 +51,35 @@ describe("薪資明細項目文案", () => {
     } as Parameters<typeof payrollLineLabel>[0];
 
     expect(payrollLineLabel(line)).toBe("業績獎金");
+  });
+
+  it("同規則同項目的不同日期補貼合併顯示並保留逐日公式", () => {
+    const line = (date: string, lineKey: string, itemName: string, amountMinor: number) => ({
+      lineKey,
+      direction: "earning" as const,
+      amountMinor,
+      explanation: {
+        ruleName: "夜間進／撤櫃",
+        itemName,
+        quantity: 1,
+        calculationParts: [{ formula: `${date}・${itemName} NT$ 200`, amountMinor }],
+        formulaDetail: `${date}・${itemName} NT$ 200 = NT$ 200`,
+      },
+    }) as Parameters<typeof groupSpecialAllowanceLines>[0][number];
+
+    const grouped = groupSpecialAllowanceLines([
+      line("2026-10-16", "special_allowance_20261016_1", "餐費補貼", 20_000),
+      line("2026-10-17", "special_allowance_20261017_1", "餐費補貼", 20_000),
+      line("2026-10-17", "special_allowance_20261017_2", "交通補貼", 88_000),
+    ]);
+
+    expect(grouped).toHaveLength(2);
+    const mealAllowance = grouped.find((item) => item.explanation.itemName === "餐費補貼")!;
+    expect(mealAllowance.amountMinor).toBe(40_000);
+    expect(payrollLineLabel(mealAllowance)).toBe("夜間進／撤櫃：餐費補貼");
+    expect(mealAllowance.explanation.formulaDetail).toContain("2026-10-16");
+    expect(mealAllowance.explanation.formulaDetail).toContain("2026-10-17");
+    expect(mealAllowance.explanation.calculationParts).toHaveLength(2);
   });
 
   it("支援人員本薪與特殊上班日補貼沿用正式員工文案", () => {

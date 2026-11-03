@@ -104,6 +104,53 @@ function lineFormula(line: PayrollLine): string {
   const detail = explanation.formulaDetail ?? explanation.formula;
   return typeof detail === "string" && detail ? detail : "依保存的薪資規則計算";
 }
+// Same allowances across dates are grouped only for display; keep each dated formula in the persisted snapshot details.
+export function groupSpecialAllowanceLines(lines: PayrollLine[]): PayrollLine[] {
+  const groupedLines: PayrollLine[] = [];
+  const groupedIndexes = new Map<string, number>();
+  for (const line of lines) {
+    if (!line.lineKey.startsWith("special_allowance_")) {
+      groupedLines.push(line);
+      continue;
+    }
+    const ruleName = explanationString(line, "ruleName") ?? explanationString(line, "rule");
+    const itemNames = explanationItemNamesOf(line);
+    if (!ruleName && !itemNames.length) {
+      groupedLines.push(line);
+      continue;
+    }
+    const key = JSON.stringify([line.direction, ruleName, itemNames]);
+    const existingIndex = groupedIndexes.get(key);
+    if (existingIndex === undefined) {
+      groupedIndexes.set(key, groupedLines.length);
+      groupedLines.push(line);
+      continue;
+    }
+    const existing = groupedLines[existingIndex]!;
+    const calculationParts = [...calculationPartsOf(existing), ...calculationPartsOf(line)];
+    groupedLines[existingIndex] = {
+      ...existing,
+      amountMinor: existing.amountMinor + line.amountMinor,
+      explanation: {
+        ...existing.explanation,
+        ...(calculationParts.length ? { calculationParts } : {}),
+        formulaDetail: `${lineFormula(existing)}；${lineFormula(line)}`,
+      },
+    };
+  }
+  return groupedLines;
+}
+function calculationPartsOf(line: PayrollLine): Array<{ formula: string; amountMinor: number }> {
+  const value = line.explanation.calculationParts;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((part) => {
+    if (!part || typeof part !== "object" || Array.isArray(part)) return [];
+    const formula = (part as { formula?: unknown }).formula;
+    const amountMinor = (part as { amountMinor?: unknown }).amountMinor;
+    return typeof formula === "string" && typeof amountMinor === "number" && Number.isFinite(amountMinor) ? [{ formula, amountMinor }] : [];
+  });
+}
+
 function isScheduleAllocationDetail(value: unknown): value is PayrollScheduleAllocationDetail {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const detail = value as Partial<PayrollScheduleAllocationDetail>;
@@ -246,7 +293,7 @@ function payrollLinesOf(detail: PayrollRecordDetail): PayrollLine[] {
     amountMinor: item.amountMinor,
     explanation: { itemName: item.itemName, reason: item.reason, formulaDetail: `歷史薪資加扣項（${item.itemName}）：${item.reason}` },
   }));
-  return [...baseLines, ...legacyLines];
+  return groupSpecialAllowanceLines([...baseLines, ...legacyLines]);
 }
 function PayrollLineList({ lines }: { lines: PayrollLine[] }) {
   return <div className="hr-payroll-line-list">{lines.map((line) => {
