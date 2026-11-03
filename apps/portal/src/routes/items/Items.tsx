@@ -1,12 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Combobox } from "@base-ui/react/combobox";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Icon } from "../../shell/icons.js";
 import { Pager } from "../../shell/Pager.js";
 import { ItemForm } from "../wms/ItemForm.js";
 import type { ProductCategory, Zone } from "../wms/api.js";
@@ -166,19 +164,17 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
         hint="0076 搬移時只憑「有沒有 SKU」分過一輪，分錯的請改回來。"
       />
       <Field as="div" label="品項分類">
-        <Combobox.Root
+        <SearchCombobox
           items={arrangeCategories(categories)}
           value={categories.find((category) => category.id === categoryId) ?? null}
           onValueChange={(category) => setCategoryId(category?.id ?? "")}
           itemToStringLabel={(category) => category ? categoryPath(category, categories) : ""}
-          autoHighlight
-        >
-          <Combobox.InputGroup className="combobox-group">
-            <Combobox.Input className="combobox-input" placeholder="搜尋或選擇分類" />
-            <Combobox.Clear className="combobox-clear" aria-label="清除分類"><Icon name="close" /></Combobox.Clear><Combobox.Trigger className="combobox-trigger" aria-label="開啟分類選單"><Icon name="chevronDown" /></Combobox.Trigger>
-          </Combobox.InputGroup>
-          <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span className="combobox-category-label">{category.parentId ? <>{category.name}<small> · {categoryPath(category, categories).split(" / ")[0]}</small></> : category.name}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
-        </Combobox.Root>
+          itemKey={(category) => category.id}
+          renderItem={(category) => <span>{category.parentId ? <>{category.name}<small className="text-[12px] font-normal text-muted opacity-72"> · {categoryPath(category, categories).split(" / ")[0]}</small></> : category.name}</span>}
+          label="分類"
+          placeholder="搜尋或選擇分類"
+          emptyLabel="找不到分類"
+        />
       </Field>
       {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
     </Dialog>

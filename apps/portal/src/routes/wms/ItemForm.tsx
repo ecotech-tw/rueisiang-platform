@@ -1,8 +1,6 @@
 import { useState } from "react";
-import { Combobox } from "@base-ui/react/combobox";
 import { useToast } from "../../shell/Toast.js";
-import { Icon } from "../../shell/icons.js";
-import { Alert, Button, Dialog, Field, FieldHint, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FieldHint, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateCatalogItem,
   useLinkCyberbiz,
@@ -167,7 +165,7 @@ export function ItemForm({
                 : isCatalogCreate ? "會自動轉成大寫。包材或半成品可以留白，系統會自動編號。" : "會自動轉成大寫。要連結 CYBERBIZ 時才是必填。"}
             />
             <Field as="div" label="分類" required>
-              <Combobox.Root
+              <SearchCombobox
                 items={arrangeCategories(categories)}
                 value={(catalogOnly ? categories.find((category) => category.id === selectedCategoryId) : categories.find((category) => category.name === fields.category)) ?? null}
                 onValueChange={(category) => {
@@ -175,15 +173,12 @@ export function ItemForm({
                   set({ category: category?.name ?? "" });
                 }}
                 itemToStringLabel={(category) => category ? categoryPath(category, categories) : ""}
-                autoHighlight
-              >
-                <Combobox.InputGroup className="combobox-group">
-                  <Combobox.Input className="combobox-input" placeholder="搜尋或選擇分類" />
-                  <Combobox.Clear className="combobox-clear" aria-label="清除分類"><Icon name="close" /></Combobox.Clear>
-                  <Combobox.Trigger className="combobox-trigger" aria-label="開啟分類選單"><Icon name="chevronDown" /></Combobox.Trigger>
-                </Combobox.InputGroup>
-                <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span className="combobox-category-label">{category.parentId ? <>{category.name}<small> · {categoryPath(category, categories).split(" / ")[0]}</small></> : category.name}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
-              </Combobox.Root>
+                itemKey={(category) => category.id}
+                renderItem={(category) => <span>{category.parentId ? <>{category.name}<small className="text-[12px] font-normal text-muted opacity-72"> · {categoryPath(category, categories).split(" / ")[0]}</small></> : category.name}</span>}
+                label="分類"
+                placeholder="搜尋或選擇分類"
+                emptyLabel="找不到分類"
+              />
               <FieldHint>{categories.length === 0 ? (catalogOnly ? "還沒有任何品項分類，請先去「品項分類」建立一個。" : "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。") : "可搜尋分類名稱或選擇階層分類。"}</FieldHint>
             </Field>
           </div>

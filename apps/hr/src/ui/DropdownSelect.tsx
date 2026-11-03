@@ -1,4 +1,4 @@
-export { DropdownSelect } from "@rueisiang/ui";
+export { DropdownSelect, SearchCombobox } from "@rueisiang/ui";
 export type {
   DropdownSelectConfigurableProps,
   DropdownSelectMultipleChangeEvent,

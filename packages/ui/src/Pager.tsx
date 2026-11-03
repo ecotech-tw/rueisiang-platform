@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
 import { Button } from "./Button.js";
+import { GLASS_FIELD, useInputSkin, type InputSkinName } from "./InputSkin.js";
+
+// 每頁筆數是原生 select，跟 DropdownSelect 用同一套實心／玻璃外觀。
+const PAGE_SIZE_SKIN: Record<InputSkinName, string> = {
+  solid: "border-line bg-canvas focus-visible:border-brand focus-visible:outline-0 focus-visible:[box-shadow:var(--shadow-focus-ring)]",
+  glass: GLASS_FIELD,
+};
 
 export interface PagerProps {
   page: number;
@@ -64,6 +71,7 @@ export function Pager({
   className = "",
 }: PagerProps) {
   const pages = pageWindow(page, Math.max(totalPages, 1), useWindowSize());
+  const skin = useInputSkin();
   const atFirst = page <= 1;
   const atLast = page >= totalPages;
 
@@ -75,10 +83,10 @@ export function Pager({
         <label className="flex items-center gap-1.5 text-[13px] text-muted">
           每頁
           {/* 比一般表單欄位窄，footer 在小螢幕才不會被這個 select 撐寬。 */}
-          <span className="select-control inline-flex w-max after:right-2.5 after:h-1.5 after:w-1.5">
+          <span className="relative inline-flex w-max min-w-0 after:pointer-events-none after:absolute after:top-[calc(50%-4px)] after:right-2.5 after:h-1.5 after:w-1.5 after:border-r-2 after:border-b-2 after:border-muted after:[transform:rotate(45deg)]">
             <select
               aria-label="每頁筆數"
-              className="dropdown-control min-h-8 rounded-[9px] py-[5px] pr-[30px] pl-2 [background-position:calc(100%-12px)_50%,calc(100%-7px)_50%] [background-size:5px_5px,5px_5px]"
+              className={`min-h-8 w-full min-w-0 cursor-pointer appearance-none rounded-[9px] border py-[5px] pr-[30px] pl-2 text-ink ${PAGE_SIZE_SKIN[skin]}`}
               value={String(pageSize)}
               onChange={(event) => onPageSize(Number(event.target.value))}
             >

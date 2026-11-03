@@ -79,7 +79,7 @@ async function prepareSave(method: "POST" | "PATCH") {
   await mount();
   await click(method === "POST" ? "新增薪資加扣項" : "編輯");
   if (method === "POST") {
-    await act(async () => document.querySelector<HTMLButtonElement>('[role="dialog"] .combobox-trigger')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[role="dialog"] [aria-label^="開啟"][aria-label$="選單"]')!.click());
     await act(async () => [...document.querySelectorAll<HTMLElement>('[role="option"]')].find((node) => node.textContent?.includes("王小明"))!.click());
     await input("項目名稱", "獎金");
     await input("金額（元）", "100");

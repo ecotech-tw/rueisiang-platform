@@ -381,20 +381,6 @@
  
 .page > .panel + .panel { margin-top: 20px; }
 
-.select-positioner { z-index: 100; }
-.select-popup {
-  z-index: 100;
-  width: max-content;
-  min-width: var(--anchor-width);
-  max-width: min(520px, calc(100vw - 24px));
-  max-height: 320px;
-  overflow: auto;
-  padding: 6px;
-  border: 1px solid var(--color-line);
-  border-radius: 12px;
-  background: var(--color-canvas);
-  box-shadow: var(--shadow-panel);
-}
 
 .empty-card {
   display: grid;
@@ -410,8 +396,6 @@
 
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 
-[data-field] .select-trigger { width: 100%; }
-[data-field] > .combobox-group { width: 100%; min-width: 0; }
 
 @media (max-width: 900px) {
   .shell {

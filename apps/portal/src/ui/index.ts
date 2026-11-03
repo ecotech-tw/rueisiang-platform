@@ -2,7 +2,7 @@ export { Button, ButtonLink, ButtonSkin } from "./Button.js";
 export { Chip, ChipGroup } from "./Chip.js";
 export { DataTable } from "./DataTable.js";
 export { Dialog, DialogScope, useDialogScope } from "./Dialog.js";
-export { DropdownSelect } from "./DropdownSelect.js";
+export { DropdownSelect, SearchCombobox } from "./DropdownSelect.js";
 export { EmptyState } from "./EmptyState.js";
 export { FilterToolbar } from "./FilterToolbar.js";
 export { FilterInput, FilterSelect, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";

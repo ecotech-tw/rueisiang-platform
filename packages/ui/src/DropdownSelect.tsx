@@ -1,8 +1,25 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { Select } from "@base-ui/react/select";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEventHandler, type KeyboardEvent } from "react";
-import { useLocation } from "react-router";
+import {
+  COMBOBOX_CLEAR,
+  COMBOBOX_GROUP,
+  COMBOBOX_INPUT,
+  COMBOBOX_TRIGGER,
+  comboboxItemClass,
+  comboboxPopupClass,
+  SELECT_ITEM_TEXT,
+  SELECT_POSITIONER,
+  SELECT_TRIGGER_ICON,
+  SELECT_TRIGGER_VALUE,
+  selectItemClass,
+  selectItemIndicatorClass,
+  selectPopupClass,
+  selectTriggerClass,
+  type SELECT_TRIGGER_SIZE,
+} from "./Combobox.js";
 import { Icon } from "./icons.js";
+import { useInputSkin, type InputSkinName } from "./InputSkin.js";
 import { Tooltip } from "./Tooltip.js";
 
 export interface DropdownSelectOption {
@@ -24,9 +41,12 @@ interface DropdownSelectCommonProps {
   required?: boolean;
   name?: string;
   id?: string;
+  /** 只放版面用途（寬度、伸縮、grid 位置）。 */
   className?: string;
   placeholder?: string;
   searchable?: boolean;
+  /** 不可搜尋的下拉才有：sm 是工具列篩選用的密集尺寸。 */
+  size?: keyof typeof SELECT_TRIGGER_SIZE;
   "aria-label"?: string;
   "aria-labelledby"?: string;
   "aria-describedby"?: string;
@@ -64,8 +84,8 @@ export interface DropdownSelectConfigurableProps extends DropdownSelectCommonPro
 
 export type DropdownSelectProps = DropdownSelectSingleProps | DropdownSelectMultipleProps | DropdownSelectConfigurableProps;
 
-type SingleDropdownProps = DropdownSelectSingleProps & { isHrSystem: boolean };
-type MultipleDropdownProps = DropdownSelectMultipleProps & { isHrSystem: boolean };
+type SingleDropdownProps = DropdownSelectSingleProps & { skin: InputSkinName };
+type MultipleDropdownProps = DropdownSelectMultipleProps & { skin: InputSkinName };
 
 function changeEvent(value: string): Parameters<ChangeEventHandler<HTMLSelectElement>>[0] {
   return { target: { value }, currentTarget: { value } } as unknown as Parameters<ChangeEventHandler<HTMLSelectElement>>[0];
@@ -116,12 +136,16 @@ function useStableList<T>(list: readonly T[], sameItem: (left: T, right: T) => b
   return stable.current;
 }
 
+const CHIP = "inline-flex min-w-0 max-w-full items-center gap-1 rounded-[7px] bg-brand-soft py-1 pr-1.5 pl-[9px] text-[12px] font-bold text-brand-dark [&>span]:truncate";
+
+/*
+ * chip 旁邊的小輸入框不畫底色、圓角與焦點外框，外框與焦點由外層負責，否則會變成框中框。
+ * 停用時的灰底保留：那是這個狀態唯一的提示。
+ */
+const CHIPS_INPUT = "min-w-[90px] flex-1 rounded-none border-0 bg-transparent px-0 py-1.5 text-ink outline-0 disabled:cursor-not-allowed disabled:bg-soft-line disabled:text-muted";
+
 function preventEnterDefault(event: KeyboardEvent<HTMLInputElement>) {
   if (event.key === "Enter") event.preventDefault();
-}
-
-function popupClass(isHrSystem: boolean) {
-  return `combobox-popup${isHrSystem ? " hr-liquid-select-popup" : ""}`;
 }
 
 function emitSingle(props: DropdownSelectSingleProps, nextValue: DropdownSelectOption | null | undefined) {
@@ -136,7 +160,7 @@ function emitMultiple(props: DropdownSelectMultipleProps, nextValues: readonly D
   props.onChange?.(multipleChangeEvent(values));
 }
 
-function SelectSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps) {
+function SelectSingleDropdown({ skin, ...props }: SingleDropdownProps) {
   const {
     options,
     value,
@@ -151,6 +175,7 @@ function SelectSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps) {
     onValueChange: _onValueChange,
     searchable: _searchable,
     multiple: _multiple,
+    size = "md",
     ...ariaProps
   } = props;
   const selectedOption = value === undefined ? undefined : optionForValue(options, value) ?? null;
@@ -170,18 +195,18 @@ function SelectSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps) {
       id={id}
       itemToStringLabel={optionLabel}
     >
-      <Select.Trigger className={`dropdown-control select-trigger ${className}`.trim()} {...ariaProps}>
-        <Select.Value className="select-trigger-value" placeholder={placeholder} />
-        <Select.Icon className="select-trigger-icon"><Icon name="chevronDown" /></Select.Icon>
+      <Select.Trigger className={selectTriggerClass(skin, size, className)} {...ariaProps}>
+        <Select.Value className={SELECT_TRIGGER_VALUE} placeholder={placeholder} />
+        <Select.Icon className={SELECT_TRIGGER_ICON}><Icon name="chevronDown" /></Select.Icon>
       </Select.Trigger>
       <Select.Portal>
-        <Select.Positioner className={`select-positioner${isHrSystem ? " hr-select-positioner" : ""}`}>
-          <Select.Popup className={`select-popup${isHrSystem ? " hr-liquid-select-popup" : ""}`}>
+        <Select.Positioner className={SELECT_POSITIONER}>
+          <Select.Popup className={selectPopupClass(skin)}>
             <Select.List>
               {options.map((option) => (
-                <Select.Item key={option.value} value={option} disabled={option.disabled} className="select-item">
-                  <Select.ItemText className="select-item-text">{option.label}</Select.ItemText>
-                  <Select.ItemIndicator className="select-item-indicator">✓</Select.ItemIndicator>
+                <Select.Item key={option.value} value={option} disabled={option.disabled} className={selectItemClass(skin)}>
+                  <Select.ItemText className={SELECT_ITEM_TEXT}>{option.label}</Select.ItemText>
+                  <Select.ItemIndicator className={selectItemIndicatorClass(skin)}>✓</Select.ItemIndicator>
                 </Select.Item>
               ))}
             </Select.List>
@@ -192,7 +217,7 @@ function SelectSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps) {
   );
 }
 
-function SelectMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownProps) {
+function SelectMultipleDropdown({ skin, ...props }: MultipleDropdownProps) {
   const {
     options,
     value,
@@ -208,6 +233,7 @@ function SelectMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownProps)
     searchable: _searchable,
     multiple: _multiple,
     compactSelected: _compactSelected,
+    size = "md",
     ...ariaProps
   } = props;
   const selectedOptions = optionsForValues(options, value);
@@ -227,20 +253,20 @@ function SelectMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownProps)
       name={name}
       id={id}
     >
-      <Select.Trigger className={`dropdown-control select-trigger ${className}`.trim()} {...ariaProps}>
-        <Select.Value className="select-trigger-value" placeholder={placeholder}>
+      <Select.Trigger className={selectTriggerClass(skin, size, className)} {...ariaProps}>
+        <Select.Value className={SELECT_TRIGGER_VALUE} placeholder={placeholder}>
           {(selectedValue: DropdownSelectOption[] | null) => selectedValue?.length ? `已選 ${selectedValue.length} 項` : placeholder}
         </Select.Value>
-        <Select.Icon className="select-trigger-icon"><Icon name="chevronDown" /></Select.Icon>
+        <Select.Icon className={SELECT_TRIGGER_ICON}><Icon name="chevronDown" /></Select.Icon>
       </Select.Trigger>
       <Select.Portal>
-        <Select.Positioner className={`select-positioner${isHrSystem ? " hr-select-positioner" : ""}`}>
-          <Select.Popup className={`select-popup${isHrSystem ? " hr-liquid-select-popup" : ""}`}>
+        <Select.Positioner className={SELECT_POSITIONER}>
+          <Select.Popup className={selectPopupClass(skin)}>
             <Select.List>
               {options.map((option) => (
-                <Select.Item key={option.value} value={option} disabled={option.disabled} className="select-item">
-                  <Select.ItemText className="select-item-text">{option.label}</Select.ItemText>
-                  <Select.ItemIndicator className="select-item-indicator">✓</Select.ItemIndicator>
+                <Select.Item key={option.value} value={option} disabled={option.disabled} className={selectItemClass(skin)}>
+                  <Select.ItemText className={SELECT_ITEM_TEXT}>{option.label}</Select.ItemText>
+                  <Select.ItemIndicator className={selectItemIndicatorClass(skin)}>✓</Select.ItemIndicator>
                 </Select.Item>
               ))}
             </Select.List>
@@ -251,7 +277,7 @@ function SelectMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownProps)
   );
 }
 
-function SearchableSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps) {
+function SearchableSingleDropdown({ skin, ...props }: SingleDropdownProps) {
   const {
     options,
     value,
@@ -265,6 +291,7 @@ function SearchableSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps)
     onChange: _onChange,
     onValueChange: _onValueChange,
     searchable: _searchable,
+    size: _size,
     "aria-label": ariaLabel,
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
@@ -286,25 +313,25 @@ function SearchableSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps)
       name={name}
       autoHighlight
     >
-      <Combobox.InputGroup className={`combobox-group dropdown-combobox ${className}`.trim()}>
+      <Combobox.InputGroup className={`${COMBOBOX_GROUP} items-center ${className}`.trim()}>
         <Combobox.Input
           id={id}
-          className="combobox-input"
+          className={COMBOBOX_INPUT}
           placeholder={placeholder}
           aria-label={ariaLabel}
           aria-labelledby={ariaLabelledby}
           aria-describedby={ariaDescribedby}
         />
-        <Combobox.Clear className="combobox-clear" aria-label="清除選擇"><Icon name="close" /></Combobox.Clear>
-        <Combobox.Trigger className="combobox-trigger" aria-label={ariaLabel ? `開啟${ariaLabel}選單` : "開啟選單"}><Icon name="chevronDown" /></Combobox.Trigger>
+        <Combobox.Clear className={COMBOBOX_CLEAR} aria-label="清除選擇"><Icon name="close" /></Combobox.Clear>
+        <Combobox.Trigger className={COMBOBOX_TRIGGER} aria-label={ariaLabel ? `開啟${ariaLabel}選單` : "開啟選單"}><Icon name="chevronDown" /></Combobox.Trigger>
       </Combobox.InputGroup>
       <Combobox.Portal>
-        <Combobox.Positioner className="combobox-positioner">
-          <Combobox.Popup className={popupClass(isHrSystem)}>
+        <Combobox.Positioner className="z-100">
+          <Combobox.Popup className={comboboxPopupClass(skin)}>
             <Combobox.Empty>找不到符合條件的選項</Combobox.Empty>
             <Combobox.List>
               {(option: DropdownSelectOption) => (
-                <Combobox.Item key={option.value} value={option} disabled={option.disabled} className="combobox-item">
+                <Combobox.Item key={option.value} value={option} disabled={option.disabled} className={comboboxItemClass(skin)}>
                   <span>{option.label}</span>
                   <Combobox.ItemIndicator>✓</Combobox.ItemIndicator>
                 </Combobox.Item>
@@ -317,7 +344,7 @@ function SearchableSingleDropdown({ isHrSystem, ...props }: SingleDropdownProps)
   );
 }
 
-function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownProps) {
+function SearchableMultipleDropdown({ skin, ...props }: MultipleDropdownProps) {
   const {
     options,
     value,
@@ -332,6 +359,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
     onValueChange: _onValueChange,
     searchable: _searchable,
     compactSelected = false,
+    size: _size,
     "aria-label": ariaLabel,
     "aria-labelledby": ariaLabelledby,
     "aria-describedby": ariaDescribedby,
@@ -405,17 +433,18 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
       name={name}
       autoHighlight
     >
-      <Combobox.InputGroup className={`combobox-group dropdown-combobox dropdown-combobox-multiple ${className}`.trim()}>
+      {/* chip 要撐滿高度，所以外框是 stretch；兩顆絕對定位的按鈕自己置中，不然會跟著貼頂。 */}
+      <Combobox.InputGroup className={`${COMBOBOX_GROUP} items-stretch ${className}`.trim()}>
         <Combobox.Value>
           {(selectedValue: DropdownSelectOption[]) => {
             const selected = selectedValue ?? [];
             return (
-              <Combobox.Chips ref={chipsRef} aria-label={ariaLabel ?? "已選項目"} className="dropdown-combobox-chips">
-                {compactSelected && selected.length ? <span className="dropdown-combobox-chip dropdown-combobox-selection-summary">已選 {selected.length} 項</span> : selected.map((option) => {
+              <Combobox.Chips ref={chipsRef} aria-label={ariaLabel ?? "已選項目"} className="mr-16 flex max-h-28 min-w-0 flex-1 flex-wrap items-center gap-1 overflow-y-auto px-2 py-1">
+                {compactSelected && selected.length ? <span className={CHIP}>已選 {selected.length} 項</span> : selected.map((option) => {
                   // 空字串也當成沒有短名：沒填法定姓名的員工不能變成一顆只有移除鈕的空白 chip。
                   const shortened = Boolean(option.chipLabel) && !duplicatedChipLabels.has(option.chipLabel!);
                   const chip = (
-                    <Combobox.Chip key={option.value} className="dropdown-combobox-chip" aria-description="按 Backspace 或 Delete 移除">
+                    <Combobox.Chip key={option.value} className={CHIP} aria-description="按 Backspace 或 Delete 移除">
                       {/* 螢幕閱讀器唸完整 label：提示掛在外層，聚焦 chip 時不會被唸到。 */}
                       {shortened ? <><span aria-hidden="true">{option.chipLabel}</span><span className="sr-only">{option.label}</span></> : <span>{option.label}</span>}
                       {/*
@@ -423,7 +452,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
                         * chip 排在輸入框前面，第一顆移除鈕就成了那個控制項——滑過欄位它會亮起來，點欄位空白處就把第一位移除。
                         * <span> 不算可標記的控制項，label 於是對到後面的輸入框。
                         */}
-                      <Combobox.ChipRemove nativeButton={false} render={<span />} aria-label={`移除${option.label}`} className="dropdown-combobox-chip-remove"><Icon name="close" /></Combobox.ChipRemove>
+                      <Combobox.ChipRemove nativeButton={false} render={<span />} aria-label={`移除${option.label}`} className="inline-flex flex-none cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-px text-current hover:bg-brand/14 [&_svg]:size-[13px]"><Icon name="close" /></Combobox.ChipRemove>
                     </Combobox.Chip>
                   );
                   // 提示包在 chip 外面：chip 自己拿得到焦點，focus 冒泡上來，鍵盤與觸控點選也看得到完整 label。
@@ -431,7 +460,7 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
                 })}
                 <Combobox.Input
                   id={id}
-                  className="combobox-input"
+                  className={CHIPS_INPUT}
                   placeholder={selected.length ? "" : placeholder}
                   // 挑完一位清單會收起來，這時再按一次 Enter 就是原生的表單送出——
                   // 連續挑人時多按一下，薪資試算或整批套用就直接送出去了。多選一律擋掉，送出要按按鈕。
@@ -445,16 +474,16 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
             );
           }}
         </Combobox.Value>
-        <Combobox.Clear className="combobox-clear" aria-label="清除全部選擇"><Icon name="close" /></Combobox.Clear>
-        <Combobox.Trigger className="combobox-trigger" aria-label={ariaLabel ? `開啟${ariaLabel}選單` : "開啟選單"}><Icon name="chevronDown" /></Combobox.Trigger>
+        <Combobox.Clear className={`${COMBOBOX_CLEAR} self-center`} aria-label="清除全部選擇"><Icon name="close" /></Combobox.Clear>
+        <Combobox.Trigger className={`${COMBOBOX_TRIGGER} self-center`} aria-label={ariaLabel ? `開啟${ariaLabel}選單` : "開啟選單"}><Icon name="chevronDown" /></Combobox.Trigger>
       </Combobox.InputGroup>
       <Combobox.Portal>
-        <Combobox.Positioner className="combobox-positioner">
-          <Combobox.Popup className={popupClass(isHrSystem)}>
+        <Combobox.Positioner className="z-100">
+          <Combobox.Popup className={comboboxPopupClass(skin)}>
             <Combobox.Empty>{compactSelected ? "找不到符合條件的選項" : options.length && !remainingOptions.length ? "已經全部選取" : selectedOptions.length ? "沒有其他符合條件的選項（已選取的不會列在這裡）" : "找不到符合條件的選項"}</Combobox.Empty>
             <Combobox.List>
               {(option: DropdownSelectOption) => (
-                <Combobox.Item key={option.value} value={option} disabled={option.disabled} className="combobox-item">
+                <Combobox.Item key={option.value} value={option} disabled={option.disabled} className={comboboxItemClass(skin)}>
                   <span>{option.label}</span>
                   {compactSelected ? <Combobox.ItemIndicator>✓</Combobox.ItemIndicator> : null}
                 </Combobox.Item>
@@ -468,16 +497,15 @@ function SearchableMultipleDropdown({ isHrSystem, ...props }: MultipleDropdownPr
 }
 
 export function DropdownSelect(props: DropdownSelectProps) {
-  const { pathname } = useLocation();
-  const isHrSystem = pathname === "/hr" || pathname.startsWith("/hr/");
+  const skin = useInputSkin();
 
   if (props.multiple) {
     const multipleProps = props as DropdownSelectMultipleProps;
     return props.searchable
-      ? <SearchableMultipleDropdown {...multipleProps} isHrSystem={isHrSystem} />
-      : <SelectMultipleDropdown {...multipleProps} isHrSystem={isHrSystem} />;
+      ? <SearchableMultipleDropdown {...multipleProps} skin={skin} />
+      : <SelectMultipleDropdown {...multipleProps} skin={skin} />;
   }
   const singleProps = props as DropdownSelectSingleProps;
-  if (props.searchable) return <SearchableSingleDropdown {...singleProps} isHrSystem={isHrSystem} />;
-  return <SelectSingleDropdown {...singleProps} isHrSystem={isHrSystem} />;
+  if (props.searchable) return <SearchableSingleDropdown {...singleProps} skin={skin} />;
+  return <SelectSingleDropdown {...singleProps} skin={skin} />;
 }

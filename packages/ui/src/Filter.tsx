@@ -41,7 +41,7 @@ export function FilterSelect({ label, options, className = "", ...selectProps }:
     <label className="filter-control">
       <span className="sr-only">{label}</span>
       <span className="filter-select-control">
-        <DropdownSelect {...selectProps} options={options} aria-label={label} className={className} />
+        <DropdownSelect {...selectProps} size="sm" options={options} aria-label={label} className={`max-w-full ${className}`.trim()} />
       </span>
     </label>
   );

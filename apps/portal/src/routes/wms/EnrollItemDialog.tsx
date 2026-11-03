@@ -1,8 +1,6 @@
-import { Combobox } from "@base-ui/react/combobox";
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Dialog, Field, FieldHint, SelectField, TextField } from "../../ui/index.js";
-import { Icon } from "../../shell/icons.js";
+import { Alert, Button, Dialog, Field, FieldHint, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
 import type { ProductCategory, Zone } from "./api.js";
 
 interface CatalogItem { id: string; sku: string; name: string; source: string; inWarehouse: boolean; }
@@ -16,21 +14,17 @@ function CategoryPicker({ categories, value, onChange, disabled }: { categories:
   const selected = categories.find((category) => category.id === value) ?? null;
   return (
     <Field as="div" label="倉儲分類">
-      <Combobox.Root
+      <SearchCombobox
         items={categories}
         value={selected}
         onValueChange={(category) => onChange(category?.id ?? "")}
         itemToStringLabel={(category) => category?.name ?? ""}
-        autoHighlight
+        itemKey={(category) => category.id}
+        label="倉儲分類"
+        placeholder="搜尋或選擇倉儲分類"
+        emptyLabel="找不到倉儲分類"
         disabled={disabled}
-      >
-        <Combobox.InputGroup className="combobox-group">
-          <Combobox.Input className="combobox-input" placeholder="搜尋或選擇倉儲分類" />
-          <Combobox.Clear className="combobox-clear" aria-label="清除倉儲分類"><Icon name="close" /></Combobox.Clear>
-          <Combobox.Trigger className="combobox-trigger" aria-label="開啟倉儲分類選單"><Icon name="chevronDown" /></Combobox.Trigger>
-        </Combobox.InputGroup>
-        <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>找不到倉儲分類</Combobox.Empty><Combobox.List>{(category: ProductCategory) => <Combobox.Item key={category.id} value={category} className="combobox-item"><span>{category.name}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
-      </Combobox.Root>
+      />
     </Field>
   );
 }
@@ -84,14 +78,19 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
   return (
     <Dialog title="新增入庫" titleMeta="選擇既有品項建立倉儲庫存，不會在 WMS 重建品項主檔。" onClose={onClose} closeDisabled={pending} formProps={{ onSubmit: (event) => { event.preventDefault(); void submit(); } }} actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending} disabled={!selected || !categoryId}>新增入庫</Button></>}>
       <Field as="div" label="品項" required>
-        <Combobox.Root items={available} value={selected} onValueChange={setSelected} itemToStringLabel={(item) => item ? `${item.sku} ${item.name}` : ""} autoHighlight disabled={pending}>
-          <Combobox.InputGroup className="combobox-group">
-            <Combobox.Input className="combobox-input" placeholder="搜尋 SKU 或品項名稱" autoFocus />
-            <Combobox.Clear className="combobox-clear" aria-label="清除品項"><Icon name="close" /></Combobox.Clear>
-            <Combobox.Trigger className="combobox-trigger" aria-label="開啟品項選單"><Icon name="chevronDown" /></Combobox.Trigger>
-          </Combobox.InputGroup>
-          <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>沒有可新增入庫的品項</Combobox.Empty><Combobox.List>{(item: CatalogItem) => <Combobox.Item key={item.id} value={item} className="combobox-item"><strong>{item.sku || "無 SKU"}</strong><span>{item.name}{item.source === "cyberbiz" ? " · CYBERBIZ" : " · 自訂"}</span><Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
-        </Combobox.Root>
+        <SearchCombobox
+          items={available}
+          value={selected}
+          onValueChange={setSelected}
+          itemToStringLabel={(item) => item ? `${item.sku} ${item.name}` : ""}
+          itemKey={(item) => item.id}
+          renderItem={(item) => <><strong>{item.sku || "無 SKU"}</strong><span>{item.name}{item.source === "cyberbiz" ? " · CYBERBIZ" : " · 自訂"}</span></>}
+          label="品項"
+          placeholder="搜尋 SKU 或品項名稱"
+          emptyLabel="沒有可新增入庫的品項"
+          disabled={pending}
+          autoFocus
+        />
         {selected ? <FieldHint>已選擇：{selected.name}（{selected.sku || "無 SKU"}）</FieldHint> : <FieldHint>只顯示尚未納入倉儲的品項，選取後直接建立庫存資料。</FieldHint>}
       </Field>
       <CategoryPicker categories={categories} value={categoryId} onChange={setCategoryId} disabled={pending} />

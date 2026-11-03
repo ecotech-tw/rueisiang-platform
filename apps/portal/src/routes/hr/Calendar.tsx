@@ -50,7 +50,7 @@ export function CalendarScopePicker({ scopeIds, scopes, disabled, onChange }: { 
   return <div className="hr-calendar-scope-picker">
     {scopeIds.length === 0
       ? <span className="muted">全部門市／地區</span>
-      : scopeIds.map((scopeId, index) => <div className="hr-calendar-scope-row" key={`${scopeId}-${index}`}><DropdownSelect value={scopeId} aria-label={`適用門市／地區 ${index + 1}`} disabled={disabled} options={[
+      : scopeIds.map((scopeId, index) => <div className="hr-calendar-scope-row" key={`${scopeId}-${index}`}><DropdownSelect className="flex-1" value={scopeId} aria-label={`適用門市／地區 ${index + 1}`} disabled={disabled} options={[
         ...scopes.map((scope) => ({ value: scope.id, label: scope.name, disabled: scopeIds.includes(scope.id) && scope.id !== scopeId })),
         ...(scopes.some((scope) => scope.id === scopeId) ? [] : [{ value: scopeId, label: scopeLabel(scopeId, scopes), disabled: true }]),
       ]} onChange={(event) => updateScope(index, event.target.value)} /><Button type="button" variant="icon" icon="trash" aria-label={`移除適用門市 ${scopeLabel(scopeId, scopes)}`} title="移除適用門市／地區" disabled={disabled} onClick={() => onChange(scopeIds.filter((_, currentIndex) => currentIndex !== index))} /></div>)}
