@@ -575,8 +575,6 @@
 .assistant-tool strong, .assistant-tool small { display: block; }
 .assistant-tool small { margin-top: 2px; color: var(--color-muted); font-size: 12px; }
 .assistant-tool em { font-style: normal; white-space: nowrap; }
-.assistant-status-select { min-width: 104px; padding: 7px 9px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
-.assistant-status-select:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
 .settings-summary { margin: 0; line-height: 1.7; }
 .assistant-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .assistant-revisions { display: grid; gap: 6px; }
@@ -587,7 +585,6 @@
 .assistant-session-copy { display: grid; gap: 3px; min-width: 0; }
 .assistant-session-copy span { color: var(--color-muted); font-size: 12px; }
 .assistant-session-actions { display: flex; flex: none; align-items: center; justify-content: flex-end; gap: 8px; }
-.assistant-session-select { min-width: 180px; padding: 8px 9px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-paper); color: var(--color-ink); font: inherit; }
 .assistant-request-card { margin-bottom: 10px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-brand-soft); }
 .assistant-request-card-head { display: grid; gap: 2px; margin-bottom: 8px; }
 .assistant-request-card-head small { color: var(--color-muted); font-size: 12px; }
@@ -848,7 +845,6 @@
   align-items: end;
   gap: 10px;
 }
-.sku-mapping-component-row .combobox-group { width: 100%; min-width: 0; }
 /* 同一列用料的兩排靠得更近，看起來是一組，不是兩列。 */
 .sku-mapping-component { gap: 6px; }
 .sku-mapping-component + .sku-mapping-component { padding-top: 6px; }
@@ -1774,22 +1770,6 @@
  * 看起來像壞掉。給它一個上限，剩下的空間留給色票。
  */
 .category-form input { flex: 0 1 280px; min-width: 0; }
-.combobox-category-label small { color: var(--color-muted); font-size: 12px; font-weight: 400; opacity: .72; }
-.select-positioner { z-index: 100; pointer-events: none; }
-.select-popup {
-  pointer-events: auto;
-  z-index: 100;
-  width: max-content;
-  min-width: var(--anchor-width);
-  max-width: min(520px, calc(100vw - 24px));
-  max-height: 320px;
-  overflow: auto;
-  padding: 6px;
-  border: 1px solid var(--color-line);
-  border-radius: 12px;
-  background: var(--color-canvas);
-  box-shadow: var(--shadow-panel);
-}
 .category-drag-handle {
   display: inline-flex;
   width: 28px;
@@ -1833,7 +1813,6 @@
 .hr-bonus-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
 .hr-bonus-employee-row { grid-template-columns: minmax(0, 1fr) 116px; }
 .hr-bonus-selected-employee { min-width: 0; overflow: hidden; color: var(--color-ink); font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.hr-bonus-picker-row .select-trigger { width: 100%; min-width: 0; }
 .hr-bonus-picker-empty { margin: 0; padding: 6px 2px; }
 .hr-bonus-weight-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
 .hr-bonus-weight-field span { color: var(--color-muted); font-size: 13px; font-weight: 700; }
@@ -1940,11 +1919,8 @@
  */
 .page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 
-.analytics-filter-field .select-trigger,
-[data-field] .select-trigger { width: 100%; }
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 .field-grid > [data-field] { min-width: 0; }
-[data-field] > .combobox-group { width: 100%; min-width: 0; }
 /*
  * 三個窄欄位（數量、單位、安全庫存）。auto-fit 在對話框的寬度下只排得下兩欄，
  * 第三個會自己掉到下一列、旁邊空一大格。這種一組的數字欄位就明講要三欄。
@@ -2833,7 +2809,6 @@
   .assistant-chat-panel { min-height: 620px; }
   .assistant-session-bar { align-items: stretch; flex-direction: column; }
   .assistant-session-actions { justify-content: flex-start; }
-  .assistant-session-select { flex: 1; min-width: 0; }
   .assistant-message { max-width: 96%; }
 }
 
@@ -3338,7 +3313,6 @@
 .hr-calendar-holiday.hr-calendar-typhoon { background: var(--color-warn-soft); color: var(--color-warn); }
 .hr-calendar-scope-picker { display: grid; gap: 4px; min-width: 0; }
 .hr-calendar-scope-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.hr-calendar-scope-row .dropdown-control { flex: 1; min-width: 0; }
 .hr-calendar-scope-row > button { flex: 0 0 auto; }
 .hr-calendar-date { display: flex; justify-content: space-between; align-items: center; color: var(--color-ink); }
 .hr-calendar-date button, .hr-calendar-entry button { border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
@@ -3790,6 +3764,5 @@
 .hr-calendar-year-count strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
 .hr-calendar-year-bar .hr-schedule-status { margin: 0; }
 .hr-calendar-type-fields { display: grid; gap: 6px; min-width: 0; }
-.hr-calendar-type-fields .dropdown-control { width: 100%; max-width: 100%; }
 .data-table .hr-calendar-scope-picker { max-width: 240px; }
 .data-table .hr-calendar-scope-picker > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -384,7 +384,7 @@ export function Sandbox() {
           </div>
           <div className="assistant-session-actions">
             <FilterSelect
-              className="assistant-session-select"
+              className="min-w-[180px] max-[760px]:min-w-0 max-[760px]:flex-1"
               label="選擇 Sandbox session"
               value={sessionId}
               onChange={(event) => selectSession(event.target.value)}

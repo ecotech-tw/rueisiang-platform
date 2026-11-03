@@ -1,8 +1,6 @@
-import { Combobox } from "@base-ui/react/combobox";
 import { useState, type FormEvent } from "react";
 import { useToast } from "../../shell/Toast.js";
-import { Icon } from "../../shell/icons.js";
-import { Alert, Button, Dialog, Field, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateProductSkuMapping,
   useUpdateProductSkuMapping,
@@ -61,30 +59,7 @@ function Combo<T>({
 }) {
   return (
     <Field as="div" label={label} className={className}>
-      <Combobox.Root
-        items={items}
-        value={value}
-        onValueChange={onChange}
-        itemToStringLabel={itemToStringLabel}
-        autoHighlight
-        disabled={disabled}
-      >
-        <Combobox.InputGroup className="combobox-group">
-          <Combobox.Input className="combobox-input" placeholder={placeholder} />
-          <Combobox.Clear className="combobox-clear" aria-label={`清除${label}`}><Icon name="close" /></Combobox.Clear>
-          <Combobox.Trigger className="combobox-trigger" aria-label={`開啟${label}選單`}><Icon name="chevronDown" /></Combobox.Trigger>
-        </Combobox.InputGroup>
-        <Combobox.Portal>
-          <Combobox.Positioner className="combobox-positioner">
-            <Combobox.Popup className="combobox-popup">
-              <Combobox.Empty>{emptyLabel}</Combobox.Empty>
-              <Combobox.List>
-                {(item: T) => <Combobox.Item key={itemToStringLabel(item)} value={item} className="combobox-item">{renderItem(item)}<Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}
-              </Combobox.List>
-            </Combobox.Popup>
-          </Combobox.Positioner>
-        </Combobox.Portal>
-      </Combobox.Root>
+      <SearchCombobox items={items} value={value} onValueChange={onChange} itemToStringLabel={itemToStringLabel} renderItem={renderItem} label={label} placeholder={placeholder} emptyLabel={emptyLabel} disabled={disabled} />
     </Field>
   );
 }

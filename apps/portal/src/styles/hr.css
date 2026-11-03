@@ -461,8 +461,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
  * 高度差 1–2px，底邊就錯開好幾 px，而且兩顆幾乎貼在一起。間距跟表格列的操作鍵一致。
  */
 .hr-system .button-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
-/* 日期篩選（FilterInput）還是原生 input，先照舊從這裡拿玻璃外觀；Field 裡的日期欄位由 Input 的 InputSkin 負責。 */
-.hr-system .dropdown-control,
+/* 日期篩選（FilterInput）還是原生 input，先照舊從這裡拿玻璃外觀；Field 裡的日期欄位與下拉由 InputSkin 負責。 */
 .hr-system input[type="date"],
 .hr-system input[type="month"],
 .hr-system input[type="datetime-local"] {
@@ -475,11 +474,9 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   transition-duration: 150ms;
   transition-timing-function: ease-out;
 }
-.hr-system .dropdown-control:hover,
 .hr-system input[type="date"]:hover,
 .hr-system input[type="month"]:hover,
 .hr-system input[type="datetime-local"]:hover { background-color: --alpha(var(--color-paper) / 50%); }
-.hr-system .dropdown-control:focus-visible,
 .hr-system input[type="date"]:focus-visible,
 .hr-system input[type="month"]:focus-visible,
 .hr-system input[type="datetime-local"]:focus-visible {
@@ -493,82 +490,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   padding: 6px;
   background-color: --alpha(var(--color-brand) / 12%);
   cursor: pointer;
-}
-.hr-liquid-select-popup {
-  position: relative;
-  isolation: isolate;
-  overflow: auto;
-  border-color: transparent;
-  border-radius: 18px;
-  background: --alpha(var(--color-paper) / 34%);
-  outline: 0;
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 48%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
-    0 -12px 28px --alpha(var(--color-brand) / 5%) inset,
-    0 22px 52px --alpha(var(--color-ink) / 14%),
-    0 6px 18px --alpha(var(--color-brand) / 8%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%) contrast(104%);
-  backdrop-filter: blur(20px) saturate(180%) contrast(104%);
-}
-.hr-liquid-select-popup::before {
-  position: absolute;
-  inset: 1px;
-  z-index: -1;
-  border-radius: inherit;
-  background:
-    radial-gradient(circle at 18% 0%, --alpha(var(--color-paper) / 22%), transparent 34%),
-    radial-gradient(circle at 86% 100%, --alpha(var(--color-brand) / 6%), transparent 40%),
-    linear-gradient(135deg, --alpha(var(--color-paper) / 12%) 0%, transparent 30%, --alpha(var(--color-paper) / 5%) 68%, transparent 100%);
-  filter: url(#hr-liquid-glass-menu);
-  content: "";
-  pointer-events: none;
-}
-.hr-liquid-select-popup .select-item {
-  border-radius: 12px;
-  color: var(--color-muted);
-  font-weight: 800;
-  transition-property: background-color, color, box-shadow;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-/* 下拉選項沿用導覽子選單：hover 是淡層、selected 是固定 active 層。 */
-.hr-liquid-select-popup .select-item:hover:not([data-selected]),
-.hr-liquid-select-popup .select-item[data-highlighted]:not([data-selected]) {
-  background: --alpha(var(--color-brand) / 7%);
-  color: var(--color-brand-dark);
-}
-.hr-liquid-select-popup .select-item[data-selected] {
-  background: --alpha(var(--color-brand) / 16%);
-  color: var(--color-brand-dark);
-  box-shadow: 0 0 0 1px --alpha(var(--color-brand) / 18%) inset;
-}
-.hr-liquid-select-popup .select-item:focus-visible {
-  outline: 2px solid var(--color-info);
-  outline-offset: 3px;
-}
-.hr-liquid-select-popup .select-item-indicator { color: var(--color-brand); }
-.hr-liquid-select-popup .combobox-item {
-  border-radius: 12px;
-  color: var(--color-muted);
-  font-weight: 800;
-  transition-property: background-color, color, box-shadow;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.hr-liquid-select-popup .combobox-item:hover:not([data-highlighted]),
-.hr-liquid-select-popup .combobox-item[data-highlighted]:not([data-selected]) {
-  background: --alpha(var(--color-brand) / 7%);
-  color: var(--color-brand-dark);
-}
-.hr-liquid-select-popup .combobox-item[data-selected] {
-  background: --alpha(var(--color-brand) / 16%);
-  color: var(--color-brand-dark);
-  box-shadow: 0 0 0 1px --alpha(var(--color-brand) / 18%) inset;
-}
-.hr-liquid-select-popup .combobox-item:focus-visible {
-  outline: 2px solid var(--color-info);
-  outline-offset: 3px;
 }
 
 @media (max-width: 900px) {

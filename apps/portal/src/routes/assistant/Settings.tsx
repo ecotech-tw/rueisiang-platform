@@ -90,7 +90,7 @@ export function AssistantSettings() {
                 </span>
               <FilterSelect
                 label={`${tool.label} 狀態`}
-                className="assistant-status-select"
+                className="min-w-[104px]"
                 value={tool.status}
                 disabled={saveTool.isPending}
                 onChange={(event) => saveTool.mutate({ key: tool.key, status: event.target.value as AssistantTool["status"] })}

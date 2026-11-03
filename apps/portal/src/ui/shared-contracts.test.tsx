@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { Alert, ConfirmDialog, Dialog, EmptyState, Field, Input, InputSkin, SegmentedControl, SelectField, SelectionActionBar, Textarea, TextField, Tooltip } from "@rueisiang/ui";
+import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input, InputSkin, SearchCombobox, SegmentedControl, SelectField, SelectionActionBar, Textarea, TextField, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable } from "./DataTable";
@@ -78,6 +78,31 @@ describe("shared HRIS UI contracts", () => {
     expect([...root(plain), ...root(roomy)].filter((name) => /^-?m[tbxylr]?-/.test(name))).toEqual([]);
     expect(stacked).toMatch(/<span class="hidden max-\[640px\]:block [^"]*">金額<\/span>/);
     expect(renderToStaticMarkup(<Field as="div" label="顏色"><span /></Field>)).toMatch(/^<div data-field=""/);
+  });
+
+  it("下拉的玻璃外觀跟著 InputSkin 走，尺寸與最小寬度整組取代預設值", () => {
+    const trigger = (markup: string) => markup.match(/<button[^>]*class="([^"]*)"/)?.[1]?.split(" ") ?? [];
+    const options = [{ value: "a", label: "甲" }];
+    const solid = trigger(renderToStaticMarkup(<DropdownSelect aria-label="狀態" options={options} />));
+    const glass = trigger(renderToStaticMarkup(<InputSkin skin="glass"><DropdownSelect aria-label="狀態" options={options} /></InputSkin>));
+    const compact = trigger(renderToStaticMarkup(<DropdownSelect aria-label="狀態" size="sm" className="min-w-[180px]" options={options} />));
+    expect(solid).toEqual(expect.arrayContaining(["bg-canvas", "border-line", "min-h-(--size-field)", "min-w-0"]));
+    expect(glass).toEqual(expect.arrayContaining(["bg-paper/38", "border-transparent"]));
+    expect(glass).not.toContain("bg-canvas");
+    // 兩個高度或兩個最小寬度同時出現時誰贏要看產生順序，所以 sm 與呼叫端的 min-w 都必須取代預設值。
+    expect(compact).toEqual(expect.arrayContaining(["min-h-[34px]", "min-w-[180px]"]));
+    expect(compact).not.toContain("min-h-(--size-field)");
+    expect(compact).not.toContain("min-w-0");
+  });
+
+  it("SearchCombobox 的外框與焦點只畫在外層，裡面的輸入框不另外畫", () => {
+    const markup = renderToStaticMarkup(<SearchCombobox items={["甲"]} value={null} onValueChange={() => {}} itemToStringLabel={(item) => item ?? ""} label="分類" placeholder="搜尋分類" emptyLabel="找不到分類" />);
+    const group = markup.match(/^<div[^>]*class="([^"]*)"/)?.[1]?.split(" ") ?? [];
+    const input = markup.match(/<input[^>]*class="([^"]*)"/)?.[1]?.split(" ") ?? [];
+    expect(group).toEqual(expect.arrayContaining(["border", "border-line", "focus-within:border-brand", "min-h-(--size-field)"]));
+    expect(input).toEqual(expect.arrayContaining(["border-0", "outline-0", "min-h-[calc(var(--size-field)-2px)]"]));
+    // 沒有選取時 Base UI 不畫清除鈕，所以這裡只看得到展開鈕。
+    expect(markup).toContain('aria-label="開啟分類選單"');
   });
 
   it("輸入框的玻璃外觀只跟著 InputSkin 走、只套日期類欄位，Textarea 的高度整組取代預設", () => {

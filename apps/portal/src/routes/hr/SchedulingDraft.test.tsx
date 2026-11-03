@@ -56,7 +56,7 @@ describe("後台班別人員篩選", () => {
       if (!quickMode) await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="2026-02-07 新增排班"]')!.click());
       const label = quickMode ? "人員" : "新增排班人員";
       const input = () => document.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!;
-      await act(async () => input().closest(".combobox-group")!.querySelector<HTMLButtonElement>('[aria-label="清除選擇"]')!.click());
+      await act(async () => input().parentElement!.querySelector<HTMLButtonElement>('[aria-label="清除選擇"]')!.click());
       expect(input().value).toBe("");
       expect(input().placeholder).toBe("請選擇人員");
       expect(document.body.textContent).not.toContain("此班別沒有可排的正式員工");

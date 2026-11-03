@@ -1,4 +1,3 @@
-import { Combobox } from "@base-ui/react/combobox";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
@@ -7,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, Dialog, Field, FilterInput, FilterSelect, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -113,16 +112,7 @@ function ManualCombo<T>({
   renderItem: (item: T) => React.ReactNode;
   disabled?: boolean;
 }) {
-  return (
-    <Combobox.Root items={items} value={value} onValueChange={onChange} itemToStringLabel={itemToStringLabel} autoHighlight disabled={disabled}>
-      <Combobox.InputGroup className="combobox-group">
-        <Combobox.Input className="combobox-input" placeholder={placeholder} />
-        <Combobox.Clear className="combobox-clear" aria-label="清除選擇"><Icon name="close" /></Combobox.Clear>
-        <Combobox.Trigger className="combobox-trigger" aria-label="開啟選單"><Icon name="chevronDown" /></Combobox.Trigger>
-      </Combobox.InputGroup>
-      <Combobox.Portal><Combobox.Positioner className="combobox-positioner"><Combobox.Popup className="combobox-popup"><Combobox.Empty>{emptyLabel}</Combobox.Empty><Combobox.List>{(item: T) => <Combobox.Item key={itemToStringLabel(item)} value={item} className="combobox-item">{renderItem(item)}<Combobox.ItemIndicator>✓</Combobox.ItemIndicator></Combobox.Item>}</Combobox.List></Combobox.Popup></Combobox.Positioner></Combobox.Portal>
-    </Combobox.Root>
-  );
+  return <SearchCombobox items={items} value={value} onValueChange={onChange} itemToStringLabel={itemToStringLabel} renderItem={renderItem} placeholder={placeholder} emptyLabel={emptyLabel} disabled={disabled} />;
 }
 
 function ErrorMessage({ error }: { error: Error | null | undefined }) {

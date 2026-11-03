@@ -42,6 +42,9 @@
   --shadow-glass-tint-info: 0 1px 0 --alpha(var(--color-paper) / 58%) inset, 0 0 0 1px --alpha(var(--color-info) / 16%) inset;
   --shadow-glass-tint-ok: 0 1px 0 --alpha(var(--color-paper) / 58%) inset, 0 0 0 1px --alpha(var(--color-ok) / 16%) inset;
   --shadow-glass-field: 0 1px 0 --alpha(var(--color-paper) / 66%) inset, 0 0 0 1px --alpha(var(--color-paper) / 24%) inset, 0 8px 22px --alpha(var(--color-ink) / 7%);
+  --shadow-glass-menu: 0 1px 0 --alpha(var(--color-paper) / 48%) inset, 0 0 0 1px --alpha(var(--color-paper) / 18%) inset, 0 -12px 28px --alpha(var(--color-brand) / 5%) inset, 0 22px 52px --alpha(var(--color-ink) / 14%), 0 6px 18px --alpha(var(--color-brand) / 8%);
+  /* 玻璃選單內層的光澤；選單本身已經是 backdrop-filter，這層再疊上 SVG 扭曲（#hr-liquid-glass-menu）。 */
+  --glass-menu-sheen: radial-gradient(circle at 18% 0%, --alpha(var(--color-paper) / 22%), transparent 34%), radial-gradient(circle at 86% 100%, --alpha(var(--color-brand) / 6%), transparent 40%), linear-gradient(135deg, --alpha(var(--color-paper) / 12%) 0%, transparent 30%, --alpha(var(--color-paper) / 5%) 68%, transparent 100%);
   --shadow-dialog: 0 24px 60px --alpha(var(--color-ink) / 28%);
   --shadow-dialog-footer: 0 -10px 20px --alpha(var(--color-ink) / 8%);
   --animate-dialog-backdrop-enter: dialog-backdrop-enter 150ms ease-out both;

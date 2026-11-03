@@ -1,18 +1,6 @@
-import { createContext, useContext, type ChangeEventHandler, type InputHTMLAttributes, type ReactNode, type Ref, type SelectHTMLAttributes, type TextareaHTMLAttributes } from "react";
+import type { ChangeEventHandler, InputHTMLAttributes, ReactNode, Ref, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
 import { DropdownSelect, type DropdownSelectMultipleChangeEvent } from "./DropdownSelect.js";
-
-type InputSkinName = "solid" | "glass";
-
-const InputSkinContext = createContext<InputSkinName>("solid");
-
-/**
- * 輸入框的整體風格，跟 ButtonSkin 一樣由外層決定，不靠祖先 class 從外面蓋。
- * - solid：預設的實心白底。
- * - glass：HRIS 管理介面的半透明玻璃；只套在日期類欄位，文字欄位維持實心才讀得清楚。
- */
-export function InputSkin({ skin, children }: { skin: InputSkinName; children: ReactNode }) {
-  return <InputSkinContext value={skin}>{children}</InputSkinContext>;
-}
+import { GLASS_FIELD, useInputSkin } from "./InputSkin.js";
 
 const GLASS_TYPES = new Set(["date", "month", "datetime-local"]);
 
@@ -20,8 +8,7 @@ const INPUT_BASE = "min-h-(--size-field) min-w-0 rounded-[10px] border px-3 py-2
 
 const INPUT_SKIN = {
   solid: "border-line bg-paper disabled:bg-soft-line focus-visible:outline-offset-1",
-  // 停用時仍是玻璃底，只把字變淡：灰底疊在半透明上會變成一塊髒污。
-  glass: "border-transparent bg-paper/38 [box-shadow:var(--shadow-glass-field)] [-webkit-backdrop-filter:blur(8px)_saturate(155%)_contrast(103%)] [backdrop-filter:blur(8px)_saturate(155%)_contrast(103%)] transition-[background-color,box-shadow,border-color] duration-150 ease-out hover:bg-paper/50 focus-visible:outline-offset-2 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:rounded-full [&::-webkit-calendar-picker-indicator]:bg-brand/12 [&::-webkit-calendar-picker-indicator]:p-1.5",
+  glass: `${GLASS_FIELD} [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:rounded-full [&::-webkit-calendar-picker-indicator]:bg-brand/12 [&::-webkit-calendar-picker-indicator]:p-1.5`,
 } as const;
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -32,7 +19,7 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 /** 單行輸入框。勾選框與單選鈕不要用它，它們沒有外框與內距。 */
 export function Input({ className = "", type, ...props }: InputProps) {
-  const skin = useContext(InputSkinContext);
+  const skin = useInputSkin();
   const look = skin === "glass" && type && GLASS_TYPES.has(type) ? INPUT_SKIN.glass : INPUT_SKIN.solid;
   return <input {...props} type={type} className={`${INPUT_BASE} ${look} ${className}`.trim()} />;
 }
@@ -86,7 +73,7 @@ interface FieldProps {
 /** 統一 label、說明與錯誤文字的欄位包裝器。 */
 export function Field({ label, required, hint, error, className = "", as: Tag = "label", gap = 6, stackedLabel, children }: FieldProps) {
   return (
-    // data-field 是下拉外觀還沒搬進元件前的掛鉤，那幾條規則在 components.css。
+    // data-field 讓外層的版面規則認得出 Field（.admin-form 的底部對齊、格線子元素的 min-width）。
     <Tag data-field="" className={`grid content-start ${FIELD_GAP[gap]} ${className}`.trim()}>
       {label ? (
         <span className={stackedLabel ? `${STACKED_LABEL[stackedLabel]} mb-1.5 text-[12px] font-semibold text-muted` : "text-[13px] font-bold"}>
