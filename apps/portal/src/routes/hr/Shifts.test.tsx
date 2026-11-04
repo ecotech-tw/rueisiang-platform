@@ -70,9 +70,9 @@ it("初始只顯示共用時間，逐列選擇唯一的星期或國定假日覆�
     expect(document.querySelectorAll(".shift-day-row-default")).toHaveLength(1);
     expect(document.querySelectorAll(".shift-day-row-override")).toHaveLength(0);
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "新增星期／國定假日覆蓋")!.click());
-    await choose("週五", "早班第1列覆蓋套用日");
+    await choose("週五", "早班第1列覆蓋日別");
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "新增星期／國定假日覆蓋")!.click());
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="早班第2列覆蓋套用日"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="早班第2列覆蓋日別"]')!.click());
     expect([...document.querySelectorAll<HTMLElement>("[role=option]")].some((option) => option.textContent?.trim() === "週五")).toBe(false);
     await act(async () => [...document.querySelectorAll<HTMLElement>("[role=option]")].filter((option) => option.textContent?.includes("國定假日")).at(-1)!.click());
     expect([...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "儲存")?.disabled).toBe(false);

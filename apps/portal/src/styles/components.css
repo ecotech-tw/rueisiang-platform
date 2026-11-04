@@ -1883,7 +1883,7 @@
 .shift-day-row-override { grid-template-columns: minmax(112px, 140px) minmax(118px, 1fr) minmax(118px, 1fr) minmax(72px, 1fr) minmax(76px, 90px) 44px; }
 .shift-day-head { padding: 0 4px; color: var(--color-muted); font-size: 12px; font-weight: 600; }
 .shift-day-head > span:not(:first-child):not(:last-child) { text-align: center; }
-.shift-day-row-empty { grid-template-columns: 62px minmax(0, 1fr) auto; }
+.shift-day-row-empty { grid-template-columns: minmax(112px, 140px) minmax(0, 1fr) 44px; }
 .shift-day-label { padding-left: 4px; color: var(--color-muted); font-size: 12px; font-weight: 500; }
 .shift-day-inherited { min-width: 0; }
 .shift-item-spacer { display: block; }

@@ -93,7 +93,7 @@ function timesPayload(row: ShiftRowDraft) {
  * 每列都是可直接編輯的草稿；新增、修改與刪除一起在右下角「儲存」時送出，
  * 和敘薪的項目編輯保持同一種操作節奏，不需要先找一顆編輯按鈕再跳到另一張表單。
  *
- * 一開始只顯示共用時間；需要個別星期或國定假日時，新增覆蓋列並選擇套用日，未設定的日期沿用共用時間。
+ * 一開始只顯示共用時間；需要個別星期或國定假日時，新增覆蓋列並選擇覆蓋日別，未設定的日期沿用共用時間。
  */
 function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrite, onClose, onSaved }: { scope: ScheduleScope; groups: ShiftGroup[]; people: NonNullable<HrShiftsResponse["people"]>; manager: ScheduleManagersResponse["scopes"][number]; candidates: ScheduleManagersResponse["candidates"]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
   const [rows, setRows] = useState(() => rowsFromGroups(groups));
@@ -262,7 +262,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
             <SelectField className="min-w-0" label="排班人員" aria-label={`${row.name || "班別"}排班人員`} multiple searchable value={row.allowedPersonIds ?? people.map((person) => person.id)} disabled={disabled} options={[...people.map((person) => ({ value: person.id, label: `${person.employeeNumber}・${person.name}${person.personKind === "worker" ? "（支援）" : ""}` })), ...(row.allowedPersonIds ?? []).filter((id) => !people.some((person) => person.id === id)).map((id) => ({ value: id, label: "已封存人員" }))]} onValueChange={(allowedPersonIds: string[]) => updateRow(row.key, { allowedPersonIds })} />
           </div>
           <div className="shift-day-head" aria-hidden="true">
-            <span>共用／套用日</span><span>開始</span><span>結束</span><span>休息（分）</span><span>需求人力</span><span />
+            <span>共用／覆蓋日別</span><span>開始</span><span>結束</span><span>休息（分）</span><span>需求人力</span><span />
           </div>
           {(() => {
             const dayType = "weekday" as const;
@@ -279,9 +279,9 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
           })()}
           {row.overrides.map((override, overrideIndex) => {
             const availableTypes = HR_SHIFT_OVERRIDE_TYPES.filter((dayType) => dayType === override.dayType || !row.overrides.some((other) => other.key !== override.key && other.dayType === dayType));
-            const options = [{ value: "", label: "選擇套用日" }, ...availableTypes.map((dayType) => ({ value: dayType, label: HR_SHIFT_DAY_LABELS[dayType] }))];
+            const options = [{ value: "", label: "選擇日別" }, ...availableTypes.map((dayType) => ({ value: dayType, label: HR_SHIFT_DAY_LABELS[dayType] }))];
             const selector = canWrite
-              ? <SelectField className="min-w-0 @max-[640px]:col-start-1 @max-[640px]:row-start-1" label="套用日" aria-label={`${row.name || "班別"}第${overrideIndex + 1}列覆蓋套用日`} value={override.dayType} disabled={disabled} options={options} onChange={(event) => updateOverrideType(row.key, override.key, event.target.value as ShiftOverrideType | "")} />
+              ? <SelectField className="min-w-0 @max-[640px]:col-start-1 @max-[640px]:row-start-1" label="覆蓋日別" aria-label={`${row.name || "班別"}第${overrideIndex + 1}列覆蓋日別`} stackedLabel="container" value={override.dayType} disabled={disabled} options={options} onChange={(event) => updateOverrideType(row.key, override.key, event.target.value as ShiftOverrideType | "")} />
               : <span className="shift-day-label">{override.dayType ? HR_SHIFT_DAY_LABELS[override.dayType] : "尚未選擇"}</span>;
             if (!override.dayType) return <div className="shift-day-row shift-day-row-empty shift-day-row-override" key={override.key}>
               {selector}
