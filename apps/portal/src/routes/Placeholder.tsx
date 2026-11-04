@@ -1,5 +1,5 @@
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { Page, Panel } from "../ui/index.js";
+import { Page, PageHeader, Panel } from "../ui/index.js";
 
 interface PlaceholderProps {
   title: string;
@@ -13,10 +13,7 @@ export function Placeholder({ title, phase, from }: PlaceholderProps) {
   usePageTitle(title);
   return (
     <Page>
-      <header className="page-head">
-        <h1>{title}</h1>
-        <p className="muted">尚未搬入，預計於 {phase} 完成。</p>
-      </header>
+      <PageHeader title={title} description={`尚未搬入，預計於 ${phase} 完成。`} />
       <Panel>
         <p className="muted">來源：<code>{from}</code></p>
       </Panel>

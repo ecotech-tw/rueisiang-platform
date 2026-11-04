@@ -488,7 +488,7 @@ export function HrClockCalendar() {
   }
   return <Page className={`hr-clock-page hr-clock-subpage [&>*+*]:mt-0 ${closing ? "closing" : ""}`}>
     <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
-    <PageHeader title="出勤日曆" description="左右滑動切換月份，點擊日期查看打卡紀錄。" />
+    <PageHeader title="出勤日曆" description="左右滑動切換月份，點擊日期查看打卡紀錄。" className="max-[760px]:mb-0 max-[760px]:[&_h1]:text-[18px] max-[760px]:[&_p]:hidden" />
     {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
     <section data-panel="" className={`${PANEL_SURFACE} [&>:last-child]:mb-0 hr-clock-calendar hr-clock-calendar-open`} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       <div className="hr-clock-calendar-toolbar">
@@ -534,7 +534,7 @@ export function HrClockLogs() {
   }
   return <Page className={`hr-clock-page hr-clock-subpage [&>*+*]:mt-0 ${closing ? "closing" : ""}`}>
     <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
-    <PageHeader title="打卡紀錄" description="按月份查看實際工時、預期班別與出勤異常。" />
+    <PageHeader title="打卡紀錄" description="按月份查看實際工時、預期班別與出勤異常。" className="max-[760px]:mb-0 max-[760px]:[&_h1]:text-[18px] max-[760px]:[&_p]:hidden" />
     <section className="hr-clock-logs">
       {/* 月份與統計放在捲動區外面，而且載入中也照樣畫（數字先用「—」）：
           這樣換月份時上半部的高度不會跳，往下捲時它也一直留在上方。 */}

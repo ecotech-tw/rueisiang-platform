@@ -9,7 +9,7 @@ export { FilterInput, FilterSelect, SEARCH_INPUT_WIDTH, type FilterInputProps, t
 export { Field, FieldHint, Input, InputSkin, SelectField, Textarea, TextField } from "./Field.js";
 export { Alert, StatusBadge, type StatusTone } from "./Feedback.js";
 export { Page, PageSpacing, type PageLayout, type PageSpacingName } from "@rueisiang/ui";
-export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
+export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
 export { PageTabs } from "./PageTabs.js";
 export { SegmentedControl } from "./SegmentedControl.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";

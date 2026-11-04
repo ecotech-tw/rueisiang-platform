@@ -357,7 +357,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   height: 100%;
   overflow: hidden;
 }
-.hr-system .page-head .muted { display: none; }
 .hr-system-main > .hr-page-transition {
   position: relative;
   display: block;

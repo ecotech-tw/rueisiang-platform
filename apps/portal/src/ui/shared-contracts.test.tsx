@@ -1,13 +1,28 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input, InputSkin, SearchCombobox, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, Textarea, TextField, Tooltip } from "@rueisiang/ui";
+import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input, InputSkin, PageHeader, SearchCombobox, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, Textarea, TextField, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable, TableSkin } from "./DataTable";
 import { FilterInput, FilterSelect, FilterToolbar, SEARCH_INPUT_WIDTH, SearchFilterInput } from "./index.js";
 
 describe("shared HRIS UI contracts", () => {
+  it("PageHeader 的下距與對齊依斷點分開取代，只改手機不會拿掉桌機的預設值", () => {
+    const classes = (markup: string) => (markup.match(/^<header data-page-head="" class="([^"]*)"/)?.[1] ?? "").split(/\s+/);
+    const base = classes(renderToStaticMarkup(<PageHeader title="通知" actions={<button type="button">全部已讀</button>} />));
+    expect(base).toEqual(expect.arrayContaining(["mb-0", "max-[760px]:mb-3", "items-start", "max-[760px]:items-center"]));
+
+    const mobileOnly = classes(renderToStaticMarkup(<PageHeader title="通知" className="max-[760px]:items-start max-[760px]:mb-0" actions={<button type="button">全部已讀</button>} />));
+    expect(mobileOnly).toEqual(expect.arrayContaining(["items-start", "mb-0", "max-[760px]:items-start", "max-[760px]:mb-0"]));
+    expect(mobileOnly).not.toContain("max-[760px]:items-center");
+    expect(mobileOnly).not.toContain("max-[760px]:mb-3");
+
+    const desktopOnly = classes(renderToStaticMarkup(<PageHeader title="分析" className="mb-4" />));
+    expect(desktopOnly).toEqual(expect.arrayContaining(["mb-4", "max-[760px]:mb-3"]));
+    expect(desktopOnly).not.toContain("mb-0");
+  });
+
   it("描邊分段切換保留圖示、可存取名稱與持續的選中狀態", () => {
     const markup = renderToStaticMarkup(<SegmentedControl skin="outlined" iconOnly aria-label="圖片檢視方式" value="grid" onChange={() => {}} options={[{ value: "list", label: "列表檢視", icon: "list" }, { value: "grid", label: "縮圖檢視", icon: "grid" }]} />);
     expect(markup).toContain('aria-label="列表檢視"'); expect(markup).toContain('aria-label="縮圖檢視"');

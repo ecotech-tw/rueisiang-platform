@@ -260,6 +260,7 @@ export function Sandbox() {
   return (
     <Page className="assistant-sandbox-page">
       <PageHeader
+        className="flex-none mb-3"
         title="小香助理 Sandbox"
         description="在接上 LINE 前，先用同一套 prompt、模型與工具執行流程測試回答品質。"
       />

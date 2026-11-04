@@ -497,7 +497,6 @@
 
 /* AI 助理 Sandbox */
 .assistant-sandbox-page { display: flex; height: 100%; min-height: 0; flex-direction: column; }
-.assistant-sandbox-page > .page-head { flex: none; margin-bottom: 12px; }
 .assistant-sandbox-page > .assistant-sandbox-layout { flex: 1; min-height: 0; }
 .assistant-sandbox-layout { display: grid; grid-template-columns: minmax(280px, .85fr) minmax(0, 1.15fr); align-items: stretch; gap: 16px; min-height: 0; }
 .assistant-settings-column { display: grid; align-content: start; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
@@ -1819,7 +1818,6 @@
  * 描述文字長的時候，flex 會把右邊那顆按鈕擠到只剩兩個字寬，「新增對應」就被折成
  * 「新增對／應」。給它 flex: none 與 nowrap，寬度由文字決定。
  */
-.page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 
 .field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
 .field-grid > [data-field] { min-width: 0; }
@@ -2351,7 +2349,6 @@
   .stat { padding: 10px 12px; }
   .stat strong { font-size: 17px; }
 
-  .page-head-row { align-items: center; gap: 12px; }
 
   /* 檢視列的膠囊改成水平捲，不要換行疊高。 */
   .view-bar {
@@ -2645,8 +2642,6 @@
    muted 虛線，避免跟本期品牌色爭主次。
    ─────────────────────────────────────────────────────────────────────── */
 .analytics-page { gap: 0; }
-.analytics-page > .page-head { flex: none; margin-bottom: 16px; }
-.analytics-page > .page-head h1 { letter-spacing: -.02em; }
 
 .analytics-filters {
   flex: none;
@@ -2844,7 +2839,6 @@
 }
 
 @media (max-width: 760px) {
-  .analytics-page > .page-head { margin-bottom: 12px; }
   .analytics-filters { gap: 12px; }
   .analytics-filter-heading > div:nth-child(2) { min-width: 0; }
   .analytics-filter-heading .analytics-tabs { width: 100%; margin-left: 0; }

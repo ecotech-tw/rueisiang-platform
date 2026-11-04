@@ -97,7 +97,7 @@ function FormPageHeader({ title, description, returnTo = "/forms" }: { title: st
   const navigate = useNavigate();
   return <>
     <HrBackBar label="返回表單" onBack={() => navigate(returnTo)} />
-    <PageHeader title={title} description={description} />
+    <PageHeader title={title} description={description} className="max-[760px]:[&_h1]:text-[22px] max-[760px]:[&_p]:text-[13px] max-[760px]:[&_p]:leading-[1.55]" />
   </>;
 }
 
@@ -717,11 +717,11 @@ export function HrOvertimeForm() {
     sessionStorage.setItem("hr:overtime-draft", JSON.stringify({ start, end, reason }));
   }, [copying, editing, end, mode, reason, start]);
 
-  if ((editing || copying) && existing.isPending) return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="正在載入申請內容…" returnTo="/forms?tab=overtime" /><p className="muted">載入加班申請…</p></Page>;
-  if ((editing || copying) && existing.error) return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="無法載入這筆申請。" returnTo="/forms?tab=overtime" /><Alert tone="danger">{existing.error.message}</Alert></Page>;
-  if ((editing || copying) && !existingRequest) return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="找不到這筆申請。" returnTo="/forms?tab=overtime" /><Alert tone="danger">找不到這筆加班申請。</Alert></Page>;
-  if (editing && existingRequest?.request.status !== "pending") return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title="編輯加班申請" description="這筆申請已完成處理。" returnTo="/forms?tab=overtime" /><Alert tone="info">這筆加班申請已完成處理，無法再修改；如需變更請先取消後重新申請。</Alert></Page>;
-  if (copying && existingRequest?.request.status !== "rejected") return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title="重新申請加班" description="只有已駁回申請可以複製重送。" returnTo="/forms?tab=overtime" /><Alert tone="info">這筆加班申請不是已駁回狀態，無法從原申請複製重送。</Alert></Page>;
+  if ((editing || copying) && existing.isPending) return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="正在載入申請內容…" returnTo="/forms?tab=overtime" /><p className="muted">載入加班申請…</p></Page>;
+  if ((editing || copying) && existing.error) return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="無法載入這筆申請。" returnTo="/forms?tab=overtime" /><Alert tone="danger">{existing.error.message}</Alert></Page>;
+  if ((editing || copying) && !existingRequest) return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="找不到這筆申請。" returnTo="/forms?tab=overtime" /><Alert tone="danger">找不到這筆加班申請。</Alert></Page>;
+  if (editing && existingRequest?.request.status !== "pending") return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title="編輯加班申請" description="這筆申請已完成處理。" returnTo="/forms?tab=overtime" /><Alert tone="info">這筆加班申請已完成處理，無法再修改；如需變更請先取消後重新申請。</Alert></Page>;
+  if (copying && existingRequest?.request.status !== "rejected") return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title="重新申請加班" description="只有已駁回申請可以複製重送。" returnTo="/forms?tab=overtime" /><Alert tone="info">這筆加班申請不是已駁回狀態，無法從原申請複製重送。</Alert></Page>;
 
   const disabled = save.isPending || ((editing || copying) && existing.isPending) || (editing && loadedRevision?.id !== requestId);
   // 兩個欄位都是台北時間的牆上時刻，補 Z 當成同一個固定時區相減；用瀏覽器時區解析的話，裝置所在地有日光節約時會多或少一小時。
@@ -752,7 +752,7 @@ export function HrOvertimeForm() {
     save.mutate({ path: editing ? `/me/overtime/${requestId}` : "/me/overtime", method: editing ? "PATCH" : "POST", values: { requestedStart: start, requestedEnd: end, settlementKind, reason, ...(editing ? { revision: loadedRevision?.revision } : {}) } }, { onSuccess: () => { if (!editing) sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }, onError: (cause) => setError(cause.message) });
   }
 
-  return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : mode === "multiple" ? "先選時數再點日期，每一天會建立一筆申請；選好的日期離開頁面後不會保留。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel className={FORM_PANEL}>{editing || copying ? null : <SegmentedControl skin="tabs" className="mb-4" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending || batchPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} onPendingChange={setBatchPending} onDone={() => { sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }} /> : <><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => changeStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} /></div><TextField label="加班時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (requestedMinutes > 0 ? hoursText(requestedMinutes) : "")} disabled={disabled} onChange={(event) => changeHours(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint="填時數會自動換算結束時間。" error={hoursError} /><Field label="加班原因（選填）"><Textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{existingRequest?.request.settlementKind === "compensatory" ? <Alert tone="info">{editing ? "這筆申請的結算方式是補休，更新後仍是補休、不計加班費。要改成付薪請取消後重新申請。" : "原申請的結算方式是補休；重新送出會改為付薪。需要補休請洽 HR。"}</Alert> : null}{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></>}</Panel></Page>;
+  return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : mode === "multiple" ? "先選時數再點日期，每一天會建立一筆申請；選好的日期離開頁面後不會保留。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel className={FORM_PANEL}>{editing || copying ? null : <SegmentedControl skin="tabs" className="mb-4" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending || batchPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} onPendingChange={setBatchPending} onDone={() => { sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }} /> : <><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => changeStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} /></div><TextField label="加班時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (requestedMinutes > 0 ? hoursText(requestedMinutes) : "")} disabled={disabled} onChange={(event) => changeHours(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint="填時數會自動換算結束時間。" error={hoursError} /><Field label="加班原因（選填）"><Textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{existingRequest?.request.settlementKind === "compensatory" ? <Alert tone="info">{editing ? "這筆申請的結算方式是補休，更新後仍是補休、不計加班費。要改成付薪請取消後重新申請。" : "原申請的結算方式是補休；重新送出會改為付薪。需要補休請洽 HR。"}</Alert> : null}{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></>}</Panel></Page>;
 }
 
 function previousDate(value: string) {
@@ -917,11 +917,11 @@ export function HrLeaveForm() {
     });
   }
 
-  if ((editing || copying) && existing.isPending) return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="正在載入申請內容…" returnTo="/forms?tab=leave" /><p className="muted">載入請假申請…</p></Page>;
-  if ((editing || copying) && existing.error) return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="無法載入這筆申請。" returnTo="/forms?tab=leave" /><Alert tone="danger">{existing.error.message}</Alert></Page>;
-  if ((editing || copying) && !existingRequest) return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="找不到這筆申請。" returnTo="/forms?tab=leave" /><Alert tone="danger">找不到這筆請假申請。</Alert></Page>;
-  if (editing && existingRequest?.request.status !== "pending") return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title="編輯請假申請" description="這筆申請已完成處理。" returnTo="/forms?tab=leave" /><Alert tone="info">這筆請假申請已完成處理，只有審核中的申請可以修改。</Alert></Page>;
-  if (copying && existingRequest?.request.status !== "rejected") return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title="重新申請請假" description="只有已駁回申請可以複製重送。" returnTo="/forms?tab=leave" /><Alert tone="info">這筆請假申請不是已駁回狀態，無法從原申請複製重送。</Alert></Page>;
+  if ((editing || copying) && existing.isPending) return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="正在載入申請內容…" returnTo="/forms?tab=leave" /><p className="muted">載入請假申請…</p></Page>;
+  if ((editing || copying) && existing.error) return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="無法載入這筆申請。" returnTo="/forms?tab=leave" /><Alert tone="danger">{existing.error.message}</Alert></Page>;
+  if ((editing || copying) && !existingRequest) return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="找不到這筆申請。" returnTo="/forms?tab=leave" /><Alert tone="danger">找不到這筆請假申請。</Alert></Page>;
+  if (editing && existingRequest?.request.status !== "pending") return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title="編輯請假申請" description="這筆申請已完成處理。" returnTo="/forms?tab=leave" /><Alert tone="info">這筆請假申請已完成處理，只有審核中的申請可以修改。</Alert></Page>;
+  if (copying && existingRequest?.request.status !== "rejected") return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title="重新申請請假" description="只有已駁回申請可以複製重送。" returnTo="/forms?tab=leave" /><Alert tone="info">這筆請假申請不是已駁回狀態，無法從原申請複製重送。</Alert></Page>;
 
   const requestStartDate = start.slice(0, 10);
   const requestLastDate = leaveAsOfDate(end);
@@ -937,7 +937,7 @@ export function HrLeaveForm() {
       return { value: leaveType.id, label: unavailableCredit ? `${leaveType.name}・此時段無可用額度` : leaveTypeLabel(leaveType), disabled: unavailableCredit };
     }),
   ];
-  return <Page className="hr-form-page [&>.page-head]:mt-2">
+  return <Page className="hr-form-page [&>[data-page-head]]:mt-2">
     <FormPageHeader title={editing ? "編輯請假申請" : copying ? "重新申請請假" : "請假申請"} description={editing ? "只能修改審核中的請假申請；已核准或駁回的申請請重新建立。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : selectedType?.leaveKind === "grant" && !selectedType.scheduleCheckRequired ? "此額度假別依申請時數計算，不檢查班表；離開頁面前會暫存未送出的內容。" : "系統依工作日、班表與休息時間計算請假時數；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=leave" />
     <Panel className={FORM_PANEL}>
       <div className="hr-form-fields">
@@ -1038,11 +1038,11 @@ export function HrClockCorrectionForm() {
   }
 
   // 沒帶 request 時這個 query 是停用的，停用的 query 會一直停在 pending；只有編輯草稿才需要等它。
-  if (requestId && existing.isPending) return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title="補打卡申請單" description="正在載入申請內容…" returnTo="/forms?tab=clock_correction" /><p className="muted">載入申請單…</p></Page>;
-  if (existing.error) return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title="補打卡申請單" description="無法載入這份申請。" returnTo="/forms?tab=clock_correction" /><Alert tone="danger">{existing.error.message}</Alert></Page>;
+  if (requestId && existing.isPending) return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title="補打卡申請單" description="正在載入申請內容…" returnTo="/forms?tab=clock_correction" /><p className="muted">載入申請單…</p></Page>;
+  if (existing.error) return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title="補打卡申請單" description="無法載入這份申請。" returnTo="/forms?tab=clock_correction" /><Alert tone="danger">{existing.error.message}</Alert></Page>;
   if (existing.data?.request.status !== undefined && existing.data.request.status !== "draft") {
     const closed = existing.data.request.status === "cancelled" ? "已取消" : "已送出";
-    return <Page className="hr-form-page [&>.page-head]:mt-2"><FormPageHeader title="補打卡申請單" description={`這份申請${closed}。`} returnTo="/forms?tab=clock_correction" /><Alert tone="info">這份申請單{closed}，無法再修改。</Alert></Page>;
+    return <Page className="hr-form-page [&>[data-page-head]]:mt-2"><FormPageHeader title="補打卡申請單" description={`這份申請${closed}。`} returnTo="/forms?tab=clock_correction" /><Alert tone="info">這份申請單{closed}，無法再修改。</Alert></Page>;
   }
   // 正在編輯草稿時回列表要直接看得到那張草稿。
   const returnTo = requestId ? "/forms?tab=clock_correction&status=draft" : "/forms?tab=clock_correction";
@@ -1051,7 +1051,7 @@ export function HrClockCorrectionForm() {
     { label: "請選擇審核者", value: "" },
     ...(approvers.data?.approvers ?? []).map((approver) => ({ label: approver.employeeNumber ? `${approver.employeeNumber}・${approver.name}` : approver.name, value: approver.id })),
   ];
-  return <Page className="hr-form-page [&>.page-head]:mt-2">
+  return <Page className="hr-form-page [&>[data-page-head]]:mt-2">
     <FormPageHeader title="補打卡申請單" description="補登實際應出勤時間，送出後由指定審核者確認。" returnTo={returnTo} />
     <Panel className={FORM_PANEL}>
       <div className="hr-form-fields">

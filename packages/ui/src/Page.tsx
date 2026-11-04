@@ -44,7 +44,7 @@ export function Page({ layout = "flow", className = "", children, ...rest }: Pag
     flow: `min-w-0 ${STACK_GAP[spacing]}`,
     // fills 用 gap 排，區塊之間的上外距歸零（一樣是權重 0），不然會跟 gap 疊在一起。
     // 例外是面板接面板：舊版兩條規則疊起來是 gap 加 20px 外距，畫面一直是這樣，先照舊保留。
-    fills: `flex h-full min-h-0 min-w-0 flex-col ${defaultUnless(className, "gap-", "gap-5")} [:where(&>*+*)]:mt-0 [:where(&>[data-panel])+[data-panel]]:mt-5 [&>.page-head]:flex-none [&>.stat-row]:mb-0 [&>.stat-row]:flex-none [&>details]:flex-none`,
+    fills: `flex h-full min-h-0 min-w-0 flex-col ${defaultUnless(className, "gap-", "gap-5")} [:where(&>*+*)]:mt-0 [:where(&>[data-panel])+[data-panel]]:mt-5 [&>[data-page-head]]:flex-none [&>.stat-row]:mb-0 [&>.stat-row]:flex-none [&>details]:flex-none`,
     bleed: `relative h-full min-w-0 ${STACK_GAP[spacing]}`,
   }[layout];
   return <div {...rest} data-page={layout} className={`${classes} ${className}`.trim()}>{children}</div>;

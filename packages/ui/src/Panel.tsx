@@ -87,20 +87,43 @@ export function Panel({ title, description, actions, className = "", headerClass
   );
 }
 
+const PageDescriptionsContext = createContext(true);
+
+/**
+ * 頁首要不要顯示說明文字，由 app 決定：HRIS 管理介面的頁首只留標題，說明藏起來（仍在 DOM 裡）。
+ */
+export function PageDescriptions({ visible, children }: { visible: boolean; children: ReactNode }) {
+  return <PageDescriptionsContext value={visible}>{children}</PageDescriptionsContext>;
+}
+
 interface PageHeaderProps {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
+  /**
+   * 只放版面用途。標題與說明的字級用 `[&_h1]:…`、`[&_p]:…` 調整。
+   * 下距與對齊的預設值依斷點分開取代：給了 mb-／items- 只換掉桌機的，
+   * 給了 max-[760px]:mb-／max-[760px]:items- 只換掉手機的。
+   */
   className?: string;
 }
 
-/** 頁面層級的標題；有 actions 時自動切成左右兩欄。 */
+/**
+ * 頁面層級的標題；有 actions 時切成左右兩欄。手機上標題縮小、跟下面隔 12px，
+ * 動作鈕與標題垂直置中（標題變一行，置中才不會看起來掉下去）。
+ */
 export function PageHeader({ title, description, actions, className = "" }: PageHeaderProps) {
+  const showDescription = useContext(PageDescriptionsContext);
+  // defaultUnless 只認開頭或空白後面的字，所以 "mb-" 對不到 "max-[760px]:mb-"，兩個斷點各算各的。
+  const margin = `${defaultUnless(className, "mb-", "mb-0")} ${defaultUnless(className, "max-\\[760px\\]:mb-", "max-[760px]:mb-3")}`;
+  const align = `${defaultUnless(className, "items-", "items-start")} ${defaultUnless(className, "max-\\[760px\\]:items-", "max-[760px]:items-center")}`;
+  const row = actions ? `flex justify-between gap-4 max-[760px]:gap-3 ${align} [&>:last-child]:flex-none` : "";
   return (
-    <header className={`page-head${actions ? " page-head-row" : ""} ${className}`.trim()}>
+    // data-page-head 讓頁面版面認得出頁首（fills 頁裡不伸縮、返回列底下的距離）。
+    <header data-page-head="" className={`${margin} ${row} ${className}`.replace(/\s+/g, " ").trim()}>
       <div>
-        <h1>{title}</h1>
-        {description ? <p className="muted">{description}</p> : null}
+        <h1 className="mt-0 mx-0 mb-1 text-[24px] max-[760px]:text-[20px]">{title}</h1>
+        {description ? <p className={`m-0 text-muted ${showDescription ? "" : "hidden"}`.trim()}>{description}</p> : null}
       </div>
       {actions ? <div>{actions}</div> : null}
     </header>

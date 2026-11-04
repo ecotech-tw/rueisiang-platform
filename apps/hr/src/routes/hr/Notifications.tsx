@@ -29,7 +29,7 @@ export function HrNotifications() {
   }
 
   return <Page className="hr-notifications-page">
-    <PageHeader title="通知" description="申請送出、審核結果與取消異動會在這裡保留。" actions={query.data?.unreadCount ? <Button variant="secondary" disabled={write.isPending} onClick={() => write.mutate({ path: "/me/notifications/read-all", method: "POST", values: {} })}>全部標為已讀</Button> : null} />
+    <PageHeader title="通知" description="申請送出、審核結果與取消異動會在這裡保留。" className="max-[760px]:items-start" actions={query.data?.unreadCount ? <Button variant="secondary" disabled={write.isPending} onClick={() => write.mutate({ path: "/me/notifications/read-all", method: "POST", values: {} })}>全部標為已讀</Button> : null} />
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     <Panel className="hr-notification-panel">
       {query.isPending ? <p className="muted">載入通知…</p> : query.data?.notifications.length ? <div className="hr-notification-list">{query.data.notifications.map((notification) => <button type="button" className={`hr-notification-item${notification.readAt ? " read" : " unread"}`} key={notification.id} onClick={() => open(notification)}>

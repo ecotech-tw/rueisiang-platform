@@ -46,7 +46,7 @@ export function HrLeaveSummary() {
   const months = loadingMonths ? [] : leave.data?.months ?? [];
   const selectYear = (next: number) => setSelectedYear(next === range?.currentYear ? null : next);
 
-  return <Page className="hr-payroll-history-page hr-payslip-page [&>.page-head]:mt-2">
+  return <Page className="hr-payroll-history-page hr-payslip-page [&>[data-page-head]]:mt-2">
     <HrBackBar label="返回個人中心" onBack={() => navigate("/profile")} />
     <PageHeader title="我的假勤" description="可用特休與已核准的請假時數。" />
 
