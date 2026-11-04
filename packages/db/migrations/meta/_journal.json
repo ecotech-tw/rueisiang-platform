@@ -1513,6 +1513,13 @@
       "when": 1793774047104,
       "tag": "0239_lame_maginty",
       "breakpoints": true
+    },
+    {
+      "idx": 240,
+      "version": "6",
+      "when": 1793775752330,
+      "tag": "0240_hr_worker_self_service_guards",
+      "breakpoints": true
     }
   ]
 }

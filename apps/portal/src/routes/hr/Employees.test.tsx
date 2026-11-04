@@ -25,7 +25,9 @@ describe("人事資料呈現", () => {
     expect(linked).toContain("已綁定");
     expect(linked).toContain("2026/1/2");
     expect(linked).toContain("08:00:00");
-    expect(render({ personKind: "worker", userId: null, lineLinkedAt: null })).toContain("不適用");
+    expect(render({ personKind: "worker", userId: null, email: "", lineLinkedAt: null })).toContain("不適用");
+    expect(render({ personKind: "worker", userId: null, email: "worker@example.test", lineLinkedAt: null })).toContain("未綁定");
+    expect(render({ personKind: "worker", userId: null, email: "worker@example.test", lineLinkedAt: "2026-01-02 00:00:00" })).toContain("已綁定");
     expect(render({})).toContain("狀態未提供");
     expect(render({})).not.toContain("未綁定");
   });

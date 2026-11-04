@@ -32,8 +32,8 @@ function dateTime(value: string): string {
   const parsed = new Date(normalized);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" });
 }
-export function HrLineBindingStatus({ employee }: { employee: Pick<Employee, "personKind" | "userId" | "lineLinkedAt"> }) {
-  if (employee.personKind === "worker" || employee.userId === null) return <span className="muted">不適用</span>;
+export function HrLineBindingStatus({ employee }: { employee: Pick<Employee, "personKind" | "userId" | "email" | "lineLinkedAt"> }) {
+  if (employee.userId === null && !employee.email) return <span className="muted">不適用</span>;
   if (employee.lineLinkedAt === undefined) return <span className="muted">狀態未提供</span>;
   return <><StatusBadge tone={employee.lineLinkedAt === null ? "neutral" : "success"}>{employee.lineLinkedAt === null ? "未綁定" : "已綁定"}</StatusBadge>{employee.lineLinkedAt ? <><br /><span className="muted">{dateTime(employee.lineLinkedAt)}</span></> : null}</>;
 }
@@ -62,7 +62,7 @@ function BasicSection({ profile }: { profile: Profile }) {
   const job = profile.employments.find((entry) => !entry.archivedAt) ?? profile.employments[0];
   return <Panel id="employee-basic" title="基本資料"><dl className="hr-employee-profile-grid">
     <div><dt>姓名</dt><dd>{profile.employee.legalName}</dd></div><div><dt>員工編號</dt><dd>{profile.employee.employeeNumber}</dd></div><div><dt>職位</dt><dd>{job?.position ?? profile.employee.position}</dd></div><div><dt>員工狀態</dt><dd>{job?.archivedAt ? `未在職（${dateTime(job.archivedAt)}）` : job ? "在職" : "尚未建立員工資料"}</dd></div>
-  </dl><p className="muted">員工不在職後仍保留資料，供薪資、出勤與稽核歷史追溯。</p>{profile.employee.personKind === "worker" ? <p className="muted">支援人員沒有平台帳號；人員與排班異動由支援人員管理維護。</p> : null}</Panel>;
+  </dl><p className="muted">員工不在職後仍保留資料，供薪資、出勤與稽核歷史追溯。</p>{profile.employee.personKind === "worker" ? <p className="muted">支援人員的帳號連結、人員與排班異動由支援人員管理維護。</p> : null}</Panel>;
 }
 
 function CompensationTable({ rows }: { rows: CompensationVersion[] }) {
@@ -168,7 +168,7 @@ export function HrEmployees() {
       </tr></thead><tbody>{data?.employees.map((employee) => {
         const path = employeeDetailPath(employee);
         return <tr key={employee.employmentId ?? employee.userId} className="cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary" role="link" tabIndex={0} onClick={() => navigate(path)} onKeyDown={(event) => { if (event.target !== event.currentTarget) return; if (event.key === "Enter" || event.key === " ") { event.preventDefault(); navigate(path); } }}>
-          <td data-label="員工編號"><Tooltip label={employee.employeeNumber}><span className="cell-strong hr-employee-number">{employee.employeeNumber}</span></Tooltip></td><td data-label="姓名">{employee.legalName}<br /><span className="cell-sub">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={employee.personKind === "worker" ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{employee.personKind === "worker" ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="LINE 綁定"><HrLineBindingStatus employee={employee} /></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>
+          <td data-label="員工編號"><Tooltip label={employee.employeeNumber}><span className="cell-strong hr-employee-number">{employee.employeeNumber}</span></Tooltip></td><td data-label="姓名">{employee.legalName}<br /><span className="cell-sub">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={!employee.email ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{!employee.email ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="LINE 綁定"><HrLineBindingStatus employee={employee} /></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>
         </tr>;
       })}</tbody></DataTable>
       {employees.isPlaceholderData ? <p className="muted table-note">載入中…</p> : null}
