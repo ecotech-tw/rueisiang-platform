@@ -3,7 +3,7 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { inJsonArray } from "./sql-lists.js";
-import { hrEmployeePersonalData, hrEmployeePhotos, hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
+import { hrEmployeePersonalData, hrEmployeePhotos, hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes, hrWorkerAccountLinks } from "./schema/hr-people.js";
 import { HR_PROFILE_FIELDS, emptyHrPersonalData, type HrPersonalData, type HrProfileField } from "./hr-profile-fields.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests, hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
@@ -453,7 +453,12 @@ export async function getHrPerson(db: Database, id: string, options: HrEmployeeD
     createdBy: version.createdBy,
     items: [],
   }));
-  return { employee, employments: [employment], assignments: [], attendanceAssignments: [], ...(compensation ? { compensation } : {}) };
+  const attendanceAssignments = await db.select({ id: hrEmployeeAttendanceLocations.id, employmentId: hrEmployeeAttendanceLocations.employmentId,
+    locationId: hrEmployeeAttendanceLocations.locationId, locationName: hrAttendanceLocations.name, validFrom: hrEmployeeAttendanceLocations.validFrom,
+    validTo: hrEmployeeAttendanceLocations.validTo, revision: hrEmployeeAttendanceLocations.revision })
+    .from(hrEmployeeAttendanceLocations).innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrEmployeeAttendanceLocations.locationId))
+    .where(eq(hrEmployeeAttendanceLocations.employmentId, row.employment.id));
+  return { employee, employments: [employment], assignments: [], attendanceAssignments, ...(compensation ? { compensation } : {}) };
 }
 
 export async function getHrSelf(db: Database, userId: string) {
@@ -476,6 +481,40 @@ export async function isHrEmployee(db: Database, userId: string) {
   const [employee] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
     .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);
   return Boolean(employee);
+}
+
+export async function getHrWorkerAccount(db: Database, userId: string) {
+  const [worker] = await db.select({ id: hrEmployments.id, archivedAt: hrEmployments.archivedAt }).from(hrWorkerAccountLinks)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrWorkerAccountLinks.workerId))
+    .where(and(eq(hrWorkerAccountLinks.userId, userId), eq(hrEmployments.personKind, "worker"))).limit(1);
+  return worker;
+}
+
+export async function isHrSupportWorker(db: Database, userId: string) {
+  const worker = await getHrWorkerAccount(db, userId);
+  return Boolean(worker && worker.archivedAt === null);
+}
+
+export async function linkHrWorkerAccount(db: Database, workerId: string, emailInput: string, actor: HrActor) {
+  const email = emailInput.trim().toLowerCase();
+  const [account] = await db.select({ id: users.id }).from(users).where(and(eq(users.email, email), sql`${users.status} IN ('active', 'invited')`)).limit(1);
+  if (!account) throw new HrError(400, "請先到權限管理邀請此 Email，再連結支援人員帳號。");
+  await write(db, sql`INSERT INTO hr_worker_account_links (worker_id, user_id, linked_by)
+    SELECT id, ${account.id}, ${actor.id} FROM hr_employments
+    WHERE id=${workerId} AND person_kind='worker' AND archived_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM hr_employments WHERE employee_user_id=${account.id})
+    RETURNING worker_id`, workerId, actor, "worker_account_linked", "帳號已連結其他人員、支援人員已停用，或資料已變更。", { activity: { summary: "支援人員帳號已連結" } });
+  return { linked: true };
+}
+
+export async function isHrSelfServiceUser(db: Database, userId: string) {
+  return await isHrEmployee(db, userId) || await isHrSupportWorker(db, userId);
+}
+
+export async function getHrSelfServiceKind(db: Database, userId: string): Promise<"employee" | "worker" | null> {
+  if (await isHrEmployee(db, userId)) return "employee";
+  if (await isHrSupportWorker(db, userId)) return "worker";
+  return null;
 }
 
 export async function listHrScopes(db: Database) {
@@ -516,7 +555,8 @@ export async function assignHrEmployee(db: Database, input: { userId: string; le
         WHERE id=${employmentId} AND archived_at IS NOT NULL${revisionGuard} RETURNING id`, attendanceSettings, servicePeriod]
     : [sql`INSERT INTO hr_employments (id, employee_user_id, employee_number, legal_name, position)
         SELECT ${employmentId}, id, ${input.employeeNumber}, ${legalName}, ${input.position} FROM users
-        WHERE id=${input.userId} AND status IN ('active', 'invited') RETURNING id`, attendanceSettings, servicePeriod];
+        WHERE id=${input.userId} AND status IN ('active', 'invited')
+          AND NOT EXISTS (SELECT 1 FROM hr_worker_account_links WHERE user_id=${input.userId}) RETURNING id`, attendanceSettings, servicePeriod];
   const mutationOptions: HrMutationOptions = { activity: { payload: { employmentId, userId: input.userId, legalName }, summary: "員工已指派" }, allowEmptyMutationIndexes: new Set([2]) };
   await write(db, mutations, employmentId, actor, "employee_assigned", "無法指派員工，資料可能已變更或已存在。", mutationOptions);
   return { id: input.userId, employmentId };

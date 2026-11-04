@@ -6,7 +6,7 @@ import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type H
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { users } from "./schema/auth.js";
-import { hrScheduleEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
+import { hrScheduleEntries, hrScheduleWorkerEntries, hrScheduleVersions } from "./schema/hr-scheduling.js";
 import { hrLeaveRequests } from "./schema/hr-payroll.js";
 import { scopes } from "./schema/reports.js";
 import { formatTaipeiDate, taipeiDateFromUtcWallClock, taipeiMidnightUtc } from "./taipei-time.js";
@@ -217,12 +217,17 @@ export interface HrAttendanceScopeUpdateInput {
 }
 
 /** 出勤方式與多個辦公位置在同一批 mutation 更新，避免只完成一半。 */
-export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUpdateInput, actor: HrActor) {
-  const monthlyRestDays = input.attendanceMode === "general" ? sql`NULL` : sql`${input.monthlyRestDays}`;
+export async function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUpdateInput, actor: HrActor) {
+  const [employment] = await db.select({ personKind: hrEmployments.personKind }).from(hrEmployments).where(eq(hrEmployments.id, input.employmentId)).limit(1);
+  const worker = employment?.personKind === "worker";
+  if (worker && input.attendanceMode !== "scheduled") throw new HrError(400, "支援人員固定使用排班出勤。");
+  const monthlyRestDays = worker || input.attendanceMode === "general" ? sql`NULL` : sql`${input.monthlyRestDays}`;
   const mutations = [sql`UPDATE hr_employments SET revision=revision+1, updated_at=CURRENT_TIMESTAMP
-    WHERE id=${input.employmentId} AND person_kind='employee' AND revision=${input.revision} AND archived_at IS NULL RETURNING id`,
-    sql`UPDATE hr_employment_attendance_settings SET attendance_mode=${input.attendanceMode}, monthly_rest_days=${monthlyRestDays}, updated_at=CURRENT_TIMESTAMP
-      WHERE employment_id=${input.employmentId} RETURNING employment_id AS id`];
+    WHERE id=${input.employmentId} AND revision=${input.revision} AND archived_at IS NULL RETURNING id`,
+    sql`INSERT INTO hr_employment_attendance_settings (employment_id, attendance_mode, monthly_rest_days)
+      VALUES (${input.employmentId}, ${input.attendanceMode}, ${monthlyRestDays})
+      ON CONFLICT (employment_id) DO UPDATE SET attendance_mode=excluded.attendance_mode, monthly_rest_days=excluded.monthly_rest_days, updated_at=CURRENT_TIMESTAMP
+      RETURNING employment_id AS id`];
   const endingAssignmentIds = input.assignmentsToEnd.map((assignment) => assignment.id);
   const endingIdList = endingAssignmentIds.length ? sql`AND id NOT IN (${jsonArrayValues(endingAssignmentIds)})` : sql``;
   const primaryEndingCondition = endingAssignmentIds.length ? sql` OR primary_assignment_id IN (${jsonArrayValues(endingAssignmentIds)})` : sql``;
@@ -234,7 +239,7 @@ export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUp
     const id = crypto.randomUUID();
     mutations.push(sql`INSERT INTO hr_employee_attendance_locations (id, employment_id, location_id, valid_from, valid_to)
       SELECT ${id}, ${input.employmentId}, ${locationId}, ${input.validFrom}, NULL
-      WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND person_kind='employee' AND archived_at IS NULL)
+      WHERE EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
         AND EXISTS (SELECT 1 FROM hr_attendance_locations WHERE id=${locationId} AND active=1)
         AND NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations WHERE employment_id=${input.employmentId} AND location_id=${locationId}
           AND (valid_to IS NULL OR valid_to > ${input.validFrom})) RETURNING id`);
@@ -250,7 +255,7 @@ export function updateHrAttendanceScope(db: Database, input: HrAttendanceScopeUp
       WHERE employment_id=${input.employmentId} AND (valid_to IS NULL OR valid_to > ${input.assignmentValidTo}) ${endingIdList}
       ORDER BY valid_from, rowid LIMIT 1), updated_at=CURRENT_TIMESTAMP
     WHERE employment_id=${input.employmentId}
-      AND EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND person_kind='employee' AND archived_at IS NULL)
+      AND EXISTS (SELECT 1 FROM hr_employments WHERE id=${input.employmentId} AND archived_at IS NULL)
       AND (primary_assignment_id IS NULL${primaryEndingCondition} OR NOT EXISTS (SELECT 1 FROM hr_employee_attendance_locations
         WHERE id=hr_employment_attendance_settings.primary_assignment_id AND (valid_to IS NULL OR valid_to > ${input.assignmentValidTo})))
     RETURNING employment_id AS id`);
@@ -367,6 +372,7 @@ function calendarAnomaly(events: Array<{ eventKind: "clock_in" | "clock_out"; oc
 }
 
 export async function getHrClockCalendar(db: Database, userId: string, year: number, month: number) {
+  const employment = await currentEmployment(db, userId);
   const monthStart = `${year}-${String(month).padStart(2, "0")}-01`;
   const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
   const monthEnd = `${year}-${String(month).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
@@ -409,6 +415,15 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
         sql`${hrLeaveRequests.startsOn} <= ${monthEnd}`, sql`${hrLeaveRequests.endsOn} > ${monthStart}`,
       )),
   ]);
+  if (employment?.personKind === "worker") {
+    employments.push({ id: employment.id, archivedAt: null });
+    attendanceSettings.push({ employmentId: employment.id, attendanceMode: "scheduled" });
+    schedules.push(...await db.select({ employmentId: hrScheduleWorkerEntries.workerId, scopeId: hrScheduleWorkerEntries.scopeId, workDate: hrScheduleWorkerEntries.workDate, startsAt: hrScheduleWorkerEntries.startsAt, endsAt: hrScheduleWorkerEntries.endsAt })
+      .from(hrScheduleWorkerEntries).innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleWorkerEntries.scheduleVersionId))
+      .where(and(eq(hrScheduleWorkerEntries.workerId, employment.id), eq(hrScheduleVersions.status, "published"),
+        sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
+        sql`${hrScheduleWorkerEntries.workDate} BETWEEN ${queryStart} AND ${monthEnd}`)));
+  }
   const eventDates = new Map<string, Array<(typeof events)[number] & { eventDate: string }>>();
   for (const event of events) {
     const datedEvent = { ...event, eventDate: taipeiDateFromUtcWallClock(event.occurredAt) };
@@ -589,8 +604,8 @@ const clockEventFields = {
 };
 
 async function currentEmployment(db: Database, userId: string) {
-  const [employment] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
-    .where(and(eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);
+  const [employment] = await db.select({ id: hrEmployments.id, personKind: hrEmployments.personKind }).from(hrEmployments)
+    .where(and(or(eq(hrEmployments.employeeUserId, userId), sql`EXISTS (SELECT 1 FROM hr_worker_account_links WHERE worker_id=${hrEmployments.id} AND user_id=${userId})`), isNull(hrEmployments.archivedAt))).limit(1);
   return employment;
 }
 
@@ -686,7 +701,7 @@ export async function checkHrClockLocation(db: Database, userId: string, latitud
   const employment = await currentEmployment(db, userId);
   const assignments = employment ? await currentClockAssignments(db, employment.id) : [];
   const names = locationNames(assignments);
-  const requiresLocation = Boolean(options.requireGeolocation) || geolocationRequired(assignments);
+  const requiresLocation = employment?.personKind === "worker" || Boolean(options.requireGeolocation) || geolocationRequired(assignments);
   if (!employment) return { available: false, withinRadius: false, locationName: null, locationNames: [], distanceMeters: null, radiusMeters: null, geolocationRequired: false, message: "目前沒有活動員工資料，暫時無法打卡。" };
   if (!assignments.length) return { available: false, withinRadius: false, locationName: null, locationNames: [], distanceMeters: null, radiusMeters: null, geolocationRequired: false, message: "尚未指派目前辦公位置，請聯絡管理者。" };
   if (!requiresLocation) return { available: true, withinRadius: true, locationName: names.join("、"), locationNames: names, distanceMeters: null, radiusMeters: null, geolocationRequired: false, message: null };
@@ -723,7 +738,7 @@ export async function getHrClockStatus(db: Database, userId: string, options: { 
   const employment = await currentEmployment(db, userId);
   const assignments = employment ? await currentClockAssignments(db, employment.id) : [];
   const names = locationNames(assignments);
-  const requiresLocation = Boolean(options.requireGeolocation) || geolocationRequired(assignments);
+  const requiresLocation = employment?.personKind === "worker" || Boolean(options.requireGeolocation) || geolocationRequired(assignments);
   const canClock = Boolean(employment && assignments.length);
   return {
     canClock,
@@ -743,12 +758,15 @@ export async function getHrClockStatus(db: Database, userId: string, options: { 
  * 先只看「當天開始」（上班）或「當天結束」（下班）的班，前一天跨午夜過來的班才不會搶走今天的上班打卡。
  */
 async function scheduleForClock(db: Database, employmentId: string, date: string, eventKind: "clock_in" | "clock_out", minute: number) {
-  const rows = await db.select({ startsAt: hrScheduleEntries.startsAt, endsAt: hrScheduleEntries.endsAt })
-    .from(hrScheduleEntries).innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, hrScheduleEntries.scheduleVersionId))
-    .where(and(eq(hrScheduleEntries.employmentId, employmentId), eq(hrScheduleVersions.status, "published"),
+  const [employment] = await db.select({ personKind: hrEmployments.personKind }).from(hrEmployments).where(eq(hrEmployments.id, employmentId)).limit(1);
+  const entries = employment?.personKind === "worker" ? hrScheduleWorkerEntries : hrScheduleEntries;
+  const personColumn = employment?.personKind === "worker" ? hrScheduleWorkerEntries.workerId : hrScheduleEntries.employmentId;
+  const rows = await db.select({ startsAt: entries.startsAt, endsAt: entries.endsAt })
+    .from(entries).innerJoin(hrScheduleVersions, eq(hrScheduleVersions.id, entries.scheduleVersionId))
+    .where(and(eq(personColumn, employmentId), eq(hrScheduleVersions.status, "published"),
       sql`${hrScheduleVersions.versionNumber} = (SELECT max(latest_schedule_version.version_number) FROM hr_schedule_versions AS latest_schedule_version WHERE latest_schedule_version.period_start = ${hrScheduleVersions.periodStart} AND latest_schedule_version.period_end = ${hrScheduleVersions.periodEnd} AND latest_schedule_version.status = 'published')`,
-      sql`(${hrScheduleEntries.workDate} = ${date} OR substr(${hrScheduleEntries.endsAt}, 1, 10) = ${date})`))
-    .orderBy(asc(hrScheduleEntries.startsAt));
+      sql`(${entries.workDate} = ${date} OR substr(${entries.endsAt}, 1, 10) = ${date})`))
+    .orderBy(asc(entries.startsAt));
   const shifts = rows.flatMap((row) => {
     const startMinute = wallClockMinutes(row.startsAt);
     const endMinute = wallClockMinutes(row.endsAt);
@@ -792,7 +810,7 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   const assignments = await currentClockAssignments(db, employment.id, serverNow.date);
   if (!assignments.length) throw new HrError(400, "尚未指派目前辦公位置，暫時無法打卡。");
 
-  const requiresLocation = input.sourceKind === "line" || geolocationRequired(assignments);
+  const requiresLocation = employment.personKind === "worker" || input.sourceKind === "line" || geolocationRequired(assignments);
   const latitudeE7 = requiresLocation ? input.latitudeE7 : null;
   const longitudeE7 = requiresLocation ? input.longitudeE7 : null;
   if (requiresLocation && (latitudeE7 === null || longitudeE7 === null)) {
@@ -824,7 +842,8 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
       SELECT ${id}, ${input.userId}, ${employment.id}, ${assignment.locationId}, ${assignment.scopeId}, ${input.sourceKind ?? "portal"}, ${input.idempotencyKey}, ${eventKind},
         ${latitudeE7}, ${longitudeE7}, ${distance}, ${assignment.locationName}, ${assignment.scopeName ?? ""}, ${actor.id}, '', ${timeAnomalyKind}, ${schedule?.startMinute ?? null}, ${schedule?.endMinute ?? null}, ${schedule?.toleranceMinutes ?? null}, ${serverNow.occurredAt}, ${serverNow.occurredAt}
       WHERE EXISTS (SELECT 1 FROM hr_employments
-        WHERE id=${employment.id} AND employee_user_id=${input.userId} AND archived_at IS NULL)
+        WHERE id=${employment.id} AND archived_at IS NULL AND (employee_user_id=${input.userId}
+          OR EXISTS (SELECT 1 FROM hr_worker_account_links WHERE worker_id=${employment.id} AND user_id=${input.userId})))
         AND ${assignmentExists}
         AND EXISTS (SELECT 1 FROM hr_attendance_locations
           WHERE id=${assignment.locationId} AND active=1)

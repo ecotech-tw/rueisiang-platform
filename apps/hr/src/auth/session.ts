@@ -11,6 +11,7 @@ interface SessionUser {
   name: string;
   pictureUrl: string;
   isEmployee?: boolean;
+  hrSelfServiceKind?: "employee" | "worker" | null;
   /** 這次是靠「記住這台手機」認出來的。false 代表只有 12 小時 session。 */
   deviceRemembered: boolean;
   /** 這次登入的裝置憑證來自已驗證的 LINE LIFF 身分。 */

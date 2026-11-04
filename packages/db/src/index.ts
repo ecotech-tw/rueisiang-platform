@@ -51,7 +51,7 @@ export {
   type HrCompensationInput, type HrInsuranceBracket, type HrInsuranceBracketTable, type HrInsuranceBracketView, type HrInsuranceContributionComponent, type HrInsuranceContributionComponentEstimate, type HrInsuranceContributionEstimate, type HrInsuranceContributionInput, type HrInsuranceContributionRuleRecord, type HrInsuranceEmployeeAmountPart, type HrInsuranceEstimateVersionInput, type HrInsuranceInput, type HrInsuranceRateTableRecord, type HrInsuranceRateTableSourceKind, type HrInsuranceRateTableUpdateInput, type HrManualInsuranceRateTableInput, type HrInsuranceScheme,
 } from "./hr-payroll.js";
 export {
-  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollRecordDetail, listHrPayrollEmployeeHistory, listHrPayrollRecordItems, listHrPayrollRecordReferences, listHrPayrollRecords, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
+  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollRecordDetail, listHrPayrollEmployeeHistory, listHrPayrollSelfHistory, getHrPayrollSelfDetail, listHrPayrollRecordItems, listHrPayrollRecordReferences, listHrPayrollRecords, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
   getHrPayrollRun, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_CALCULATION_INPUT_JSON_MAX_LENGTH, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, listHrPayrollCandidateExclusions, listHrPayrollRuns, listHrPayrollWorkerCandidates,
   type AssignHrBonusPolicyInput, type CreateHrBonusPolicyInput, type HrBonusKind, type HrBonusPerformancePeriod, type HrPayrollCalculationInput, type HrPayrollCalculationOptions, type HrPayrollEmployeeResult, type HrPayrollProgress, type UpdateHrBonusPolicyInput,
   type HrPayrollCandidateExclusions, type HrPayrollEmployeeHistory, type HrPayrollRecordCounts, type HrPayrollRecordDetail, type HrPayrollRecordItemView, type HrPayrollRecordListQuery, type HrPayrollRecordPayBasis, type HrPayrollRecordPersonKind, type HrPayrollRecordReference, type HrPayrollRecordStatus, type HrPayrollRecord, type HrPayrollRunResult, type ScheduleAllocationDetail,
@@ -71,7 +71,7 @@ export {
 } from "./hr-payroll-adjustments.js";
 export {
   HrError, archiveHrEmployment, assignHrEmployee, createHrAssignment,
-  endHrAssignment, getHrEmployee, getHrPerson, getHrSelf, requireHrSelfEmployment, isHrAdministrator, isHrEmployee, updateHrEmploymentPosition, updateHrEmploymentServicePeriod,
+  endHrAssignment, getHrEmployee, getHrPerson, getHrSelf, requireHrSelfEmployment, isHrAdministrator, isHrEmployee, isHrSupportWorker, isHrSelfServiceUser, getHrSelfServiceKind, getHrWorkerAccount, linkHrWorkerAccount, updateHrEmploymentPosition, updateHrEmploymentServicePeriod,
   updateHrEmploymentAttendanceMode, findHrEmployeePhoto, updateHrEmployeePhoto,
   listHrCandidates, listHrEmployees, listHrPersonnel, listHrScopes, listHrSupervisorCandidates, updateHrEmployee, updateHrEmployeeSupervisor,
   HR_EMPLOYEE_PAGE_SIZES, type HrEmployeeDetailOptions, type HrEmployeeListQuery, type HrEmployeeSortField, type HrEmploymentStatus, type HrPersonnelListQuery, type HrPersonKind,

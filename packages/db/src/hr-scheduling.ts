@@ -6,7 +6,7 @@ import { inJsonArray } from "./sql-lists.js";
 import { HR_DAY_TYPE_LABELS, isHrDayType, listHrCalendarMonth, resolveDayTypes } from "./hr-calendar.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, type HrActor } from "./hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
-import { hrEmployments } from "./schema/hr-people.js";
+import { hrEmployments, hrWorkerAccountLinks } from "./schema/hr-people.js";
 import { hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
 import {
   hrScheduleEntries,
@@ -752,7 +752,11 @@ export async function listHrScheduleWorkersPage(db: Database, query: HrScheduleW
     db.select({ value: count() }).from(hrScheduleWorkers).innerJoin(hrEmployments, eq(hrEmployments.id, hrScheduleWorkers.employmentId)).where(where),
   ]);
   const total = totalRow?.value ?? 0;
-  return { workers: await withWorkerCompensation(db, joinedRows.map(canonicalWorkerRow)), total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total };
+  const accounts = joinedRows.length ? await db.select({ workerId: hrWorkerAccountLinks.workerId, email: users.email, status: users.status })
+    .from(hrWorkerAccountLinks).innerJoin(users, eq(users.id, hrWorkerAccountLinks.userId))
+    .where(inJsonArray(hrWorkerAccountLinks.workerId, joinedRows.map((row) => row.employment.id))) : [];
+  const workers = (await withWorkerCompensation(db, joinedRows.map(canonicalWorkerRow))).map((worker) => ({ ...worker, account: accounts.find((account) => account.workerId === worker.employmentId) ?? null }));
+  return { workers, total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total };
 }
 
 export async function createHrScheduleWorker(db: Database, input: { displayName: string }, actor: HrActor) {
@@ -773,8 +777,8 @@ export async function updateHrScheduleWorker(db: Database, id: string, input: { 
   if (!name) throw new HrError(400, "請輸入支援人員姓名。 ");
   const row = activityRow({ entityType: "hr_schedule", entityId: id, source: "hr", eventType: "schedule_worker_updated", summary: "支援人員已更新", actor });
   const results = await runRawBatch(db, compileStatements([
-    sql`UPDATE hr_employments SET legal_name=${name}, archived_at=${input.active ? null : sql`CURRENT_TIMESTAMP`}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND person_kind='worker' AND revision=${input.revision} AND EXISTS (SELECT 1 FROM hr_schedule_workers WHERE id=${id} AND revision=${input.revision}) RETURNING id`,
-    sql`UPDATE hr_schedule_workers SET display_name=${name}, active=${input.active ? 1 : 0}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND revision=${input.revision} AND changes() = 1 RETURNING id`,
+    sql`UPDATE hr_employments SET legal_name=${name}, archived_at=${input.active ? null : sql`CURRENT_TIMESTAMP`}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND person_kind='worker' AND revision=${input.revision} AND EXISTS (SELECT 1 FROM hr_schedule_workers WHERE id=${id}) RETURNING id`,
+    sql`UPDATE hr_schedule_workers SET display_name=${name}, active=${input.active ? 1 : 0}, revision=${input.revision + 1}, updated_at=CURRENT_TIMESTAMP WHERE id=${id} AND changes() = 1 RETURNING id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail} WHERE changes() = 1`,
   ]), true);

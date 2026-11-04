@@ -11,7 +11,7 @@ import {
   type DeviceToken,
   type Permission,
 } from "@rueisiang/auth";
-import { isHrEmployee, loadAuthUser, revokeDeviceSession, useDeviceSession } from "@rueisiang/db";
+import { isHrSelfServiceUser, loadAuthUser, revokeDeviceSession, useDeviceSession } from "@rueisiang/db";
 import type { Context } from "hono";
 import { createMiddleware } from "hono/factory";
 import { HTTPException } from "hono/http-exception";
@@ -95,7 +95,7 @@ export const requireSelfAuth = createMiddleware<AppEnv>(async (c, next) => {
   if (device) {
     if (device.renewed) c.header("Set-Cookie", deviceCookie(device.renewed), { append: true });
     await signInAs(c, device.userId);
-    if (device.authMethod === "line_liff" && !await isHrEmployee(c.get("db"), device.userId)) {
+    if (device.authMethod === "line_liff" && !await isHrSelfServiceUser(c.get("db"), device.userId)) {
       await revokeDeviceSession(c.get("db"), rawDevice);
       c.header("Set-Cookie", clearDeviceCookie(), { append: true });
       throw new HTTPException(403, { message: "LINE 打卡僅限在職員工使用。" });

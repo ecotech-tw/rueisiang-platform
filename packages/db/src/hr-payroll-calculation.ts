@@ -10,7 +10,7 @@ import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributi
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
 import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, payrollSpecialWorkdaySourceStatements } from "./hr-special-workdays.js";
 import { payrollRequestSourceStatements } from "./hr-payroll-request-sources.js";
-import { HrError, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, getHrWorkerAccount, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { listEffectiveDailyPayouts } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrClockEvents } from "./schema/hr-attendance.js";
@@ -3456,6 +3456,39 @@ export async function listHrPayrollEmployeeHistory(db: Database, employeeUserId:
     netMinor: row.netMinor,
     closedAt: row.closedAt,
   }));
+}
+
+export async function listHrPayrollSelfHistory(db: Database, userId: string): Promise<HrPayrollEmployeeHistory[]> {
+  const worker = await getHrWorkerAccount(db, userId);
+  if (!worker) return listHrPayrollEmployeeHistory(db, userId);
+  if (worker.archivedAt !== null) throw new HrError(403, "支援人員已停用。");
+  const runs = await db.select({ runId: hrPayrollRuns.id }).from(hrPayrollWorkerResults)
+    .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayrollWorkerResults.payrollRunId))
+    .where(and(eq(hrPayrollWorkerResults.workerId, worker.id),
+      sql`NOT EXISTS (SELECT 1 FROM hr_payroll_withdrawals WHERE payroll_run_id=${hrPayrollRuns.id})`,
+      or(eq(hrPayrollRuns.status, "closed"), sql`EXISTS (SELECT 1 FROM hr_payroll_closed_workers WHERE payroll_run_id=${hrPayrollRuns.id} AND worker_id=${worker.id})`)))
+    .orderBy(desc(hrPayrollRuns.createdAt));
+  const records: HrPayrollEmployeeHistory[] = [];
+  for (const run of runs) {
+    const detail = await getHrPayrollRecordDetail(db, { runId: run.runId, personKind: "worker", personId: worker.id });
+    const record = detail.record;
+    if (record.status !== "closed") continue;
+    records.push({ runId: record.runId, runName: record.runName, periodKey: record.periodKey, versionNumber: record.versionNumber, payDate: record.payDate,
+      employmentId: worker.id, employeeNumber: record.personNumber ?? "", employeeName: record.personName,
+      earningMinor: record.earningMinor, deductionMinor: record.deductionMinor, netMinor: record.netMinor, closedAt: record.closedAt! });
+  }
+  return records.sort((left, right) => right.periodKey.localeCompare(left.periodKey) || right.versionNumber - left.versionNumber);
+}
+
+export async function getHrPayrollSelfDetail(db: Database, userId: string, runId: string, employmentId: string) {
+  const owned = (await listHrPayrollSelfHistory(db, userId)).find((record) => record.runId === runId && record.employmentId === employmentId);
+  if (!owned) throw new HrError(404, "找不到已發放的薪資明細。");
+  const worker = await getHrWorkerAccount(db, userId);
+  const detail = await getHrPayrollRecordDetail(db, { runId, personKind: worker ? "worker" : "employee", personId: employmentId });
+  return { record: owned, lines: [
+    ...(detail.employee?.lines ?? detail.worker?.lines ?? []),
+    ...detail.items.map((item) => ({ lineKey: `legacy_adjustment_${item.id}`, direction: item.direction, amountMinor: item.amountMinor, explanation: { itemName: item.itemName, reason: item.reason } })),
+  ] };
 }
 
 /** 未結帳或撤回後尚未再次結帳的試算可以刪除；已結帳薪資單與其明細是歷史文件，不提供物理刪除。 */
