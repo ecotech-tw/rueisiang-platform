@@ -14,9 +14,11 @@ export function TableSkin({ skin, children }: { skin: TableSkinName; children: R
  * 格子的預設外觀寫在 table 上，用後代選擇器套到每一格。
  *
  * 後代那一段一律包在 :where() 裡，讓預設值的權重壓到最低（只剩這個 class 本身）。
- * 這樣呼叫端在 className 寫 `[&_td]:align-top` 一定贏，不必靠 Tailwind 的產生順序。
- * 首欄、末欄、第一列這些例外多一個偽類，權重高一級；要改它們就寫
- * `[&_td:first-child]:pl-0` 這種同樣帶偽類的寫法。
+ * 這樣呼叫端在 className 寫 `[&_td]:align-top` 就蓋得過一般格子，不必靠 Tailwind 的產生順序。
+ * 有些預設值權重比較高，要用同一層級的寫法才蓋得掉：
+ * - 首欄、末欄、第一列多一個偽類：寫 `[&_td:first-child]:pl-0`。
+ * - 手機卡片照欄位名稱的慣例（見 MOBILE_CARD）是 `tr>td[data-label=…]`：寫
+ *   `[&_tbody_tr>td[data-label=狀態]]:…`，只寫 `[&_td]:` 在手機上會輸。
  *
  * 寬度 760px 以下的表格會變成一列一張卡片（MOBILE_CARD），所以格子的高度、內距、
  * 分隔線與 hover 只在桌機生效，兩邊不會互相蓋。
