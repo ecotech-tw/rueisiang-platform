@@ -39,7 +39,7 @@ import { cyberbizReportsInternal } from "./routes/cyberbiz-reports-internal.js";
 import { cyberbizReportsMcp } from "./routes/cyberbiz-reports-mcp.js";
 import { wms } from "./routes/wms.js";
 import { media } from "./routes/media.js";
-import { maintainMediaCdn, serveMediaCdn } from "./media-cdn.js";
+import { maintainMediaCdn, mediaCdnConfig, serveMediaCdn } from "./media-cdn.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
 import { drainPayrollQueueOutbox, failPayrollQueueMessage, isPayrollQueueMessage, PAYROLL_QUEUE_MAX_ATTEMPTS, processPayrollQueueMessage, type PayrollQueueMessage } from "./payroll-queue.js";
 export { PayrollRunAgent } from "./payroll-run-do.js";
@@ -424,7 +424,19 @@ export async function queue(batch: MessageBatch<AppQueueMessage>, env: Env): Pro
 
 async function fetchHandler(request: Request, env: Env, ctx?: ExecutionContext) {
   const url = new URL(request.url);
-  if (env.MEDIA_CDN_URL && url.origin === env.MEDIA_CDN_URL.replace(/\/$/, "") && (url.protocol === "https:" || url.pathname.startsWith("/images/"))) return serveMediaCdn(request, env);
+  let cdn: ReturnType<typeof mediaCdnConfig> | undefined;
+  try { if (env.MEDIA_CDN_URL) cdn = mediaCdnConfig(env); }
+  catch { /* 選用 CDN 的設定錯誤由媒體 API 回報，不讓平台其他路由一起失效。 */ }
+  if (cdn && !cdn.local && url.hostname === new URL(cdn.origin).hostname) {
+    if (url.origin !== cdn.origin) {
+      const target = new URL(cdn.origin);
+      target.pathname = url.pathname;
+      target.search = url.search;
+      return Response.redirect(target.toString(), 308);
+    }
+    return serveMediaCdn(request, env);
+  }
+  if (cdn?.local && url.origin === cdn.origin && url.pathname.startsWith("/images/")) return serveMediaCdn(request, env);
   if (url.pathname === "/api" || url.pathname.startsWith("/api/")) return app.fetch(request, env, ctx);
   return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
 }

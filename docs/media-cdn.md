@@ -11,7 +11,8 @@
 管理者仍經權限目錄同步取得完整授權。
 
 CDN origin 的 `/images/<id>` 不需登入，只提供 D1 仍有效的公開圖片。其他 CDN 路徑不會進入
-平台 API 或 SPA。公開 URL 不含檔名與版本；改名、格式改變與取代檔案都不改變 URL。
+平台 API 或 SPA；正式 CDN 的 HTTP 或不同 port 請求先依 hostname 隔離，再轉向設定的 HTTPS origin。
+公開 URL 不含檔名與版本；改名、格式改變與取代檔案都不改變 URL。
 目前接受 JPEG、PNG、WebP 靜態圖片；限制由 `media-cdn-fields.ts` 共用，完整解碼沿用人事照片
 的驗證器，但不放寬人事照片的原有限制。
 
@@ -22,7 +23,8 @@ CDN hostname 掛在平台同一個 Worker；這讓刪除後的舊檔與其他 bu
 ## 版本與快取
 
 每次上傳先登記一個獨立的 R2 blob，完整寫入後才由 D1 原子切換目前參照。取代與刪除使用
-revision 防止並行覆蓋；未知寫入結果不立即刪 R2，以免誤刪已提交的檔案。
+revision 防止並行覆蓋；名稱草稿也綁定開啟時的版本，背景重新查詢不會替舊草稿換成新 revision。
+版本改變時保留草稿並停用儲存，由同仁明確載入最新名稱後再編輯。未知寫入結果不立即刪 R2，以免誤刪已提交的檔案。
 
 更新、改名與刪除會先把 `purge_pending` 寫入 D1，再呼叫 Cloudflare zone purge API 清除該圖片的
 `media-image-<id>` cache tag。標籤隨 Cache API 的 response 一起儲存，不使用無法全域清除的

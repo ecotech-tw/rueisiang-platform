@@ -1,4 +1,4 @@
-import { useDeferredValue, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useRef, useState } from "react";
 import { useImageFilePreview } from "@rueisiang/ui";
 import { MEDIA_IMAGE_MAX_BYTES, MEDIA_IMAGE_MAX_PIXELS, MEDIA_IMAGE_MAX_SIDE, MEDIA_IMAGE_RULE, MEDIA_IMAGE_TYPES, isMediaImageSortField, type MediaImageSortField } from "@rueisiang/db/media-cdn-fields";
 import { useSession } from "../../auth/session.js";
@@ -62,14 +62,16 @@ function DeleteDialog({ image, onClose, onSaved }: { image: MediaImage; onClose:
 }
 
 function ImageDetails({ image, local, canWrite, canDelete, onClose, onReplace, onDelete, onUpdated, onCopy }: { image: MediaImage; local: boolean; canWrite: boolean; canDelete: boolean; onClose: () => void; onReplace: () => void; onDelete: () => void; onUpdated: (image: MediaImage) => void; onCopy: (image: MediaImage) => void }) {
-  const [name, setName] = useState(image.name);
+  const [draft, setDraft] = useState({ name: image.name, originalName: image.name, revision: image.revision });
+  const staleDraft = draft.revision !== image.revision;
   const rename = useMediaMutation(renameMediaImage);
   const retry = useMediaMutation(retryMediaPurge);
   const pending = rename.isPending || retry.isPending;
   return <Dialog manageFocus title="圖片資訊" width={760} onClose={onClose} closeDisabled={pending} actions={!image.deletedAt && (canDelete || canWrite) ? <>{canDelete ? <Button variant="secondary" tone="danger" icon="trash" className="mr-auto" disabled={pending} onClick={onDelete}>刪除</Button> : null}{canWrite ? <Button tone="info" icon="edit" disabled={pending} onClick={onReplace}>修改圖片</Button> : null}</> : undefined}>
     <div className="h-72 overflow-hidden rounded-field bg-canvas"><ImagePreview key={image.revision} image={image} /></div>
     <div className="flex flex-wrap items-center justify-between gap-2"><SyncBadge image={image} local={local} /><span className="text-xs text-muted">{image.width} × {image.height} px · {sizeLabel(image.size)} · {image.contentType.replace("image/", "").toUpperCase()}</span></div>
-    <div className="flex items-end gap-2"><TextField className="flex-1" label="圖片名稱" value={name} maxLength={120} readOnly={!canWrite || Boolean(image.deletedAt)} disabled={pending} onChange={(event) => setName(event.target.value)} />{canWrite && !image.deletedAt ? <Button variant="secondary" tone="info" icon="save" size="lg" disabled={!name.trim() || name.trim() === image.name || pending} loading={rename.isPending} onClick={() => rename.mutate({ image, name: name.trim() }, { onSuccess: ({ image: result }) => onUpdated(result) })}>儲存名稱</Button> : null}</div>
+    <div className="flex items-end gap-2"><TextField className="flex-1" label="圖片名稱" value={draft.name} maxLength={120} readOnly={!canWrite || Boolean(image.deletedAt)} disabled={pending} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />{canWrite && !image.deletedAt ? <Button variant="secondary" tone="info" icon="save" size="lg" disabled={!draft.name.trim() || draft.name.trim() === draft.originalName || staleDraft || pending} loading={rename.isPending} onClick={() => { if (staleDraft) return; rename.mutate({ image: { ...image, revision: draft.revision }, name: draft.name.trim() }, { onSuccess: ({ image: result }) => { setDraft({ name: result.name, originalName: result.name, revision: result.revision }); onUpdated(result); } }); }}>儲存名稱</Button> : null}</div>
+    {canWrite && !image.deletedAt && staleDraft && !pending ? <Alert tone="warning"><p>圖片已被更新，尚未儲存的名稱已保留。請先載入最新名稱再編輯，避免覆蓋其他同仁的修改。</p><div className="mt-2"><Button variant="secondary" tone="info" icon="sync" onClick={() => setDraft({ name: image.name, originalName: image.name, revision: image.revision })}>載入最新名稱</Button></div></Alert> : null}
     <Field label="固定公開連結" hint="修改圖片或名稱，都不會改變這個網址。"><div className="break-all rounded-field bg-canvas px-3 py-3 text-xs">{image.url}</div></Field>
     {!image.deletedAt ? <div className="flex flex-wrap gap-2"><Button variant="secondary" icon="copy" onClick={() => onCopy(image)}>複製連結</Button><ButtonLink variant="secondary" icon="external" href={image.url} target="_blank" rel="noopener noreferrer">開啟原圖</ButtonLink></div> : null}
     <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-xs"><dt className="text-muted">原始檔名</dt><dd className="break-all">{image.filename}</dd><dt className="text-muted">上傳時間</dt><dd>{dateLabel(image.createdAt)}</dd><dt className="text-muted">更新時間</dt><dd>{dateLabel(image.updatedAt)} · 第 {image.revision} 版</dd></dl>
@@ -95,6 +97,9 @@ export function MediaImages() {
   const [detail, setDetail] = useState<MediaImage | null>(null);
   const [deleting, setDeleting] = useState<MediaImage | null>(null);
   const query = useMediaImages({ search: deferredSearch, type, deleted, page, sort: sort.field, direction: sort.direction }, canRead);
+  const lastPage = Math.max(1, Math.ceil((query.data?.total ?? 0) / (query.data?.pageSize ?? 24)));
+  const pageOutOfRange = Boolean(query.data && !query.isPlaceholderData && query.data.page === page && page > lastPage);
+  useEffect(() => { if (pageOutOfRange && !query.isFetching) setPage(lastPage); }, [pageOutOfRange, query.isFetching, lastPage]);
   function changeSort(field: MediaImageSortField, direction: "asc" | "desc") { setSort({ field, direction }); setPage(1); }
   function changeView(value: string) {
     if (value !== "grid" && value !== "list") return;
@@ -128,8 +133,8 @@ export function MediaImages() {
         <SegmentedControl aria-label="圖片檢視方式" skin="outlined" iconOnly options={VIEW_OPTIONS} value={view} onChange={changeView} className="ml-auto shrink-0" />
       </div>
       <div className="flex min-h-0 flex-1 flex-col" aria-busy={query.isFetching}>
-        {query.isPending ? <p role="status" className="py-16 text-center text-sm text-muted">載入圖片中…</p> : null}
-        {query.data?.images.length === 0 ? <div className="grid justify-items-center gap-4 py-12"><Icon name="camera" className="size-10 text-muted" /><EmptyState>{search || type ? "找不到符合條件的圖片，試試其他名稱或格式。" : "還沒有圖片。上傳第一張素材，建立可重複使用的公開連結。"}</EmptyState>{search || type ? <Button variant="secondary" onClick={() => { setSearch(""); setType(""); setPage(1); }}>清除搜尋與篩選</Button> : null}</div> : null}
+        {query.isPending || pageOutOfRange || (query.isPlaceholderData && query.data?.images.length === 0) ? <p role="status" className="py-16 text-center text-sm text-muted">載入圖片中…</p> : null}
+        {query.data?.images.length === 0 && !pageOutOfRange && !query.isPlaceholderData ? <div className="grid justify-items-center gap-4 py-12"><Icon name="camera" className="size-10 text-muted" /><EmptyState>{search || type ? "找不到符合條件的圖片，試試其他名稱或格式。" : "還沒有圖片。上傳第一張素材，建立可重複使用的公開連結。"}</EmptyState>{search || type ? <Button variant="secondary" onClick={() => { setSearch(""); setType(""); setPage(1); }}>清除搜尋與篩選</Button> : null}</div> : null}
         {query.data && query.data.images.length > 0 ? view === "grid" ? <div className="min-h-0 flex-1 overflow-y-auto p-4"><ImageGrid images={query.data.images} local={query.data.local} onDetails={setDetail} onCopy={(image) => void copy(image)} /></div> : <ImageTable images={query.data.images} local={query.data.local} sort={sort} onSort={changeSort} onDetails={setDetail} onCopy={(image) => void copy(image)} /> : null}
       </div>
       <div className="flex items-center justify-between gap-3 border-t border-soft-line px-5 py-3"><span className="text-xs tabular-nums text-muted">共 {query.data?.total ?? 0} 張圖片 · 第 {page} 頁</span><div className="flex gap-2"><Button variant="secondary" icon="chevronLeft" disabled={page <= 1 || query.isFetching} onClick={() => setPage((value) => value - 1)}>上一頁</Button><Button variant="secondary" icon="chevronRight" disabled={!query.data || page * query.data.pageSize >= query.data.total || query.isFetching} onClick={() => setPage((value) => value + 1)}>下一頁</Button></div></div>

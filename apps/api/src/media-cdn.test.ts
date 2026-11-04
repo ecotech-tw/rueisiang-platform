@@ -178,6 +178,30 @@ describe("公開圖片管理與 CDN", () => {
     expect((await app.fetch(new Request("https://cdn.example.test/"), env as never)).status).toBe(404);
     expect(assets.fetch).toHaveBeenCalledOnce();
   });
+  it("正式 CDN 的 HTTP／不同 port 只轉向 HTTPS，不進平台 API 或 ASSETS", async () => {
+    const assets = { fetch: vi.fn(async () => new Response("portal shell")) };
+    const env = { ...environment(), ASSETS: assets };
+    for (const path of ["/", "/api/health", "/images/example?revision=2", "//external.example/path"]) {
+      const response = await app.fetch(new Request(`http://cdn.example.test${path}`), env as never);
+      expect(response.status).toBe(308);
+      const target = new URL(response.headers.get("Location")!);
+      expect(target.origin).toBe("https://cdn.example.test");
+      expect(target.pathname + target.search).toBe(path);
+    }
+    expect((await app.fetch(new Request("https://cdn.example.test:8443/api/health"), env as never)).headers.get("Location")).toBe("https://cdn.example.test/api/health");
+    expect((await app.fetch(new Request("https://cdn.example.test/api/health"), env as never)).status).toBe(404);
+    expect(assets.fetch).not.toHaveBeenCalled();
+  });
+  it("本機共用 HTTP origin 仍可提供 API 與圖片，錯誤 CDN 設定不拖垮其他 API", async () => {
+    const image = await upload();
+    const env = { ...environment(), MEDIA_CDN_URL: "http://localhost:8787" };
+    expect((await app.fetch(new Request("http://localhost:8787/api/health"), env as never)).status).toBe(200);
+    expect((await app.fetch(new Request(`http://localhost:8787/images/${image.id}`), env as never)).status).toBe(200);
+    for (const invalid of ["invalid", "http://platform.example.test", "ftp://platform.example.test", "https://platform.example.test/path", "https://user:secret@platform.example.test", "https://platform.example.test/?query=1", "https://platform.example.test/#hash"]) {
+      const response = await app.fetch(new Request("https://platform.example.test/api/health"), { ...env, MEDIA_CDN_URL: invalid } as never);
+      expect(response.status).toBe(200); expect(response.headers.get("Location")).toBeNull();
+    }
+  });
   it("CDN hostname 不能讀平台 API，平台 hostname 不能讀任意 R2 key", async () => {
     const image = await upload();
     expect((await app.fetch(new Request("https://cdn.example.test/api/auth/me"), environment() as never, {} as never)).status).toBe(404);
