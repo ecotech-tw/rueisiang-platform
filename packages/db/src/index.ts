@@ -1,4 +1,6 @@
 export { createDatabase, type Database } from "./client.js";
+export { createMediaCdnImage, deleteMediaCdnImage, findMediaCdnImage, forgetMediaCdnBlob, listMediaCdnImages, listPendingMediaCdnPurges, listUnusedMediaCdnBlobs, registerMediaCdnBlob, renameMediaCdnImage, replaceMediaCdnImage, settleMediaCdnPurge, type MediaCdnFileInput } from "./media-cdn.js";
+export type { MediaCdnImage } from "./schema/media-cdn.js";
 export { formatTaipeiDate, taipeiDateFromUtcWallClock, taipeiMidnightUtc, taipeiWallClockToUtc } from "./taipei-time.js";
 export {
   checkHrClockLocation, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent, endHrAttendanceLocationAssignment, listHrAttendanceEvents, HR_ATTENDANCE_EVENT_PAGE_SIZES, type HrAttendanceEventListQuery,

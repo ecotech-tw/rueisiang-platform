@@ -1527,6 +1527,13 @@
       "when": 1793800000000,
       "tag": "0241_weekly_shift_days",
       "breakpoints": true
+    },
+    {
+      "idx": 242,
+      "version": "6",
+      "when": 1793782391510,
+      "tag": "0242_outgoing_onslaught",
+      "breakpoints": true
     }
   ]
 }

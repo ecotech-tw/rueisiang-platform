@@ -8,6 +8,14 @@ import { DataTable, TableSkin } from "./DataTable";
 import { FilterInput, FilterSelect, FilterToolbar, SEARCH_INPUT_WIDTH, SearchFilterInput } from "./index.js";
 
 describe("shared HRIS UI contracts", () => {
+  it("描邊分段切換保留圖示、可存取名稱與持續的選中狀態", () => {
+    const markup = renderToStaticMarkup(<SegmentedControl skin="outlined" iconOnly aria-label="圖片檢視方式" value="grid" onChange={() => {}} options={[{ value: "list", label: "列表檢視", icon: "list" }, { value: "grid", label: "縮圖檢視", icon: "grid" }]} />);
+    expect(markup).toContain('aria-label="列表檢視"'); expect(markup).toContain('aria-label="縮圖檢視"');
+    expect(markup.match(/aria-pressed="true"/g)).toHaveLength(1); expect(markup).toContain("bg-brand-soft text-brand-dark");
+    expect(markup.match(/<svg\b/g)).toHaveLength(2);
+    expect(markup).not.toContain("opacity-0");
+    expect(markup).not.toContain("backdrop-filter");
+  });
   it("人員未選取時保留指定提示，不冒充第一個選項", () => {
     const markup = renderToStaticMarkup(<MemoryRouter initialEntries={["/hr/scheduling"]}><SelectField aria-label="人員" searchable value="" placeholder="請選擇人員" options={[{ value: "employee", label: "E1・小明" }]} /></MemoryRouter>);
     expect(markup).toContain('placeholder="請選擇人員"');
@@ -68,6 +76,13 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toContain('role="alertdialog"');
     expect(markup).toContain("取消");
     expect(markup).toContain("確定");
+  });
+
+  it("Dialog 焦點管理為明確 opt-in，保留既有呼叫端的 markup", () => {
+    const plain = renderToStaticMarkup(<Dialog title="原有視窗"><p>內容</p></Dialog>);
+    const modal = renderToStaticMarkup(<Dialog manageFocus title="多媒體視窗"><p>內容</p></Dialog>);
+    expect(plain).not.toContain('tabindex="-1"');
+    expect(modal).toContain('tabindex="-1" role="dialog" aria-modal="true"');
   });
 
   it("Dialog 的 bodyLayout 整組取代預設版面，不跟預設的 gap 或 padding 疊在一起", () => {

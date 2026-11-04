@@ -23,6 +23,8 @@ interface DialogProps {
   /** 非 actions 的非同步 callback 要關閉 Dialog 時，也必須走同一個退場流程。 */
   closeRequestRef?: DialogCloseRef;
   closeDisabled?: boolean;
+  /** 啟用 Escape、Tab 焦點圈與關閉後的焦點還原；供採用完整 modal 鍵盤行為的頁面使用。 */
+  manageFocus?: boolean;
   showClose?: boolean;
   closeLabel?: string;
   role?: "dialog" | "alertdialog";
@@ -70,6 +72,7 @@ export function Dialog({
   onClose,
   closeRequestRef,
   closeDisabled = false,
+  manageFocus = false,
   showClose = true,
   closeLabel = "關閉",
   role = "dialog",
@@ -81,6 +84,8 @@ export function Dialog({
   const closingRef = useRef(false);
   const closeTimerRef = useRef<number | null>(null);
   const closeAfterRef = useRef<(() => void) | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -116,6 +121,34 @@ export function Dialog({
   // 非同步成功 callback 可能在 mutation 的 isPending 尚未翻成 false 時執行，
   // 所以 ref 是明確的程式關閉路徑，仍播退場但不受手動關閉鎖定影響。
   const forceClose = useCallback((afterClose?: () => void) => requestClose(true, afterClose), [requestClose]);
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
+
+  useEffect(() => {
+    if (!manageFocus) return;
+    const card = cardRef.current;
+    if (!card) return;
+    const previous = returnFocusRef.current;
+    const focusable = () => Array.from(card.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, [tabindex]"))
+      .filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && element.getClientRects().length > 0);
+    if (!card.contains(document.activeElement)) (focusable()[0] ?? card).focus({ preventScroll: true });
+    function onKey(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
+      if (event.key === "Escape") { event.preventDefault(); requestCloseRef.current(); return; }
+      if (event.key !== "Tab") return;
+      const elements = focusable();
+      const first = elements[0];
+      const last = elements.at(-1);
+      if (!first || !last) { event.preventDefault(); card?.focus(); return; }
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === card || !card?.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || !card?.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      if (previous?.isConnected) previous.focus({ preventScroll: true });
+    };
+  }, [manageFocus]);
 
   useEffect(() => {
     if (!closeRequestRef) return;
@@ -166,6 +199,8 @@ export function Dialog({
         <div className={scopeClass ? `contents ${scopeClass}` : "contents"}>
         <div
           className={`flex origin-center flex-col overflow-hidden rounded-[28px] bg-paper shadow-dialog ${DIALOG_WIDTH[width]} ${compact ? "max-h-[calc(100dvh-32px)] max-[620px]:max-h-[calc(100dvh-16px)]" : "max-h-[calc(100vh-48px)]"} motion-reduce:animate-none ${closing ? "animate-dialog-card-exit" : "animate-dialog-card-enter"} ${className}`.trim()}
+          ref={cardRef}
+          tabIndex={manageFocus ? -1 : undefined}
           role={role}
           aria-modal="true"
           aria-labelledby={titleId}

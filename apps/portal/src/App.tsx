@@ -37,6 +37,7 @@ import { HrAnnualLeave } from "./routes/hr/AnnualLeave.js";
 import { HrAnnualLeaveSettings } from "./routes/hr/AnnualLeaveSettings.js";
 import { ItemCategories } from "./routes/items/Categories.js";
 import { Items } from "./routes/items/Items.js";
+import { MediaImages } from "./routes/media/Images.js";
 import { Payout } from "./routes/tools/Payout.js";
 import { Categories } from "./routes/wms/Categories.js";
 import { WarehouseMap } from "./routes/wms/Map.js";
@@ -136,6 +137,11 @@ export function App() {
           <Route path="sku-mappings" element={<Navigate to="/items/sku-mappings" replace />} />
           <Route path="categories" element={<Categories />} />
           <Route path="activity" element={<WmsActivity />} />
+        </Route>
+
+        <Route path="media">
+          <Route index element={<Navigate to="/media/images" replace />} />
+          <Route path="images" element={<MediaImages />} />
         </Route>
 
         <Route path="tools">

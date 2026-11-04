@@ -88,6 +88,9 @@ await seedDevData(d1, { includePayrollPreview: true });
 const env = {
   DB: d1,
   UPLOADS: uploads,
+  MEDIA: createLocalR2(path.resolve(here, "../../local-uploads/media")),
+  // 本機圖片可直接從 API origin 開啟；不會呼叫正式 CDN purge。
+  MEDIA_CDN_URL: `http://localhost:${PORT}`,
   GOOGLE_OAUTH_CLIENT_ID: "local-client-id",
   GOOGLE_OAUTH_CLIENT_SECRET: "local-client-secret",
   PUBLIC_APP_URL: `http://localhost:${PORTAL_PORT}`,

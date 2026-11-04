@@ -36,6 +36,11 @@ export const PERMISSIONS = {
   "wms:activity:read": "檢視倉儲操作紀錄",
   "wms:sync:trigger": "手動觸發庫存同步",
 
+  // 多媒體管理
+  "media:image:read": "檢視多媒體圖片",
+  "media:image:write": "上傳、取代與編輯多媒體圖片",
+  "media:image:delete": "刪除公開圖片",
+
   // 營運工具
   "tools:payout:run": "執行出金表",
   "tools:payout:config": "管理通路（名稱、來源、Drive 設定）",

@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
+    "./media-cdn-fields": "./src/media-cdn-fields.ts",
     "./schedule-draft": "./src/schedule-draft.ts",
     "./hr-profile-fields": "./src/hr-profile-fields.ts"
   },
