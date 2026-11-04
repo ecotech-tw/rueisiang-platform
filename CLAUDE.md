@@ -293,7 +293,9 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
   拿掉標籤或釘在右上角，完整清單在 DataTable 的 `MOBILE_CARD`）：寫
   `[&_tbody_tr>td[data-label=狀態]]:…`。新表格的欄位取了這些名字就會套上去，不想要時用這個寫法蓋掉。
   「分類」那條多排除了第一格，要蓋它得照抄：`[&_tbody_tr>td[data-label=分類]:not(:first-child)]:…`。
-- **釘住的表頭**（底色、陰影、圓角）：寫 `[[data-table-scroll]>&_thead_th]:…`，只寫 `[&_th]:` 會輸。
+- **釘住的表頭**（底色、陰影）：寫 `[[data-table-scroll]>&_thead_th]:…`，只寫 `[&_th]:` 會輸。
+  圓角寫在首欄與末欄上，要再帶 `:first-child`／`:last-child`（`[[data-table-scroll]>&_thead_th:first-child]:rounded-tl-[14px]`）；
+  表格直接放在 Panel 裡時，前面還要加 `[data-panel]>`。
 
 ### 導覽
 
