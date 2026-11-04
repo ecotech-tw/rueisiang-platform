@@ -73,6 +73,14 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    key: "media",
+    label: "多媒體管理",
+    icon: "camera",
+    items: [
+      { label: "圖片素材庫", to: "/media/images", permission: "media:image:read", icon: "grid" },
+    ],
+  },
+  {
     key: "tools",
     label: "營運工具",
     icon: "tune",

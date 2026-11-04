@@ -24,6 +24,11 @@ export interface Env {
    * 物件儲存就一起停擺。
    */
   UPLOADS?: R2Bucket;
+  /** 公開圖片專用 bucket，與私有人事／NAS 媒體分離。 */
+  MEDIA?: R2Bucket;
+  MEDIA_CDN_URL?: string;
+  MEDIA_CDN_ZONE_ID?: string;
+  MEDIA_CDN_PURGE_TOKEN?: string;
 
   AUTH_SESSION_SECRET: string;
   /** 同一帳號跨 platform.rueisiang.com／hr.rueisiang.com 時使用，例如 .rueisiang.com。 */

@@ -206,11 +206,11 @@ describe("bootstrap 管理員權限 migration", () => {
       d1.sqlite.exec(statement);
     }
 
-    // HR 權限由既有角色同步入口加入，不回頭改寫歷史 migration。
+    // HR 與多媒體權限由角色同步入口加入，不回頭改寫歷史 migration。
     const historical = await db.select().from(rolePermissionGrants);
-    const preHrPermissions = ALL_PERMISSIONS.filter((permission) => !permission.startsWith("hr:"));
-    expect(historical).toHaveLength(preHrPermissions.length);
-    expect(new Set(historical.map((row) => row.permission))).toEqual(new Set(preHrPermissions));
+    const historicalPermissions = ALL_PERMISSIONS.filter((permission) => !permission.startsWith("hr:") && !permission.startsWith("media:"));
+    expect(historical).toHaveLength(historicalPermissions.length);
+    expect(new Set(historical.map((row) => row.permission))).toEqual(new Set(historicalPermissions));
     await syncSystemRoles(db);
     await syncSystemRoles(db);
     const current = await db.select().from(rolePermissionGrants);

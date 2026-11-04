@@ -70,6 +70,13 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toContain("確定");
   });
 
+  it("Dialog 焦點管理為明確 opt-in，保留既有呼叫端的 markup", () => {
+    const plain = renderToStaticMarkup(<Dialog title="原有視窗"><p>內容</p></Dialog>);
+    const modal = renderToStaticMarkup(<Dialog manageFocus title="多媒體視窗"><p>內容</p></Dialog>);
+    expect(plain).not.toContain('tabindex="-1"');
+    expect(modal).toContain('tabindex="-1" role="dialog" aria-modal="true"');
+  });
+
   it("Dialog 的 bodyLayout 整組取代預設版面，不跟預設的 gap 或 padding 疊在一起", () => {
     const body = (markup: string) => markup.match(/<div class="([^"]*overflow-y-auto[^"]*)"><p>內容<\/p>/)?.[1]?.split(" ") ?? [];
     const plain = body(renderToStaticMarkup(<Dialog title="預設"><p>內容</p></Dialog>));

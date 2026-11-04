@@ -41,6 +41,7 @@ export type Item = typeof items.$inferSelect;
 export type NewItem = typeof items.$inferInsert;
 export type ItemComponent = typeof itemComponents.$inferSelect;
 export * from "./media.js";
+export * from "./media-cdn.js";
 export * from "./reports.js";
 export * from "./tools.js";
 export {

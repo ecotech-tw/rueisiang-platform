@@ -38,6 +38,8 @@ import { shopeeSalesInternal } from "./routes/shopee-sales-internal.js";
 import { cyberbizReportsInternal } from "./routes/cyberbiz-reports-internal.js";
 import { cyberbizReportsMcp } from "./routes/cyberbiz-reports-mcp.js";
 import { wms } from "./routes/wms.js";
+import { media } from "./routes/media.js";
+import { maintainMediaCdn, serveMediaCdn } from "./media-cdn.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
 import { drainPayrollQueueOutbox, failPayrollQueueMessage, isPayrollQueueMessage, PAYROLL_QUEUE_MAX_ATTEMPTS, processPayrollQueueMessage, type PayrollQueueMessage } from "./payroll-queue.js";
 export { PayrollRunAgent } from "./payroll-run-do.js";
@@ -112,6 +114,7 @@ const routes = app
   .route("/reports/cyberbiz", cyberbizReports)
   .route("/items", items)
   .route("/wms", wms)
+  .route("/media", media)
   .route("/webhooks", webhooks);
 
 // 打錯的 API 路徑要回 JSON，不要掉進 SPA 的 index.html。
@@ -240,6 +243,8 @@ export type AppType = typeof routes;
  */
 async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
   const db = createDatabase(env.DB);
+
+  ctx.waitUntil(maintainMediaCdn(env).catch(() => console.error(JSON.stringify({ event: "media.cdn.maintenance_failed" }))));
 
   ctx.waitUntil(
     cleanupExpiredMedia(env, db)
@@ -417,4 +422,11 @@ export async function queue(batch: MessageBatch<AppQueueMessage>, env: Env): Pro
   }
 }
 
-export default { fetch: app.fetch, scheduled, queue } satisfies ExportedHandler<Env, AppQueueMessage>;
+async function fetchHandler(request: Request, env: Env, ctx?: ExecutionContext) {
+  const url = new URL(request.url);
+  if (env.MEDIA_CDN_URL && url.origin === env.MEDIA_CDN_URL.replace(/\/$/, "") && (url.protocol === "https:" || url.pathname.startsWith("/images/"))) return serveMediaCdn(request, env);
+  if (url.pathname === "/api" || url.pathname.startsWith("/api/")) return app.fetch(request, env, ctx);
+  return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
+}
+
+export default { fetch: fetchHandler, scheduled, queue } satisfies ExportedHandler<Env, AppQueueMessage>;
