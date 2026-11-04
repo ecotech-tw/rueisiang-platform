@@ -138,7 +138,7 @@ RETURNING id;
 
 員工列表／基本資料需要 `hr:employee:read`；指派、編輯、設為未在職、恢復在職與主管需要 `hr:employee:write`；出勤設定使用 `hr:office:read/write`；薪資、保險、假勤與打卡明細仍依各自敏感資料權限。本人 API 只依 session user 找正式員工任職或支援人員帳號關聯，並檢查活動資格，不得接受 URL／body 的替代 User ID。
 
-Portal 沿用 Material 3 元件、`.page.fills`／`.panel.grows`、sticky `.data-table`、既有 Dialog、Tooltip 與 design tokens。員工列表主要操作靠右，員工資料 Dialog 直接編輯基本資料與主管；辦公位置在此只讀。狀態以「在職／未在職」呈現，底層仍使用 archive 語意保存歷史；手機與鍵盤操作必須有可見焦點、欄位 label、錯誤文字與足夠 hit area。未在職員工仍可進入內頁查歷史，但不可被活動員工入口或本人 HRIS 判定為目前員工。
+Portal 沿用 Material 3 元件、`<Page layout="fills">`／`<Panel grows>`、`DataTable` 的 sticky 表頭、既有 Dialog、Tooltip 與 design tokens。員工列表主要操作靠右，員工資料 Dialog 直接編輯基本資料與主管；辦公位置在此只讀。狀態以「在職／未在職」呈現，底層仍使用 archive 語意保存歷史；手機與鍵盤操作必須有可見焦點、欄位 label、錯誤文字與足夠 hit area。未在職員工仍可進入內頁查歷史，但不可被活動員工入口或本人 HRIS 判定為目前員工。
 
 ## 七、驗收與部署邊界
 

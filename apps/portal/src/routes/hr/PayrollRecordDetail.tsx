@@ -15,7 +15,7 @@ import { HrPageSkeleton } from "./HrSkeleton.js";
  * 沒有左右留白、列與列之間用下緣線、表頭小一級。最後一欄固定寬，金額才會對齊。
  * 表頭沿用外層的圓角，但不要玻璃：單據上的表頭是實心的紙。
  */
-const PAYSLIP_TABLE = "table-fixed [&_th]:h-auto [&_td]:h-auto [&_th]:px-0 [&_td]:px-0 [&_th]:py-[9px] [&_td]:py-[9px] [&_th]:border-t-0 [&_td]:border-t-0 [&_th]:border-b [&_td]:border-b [&_th]:border-soft-line [&_td]:border-soft-line [&_th]:text-left [&_td]:text-left [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:w-[180px] [&_td:last-child]:w-[180px] [&_th:last-child]:pr-0 [&_td:last-child]:pr-0 [&_th]:text-[12px] [&_th]:font-bold [&_.numeric]:text-right [.table-scroll>&_thead_th]:bg-paper [.table-scroll>&_thead_th]:shadow-none [.table-scroll>&_thead_th]:[-webkit-backdrop-filter:none] [.table-scroll>&_thead_th]:[backdrop-filter:none]";
+const PAYSLIP_TABLE = "table-fixed [&_th]:h-auto [&_td]:h-auto [&_th]:px-0 [&_td]:px-0 [&_th]:py-[9px] [&_td]:py-[9px] [&_th]:border-t-0 [&_td]:border-t-0 [&_th]:border-b [&_td]:border-b [&_th]:border-soft-line [&_td]:border-soft-line [&_th]:text-left [&_td]:text-left [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:w-[180px] [&_td:last-child]:w-[180px] [&_th:last-child]:pr-0 [&_td:last-child]:pr-0 [&_th]:text-[12px] [&_th]:font-bold [&_.numeric]:text-right [[data-table-scroll]>&_thead_th]:bg-paper [[data-table-scroll]>&_thead_th]:shadow-none [[data-table-scroll]>&_thead_th]:[-webkit-backdrop-filter:none] [[data-table-scroll]>&_thead_th]:[backdrop-filter:none]";
 
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
 const PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
