@@ -30,13 +30,14 @@ export function resolveSchedulePerson(options: readonly SchedulePersonOption[], 
 
 const WEEKDAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
 
-export function hrShiftDayKeyForDate(date: string): Exclude<HrShiftDayKey, "weekday" | "weekend" | "holiday"> {
+export function hrShiftDayKeyForDate(date: string): Exclude<HrShiftDayKey, "weekday" | "weekend" | "holiday" | `legacy_${string}`> {
   return WEEKDAY_KEYS[new Date(`${date}T00:00:00Z`).getUTCDay()]!;
 }
 
-export function pickShiftForDay(versions: ScheduleShift[], _dayType: HrCalendarDayType, date?: string) {
+export function pickShiftForDay(versions: ScheduleShift[], dayType: HrCalendarDayType, date?: string) {
   const weekdayKey = date ? hrShiftDayKeyForDate(date) : undefined;
-  return (weekdayKey && versions.find((shift) => shift.dayType === weekdayKey))
+  return (dayType === "holiday" ? versions.find((shift) => shift.dayType === "holiday") : undefined)
+    ?? (weekdayKey && versions.find((shift) => shift.dayType === weekdayKey))
     ?? versions.find((shift) => shift.dayType === "weekday");
 }
 

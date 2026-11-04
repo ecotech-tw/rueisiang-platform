@@ -327,12 +327,13 @@ export interface BonusAllocation { employmentId: string; employeeNumber: string;
 export interface BonusPool { poolId: string; policyVersionId: string; policyName: string; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; periodKey: string; status: "calculated" | "approved" | "closed" | "failed"; poolAmountMinor: number; allocations: BonusAllocation[]; daily: Array<{ scopeId?: string; businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>; warnings: string[] }
 import { type ScheduleShift, type ScheduleScope } from "@rueisiang/db/schedule-draft";
 export { pickShiftForDay, shiftTimeRange, type ScheduleScope, type ScheduleShift, type ScheduleEntry, type ScheduleEmployee, type ScheduleWorker, type HrScheduleResponse, type HrShiftDayKey } from "@rueisiang/db/schedule-draft";
-/** 行事曆日型與班別星期鍵用途不同：班別共用設定後可逐星期覆蓋。 */
+/** 行事曆日型與班別覆蓋鍵用途不同：共用設定後可按星期或國定假日覆蓋。 */
 export type HrDayType = "weekday" | "weekend" | "holiday";
 export const HR_DAY_TYPE_LABELS: Record<HrDayType, string> = { weekday: "平日", weekend: "週末", holiday: "國定假日" };
 export const HR_DAY_TYPES: HrDayType[] = ["weekday", "weekend", "holiday"];
-export const HR_SHIFT_DAY_TYPES: ScheduleShift["dayType"][] = ["weekday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
-export const HR_SHIFT_DAY_LABELS: Record<ScheduleShift["dayType"], string> = { weekday: "共用時間", monday: "週一", tuesday: "週二", wednesday: "週三", thursday: "週四", friday: "週五", saturday: "週六", sunday: "週日", weekend: "週末（舊）", holiday: "國定假日（舊）" };
+export const HR_SHIFT_DAY_TYPES: ScheduleShift["dayType"][] = ["weekday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "holiday"];
+export const HR_SHIFT_OVERRIDE_TYPES = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "holiday"] as const;
+export const HR_SHIFT_DAY_LABELS: Record<ScheduleShift["dayType"], string> = { weekday: "共用時間", monday: "週一", tuesday: "週二", wednesday: "週三", thursday: "週四", friday: "週五", saturday: "週六", sunday: "週日", holiday: "國定假日", legacy_monday: "舊週一設定", legacy_tuesday: "舊週二設定", legacy_wednesday: "舊週三設定", legacy_thursday: "舊週四設定", legacy_friday: "舊週五設定", legacy_saturday: "舊週六設定", legacy_sunday: "舊週日設定", legacy_weekend: "舊週末設定", legacy_holiday: "舊國定假日設定" };
 export type HrCalendarSpecialKind = "none" | "typhoon_stop";
 export const HR_CALENDAR_SPECIAL_KIND_LABELS: Record<HrCalendarSpecialKind, string> = { none: "一般日期", typhoon_stop: "災防停班（原排班照薪）" };
 export const HR_CALENDAR_SPECIAL_KINDS: HrCalendarSpecialKind[] = ["none", "typhoon_stop"];

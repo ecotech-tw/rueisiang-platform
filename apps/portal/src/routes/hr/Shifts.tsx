@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, Page, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
-import { groupShiftsByTemplate, shiftTimeRange, useHrQuery, useHrWrite, HR_SHIFT_DAY_TYPES, HR_SHIFT_DAY_LABELS, type HrShiftsResponse, type ScheduleScope, type ScheduleShift } from "./api.js";
+import { groupShiftsByTemplate, shiftTimeRange, useHrQuery, useHrWrite, HR_SHIFT_DAY_TYPES, HR_SHIFT_DAY_LABELS, HR_SHIFT_OVERRIDE_TYPES, type HrShiftsResponse, type ScheduleScope, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { ShiftTimeField } from "./ShiftTimeField.js";
 
@@ -39,11 +39,15 @@ function toGroups(shifts: ScheduleShift[]): ShiftGroup[] {
 /** 草稿裡未設定的星期以 null 表示；送出時省略，後端會移除該覆蓋。 */
 type TimeDraft = { startTime: string; endTime: string; breakMinutes: number; requiredHeadcount: number } | null;
 
+type ShiftOverrideType = (typeof HR_SHIFT_OVERRIDE_TYPES)[number];
+interface ShiftOverrideDraft { key: string; dayType: ShiftOverrideType | "" }
+
 interface ShiftRowDraft {
   key: string;
   original: ShiftGroup | null;
   name: string;
   times: Record<ScheduleShift["dayType"], TimeDraft>;
+  overrides: ShiftOverrideDraft[];
   allowedPersonIds: string[] | null;
 }
 
@@ -53,6 +57,7 @@ function rowsFromGroups(groups: ShiftGroup[]): ShiftRowDraft[] {
     original: group,
     name: group.name,
     allowedPersonIds: group.weekday.allowedPersonIds ?? null,
+    overrides: group.versions.filter((shift) => HR_SHIFT_OVERRIDE_TYPES.includes(shift.dayType as ShiftOverrideType)).map((shift) => ({ key: shift.dayType, dayType: shift.dayType as ShiftOverrideType })),
     times: Object.fromEntries(HR_SHIFT_DAY_TYPES.map((dayType) => {
       const version = group.versions.find((shift) => shift.dayType === dayType);
       return [dayType, version ? { startTime: clock(version.startSecond), endTime: clock(version.endSecond), breakMinutes: version.breakMinutes, requiredHeadcount: version.requiredHeadcount } : null];
@@ -72,7 +77,7 @@ function sameTimes(row: ShiftRowDraft, group: ShiftGroup) {
 function rowChanged(row: ShiftRowDraft) {
   if (!row.original) return true;
   if (row.original.weekday.endDayOffset) return false;
-  return row.name.trim() !== row.original.name || !sameTimes(row, row.original) || JSON.stringify(row.allowedPersonIds?.slice().sort() ?? null) !== JSON.stringify(row.original.weekday.allowedPersonIds?.slice().sort() ?? null);
+  return row.overrides.some((override) => !override.dayType) || row.name.trim() !== row.original.name || !sameTimes(row, row.original) || JSON.stringify(row.allowedPersonIds?.slice().sort() ?? null) !== JSON.stringify(row.original.weekday.allowedPersonIds?.slice().sort() ?? null);
 }
 
 function timesPayload(row: ShiftRowDraft) {
@@ -88,7 +93,7 @@ function timesPayload(row: ShiftRowDraft) {
  * 每列都是可直接編輯的草稿；新增、修改與刪除一起在右下角「儲存」時送出，
  * 和敘薪的項目編輯保持同一種操作節奏，不需要先找一顆編輯按鈕再跳到另一張表單。
  *
- * 共用時間永遠顯示，每個星期預設沿用共用時間；按下設定時間後，該星期才會有獨立設定。
+ * 一開始只顯示共用時間；需要個別星期或國定假日時，新增覆蓋列並選擇套用日，未設定的日期沿用共用時間。
  */
 function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrite, onClose, onSaved }: { scope: ScheduleScope; groups: ShiftGroup[]; people: NonNullable<HrShiftsResponse["people"]>; manager: ScheduleManagersResponse["scopes"][number]; candidates: ScheduleManagersResponse["candidates"]; canWrite: boolean; onClose: () => void; onSaved: () => Promise<unknown> }) {
   const [rows, setRows] = useState(() => rowsFromGroups(groups));
@@ -125,8 +130,42 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
     setMessage(null);
   };
 
+  const updateOverrideType = (key: string, overrideKey: string, dayType: ShiftOverrideType | "") => {
+    setRows((current) => current.map((row) => {
+      if (row.key !== key) return row;
+      const override = row.overrides.find((item) => item.key === overrideKey);
+      if (!override || (dayType && row.overrides.some((item) => item.key !== overrideKey && item.dayType === dayType))) return row;
+      const times = { ...row.times };
+      if (override.dayType) times[override.dayType] = null;
+      if (dayType) times[dayType] = { ...(row.times["weekday"] ?? { startTime: "09:00", endTime: "18:00", breakMinutes: 60, requiredHeadcount: 1 }) };
+      return { ...row, times, overrides: row.overrides.map((item) => item.key === overrideKey ? { ...item, dayType } : item) };
+    }));
+    setMessage(null);
+  };
+
+  const addOverride = (key: string) => {
+    setRows((current) => current.map((row) => {
+      if (row.key !== key || row.overrides.some((override) => !override.dayType)) return row;
+      const used = new Set(row.overrides.map((override) => override.dayType));
+      if (HR_SHIFT_OVERRIDE_TYPES.every((dayType) => used.has(dayType))) return row;
+      return { ...row, overrides: [...row.overrides, { key: `override-${crypto.randomUUID()}`, dayType: "" }] };
+    }));
+    setMessage(null);
+  };
+
+  const removeOverride = (key: string, overrideKey: string) => {
+    setRows((current) => current.map((row) => {
+      if (row.key !== key) return row;
+      const override = row.overrides.find((item) => item.key === overrideKey);
+      const times = { ...row.times };
+      if (override?.dayType) times[override.dayType] = null;
+      return { ...row, times, overrides: row.overrides.filter((item) => item.key !== overrideKey) };
+    }));
+    setMessage(null);
+  };
+
   const addNewRow = () => {
-    setRows((current) => [...current, { key: `new-${crypto.randomUUID()}`, original: null, name: "", allowedPersonIds: [], times: Object.fromEntries(HR_SHIFT_DAY_TYPES.map((dayType) => [dayType, dayType === "weekday" ? { startTime: "09:00", endTime: "18:00", breakMinutes: 60, requiredHeadcount: 1 } : null])) as Record<ScheduleShift["dayType"], TimeDraft> }]);
+    setRows((current) => [...current, { key: `new-${crypto.randomUUID()}`, original: null, name: "", allowedPersonIds: [], overrides: [], times: Object.fromEntries(HR_SHIFT_DAY_TYPES.map((dayType) => [dayType, dayType === "weekday" ? { startTime: "09:00", endTime: "18:00", breakMinutes: 60, requiredHeadcount: 1 } : null])) as Record<ScheduleShift["dayType"], TimeDraft> }]);
     setMessage(null);
   };
 
@@ -145,6 +184,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
     const names = new Set<string>();
     for (const row of rows) {
       const name = row.name.trim();
+      if (row.overrides.some((override) => !override.dayType)) { setMessage(`「${name || "未命名班別"}」有尚未選擇日期的覆蓋列，請選擇星期／國定假日或移除該列。`); return; }
       if (!name) { setMessage("每個班別都要有名稱，未完成的列請先刪除。"); return; }
       if (names.has(name)) { setMessage(`班別名稱「${name}」重複了，請改成不同名稱。`); return; }
       names.add(name);
@@ -222,30 +262,50 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
             <SelectField className="min-w-0" label="排班人員" aria-label={`${row.name || "班別"}排班人員`} multiple searchable value={row.allowedPersonIds ?? people.map((person) => person.id)} disabled={disabled} options={[...people.map((person) => ({ value: person.id, label: `${person.employeeNumber}・${person.name}${person.personKind === "worker" ? "（支援）" : ""}` })), ...(row.allowedPersonIds ?? []).filter((id) => !people.some((person) => person.id === id)).map((id) => ({ value: id, label: "已封存人員" }))]} onValueChange={(allowedPersonIds: string[]) => updateRow(row.key, { allowedPersonIds })} />
           </div>
           <div className="shift-day-head" aria-hidden="true">
-            <span>星期</span><span>開始</span><span>結束</span><span>休息（分）</span><span>需求人力</span><span />
+            <span>共用／套用日</span><span>開始</span><span>結束</span><span>休息（分）</span><span>需求人力</span><span />
           </div>
-          {HR_SHIFT_DAY_TYPES.map((dayType) => {
-            const draft = row.times[dayType];
-            const label = HR_SHIFT_DAY_LABELS[dayType];
-            if (!draft) return <div className="shift-day-row shift-day-row-empty" key={dayType}>
-              <span className="shift-day-label">{label}</span>
-              <span className="muted shift-day-inherited @max-[400px]:col-span-full">沿用共用時段與需求人力（{row.times.weekday?.requiredHeadcount ?? 1} 人）</span>
-              {canWrite ? <Button variant="secondary" icon="plus" tone="success" className="col-start-2 row-start-2 @max-[400px]:col-span-full @max-[400px]:row-start-3 justify-self-start" disabled={disabled} onClick={() => updateTime(row.key, dayType, {})}>設定{label}時間</Button> : <span className="shift-item-spacer @max-[400px]:col-span-full @max-[400px]:row-start-3" aria-hidden="true" />}
-            </div>;
-            // 「改回共用時間」與沒有它時的佔位格必須站在同一格，所以共用同一組位置。
-            const resetSlot = "@max-[640px]:col-start-2 @max-[640px]:row-start-1 @max-[640px]:[justify-self:end]";
-            return <div className="shift-day-row" key={dayType}>
+          {(() => {
+            const dayType = "weekday" as const;
+            const draft = row.times.weekday!;
+            const label = HR_SHIFT_DAY_LABELS.weekday;
+            return <div className="shift-day-row shift-day-row-default" key="weekday">
               <span className="shift-day-label">{label}</span>
               <ShiftTimeField className="min-w-0 @max-[640px]:col-start-1 @max-[640px]:row-start-2" stackedLabel="container" label="開始時間" ariaLabel={`${row.name || "班別"}${label}開始時間`} value={draft.startTime} disabled={disabled} onChange={(startTime) => updateTime(row.key, dayType, { startTime })} />
               <ShiftTimeField className="min-w-0 @max-[640px]:col-start-2 @max-[640px]:row-start-2" stackedLabel="container" label="結束時間" ariaLabel={`${row.name || "班別"}${label}結束時間`} value={draft.endTime} disabled={disabled} onChange={(endTime) => updateTime(row.key, dayType, { endTime })} />
               <TextField className="min-w-0 @max-[640px]:col-start-1 @max-[640px]:row-start-3" stackedLabel="container" label="休息分鐘" aria-label={`${row.name || "班別"}${label}休息分鐘`} type="number" min="0" step="30" value={draft.breakMinutes} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { breakMinutes: Number(event.target.value) })} />
               <TextField className="min-w-0 @max-[640px]:col-start-2 @max-[640px]:row-start-3" stackedLabel="container" label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
-              {/* 共用設定不能移除；個別星期覆蓋可取消並恢復沿用。 */}
-              {canWrite && dayType !== "weekday" ? <Tooltip label="改回共用時間" focusable={false} className={resetSlot}>
-                <Button className="self-center" variant="icon" icon="close" aria-label={`${label}改回共用時間`} disabled={disabled} onClick={() => updateTime(row.key, dayType, null)} />
-              </Tooltip> : <span className={`shift-item-spacer ${resetSlot}`} aria-hidden="true" />}
+              <span className="shift-item-spacer" aria-hidden="true" />
+            </div>;
+          })()}
+          {row.overrides.map((override, overrideIndex) => {
+            const availableTypes = HR_SHIFT_OVERRIDE_TYPES.filter((dayType) => dayType === override.dayType || !row.overrides.some((other) => other.key !== override.key && other.dayType === dayType));
+            const options = [{ value: "", label: "選擇套用日" }, ...availableTypes.map((dayType) => ({ value: dayType, label: HR_SHIFT_DAY_LABELS[dayType] }))];
+            const selector = canWrite
+              ? <SelectField className="min-w-0 @max-[640px]:col-start-1 @max-[640px]:row-start-1" label="套用日" aria-label={`${row.name || "班別"}第${overrideIndex + 1}列覆蓋套用日`} value={override.dayType} disabled={disabled} options={options} onChange={(event) => updateOverrideType(row.key, override.key, event.target.value as ShiftOverrideType | "")} />
+              : <span className="shift-day-label">{override.dayType ? HR_SHIFT_DAY_LABELS[override.dayType] : "尚未選擇"}</span>;
+            if (!override.dayType) return <div className="shift-day-row shift-day-row-empty shift-day-row-override" key={override.key}>
+              {selector}
+              <span className="muted shift-day-inherited @max-[400px]:col-span-full">選擇星期或國定假日後設定時間。</span>
+              {canWrite ? <Tooltip label="移除此列" focusable={false} className="self-center">
+                <Button className="@max-[640px]:col-start-3 @max-[640px]:row-start-1" variant="icon" icon="close" aria-label={`${row.name || "班別"}移除未選擇的覆蓋列`} disabled={save.isPending} onClick={() => removeOverride(row.key, override.key)} />
+              </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
+            </div>;
+            const dayType = override.dayType;
+            const draft = row.times[dayType]!;
+            const label = HR_SHIFT_DAY_LABELS[dayType];
+            return <div className="shift-day-row shift-day-row-override" key={override.key}>
+              {selector}
+              <ShiftTimeField className="min-w-0 @max-[640px]:col-start-1 @max-[640px]:row-start-2" stackedLabel="container" label="開始時間" ariaLabel={`${row.name || "班別"}${label}開始時間`} value={draft.startTime} disabled={disabled} onChange={(startTime) => updateTime(row.key, dayType, { startTime })} />
+              <ShiftTimeField className="min-w-0 @max-[640px]:col-start-2 @max-[640px]:row-start-2" stackedLabel="container" label="結束時間" ariaLabel={`${row.name || "班別"}${label}結束時間`} value={draft.endTime} disabled={disabled} onChange={(endTime) => updateTime(row.key, dayType, { endTime })} />
+              <TextField className="min-w-0 @max-[640px]:col-start-1 @max-[640px]:row-start-3" stackedLabel="container" label="休息分鐘" aria-label={`${row.name || "班別"}${label}休息分鐘`} type="number" min="0" step="30" value={draft.breakMinutes} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { breakMinutes: Number(event.target.value) })} />
+              <TextField className="min-w-0 @max-[640px]:col-start-2 @max-[640px]:row-start-3" stackedLabel="container" label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
+              {canWrite ? <Tooltip label={`${label}改回共用時間`} focusable={false} className="@max-[640px]:col-start-3 @max-[640px]:row-start-1 @max-[640px]:[justify-self:end]">
+                <Button className="self-center" variant="icon" icon="close" aria-label={`${label}改回共用時間`} disabled={disabled} onClick={() => removeOverride(row.key, override.key)} />
+              </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
             </div>;
           })}
+          {canWrite ? <Button variant="secondary" icon="plus" tone="success" className="justify-self-start" disabled={disabled || row.overrides.length >= HR_SHIFT_OVERRIDE_TYPES.length || row.overrides.some((override) => !override.dayType)} onClick={() => addOverride(row.key)}>新增星期／國定假日覆蓋</Button> : null}
+          <p className="muted m-0 text-xs">未設定覆蓋的日期沿用共用時間與需求人力。</p>
           {legacyOvernight ? <small className="shift-item-note">跨午夜的舊班別，請刪除後重新建立。</small> : null}
         </div>;
       })}
@@ -302,7 +362,7 @@ export function HrShifts() {
 
   const openScope = data.scopes.find((scope) => scope.id === openScopeId);
   return <Page layout="fills">
-    <PageHeader title="班別管理" description="每個班別設定一組共用時間，再按需要覆蓋個別星期的時間與需求人力；未覆蓋的星期沿用共用設定。需求人力同時是薪資單位池上限；待確認與已出勤人員計入、明確未出勤排除，超額排班時由有效人員平均分配。" />
+    <PageHeader title="班別管理" description="每個班別設定一組共用時間，再按需要新增星期或國定假日覆蓋；未覆蓋的日期沿用共用設定。需求人力同時是薪資單位池上限；待確認與已出勤人員計入、明確未出勤排除，超額排班時由有效人員平均分配。" />
     <Panel grows>
       <DataTable><thead><tr>
         <th>營運據點</th><th className="numeric">班別數</th><th>班別與可排人員</th><th>排班負責人</th>{canWrite ? <th>操作</th> : null}

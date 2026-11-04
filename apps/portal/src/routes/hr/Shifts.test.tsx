@@ -50,6 +50,44 @@ it("班別表逐班顯示可排人員，舊不限名單列出全體，空名單�
 
 afterEach(() => { vi.unstubAllGlobals(); showToast.mockClear(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
+it("初始只顯示共用時間，逐列選擇唯一的星期或國定假日覆蓋", async () => {
+  Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true }); notifyManager.setScheduler(queueMicrotask);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
+  const initial = { ...initialShifts, shifts: initialShifts.shifts.slice(0, 1), people: [] };
+  const writes: Record<string, unknown>[] = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === "PATCH") { writes.push(JSON.parse(String(init.body))); return Response.json({ revision: 2 }); }
+    return Response.json(String(input).endsWith("/schedule-managers") ? managerData : initial);
+  });
+  const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
+  const choose = async (value: string, ariaLabel: string) => {
+    await act(async () => document.querySelector<HTMLButtonElement>(`[aria-label="${ariaLabel}"]`)!.click());
+    await act(async () => [...document.querySelectorAll<HTMLElement>("[role=option]")].filter((option) => option.textContent?.includes(value)).at(-1)!.click());
+  };
+  try {
+    await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrShifts /></QueryClientProvider></MemoryRouter>));
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="編輯 門市 的班別與排班負責人"]')!.click());
+    expect(document.querySelectorAll(".shift-day-row-default")).toHaveLength(1);
+    expect(document.querySelectorAll(".shift-day-row-override")).toHaveLength(0);
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "新增星期／國定假日覆蓋")!.click());
+    await choose("週五", "早班第1列覆蓋套用日");
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "新增星期／國定假日覆蓋")!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="早班第2列覆蓋套用日"]')!.click());
+    expect([...document.querySelectorAll<HTMLElement>("[role=option]")].some((option) => option.textContent?.trim() === "週五")).toBe(false);
+    await act(async () => [...document.querySelectorAll<HTMLElement>("[role=option]")].filter((option) => option.textContent?.includes("國定假日")).at(-1)!.click());
+    expect([...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "儲存")?.disabled).toBe(false);
+    expect(document.body.textContent).toContain("週五");
+    expect(document.body.textContent).toContain("國定假日");
+    await act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "儲存")!.click());
+    expect(writes).toHaveLength(1);
+    expect(writes[0]!.times).toEqual(expect.arrayContaining([
+      expect.objectContaining({ dayType: "weekday" }),
+      expect.objectContaining({ dayType: "friday" }),
+      expect.objectContaining({ dayType: "holiday" }),
+    ]));
+  } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+});
+
 it("時間可手動輸入並驗證 HH:mm，班別名單可多選後一起儲存", async () => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   notifyManager.setScheduler(queueMicrotask);
