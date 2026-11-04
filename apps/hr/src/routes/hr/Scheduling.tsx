@@ -46,7 +46,7 @@ function getDateCoverage(day: HrScheduleResponse["calendar"][number], shifts: Hr
   const templateIds = [...new Set(shifts.map((shift) => shift.templateId))];
   const requiredShifts = templateIds.flatMap((templateId) => {
     const versions = shifts.filter((shift) => shift.templateId === templateId);
-    const applicable = pickShiftForDay(versions, day.dayType);
+    const applicable = pickShiftForDay(versions, day.dayType, day.date);
     return applicable ? [applicable] : [];
   });
   if (!requiredShifts.length) return null;
@@ -55,7 +55,8 @@ function getDateCoverage(day: HrScheduleResponse["calendar"][number], shifts: Hr
   for (const entry of entries) {
     if (entry.archivedAt || entry.attendanceStatus === "absent") continue;
     const assignedShift = shifts.find((shift) => shift.versionId === entry.shiftVersionId && shift.scopeId === entry.scopeId);
-    if (assignedShift) assignedByTemplate.set(assignedShift.templateId, (assignedByTemplate.get(assignedShift.templateId) ?? 0) + 1);
+    const templateId = assignedShift?.templateId ?? entry.shiftTemplateId;
+    if (templateId) assignedByTemplate.set(templateId, (assignedByTemplate.get(templateId) ?? 0) + 1);
   }
   const shortage = requiredShifts.reduce((total, shift) => total + Math.max(0, shift.requiredHeadcount - (assignedByTemplate.get(shift.templateId) ?? 0)), 0);
   const excess = requiredShifts.reduce((total, shift) => total + Math.max(0, (assignedByTemplate.get(shift.templateId) ?? 0) - shift.requiredHeadcount), 0);
@@ -115,7 +116,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
   const kind = person?.personKind ?? "employee";
   const personId = person?.personId ?? "";
   const matchesPerson = (entry: ScheduleEntry) => entry.personKind === kind && (kind === "employee" ? entry.employmentId : entry.workerId) === personId;
-  const templateOf = (entry: ScheduleEntry) => data.shifts.find((shift) => shift.versionId === entry.shiftVersionId)?.templateId;
+  const templateOf = (entry: ScheduleEntry) => data.shifts.find((shift) => shift.versionId === entry.shiftVersionId)?.templateId ?? entry.shiftTemplateId;
   const selectedEntry = (date: string) => draft.find((entry) => !entry.archivedAt && entry.workDate === date && matchesPerson(entry) && templateOf(entry) === templateId);
   const picked = (date: string) => Boolean(selectedEntry(date));
   const toggleDisabled = (date: string) => {
@@ -127,7 +128,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
     const existing = selectedEntry(date);
     if (existing) { setDraft((entries) => entries.filter((entry) => entry.id !== existing.id)); setMessage(null); return; }
     const day = data.calendar.find((day) => day.date === date);
-    const shift = day && pickShiftForDay(data.shifts.filter((shift) => shift.templateId === templateId), day.dayType);
+    const shift = day && pickShiftForDay(data.shifts.filter((shift) => shift.templateId === templateId), day.dayType, date);
     if (!shift || !canSchedulePerson(shift, personId)) return;
     const employee = data.employees.find((employee) => employee.employmentId === personId);
     const worker = data.workers.find((worker) => worker.id === personId);

@@ -202,7 +202,7 @@ describe("HR 行事曆與班別日型", () => {
     expect(await listShifts()).toHaveLength(1);
   });
 
-  it("已經排進班表的那組時間移不掉，訊息要講清楚該去哪裡處理", async () => {
+  it("已排班引用的星期覆蓋可移除，歷史排班快照仍保留", async () => {
     const created = await createShift("早班", [
       { dayType: "weekday", startTime: "09:00", endTime: "18:00" },
       { dayType: "friday", startTime: "11:00", endTime: "19:00" },
@@ -218,13 +218,13 @@ describe("HR 行事曆與班別日型", () => {
     ] });
     expect(published.status, await published.clone().text()).toBe(200);
 
-    const blocked = await request(`/hr/shift-templates/${created.id}`, "PATCH", { scopeId: "scope", name: "早班", revision: 1, times: [
+    const removed = await request(`/hr/shift-templates/${created.id}`, "PATCH", { scopeId: "scope", name: "早班", revision: 1, times: [
       { dayType: "weekday", startTime: "09:00", endTime: "18:00" },
     ] });
-    expect(blocked.status).toBe(409);
-    expect(await blocked.text()).toContain("排班月曆");
-    // 擋下來就要什麼都沒改：名稱、時間與那組被排到的版本都還在。
-    expect(await listShifts()).toHaveLength(2);
+    expect(removed.status, await removed.clone().text()).toBe(200);
+    expect(await listShifts()).toHaveLength(1);
+    const schedule = await (await request("/hr/schedules?periodKey=2026-02")).json() as { entries: Array<{ shiftVersionId: string; startsAt: string }> };
+    expect(schedule.entries).toMatchObject([{ shiftVersionId: friday.versionId, startsAt: "2026-02-20 11:00:00" }]);
   });
 
   it.each([
