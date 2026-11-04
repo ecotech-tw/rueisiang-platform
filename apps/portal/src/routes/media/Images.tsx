@@ -114,7 +114,7 @@ export function MediaImages() {
   }
   if (!canRead) return <div className="page"><PageHeader title="圖片素材庫" /><Alert tone="warning">你沒有檢視多媒體圖片的權限，請聯絡管理者。</Alert></div>;
   return <div className="page fills">
-    <PageHeader title="圖片素材庫" description="一個固定連結，隨時換上新圖片。官網不必跟著重新上傳。" actions={canWrite ? <Button icon="plus" tone="success" size="lg" disabled={!query.data?.configured} onClick={() => setUpload({})}>上傳圖片</Button> : null} />
+    <PageHeader title="圖片素材庫" actions={canWrite ? <Button icon="plus" tone="success" size="lg" disabled={!query.data?.configured} onClick={() => setUpload({})}>上傳圖片</Button> : null} />
     <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted"><span className="inline-flex items-center gap-2"><Icon name="cloudSync" className="size-[18px]" />Cloudflare R2 · media</span><span className="inline-flex items-center gap-2"><Icon name="globe" className="size-[18px]" />{query.data?.cdnOrigin ?? "讀取 CDN 設定中…"}</span>{query.data?.local ? <StatusBadge tone="neutral">本機預覽 · 不連線正式 CDN</StatusBadge> : null}</div>
     {query.error ? <Alert tone="danger">{query.error.message}<div className="mt-2"><Button variant="secondary" onClick={() => void query.refetch()}>重新載入</Button></div></Alert> : null}
     {query.data && !query.data.configured ? <Alert tone="warning">尚未完成 R2 或 CDN 快取清除設定，目前僅能瀏覽圖片。請聯絡管理者完成設定後再上傳或變更。</Alert> : null}

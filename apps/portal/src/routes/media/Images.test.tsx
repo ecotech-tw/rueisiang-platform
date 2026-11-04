@@ -25,6 +25,7 @@ describe("多媒體素材庫", () => {
   it("顯示固定連結操作、格式與圖片尺寸，圖片預覽走受保護路由", () => {
     const markup = renderToStaticMarkup(<MediaImages />);
     for (const text of ["圖片素材庫", "複製連結", "圖片資訊", "1200", "600", "已同步 CDN", "上傳圖片"]) expect(markup).toContain(text);
+    expect(markup).not.toContain("一個固定連結，隨時換上新圖片");
     expect(markup).toContain("/api/media/images/example/preview?revision=1"); expect(markup).toContain("outline-black/10"); expect(markup).toContain("&lt;script&gt;"); expect(markup).not.toContain("<script>");
   });
   it("提供縮圖與列表切換，縮圖固定 160px 且刪除提示明確限制 icon 大小", () => {
