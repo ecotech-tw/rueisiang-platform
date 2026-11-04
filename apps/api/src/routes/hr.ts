@@ -11,7 +11,7 @@ import {
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   listHrScheduleManagers, setHrScheduleManager, listHrManagedScheduleScopes, getHrManagedSchedule, saveHrManagedSchedule, setHrManagedScheduleLock, saveHrScheduleChanges,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, HR_SCHEDULE_ATTENDANCE_STATUSES, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis, type HrScheduleAttendanceStatus,
-  isHrCalendarSpecialKind, isHrDayType, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
+  isHrCalendarSpecialKind, isHrDayType, isHrShiftDayKey, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
   approveHrOvertimeBatch, cancelHrOvertimeRequest, cancelHrOvertimeRequests, createHrOvertimeRequest, createHrOvertimeRequests, listHrOvertimeDays, listHrOvertimeRequests, listHrOvertimeReviewRequests, MAX_OVERTIME_CANCELLATION_ENTRIES, reviewHrOvertimeRequest, updateHrOvertimeRequest,
   HR_LEAVE_GRANT_PAGE_SIZES, HR_REQUEST_CENTER_PAGE_SIZES, listHrRequestCenterPage,
@@ -493,14 +493,14 @@ function defaultShiftMinutes(input: Record<string, unknown>) {
   const standardMinutes = input.standardMinutes === undefined ? durationMinutes - breakMinutes : integerValue(input, "standardMinutes", "計薪工時", 0, durationMinutes - breakMinutes);
   return { start, end, standardMinutes, breakMinutes };
 }
-/** 一個班別的平日／週末／國定假日三組時間；值域與「平日必填」由 packages/db 的 assertShiftTimes 把關。 */
+/** 共用時間加上個別星期的覆蓋；共用時間必填由 packages/db 驗證。 */
 function shiftTimes(input: Record<string, unknown>): HrShiftTime[] {
   const value = input.times;
-  if (!Array.isArray(value) || !value.length || value.length > 3) throw new HTTPException(400, { message: "班別時間格式不正確。" });
+  if (!Array.isArray(value) || !value.length || value.length > 8) throw new HTTPException(400, { message: "班別時間格式不正確。" });
   return value.map((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) throw new HTTPException(400, { message: "班別時間格式不正確。" });
     const entry = item as Record<string, unknown>;
-    if (!isHrDayType(entry.dayType)) throw new HTTPException(400, { message: "班別的日期類型不正確。" });
+    if (!isHrShiftDayKey(entry.dayType) || entry.dayType === "weekend" || entry.dayType === "holiday") throw new HTTPException(400, { message: "班別的日期類型不正確。" });
     const defaults = defaultShiftMinutes(entry);
     const requiredHeadcount = entry.requiredHeadcount === undefined ? undefined : integerValue(entry, "requiredHeadcount", "需求人力", 1, 100);
     return { dayType: entry.dayType, startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes, requiredHeadcount };

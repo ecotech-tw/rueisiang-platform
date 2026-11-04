@@ -326,11 +326,13 @@ export interface HrOverview { periodKey: string; attendance: { anomalyCount: num
 export interface BonusAllocation { employmentId: string; employeeNumber: string; employeeName: string; weightUnits: number; scheduledDays: number; revenueMinor: number; amountMinor: number }
 export interface BonusPool { poolId: string; policyVersionId: string; policyName: string; scopeId: string; scopeName: string; scopeIds?: string[]; scopeNames?: string[]; periodKey: string; status: "calculated" | "approved" | "closed" | "failed"; poolAmountMinor: number; allocations: BonusAllocation[]; daily: Array<{ scopeId?: string; businessDate: string; revenueMinor: number; bonusMinor: number; scheduled: boolean }>; warnings: string[] }
 import { type ScheduleShift, type ScheduleScope } from "@rueisiang/db/schedule-draft";
-export { pickShiftForDay, shiftTimeRange, type ScheduleScope, type ScheduleShift, type ScheduleEntry, type ScheduleEmployee, type ScheduleWorker, type HrScheduleResponse } from "@rueisiang/db/schedule-draft";
-/** 平日／週末／國定假日。與 packages/db 的 HrDayType 同一組值，行事曆與班別時間共用。 */
+export { pickShiftForDay, shiftTimeRange, type ScheduleScope, type ScheduleShift, type ScheduleEntry, type ScheduleEmployee, type ScheduleWorker, type HrScheduleResponse, type HrShiftDayKey } from "@rueisiang/db/schedule-draft";
+/** 行事曆日型與班別星期鍵用途不同：班別共用設定後可逐星期覆蓋。 */
 export type HrDayType = "weekday" | "weekend" | "holiday";
 export const HR_DAY_TYPE_LABELS: Record<HrDayType, string> = { weekday: "平日", weekend: "週末", holiday: "國定假日" };
 export const HR_DAY_TYPES: HrDayType[] = ["weekday", "weekend", "holiday"];
+export const HR_SHIFT_DAY_TYPES: ScheduleShift["dayType"][] = ["weekday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
+export const HR_SHIFT_DAY_LABELS: Record<ScheduleShift["dayType"], string> = { weekday: "共用時間", monday: "週一", tuesday: "週二", wednesday: "週三", thursday: "週四", friday: "週五", saturday: "週六", sunday: "週日", weekend: "週末（舊）", holiday: "國定假日（舊）" };
 export type HrCalendarSpecialKind = "none" | "typhoon_stop";
 export const HR_CALENDAR_SPECIAL_KIND_LABELS: Record<HrCalendarSpecialKind, string> = { none: "一般日期", typhoon_stop: "災防停班（原排班照薪）" };
 export const HR_CALENDAR_SPECIAL_KINDS: HrCalendarSpecialKind[] = ["none", "typhoon_stop"];
@@ -344,11 +346,11 @@ export interface HrShiftsResponse { scopes: ScheduleScope[]; shifts: ScheduleShi
 export interface HrCalendarDay { date: string; dayType: HrDayType; name: string; specialKind: HrCalendarSpecialKind; specialScopeIds: string[]; overridden: boolean }
 export interface HrCalendarResponse { days: HrCalendarDay[]; scopes: ScheduleScope[] }
 
-/** 把同一個班別的多組時間收成一筆，順序照平日、週末、國定假日。 */
+/** 把同一班別的共用時間與星期覆蓋收成一筆，順序照共用、週一至週日。 */
 export function groupShiftsByTemplate(shifts: ScheduleShift[]) {
   const grouped = new Map<string, ScheduleShift[]>();
   for (const shift of shifts) grouped.set(shift.templateId, [...(grouped.get(shift.templateId) ?? []), shift]);
-  for (const versions of grouped.values()) versions.sort((a, b) => HR_DAY_TYPES.indexOf(a.dayType) - HR_DAY_TYPES.indexOf(b.dayType));
+  for (const versions of grouped.values()) versions.sort((a, b) => HR_SHIFT_DAY_TYPES.indexOf(a.dayType) - HR_SHIFT_DAY_TYPES.indexOf(b.dayType));
   return grouped;
 }
 

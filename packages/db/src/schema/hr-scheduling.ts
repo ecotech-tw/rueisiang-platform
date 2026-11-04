@@ -13,6 +13,8 @@ const timestamps = () => ({
 
 export const HR_CALENDAR_SPECIAL_KINDS = ["none", "typhoon_stop"] as const;
 export type HrCalendarSpecialKind = (typeof HR_CALENDAR_SPECIAL_KINDS)[number];
+export const HR_SHIFT_DAY_KEYS = ["weekday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "weekend", "holiday"] as const;
+export type HrShiftDayKey = (typeof HR_SHIFT_DAY_KEYS)[number];
 
 /**
  * 行事曆只存「例外」的日子，不存一整年。
@@ -96,13 +98,11 @@ export const hrShiftVersions = sqliteTable("hr_shift_versions", {
   id: text("id").primaryKey(),
   shiftTemplateId: text("shift_template_id").notNull().references(() => hrShiftTemplates.id, { onDelete: "restrict" }),
   /*
-   * 同一個班別在平日、週末與國定假日各有一組時間。舊資料一律回填 weekday，那正是它原本的語意。
-   *
-   * 這裡刻意不加 CHECK：drizzle 對 SQLite 加約束會產出「建新表、搬資料、刪舊表」，而這張表被
-   * hr_schedule_entries 與 hr_schedule_worker_entries 用外鍵指著，DROP 在 D1 的單一 transaction
-   * 裡會連坐（見 CLAUDE.md 的 0023）。值域由 TS 的 enum 與 assertDayType 把關。
+   * weekday 是未指定星期覆蓋時的共用時間；星期鍵只保存與共用時間不同的例外。
+   * weekend／holiday 僅為已被歷史排班引用的舊版本保留，不能再供新排班選用。
+   * 此表被排班外鍵引用，不加 CHECK，避免 SQLite 重建父表造成 D1 外鍵連坐。
    */
-  dayType: text("day_type", { enum: ["weekday", "weekend", "holiday"] as const }).notNull().default("weekday"),
+  dayType: text("day_type", { enum: HR_SHIFT_DAY_KEYS }).notNull().default("weekday"),
   /** 這個日型的需求人力；已發布排班以此值作為同班薪資單位池上限。 */
   requiredHeadcount: integer("required_headcount").notNull().default(1),
   versionNumber: integer("version_number").notNull(),
@@ -382,7 +382,7 @@ export const hrOvertimeRequests = sqliteTable("hr_overtime_requests", {
   check("ck_hr_overtime_revision", sql`${table.revision} > 0`),
 ]);
 
-/** 平日／週末／國定假日。班別時間與行事曆共用同一組值，兩邊才對得起來。 */
+/** 行事曆的平日／週末／國定假日分類；班別時間使用 HrShiftDayKey。 */
 export type HrDayType = (typeof hrCalendarDays.$inferSelect)["dayType"];
 export type HrCalendarDay = typeof hrCalendarDays.$inferSelect;
 export type HrScopeShiftAssignment = typeof hrScopeShiftAssignments.$inferSelect;

@@ -1192,7 +1192,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(blockedAdjustment.status).toBe(409);
   });
 
-  it("舊平日版排班重新發布時按日期套用週末與國定假日人力，舊薪資快照不改寫", async () => {
+  it("舊共用版排班重新發布時按星期套用覆蓋人力，舊薪資快照不改寫", async () => {
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"]) {
       expect((await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 160_000, note: "日型重套測試" })).status).toBe(201);
     }
@@ -1211,8 +1211,8 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(beforeRun.employees.every((employee) => employee.lines.find((line) => line.lineKey === "base_salary")?.amountMinor === 320_000)).toBe(true);
     const updated = await request(`/hr/shift-templates/${templateId}`, "PATCH", { scopeId: "cyberbiz:store:demo-ximen", name: "日型重套班", revision: 1, times: [
       { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 1 },
-      { dayType: "weekend", startTime: "10:00", endTime: "19:00", requiredHeadcount: 2 },
-      { dayType: "holiday", startTime: "11:00", endTime: "20:00", requiredHeadcount: 2 },
+      { dayType: "saturday", startTime: "10:00", endTime: "19:00", requiredHeadcount: 2 },
+      { dayType: "friday", startTime: "11:00", endTime: "20:00", requiredHeadcount: 2 },
     ] });
     expect(updated.status, await updated.clone().text()).toBe(200);
     const readSchedule = await (await request("/hr/schedules?periodKey=2026-09")).json() as { entries: Array<{ shiftVersionId: string; requiredHeadcount: number }> };
@@ -1230,13 +1230,13 @@ describe("HR 薪資與櫃點獎金試算", () => {
       const base = employee.lines.find((line) => line.lineKey === "base_salary")!;
       expect(base.amountMinor).toBe(560_000);
       expect(base.explanation.scheduleAllocationDetails).toEqual(expect.arrayContaining([
-        expect.objectContaining({ date: "2026-09-04", requiredHeadcount: 1, allocatedUnits: 0.5 }),
-        ...["2026-09-05", "2026-09-06", "2026-09-25"].map((date) => expect.objectContaining({ date, requiredHeadcount: 2, allocatedUnits: 1 })),
+        ...["2026-09-04", "2026-09-05", "2026-09-25"].map((date) => expect.objectContaining({ date, requiredHeadcount: 2, allocatedUnits: 1 })),
+        expect.objectContaining({ date: "2026-09-06", requiredHeadcount: 1, allocatedUnits: 0.5 }),
       ]));
     }
   });
 
-  it("假日班別使用需求人力快照，兩位有效員工各得一個完整薪資單位", async () => {
+  it("週四班別覆蓋使用需求人力快照，兩位有效員工各得一個完整薪資單位", async () => {
     for (const employmentId of ["dev-employment-chen", "dev-employment-wang"] as const) {
       const compensation = await request(`/hr/employments/${employmentId}/compensation`, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 180_000, note: "假日需求人力分配測試" });
       expect(compensation.status, await compensation.clone().text()).toBe(201);
@@ -1245,16 +1245,16 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(calendar.status, await calendar.clone().text()).toBe(200);
     const created = await request("/hr/shift-templates", "POST", { scopeId: "cyberbiz:store:demo-ximen", name: "假日增援班", times: [
       { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 1 },
-      { dayType: "holiday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 2 },
+      { dayType: "thursday", startTime: "09:00", endTime: "18:00", requiredHeadcount: 2 },
     ] });
     expect(created.status, await created.clone().text()).toBe(201);
     const templateId = (await created.json() as { id: string }).id;
     const schedule = await (await request("/hr/schedules?periodKey=2026-09&scopeId=cyberbiz:store:demo-ximen")).json() as { shifts: Array<{ templateId: string; dayType: string; versionId: string; requiredHeadcount: number }> };
-    const holidayShift = schedule.shifts.find((shift) => shift.templateId === templateId && shift.dayType === "holiday");
-    expect(holidayShift).toMatchObject({ requiredHeadcount: 2 });
+    const thursdayShift = schedule.shifts.find((shift) => shift.templateId === templateId && shift.dayType === "thursday");
+    expect(thursdayShift).toMatchObject({ requiredHeadcount: 2 });
     const saved = await request("/hr/schedules", "POST", { periodKey: "2026-09", entries: [
-      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: holidayShift!.versionId, workDate: "2026-09-03", attendanceStatus: "present" },
-      { personKind: "employee", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: holidayShift!.versionId, workDate: "2026-09-03" },
+      { personKind: "employee", employmentId: "dev-employment-chen", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: thursdayShift!.versionId, workDate: "2026-09-03", attendanceStatus: "present" },
+      { personKind: "employee", employmentId: "dev-employment-wang", scopeId: "cyberbiz:store:demo-ximen", shiftVersionId: thursdayShift!.versionId, workDate: "2026-09-03" },
     ] });
     expect(saved.status, await saved.clone().text()).toBe(200);
     const payroll = await request("/hr/payroll/calculate", "POST", { periodKey: "2026-09", attendanceMode: "all", employeeUserIds: ["dev-chen@ecotech.tw", "dev-wang@ecotech.tw"], requestId: "test-payroll-holiday-headcount-2026-09" });
@@ -1854,7 +1854,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await request(`/hr/schedule-workers/${workerIds[0]}`, "PATCH", { displayName: "封存同班甲", active: false, revision: 1 })).status).toBe(200);
     expect((await request(`/hr/shift-templates/${templateId}`, "PATCH", { scopeId: "cyberbiz:store:demo-ximen", name: "封存同班", revision: 1, times: [
       { dayType: "weekday", startTime: "09:00", endTime: "18:00", requiredHeadcount: workDate === "2026-09-03" ? requiredHeadcount : originalHeadcount },
-      { dayType: "weekend", startTime: "09:00", endTime: "18:00", requiredHeadcount },
+      { dayType: "saturday", startTime: "09:00", endTime: "18:00", requiredHeadcount },
     ] })).status).toBe(200);
     const republished = await request("/hr/schedules", "POST", { periodKey: "2026-09", scheduleVersionId: savedVersion.id, revision: savedVersion.revision, entries: entries.slice(1) });
     expect(republished.status, await republished.clone().text()).toBe(200);
