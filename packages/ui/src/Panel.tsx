@@ -20,11 +20,11 @@ const HEAD_MARGIN = "mb-[22px]";
 export const PANEL_HEAD = `flex justify-between gap-4 ${HEAD_ITEMS} ${HEAD_MARGIN}`;
 export const PANEL_DESCRIPTION = "mt-1.5 mb-0 text-muted";
 /** 實心面板的表面（不含內距）。自己要接觸控事件、不能用 Panel 的區塊才直接用。 */
-export const PANEL_SURFACE = "rounded-[14px] border border-line bg-paper shadow-panel";
+export const PANEL_SURFACE = "rounded-[14px] border border-line bg-paper [box-shadow:var(--shadow-panel)]";
 
 // 外框顏色另外給（BORDER），強調色才能整組換掉，不跟這裡的顏色比產生順序。
 const SURFACE: Record<PanelSkinName, string> = {
-  solid: "rounded-[14px] border bg-paper shadow-panel",
+  solid: "rounded-[14px] border bg-paper [box-shadow:var(--shadow-panel)]",
   /*
    * 玻璃面板：半透明底加模糊，前後兩層偽元素分別是光澤與內緣的光暈。
    * 表格直接貼在面板裡時，表格要撐到面板兩側（抵掉內距），光澤也拿掉，不然捲動的資料上會蓋一層霧。

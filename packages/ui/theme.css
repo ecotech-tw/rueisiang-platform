@@ -45,8 +45,6 @@
   /* 玻璃面板與 HRIS 概覽卡：外層落影、內層光澤（::before）、內緣光暈（::after）三層一組。 */
   --shadow-glass-panel: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 0 0 1px --alpha(var(--color-paper) / 20%) inset, 0 -16px 34px --alpha(var(--color-brand) / 5%) inset, 0 16px 38px --alpha(var(--color-ink) / 9%);
   --glass-panel-sheen: radial-gradient(circle at 16% 0%, --alpha(var(--color-paper) / 20%), transparent 34%), radial-gradient(circle at 90% 100%, --alpha(var(--color-brand) / 6%), transparent 38%), linear-gradient(135deg, --alpha(var(--color-paper) / 13%) 0%, transparent 30%, --alpha(var(--color-paper) / 6%) 68%, transparent 100%);
-  /* HR 員工 app 在手機上的卡片：比 --shadow-panel 淡、比較貼近。 */
-  --shadow-mobile-card: 0 8px 24px --alpha(var(--color-ink) / 7%);
   --shadow-glass-panel-glow: 0 0 16px --alpha(var(--color-paper) / 20%) inset, 0 0 30px --alpha(var(--color-brand) / 4%) inset;
   /* 釘住的玻璃表頭：上緣一道亮邊、底下一層落影，資料捲過去時看得出它浮在上面。 */
   --shadow-glass-table-head: 0 1px 0 --alpha(var(--color-paper) / 76%) inset, 0 10px 24px --alpha(var(--color-ink) / 15%), 0 1px 0 --alpha(var(--color-ink) / 5%), inset 0 -1px 0 --alpha(var(--color-brand) / 22%);

@@ -51,7 +51,7 @@ export function ScopeBreakdownChart({ breakdown, valueFormatter }: ScopeBreakdow
         </AnalyticsDataDialog>
       ) : null}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel analytics-scope-panel"
+      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-scope-panel"
     >
       {/*
         * 高度跟著筆數長。固定高度時 recharts 會把塞不下的類別標籤整個丟掉，

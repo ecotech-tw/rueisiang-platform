@@ -115,7 +115,7 @@ export function SalesTrendChart({
           </AnalyticsDataDialog>
         )}
         headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel analytics-trend-panel analytics-sales-trend-panel"
+      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-trend-panel analytics-sales-trend-panel"
       >
         <div className="analytics-chart" role="img" aria-label="近十三個月商品淨銷量與銷售額趨勢圖">
           <ResponsiveContainer width="100%" height="100%">
@@ -174,7 +174,7 @@ export function SalesTrendChart({
         </AnalyticsDataDialog>
       )}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel analytics-trend-panel analytics-sales-trend-panel"
+      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-trend-panel analytics-sales-trend-panel"
     >
       <div className="analytics-chart" role="img" aria-label="商品淨銷量與銷售額趨勢圖">
         <ResponsiveContainer width="100%" height="100%">

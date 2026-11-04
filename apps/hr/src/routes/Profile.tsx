@@ -58,7 +58,7 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
   const employeeName = employee.legalName.trim() || employee.displayName || "員工";
   const navigate = useNavigate();
   return <>
-    <Panel className="hr-profile-overview">
+    <Panel className="hr-profile-overview bg-[linear-gradient(125deg,var(--color-brand-soft),var(--color-paper)_72%)] max-[760px]:p-4">
       <div className="hr-profile-overview-main">
         <HrProfilePhoto profile={profile} />
         <div className="hr-profile-overview-copy">

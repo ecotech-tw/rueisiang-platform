@@ -196,7 +196,7 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
         </AnalyticsDataDialog>
       ) : null}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel analytics-category-panel"
+      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-category-panel"
     >
       {parentRows.length ? (
         <div className="analytics-category-chart-duo">

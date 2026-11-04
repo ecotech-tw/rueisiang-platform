@@ -65,7 +65,7 @@ export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, va
         </div>
       )}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel analytics-sku-panel"
+      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-sku-panel"
     >
       {loading ? (
         <div className="analytics-chart analytics-chart-pending" role="status">正在更新 Top 10 SKU 排序…</div>

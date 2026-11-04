@@ -47,7 +47,7 @@ export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
   if (!summary) return <Alert tone="danger">報表沒有回傳資料。</Alert>;
   if (summary.status === "NO_DATA_FOR_RANGE") {
     return (
-      <Panel className="analytics-empty-panel">
+      <Panel className="analytics-empty-panel p-[30px] max-[760px]:px-5 max-[760px]:py-6">
         <span className="analytics-empty-icon"><Icon name="report" /></span>
         <h2>{scopeLabel}在這段期間沒有出金資料</h2>
         <p>{summary.message ?? "這段期間沒有已匯入的出金資料。"}</p>

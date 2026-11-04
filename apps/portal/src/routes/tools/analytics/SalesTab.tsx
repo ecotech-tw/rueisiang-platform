@@ -110,7 +110,7 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
 
   if (summary.status === "UNSUPPORTED_GRANULARITY") {
     return (
-      <Panel className="analytics-empty-panel">
+      <Panel className="analytics-empty-panel p-[30px] max-[760px]:px-5 max-[760px]:py-6">
         <span className="analytics-empty-icon"><Icon name="analytics" /></span>
         <h2>商品銷售只支援完整月份</h2>
         <p>{summary.message ?? "請改用 YYYY-MM、YYYY 或完整月份的自訂日期區間。"}</p>
@@ -121,7 +121,7 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
   if (summary.status === "NO_DATA_FOR_RANGE") {
     return (
       <div className="analytics-chart-region">
-        <Panel className="analytics-empty-panel" aria-busy={busy}>
+        <Panel className="analytics-empty-panel p-[30px] max-[760px]:px-5 max-[760px]:py-6" aria-busy={busy}>
           <span className="analytics-empty-icon"><Icon name="analytics" /></span>
           <h2>{productQuery ? `找不到符合「${productQuery}」的商品銷售資料` : `${scopeLabel}在這段期間沒有商品銷售資料`}</h2>
           <p>{summary.message ?? "這段期間沒有已匯入的商品銷售資料。"}</p>

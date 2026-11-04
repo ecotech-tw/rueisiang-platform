@@ -184,7 +184,7 @@ export function Analytics() {
         description="比較商品銷量、通路與出金表現；先看整體，再下鑽到單一店別、通路或商品。"
       />
 
-      <Panel className="analytics-filters" aria-label="報表篩選條件">
+      <Panel className="analytics-filters px-[18px] pt-[15px] pb-4 max-[760px]:px-3.5 max-[760px]:pt-[13px] max-[760px]:pb-3.5" aria-label="報表篩選條件">
         <div className="analytics-filter-heading">
           <span className="analytics-filter-icon"><Icon name="calendar" /></span>
           <div>

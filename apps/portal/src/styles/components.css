@@ -2699,7 +2699,6 @@
   display: grid;
   gap: 16px;
   margin-bottom: 12px;
-  padding: 15px 18px 16px;
 }
 .analytics-filter-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .analytics-filter-heading > div:nth-child(2) { flex: 1 1 260px; min-width: 220px; }
@@ -2838,7 +2837,7 @@
 .analytics-chart-column > .analytics-chart-panel { min-width: 0; margin: 0; }
 .analytics-chart-column { display: grid; align-content: start; gap: 14px; min-width: 0; }
 .analytics-sales-chart-grid .analytics-sales-trend-panel { grid-column: 1 / -1; }
-.analytics-chart-panel { min-width: 0; padding: 17px 18px 14px; }
+.analytics-chart-panel { min-width: 0; }
 .analytics-chart { width: 100%; height: 300px; min-height: 240px; }
 .analytics-scope-chart { height: 300px; }
 .analytics-category-chart { height: 300px; }
@@ -2872,7 +2871,7 @@
 /* 不換行，才不會在標籤擠不下時被逐字折成直的；擠不下就整個項目換到下一列。 */
 .analytics-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 
-.analytics-empty-panel { display: grid; justify-items: start; gap: 10px; padding: 30px; }
+.analytics-empty-panel { display: grid; justify-items: start; gap: 10px; }
 .analytics-empty-panel h2 { margin: 0; font-size: 18px; }
 .analytics-empty-panel p { margin: 0; color: var(--color-muted); }
 
@@ -2892,7 +2891,7 @@
 
 @media (max-width: 760px) {
   .analytics-page > .page-head { margin-bottom: 12px; }
-  .analytics-filters { gap: 12px; padding: 13px 14px 14px; }
+  .analytics-filters { gap: 12px; }
   .analytics-filter-heading > div:nth-child(2) { min-width: 0; }
   .analytics-filter-heading .analytics-tabs { width: 100%; margin-left: 0; }
   .analytics-tab { flex: 1; }
@@ -2910,10 +2909,8 @@
   .analytics-kpi strong { font-size: 20px; }
   .analytics-result-heading { align-items: start; flex-direction: column; gap: 7px; }
   .analytics-result-meta { justify-content: flex-start; text-align: left; }
-  .analytics-chart-panel { padding-inline: 13px; }
   .analytics-panel-actions { align-items: flex-start; justify-content: flex-start; }
   .analytics-chart-actions { justify-content: flex-start; margin-top: 8px; }
-  .analytics-empty-panel { padding: 24px 20px; }
 }
 
 /* 報表管理：一頁一個資料入口，兩種報表用同一套列編輯節奏。 */
