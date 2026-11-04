@@ -379,7 +379,6 @@
 .empty-card svg { width: 24px; height: 24px; color: var(--color-brand); }
 .empty-card strong { font-size: 15px; }
 
-.page-head-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 
 
 @media (max-width: 900px) {
@@ -397,7 +396,6 @@
 @media (max-width: 760px) {
 
 
-  .page-head-row { align-items: center; gap: 12px; }
 
 }
 
@@ -444,9 +442,6 @@
   .hr-clock-now { font-size: 28px; }
   .hr-clock-deep-links { grid-template-columns: 1fr; }
   .hr-clock-subpage { gap: 8px; padding: 14px 12px calc(var(--hr-safe-bottom) + 76px); }
-  .hr-clock-subpage .page-head { margin-bottom: 0; }
-  .hr-clock-subpage .page-head h1 { font-size: 18px; }
-  .hr-clock-subpage .page-head p { display: none; }
   .hr-clock-calendar-open { --hr-calendar-grid-height: clamp(216px, 40vh, 276px); padding: 10px 12px; }
   .hr-clock-calendar-toolbar { padding: 4px 0 8px; }
   .hr-clock-calendar-weekdays, .hr-clock-calendar-grid { gap: 3px; }
@@ -501,8 +496,6 @@
   .hr-payslip-totals > div { padding: 10px 8px; }
   .hr-payslip-totals strong { font-size: 12px; }
   .hr-payslip-totals .net strong { font-size: 14px; }
-  .hr-notifications-page .page-head { align-items: flex-start; }
-  .hr-notifications-page .page-head > .button { min-height: 40px; padding-inline: 10px; font-size: 12px; }
   .hr-forms-index-head { align-items: center; flex-direction: row; gap: 12px; }
   .hr-forms-index-head > :first-child { flex: 1; width: auto; min-width: 0; }
   .hr-forms-index-head > :last-child { width: auto; }
@@ -512,8 +505,6 @@
   .hr-form-add-button-floating { width: 52px; height: 52px; border-radius: 50%; }
   .hr-form-sticky-controls { margin-inline: -14px; padding: 8px 14px; }
   .hr-form-filters { grid-template-columns: minmax(0, 1fr) 128px; gap: 8px; padding-top: 8px; }
-  .hr-form-page > .page-head h1 { font-size: 22px; }
-  .hr-form-page > .page-head p { font-size: 13px; line-height: 1.55; }
   .hr-form-request-list { gap: 10px; }
   .hr-form-request-card { gap: 11px; padding: 13px; border-radius: 14px; }
   .hr-form-request-title { align-items: flex-start; gap: 8px; }

@@ -180,6 +180,7 @@ export function Analytics() {
   return (
     <Page className="analytics-page">
       <PageHeader
+        className="flex-none mb-4 max-[760px]:mb-3 [&_h1]:tracking-[-0.02em]"
         title="營運統計"
         description="比較商品銷量、通路與出金表現；先看整體，再下鑽到單一店別、通路或商品。"
       />

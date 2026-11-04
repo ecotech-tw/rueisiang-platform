@@ -96,8 +96,6 @@
  * 自己捲——這樣篩選列與統計固定在上面，滑動時不會把它們一起帶走。
  */
 .content { padding: 32px 36px; min-width: 0; min-height: 0; height: 100%; overflow-y: auto; }
-.page-head { margin-bottom: 0; }
-.page-head h1 { margin: 0 0 4px; font-size: 24px; }
 .muted { color: var(--color-muted); margin: 0; }
 /* 頁面裡的區塊間距由 Page 負責；這裡只管不在頁面直接底下的相鄰 Panel。 */
 [data-panel] + [data-panel] { margin-top: 20px; }
@@ -122,7 +120,6 @@
 .change { display: grid; gap: 2px; }
 .change small { color: var(--color-muted); font-size: 11px; }
 .boot { padding: 48px; color: var(--color-muted); }
-.page-head-row > :last-child { flex: none; }
 /* 共用 UI layer：page 只傳入語意 props，視覺狀態集中在這裡。 */
 .login-page { min-height: 100vh; display: grid; place-items: center; padding: 24px; }
 .login-card {
@@ -207,6 +204,4 @@
    * 檢視列、搜尋、篩選，資料開始的位置被推到快 500px，等於一個螢幕只看得到
    * 一張半的卡片。
    */
-  .page-head { margin-bottom: 12px; }
-  .page-head h1 { font-size: 20px; }
 }

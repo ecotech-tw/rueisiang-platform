@@ -24,7 +24,7 @@ export { SelectionActionBar, type SelectionActionBarProps } from "./SelectionAct
 export { Pager, type PagerProps } from "./Pager.js";
 export { SortableHeader, type SortableHeaderProps } from "./SortableHeader.js";
 export { Page, PageSpacing, type PageLayout, type PageSpacingName } from "./Page.js";
-export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
+export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
 export { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";
 export { OvertimeDayPicker, type OvertimePickerDay } from "./OvertimeDayPicker.js";
