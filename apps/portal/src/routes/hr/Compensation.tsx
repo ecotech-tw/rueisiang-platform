@@ -418,7 +418,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
     : (permissions.has("hr:employee:read") && (employees.isPending || employeeTable.isPending)) || workers.isPending;
   if (pageLoading) return <HrPageSkeleton variant="table" />;
   const selectedContributionTarget = getContributionTarget(contributionTarget);
-  return <div className="page">
+  return <div className={settingsOnly ? "page" : "page fills"}>
     <PageHeader
       title={settingsOnly ? "制度設定" : "敘薪管理"}
       description={settingsOnly ? "管理公司採用的勞健保負擔規則；勞健保級距請從「勞健保管理」的級距管理進入。薪資結算只使用已保存的設定。" : "設定正式員工與排班支援人員的薪資組成與生效版本；薪資變更不覆蓋歷史，薪資結算會讀取指定月份有效的敘薪版本。"}
@@ -432,7 +432,7 @@ export function HrCompensationManagement({ settingsOnly = false }: { settingsOnl
       </Panel>
     </> : <>
       {!canWrite ? <Alert tone="info">目前帳號只有敘薪檢視權限，無法新增薪資版本。</Alert> : null}
-      <Panel>
+      <Panel className="grows">
       <EmployeeFilterBar
         search={employeeFilters.search}
         status={employeeFilters.status}
