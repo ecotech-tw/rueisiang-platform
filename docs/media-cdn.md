@@ -4,7 +4,9 @@
 
 ## 公開與私有邊界
 
-平台管理頁為 `/media/images`，API 為 `/api/media/images`。檢視、寫入、刪除分別檢查
+平台管理頁為 `/media/images`，API 為 `/api/media/images`。管理頁提供固定 160px 縮圖與列表兩種檢視，
+檢視偏好保存在本機瀏覽器。排序由 D1 在分頁前套用，支援名稱、格式、總像素、檔案大小、建立／更新時間及狀態；
+相同值以 ID 穩定排序，縮圖與列表共用搜尋、篩選與排序。檢視、寫入、刪除分別檢查
 `media:image:read`、`media:image:write`、`media:image:delete`；既有角色不自動獲得新權限，
 管理者仍經權限目錄同步取得完整授權。
 

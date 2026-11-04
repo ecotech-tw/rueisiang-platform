@@ -8,6 +8,13 @@ import { DataTable, TableSkin } from "./DataTable";
 import { FilterInput, FilterSelect, FilterToolbar, SEARCH_INPUT_WIDTH, SearchFilterInput } from "./index.js";
 
 describe("shared HRIS UI contracts", () => {
+  it("描邊分段切換保留圖示、可存取名稱與持續的選中狀態", () => {
+    const markup = renderToStaticMarkup(<SegmentedControl skin="outlined" iconOnly aria-label="圖片檢視方式" value="grid" onChange={() => {}} options={[{ value: "list", label: "列表檢視", icon: "list" }, { value: "grid", label: "縮圖檢視", icon: "grid" }]} />);
+    expect(markup).toContain('aria-label="列表檢視"'); expect(markup).toContain('aria-label="縮圖檢視"');
+    expect(markup.match(/aria-pressed="true"/g)).toHaveLength(1); expect(markup).toContain("bg-brand-soft text-brand-dark");
+    expect(markup).toContain("scale-[.25] blur-[4px]"); expect(markup).toContain("cubic-bezier(0.2,0,0,1)");
+    expect(markup).not.toContain("backdrop-filter");
+  });
   it("人員未選取時保留指定提示，不冒充第一個選項", () => {
     const markup = renderToStaticMarkup(<MemoryRouter initialEntries={["/hr/scheduling"]}><SelectField aria-label="人員" searchable value="" placeholder="請選擇人員" options={[{ value: "employee", label: "E1・小明" }]} /></MemoryRouter>);
     expect(markup).toContain('placeholder="請選擇人員"');

@@ -1,5 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { MediaCdnImage } from "@rueisiang/db/schema";
+import type { MediaImageSortField } from "@rueisiang/db/media-cdn-fields";
 
 export type MediaImage = Omit<MediaCdnImage, "objectKey"> & { url: string; previewUrl: string };
 export interface MediaImagePage { images: MediaImage[]; total: number; page: number; pageSize: number; configured: boolean; local: boolean; cdnOrigin: string }
@@ -12,8 +13,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return body;
 }
 
-export function useMediaImages(query: { search: string; type: string; page: number; deleted: boolean }, enabled: boolean) {
-  return useQuery({ queryKey: [...key, query], enabled, queryFn: () => request<MediaImagePage>(`/images?${new URLSearchParams({ ...query, page: String(query.page), deleted: String(query.deleted) })}`) });
+export function useMediaImages(query: { search: string; type: string; page: number; deleted: boolean; sort: MediaImageSortField; direction: "asc" | "desc" }, enabled: boolean) {
+  return useQuery({ queryKey: [...key, query], enabled, placeholderData: keepPreviousData, queryFn: ({ signal }) => request<MediaImagePage>(`/images?${new URLSearchParams({ ...query, page: String(query.page), deleted: String(query.deleted) })}`, { signal }) });
 }
 
 export function useMediaMutation<T>(fn: (input: T) => Promise<{ image: MediaImage }>) {

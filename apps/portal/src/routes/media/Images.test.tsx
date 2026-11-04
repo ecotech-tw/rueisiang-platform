@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MediaImages } from "./Images.js";
+import { ImageGrid, ImagePreview, ImageTable } from "./ImageViews.js";
 import type { MediaImagePage } from "./api.js";
 import { NAV_SECTIONS } from "../../shell/nav.js";
 
@@ -25,6 +26,21 @@ describe("多媒體素材庫", () => {
     const markup = renderToStaticMarkup(<MediaImages />);
     for (const text of ["圖片素材庫", "複製連結", "圖片資訊", "1200", "600", "已同步 CDN", "上傳圖片"]) expect(markup).toContain(text);
     expect(markup).toContain("/api/media/images/example/preview?revision=1"); expect(markup).toContain("outline-black/10"); expect(markup).toContain("&lt;script&gt;"); expect(markup).not.toContain("<script>");
+  });
+  it("提供縮圖與列表切換，縮圖固定 160px 且刪除提示明確限制 icon 大小", () => {
+    const markup = renderToStaticMarkup(<MediaImages />);
+    expect(markup).toContain('aria-label="圖片檢視方式"'); expect(markup).toContain('aria-label="列表檢視"'); expect(markup).toContain('aria-label="縮圖檢視"');
+    const grid = renderToStaticMarkup(<ImageGrid images={[image]} local={false} onDetails={vi.fn()} onCopy={vi.fn()} />);
+    expect(grid).toContain("block h-40 w-full"); expect(grid).not.toContain("aspect-[4/3]");
+    const deleted = renderToStaticMarkup(<ImagePreview image={{ ...image, deletedAt: "2026-01-02" }} />);
+    expect(deleted).toContain("size-5 shrink-0"); expect(deleted).toContain("圖片已刪除"); expect(deleted).not.toContain("<img");
+  });
+  it("列表沿用 DataTable 與可排序表頭，排序狀態符合 aria-sort", () => {
+    const markup = renderToStaticMarkup(<ImageTable images={[image]} local={false} sort={{ field: "size", direction: "desc" }} onSort={vi.fn()} onDetails={vi.fn()} onCopy={vi.fn()} />);
+    expect(markup).toContain('aria-label="圖片列表"'); expect(markup).toContain('aria-sort="descending"');
+    for (const label of ["圖片名稱", "格式", "尺寸", "檔案大小", "更新時間", "狀態"]) expect(markup).toContain(label);
+    expect(markup).toContain("numeric"); expect(markup).toContain("h-10 w-14"); expect(markup).toContain("複製");
+    expect(markup).toContain("table-scroll min-h-0 flex-1 overflow-auto");
   });
   it("純讀取同仁不顯示上傳入口；未授權者顯示明確提示", () => {
     mocks.permissions = new Set(["media:image:read"]); expect(renderToStaticMarkup(<MediaImages />)).not.toContain(">上傳圖片</button>");

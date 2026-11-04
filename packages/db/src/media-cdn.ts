@@ -1,5 +1,6 @@
-import { and, count, desc, eq, isNotNull, isNull, lte, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, isNotNull, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import type { MediaImageSortField } from "./media-cdn-fields.js";
 import { mediaCdnBlobs, mediaCdnImages, type MediaCdnImage } from "./schema/media-cdn.js";
 
 export interface MediaCdnFileInput {
@@ -26,7 +27,7 @@ export async function findMediaCdnImage(db: Database, id: string) {
   return image ?? null;
 }
 
-export async function listMediaCdnImages(db: Database, query: { search?: string; type?: string; page: number; deleted?: boolean }) {
+export async function listMediaCdnImages(db: Database, query: { search?: string; type?: string; page: number; deleted?: boolean; sort?: MediaImageSortField; direction?: "asc" | "desc" }) {
   const search = (query.search ?? "").trim().slice(0, 100);
   const filters = and(
     query.deleted ? undefined : isNull(mediaCdnImages.deletedAt),
@@ -34,7 +35,18 @@ export async function listMediaCdnImages(db: Database, query: { search?: string;
     search ? or(sql`instr(lower(${mediaCdnImages.name}), lower(${search})) > 0`, sql`instr(lower(${mediaCdnImages.filename}), lower(${search})) > 0`) : undefined,
   );
   const [total] = await db.select({ count: count() }).from(mediaCdnImages).where(filters);
-  const images = await db.select().from(mediaCdnImages).where(filters).orderBy(desc(mediaCdnImages.updatedAt), desc(mediaCdnImages.id)).limit(24).offset((query.page - 1) * 24);
+  const columns = {
+    name: sql`${mediaCdnImages.name} COLLATE NOCASE`,
+    contentType: mediaCdnImages.contentType,
+    pixels: sql`${mediaCdnImages.width} * ${mediaCdnImages.height}`,
+    size: mediaCdnImages.size,
+    updatedAt: mediaCdnImages.updatedAt,
+    createdAt: mediaCdnImages.createdAt,
+    status: sql`CASE WHEN ${mediaCdnImages.purgePending} = 1 THEN 1 WHEN ${mediaCdnImages.deletedAt} IS NOT NULL THEN 2 ELSE 0 END`,
+  };
+  const order = query.direction === "asc" ? asc : desc;
+  // 先排序再分頁；相同值用固定 ID 決勝，避免翻頁時重複或漏列。
+  const images = await db.select().from(mediaCdnImages).where(filters).orderBy(order(columns[query.sort ?? "updatedAt"]), desc(mediaCdnImages.id)).limit(24).offset((query.page - 1) * 24);
   return { images, total: total?.count ?? 0, page: query.page, pageSize: 24 };
 }
 

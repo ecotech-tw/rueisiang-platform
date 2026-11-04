@@ -1,5 +1,5 @@
 import { createMediaCdnImage, deleteMediaCdnImage, findMediaCdnImage, listMediaCdnImages, registerMediaCdnBlob, renameMediaCdnImage, replaceMediaCdnImage } from "@rueisiang/db";
-import { MEDIA_IMAGE_MAX_BYTES, MEDIA_IMAGE_MAX_PIXELS, MEDIA_IMAGE_MAX_SIDE, MEDIA_IMAGE_TYPES } from "@rueisiang/db/media-cdn-fields";
+import { MEDIA_IMAGE_MAX_BYTES, MEDIA_IMAGE_MAX_PIXELS, MEDIA_IMAGE_MAX_SIDE, MEDIA_IMAGE_TYPES, isMediaImageSortField } from "@rueisiang/db/media-cdn-fields";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
@@ -40,7 +40,10 @@ media.get("/images", requirePermission("media:image:read"), async (c) => {
   if (type && !MEDIA_IMAGE_TYPES.some((value) => value === type)) throw new HTTPException(400, { message: "不支援的圖片格式。" });
   const page = Number(c.req.query("page") || 1);
   if (!Number.isSafeInteger(page) || page < 1 || page > 100_000) throw new HTTPException(400, { message: "頁碼無效。" });
-  const result = await listMediaCdnImages(c.get("db"), { search: c.req.query("search"), type, page, deleted: c.req.query("deleted") === "true" });
+  const sort = c.req.query("sort") ?? "updatedAt";
+  const direction = c.req.query("direction") ?? "desc";
+  if (!isMediaImageSortField(sort) || (direction !== "asc" && direction !== "desc")) throw new HTTPException(400, { message: "不支援的圖片排序方式。" });
+  const result = await listMediaCdnImages(c.get("db"), { search: c.req.query("search"), type, page, deleted: c.req.query("deleted") === "true", sort, direction });
   let configured = false;
   try { requireMediaCdnStorage(c.env); configured = true; } catch { /* 管理頁仍可顯示設定提醒。 */ }
   const config = mediaCdnConfig(c.env);

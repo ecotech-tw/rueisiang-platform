@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, findMediaCdnImage, listUnusedMediaCdnBlobs, settleMediaCdnPurge, syncSystemRoles, type MediaCdnImage } from "@rueisiang/db";
-import { users, userRoleAssignments, userPermissionGrants } from "@rueisiang/db/schema";
+import { mediaCdnImages, users, userRoleAssignments, userPermissionGrants } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { maintainMediaCdn, serveMediaCdn } from "./media-cdn.js";
@@ -63,6 +63,39 @@ describe("公開圖片管理與 CDN", () => {
     expect((await (await request("/images?type=image/webp")).json() as { total: number }).total).toBe(0);
     const preview = await request(`/images/${image.id}/preview`, "GET", undefined, "reader"); expect(preview.status).toBe(200); expect(preview.headers.get("Cache-Control")).toBe("private, no-store");
     for (const query of ["page=0", "page=1.5", "page=Infinity", "type=image/svg+xml"]) expect((await request(`/images?${query}`)).status).toBe(400);
+  });
+  it("排序套用完整資料後才分頁，支援所有欄位與穩定的同值排序", async () => {
+    const rows = Array.from({ length: 30 }, (_, index) => ({
+      id: `sort-${String(index).padStart(2, "0")}`, name: `圖片 ${String(index).padStart(2, "0")}`, filename: `file-${index}.png`, objectKey: `test/${index}`,
+      contentType: ["image/png", "image/jpeg", "image/webp"][index % 3]!, size: (index + 1) * 1000, width: (index + 1) * 10, height: (index + 1) * 10,
+      createdBy: "admin", createdAt: new Date(Date.UTC(2026, 0, index + 1)).toISOString(), updatedAt: new Date(Date.UTC(2026, 0, 30 - index)).toISOString(), purgePending: index % 2 === 0,
+    }));
+    for (const row of rows) await db().insert(mediaCdnImages).values(row);
+    const list = async (query: string) => (await (await request(`/images?${query}`)).json()) as { images: MediaCdnImage[]; total: number };
+    const first = await list("sort=name&direction=asc"); const second = await list("sort=name&direction=asc&page=2");
+    expect(first.total).toBe(30); expect(first.images).toHaveLength(24); expect(second.images).toHaveLength(6);
+    expect(first.images[0]?.id).toBe("sort-00"); expect(second.images[0]?.id).toBe("sort-24");
+    for (const sort of ["name", "pixels", "size", "createdAt"]) {
+      expect((await list(`sort=${sort}&direction=asc`)).images[0]?.id).toBe("sort-00");
+      expect((await list(`sort=${sort}&direction=desc`)).images[0]?.id).toBe("sort-29");
+    }
+    expect((await list("sort=updatedAt&direction=asc")).images[0]?.id).toBe("sort-29");
+    expect((await list("sort=contentType&direction=asc")).images[0]?.contentType).toBe("image/jpeg");
+    expect((await list("sort=status&direction=asc")).images[0]?.purgePending).toBe(false);
+    d1.sqlite.prepare("UPDATE media_cdn_images SET deleted_at='2026-02-01' WHERE id='sort-29'").run();
+    expect((await list("sort=status&direction=desc&deleted=true")).images[0]?.id).toBe("sort-29");
+    d1.sqlite.prepare("UPDATE media_cdn_images SET deleted_at='2026-02-01' WHERE id='sort-00'").run();
+    const statusRows = (await list("sort=status&direction=desc&deleted=true")).images;
+    const pendingDeletedIndex = statusRows.findIndex((image) => image.id === "sort-00");
+    expect(pendingDeletedIndex).toBeGreaterThan(1);
+    expect(statusRows[pendingDeletedIndex]?.purgePending).toBe(true);
+    expect(statusRows.slice(1, pendingDeletedIndex).every((image) => image.purgePending)).toBe(true);
+    expect((await list("sort=size&direction=desc&type=image/webp&search=圖片")).images.every((image) => image.contentType === "image/webp" && !image.deletedAt)).toBe(true);
+    d1.sqlite.prepare("UPDATE media_cdn_images SET name='同名'").run();
+    const tiedFirst = await list("sort=name&direction=asc&deleted=true"); const tiedSecond = await list("sort=name&direction=asc&page=2&deleted=true");
+    expect(new Set([...tiedFirst.images, ...tiedSecond.images].map((image) => image.id)).size).toBe(30);
+    expect((await list("sort=name&direction=asc&deleted=true")).images.map((image) => image.id)).toEqual(tiedFirst.images.map((image) => image.id));
+    for (const query of ["sort=unknown", "sort=__proto__", "sort=name%3BDROP%20TABLE%20users", "direction=sideways"]) expect((await request(`/images?${query}`)).status).toBe(400);
   });
   it("讀、寫、刪除分別由後端授權，停權立即生效", async () => {
     const image = await upload();

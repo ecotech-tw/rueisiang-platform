@@ -1,3 +1,9 @@
+export const MEDIA_IMAGE_SORT_FIELDS = ["name", "contentType", "pixels", "size", "updatedAt", "createdAt", "status"] as const;
+export type MediaImageSortField = typeof MEDIA_IMAGE_SORT_FIELDS[number];
+export function isMediaImageSortField(value: string): value is MediaImageSortField {
+  return MEDIA_IMAGE_SORT_FIELDS.some((field) => field === value);
+}
+
 export const MEDIA_IMAGE_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export const MEDIA_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const MEDIA_IMAGE_MAX_PIXELS = 16_000_000;
