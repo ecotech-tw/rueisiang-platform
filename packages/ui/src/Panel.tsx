@@ -14,7 +14,10 @@ export function PanelSkin({ skin, children }: { skin: PanelSkinName; children: R
  * 自己拼標題列的面板（標題用一般的 h2、旁邊還有別的東西）用這兩個，
  * 標題列的間距與說明文字才會跟 Panel 的 title／description 一樣。
  */
-export const PANEL_HEAD = "flex items-start justify-between gap-4 mb-[22px]";
+// 標題列的對齊與下距；Panel 讓 headerClassName 整組取代這兩個值，自己拼的標題列直接用 PANEL_HEAD。
+const HEAD_ITEMS = "items-start";
+const HEAD_MARGIN = "mb-[22px]";
+export const PANEL_HEAD = `flex justify-between gap-4 ${HEAD_ITEMS} ${HEAD_MARGIN}`;
 export const PANEL_DESCRIPTION = "mt-1.5 mb-0 text-muted";
 /** 實心面板的表面（不含內距）。自己要接觸控事件、不能用 Panel 的區塊才直接用。 */
 export const PANEL_SURFACE = "rounded-[14px] border border-line bg-paper shadow-panel";
@@ -35,7 +38,10 @@ interface PanelProps {
   title?: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
-  /** 只放版面用途。給了 p-／px-／py- 就整組取代預設內距。 */
+  /**
+   * 只放版面用途。給了任何一個內距 utility（p-、px-、py-、pt-、pr-、pb-、pl-）就整組取代預設內距，
+   * 只想改一邊也要把四邊寫齊。帶斷點的（max-[760px]:px-3）不算，會疊在預設值上面。
+   */
   className?: string;
   /** 標題列的版面（對齊、換行、與內容的距離）。 */
   headerClassName?: string;
@@ -60,7 +66,7 @@ export function Panel({ title, description, actions, className = "", headerClass
     // data-panel 讓外層的版面規則認得出 Panel（.page.fills 的捲動、相鄰面板的間距、表格貼齊面板）。
     <section id={id} aria-label={ariaLabel} data-panel="" className={`${SURFACE[skin]} ${tone === "attention" ? "border-secondary" : BORDER[skin]} ${padding} [&>:last-child]:mb-0 ${className}`.trim()}>
       {hasHeader ? (
-        <div data-panel-head="" className={`flex justify-between gap-4 ${defaultUnless(headerClassName, "items-", "items-start")} ${defaultUnless(headerClassName, "mb-", "mb-[22px]")} ${headerClassName}`.trim()}>
+        <div data-panel-head="" className={`flex justify-between gap-4 ${defaultUnless(headerClassName, "items-", HEAD_ITEMS)} ${defaultUnless(headerClassName, "mb-", HEAD_MARGIN)} ${headerClassName}`.trim()}>
           <div>
             {title ? <h2 className={`mt-0 mx-0 ${defaultUnless(titleClassName, "mb-", "mb-0")} flex items-center ${defaultUnless(titleClassName, "gap-", "gap-2.5")} ${defaultUnless(titleClassName, "text-\\[", "text-[15px]")} ${titleClassName}`.trim()}>{title}</h2> : null}
             {description ? <p className={PANEL_DESCRIPTION}>{description}</p> : null}
