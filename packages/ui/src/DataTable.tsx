@@ -45,25 +45,30 @@ const STICKY_HEADER_SKIN: Record<TableSkinName, string> = {
   glass: "[.table-scroll>&_:where(thead_th)]:bg-paper/82 [.table-scroll>&_:where(thead_th)]:[-webkit-backdrop-filter:blur(14px)_saturate(165%)] [.table-scroll>&_:where(thead_th)]:[backdrop-filter:blur(14px)_saturate(165%)] [.table-scroll>&_:where(thead_th)]:[box-shadow:var(--shadow-glass-table-head)] [.table-scroll>&_:where(thead_th):first-child]:rounded-tl-xl [.table-scroll>&_:where(thead_th):last-child]:rounded-tr-xl [.panel>.table-scroll>&_:where(thead_th):first-child]:rounded-tl-none [.panel>.table-scroll>&_:where(thead_th):last-child]:rounded-tr-none",
 };
 
-interface DataTableProps extends Omit<TableHTMLAttributes<HTMLTableElement>, "children" | "className"> {
+interface DataTableBaseProps extends Omit<TableHTMLAttributes<HTMLTableElement>, "children" | "className"> {
   children: ReactNode;
-  /** 改格子預設值用 `[&_td]:…`；整張表的寬度、版面也放這裡。 */
-  className?: string;
-  containerClassName?: string;
   /**
-   * false：不包捲動外框，只輸出 table。用在對話框這種外層已經在捲的地方，
-   * 或外框裡還要放別的東西（手機版的全選列）時，由呼叫端自己包 `.table-scroll`。
+   * 改格子預設值寫在這裡，用 `[&_td]:…`、`[&_.某格]:…`，不要寫在單一格子上：
+   * 格子自己的 utility 跟預設值一樣重，誰贏要看產生順序。整張表的寬度、版面也放這裡。
    */
-  scroll?: boolean;
-  /** 只有這張表要跟外層 TableSkin 不一樣時才給。 */
-  skin?: TableSkinName;
+  className?: string;
 }
 
+type DataTableProps = DataTableBaseProps & (
+  | { scroll?: true; containerClassName?: string }
+  /**
+   * 不包捲動外框，只輸出 table。用在對話框這種外層已經在捲的地方，
+   * 或外框裡還要放別的東西（手機版的全選列）時，由呼叫端自己包 `.table-scroll`。
+   * 沒有外框可以套，所以不收 containerClassName。
+   */
+  | { scroll: false; containerClassName?: never }
+);
+
 /** 資料表：捲動外框、表頭、格子與數字欄的外觀；欄位與排序行為由各頁負責。 */
-export function DataTable({ children, className = "", containerClassName = "", scroll = true, skin, ...tableProps }: DataTableProps) {
-  const contextSkin = useContext(TableSkinContext);
+export function DataTable({ children, className = "", containerClassName = "", scroll = true, ...tableProps }: DataTableProps) {
+  const skin = useContext(TableSkinContext);
   const table = (
-    <table {...tableProps} className={`${defaultUnless(className, "border-separate", "border-collapse")} ${TABLE_BASE} ${STICKY_HEADER_SKIN[skin ?? contextSkin]} ${className}`.trim()}>
+    <table {...tableProps} className={`${defaultUnless(className, "border-separate", "border-collapse")} ${TABLE_BASE} ${STICKY_HEADER_SKIN[skin]} ${className}`.trim()}>
       {children}
     </table>
   );

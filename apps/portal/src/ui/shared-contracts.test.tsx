@@ -34,11 +34,9 @@ describe("shared HRIS UI contracts", () => {
     const rows = <><thead><tr><th>員工</th></tr></thead><tbody><tr><td>王小明</td></tr></tbody></>;
     const solid = head(renderToStaticMarkup(<DataTable>{rows}</DataTable>));
     const glass = head(renderToStaticMarkup(<TableSkin skin="glass"><DataTable>{rows}</DataTable></TableSkin>));
-    const override = head(renderToStaticMarkup(<TableSkin skin="glass"><DataTable skin="solid">{rows}</DataTable></TableSkin>));
     expect(solid).toContain("[.table-scroll>&_:where(thead_th)]:bg-paper");
     expect(glass).toContain("[.table-scroll>&_:where(thead_th)]:[box-shadow:var(--shadow-glass-table-head)]");
     expect(glass).not.toContain("[.table-scroll>&_:where(thead_th)]:bg-paper");
-    expect(override).toEqual(solid);
 
     const bare = renderToStaticMarkup(<DataTable scroll={false} className="border-separate">{rows}</DataTable>);
     expect(bare.startsWith("<table ")).toBe(true);
