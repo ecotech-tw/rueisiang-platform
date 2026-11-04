@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -855,22 +855,22 @@ export function ManualReports() {
   const allSalesSelected = salesRows.length > 0 && salesRows.every((row) => selectedSalesIds.has(row.id));
 
   if (!canWrite) {
-    return <div className="page"><Alert tone="warning">你沒有管理報表資料的權限。</Alert></div>;
+    return <Page><Alert tone="warning">你沒有管理報表資料的權限。</Alert></Page>;
   }
   const activeQuery = kind === "payout" ? payoutsQuery : salesQuery;
   if (optionsQuery.isPending || activeQuery.isPending) {
     return <div className="boot">載入報表管理中…</div>;
   }
   if (queryError) {
-    return <div className="page"><Alert tone="danger">{queryError.message}</Alert></div>;
+    return <Page><Alert tone="danger">{queryError.message}</Alert></Page>;
   }
 
   return (
-    <div className="page fills manual-report-page">
+    <Page layout="fills" className="manual-report-page">
       <PageHeader title="報表管理" />
 
       <Panel
-        className="manual-report-panel grows"
+        grows className="manual-report-panel"
         headerClassName="items-center [&>div:last-child]:flex-[1_1_auto] [&>div:last-child]:min-w-0 max-[620px]:items-stretch max-[620px]:flex-col max-[620px]:gap-3 max-[620px]:[&>div:last-child]:w-full"
         title={kind === "payout" ? "每日出金紀錄" : "每月商品銷售紀錄"}
         description={kind === "payout" ? "依每日出金日期查看、篩選與修訂紀錄。" : "依報表月份查看、篩選與修訂商品銷售紀錄。"}
@@ -1047,7 +1047,7 @@ export function ManualReports() {
           <ErrorMessage error={deleting.kind === "payout" ? deletePayouts.error : deleteSalesRecords.error} />
         </ConfirmDialog>
       ) : null}
-    </div>
+    </Page>
   );
 }
 
@@ -1285,7 +1285,7 @@ function PayoutTable({
 
   return (
     <div className="manual-report-table-region">
-      <div className="table-scroll">
+      <div data-table-scroll="" className={TABLE_SCROLL}>
         <MobileTableSelectAll
           allSelected={allSelected}
           someSelected={someSelected}
@@ -1396,7 +1396,7 @@ function SalesTable({
 
   return (
     <div className="manual-report-table-region">
-      <div className="table-scroll">
+      <div data-table-scroll="" className={TABLE_SCROLL}>
         <MobileTableSelectAll
           allSelected={allSelected}
           someSelected={someSelected}

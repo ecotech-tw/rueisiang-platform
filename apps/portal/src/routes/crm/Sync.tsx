@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, DataTable, Page, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 interface SyncStatus {
   configured: boolean;
@@ -151,17 +151,17 @@ export function Sync() {
   if (status.isPending) return <div className="boot">載入中…</div>;
   if (status.error) {
     return (
-      <div className="page">
+      <Page>
         <PageHeader title="CYBERBIZ 同步" />
         <Alert tone="danger">{status.error.message}</Alert>
-      </div>
+      </Page>
     );
   }
 
   const data = status.data!;
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader title="CYBERBIZ 同步" description="官網的會員異動會透過 webhook 即時進來；這一頁可以看狀態，也可以手動補拉。" />
 
       {!data.configured ? (
@@ -228,7 +228,7 @@ export function Sync() {
       </Panel>
 
       <Panel
-        className="grows"
+        grows
         title="Webhook"
         actions={<div className="flex gap-2">
             <Button
@@ -302,6 +302,6 @@ export function Sync() {
           </p>
         ) : null}
       </Panel>
-    </div>
+    </Page>
   );
 }

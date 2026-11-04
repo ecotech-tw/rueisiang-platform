@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -103,7 +103,7 @@ export function Tags() {
   const rows = tags.data?.tags ?? [];
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="標籤管理"
         description={
@@ -111,7 +111,7 @@ export function Tags() {
         }
       />
 
-      <Panel className="grows">
+      <Panel grows>
         {canWrite ? (
           <FilterToolbar
             onSubmit={(event) => {
@@ -219,6 +219,6 @@ export function Tags() {
           </p>
         ) : null}
       </Panel>
-    </div>
+    </Page>
   );
 }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterToolbar, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, FilterInput, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import { useRunShopReport, useShopReportState, useShopReportStatus } from "./api.js";
 
 function isValidMonth(value: string): boolean {
@@ -42,7 +42,7 @@ export function ShopReport() {
   const blocked = running || run.isPending || !state.data?.configured;
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="官網報表執行"
 
@@ -58,7 +58,7 @@ export function ShopReport() {
         <p className="muted table-note">上傳位置：<a className="link-external" href={state.data.driveFolderUrl} target="_blank" rel="noopener noreferrer">{state.data.driveFolderName || "Google Drive 資料夾"}</a></p>
       ) : null}
 
-      <Panel className="grows">
+      <Panel grows>
         <FilterToolbar>
           <span className="inline-label">報表月份</span>
           <FilterInput
@@ -99,6 +99,6 @@ export function ShopReport() {
         />
       ) : null}
 
-    </div>
+    </Page>
   );
 }

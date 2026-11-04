@@ -6,6 +6,7 @@ export { EmptyState } from "./EmptyState.js";
 export { FilterToolbar } from "./FilterToolbar.js";
 export { Field, FieldHint, Input, InputSkin, SelectField, Textarea, TextField } from "./Field.js";
 export { Alert, StatusBadge } from "./Feedback.js";
+export { Page, PageSpacing, type PageLayout, type PageSpacingName } from "@rueisiang/ui";
 export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
 export { SegmentedControl } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";

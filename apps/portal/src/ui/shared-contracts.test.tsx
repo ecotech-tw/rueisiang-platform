@@ -22,7 +22,7 @@ describe("shared HRIS UI contracts", () => {
       </DataTable>,
     );
 
-    expect(markup).toContain('class="table-scroll mobile-table"');
+    expect(markup.startsWith('<div data-table-scroll="" class="overflow-x-auto max-[760px]:overflow-x-visible mobile-table">')).toBe(true);
     const tableClasses = (markup.match(/<table class="([^"]*)"/)?.[1] ?? "").split(/\s+/);
     expect(tableClasses).toEqual(expect.arrayContaining(["border-collapse", "payroll-table"]));
     expect(markup).toContain("<thead>");
@@ -34,9 +34,9 @@ describe("shared HRIS UI contracts", () => {
     const rows = <><thead><tr><th>員工</th></tr></thead><tbody><tr><td>王小明</td></tr></tbody></>;
     const solid = head(renderToStaticMarkup(<DataTable>{rows}</DataTable>));
     const glass = head(renderToStaticMarkup(<TableSkin skin="glass"><DataTable>{rows}</DataTable></TableSkin>));
-    expect(solid).toContain("[.table-scroll>&_:where(thead_th)]:bg-paper");
-    expect(glass).toContain("[.table-scroll>&_:where(thead_th)]:[box-shadow:var(--shadow-glass-table-head)]");
-    expect(glass).not.toContain("[.table-scroll>&_:where(thead_th)]:bg-paper");
+    expect(solid).toContain("[[data-table-scroll]>&_:where(thead_th)]:bg-paper");
+    expect(glass).toContain("[[data-table-scroll]>&_:where(thead_th)]:[box-shadow:var(--shadow-glass-table-head)]");
+    expect(glass).not.toContain("[[data-table-scroll]>&_:where(thead_th)]:bg-paper");
 
     const bare = renderToStaticMarkup(<DataTable scroll={false} className="border-separate">{rows}</DataTable>);
     expect(bare.startsWith("<table ")).toBe(true);

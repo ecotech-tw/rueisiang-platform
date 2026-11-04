@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon, type IconName } from "../../shell/icons.js";
-import { Alert, EmptyState, PageHeader, StatusBadge } from "../../ui/index.js";
+import { Alert, EmptyState, Page, PageHeader, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type HrOverview } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -26,7 +26,7 @@ export function HrOverview() {
 
   if (!canViewOverview) return <Alert tone="danger">你沒有檢視 HRIS 概覽的權限。</Alert>;
   if (overview.isPending) return <HrPageSkeleton variant="dashboard" />;
-  if (overview.error || !overview.data) return <div className="page"><Alert tone="danger">{overview.error?.message ?? "概覽資料載入失敗。"}</Alert></div>;
+  if (overview.error || !overview.data) return <Page><Alert tone="danger">{overview.error?.message ?? "概覽資料載入失敗。"}</Alert></Page>;
 
   const data = overview.data;
   const cards: Array<{ title: string; value: string; description: string; action: string; to: string; icon: IconName; tone: "warning" | "success" | "info" }> = [];
@@ -43,7 +43,7 @@ export function HrOverview() {
     title: "本月薪資", value: PAYROLL_STATUS[data.payroll.status], description: data.payroll.status === "not_started" ? `目前月份 ${periodLabel(data.periodKey)} 尚未建立試算批次` : `最新批次完成 ${data.payroll.completedCount}／${data.payroll.expectedCount} 筆`, action: data.payroll.status === "not_started" ? "開始試算" : "查看薪資結算", to: "/hr/payroll-settlement", icon: "report", tone: data.payroll.status === "failed" ? "warning" : data.payroll.status === "closed" ? "success" : "info",
   });
 
-  return <div className="page hr-overview-page">
+  return <Page className="hr-overview-page">
     <PageHeader title="HRIS 儀表板" description={`只顯示目前月份 ${periodLabel(data.periodKey)} 的待辦數量與處理入口，不在儀表板展開薪資或投保明細。`} />
     {overview.isFetching ? <p className="form-hint">更新中…</p> : null}
     <section>
@@ -55,5 +55,5 @@ export function HrOverview() {
       </Link>)}</div>
       {!cards.length ? <EmptyState className="mt-[18px]">目前帳號沒有可顯示的 HRIS 待辦。</EmptyState> : null}
     </section>
-  </div>;
+  </Page>;
 }

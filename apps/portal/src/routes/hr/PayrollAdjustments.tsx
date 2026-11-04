@@ -4,7 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Chip, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, EmptyState, FilterInput, FilterToolbar, Page, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrPersonnelRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -172,10 +172,10 @@ export function HrPayrollAdjustments() {
     });
   }
 
-  return <div className="page fills hr-payroll-page hr-payroll-adjustments-page">
+  return <Page layout="fills" className="hr-payroll-page hr-payroll-adjustments-page">
     <PageHeader title="薪資加扣項" description="登記指定薪資月份的補發與扣款，於試算時自動帶入。" actions={canCalculate ? <Button icon="plus" tone="success" mobileIconOnly onClick={openCreate}>新增薪資加扣項</Button> : null} />
     {!canCalculate ? <Alert tone="info">目前只有薪資檢視權限；新增、編輯與刪除需要「執行薪資試算」權限。</Alert> : null}
-    <Panel className="grows hr-payroll-adjustments-panel">
+    <Panel grows className="hr-payroll-adjustments-panel">
       <FilterToolbar>
         <FilterInput label="生效薪資月份" type="month" value={effectivePeriodKey} onChange={(event) => setEffectivePeriodKey(event.target.value)} />
       </FilterToolbar>
@@ -201,5 +201,5 @@ export function HrPayrollAdjustments() {
       <p>已建立的薪資試算會保留當時保存的明細快照，不會因刪除而改寫；已結帳月份不可刪除。</p>
       {remove.error ? <Alert tone="danger">刪除失敗：{remove.error.message}</Alert> : null}
     </ConfirmDialog> : null}
-  </div>;
+  </Page>;
 }

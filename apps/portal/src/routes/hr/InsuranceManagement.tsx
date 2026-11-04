@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, EmptyState, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, Page, PageHeader, Panel } from "../../ui/index.js";
 import { isHrFormalEmployee, useHrQuery, type Employee, type Employment, type InsuranceVersion, type Profile, type HrFormalEmployee } from "./api.js";
 import { InsuranceEditor } from "./InsuranceEditor.js";
 import { InsuranceRateManagementDialog } from "./InsuranceRateManagementDialog.js";
@@ -91,9 +91,9 @@ export function HrInsuranceManagement() {
   const [rateManagementOpen, setRateManagementOpen] = useState(false);
   if (!canRead) return <Alert tone="danger">勞健保明細僅限全平台 HR 管理者查看。</Alert>;
   if (employeeTable.isPending) return <HrPageSkeleton variant="table" />;
-  return <div className="page fills">
+  return <Page layout="fills">
     <PageHeader title="勞健保管理" description="在本頁查看全體員工投保狀態，並一次建立勞保與健保的加退保、級距與眷屬版本；歷史版本不可直接覆寫，誤登時可依序撤回最新版本。" actions={canWrite ? <Button icon="tune" onClick={() => setRateManagementOpen(true)}>級距管理</Button> : null} />
-    <Panel className="grows">
+    <Panel grows>
       <EmployeeFilterBar
         search={employeeFilters.search}
         status={employeeFilters.status}
@@ -112,5 +112,5 @@ export function HrInsuranceManagement() {
     </Panel>
     {editing ? <InsuranceEditor employment={editing.employment} existing={editing.existing} insuranceVersions={editing.insuranceVersions} defaultSalary={editing.defaultSalary} defaultDependentCount={editing.dependentCount} onClose={() => setEditing(null)} /> : null}
     {rateManagementOpen ? <InsuranceRateManagementDialog year={Number(year)} onClose={() => setRateManagementOpen(false)} /> : null}
-  </div>;
+  </Page>;
 }

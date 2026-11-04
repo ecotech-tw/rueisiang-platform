@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrLeaveType } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -64,7 +64,7 @@ export function HrLeaveTypes() {
   if (!canRead) return <Alert tone="danger">假別管理僅限全平台 HR 管理者查看。</Alert>;
   if (leaveTypes.isPending) return <HrPageSkeleton variant="table" />;
 
-  return <div className="page fills hr-leave-types-page">
+  return <Page layout="fills" className="hr-leave-types-page">
     <PageHeader
       title="假別管理"
       description="管理請假申請與月度假勤登記共用的假別主檔；停用假別會保留歷史資料，不再出現在新的申請與登記中。"
@@ -72,7 +72,7 @@ export function HrLeaveTypes() {
     />
     <Alert tone="info">請假申請在「申請與審核」處理；特休假別會扣除週年制額度，其他假別維持獨立規則。個別申請仍可保存當次核定比例。</Alert>
     {leaveTypes.error || toggle.error ? <Alert tone="danger">{leaveTypes.error?.message ?? toggle.error?.message}</Alert> : null}
-    <Panel className="grows" title="假別主檔" description="停用取代刪除，避免破壞既有月度假勤與申請紀錄。">
+    <Panel grows title="假別主檔" description="停用取代刪除，避免破壞既有月度假勤與申請紀錄。">
       <DataTable><thead><tr><th>假別</th><th>額度規則</th><th>預設給薪比例</th><th>狀態</th><th>最近更新</th><th>操作</th></tr></thead><tbody>
         {rows.map((leaveType) => <tr key={leaveType.id}>
           <td data-label="假別"><strong>{leaveType.name}</strong></td>
@@ -87,5 +87,5 @@ export function HrLeaveTypes() {
     </Panel>
     {editor === "new" ? <LeaveTypeDialog onClose={() => { setEditor(null); void leaveTypes.refetch(); }} /> : null}
     {editor && editor !== "new" ? <LeaveTypeDialog leaveType={editor} onClose={() => { setEditor(null); void leaveTypes.refetch(); }} /> : null}
-  </div>;
+  </Page>;
 }

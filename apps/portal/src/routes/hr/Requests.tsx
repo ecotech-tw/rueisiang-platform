@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, Input, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectionActionBar, SelectField, StatusBadge, Textarea, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, Textarea, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
@@ -593,11 +593,11 @@ export function HrRequestCenter() {
     void requests.refetch();
   }
 
-  return <div className="page fills hr-request-page">
+  return <Page layout="fills" className="hr-request-page">
     <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" tone="success" mobileIconOnly onClick={() => setCreateOpen(true)}>新增申請</Button>} />
     <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登（含沒有平台帳號的支援人員）會保存「已核准」狀態；正式員工前台申請則由主管或 HR 進行審核。</Alert>
     {employees.error || leaveTypes.error || workers.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message ?? workers.error?.message}</Alert> : null}
-    <Panel className="grows hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登（正式員工與支援人員）及正式員工前台產生的申請；待審核資料可直接在此處理。">
+    <Panel grows className="hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登（正式員工與支援人員）及正式員工前台產生的申請；待審核資料可直接在此處理。">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <FilterToolbar>
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
@@ -641,5 +641,5 @@ export function HrRequestCenter() {
       <p>選取的都是已核准加班。取消後會從申請紀錄刪除，不再納入薪資計算；HR 稽核紀錄會保留每筆申請的完整快照。</p>
       {cancelOvertime.error ? <Alert tone="danger">{cancelOvertime.error.message}</Alert> : null}
     </ConfirmDialog> : null}
-  </div>;
+  </Page>;
 }

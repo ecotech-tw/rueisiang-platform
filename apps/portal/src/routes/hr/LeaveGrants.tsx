@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useHrQuery, useHrWrite, type HrLeaveGrantEmployee, type HrLeaveGrantResponse, type HrLeaveGrantRow, type HrLeaveType } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -107,7 +107,7 @@ export function HrLeaveGrants() {
   if (!canRead) return <Alert tone="danger">額度發放僅限全平台 HR 管理者查看。</Alert>;
   if (grants.isPending || employees.isPending || leaveTypes.isPending) return <HrPageSkeleton variant="table" />;
 
-  return <div className="page fills hr-leave-grants-page">
+  return <Page layout="fills" className="hr-leave-grants-page">
     <PageHeader
       title="額度發放"
       description="依假別、有效期間與員工建立可追溯的額度批次；員工申請時會先使用最早到期的額度。"
@@ -116,7 +116,7 @@ export function HrLeaveGrants() {
     {grants.error || employees.error || leaveTypes.error || revoke.error ? <Alert tone="danger">{grants.error?.message ?? employees.error?.message ?? leaveTypes.error?.message ?? revoke.error?.message}</Alert> : null}
     {!issueTypes.length ? <Alert tone="warning">尚無啟用中的額度發放假別；請先至「假別管理」新增或啟用一個額度發放假別。</Alert> : null}
     {!employees.data?.employees.length ? <Alert tone="warning">目前沒有可發放額度的在職員工。</Alert> : null}
-    <Panel className="grows" title="發放紀錄">
+    <Panel grows title="發放紀錄">
       <FilterToolbar>
         <SearchFilterInput label="搜尋發放紀錄" placeholder="員工姓名、編號、假別或備註" value={filters.search} onSearch={(search) => updateFilters({ search })} />
         <FilterSelect label="額度假別" value={filters.leaveTypeId} options={[{ value: "all", label: "全部額度假別" }, ...grantLeaveTypes.map((type) => ({ value: type.id, label: type.name }))]} onChange={(event) => updateFilters({ leaveTypeId: event.target.value })} />
@@ -150,5 +150,5 @@ export function HrLeaveGrants() {
     >
       將撤銷 {revoking.employeeName}「{revoking.leaveType}」尚未使用的 {hoursLabel(revoking.balanceMinutes)}。已核准請假紀錄不會取消，已扣除的時數不會回復。
     </ConfirmDialog> : null}
-  </div>;
+  </Page>;
 }

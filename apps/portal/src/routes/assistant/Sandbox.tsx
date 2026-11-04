@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, PageHeader, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, Page, PageHeader, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -132,7 +132,7 @@ export function Sandbox() {
   }, [sessionId, session.data?.session?.messages.length, run.isPending, pendingSessionId, failedRun?.runId]);
 
   if (config.isPending) return <div className="boot">載入中…</div>;
-  if (config.error) return <div className="page"><Alert tone="danger">{config.error.message}</Alert></div>;
+  if (config.error) return <Page><Alert tone="danger">{config.error.message}</Alert></Page>;
 
   const data = config.data;
   if (!data) return null;
@@ -258,7 +258,7 @@ export function Sandbox() {
   }
 
   return (
-    <div className="page assistant-sandbox-page">
+    <Page className="assistant-sandbox-page">
       <PageHeader
         title="小香助理 Sandbox"
         description="在接上 LINE 前，先用同一套 prompt、模型與工具執行流程測試回答品質。"
@@ -638,6 +638,6 @@ export function Sandbox() {
         </Dialog>
       ) : null}
 
-    </div>
+    </Page>
   );
 }

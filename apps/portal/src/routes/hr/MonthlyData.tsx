@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, EmptyState, Field, FilterToolbar, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, Field, FilterToolbar, Page, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type Profile } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -57,7 +57,7 @@ export function HrMonthlyData() {
     write.mutate({ path: mode === "leave" ? "/payroll/monthly-data/leave" : "/payroll/monthly-data/hourly", method: "POST", values }, { onSuccess: () => { setNote(""); void data.refetch(); }, onError: (cause) => setError(cause.message) });
   }
 
-  return <div className="page fills">
+  return <Page layout="fills">
     <PageHeader title="月度資料登記" description="薪資結算前集中登記時薪工時與假勤扣款；這裡不提供請假申請或主管簽核流程。" actions={<Button variant="secondary" onClick={() => { window.location.href = "/hr/payroll-settlement"; }}>返回薪資結算</Button>} />
     <Alert tone="info">假勤扣款由 HR 依當月人工核定結果輸入，保存單位為整數元；時薪工時以 0.5 小時為單位。</Alert>
     {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -70,11 +70,11 @@ export function HrMonthlyData() {
         {canWrite ? <Button type="submit" size="lg" icon="plus" tone="success" loading={write.isPending} disabled={!selectedEmployment}>新增登記</Button> : null}
       </form>
     </Panel>
-    <Panel className="grows" title={mode === "leave" ? "本月假勤紀錄" : "本月時薪工時"}>
+    <Panel grows title={mode === "leave" ? "本月假勤紀錄" : "本月時薪工時"}>
       {data.error ? <Alert tone="danger">{data.error.message}</Alert> : null}
       <DataTable><thead>{mode === "leave" ? <tr><th>日期</th><th>員工任職</th><th>假別</th><th>時數</th><th>給薪比例</th><th className="numeric">扣款</th><th>備註</th></tr> : <tr><th>日期</th><th>員工任職</th><th>工時</th><th>狀態</th><th>備註</th></tr>}</thead><tbody>{mode === "leave" ? (data.data?.leaves ?? []).map((entry) => <tr key={entry.id}><td data-label="日期">{entry.leaveDate}</td><td data-label="員工任職">{entry.employeeName}（{entry.employeeNumber}）</td><td data-label="假別">{entry.leaveTypeName}</td><td data-label="時數">{entry.hours.toFixed(1)} 小時</td><td data-label="給薪比例">{(entry.payRatePpm / 10_000).toFixed(2)}%</td><td data-label="扣款" className="numeric">{deductionYuan(entry.deductionAmount)}</td><td data-label="備註">{entry.note || "—"}</td></tr>) : (data.data?.hourly ?? []).map((entry) => <tr key={entry.id}><td data-label="日期">{entry.workDate}</td><td data-label="員工任職">{entry.employeeName}（{entry.employeeNumber}）</td><td data-label="工時">{entry.noWork ? "—" : `${entry.hours.toFixed(1)} 小時`}</td><td data-label="狀態">{entry.noWork ? "本期無工時" : "已登記"}</td><td data-label="備註">{entry.note || "—"}</td></tr>)}</tbody></DataTable>
       {mode === "leave" && !data.data?.leaves.length ? <EmptyState className="mt-[18px]">本月尚未登記假勤。</EmptyState> : null}
       {mode === "hourly" && !data.data?.hourly.length ? <EmptyState className="mt-[18px]">本月尚未登記時薪工時。</EmptyState> : null}
     </Panel>
-  </div>;
+  </Page>;
 }

@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, DataTable, Page, PageHeader, Panel } from "../../ui/index.js";
 import { useHrQuery, type HrAnnualLeaveBracket, type HrAnnualLeavePolicy } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -17,7 +17,7 @@ export function HrAnnualLeaveSettings() {
 
   const current = policy.data?.policy;
   const brackets = policy.data?.brackets ?? [];
-  return <div className="page hr-annual-settings-page">
+  return <Page className="hr-annual-settings-page">
     <PageHeader
       title="特休政策"
       description="公司共用的週年制規則與年資級距；只有月薪制員工會自動取得特休，員工目前可用額度請回到「特休額度」查看。"
@@ -42,5 +42,5 @@ export function HrAnnualLeaveSettings() {
         <div className="hr-annual-principles"><div><strong>月薪制才取得</strong><span>沒有有效月薪敘薪版本不建立額度；日薪轉月薪時從月薪生效日自動開始。</span></div><div><strong>核准才扣額度</strong><span>待審與駁回申請不會扣除；取消已核准申請會留下反向紀錄。</span></div><div><strong>不可跨期挪用</strong><span>每個週期獨立使用，跨週年申請必須拆成不同申請。</span></div></div>
       </Panel>
     </> : null}
-  </div>;
+  </Page>;
 }

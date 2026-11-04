@@ -1,6 +1,6 @@
 export { Button, ButtonLink, ButtonSkin } from "./Button.js";
 export { Chip, ChipGroup } from "./Chip.js";
-export { DataTable, TableSkin, type TableSkinName } from "./DataTable.js";
+export { DataTable, TABLE_SCROLL, TableSkin, type TableSkinName } from "./DataTable.js";
 export { Dialog, DialogScope, useDialogScope } from "./Dialog.js";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog.js";
 export {
@@ -23,6 +23,7 @@ export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterIn
 export { SelectionActionBar, type SelectionActionBarProps } from "./SelectionActionBar.js";
 export { Pager, type PagerProps } from "./Pager.js";
 export { SortableHeader, type SortableHeaderProps } from "./SortableHeader.js";
+export { Page, PageSpacing, type PageLayout, type PageSpacingName } from "./Page.js";
 export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
 export { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";

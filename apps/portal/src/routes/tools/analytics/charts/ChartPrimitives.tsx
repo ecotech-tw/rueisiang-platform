@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { Button, Dialog, Tooltip } from "../../../../ui/index.js";
+import { Button, Dialog, TABLE_SCROLL, Tooltip } from "../../../../ui/index.js";
 
 export interface ChartTooltipEntry {
   name?: string;
@@ -118,7 +118,7 @@ export function AnalyticsDataDialog({ title, description, children, disabled = f
           width={760}
           onClose={() => setOpen(false)}
         >
-          <div className="table-scroll analytics-data-dialog-table">{children}</div>
+          <div data-table-scroll="" className={`${TABLE_SCROLL} analytics-data-dialog-table`}>{children}</div>
         </Dialog>
       ) : null}
     </>

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, EmptyState, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, EmptyState, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type AnnualLeavePeriod, type AnnualLeaveResponse, type LeaveMonth, type LeaveMonthsResponse } from "./api.js";
 import { dateBefore, dateLabel, formatHours } from "./format.js";
 import { HrBackBar } from "./HrBackBar.js";
@@ -46,7 +46,7 @@ export function HrLeaveSummary() {
   const months = loadingMonths ? [] : leave.data?.months ?? [];
   const selectYear = (next: number) => setSelectedYear(next === range?.currentYear ? null : next);
 
-  return <div className="page hr-payroll-history-page hr-payslip-page">
+  return <Page className="hr-payroll-history-page hr-payslip-page [&>.page-head]:mt-2">
     <HrBackBar label="返回個人中心" onBack={() => navigate("/profile")} />
     <PageHeader title="我的假勤" description="可用特休與已核准的請假時數。" />
 
@@ -68,5 +68,5 @@ export function HrLeaveSummary() {
       {months.length ? <div className="hr-profile-card-list">{months.map((month) => <MonthCard key={month.month} month={month} />)}</div> : null}
       {!loadingMonths && !leave.error && !months.length ? <EmptyState size="compact">{year} 年沒有已核准的請假。</EmptyState> : null}
     </Panel>
-  </div>;
+  </Page>;
 }

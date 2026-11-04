@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, Field, FieldHint, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, Field, FieldHint, Page, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, isDefaultHrCalendarSpecialName, type HrCalendarDay, type HrCalendarResponse, type HrCalendarSpecialKind, type HrDayType, type ScheduleScope } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
@@ -197,12 +197,12 @@ export function HrCalendar() {
 
   if (!canRead) return <Alert tone="danger">你沒有檢視行事曆的權限。</Alert>;
   if (calendar.isPending) return <HrPageSkeleton variant="table" />;
-  if (calendar.error) return <div className="page"><Alert tone="danger">{calendar.error.message}</Alert></div>;
+  if (calendar.error) return <Page><Alert tone="danger">{calendar.error.message}</Alert></Page>;
 
   const holidays = days.filter((day) => day.dayType === "holiday").length;
   const makeups = days.filter((day) => day.dayType === "weekday" && isWeekendDate(day.date)).length;
   const typhoonStops = days.filter((day) => day.dayType === "weekday" && day.specialKind === "typhoon_stop").length;
-  return <div className="page fills">
+  return <Page layout="fills">
     <PageHeader
       title="行事曆"
       description="設定國定假日、補班日與災防停班。災防停班只適用平日，不刪除原排班，薪資結算會依原排班保留給薪紀錄；其他未登記日子照星期幾計算。"
@@ -213,7 +213,7 @@ export function HrCalendar() {
         <Button tone="info" loading={save.isPending} disabled={!changed || loading} onClick={() => { void submit(); }}>儲存</Button>
       </div> : undefined}
     />
-    <Panel className="grows">
+    <Panel grows>
       <div className="hr-calendar-year-bar">
         <div className="hr-schedule-month">
           {/* 換年份跟換月份一樣要先問：草稿會被新資料洗掉，而切換鈕就在清單正上方。 */}
@@ -272,5 +272,5 @@ export function HrCalendar() {
     </Panel>
     {adding ? <AddDayDialog year={year} existing={days} scopes={calendar.data?.scopes ?? []} onAdd={(day) => setDraft(sortByDate([...days, day]))} onClose={() => setAdding(false)} /> : null}
     {importing ? <ImportDialog year={year} currentCount={saved.length} onClose={() => setImporting(false)} onDone={() => calendar.refetch()} /> : null}
-  </div>;
+  </Page>;
 }

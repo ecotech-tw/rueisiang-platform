@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Pager } from "../../../shell/Pager.js";
 import { SortableHeader } from "../../../shell/SortableHeader.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
-import { Alert, DataTable, FilterSelect, FilterToolbar, Panel, SearchFilterInput } from "../../../ui/index.js";
+import { Alert, DataTable, FilterSelect, FilterToolbar, Page, Panel, SearchFilterInput } from "../../../ui/index.js";
 import { useReportRuns, type ReportRunKind, type ReportRunListRow } from "../api.js";
 import { useReportTabs } from "./ReportsLayout.js";
 
@@ -87,8 +87,8 @@ export function RunLog() {
   }
 
   return (
-    <div className="page fills">
-      <Panel className="grows">
+    <Page layout="fills">
+      <Panel grows>
       <FilterToolbar>
         <SearchFilterInput
           label="搜尋"
@@ -148,6 +148,6 @@ export function RunLog() {
         onPageSize={(size) => { setPageSize(size); setPage(1); }}
       />
       </Panel>
-    </div>
+    </Page>
   );
 }

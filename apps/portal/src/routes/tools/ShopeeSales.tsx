@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Field, Input, PageHeader, Panel, TextField, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, Field, Input, Page, PageHeader, Panel, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import { useRunShopeeSales, useShopeeSalesState, useShopeeSalesStatus } from "./api.js";
 
 export function ShopeeSales() {
@@ -20,7 +20,7 @@ export function ShopeeSales() {
   const blocked = running || run.isPending || !file || !password || !state.data?.settings.driveFolderUrl || !state.data.configured;
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader title="蝦皮銷售報表" />
 
       {!state.data?.configured ? <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，現在無法處理報表。</Alert> : null}
@@ -50,6 +50,6 @@ export function ShopeeSales() {
           steps={status.data?.steps ?? []}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

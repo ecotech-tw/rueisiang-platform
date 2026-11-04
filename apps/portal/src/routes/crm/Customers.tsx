@@ -14,7 +14,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 const SYNC_TONE: Record<string, StatusTone> = {
   synced: "success",
@@ -158,7 +158,7 @@ export function Customers() {
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="客戶列表"
         description="查看、搜尋 CYBERBIZ 與人工建立的客戶資料。"
@@ -176,7 +176,7 @@ export function Customers() {
       />
 
 
-      <Panel className="grows">
+      <Panel grows>
         <SavedViewBar filters={filters} onApply={applyView} canManage={permissions.has("crm:view:write")} />
 
         <FilterToolbar>
@@ -308,6 +308,6 @@ export function Customers() {
           onClose={() => setEditing(null)}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }

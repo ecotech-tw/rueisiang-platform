@@ -79,7 +79,7 @@ export function Tooltip({ label, children, className = "", focusable = true, blo
 
   /*
    * 座標是進場時算的，捲動之後就跟錨點脫節了；而且指標還停在同一個元素上，
-   * 不會觸發 mouseleave。長列表是表格自己捲（.page.fills），所以要用 capture
+   * 不會觸發 mouseleave。長列表是表格自己捲（fills 頁面），所以要用 capture
    * 才聽得到內層容器的捲動。
    */
   useEffect(() => {

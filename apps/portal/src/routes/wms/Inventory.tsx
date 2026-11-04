@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, Tooltip } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -286,7 +286,7 @@ export function Inventory() {
   }
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="品項庫存"
         description={
@@ -319,7 +319,7 @@ export function Inventory() {
         ) : null}
       />
 
-      <Panel className="grows">
+      <Panel grows>
         <FilterToolbar>
           <FilterInput
             label="搜尋"
@@ -482,6 +482,6 @@ export function Inventory() {
           </p>
         </ConfirmDialog>
       ) : null}
-    </div>
+    </Page>
   );
 }

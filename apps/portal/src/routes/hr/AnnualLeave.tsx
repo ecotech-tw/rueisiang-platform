@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SegmentedControl, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, SegmentedControl, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrAnnualLeaveEntitlement, type HrAnnualLeaveEntitlementDetail, type HrAnnualLeaveLedgerEntry, type HrAnnualLeaveResponse } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -196,17 +196,17 @@ export function HrAnnualLeave() {
   if (!canRead) return <Alert tone="danger">特休額度僅限全平台 HR 管理者查看。</Alert>;
   if (entitlements.isPending) return <HrPageSkeleton variant="table" />;
 
-  return <div className="page fills hr-annual-leave-page">
+  return <Page layout="fills" className="hr-annual-leave-page">
     <PageHeader
       title="特休額度"
       description="查看已取得特休週期的可用額度與到期日；點選查看明細，可追溯政策級距、發放時間與每筆台帳。"
       actions={<div className="hr-annual-header-actions"><Button variant="secondary" icon="tune" tone="info" onClick={() => navigate("/hr/annual-leave/settings")}>特休政策</Button>{canWrite ? <Button icon="sync" tone="success" mobileIconOnly loading={backfill.isPending} onClick={() => backfill.mutate({ path: "/annual-leave/backfill", method: "POST", values: {} }, { onSuccess: () => { void entitlements.refetch(); } })}>回溯／補建額度</Button> : null}</div>}
     />
     {entitlements.error || backfill.error ? <Alert tone="danger">{entitlements.error?.message ?? backfill.error?.message}</Alert> : null}
-    <Panel className="grows hr-annual-list-panel" headerClassName="items-center max-[620px]:items-stretch max-[620px]:flex-col max-[620px]:gap-3" title={showHistory ? "全部額度週期" : "員工目前額度"} description={showHistory ? "包含歷史週期；人工修正與核准使用都保留在各期台帳。" : "每位員工只顯示目前適用的週期；到期日為該週期結束日前一天。"} actions={<SegmentedControl className="hr-annual-view-tabs" aria-label="額度顯示範圍" value={showHistory ? "all" : "current"} options={[{ value: "current", label: "目前週期" }, { value: "all", label: "全部週期" }]} onChange={(value) => setShowHistory(value === "all")} />}>
+    <Panel grows className="hr-annual-list-panel" headerClassName="items-center max-[620px]:items-stretch max-[620px]:flex-col max-[620px]:gap-3" title={showHistory ? "全部額度週期" : "員工目前額度"} description={showHistory ? "包含歷史週期；人工修正與核准使用都保留在各期台帳。" : "每位員工只顯示目前適用的週期；到期日為該週期結束日前一天。"} actions={<SegmentedControl className="hr-annual-view-tabs" aria-label="額度顯示範圍" value={showHistory ? "all" : "current"} options={[{ value: "current", label: "目前週期" }, { value: "all", label: "全部週期" }]} onChange={(value) => setShowHistory(value === "all")} />}>
       <EntitlementTable rows={visibleRows} canWrite={canWrite} onAdjust={setAdjustment} onDetail={setDetail} />
     </Panel>
     {adjustment ? <EntitlementAdjustmentDialog row={adjustment} onClose={() => { setAdjustment(null); void entitlements.refetch(); }} /> : null}
     {detail ? <EntitlementDetailDialog row={detail} onClose={() => setDetail(null)} /> : null}
-  </div>;
+  </Page>;
 }

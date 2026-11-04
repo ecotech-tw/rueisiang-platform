@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrNotification, type HrNotificationsResponse } from "./api.js";
 import { notificationTarget } from "./notification-link.js";
 
@@ -28,7 +28,7 @@ export function HrNotifications() {
     navigate(notificationTarget(notification));
   }
 
-  return <div className="page hr-notifications-page">
+  return <Page className="hr-notifications-page">
     <PageHeader title="通知" description="申請送出、審核結果與取消異動會在這裡保留。" actions={query.data?.unreadCount ? <Button variant="secondary" disabled={write.isPending} onClick={() => write.mutate({ path: "/me/notifications/read-all", method: "POST", values: {} })}>全部標為已讀</Button> : null} />
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     <Panel className="hr-notification-panel">
@@ -37,5 +37,5 @@ export function HrNotifications() {
         <span className="hr-notification-copy"><span className="hr-notification-title"><strong>{notification.title}</strong>{notification.readAt ? <StatusBadge tone="neutral">已讀</StatusBadge> : <StatusBadge tone={notificationTone(notification)}>未讀</StatusBadge>}</span><span>{notification.body}</span><small>{formatTaipei(notification.createdAt)}</small></span>
       </button>)}</div> : <div className="hr-form-empty-state"><strong>目前沒有通知</strong><p className="muted">新的申請處理結果會顯示在這裡。</p></div>}
     </Panel>
-  </div>;
+  </Page>;
 }

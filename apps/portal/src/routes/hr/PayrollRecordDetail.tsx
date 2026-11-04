@@ -5,7 +5,7 @@ import { Icon } from "../../shell/icons.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { downloadPayslipImage } from "./exportPayslip.js";
 import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail, type PayrollScheduleAllocationDetail, type PayrollWorker } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -459,7 +459,7 @@ export function HrPayrollRecordDetail() {
     }
   }
 
-  return <div className="page hr-payroll-page hr-payroll-detail-page">
+  return <Page className="hr-payroll-page hr-payroll-detail-page">
     <PageHeader title={detail.record.personName} description={`${periodLabel(detail.record.periodKey)}・${PERSON_KIND_LABEL[detail.record.personKind]}・${payBasisOf(detail)}`} actions={<div className="hr-payroll-detail-page-actions"><Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/hr/payroll-settlement")}>返回發放紀錄</Button></div>} />
     <Panel className="hr-payroll-record-detail-panel" title="發放明細" description={`${detail.record.payDate ? `發薪日 ${detail.record.payDate}` : "未設定發薪日"}・試算版本 v${detail.record.versionNumber}`}>
       <div className="hr-payroll-detail-head">
@@ -515,5 +515,5 @@ export function HrPayrollRecordDetail() {
       {detail.run.withdrawal ? <p><strong>這批曾確定發放後撤回。</strong>刪除後原始薪資快照不會保留，撤回原因只留在操作紀錄。</p> : null}
       {deleteRun.error ? <Alert tone="danger">{deleteRun.error.message}</Alert> : null}
     </ConfirmDialog> : null}
-  </div>;
+  </Page>;
 }

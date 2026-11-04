@@ -1,6 +1,12 @@
 import { createContext, useContext, type ReactNode, type TableHTMLAttributes } from "react";
 import { defaultUnless } from "./class-defaults.js";
 
+/**
+ * 表格的捲動外框：桌機橫向捲；手機變成卡片、不必橫捲，讓整頁照常往下滑。
+ * 外框裡還要放別的東西、不能用 DataTable 的外框時，自己的 div 帶 data-table-scroll 與這組 class。
+ */
+export const TABLE_SCROLL = "overflow-x-auto max-[760px]:overflow-x-visible";
+
 export type TableSkinName = "solid" | "glass";
 
 const TableSkinContext = createContext<TableSkinName>("solid");
@@ -35,7 +41,7 @@ const TABLE_BASE = [
   // 數字欄要贏過 th 的靠左，所以不包 :where()。
   "[&_.numeric]:tabular-nums min-[761px]:[&_.numeric]:text-right",
   // 表頭只有放在捲動外框裡才釘住；對話框裡沒有外框的表跟著對話框捲。
-  "[.table-scroll>&_:where(thead_th)]:sticky [.table-scroll>&_:where(thead_th)]:top-0 [.table-scroll>&_:where(thead_th)]:z-2",
+  "[[data-table-scroll]>&_:where(thead_th)]:sticky [[data-table-scroll]>&_:where(thead_th)]:top-0 [[data-table-scroll]>&_:where(thead_th)]:z-2",
 ].join(" ");
 
 /*
@@ -91,12 +97,12 @@ const MOBILE_CARD = [
 ].join(" ");
 
 const STICKY_HEADER_SKIN: Record<TableSkinName, string> = {
-  solid: "[.table-scroll>&_:where(thead_th)]:bg-paper [.table-scroll>&_:where(thead_th)]:[box-shadow:inset_0_-1px_0_var(--color-line)]",
+  solid: "[[data-table-scroll]>&_:where(thead_th)]:bg-paper [[data-table-scroll]>&_:where(thead_th)]:[box-shadow:inset_0_-1px_0_var(--color-line)]",
   /*
    * 玻璃表頭：資料從底下捲過去時要看得出是浮在上面的一層。兩端圓角，但表格直接貼在
    * 面板裡時面板本身已經有圓角與邊界，表頭就不再自己圓。
    */
-  glass: "[.table-scroll>&_:where(thead_th)]:bg-paper/82 [.table-scroll>&_:where(thead_th)]:[-webkit-backdrop-filter:blur(14px)_saturate(165%)] [.table-scroll>&_:where(thead_th)]:[backdrop-filter:blur(14px)_saturate(165%)] [.table-scroll>&_:where(thead_th)]:[box-shadow:var(--shadow-glass-table-head)] [.table-scroll>&_:where(thead_th):first-child]:rounded-tl-xl [.table-scroll>&_:where(thead_th):last-child]:rounded-tr-xl [[data-panel]>.table-scroll>&_:where(thead_th):first-child]:rounded-tl-none [[data-panel]>.table-scroll>&_:where(thead_th):last-child]:rounded-tr-none",
+  glass: "[[data-table-scroll]>&_:where(thead_th)]:bg-paper/82 [[data-table-scroll]>&_:where(thead_th)]:[-webkit-backdrop-filter:blur(14px)_saturate(165%)] [[data-table-scroll]>&_:where(thead_th)]:[backdrop-filter:blur(14px)_saturate(165%)] [[data-table-scroll]>&_:where(thead_th)]:[box-shadow:var(--shadow-glass-table-head)] [[data-table-scroll]>&_:where(thead_th):first-child]:rounded-tl-xl [[data-table-scroll]>&_:where(thead_th):last-child]:rounded-tr-xl [[data-panel]>[data-table-scroll]>&_:where(thead_th):first-child]:rounded-tl-none [[data-panel]>[data-table-scroll]>&_:where(thead_th):last-child]:rounded-tr-none",
 };
 
 interface DataTableBaseProps extends Omit<TableHTMLAttributes<HTMLTableElement>, "children" | "className"> {
@@ -112,7 +118,7 @@ type DataTableProps = DataTableBaseProps & (
   | { scroll?: true; containerClassName?: string }
   /**
    * 不包捲動外框，只輸出 table。用在對話框這種外層已經在捲的地方，
-   * 或外框裡還要放別的東西（手機版的全選列）時，由呼叫端自己包 `.table-scroll`。
+   * 或外框裡還要放別的東西（手機版的全選列）時，由呼叫端自己包一層帶 data-table-scroll 與 TABLE_SCROLL 的外框。
    * 沒有外框可以套，所以不收 containerClassName。
    */
   | { scroll: false; containerClassName?: never }
@@ -127,5 +133,5 @@ export function DataTable({ children, className = "", containerClassName = "", s
     </table>
   );
   if (!scroll) return table;
-  return <div className={`table-scroll ${containerClassName}`.trim()}>{table}</div>;
+  return <div data-table-scroll="" className={`${TABLE_SCROLL} ${skin === "glass" ? "min-w-0" : ""} ${containerClassName}`.replace(/\s+/g, " ").trim()}>{table}</div>;
 }

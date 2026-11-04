@@ -3,6 +3,7 @@ import { useSession } from "./auth/session.js";
 import { LiffAccountLinkPage } from "./auth/LiffAccountLinkPage.js";
 import { useHrQuery } from "./routes/hr/api.js";
 import { Login } from "./routes/Login.js";
+import { PageSpacing } from "./ui/index.js";
 import { HrProfile } from "./routes/Profile.js";
 import { HrClock, HrClockCalendar, HrClockLogs } from "./routes/hr/Clock.js";
 import { HrClockCorrectionForm, HrForms, HrLeaveForm, HrOvertimeForm } from "./routes/hr/Forms.js";
@@ -48,7 +49,7 @@ function RedirectIfSignedIn({ children }: { children: React.ReactNode }) {
 function HrShell() {
   const pathname = useLocation().pathname.toLowerCase();
   const hasBackBar = pathname === "/scheduling" || pathname === "/forms" || pathname.startsWith("/forms/");
-  return <div className="shell hr-app-shell"><main className={`content${hasBackBar ? " max-[760px]:pt-0" : ""}`}><Outlet /></main></div>;
+  return <PageSpacing spacing="compact-mobile"><div className="shell hr-app-shell"><main className={`content${hasBackBar ? " max-[760px]:pt-0" : ""}`}><Outlet /></main></div></PageSpacing>;
 }
 
 export function App() {

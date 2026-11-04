@@ -412,14 +412,14 @@
 .mobile-topbar,
 .mobile-menu-backdrop { display: none; }
 
-.content:has(.page.fills) { overflow-y: hidden; }
+.content:has([data-page=fills]) { overflow-y: hidden; }
 .content:has(.analytics-page) { overflow-y: auto; }
 .content:has(.assistant-sandbox-page) { overflow: hidden; }
 /*
  * 滿版的頁面（目前只有倉位地圖）。內容自己貼齊邊界，所以外層的內距要收掉——
  * 留著的話地圖四周會有一圈 32px 的白邊，那正是「鋪滿」要拿掉的東西。
  */
-.content:has(.page.bleed) { padding: 0; overflow: hidden; }
+.content:has([data-page=bleed]) { padding: 0; overflow: hidden; }
 
 /*
  * 分頁標籤：分段控制。一條內凹的底槽，選中的那一段浮起來變成一張白卡。
@@ -430,7 +430,7 @@
  * 每一段都是 icon 配文字。只有文字時幾個分頁的長相只差在字，掃過去要一個一個讀；
  * icon 讓人用形狀就認得出要去哪一個。
  *
- * flex: none 與 align-self 都不能省——放在 .page.fills 這種 flex 直欄裡時，前者沒有
+ * flex: none 與 align-self 都不能省——放在 fills 頁面這種 flex 直欄裡時，前者沒有
  * 會被下面的內容擠成高度 0（DOM 還在，只有眼睛看不到），後者沒有會被拉成滿版。
  */
 .page-tabs {
@@ -440,24 +440,6 @@
 }
 .page-tabs::-webkit-scrollbar { display: none; }
 
-/*
- * 分頁列 ＋ 子頁面的版型。
- *
- * 這一層刻意不是 .page：子頁面自己已經是 .page 了，再包一層會變成 .page 裡有 .page，
- * 而 .content:has(.page.fills) 會把外層捲動關掉——外層不捲、內層又不是捲動區，內容
- * 超出視窗就直接被裁掉而且救不回來（小螢幕上一定會遇到）。
- *
- * 所以由子頁面決定要不要 .fills，這一層只負責讓它撐得開。
- */
-.page-tabs-layout {
-  display: flex; flex-direction: column; gap: 20px;
-  width: 100%; min-width: 0; min-height: 0; overflow: hidden;
-}
-.page-tabs-layout:has(.page.fills) { height: 100%; }
-.page-tabs-layout > .page { width: 100%; min-width: 0; }
-.page-tabs-layout > .page.fills {
-  flex: 1 1 auto; min-width: 0; min-height: 0; height: auto; overflow: hidden;
-}
 .page-tab {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 9px 18px; border-radius: 999px;
@@ -506,43 +488,12 @@
 .hr-location-toggle strong { color: var(--color-muted); font-size: 13px; }
 .hr-location-toggle input:checked ~ strong { color: var(--color-brand-dark); }
 
-/* 撐滿剩餘高度、內部捲動的頁面。 */
-.page.fills { display: flex; flex-direction: column; height: 100%; min-height: 0; gap: 20px; }
-/* flex 的 gap 已經負責間距，子元素不要再自己加 margin，否則會變兩倍。 */
-.page.fills > * + * { margin-top: 0; }
-.page.fills > .stat-row { margin-bottom: 0; }
-.page.fills > .page-head,
-.page.fills > .stat-row,
-.page.fills > details { flex: none; }
-.page.fills > [data-panel].grows {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.page.fills > [data-panel].grows > [data-panel-head],
-.page.fills > [data-panel].grows > .manual-report-toolbar,
-.page.fills > [data-panel].grows > .muted,
-.page.fills > [data-panel].grows > .table-note { flex: none; }
-.page.fills > [data-panel].grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
+/* 手動報表的頁籤列跟標題列一樣照內容高度，表格那一格才吃得到剩下的空間。 */
+[data-page=fills] > [data-grows] > .manual-report-toolbar { flex: none; }
 
-/*
- * 頁面層級的間距由容器負責，不由各元件自己記得加 margin。
- *
- * 原本是 .page-head { margin-bottom } 加上 .panel + .panel { margin-top }——只要在兩個
- * Panel 之間插進別種元素（收合區塊、Alert、自訂區塊），前後兩個間距就同時消失，而且
- * 畫面上看起來只是「黏在一起」，不會有人聯想到是選擇器沒中。這個坑踩過好幾次。
- *
- * 改成相鄰通用選擇器：不管放什麼進來都有間距，新元件不必知道這條規則。
- */
-.page { min-width: 0; }
-.page > * + * { margin-top: 20px; }
 /* useHrQuery 換條件時畫面上還是舊資料；變淡並擋掉點擊，免得對著舊資料操作。 */
 .is-refreshing { opacity: .55; pointer-events: none; transition: opacity 150ms ease-out; }
 
-.page > [data-panel] + [data-panel] { margin-top: 20px; }
 
 /* AI 助理 Sandbox */
 .assistant-sandbox-page { display: flex; height: 100%; min-height: 0; flex-direction: column; }
@@ -1042,7 +993,6 @@
  * map-canvas（像素尺寸，用 transform 縮放）。只縮 canvas 的話捲動範圍不會跟著
  * 變，放大之後右下角就永遠捲不到。
  */
-.page.bleed { position: relative; height: 100%; }
 .map-scroll {
   position: absolute;
   inset: 0;
@@ -2642,7 +2592,7 @@
 /*
  * SKU 對應頁的忽略清單。設定型的東西，收合起來把版面讓給列表。
  *
- * .page.fills 是沒有 gap 的 flex column——間距是各元件自己的 margin-bottom 撐出來的，
+ * fills 頁面是沒有 gap 的 flex column——間距是各元件自己的 margin-bottom 撐出來的，
  * 所以這裡要自己給，不然會直接黏在下面的表格上。也要 flex: none，否則在 column 裡
  * 會被拉扯變形。
  * preflight 拿掉了 <details> 的預設三角形，自己畫一個。
@@ -2950,8 +2900,8 @@
   min-height: 0;
   overflow: hidden;
 }
-.page.fills > [data-panel].grows > .manual-report-table-region { flex: 1; min-height: 0; }
-.manual-report-table-region > .table-scroll {
+[data-page=fills] > [data-grows] > .manual-report-table-region { flex: 1; min-height: 0; }
+.manual-report-table-region > [data-table-scroll] {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
@@ -3061,7 +3011,7 @@
     padding: 8px 10px 8px 14px;
   }
   .manual-report-selection-actions > button { width: auto; justify-content: center; }
-  .manual-report-table-region > .table-scroll { overflow-x: visible; }
+  .manual-report-table-region > [data-table-scroll] { overflow-x: visible; }
   .manual-report-table th,
   .manual-report-table td { white-space: normal; }
   .manual-report-table td[data-label="SKU"] code { overflow-wrap: anywhere; }
@@ -3080,9 +3030,9 @@
 /* HR 月曆排班 */
 /* 只有日期格那一塊捲；月份、快速排班、星期列放在捲動區外，不需要 sticky。 */
 .hr-calendar-panel { gap: 12px; }
-.page.fills > [data-panel].grows > .hr-calendar-head,
-.page.fills > [data-panel].grows > .hr-quick-bar,
-.page.fills > [data-panel].grows > .hr-calendar.weekdays { flex: none; }
+[data-page=fills] > [data-grows] > .hr-calendar-head,
+[data-page=fills] > [data-grows] > .hr-quick-bar,
+[data-page=fills] > [data-grows] > .hr-calendar.weekdays { flex: none; }
 .hr-calendar-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .hr-calendar-scroll { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; margin: 0 -22px -20px; padding: 0 22px 20px; }
 .hr-schedule-month { display: flex; align-items: center; gap: 2px; }
@@ -3156,7 +3106,6 @@
   .hr-calendar-entry button { display: none; }
   .hr-calendar-entry small { display: none; }
 }
-.hr-schedule-page > [data-panel].grows { overflow: auto; }
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
 .hr-payroll-records-panel { display: grid; gap: 14px; }
@@ -3277,7 +3226,7 @@
 .hr-payroll-record-person { display: grid; gap: 2px; min-width: 0; }
 .hr-payroll-record-person strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hr-payroll-record-table .cell-sub { display: block; margin-top: 2px; }
-.hr-payroll-records-panel .table-scroll.is-refreshing { opacity: .62; transition: opacity 160ms ease-out; }
+.hr-payroll-records-panel [data-table-scroll].is-refreshing { opacity: .62; transition: opacity 160ms ease-out; }
 .hr-payroll-detail-page details[open] > summary .hr-payroll-disclosure-marker svg { transform: rotate(180deg); }
 .hr-payroll-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .hr-payroll-overview > div { display: grid; gap: 4px; min-width: 0; padding: 11px 13px; border-radius: 12px; background: --alpha(var(--color-paper) / 52%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 64%) inset, 0 0 0 1px --alpha(var(--color-ink) / 5%) inset; }
@@ -3392,13 +3341,13 @@
 }
 
 .hr-payroll-table-region { position: relative; min-width: 0; }
-.page.fills > [data-panel].grows > .hr-payroll-table-region {
+[data-page=fills] > [data-grows] > .hr-payroll-table-region {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
-.page.fills > [data-panel].grows > .hr-payroll-table-region > .table-scroll {
+[data-page=fills] > [data-grows] > .hr-payroll-table-region > [data-table-scroll] {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
@@ -3414,13 +3363,13 @@
 .hr-payroll-select-cell input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-payroll-adjustments-panel { display: grid; gap: 14px; }
 .hr-payroll-adjustments-table-region { position: relative; min-width: 0; }
-.page.fills > [data-panel].grows > .hr-payroll-adjustments-table-region {
+[data-page=fills] > [data-grows] > .hr-payroll-adjustments-table-region {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
-.page.fills > [data-panel].grows > .hr-payroll-adjustments-table-region > .table-scroll {
+[data-page=fills] > [data-grows] > .hr-payroll-adjustments-table-region > [data-table-scroll] {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;

@@ -71,7 +71,7 @@ export function Alert({ tone = "info", size = "normal", children, className = ""
 }) {
   return (
     <div
-      // flex-none 加 w-full：在橫排、會換行的容器裡自己佔一整行；在 .page.fills 這種固定高度的直排容器裡，
+      // flex-none 加 w-full：在橫排、會換行的容器裡自己佔一整行；在 fills 頁面這種固定高度的直排容器裡，
       // 不會被 flex-basis 撐成跟容器一樣高，也不會被壓扁。
       className={`flex w-full flex-none items-start gap-2.5 rounded-[10px] border border-current px-3 py-2.5 ${size === "compact" ? "text-[12px]" : "text-[13px]"} ${TONE_COLOR[tone]} ${className}`.trim()}
       role={tone === "danger" ? "alert" : "status"}

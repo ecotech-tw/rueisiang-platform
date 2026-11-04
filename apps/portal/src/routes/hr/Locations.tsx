@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, EmptyState, Field, FilterInput, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, EmptyState, Field, FilterInput, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type Profile } from "./api.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
@@ -89,9 +89,9 @@ export function HrAttendanceScopeManagement() {
   const locations = useHrQuery<{ locations: AttendanceLocation[] }>("/attendance-settings/locations?active=1", canRead);
   if (!canRead) return <Alert tone="danger">你沒有檢視出勤範圍管理的權限。</Alert>;
   if (employees.isPending || locations.isPending) return <HrPageSkeleton variant="table" />;
-  return <div className="page fills">
+  return <Page layout="fills">
     <PageHeader title="出勤範圍管理" description="以員工為操作主體管理可打卡辦公位置與出勤方式；排班員工可在此設定每月休假天數。" />
-    <Panel className="grows">
+    <Panel grows>
       <FilterToolbar><FilterInput label="搜尋員工" type="search" className={SEARCH_INPUT_WIDTH} placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => updateFilters({ search: event.target.value })} /></FilterToolbar>
       {employees.error || locations.error ? <Alert tone="danger">{employees.error?.message ?? locations.error?.message}</Alert> : null}
       {employees.isFetching || locations.isFetching ? <p className="form-hint">更新中…</p> : null}
@@ -102,5 +102,5 @@ export function HrAttendanceScopeManagement() {
       {employees.data && employees.data.total > 0 ? <Pager className="mt-4 shrink-0" page={employees.data.page} pageSize={employees.data.pageSize} pageSizes={[25, 50, 100]} totalPages={Math.max(1, Math.ceil(employees.data.total / employees.data.pageSize))} totalLabel={`共 ${employees.data.total.toLocaleString("zh-TW")} 位員工`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {editing?.kind === "scope" ? <AttendanceScopeDialog profile={editing.profile} locations={locations.data?.locations ?? []} onClose={() => setEditing(null)} /> : null}
-  </div>;
+  </Page>;
 }

@@ -19,7 +19,7 @@ import {
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, PageHeader, Panel, SelectField, StatusBadge, type StatusTone, TextField } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, Page, PageHeader, Panel, SelectField, StatusBadge, type StatusTone, TextField } from "../../ui/index.js";
 
 const USER_STATUS_TONE: Record<AdminUser["status"], StatusTone> = {
   invited: "neutral",
@@ -522,10 +522,10 @@ export function AdminUsers() {
   }
   if (users.error || catalog.error) {
     return (
-      <div className="page">
+      <Page>
         <PageHeader title="權限管理" />
         <Alert tone="danger">{(users.error ?? catalog.error)?.message}</Alert>
-      </div>
+      </Page>
     );
   }
 
@@ -534,7 +534,7 @@ export function AdminUsers() {
   const directByUser = users.data?.directPermissions ?? {};
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="權限管理"
         description={
@@ -571,7 +571,7 @@ export function AdminUsers() {
         ) : null}
       </Panel>
 
-      <Panel title={`帳號（${list.length}）`} className="grows">
+      <Panel title={`帳號（${list.length}）`} grows>
         <DataTable>
             <thead>
               <tr>
@@ -597,6 +597,6 @@ export function AdminUsers() {
           </DataTable>
       </Panel>
 
-    </div>
+    </Page>
   );
 }

@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import {
   WAREHOUSE_CATEGORY_COLORS,
   useCreateWarehouseCategory,
@@ -51,7 +51,7 @@ export function Categories() {
   const error = create.error ?? remove.error ?? query.error;
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="倉儲分類管理"
         description={
@@ -62,7 +62,7 @@ export function Categories() {
         }
       />
 
-      <Panel className="grows">
+      <Panel grows>
         {canWrite ? (
           <FilterToolbar
             onSubmit={(event) => {
@@ -189,6 +189,6 @@ export function Categories() {
           </p>
         </ConfirmDialog>
       ) : null}
-    </div>
+    </Page>
   );
 }
