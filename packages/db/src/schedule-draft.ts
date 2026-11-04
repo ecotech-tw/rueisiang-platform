@@ -4,7 +4,7 @@ import type { HrDayType, HrShiftDayKey } from "./schema/hr-scheduling.js";
 export type { HrShiftDayKey };
 export type HrCalendarDayType = HrDayType;
 export interface ScheduleShift { allowedPersonIds?: string[] | null; versionId: string; templateId: string; scopeId: string; name: string; dayType: HrShiftDayKey; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number; requiredHeadcount: number }
-export interface ScheduleEntry extends ScheduleDraftEntry { scheduleVersionId: string; employmentId: string | null; workerId: string | null; shiftGroupId: string | null; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; requiredHeadcount: number; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }
+export interface ScheduleEntry extends ScheduleDraftEntry { scheduleVersionId: string; shiftTemplateId?: string; employmentId: string | null; workerId: string | null; shiftGroupId: string | null; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; requiredHeadcount: number; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }
 export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null }
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
 export interface ScheduleScope { id: string; name: string }
@@ -62,8 +62,9 @@ export function outdatedScheduleIds(entries: readonly ScheduleEntry[], shifts: S
     if (entry.archivedAt || !entry.startsAt) return false;
     const selected = shifts.find((shift) => shift.versionId === entry.shiftVersionId && shift.scopeId === entry.scopeId);
     const dayType = dayTypes.get(entry.workDate);
-    if (!selected || !dayType) return false;
-    const applicable = pickShiftForDay(shifts.filter((shift) => shift.templateId === selected.templateId && shift.scopeId === entry.scopeId), dayType, entry.workDate);
+    const templateId = selected?.templateId ?? entry.shiftTemplateId;
+    if (!templateId || !dayType) return false;
+    const applicable = pickShiftForDay(shifts.filter((shift) => shift.templateId === templateId && shift.scopeId === entry.scopeId), dayType, entry.workDate);
     if (!applicable) return false;
     const second = (time: string) => Number(time.slice(11, 13)) * 3600 + Number(time.slice(14, 16)) * 60 + Number(time.slice(17, 19));
     return applicable.versionId !== entry.shiftVersionId || applicable.requiredHeadcount !== entry.requiredHeadcount || applicable.standardMinutes !== entry.standardMinutes || applicable.breakMinutes !== entry.breakMinutes || applicable.startSecond !== second(entry.startsAt) || applicable.endSecond !== second(entry.endsAt);

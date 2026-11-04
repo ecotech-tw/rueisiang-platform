@@ -636,6 +636,7 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
   const requiredHeadcounts = resolveRequiredHeadcounts(input.times, input.requiredHeadcount ?? template?.requiredHeadcount, inheritedHeadcounts);
   const weekdayHeadcount = requiredHeadcounts.get("weekday")!;
   const wanted = new Set(input.times.map((time) => time.dayType));
+  // 取消覆蓋時將舊星期鍵改列為不參與選擇的 legacy key，避免既有排班外鍵阻擋還原。
   const removed = [...latestByDayType.entries()].filter(([dayType]) => !wanted.has(dayType) && dayType !== "weekend" && dayType !== "holiday");
   const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), allowedPersonIds, requiredHeadcount: weekdayHeadcount, requiredHeadcounts: Object.fromEntries(requiredHeadcounts), times: input.times } });
   /*
@@ -657,7 +658,9 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
         : sql`INSERT INTO hr_shift_versions (id, shift_template_id, day_type, required_headcount, version_number, start_second, end_second, end_day_offset, standard_minutes, break_minutes, pay_factor_ppm, created_by)
             SELECT ${crypto.randomUUID()}, ${templateId}, ${time.dayType}, ${requiredHeadcount}, 1, ${time.startSecond}, ${time.endSecond}, 0, ${time.standardMinutes}, ${time.breakMinutes}, 1000000, ${actor.id} WHERE changes() = 1`;
     }),
-    ...removed.map(([, version]) => sql`DELETE FROM hr_shift_versions WHERE id=${version.id} AND changes() = 1`),
+    ...removed.map(([, version]) => sql`UPDATE hr_shift_versions
+      SET day_type='weekend', version_number=(SELECT COALESCE(MAX(version_number), 0) + 1 FROM hr_shift_versions WHERE shift_template_id=${templateId} AND day_type='weekend')
+      WHERE id=${version.id} AND changes() = 1`),
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson} WHERE changes() = 1`,
   ];

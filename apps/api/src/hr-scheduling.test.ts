@@ -65,6 +65,30 @@ describe("班別星期時間", () => {
     expect(entries.find((row) => row.workDate === "2026-02-07")).toMatchObject({ startsAt: "2026-02-07 09:00:00", requiredHeadcount: 1 });
     expect(versionId).toBeTruthy();
   });
+
+  it("已排班引用星期覆蓋時仍可改回共用，歷史快照保留且可重新套用", async () => {
+    const created = await request("/shift-templates", "POST", { scopeId: "store-a", name: "可還原班", times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00" },
+      { dayType: "friday", startTime: "11:00", endTime: "20:00" },
+    ] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { id: templateId, versionId } = await created.json() as { id: string; versionId: string };
+    expect((await changes({ entries: [{ personKind: "worker", workerId: "worker-1", scopeId: "store-a", shiftVersionId: versionId, workDate: "2026-02-06" }] })).status).toBe(200);
+    const before = await getHrSchedule(db, "2026-02");
+    const scheduled = before.entries[0]!;
+    const common = before.shifts.find((shift) => shift.versionId === versionId)!;
+    const updated = await request(`/shift-templates/${templateId}`, "PATCH", {
+      scopeId: "store-a", name: "可還原班", revision: common.revision,
+      times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }],
+    });
+    expect(updated.status, await updated.clone().text()).toBe(200);
+    const after = await getHrSchedule(db, "2026-02");
+    expect(after.shifts.some((shift) => shift.dayType === "friday")).toBe(false);
+    expect(after.entries[0]).toMatchObject({ id: scheduled.id, shiftVersionId: scheduled.shiftVersionId, startsAt: "2026-02-06 11:00:00" });
+    const refreshed = await changes({ refreshIds: [scheduled.id] });
+    expect(refreshed.status, await refreshed.clone().text()).toBe(200);
+    expect((await getHrSchedule(db, "2026-02")).entries[0]).toMatchObject({ shiftVersionId: versionId, startsAt: "2026-02-06 09:00:00" });
+  });
 });
 
 describe("班別前台可排人員", () => {

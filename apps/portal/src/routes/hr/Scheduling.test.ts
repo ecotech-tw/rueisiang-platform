@@ -33,6 +33,10 @@ describe("已發布排班的星期設定與需求人力更新提示", () => {
     expect(outdatedScheduleShiftCount([entry(), entry({ shiftVersionId: "saturday" }), entry({ shiftVersionId: "saturday", requiredHeadcount: 2 })], shifts, calendar)).toBe(2);
   });
 
+  it("仍引用舊週末／假日版本的排班，會用班別 ID 判斷新星期設定是否不同", () => {
+    expect(outdatedScheduleShiftCount([entry({ shiftVersionId: "legacy-holiday", shiftTemplateId: "early" })], shifts, calendar)).toBe(1);
+  });
+
   it("新草稿與封存歷史不列為需更新的已發布快照", () => {
     expect(outdatedScheduleShiftCount([entry({ startsAt: "" }), entry({ archivedAt: "2026-09-01" })], shifts, calendar)).toBe(0);
   });
