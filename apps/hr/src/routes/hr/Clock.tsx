@@ -5,7 +5,7 @@ import { useSession, useSignOut } from "../../auth/session.js";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, PANEL_SURFACE } from "../../ui/index.js";
+import { Alert, Button, Dialog, Page, PageHeader, PANEL_SURFACE } from "../../ui/index.js";
 import { API_BASE_URL } from "../../config.js";
 import { useHrQuery, useHrWrite, type ClockCalendar, type ClockCalendarDay, type ClockLocationCheck, type ClockMapLocation, type ClockStatus } from "./api.js";
 
@@ -404,7 +404,7 @@ export function HrClock() {
   const actionLabel = status?.nextEventKind === "clock_out" ? "下班" : "上班";
   const clockDisabled = demoLocationFailed || !status?.canClock || query.isPending || Boolean(query.error) || (status?.geolocationRequired === true && locationCheck.data?.withinRadius !== true) || locationCheck.isPending;
   const lastEvent = status?.events[0];
-  return <div className="page hr-clock-page hr-clock-full-page">
+  return <Page className="hr-clock-page hr-clock-full-page">
     <section className="hr-clock-map-stage">
       <ClockMapBackground />
       <div className="hr-clock-hero" aria-label="今日打卡狀態">
@@ -441,7 +441,7 @@ export function HrClock() {
     {unlinkConfirmOpen ? <Dialog title="解除 LINE 打卡綁定？" role="alertdialog" portal={false} onClose={() => setUnlinkConfirmOpen(false)} actions={<><Button variant="secondary" onClick={() => setUnlinkConfirmOpen(false)}>取消</Button><Button variant="danger" disabled={unlink.isPending} onClick={() => void confirmUnlinkLine()}>{unlink.isPending ? "解除中…" : "解除並登出"}</Button></>}>
       <p>解除後會撤銷 LINE 打卡登入。下次使用時需重新以公司帳號登入並綁定 LINE。</p>
     </Dialog> : null}
-  </div>;
+  </Page>;
 }
 
 export function HrClockCalendar() {
@@ -486,7 +486,7 @@ export function HrClockCalendar() {
     setClosing(true);
     window.setTimeout(() => navigate("/clock"), 220);
   }
-  return <div className={`page hr-clock-page hr-clock-subpage${closing ? " closing" : ""}`}>
+  return <Page className={`hr-clock-page hr-clock-subpage [&>*+*]:mt-0 ${closing ? "closing" : ""}`}>
     <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
     <PageHeader title="出勤日曆" description="左右滑動切換月份，點擊日期查看打卡紀錄。" />
     {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
@@ -501,7 +501,7 @@ export function HrClockCalendar() {
         {selectedDay ? <CalendarDayDetails day={selectedDay} onCorrection={openCorrection} onLeave={openLeave} /> : null}
       </> : null}
     </section>
-  </div>;
+  </Page>;
 }
 
 function ClockHistoryDay({ day }: { day: ClockCalendarDay }) {
@@ -532,7 +532,7 @@ export function HrClockLogs() {
   function changeMonth(offset: number) {
     setCalendarMonth((current) => shiftMonth(current.year, current.month, offset));
   }
-  return <div className={`page hr-clock-page hr-clock-subpage${closing ? " closing" : ""}`}>
+  return <Page className={`hr-clock-page hr-clock-subpage [&>*+*]:mt-0 ${closing ? "closing" : ""}`}>
     <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
     <PageHeader title="打卡紀錄" description="按月份查看實際工時、預期班別與出勤異常。" />
     <section className="hr-clock-logs">
@@ -548,5 +548,5 @@ export function HrClockLogs() {
         {calendar.isPending ? <p className="muted">載入月度紀錄…</p> : calendar.data ? days.length ? <div className="hr-clock-history-days">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <div className="hr-form-empty-state"><strong>本月沒有需要顯示的紀錄</strong><p className="muted">有打卡或出勤異常的日期會列在這裡。</p></div> : null}
       </div>
     </section>
-  </div>;
+  </Page>;
 }

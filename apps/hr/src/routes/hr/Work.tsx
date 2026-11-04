@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Panel } from "../../ui/index.js";
+import { Alert, Page, Panel } from "../../ui/index.js";
 import { useHrQuery } from "./api.js";
 
 export function HrWork() {
@@ -11,7 +11,7 @@ export function HrWork() {
     ...(scheduleScopes.data?.scopes.length ? [{ to: "/scheduling", label: "排班", description: "選擇據點、查看班表與快速排班", icon: "calendar" as const }] : []),
     { to: "/forms", label: "表單申請", description: "請假、加班、補打卡與申請紀錄", icon: "report" as const },
   ];
-  return <div className="page grid gap-3 [&>*+*]:!mt-0">
+  return <Page className="grid gap-3 [&>*+*]:!mt-0">
     <h1 className="m-0 text-xl">工作</h1>
     <p className="m-0 text-sm text-muted">可使用的工作項目集中在這裡。</p>
     {scheduleScopes.error ? <Alert tone="danger">排班據點載入失敗，請重新整理後再試。</Alert> : null}
@@ -24,5 +24,5 @@ export function HrWork() {
         </Link>)}
       </div>
     </Panel>
-  </div>;
+  </Page>;
 }

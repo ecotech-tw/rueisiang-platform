@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Page, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { groupShiftsByTemplate, shiftTimeRange, useHrQuery, useHrWrite, HR_SHIFT_DAY_TYPES, HR_SHIFT_DAY_LABELS, type HrShiftsResponse, type ScheduleScope, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { ShiftTimeField } from "./ShiftTimeField.js";
@@ -298,12 +298,12 @@ export function HrShifts() {
 
   if (!canRead) return <Alert tone="danger">你沒有檢視班別的權限。</Alert>;
   if (shifts.isPending) return <HrPageSkeleton variant="table" />;
-  if (shifts.error || !data) return <div className="page"><Alert tone="danger">{shifts.error?.message ?? "班別資料載入失敗。"}</Alert></div>;
+  if (shifts.error || !data) return <Page><Alert tone="danger">{shifts.error?.message ?? "班別資料載入失敗。"}</Alert></Page>;
 
   const openScope = data.scopes.find((scope) => scope.id === openScopeId);
-  return <div className="page fills">
+  return <Page layout="fills">
     <PageHeader title="班別管理" description="每個班別設定一組共用時間，再按需要覆蓋個別星期的時間與需求人力；未覆蓋的星期沿用共用設定。需求人力同時是薪資單位池上限；待確認與已出勤人員計入、明確未出勤排除，超額排班時由有效人員平均分配。" />
-    <Panel className="grows">
+    <Panel grows>
       <DataTable><thead><tr>
         <th>營運據點</th><th className="numeric">班別數</th><th>班別與可排人員</th><th>排班負責人</th>{canWrite ? <th>操作</th> : null}
       </tr></thead><tbody>
@@ -341,5 +341,5 @@ export function HrShifts() {
       onClose={() => setOpenScopeId(null)}
       onSaved={() => Promise.all([shifts.refetch(), managers.refetch()])}
     /> : null}
-  </div>;
+  </Page>;
 }

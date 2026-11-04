@@ -2,7 +2,7 @@ import type { Permission } from "@rueisiang/auth/permissions";
 import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useCatalog,
   useCreateRole,
@@ -117,7 +117,7 @@ export function Roles() {
   }
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="角色管理"
         description={
@@ -132,7 +132,7 @@ export function Roles() {
 
       {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
-      <Panel className="grows">
+      <Panel grows>
         <DataTable>
             <thead>
               <tr>
@@ -324,6 +324,6 @@ export function Roles() {
           {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
         </ConfirmDialog>
       ) : null}
-    </div>
+    </Page>
   );
 }

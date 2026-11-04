@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   useCyberbizSalesState,
@@ -49,7 +49,7 @@ export function CyberbizSales() {
   }
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="商品銷售報表執行"
 
@@ -59,7 +59,7 @@ export function CyberbizSales() {
         <Alert tone="danger">平台還沒設定商品銷售報表的 GitHub workflow，現在無法執行。</Alert>
       ) : null}
 
-      <Panel className="grows">
+      <Panel grows>
         <FilterToolbar>
           <span className="inline-label">報表月份</span>
           <FilterInput
@@ -146,6 +146,6 @@ export function CyberbizSales() {
         />
       ) : null}
 
-    </div>
+    </Page>
   );
 }

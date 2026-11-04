@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useSignOut } from "../auth/session.js";
 import { Icon, type IconName } from "../shell/icons.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { Alert, Button, ConfirmDialog, EmptyState, PageHeader, Panel, StatusBadge } from "../ui/index.js";
+import { Alert, Button, ConfirmDialog, EmptyState, Page, PageHeader, Panel, StatusBadge } from "../ui/index.js";
 import { useHrQuery, type Employment, type Profile as HrProfile } from "./hr/api.js";
 import { dateLabel } from "./hr/format.js";
 import { HrProfilePhoto } from "./hr/ProfilePhoto.js";
@@ -114,7 +114,7 @@ export function HrProfile() {
       setSignOutPending(false);
     }
   }
-  return <div className="page hr-profile-page">
+  return <Page className="hr-profile-page">
     <PageHeader title="個人中心" description="管理自己的大頭貼，查看帳號、任職與工作地點資料；其他資料如有錯誤，請聯絡管理者。" />
     {query.isPending ? <Panel className="hr-profile-loading"><p className="muted">正在載入個人資料…</p></Panel> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
@@ -125,5 +125,5 @@ export function HrProfile() {
       <p>登出後會清除這台裝置的登入狀態，並返回登入頁。要繼續嗎？</p>
       {signOutError ? <Alert tone="danger">{signOutError}</Alert> : null}
     </ConfirmDialog> : null}
-  </div>;
+  </Page>;
 }

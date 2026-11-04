@@ -11,6 +11,7 @@ import {
   FilterInput,
   FilterSelect,
   FilterToolbar,
+  Page,
   PageHeader,
   Panel,
   SEARCH_INPUT_WIDTH,
@@ -90,7 +91,7 @@ export function SkuMappings() {
   const currentPage = Math.min(page, totalPages);
   const pagedVisible = visible.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="SKU 對應"
         description="在品項管理集中設定通路商品要扣哪些品項；不同通路指到同一個用料，報表就會統計成同一個商品。"
@@ -204,7 +205,7 @@ export function SkuMappings() {
         </details>
       ) : null}
 
-      <Panel className="grows">
+      <Panel grows>
         <FilterToolbar>
           <FilterInput
             label="搜尋"
@@ -339,6 +340,6 @@ export function SkuMappings() {
           </p>
         </ConfirmDialog>
       ) : null}
-    </div>
+    </Page>
   );
 }

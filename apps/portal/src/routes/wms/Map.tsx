@@ -4,7 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Button, ButtonSkin } from "../../ui/index.js";
+import { Button, ButtonSkin, Page } from "../../ui/index.js";
 import {
   useDeleteElement,
   useDeleteZone,
@@ -171,7 +171,7 @@ export function WarehouseMap() {
   }
 
   return (
-    <div className="page bleed" ref={view.rootRef as React.RefObject<HTMLDivElement>}>
+    <Page layout="bleed" ref={view.rootRef as React.RefObject<HTMLDivElement>}>
       <div
         className="map-scroll"
         ref={view.scrollRef}
@@ -501,6 +501,6 @@ export function WarehouseMap() {
           <p className="muted">裡面還有商品的話刪不掉，要先把它們移到別的倉位。</p>
         </ConfirmDialog>
       ) : null}
-    </div>
+    </Page>
   );
 }

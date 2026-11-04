@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type ScheduleWorkerPageResponse, type ScheduleWorkerRecord } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -87,9 +87,9 @@ export function HrSupportWorkers() {
   const data = workers.data;
   const update = (patch: Partial<Filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
-  return <div className="page fills">
+  return <Page layout="fills">
     <PageHeader title="支援人員" description="管理可排班、可計薪但不屬於平台員工的外部人力；停用取代刪除，以保留歷史排班與薪資快照。" actions={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditing(null)}>新增支援人員</Button> : null} />
-    <Panel className="grows">
+    <Panel grows>
       <FilterToolbar>
         <SearchFilterInput label="搜尋" placeholder="搜尋支援人員姓名" value={filters.search} onSearch={(search) => update({ search })} />
         <FilterSelect label="狀態" value={filters.status} onChange={(event) => update({ status: event.target.value })} options={STATUS_OPTIONS} />
@@ -118,5 +118,5 @@ export function HrSupportWorkers() {
     </Panel>
     {linking ? <WorkerAccountDialog worker={linking} onClose={() => { setLinking(null); void workers.refetch(); }} /> : null}
     {editing !== undefined ? <WorkerDialog worker={editing} onClose={() => { setEditing(undefined); void workers.refetch(); }} /> : null}
-  </div>;
+  </Page>;
 }

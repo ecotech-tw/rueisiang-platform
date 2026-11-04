@@ -8,7 +8,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { WAREHOUSE_CATEGORY_COLORS, type ProductCategory } from "../wms/api.js";
 
 interface ItemCategory extends ProductCategory {
@@ -192,10 +192,10 @@ export function ItemCategories() {
     : null;
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader title="品項分類管理" description="這裡管理 item_categories；它是報表與品項列表分類，不再與倉儲分類同步。" actions={canWrite ? <Button icon="plus" onClick={() => setCreating(true)}>新增分類</Button> : null} />
 
-      <Panel className="grows">
+      <Panel grows>
         {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
         {dropHint ? <div className="drag-drop-hint" role="status">{dropHint}</div> : null}
@@ -217,6 +217,6 @@ export function ItemCategories() {
       {creating ? <CreateDialog categories={categories} onClose={() => setCreating(false)} /> : null}
       {editing ? <EditDialog category={editing} categories={categories} onClose={() => setEditing(null)} /> : null}
       {deleting ? <ConfirmDialog title="刪除這個分類？" confirmLabel="刪除" pending={remove.isPending} onCancel={() => setDeleting(null)} onConfirm={() => remove.mutate(deleting.id, { onSuccess: () => { toast.show(`已刪除「${deleting.name}」`); setDeleting(null); } })}><p><strong>{deleting.name}</strong> 會被移除。目前沒有品項在用它。</p></ConfirmDialog> : null}
-    </div>
+    </Page>
   );
 }

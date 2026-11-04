@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Switch } from "../../shell/Switch.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -70,7 +70,7 @@ export function LineSettings() {
   }, [config.data]);
 
   if (config.isPending) return <div className="boot">載入中…</div>;
-  if (config.error) return <div className="page"><Alert tone="danger">{config.error.message}</Alert></div>;
+  if (config.error) return <Page><Alert tone="danger">{config.error.message}</Alert></Page>;
   const data = config.data;
   if (!data) return null;
 
@@ -111,7 +111,7 @@ export function LineSettings() {
   }
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader
         title="小香 LINE 前台"
         description="群組、多人聊天室與一對一對話都會在這裡管理；只有已啟用的對話會進入線上回覆流程。"
@@ -368,7 +368,7 @@ export function LineSettings() {
           onClose={() => setGroupToolsFor(null)}
         />
       ) : null}
-    </div>
+    </Page>
   );
 }
 

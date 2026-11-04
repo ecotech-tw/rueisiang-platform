@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 /**
  * 倉儲的操作紀錄。
@@ -164,7 +164,7 @@ export function Activity() {
   const data = query.data;
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="操作紀錄"
         description={
@@ -175,7 +175,7 @@ export function Activity() {
         }
       />
 
-      <Panel className="grows">
+      <Panel grows>
         <FilterToolbar>
           <FilterInput
             label="搜尋"
@@ -278,6 +278,6 @@ export function Activity() {
           </footer>
         ) : null}
       </Panel>
-    </div>
+    </Page>
   );
 }

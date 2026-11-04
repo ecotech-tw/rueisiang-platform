@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterToolbar, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   usePayoutState,
@@ -60,7 +60,7 @@ export function Payout() {
   if (state.isPending) return <div className="boot">載入中…</div>;
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="出金表執行"
 
@@ -70,7 +70,7 @@ export function Payout() {
         <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，目前無法觸發執行。</Alert>
       ) : null}
 
-      <Panel className="grows">
+      <Panel grows>
         <FilterToolbar>
           <span className="inline-label">對帳區間</span>
           <DateRangePicker
@@ -179,6 +179,6 @@ export function Payout() {
         />
       ) : null}
 
-    </div>
+    </Page>
   );
 }

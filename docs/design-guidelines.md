@@ -71,7 +71,7 @@
 | 頁面標題、卡片 surface | `PageHeader`、`Panel`；不要在 `Panel` 裡重複手寫 `.panel-head`，能用 props 就用 props |
 | 補充提示 | `Tooltip`；不要使用原生 `title` |
 | icon | `packages/ui/src/icons.tsx` 的共用 `Icon` registry，SVG 使用 `currentColor`；不要引入 icon font 或單頁 SVG 資產 |
-| table wrapper | `DataTable`；欄位與 domain row 仍由 route 負責 | 不要在 route 新增裸 `.table-scroll` + `.data-table`；特殊 table 用 `className`／`containerClassName` modifier，保留可讀的 domain markup |
+| table wrapper | `DataTable`；欄位與 domain row 仍由 route 負責 | 不要在 route 自己寫 `<table>`；特殊 table 用 `className`／`containerClassName` modifier，外框裡還要放別的東西時才用 `scroll={false}` 自己包 `data-table-scroll` ＋ `TABLE_SCROLL`，保留可讀的 domain markup |
 
 `packages/ui` 是共用元件的唯一實作來源；`apps/portal/src/ui` 與 `apps/hr/src/ui` 只是相容性 re-export。不可只在其中一個 app 複製修正。
 

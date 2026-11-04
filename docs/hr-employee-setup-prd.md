@@ -186,4 +186,4 @@ HR 可在目前任職的 revision 保護下修正 `hr_employment_service_periods
 
 ## 9. UI 要求
 
-沿用 Material 3 與既有元件：列表使用 `.page.fills`／`.panel.grows`、`.data-table` sticky header、compact toolbar 與既有 Dialog。主要操作靠右、危險操作使用 archive 語意；表格列只提供入口，基本、公司與聯絡資料在員工內頁分區編輯；其他領域異動仍使用各自的 HR 管理頁。鍵盤焦點、可及性名稱、錯誤訊息與 Tooltip 必須遵守共用元件規格。
+沿用 Material 3 與既有元件：列表使用 `<Page layout="fills">`／`<Panel grows>`、`DataTable` 的 sticky header、compact toolbar 與既有 Dialog。主要操作靠右、危險操作使用 archive 語意；表格列只提供入口，基本、公司與聯絡資料在員工內頁分區編輯；其他領域異動仍使用各自的 HR 管理頁。鍵盤焦點、可及性名稱、錯誤訊息與 Tooltip 必須遵守共用元件規格。

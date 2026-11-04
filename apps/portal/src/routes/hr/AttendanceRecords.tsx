@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, DataTable, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge } from "../../ui/index.js";
+import { Alert, DataTable, EmptyState, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type AttendanceEvent } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -41,13 +41,13 @@ export function HrAttendanceRecords() {
 
   if (!canRead || !isHrAdministrator) return <Alert tone="danger">出勤明細僅限全平台 HR 管理者查看。</Alert>;
   if (events.isPending) return <HrPageSkeleton variant="table" />;
-  if (events.error) return <div className="page"><Alert tone="danger">{events.error.message}</Alert></div>;
+  if (events.error) return <Page><Alert tone="danger">{events.error.message}</Alert></Page>;
   const data = events.data;
   const rows = data?.events ?? [];
   const total = data?.total ?? 0;
-  return <div className="page fills">
+  return <Page layout="fills">
     <PageHeader title="出勤紀錄" description="查看全體員工的打卡明細；時間由伺服器保存，歷史辦公位置與營運據點使用當時快照。" />
-    <Panel className="grows">
+    <Panel grows>
       <FilterToolbar>
         <FilterInput label="搜尋員工" type="search" className={SEARCH_INPUT_WIDTH} placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => update({ search: event.target.value })} />
         <FilterSelect label="打卡類型" value={filters.eventKind} options={[{ value: "all", label: "全部類型" }, { value: "clock_in", label: "上班" }, { value: "clock_out", label: "下班" }]} onChange={(event) => update({ eventKind: event.target.value })} />
@@ -60,5 +60,5 @@ export function HrAttendanceRecords() {
       {!rows.length ? <EmptyState className="mt-[18px]">沒有符合條件的打卡紀錄。</EmptyState> : null}
       {total > 0 ? <Pager className="mt-4 shrink-0" page={data?.page ?? filters.page} pageSize={data?.pageSize ?? filters.pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.ceil(total / filters.pageSize)} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(page) => setFilters((current) => ({ ...current, page }))} onPageSize={(pageSize) => update({ pageSize })} /> : null}
     </Panel>
-  </div>;
+  </Page>;
 }

@@ -29,8 +29,11 @@ const SURFACE: Record<PanelSkinName, string> = {
    * 玻璃面板：半透明底加模糊，前後兩層偽元素分別是光澤與內緣的光暈。
    * 表格直接貼在面板裡時，表格要撐到面板兩側（抵掉內距），光澤也拿掉，不然捲動的資料上會蓋一層霧。
    */
-  glass: "relative isolate overflow-hidden rounded-[14px] border bg-paper/24 [box-shadow:var(--shadow-glass-panel)] [-webkit-backdrop-filter:blur(7px)_saturate(150%)_contrast(102%)] [backdrop-filter:blur(7px)_saturate(150%)_contrast(102%)] before:pointer-events-none before:absolute before:inset-px before:-z-1 before:rounded-[inherit] before:[background:var(--glass-panel-sheen)] before:content-[''] after:pointer-events-none after:absolute after:inset-0 after:-z-1 after:rounded-[inherit] after:[box-shadow:var(--shadow-glass-panel-glow)] after:content-[''] has-[>.table-scroll]:before:content-none has-[>.table-scroll]:after:content-none [&>.table-scroll]:-mx-[22px]",
+  glass: "relative isolate overflow-hidden rounded-[14px] border bg-paper/24 [box-shadow:var(--shadow-glass-panel)] [-webkit-backdrop-filter:blur(7px)_saturate(150%)_contrast(102%)] [backdrop-filter:blur(7px)_saturate(150%)_contrast(102%)] before:pointer-events-none before:absolute before:inset-px before:-z-1 before:rounded-[inherit] before:[background:var(--glass-panel-sheen)] before:content-[''] after:pointer-events-none after:absolute after:inset-0 after:-z-1 after:rounded-[inherit] after:[box-shadow:var(--shadow-glass-panel-glow)] after:content-[''] has-[>[data-table-scroll]]:before:content-none has-[>[data-table-scroll]]:after:content-none [&>[data-table-scroll]]:-mx-[22px]",
 };
+
+// 標題、說明與表格以外的子元素照內容高度；表格那一格吃掉剩下的高度、自己捲。
+const GROWS = "[[data-page=fills]>&]:flex [[data-page=fills]>&]:min-h-0 [[data-page=fills]>&]:min-w-0 [[data-page=fills]>&]:flex-1 [[data-page=fills]>&]:flex-col [[data-page=fills]>&>[data-panel-head]]:flex-none [[data-page=fills]>&>.muted]:flex-none [[data-page=fills]>&>.table-note]:flex-none [[data-page=fills]>&>[data-table-scroll]]:min-h-0 [[data-page=fills]>&>[data-table-scroll]]:flex-1 [[data-page=fills]>&>[data-table-scroll]]:overflow-auto";
 
 const BORDER: Record<PanelSkinName, string> = { solid: "border-line", glass: "border-transparent" };
 
@@ -51,20 +54,25 @@ interface PanelProps {
   density?: "default" | "compact";
   /** attention：外框換成強調色，標出「這一塊要你處理」（例如待我審核）。 */
   tone?: "default" | "attention";
+  /**
+   * 放在 layout="fills" 的頁面裡時撐滿剩下的高度，裡面的表格自己捲（表頭跟著釘住）。
+   * 頁面不是 fills 時沒有作用。className 給了 overflow- 就取代預設的 overflow-hidden。
+   */
+  grows?: boolean;
   id?: string;
   "aria-label"?: string;
   children: ReactNode;
 }
 
 /** 卡片、標題與右側 actions 的共用版型。 */
-export function Panel({ title, description, actions, className = "", headerClassName = "", titleClassName = "", density = "default", tone = "default", id, "aria-label": ariaLabel, children }: PanelProps) {
+export function Panel({ title, description, actions, className = "", headerClassName = "", titleClassName = "", density = "default", tone = "default", grows = false, id, "aria-label": ariaLabel, children }: PanelProps) {
   const skin = useContext(PanelSkinContext);
   const hasHeader = title || description || actions;
   const padding = defaultUnless(className, "p[xytrbl]?-", density === "compact" ? "p-2" : "px-[22px] py-5");
   // 最後一個子元素不帶下外距，面板的下內距才是看得到的那一段。
   return (
-    // data-panel 讓外層的版面規則認得出 Panel（.page.fills 的捲動、相鄰面板的間距、表格貼齊面板）。
-    <section id={id} aria-label={ariaLabel} data-panel="" className={`${SURFACE[skin]} ${tone === "attention" ? "border-secondary" : BORDER[skin]} ${padding} [&>:last-child]:mb-0 ${className}`.trim()}>
+    // data-panel 讓外層的版面規則認得出 Panel（fills 頁面的捲動、相鄰面板的間距、表格貼齊面板）。
+    <section id={id} aria-label={ariaLabel} data-panel="" data-grows={grows ? "" : undefined} className={`${grows ? `${GROWS} ${defaultUnless(className, "overflow-", "[[data-page=fills]>&]:overflow-hidden")}` : ""} ${SURFACE[skin]} ${tone === "attention" ? "border-secondary" : BORDER[skin]} ${padding} [&>:last-child]:mb-0 ${className}`.trim()}>
       {hasHeader ? (
         <div data-panel-head="" className={`flex justify-between gap-4 ${defaultUnless(headerClassName, "items-", HEAD_ITEMS)} ${defaultUnless(headerClassName, "mb-", HEAD_MARGIN)} ${headerClassName}`.trim()}>
           <div>

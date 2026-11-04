@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -399,13 +399,13 @@ export function HrPayrollSettlement() {
 
   const payrollJobList = visiblePayrollJobs(payrollJobs.data?.jobs ?? []);
 
-  return <div className="page fills hr-payroll-page">
+  return <Page layout="fills" className="hr-payroll-page">
     <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各一筆發放紀錄；從明細確認試算結果，未結算試算可刪除整批，選取多筆後一次確定發放。" actions={canCalculate ? <Button tone="success" mobileIconOnly icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     {payrollJobs.error ? <Alert tone="danger">薪資試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
     <PayrollJobProgress jobs={payrollJobList} onRetry={retryJob} canRetry={canCalculate} />
 
-    <Panel className="grows hr-payroll-records-panel">
+    <Panel grows className="hr-payroll-records-panel">
       <FilterToolbar>
         <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} className="min-w-[130px] flex-[1_1_220px] max-[760px]:min-w-0 max-[760px]:basis-full" />
         <FilterInput label="薪資月份" type="month" className="min-w-[130px] flex-[1_1_150px] max-[760px]:basis-full" value={recordFilters.periodKey} onChange={(event) => updateRecordFilters({ periodKey: event.target.value })} />
@@ -455,5 +455,5 @@ export function HrPayrollSettlement() {
       <p>確定後薪資明細會保留為歷史快照，不能再修改或刪除。</p>
       {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     </ConfirmDialog> : null}
-  </div>;
+  </Page>;
 }

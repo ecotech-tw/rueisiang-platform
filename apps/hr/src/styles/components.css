@@ -11,7 +11,7 @@
 .hr-app-shell .content { width: 100%; }
 
 .hr-module { display: grid; gap: 20px; }
-.hr-module-self > .page:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation: hr-page-swipe-in .24s cubic-bezier(.05, .7, .1, 1); }
+.hr-module-self > [data-page]:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation: hr-page-swipe-in .24s cubic-bezier(.05, .7, .1, 1); }
 @keyframes hr-page-swipe-in {
   from { opacity: 0; transform: translateX(24px); }
   to { opacity: 1; transform: none; }
@@ -20,10 +20,10 @@
   from { opacity: 0; transform: translateX(-24px); }
   to { opacity: 1; transform: none; }
 }
-.hr-module-self[data-page-direction="back"] > .page:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation-name: hr-page-swipe-in-back; }
+.hr-module-self[data-page-direction="back"] > [data-page]:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation-name: hr-page-swipe-in-back; }
 @media (prefers-reduced-motion: reduce) {
-  .hr-module-self > .page:not(.hr-clock-full-page):not(.hr-clock-subpage),
-  .hr-module-self[data-page-direction="back"] > .page:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation: none; }
+  .hr-module-self > [data-page]:not(.hr-clock-full-page):not(.hr-clock-subpage),
+  .hr-module-self[data-page-direction="back"] > [data-page]:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation: none; }
 }
 .hr-module-header {
   display: flex;
@@ -62,7 +62,6 @@
 .hr-clock-interactive-map .maplibregl-ctrl-attrib { background: --alpha(var(--color-paper) / 72%); color: var(--color-muted); font-size: 10px; }
 .hr-clock-subpage { position: fixed; inset: 0; z-index: 10; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; width: auto; max-width: none; padding: 22px clamp(18px, 4vw, 48px) 96px; overflow: hidden; background: linear-gradient(180deg, var(--color-canvas), var(--color-paper)); animation: hr-subpage-up .24s cubic-bezier(.05, .7, .1, 1); }
 .hr-clock-subpage.closing { animation: hr-subpage-down .22s cubic-bezier(.3, 0, .8, .15) forwards; }
-.hr-clock-subpage > * + * { margin-top: 0; }
 @keyframes hr-subpage-up {
   from { opacity: 0; transform: translateY(42px); }
   to { opacity: 1; transform: none; }
@@ -252,14 +251,10 @@
   .hr-form-add-button { transition: none; }
   .hr-form-add-button:active:not(:disabled) { scale: 1; }
 }
-.page > .hr-form-sticky-controls { margin-top: 0; }
 .hr-form-sticky-controls { position: sticky; top: 0; z-index: 10; margin: 0 -2px; padding: 8px 2px; background: --alpha(var(--color-canvas) / 92%); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
 .hr-form-tabs-shell { margin: 0; padding: 0; background: transparent; }
 .hr-form-filters { display: grid; grid-template-columns: minmax(0, 1fr) 170px; align-items: end; gap: 12px; padding: 14px 0 2px; }
 .hr-form-sticky-controls > .hr-form-filters { padding-top: 8px; }
-.page > .hr-form-request-panel { margin-top: 8px; }
-/* 上面接著「待我審核」面板時，間距跟面板之間一樣。 */
-.page > [data-panel] + .hr-form-request-panel { margin-top: 20px; }
 @keyframes hr-form-tab-enter {
   from { opacity: 0; transform: translateX(16px); }
   to { opacity: 1; transform: translateX(0); }
@@ -275,7 +270,6 @@
 .hr-form-load-sentinel,
 .hr-form-list-end { padding: 18px 0 2px; color: var(--color-muted); font-size: 12px; text-align: center; }
 .hr-form-page { min-height: calc(100dvh - 48px); }
-.hr-form-page > .page-head { margin-top: 8px; }
 .hr-leave-duration-card,
 .hr-leave-credit-card { display: grid; gap: 5px; padding: 14px 16px; border: 1px solid var(--color-soft-line); border-radius: 14px; background: var(--color-canvas); }
 .hr-leave-duration-card > div,
@@ -354,7 +348,6 @@
 .hr-payslip-totals span { color: var(--color-muted); font-size: 12px; font-weight: 700; }
 .hr-payroll-history-card-total strong { font-size: 23px; font-variant-numeric: tabular-nums; }
 .hr-payroll-history-card-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; }
-.hr-payslip-page > .page-head { margin-top: 8px; }
 .hr-payslip-head > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
 .hr-payslip-head h1 { flex: none; margin: 0; white-space: nowrap; }
 .hr-payslip-head p { min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
@@ -372,9 +365,6 @@
 .hr-payslip-lines li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--color-soft-line); font-size: 13px; }
 .hr-payslip-lines li strong { flex: none; font-variant-numeric: tabular-nums; }
 
-.page > * + * { margin-top: 20px; }
- 
-.page > [data-panel] + [data-panel] { margin-top: 20px; }
 
 
 .empty-card {
@@ -432,10 +422,7 @@
   .hr-module-header { display: none; }
   .hr-forms-page,
   .hr-form-page { max-width: none; }
-  .page > * + * { margin-top: 14px; }
-  [data-panel] + [data-panel],
-  .page > [data-panel] + [data-panel],
-  .page > [data-panel] + .hr-form-request-panel { margin-top: 14px; }
+  [data-panel] + [data-panel] { margin-top: 14px; }
   .hr-module-header { align-items: stretch; flex-direction: column; gap: 4px; padding-bottom: 6px; }
   .hr-personal-top-nav { display: none; }
   .hr-personal-bottom-nav { position: fixed; right: 50%; bottom: var(--hr-safe-bottom); left: auto; z-index: 20; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: center; width: min(420px, calc(100% - 12px)); min-height: 70px; overflow: visible; padding: 5px 8px; border: 1px solid --alpha(var(--color-paper) / 62%); border-radius: 22px; background: --alpha(var(--color-paper) / 58%); box-shadow: 0 12px 34px --alpha(var(--color-ink) / 18%); -webkit-backdrop-filter: blur(18px) saturate(170%); backdrop-filter: blur(18px) saturate(170%); transform: translateX(50%); }
@@ -458,7 +445,6 @@
   .hr-clock-deep-links { grid-template-columns: 1fr; }
   .hr-clock-subpage { gap: 8px; padding: 14px 12px calc(var(--hr-safe-bottom) + 76px); }
   .hr-clock-subpage .page-head { margin-bottom: 0; }
-  .hr-clock-subpage > * + * { margin-top: 0; }
   .hr-clock-subpage .page-head h1 { font-size: 18px; }
   .hr-clock-subpage .page-head p { display: none; }
   .hr-clock-calendar-open { --hr-calendar-grid-height: clamp(216px, 40vh, 276px); padding: 10px 12px; }
@@ -525,7 +511,6 @@
   .hr-form-add-portal { position: fixed; inset: 0; z-index: 21; display: block; pointer-events: none; }
   .hr-form-add-button-floating { width: 52px; height: 52px; border-radius: 50%; }
   .hr-form-sticky-controls { margin-inline: -14px; padding: 8px 14px; }
-  .hr-form-page > .page-head { margin-top: 8px; }
   .hr-form-filters { grid-template-columns: minmax(0, 1fr) 128px; gap: 8px; padding-top: 8px; }
   .hr-form-page > .page-head h1 { font-size: 22px; }
   .hr-form-page > .page-head p { font-size: 13px; line-height: 1.55; }

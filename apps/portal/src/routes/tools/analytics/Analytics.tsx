@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Icon } from "../../../shell/icons.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
-import { Alert, Button, DropdownSelect, PageHeader, Panel } from "../../../ui/index.js";
+import { Alert, Button, DropdownSelect, Page, PageHeader, Panel } from "../../../ui/index.js";
 import { PayoutTab } from "./PayoutTab.js";
 import { SalesTab } from "./SalesTab.js";
 import { useReportScopes } from "./api.js";
@@ -178,7 +178,7 @@ export function Analytics() {
   }
 
   return (
-    <div className="page analytics-page">
+    <Page className="analytics-page">
       <PageHeader
         title="營運統計"
         description="比較商品銷量、通路與出金表現；先看整體，再下鑽到單一店別、通路或商品。"
@@ -298,6 +298,6 @@ export function Analytics() {
           />
         )}
       </div>
-    </div>
+    </Page>
   );
 }

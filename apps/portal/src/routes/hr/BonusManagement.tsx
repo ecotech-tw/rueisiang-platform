@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, Field, FieldHint, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, Field, FieldHint, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import { Link } from "react-router";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
@@ -206,7 +206,7 @@ export function HrBonusManagement() {
     return <div className="hr-bonus-assignment-summary"><span>{rows.length} 位員工{totalWeight > rows.length ? ` · ${totalWeight} 份` : ""}</span><small>{names}{rows.length > 2 ? ` 等 ${rows.length} 位` : ""}</small></div>;
   }
 
-  return <div className="page fills">
+  return <Page layout="fills">
     <PageHeader title="獎金管理" actions={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={openCreate}>新增獎金</Button> : undefined} />
     {/*
       * 業績沒匯入時薪資試算會提醒，但那是算完才看得到。規則是在這一頁設定的，所以
@@ -215,7 +215,7 @@ export function HrBonusManagement() {
     <Alert tone="info">獎金的業績來源是<strong>出金表</strong>。某個月的出金還沒匯入，那幾天就會按 0 計算，薪資試算會逐項提醒。匯入請到 <Link to="/tools/reports">營運工具 → 報表執行</Link>。</Alert>
     {error ? <Alert tone="danger">{error}</Alert> : null}
 
-    <Panel className="grows hr-bonus-panel">
+    <Panel grows className="hr-bonus-panel">
       {policies.error ? <Alert tone="danger">{policies.error.message}</Alert> : null}
       {assignments.error ? <Alert tone="danger">{assignments.error.message}</Alert> : null}
       <FilterToolbar>
@@ -270,5 +270,5 @@ export function HrBonusManagement() {
     </ConfirmDialog> : null}
 
     {deletingPolicy ? <Dialog title="刪除獎金？" role="alertdialog" onClose={closeDeleteDialog} closeRequestRef={deleteCloseRef} closeDisabled={deletePolicy.isPending} actions={<><Button variant="secondary" onClick={closeDeleteDialog} disabled={deletePolicy.isPending}>取消</Button><Button variant="danger" icon="trash" loading={deletePolicy.isPending} onClick={confirmDelete}>刪除獎金</Button></>}><p>「{deletingPolicy.policyName}」將停用，不再套用到新的薪資計算；已保存的歷史薪資不會被刪除。</p></Dialog> : null}
-  </div>;
+  </Page>;
 }

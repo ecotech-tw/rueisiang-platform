@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useBlocker, useNavigate } from "react-router";
 import { canSchedulePerson, outdatedScheduleIds, pickShiftForDay, resolveSchedulePerson, scheduleChanges, schedulePersonOptions, shiftTimeRange, type HrScheduleResponse, type ScheduleEntry, type ScheduleScope } from "@rueisiang/db/schedule-draft";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, EmptyState, Panel, SelectField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Dialog, EmptyState, Page, Panel, SelectField, Tooltip } from "../../ui/index.js";
 import type { DialogCloseRef } from "../../ui/dialog-context.js";
 import { useHrQuery, useHrWrite } from "./api.js";
 import { HrBackBar } from "./HrBackBar.js";
@@ -314,7 +314,7 @@ export function HrScheduling() {
     if (!quick) { void navigate("/work"); return; }
     if (await exitRequestRef.current?.()) setQuick(false);
   };
-  return <div className="page hr-front-schedule-page grid min-w-0 content-start gap-2 [&>*+*]:!mt-0">
+  return <Page className="hr-front-schedule-page grid min-w-0 content-start gap-2 [&>*+*]:!mt-0">
     <HrBackBar label={quick ? "返回月曆" : "返回工作"} disabled={editState.pending} onBack={() => void goBack()} />
     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3">
       <h1 ref={headingRef} tabIndex={-1} className="m-0 text-xl outline-none">{quick ? "快速排班" : "排班"}</h1>
@@ -340,5 +340,5 @@ export function HrScheduling() {
     {lockDialogOpen ? <Dialog title={scopeLock?.locked ? "開鎖本據點排班？" : "鎖定本據點排班？"} onClose={() => setLockDialogOpen(false)} closeDisabled={scopeLockMutation.isPending} actions={<><Button variant="secondary" size="lg" disabled={scopeLockMutation.isPending} onClick={() => setLockDialogOpen(false)}>取消</Button><Button size="lg" loading={scopeLockMutation.isPending} onClick={() => void (async () => { try { await scopeLockMutation.mutateAsync({ path: "/me/schedules/lock", method: "POST", values: { periodKey: month, scopeId: selectedScopeId, revision: scopeLock?.revision ?? 0, locked: !scopeLock?.locked } }); setLockDialogOpen(false); await schedule.refetch(); } catch (error) { setLockError(error instanceof Error ? error.message : "據點排班鎖定狀態更新失敗，請稍後再試。"); } })()}>{scopeLock?.locked ? "確認開鎖" : "確認鎖定"}</Button></>}>
       <p className="m-0">{scopeLock?.locked ? `開鎖後可繼續調整 ${month} 月「${schedule.data?.scopes[0]?.name ?? "本據點"}」排班。` : `鎖定後將禁止調整 ${month} 月「${schedule.data?.scopes[0]?.name ?? "本據點"}」排班；其他據點不受影響。`}</p>
     </Dialog> : null}
-  </div>;
+  </Page>;
 }

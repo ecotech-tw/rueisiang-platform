@@ -3,7 +3,7 @@ import { canSchedulePerson, outdatedScheduleIds, resolveSchedulePerson, schedule
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { groupShiftsByTemplate, isDefaultHrCalendarSpecialName, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, HR_SHIFT_DAY_LABELS, SCHEDULE_ATTENDANCE_STATUS_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { GuardedNavLink, useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
@@ -352,7 +352,7 @@ export function HrScheduling() {
 
   if (!canRead) return <Alert tone="danger">你沒有檢視排班的權限。</Alert>;
   if (schedule.isPending) return <HrPageSkeleton variant="calendar" />;
-  if (schedule.error || !data) return <div className="page">{savedNeedsReload ? <Alert tone="info">排班已儲存並生效，但載入最新班表失敗；不需要再次儲存。</Alert> : null}<Alert tone="danger">{schedule.error?.message ?? "排班資料載入失敗。"}</Alert><Button variant="secondary" loading={schedule.isFetching} onClick={() => void reloadSchedule(savedNeedsReload)}>重新載入班表</Button></div>;
+  if (schedule.error || !data) return <Page>{savedNeedsReload ? <Alert tone="info">排班已儲存並生效，但載入最新班表失敗；不需要再次儲存。</Alert> : null}<Alert tone="danger">{schedule.error?.message ?? "排班資料載入失敗。"}</Alert><Button variant="secondary" loading={schedule.isFetching} onClick={() => void reloadSchedule(savedNeedsReload)}>重新載入班表</Button></Page>;
   const version = baseline?.periodKey === data.periodKey ? baseline.version : data.version;
   const defaultScope = scopeId === "all" ? data.scopes[0]?.id ?? "" : scopeId;
   // 換月份時 data 仍是上個月的，version 跟 key 對不上；這時點日期或按鎖定都會寫到錯的月份。
@@ -431,14 +431,14 @@ export function HrScheduling() {
     </> : null}
   </div>;
 
-  return <div className="page fills hr-schedule-page">
+  return <Page layout="fills" className="hr-schedule-page">
     <PageHeader title="排班月曆" description="同一據點／日期／班別可安排多人；需求人力為薪資單位池上限，待確認與已出勤人員平均分配、明確未出勤者不計；跨據點同日排班會提醒但不阻擋，日薪依班別計薪單位累計。正式員工依排班出勤；支援人員日薪依排班單位、時薪依計薪時數計算，且不套用獎金。" actions={pageActions} />
     {restSummaries.length ? <div className="hr-schedule-rest-summary" aria-label="月休統計"><strong>月休統計</strong><div>{restSummaries.map(({ employee, activeDays, scheduledDays, restDays, matches }) => <span className={matches ? "ok" : "warning"} key={employee.employmentId}><b>{employee.name}</b> 休 {restDays}／約定 {employee.monthlyRestDays} 天<span className="muted">（{scheduledDays}／{activeDays} 日）</span></span>)}</div></div> : null}
     {outdatedShiftCount ? <Alert tone="warning">有 {outdatedShiftCount} 筆排班仍保存舊日型或需求人力。{version?.locked ? "請先開鎖，再按「儲存」重新發布。" : "按「儲存」可依目前行事曆及班別設定重新發布時段、工時與需求人力。"}未結帳的薪資需重新試算；已結帳薪資不會自動改寫。</Alert> : null}
     {stale ? <Alert tone="warning">排班已被其他人修改，未儲存草稿仍保留。<Button variant="secondary" onClick={() => { void confirmLeave().then((confirmed) => { if (confirmed) { setBaseline(data); setDraftEntries(data.entries); } }); }}>放棄草稿並載入最新班表</Button></Alert> : null}
     {save.error || lock.error ? <Alert tone="danger">{save.error?.message ?? lock.error?.message}</Alert> : null}
     {multiScopeSchedules.length ? <Alert tone="warning"><strong>同日跨據點排班提醒：</strong>{multiScopeSchedules.slice(0, 5).map((item) => `${item.personName}（${item.workDate}：${item.scopeNames.join("、")}）`).join("；")}{multiScopeSchedules.length > 5 ? `；另有 ${multiScopeSchedules.length - 5} 組` : ""}。仍可儲存；日薪依各班別排班單位計算。</Alert> : null}
-    <Panel className="grows hr-calendar-panel">
+    <Panel grows className="hr-calendar-panel overflow-auto">
       <div className="hr-calendar-head">
         <div className="hr-schedule-month">
           {/*
@@ -517,5 +517,5 @@ export function HrScheduling() {
     {addingDay && defaultScope ? <ScheduleEntryDialog data={data} entries={draftEntries} day={addingDay} dayType={dayTypeOf(addingDay)} defaultScopeId={defaultScope} onAdd={(entry) => setDraftEntries((current) => [...current, entry])} onClose={() => setAddingDay(null)} /> : null}
     {editingCalendar ? <CalendarDialog periodKey={key} days={data.calendar} scopes={data.scopes} canWrite={canWrite} onClose={() => setEditingCalendar(false)} onSaved={() => schedule.refetch()} /> : null}
     {viewingOverlapRules ? <ScheduleOverlapRulesDialog onClose={() => setViewingOverlapRules(false)} /> : null}
-  </div>;
+  </Page>;
 }

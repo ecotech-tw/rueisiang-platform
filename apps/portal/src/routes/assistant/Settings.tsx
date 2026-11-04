@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, Field, FieldHint, FilterSelect, PageHeader, Panel, Textarea } from "../../ui/index.js";
+import { Alert, Button, Field, FieldHint, FilterSelect, Page, PageHeader, Panel, Textarea } from "../../ui/index.js";
 import { useSaveAssistantToolStatus, useSavePiCodexCredential, useSandboxConfig, type AssistantTool } from "./api.js";
 
 function statusLabel(status: AssistantTool["status"]): string {
@@ -18,7 +18,7 @@ export function AssistantSettings() {
   const [credential, setCredential] = useState("");
 
   if (config.isPending) return <div className="boot">載入中…</div>;
-  if (config.error) return <div className="page"><Alert tone="danger">{config.error.message}</Alert></div>;
+  if (config.error) return <Page><Alert tone="danger">{config.error.message}</Alert></Page>;
 
   const data = config.data;
   if (!data) return null;
@@ -32,7 +32,7 @@ export function AssistantSettings() {
   }
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader title="小香助理設定" description="設定會直接影響之後的正式小香執行；Sandbox 仍可選其他可用模型做單次測試。" />
       {data.modelNotice ? <Alert tone="danger">{data.modelNotice}</Alert> : null}
 
@@ -106,6 +106,6 @@ export function AssistantSettings() {
         {saveTool.error ? <Alert tone="danger">{saveTool.error.message}</Alert> : null}
         {saveTool.isSuccess ? <p className="form-hint">工具狀態已儲存，Sandbox 與後續 channel 會立即讀取新設定。</p> : null}
       </Panel>
-    </div>
+    </Page>
   );
 }

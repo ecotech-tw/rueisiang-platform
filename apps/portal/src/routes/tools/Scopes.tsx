@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, DataTable, Dialog, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 
 /**
  * 通路管理。
@@ -243,17 +243,17 @@ export function Scopes() {
   }
 
   if (query.isPending) return <div className="boot">載入中…</div>;
-  if (query.error) return <div className="page"><Alert tone="danger">{query.error.message}</Alert></div>;
+  if (query.error) return <Page><Alert tone="danger">{query.error.message}</Alert></Page>;
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="通路管理"
         description="出金表、商品銷售報表與營運統計都掛在通路底下。停業與封存都不會刪掉已經匯入的歷史資料。"
         actions={<Button icon="plus" onClick={() => setEditing({ scope: null })}>新增通路</Button>}
       />
 
-      <Panel className="grows">
+      <Panel grows>
         <FilterToolbar>
           <FilterInput
             label="搜尋"
@@ -403,6 +403,6 @@ export function Scopes() {
           <p className="muted">已匯入的出金與商品銷售不會被刪除，營運統計仍然算得到它；狀態篩選選「已封存」就找得回來。</p>
         </ConfirmDialog>
       ) : null}
-    </div>
+    </Page>
   );
 }

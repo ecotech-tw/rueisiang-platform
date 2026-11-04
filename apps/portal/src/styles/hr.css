@@ -353,11 +353,10 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   overscroll-behavior-y: contain;
   scrollbar-gutter: stable;
 }
-.hr-system-main:has(.page.fills) {
+.hr-system-main:has([data-page=fills]) {
   height: 100%;
   overflow: hidden;
 }
-.hr-system-main > .page.fills { min-height: 0; }
 .hr-system .page-head .muted { display: none; }
 .hr-system-main > .hr-page-transition {
   position: relative;
@@ -367,14 +366,12 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   min-height: 0;
   justify-self: stretch;
 }
-.hr-system-main:has(.page.fills) > .hr-page-transition {
+.hr-system-main:has([data-page=fills]) > .hr-page-transition {
   height: 100%;
   /* 頁面轉場不應裁掉頁首按鈕的外陰影；外層 main 仍負責限制整個內容區。 */
   overflow: visible;
 }
-.hr-page-transition > .page,
-.hr-page-transition > .page.fills { width: 100%; min-width: 0; }
-.hr-page-transition > .page.fills { min-height: 0; }
+.hr-page-transition > [data-page] { width: 100%; }
 .hr-page-transition.is-entering {
   animation: hr-page-enter 560ms cubic-bezier(0.2, 0, 0, 1) both;
 }
@@ -420,7 +417,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   white-space: nowrap;
 }
 
-.hr-system .table-scroll { min-width: 0; }
 .hr-system .row-actions { gap: 8px; }
 /*
  * 頁首並排的操作鍵。沒有這條時 .button-row 是 block，按鈕靠文字基線排：次要鍵與主要鍵
@@ -884,7 +880,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 }
 
 /* 申請中心是跨出勤／薪資的獨立工作區；申請紀錄與審核集中在同一張表。 */
-.hr-request-page > * + * { margin-top: 18px; }
 .hr-request-form { display: grid; gap: 16px; }
 .hr-request-form textarea { min-height: 96px; resize: vertical; }
 .hr-request-kind-picker { display: grid; gap: 8px; }
@@ -892,7 +887,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-request-dialog-actions { display: contents; }
 .hr-request-dialog .hr-request-form { padding-top: 2px; }
 .hr-request-history-panel > .hr-request-table-region { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.hr-request-table-region > .table-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; }
+.hr-request-table-region > [data-table-scroll] { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .hr-request-mobile-select-all { display: none; }
 .hr-request-table-region { position: relative; min-width: 0; }
 .hr-request-table tr.selected td { background: --alpha(var(--color-brand) / 7%); }
@@ -914,27 +909,22 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 }
 
 @media (max-width: 620px) {
-  .hr-request-page > * + * { margin-top: 14px; }
   .hr-request-dialog-actions > * { flex: 1; }
 }
 
 /* 假別是出勤主檔；保留足夠留白讓狀態與操作在窄螢幕仍可辨識。 */
-.hr-leave-types-page { gap: 18px; }
 .hr-leave-types-page td:first-child { min-width: 180px; }
 .hr-leave-types-page td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hr-leave-types-page td:last-child { min-width: 190px; }
 .hr-leave-grant-dialog .hr-leave-grant-fields { display: grid; gap: 18px; }
 .hr-leave-grant-dialog .hr-leave-grant-date-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @media (max-width: 620px) {
-  .hr-leave-types-page { gap: 14px; }
   .hr-leave-types-page td:last-child { min-width: 0; }
   .hr-leave-grant-dialog .hr-leave-grant-fields { gap: 16px; }
   .hr-leave-grant-dialog .hr-leave-grant-date-row { grid-template-columns: 1fr; gap: 14px; }
 }
 
 /* 特休額度先呈現員工目前可用資料；政策級距移至獨立的特休政策頁。 */
-.hr-annual-leave-page,
-.hr-annual-settings-page { gap: 18px; }
 .hr-annual-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .hr-annual-leave-page small,
 .hr-annual-settings-page small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 12px; line-height: 1.45; }
@@ -981,8 +971,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-annual-principles { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 620px) {
-  .hr-annual-leave-page,
-  .hr-annual-settings-page { gap: 14px; }
   .hr-annual-settings-overview { grid-template-columns: minmax(0, 1fr); }
   .hr-annual-header-actions { justify-content: flex-start; }
   .hr-annual-view-tabs { width: 100% !important; }

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
@@ -238,7 +238,7 @@ export function Items() {
   const pendingWarehouseCount = items.length - inWarehouseCount;
 
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title="品項列表"
         description="集中維護可被倉儲、SKU 對應與報表共用的品項；庫存盤點仍留在倉儲頁處理。"
@@ -252,7 +252,7 @@ export function Items() {
         <div className="stat"><span>CYBERBIZ 鏡像</span><strong>{cyberbizCount.toLocaleString("zh-TW")}</strong></div>
       </div>
 
-      <Panel className="grows">
+      <Panel grows>
         <FilterToolbar>
           <FilterInput
             label="搜尋"
@@ -369,6 +369,6 @@ export function Items() {
           </p>
         </ConfirmDialog>
       ) : null}
-    </div>
+    </Page>
   );
 }

@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type Candidate, type CompensationVersion, type Employee, type Employment, type InsuranceVersion, type LeaveRequest, type NamedOption, type Profile } from "./api.js";
 import { EmployeeProfile } from "./EmployeeProfile.js";
 import { EmployeeSectionNav } from "./EmployeeSectionNav.js";
@@ -122,15 +122,15 @@ export function HrEmployeeDetail() {
   usePageTitle(detail.data ? `${detail.data.employee.employeeNumber} ${detail.data.employee.legalName}` : "人員內頁");
   if (!canRead) return <Alert tone="danger">你沒有檢視員工資料的權限。</Alert>;
   if (detail.isPending) return <HrPageSkeleton variant="detail" />;
-  if (detail.error || !detail.data) return <div className="page"><Alert tone="danger">{detail.error?.message ?? "找不到員工資料。"}</Alert><Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回員工列表</Button></div>;
+  if (detail.error || !detail.data) return <Page><Alert tone="danger">{detail.error?.message ?? "找不到員工資料。"}</Alert><Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回員工列表</Button></Page>;
   const profile = detail.data;
   const formalEmployee = profile.employee.personKind !== "worker" && profile.employee.userId !== null;
-  return <div className="page hr-employee-detail-page">
+  return <Page className="hr-employee-detail-page">
     <PageHeader title={`${profile.employee.employeeNumber} · ${profile.employee.legalName}`} description={formalEmployee ? "集中維護大頭貼、基本、聯絡與公司資料，查看敘薪、保險與出勤紀錄。" : "支援人員的人員與敘薪紀錄；異動由支援人員管理維護。"} actions={<Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回列表</Button>} />
     <EmployeeSectionNav key={id} profile={profile} />
     {formalEmployee ? <EmployeeProfile key={profile.employee.userId} profile={profile} canWrite={canWrite} onSaved={() => void detail.refetch()} /> : <BasicSection profile={profile} />}
     <HrProfileDetails profile={profile} includeBasic={false} />
-  </div>;
+  </Page>;
 }
 
 export function HrEmployees() {
@@ -150,9 +150,9 @@ export function HrEmployees() {
   const update = (patch: Partial<typeof filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   const sort = (sortField: string, sortDirection: "asc" | "desc") => update({ sortField, sortDirection });
   const candidateOptions: NamedOption[] = (candidates.data?.users ?? []).map((candidate) => ({ id: candidate.userId, name: `${candidate.displayName}（${candidate.email}）` }));
-  return <div className="page fills">
+  return <Page layout="fills">
     <PageHeader title="人員列表" description="點選人員進入內頁，維護基本資料並查看完整人事紀錄。" actions={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditor({ title: "指派新員工", description: "員工必須先存在於平台使用者名單；正式姓名請依身分證件填寫。出勤方式與辦公位置由出勤範圍管理維護。", fields: [{ key: "userId", label: "使用者", options: candidateOptions }, { key: "legalName", label: "正式姓名（身分證）", maxLength: 100 }, { key: "employeeNumber", label: "員工編號", maxLength: 40 }, { key: "position", label: "職位", maxLength: 100 }, { key: "serviceStartOn", label: "服務年資起算日", type: "date" }] })}>新增員工</Button> : null} />
-    <Panel className="grows">
+    <Panel grows>
       <div className="hr-employee-status-tabs" role="tablist" aria-label="人員狀態">
         <button type="button" role="tab" aria-selected={filters.employmentStatus === "active"} className={filters.employmentStatus === "active" ? "active" : ""} onClick={() => update({ employmentStatus: "active" })}>在職 <span>{data?.counts.active ?? "—"}</span></button>
         <button type="button" role="tab" aria-selected={filters.employmentStatus === "inactive"} className={filters.employmentStatus === "inactive" ? "active" : ""} onClick={() => update({ employmentStatus: "inactive" })}>未在職 <span>{data?.counts.inactive ?? "—"}</span></button>
@@ -176,5 +176,5 @@ export function HrEmployees() {
       {data && data.total > 0 ? <Pager className="mt-4 shrink-0" page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={Math.max(1, Math.ceil(data.total / data.pageSize))} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}
     </Panel>
     {editor ? <EditorDialog editor={editor} onClose={() => { setEditor(null); void employees.refetch(); void candidates.refetch(); }} onSuccess={() => toast.show("已指派新員工", "success")} /> : null}
-  </div>;
+  </Page>;
 }

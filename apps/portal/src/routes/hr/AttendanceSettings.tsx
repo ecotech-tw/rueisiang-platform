@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField } from "../../ui/index.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type GoogleMapPlace, type NamedOption } from "./api.js";
@@ -240,15 +240,15 @@ export function HrAttendanceSettings() {
 
   if (!canRead) return <Alert tone="danger">你沒有檢視據點管理的權限。</Alert>;
   if (locations.isPending) return <HrPageSkeleton variant="table" />;
-  if (locations.error) return <div className="page"><Alert tone="danger">{locations.error.message}</Alert></div>;
+  if (locations.error) return <Page><Alert tone="danger">{locations.error.message}</Alert></Page>;
   return (
-    <div className="page fills">
+    <Page layout="fills">
       <PageHeader
         title={pageTitle}
         description="管理營運據點對應的辦公位置與定位範圍；員工可打卡地點請到出勤範圍管理設定。"
         actions={(canWrite || canReviewOvertime) ? <div className="button-row">{canReviewOvertime ? <Button variant="secondary" tone="info" onClick={() => navigate("/hr/requests?type=overtime")}>申請與審核</Button> : null}{canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditor("new")}>新增辦公位置</Button> : null}</div> : undefined}
       />
-      <Panel className="grows">
+      <Panel grows>
         <FilterToolbar>
           <FilterInput label="搜尋辦公位置或據點" type="search" className={SEARCH_INPUT_WIDTH} placeholder="搜尋辦公位置或營運據點" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
           <FilterSelect label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => { setScopeId(event.target.value); setPage(1); }} />
@@ -272,6 +272,6 @@ export function HrAttendanceSettings() {
         <Pager className="mt-4 shrink-0" page={page} pageSize={pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.ceil(total / pageSize)} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
       </Panel>
       {editor ? <LocationDialog location={editor === "new" ? undefined : editor} onClose={() => setEditor(null)} /> : null}
-    </div>
+    </Page>
   );
 }

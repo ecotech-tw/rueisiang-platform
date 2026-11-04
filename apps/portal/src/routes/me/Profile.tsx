@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, Page, PageHeader, Panel, TextField } from "../../ui/index.js";
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "管理者",
@@ -49,7 +49,7 @@ export function Profile() {
   if (!user) return <div className="boot">載入中…</div>;
 
   return (
-    <div className="page">
+    <Page>
       <PageHeader title="個人資料" description="這裡只有顯示名稱可以改，其餘欄位由登入方式與權限決定。" />
 
       <Panel title="顯示名稱">
@@ -105,6 +105,6 @@ export function Profile() {
           要調整角色請找管理者，這一頁改不了——不然權限就形同虛設。
         </p>
       </Panel>
-    </div>
+    </Page>
   );
 }

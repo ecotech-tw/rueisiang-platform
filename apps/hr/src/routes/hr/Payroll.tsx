@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type HrPayrollHistoryRecord, type HrPayslipDetailResponse, type PayrollLine } from "./api.js";
 import { dateLabel } from "./format.js";
 import { HrBackBar } from "./HrBackBar.js";
@@ -45,7 +45,7 @@ export function HrPayrollHistory() {
   usePageTitle("薪資袋");
   const navigate = useNavigate();
   const query = useHrQuery<{ records: HrPayrollHistoryRecord[] }>("/me/payroll-history");
-  return <div className="page hr-payroll-history-page">
+  return <Page className="hr-payroll-history-page">
     <PageHeader title="薪資袋" description="查看已確定發放的薪資紀錄與實領金額。" />
     <div className="hr-payroll-history-content">
       {query.isPending ? <p className="muted">載入薪資紀錄…</p> : null}
@@ -56,7 +56,7 @@ export function HrPayrollHistory() {
         <div className="hr-payroll-history-card-foot"><span>收入 {money(record.earningMinor)}</span><span>扣除 {money(record.deductionMinor)}</span><span>薪資版本 {record.versionNumber}</span></div>
       </button>)}</div> : !query.isPending && !query.error ? <div className="hr-form-empty-state"><strong>目前沒有已發放的薪資單</strong><p className="muted">完成薪資結帳後，紀錄會出現在這裡。</p></div> : null}
     </div>
-  </div>;
+  </Page>;
 }
 
 export function HrPayslipDetail() {
@@ -69,7 +69,7 @@ export function HrPayslipDetail() {
   const query = useHrQuery<HrPayslipDetailResponse>(path, Boolean(path));
   const record = query.data?.detail.record;
   const lines = query.data?.detail.lines ?? [];
-  return <div className="page hr-payroll-history-page hr-payslip-page">
+  return <Page className="hr-payroll-history-page hr-payslip-page [&>.page-head]:mt-2">
     <HrBackBar label="返回薪資袋" onBack={() => navigate("/payroll")} />
     <PageHeader title="薪資明細" description={record ? `${periodLabel(record.periodKey)}・${dateLabel(record.payDate, NO_PAY_DATE)}` : "查看已發放薪資項目。"} className="hr-payslip-head" />
     {query.isPending ? <p className="muted">載入薪資明細…</p> : null}
@@ -82,5 +82,5 @@ export function HrPayslipDetail() {
         return <section key={direction}><h2>{direction === "earning" ? "收入項目" : "扣除項目"}</h2>{selected.length ? <ul>{selected.map((line) => <li key={line.lineKey}><span>{lineLabel(line)}</span><strong>{direction === "deduction" ? `−${money(line.amountMinor)}` : money(line.amountMinor)}</strong></li>)}</ul> : <p className="muted">無項目</p>}</section>;
       })}</div>
     </Panel> : null}
-  </div>;
+  </Page>;
 }

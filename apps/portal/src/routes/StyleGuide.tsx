@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { DateRangePicker } from "../shell/DateRangePicker.js";
 import { Switch } from "../shell/Switch.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { PageTabs, WorkflowRunPanel } from "../ui/index.js";
+import { Page, PageTabs, WorkflowRunPanel } from "../ui/index.js";
 import {
   Alert,
   Button,
@@ -172,7 +172,7 @@ export function StyleGuide() {
   return (
     // 這一頁的對話框預覽要跟 HRIS 的玻璃樣式一起看；頁面本身不在 HrLayout 底下，所以自己提供範圍。
     <DialogScope className="hr-system">
-    <div className="page style-guide">
+    <Page className="style-guide">
       <PageHeader
         title="UI 元件樣式指南"
         description="Portal 的 Material 3 tokens、HRIS 共用元件與互動狀態。這一頁直接使用 packages/ui 的 canonical exports。"
@@ -405,7 +405,7 @@ export function StyleGuide() {
         </ConfirmDialog>
       ) : null}
       </ButtonSkin>
-    </div>
+    </Page>
     </DialogScope>
   );
 }

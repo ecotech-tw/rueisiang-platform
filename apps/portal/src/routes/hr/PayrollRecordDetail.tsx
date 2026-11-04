@@ -5,7 +5,7 @@ import { Icon } from "../../shell/icons.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { downloadPayslipImage } from "./exportPayslip.js";
 import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail, type PayrollScheduleAllocationDetail, type PayrollWorker } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -15,7 +15,7 @@ import { HrPageSkeleton } from "./HrSkeleton.js";
  * 沒有左右留白、列與列之間用下緣線、表頭小一級。最後一欄固定寬，金額才會對齊。
  * 表頭沿用外層的圓角，但不要玻璃：單據上的表頭是實心的紙。
  */
-const PAYSLIP_TABLE = "table-fixed [&_th]:h-auto [&_td]:h-auto [&_th]:px-0 [&_td]:px-0 [&_th]:py-[9px] [&_td]:py-[9px] [&_th]:border-t-0 [&_td]:border-t-0 [&_th]:border-b [&_td]:border-b [&_th]:border-soft-line [&_td]:border-soft-line [&_th]:text-left [&_td]:text-left [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:w-[180px] [&_td:last-child]:w-[180px] [&_th:last-child]:pr-0 [&_td:last-child]:pr-0 [&_th]:text-[12px] [&_th]:font-bold [&_.numeric]:text-right [.table-scroll>&_thead_th]:bg-paper [.table-scroll>&_thead_th]:shadow-none [.table-scroll>&_thead_th]:[-webkit-backdrop-filter:none] [.table-scroll>&_thead_th]:[backdrop-filter:none]";
+const PAYSLIP_TABLE = "table-fixed [&_th]:h-auto [&_td]:h-auto [&_th]:px-0 [&_td]:px-0 [&_th]:py-[9px] [&_td]:py-[9px] [&_th]:border-t-0 [&_td]:border-t-0 [&_th]:border-b [&_td]:border-b [&_th]:border-soft-line [&_td]:border-soft-line [&_th]:text-left [&_td]:text-left [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:w-[180px] [&_td:last-child]:w-[180px] [&_th:last-child]:pr-0 [&_td:last-child]:pr-0 [&_th]:text-[12px] [&_th]:font-bold [&_.numeric]:text-right [[data-table-scroll]>&_thead_th]:bg-paper [[data-table-scroll]>&_thead_th]:shadow-none [[data-table-scroll]>&_thead_th]:[-webkit-backdrop-filter:none] [[data-table-scroll]>&_thead_th]:[backdrop-filter:none]";
 
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
 const PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
@@ -459,7 +459,7 @@ export function HrPayrollRecordDetail() {
     }
   }
 
-  return <div className="page hr-payroll-page hr-payroll-detail-page">
+  return <Page className="hr-payroll-page hr-payroll-detail-page">
     <PageHeader title={detail.record.personName} description={`${periodLabel(detail.record.periodKey)}・${PERSON_KIND_LABEL[detail.record.personKind]}・${payBasisOf(detail)}`} actions={<div className="hr-payroll-detail-page-actions"><Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/hr/payroll-settlement")}>返回發放紀錄</Button></div>} />
     <Panel className="hr-payroll-record-detail-panel" title="發放明細" description={`${detail.record.payDate ? `發薪日 ${detail.record.payDate}` : "未設定發薪日"}・試算版本 v${detail.record.versionNumber}`}>
       <div className="hr-payroll-detail-head">
@@ -515,5 +515,5 @@ export function HrPayrollRecordDetail() {
       {detail.run.withdrawal ? <p><strong>這批曾確定發放後撤回。</strong>刪除後原始薪資快照不會保留，撤回原因只留在操作紀錄。</p> : null}
       {deleteRun.error ? <Alert tone="danger">{deleteRun.error.message}</Alert> : null}
     </ConfirmDialog> : null}
-  </div>;
+  </Page>;
 }

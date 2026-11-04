@@ -1,5 +1,6 @@
 import Skeleton from "react-loading-skeleton";
 import type { ReactNode } from "react";
+import { Page } from "../../ui/index.js";
 
 export type HrSkeletonVariant = "dashboard" | "table" | "calendar" | "detail";
 
@@ -75,8 +76,8 @@ function DetailSkeleton() {
 }
 
 export function HrPageSkeleton({ variant = "table" }: { variant?: HrSkeletonVariant }) {
-  return <div className={`page hr-skeleton-page hr-skeleton-page-${variant}`} role="status" aria-label="載入中">
+  return <Page className={`hr-skeleton-page hr-skeleton-page-${variant}`} role="status" aria-label="載入中">
     <SkeletonPageHead />
     {variant === "dashboard" ? <DashboardSkeleton /> : variant === "calendar" ? <CalendarSkeleton /> : variant === "detail" ? <DetailSkeleton /> : <TablePageSkeleton />}
-  </div>;
+  </Page>;
 }
