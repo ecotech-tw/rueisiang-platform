@@ -500,7 +500,7 @@ function shiftTimes(input: Record<string, unknown>): HrShiftTime[] {
   return value.map((item) => {
     if (!item || typeof item !== "object" || Array.isArray(item)) throw new HTTPException(400, { message: "班別時間格式不正確。" });
     const entry = item as Record<string, unknown>;
-    if (!isHrShiftDayKey(entry.dayType) || entry.dayType === "weekend" || entry.dayType === "holiday") throw new HTTPException(400, { message: "班別的日期類型不正確。" });
+    if (!isHrShiftDayKey(entry.dayType) || entry.dayType.startsWith("legacy_")) throw new HTTPException(400, { message: "班別的日期類型不正確。" });
     const defaults = defaultShiftMinutes(entry);
     const requiredHeadcount = entry.requiredHeadcount === undefined ? undefined : integerValue(entry, "requiredHeadcount", "需求人力", 1, 100);
     return { dayType: entry.dayType, startSecond: defaults.start, endSecond: defaults.end, standardMinutes: defaults.standardMinutes, breakMinutes: defaults.breakMinutes, requiredHeadcount };

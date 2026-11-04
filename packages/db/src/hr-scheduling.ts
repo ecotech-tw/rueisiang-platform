@@ -4,7 +4,7 @@ import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { inJsonArray } from "./sql-lists.js";
 import { hrShiftDayKeyForDate } from "./schedule-draft.js";
-import { listHrCalendarMonth } from "./hr-calendar.js";
+import { listHrCalendarMonth, resolveDayTypes } from "./hr-calendar.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, type HrActor } from "./hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments, hrWorkerAccountLinks } from "./schema/hr-people.js";
@@ -248,6 +248,7 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
   const enriched: EnrichedScheduleEntry[] = [];
   // 正式員工同據點重疊仍禁止；支援人員可排不同重疊班，時薪重疊扣除由薪資引擎處理。
   const occupied = new Map<string, Array<{ start: number; end: number }>>();
+  const dayTypes = await resolveDayTypes(db, [...new Set(entries.map((entry) => entry.workDate))]);
   for (const entry of entries) {
     if (!datePeriodContains(entry.workDate, period)) throw new HrError(400, "排班日期必須位於指定月份。 ");
     const attendanceStatus = entry.attendanceStatus ?? "scheduled";
@@ -255,10 +256,13 @@ async function validateAndEnrichEntries(db: Database, period: { start: string; e
     if (!scopeIds.has(entry.scopeId)) throw new HrError(404, "找不到有效的營運據點。 ");
     const selectedShift = shiftMap.get(`${entry.shiftVersionId}:${entry.scopeId}`);
     if (!selectedShift || selectedShift.scopeId !== entry.scopeId) throw new HrError(400, "班別未設定在這個營運據點。 ");
-    // 舊班表仍可能帶共用版 id；發布時依工作日的星期覆蓋同一班別，避免沿用過期快照。
+    // 舊班表仍可能帶共用版 id；發布時依工作日的星期或國定假日覆蓋同一班別，避免沿用過期快照。
     const versions = shiftsByTemplateAndScope.get(`${selectedShift.templateId}:${entry.scopeId}`)!;
+    const dayType = dayTypes.get(entry.workDate);
     const weekdayKey = hrShiftDayKeyForDate(entry.workDate);
-    const shift = versions.find((version) => version.dayType === weekdayKey) ?? versions.find((version) => version.dayType === "weekday");
+    const shift = (dayType === "holiday" ? versions.find((version) => version.dayType === "holiday") : undefined)
+      ?? versions.find((version) => version.dayType === weekdayKey)
+      ?? versions.find((version) => version.dayType === "weekday");
     if (!shift) throw new HrError(400, "班別缺少共用時間設定。 ");
     if (entry.personKind === "employee") {
       const employment = entry.employmentId ? employmentMap.get(entry.employmentId) : undefined;
@@ -320,7 +324,7 @@ function listHrScopeShiftRows(db: Database) {
 export async function listHrShifts(db: Database) {
   const [scopeRows, shiftRows] = await Promise.all([listHrScheduleScopes(db), listHrScopeShiftRows(db)]);
   const people = await db.select({ id: hrEmployments.id, name: hrEmployments.legalName, employeeNumber: hrEmployments.employeeNumber, personKind: hrEmployments.personKind }).from(hrEmployments).where(isNull(hrEmployments.archivedAt)).orderBy(...hrEmployeeNumberOrder());
-  return { scopes: scopeRows, shifts: latestShiftVersions(shiftRows).filter((shift) => shift.dayType !== "weekend" && shift.dayType !== "holiday").map(({ versionNumber: _versionNumber, code: _code, ...shift }) => shift), people };
+  return { scopes: scopeRows, shifts: latestShiftVersions(shiftRows).filter((shift) => !shift.dayType.startsWith("legacy_")).map(({ versionNumber: _versionNumber, code: _code, ...shift }) => shift), people };
 }
 
 export async function getHrSchedule(db: Database, periodKey: string, scopeId?: string) {
@@ -360,7 +364,7 @@ export async function getHrSchedule(db: Database, periodKey: string, scopeId?: s
     version: version ? { id: version.id, revision: version.revision, status: "published" as const, locked: version.lockedAt !== null, lockedAt: version.lockedAt } : null,
     scopes: scopeRows,
     calendar,
-    shifts: (selectedScopeId ? latestShiftVersions(shiftRows).filter((shift) => shift.scopeId === selectedScopeId) : latestShiftVersions(shiftRows)).filter((shift) => shift.dayType !== "weekend" && shift.dayType !== "holiday").map(({ versionNumber: _versionNumber, ...shift }) => shift),
+    shifts: (selectedScopeId ? latestShiftVersions(shiftRows).filter((shift) => shift.scopeId === selectedScopeId) : latestShiftVersions(shiftRows)).filter((shift) => !shift.dayType.startsWith("legacy_")).map(({ versionNumber: _versionNumber, ...shift }) => shift),
     employees,
     workers: workerRows,
     entries: [
@@ -535,17 +539,17 @@ function assertSameDayShift(input: { startSecond: number; endSecond: number; sta
 /**
  * 共用時間是必填的，未單獨設定的星期才有一致的預設值可用。
  */
-const HR_SHIFT_DAY_LABELS: Record<HrShiftDayKey, string> = { weekday: "共用", monday: "週一", tuesday: "週二", wednesday: "週三", thursday: "週四", friday: "週五", saturday: "週六", sunday: "週日", weekend: "週末（舊設定）", holiday: "國定假日（舊設定）" };
+const HR_SHIFT_DAY_LABELS: Record<HrShiftDayKey, string> = { weekday: "共用", monday: "週一", tuesday: "週二", wednesday: "週三", thursday: "週四", friday: "週五", saturday: "週六", sunday: "週日", holiday: "國定假日", legacy_monday: "舊週一設定", legacy_tuesday: "舊週二設定", legacy_wednesday: "舊週三設定", legacy_thursday: "舊週四設定", legacy_friday: "舊週五設定", legacy_saturday: "舊週六設定", legacy_sunday: "舊週日設定", legacy_weekend: "舊週末設定", legacy_holiday: "舊國定假日設定" };
 
 export function isHrShiftDayKey(value: unknown): value is HrShiftDayKey {
   return typeof value === "string" && (HR_SHIFT_DAY_KEYS as readonly string[]).includes(value);
 }
 
 function assertShiftTimes(times: HrShiftTime[]) {
-  if (!Array.isArray(times) || !times.length || times.length > 8) throw new HrError(400, "班別的時間組數不正確。 ");
+  if (!Array.isArray(times) || !times.length || times.length > 9) throw new HrError(400, "班別的時間組數不正確。 ");
   const seen = new Set<HrShiftDayKey>();
   for (const time of times) {
-    if (!isHrShiftDayKey(time.dayType) || time.dayType === "weekend" || time.dayType === "holiday") throw new HrError(400, "班別的日期類型不正確。 ");
+    if (!isHrShiftDayKey(time.dayType) || time.dayType.startsWith("legacy_")) throw new HrError(400, "班別的日期類型不正確。 ");
     if (seen.has(time.dayType)) throw new HrError(400, `班別的${HR_SHIFT_DAY_LABELS[time.dayType]}時間重複設定了。 `);
     seen.add(time.dayType);
     assertSameDayShift(time);
@@ -637,7 +641,7 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
   const weekdayHeadcount = requiredHeadcounts.get("weekday")!;
   const wanted = new Set(input.times.map((time) => time.dayType));
   // 取消覆蓋時將舊星期鍵改列為不參與選擇的 legacy key，避免既有排班外鍵阻擋還原。
-  const removed = [...latestByDayType.entries()].filter(([dayType]) => !wanted.has(dayType) && dayType !== "weekend" && dayType !== "holiday");
+  const removed = [...latestByDayType.entries()].filter(([dayType]) => !wanted.has(dayType) && !dayType.startsWith("legacy_"));
   const row = activityRow({ entityType: "hr_schedule", entityId: templateId, source: "hr", eventType: "shift_updated", summary: "班別已修改", actor, payload: { scopeId: input.scopeId, name: input.name.trim(), allowedPersonIds, requiredHeadcount: weekdayHeadcount, requiredHeadcounts: Object.fromEntries(requiredHeadcounts), times: input.times } });
   /*
    * 只有第一句真的改到一列，後面才動時間與寫紀錄；用 changes() 而不是再查一次 revision。
@@ -658,9 +662,12 @@ export async function updateHrShift(db: Database, templateId: string, input: HrS
         : sql`INSERT INTO hr_shift_versions (id, shift_template_id, day_type, required_headcount, version_number, start_second, end_second, end_day_offset, standard_minutes, break_minutes, pay_factor_ppm, created_by)
             SELECT ${crypto.randomUUID()}, ${templateId}, ${time.dayType}, ${requiredHeadcount}, 1, ${time.startSecond}, ${time.endSecond}, 0, ${time.standardMinutes}, ${time.breakMinutes}, 1000000, ${actor.id} WHERE changes() = 1`;
     }),
-    ...removed.map(([, version]) => sql`UPDATE hr_shift_versions
-      SET day_type='weekend', version_number=(SELECT COALESCE(MAX(version_number), 0) + 1 FROM hr_shift_versions WHERE shift_template_id=${templateId} AND day_type='weekend')
-      WHERE id=${version.id} AND changes() = 1`),
+    ...removed.map(([dayType, version]) => {
+      const legacyDayType = `legacy_${dayType}`;
+      return sql`UPDATE hr_shift_versions
+        SET day_type=${legacyDayType}, version_number=(SELECT COALESCE(MAX(version_number), 0) + 1 FROM hr_shift_versions WHERE shift_template_id=${templateId} AND day_type=${legacyDayType})
+        WHERE id=${version.id} AND changes() = 1`;
+    }),
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson} WHERE changes() = 1`,
   ];

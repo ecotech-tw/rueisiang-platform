@@ -1534,6 +1534,13 @@
       "when": 1793782391510,
       "tag": "0242_outgoing_onslaught",
       "breakpoints": true
+    },
+    {
+      "idx": 243,
+      "version": "6",
+      "when": 1793800002000,
+      "tag": "0243_hr_holiday_shift_override",
+      "breakpoints": true
     }
   ]
 }

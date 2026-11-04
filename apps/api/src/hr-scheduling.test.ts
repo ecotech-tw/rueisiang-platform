@@ -66,6 +66,26 @@ describe("班別星期時間", () => {
     expect(versionId).toBeTruthy();
   });
 
+  it("國定假日覆蓋優先於星期覆蓋，其他日期仍使用星期或共用時間", async () => {
+    const created = await request("/shift-templates", "POST", { scopeId: "store-a", name: "假日特別班", times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00" },
+      { dayType: "friday", startTime: "10:00", endTime: "19:00" },
+      { dayType: "holiday", startTime: "12:00", endTime: "21:00", requiredHeadcount: 3 },
+    ] });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const { versionId } = await created.json() as { versionId: string };
+    await request("/calendar/2026-02", "PUT", { days: [
+      { date: "2026-02-06", dayType: "holiday", name: "週五假日" },
+      { date: "2026-02-10", dayType: "holiday", name: "週二假日" },
+    ] });
+    const result = await changes({ entries: ["2026-02-06", "2026-02-10", "2026-02-13"].map((workDate) => ({ personKind: "worker", workerId: "worker-1", scopeId: "store-a", shiftVersionId: versionId, workDate })) });
+    expect(result.status, await result.clone().text()).toBe(200);
+    const entries = (await getHrSchedule(db, "2026-02")).entries;
+    expect(entries.find((row) => row.workDate === "2026-02-06")).toMatchObject({ startsAt: "2026-02-06 12:00:00", requiredHeadcount: 3 });
+    expect(entries.find((row) => row.workDate === "2026-02-10")).toMatchObject({ startsAt: "2026-02-10 12:00:00", requiredHeadcount: 3 });
+    expect(entries.find((row) => row.workDate === "2026-02-13")).toMatchObject({ startsAt: "2026-02-13 10:00:00", requiredHeadcount: 1 });
+  });
+
   it("已排班引用星期覆蓋時仍可改回共用，歷史快照保留且可重新套用", async () => {
     const created = await request("/shift-templates", "POST", { scopeId: "store-a", name: "可還原班", times: [
       { dayType: "weekday", startTime: "09:00", endTime: "18:00" },

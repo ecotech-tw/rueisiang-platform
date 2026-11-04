@@ -13,7 +13,7 @@ const timestamps = () => ({
 
 export const HR_CALENDAR_SPECIAL_KINDS = ["none", "typhoon_stop"] as const;
 export type HrCalendarSpecialKind = (typeof HR_CALENDAR_SPECIAL_KINDS)[number];
-export const HR_SHIFT_DAY_KEYS = ["weekday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "weekend", "holiday"] as const;
+export const HR_SHIFT_DAY_KEYS = ["weekday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "holiday", "legacy_monday", "legacy_tuesday", "legacy_wednesday", "legacy_thursday", "legacy_friday", "legacy_saturday", "legacy_sunday", "legacy_weekend", "legacy_holiday"] as const;
 export type HrShiftDayKey = (typeof HR_SHIFT_DAY_KEYS)[number];
 
 /**
@@ -98,8 +98,8 @@ export const hrShiftVersions = sqliteTable("hr_shift_versions", {
   id: text("id").primaryKey(),
   shiftTemplateId: text("shift_template_id").notNull().references(() => hrShiftTemplates.id, { onDelete: "restrict" }),
   /*
-   * weekday 是未指定星期覆蓋時的共用時間；星期鍵只保存與共用時間不同的例外。
-   * weekend／holiday 僅為已被歷史排班引用的舊版本保留，不能再供新排班選用。
+   * weekday 是未指定星期覆蓋時的共用時間；星期鍵與 holiday 保存個別例外。
+   * legacy_* 僅保留仍被歷史排班引用的舊版本，不能供新排班選用。
    * 此表被排班外鍵引用，不加 CHECK，避免 SQLite 重建父表造成 D1 外鍵連坐。
    */
   dayType: text("day_type", { enum: HR_SHIFT_DAY_KEYS }).notNull().default("weekday"),
