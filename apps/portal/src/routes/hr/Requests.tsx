@@ -51,6 +51,12 @@ const REQUEST_STATUS_LABEL: Record<RequestStatus, string> = {
 };
 const REQUEST_PAGE_SIZES = [10, 25, 50, 100] as const;
 
+/*
+ * 手機卡片：可批次取消的列在左上角放勾選框，所以標題改用「類型」那一格，左邊讓出勾選框、
+ * 右邊讓出操作鈕。
+ */
+const REQUEST_TABLE = "hr-request-table [&_.hr-request-select-cell]:text-center max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:absolute max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:top-2 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:left-2 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:block max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:w-10 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:min-w-10 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:p-0 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:border-0 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:m-0 max-[760px]:[&_tbody_tr>td[data-label=類型]]:order-1 max-[760px]:[&_tbody_tr>td[data-label=類型]]:block max-[760px]:[&_tbody_tr>td[data-label=類型]]:w-full max-[760px]:[&_tbody_tr>td[data-label=類型]]:pt-0 max-[760px]:[&_tbody_tr>td[data-label=類型]]:pr-[84px] max-[760px]:[&_tbody_tr>td[data-label=類型]]:pb-2 max-[760px]:[&_tbody_tr>td[data-label=類型]]:pl-12 max-[760px]:[&_tbody_tr>td[data-label=類型]]:mb-1.5 max-[760px]:[&_tbody_tr>td[data-label=類型]]:border-b max-[760px]:[&_tbody_tr>td[data-label=類型]]:border-soft-line max-[760px]:[&_tbody_tr>td[data-label=類型]]:font-semibold max-[760px]:[&_tbody_tr>td[data-label=類型]]:before:hidden";
+
 type RequestStatusFilter = "all" | RequestStatus;
 interface RequestFilters {
   page: number;
@@ -605,7 +611,7 @@ export function HrRequestCenter() {
       {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
       {cancellableOvertimeIds.length ? <div className="hr-request-mobile-select-all"><label className="table-select-all"><input ref={mobileSelectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => toggleVisibleOvertime(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /><span>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</span></label></div> : null}
       <div className="hr-request-table-region">
-      <DataTable className="hr-request-table [&_.hr-request-select-cell]:text-center" containerClassName={requests.isFetching ? "is-refreshing" : ""}>
+      <DataTable className={REQUEST_TABLE} containerClassName={requests.isFetching ? "is-refreshing" : ""}>
         <thead><tr>
           <th className="hr-request-select-cell"><input ref={selectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={!cancellableOvertimeIds.length || requests.isFetching || cancelOvertime.isPending} onChange={(event) => toggleVisibleOvertime(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /></th>
           <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th>

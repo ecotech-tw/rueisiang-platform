@@ -9,7 +9,7 @@ import {
   usePayoutStatus,
   useRunPayout,
 } from "./api.js";
-import { useStoreSelection } from "./store-selection.js";
+import { STORE_TABLE, useStoreSelection } from "./store-selection.js";
 
 /**
  * 出金表執行頁。
@@ -98,7 +98,7 @@ export function Payout() {
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
         {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
 
-        <DataTable>
+        <DataTable className={STORE_TABLE}>
             <thead>
               <tr>
                 <th>
