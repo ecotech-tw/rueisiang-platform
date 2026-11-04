@@ -102,7 +102,8 @@ interface PageHeaderProps {
   actions?: ReactNode;
   /**
    * 只放版面用途。標題與說明的字級用 `[&_h1]:…`、`[&_p]:…` 調整。
-   * 給了 mb-（含 max-[760px]:mb-）或 items-（含 max-[760px]:items-）就整組取代預設值。
+   * 下距與對齊的預設值依斷點分開取代：給了 mb-／items- 只換掉桌機的，
+   * 給了 max-[760px]:mb-／max-[760px]:items- 只換掉手機的。
    */
   className?: string;
 }
@@ -113,8 +114,10 @@ interface PageHeaderProps {
  */
 export function PageHeader({ title, description, actions, className = "" }: PageHeaderProps) {
   const showDescription = useContext(PageDescriptionsContext);
-  const margin = defaultUnless(className, "(max-\\[760px\\]:)?mb-", "mb-0 max-[760px]:mb-3");
-  const row = actions ? `flex justify-between gap-4 max-[760px]:gap-3 ${defaultUnless(className, "(max-\\[760px\\]:)?items-", "items-start max-[760px]:items-center")} [&>:last-child]:flex-none` : "";
+  // defaultUnless 只認開頭或空白後面的字，所以 "mb-" 對不到 "max-[760px]:mb-"，兩個斷點各算各的。
+  const margin = `${defaultUnless(className, "mb-", "mb-0")} ${defaultUnless(className, "max-\\[760px\\]:mb-", "max-[760px]:mb-3")}`;
+  const align = `${defaultUnless(className, "items-", "items-start")} ${defaultUnless(className, "max-\\[760px\\]:items-", "max-[760px]:items-center")}`;
+  const row = actions ? `flex justify-between gap-4 max-[760px]:gap-3 ${align} [&>:last-child]:flex-none` : "";
   return (
     // data-page-head 讓頁面版面認得出頁首（fills 頁裡不伸縮、返回列底下的距離）。
     <header data-page-head="" className={`${margin} ${row} ${className}`.replace(/\s+/g, " ").trim()}>
