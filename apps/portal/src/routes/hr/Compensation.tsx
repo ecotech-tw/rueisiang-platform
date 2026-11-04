@@ -100,6 +100,11 @@ function latestCompensationVersion<T extends { validFrom: string; versionNumber:
   return versions.filter((version) => !version.voidedAt).slice().sort((left, right) => right.validFrom.localeCompare(left.validFrom) || right.versionNumber - left.versionNumber)[0];
 }
 
+function nextCompensationVersion<T extends { validFrom: string; voidedAt?: string | null }>(versions: T[]): T | undefined {
+  const today = taipeiToday();
+  return versions.filter((version) => !version.voidedAt && version.validFrom > today).sort((left, right) => left.validFrom.localeCompare(right.validFrom))[0];
+}
+
 function nextDay(date: string): string {
   const next = new Date(`${date}T00:00:00Z`);
   next.setUTCDate(next.getUTCDate() + 1);
@@ -368,15 +373,16 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: HrF
   const employment = useMemo(() => currentEmployment(profile.data?.employments ?? []), [profile.data?.employments]);
   const compensationVersions = (profile.data?.compensation ?? []).filter((version) => version.employmentId === employment?.id);
   const current = currentVersion(compensationVersions);
+  const upcoming = nextCompensationVersion(compensationVersions);
   const latest = latestCompensationVersion(compensationVersions);
   const allVoided = compensationVersions.length > 0 && !latest;
   if (profile.isLoading) return <HrSkeletonTableRow columns={6} />;
   return <tr>
     <td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
-    <td>{current ? PAY_BASIS_LABEL[current.payBasis] : allVoided ? "已全部撤回" : "尚未設定"}</td>
-    <td className="numeric">{current ? totalsText(versionTotals(current)) : "—"}{current?.overtimeHourlyMinor != null ? <><br /><span className="muted">加班固定 {money(current.overtimeHourlyMinor)}／時</span></> : null}</td>
-    <td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : allVoided ? "已全部撤回" : "—"}</td>
+    <td>{current ? PAY_BASIS_LABEL[current.payBasis] : upcoming ? <>{PAY_BASIS_LABEL[upcoming.payBasis]}<br /><StatusBadge tone="info">預計生效</StatusBadge></> : allVoided ? "已全部撤回" : "尚未設定"}</td>
+    <td className="numeric">{current ? <>{totalsText(versionTotals(current))}{upcoming ? <><br /><span className="muted">預計 {totalsText(versionTotals(upcoming))}</span></> : null}</> : upcoming ? <><span className="muted">預計</span><br />{totalsText(versionTotals(upcoming))}</> : "—"}{current?.overtimeHourlyMinor != null ? <><br /><span className="muted">加班固定 {money(current.overtimeHourlyMinor)}／時</span></> : null}</td>
+    <td>{current ? <>{`${current.validFrom}～${current.validTo ?? "目前"}`}{upcoming ? <><br /><span className="muted">預計 {upcoming.validFrom} 起</span></> : null}</> : upcoming ? <><strong>{upcoming.validFrom} 起</strong><br /><span className="muted">尚未生效</span></> : allVoided ? "已全部撤回" : "—"}</td>
     <td>{canWrite && employment ? latest
       ? <Button variant="icon" icon="edit" tone="info" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />
       : allVoided
