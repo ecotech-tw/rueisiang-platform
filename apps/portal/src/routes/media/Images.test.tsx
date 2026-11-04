@@ -41,7 +41,10 @@ describe("多媒體素材庫", () => {
     expect(markup).toContain('aria-label="圖片列表"'); expect(markup).toContain('aria-sort="descending"');
     for (const label of ["圖片名稱", "格式", "尺寸", "檔案大小", "更新時間", "狀態"]) expect(markup).toContain(label);
     expect(markup).toContain("numeric"); expect(markup).toContain("h-10 w-14"); expect(markup).toContain("複製");
-    expect(markup).toContain("table-scroll min-h-0 flex-1 overflow-auto");
+    const scrollContainer = markup.match(/<div\b[^>]*\bdata-table-scroll=""[^>]*>/)?.[0];
+    expect(scrollContainer).toBeDefined();
+    const scrollClasses = scrollContainer?.match(/\bclass="([^"]*)"/)?.[1]?.split(/\s+/);
+    expect(scrollClasses).toEqual(expect.arrayContaining(["min-h-0", "flex-1", "overflow-auto"]));
   });
   it("純讀取同仁不顯示上傳入口；未授權者顯示明確提示", () => {
     mocks.permissions = new Set(["media:image:read"]); expect(renderToStaticMarkup(<MediaImages />)).not.toContain(">上傳圖片</button>");
