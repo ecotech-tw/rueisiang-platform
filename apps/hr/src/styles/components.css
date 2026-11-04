@@ -1,14 +1,3 @@
-.shell {
-  height: 100vh;
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
-  overflow: hidden;
-  transition: grid-template-columns .22s ease;
-}
-
-.hr-app-shell { display: block; }
-.hr-app-shell .content { width: 100%; }
 
 .hr-module { display: grid; gap: 20px; }
 .hr-module-self > [data-page]:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation: hr-page-swipe-in .24s cubic-bezier(.05, .7, .1, 1); }
@@ -114,8 +103,6 @@
 .hr-clock-deep-links small { overflow: hidden; color: var(--color-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .hr-clock-deep-links a > svg { width: 17px; color: var(--color-muted); }
 
-.content:has(.hr-clock-full-page),
-.content:has(.hr-clock-subpage) { padding: 0; overflow: hidden; }
  
 .hr-module:has(.hr-clock-full-page) { position: relative; display: block; min-height: 100%; }
 .hr-clock-full-page { position: fixed; inset: 0; z-index: 0; width: auto; max-width: none; margin: 0; overflow: hidden; }
@@ -382,13 +369,6 @@
 
 
 @media (max-width: 900px) {
-  .shell {
-    grid-template-columns: 1fr;
-     
-    grid-template-rows: auto minmax(0, 1fr);
-  }
-
-  .shell { height: 100vh; }
 
 }
 
@@ -407,11 +387,6 @@
 @media (max-width: 760px) {
   /* viewport-fit=cover 之後頁面會畫進 Home 橫條那一塊，底部固定元件與替它們留的空間都要從同一個值往上算。 */
   :root { --hr-safe-bottom: max(12px, env(safe-area-inset-bottom)); }
-  .shell { height: 100dvh; min-height: 100dvh; padding-inline: env(safe-area-inset-left) env(safe-area-inset-right); }
-  .content { padding: 16px 14px 28px; }
-  .content:has(.hr-forms-index-page),
-  .content:has(.hr-form-page),
-  .content:has(.hr-payslip-page) { padding-top: 0; }
   .hr-form-page,
   .hr-payslip-page { padding-top: 0; }
   .hr-module-self { gap: 14px; padding-bottom: calc(var(--hr-safe-bottom) + 72px); }

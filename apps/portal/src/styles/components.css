@@ -1,21 +1,3 @@
-.shell {
-  height: 100vh;
-  min-height: 100vh;
-  display: grid;
-  grid-template-columns: 252px minmax(0, 1fr);
-  overflow: hidden;
-  transition-property: grid-template-columns;
-  transition-duration: 220ms;
-  transition-timing-function: ease-out;
-}
-.shell.sidebar-collapsed { grid-template-columns: 76px minmax(0, 1fr); }
-.shell.hr-shell { grid-template-columns: minmax(0, 1fr); }
-.hr-shell .content {
-  padding: 0;
-  background:
-    radial-gradient(circle at top left, --alpha(var(--color-brand) / 8%), transparent 34rem),
-    var(--color-canvas);
-}
 
 .sidebar {
   position: sticky;
@@ -412,14 +394,6 @@
 .mobile-topbar,
 .mobile-menu-backdrop { display: none; }
 
-.content:has([data-page=fills]) { overflow-y: hidden; }
-.content:has(.analytics-page) { overflow-y: auto; }
-.content:has(.assistant-sandbox-page) { overflow: hidden; }
-/*
- * 滿版的頁面（目前只有倉位地圖）。內容自己貼齊邊界，所以外層的內距要收掉——
- * 留著的話地圖四周會有一圈 32px 的白邊，那正是「鋪滿」要拿掉的東西。
- */
-.content:has([data-page=bleed]) { padding: 0; overflow: hidden; }
 
 /*
  * 分頁標籤：分段控制。一條內凹的底槽，選中的那一段浮起來變成一張白卡。
@@ -2009,12 +1983,6 @@
 
 /* 手機：sidebar 變成從左側滑出的抽屜，平常收著不佔版面。 */
 @media (max-width: 900px) {
-  .shell,
-  .shell.sidebar-collapsed {
-    grid-template-columns: 1fr;
-    /* 不寫這行的話，兩個自動列會平分 100vh 的剩餘空間，上方列被拉成一大塊空白。 */
-    grid-template-rows: auto minmax(0, 1fr);
-  }
 
   .mobile-topbar {
     position: sticky;
@@ -2028,12 +1996,6 @@
     background: #fffafa;
     border-bottom: 1px solid var(--color-line);
   }
-  /*
-   * .content 寫死 height: 100vh，但手機上它頭上還有一條 topbar——加起來就超過
-   * 一個螢幕，整頁因此多一個捲軸，內捲的頁面就變成兩層捲軸（外面那層只能捲
-   * 出十幾像素，滑起來像卡住）。改成讓它填滿 grid 分到的那一列。
-   */
-  .shell { height: 100vh; }
 
   .mobile-topbar-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
   .mobile-topbar-brand img { width: 118px; height: auto; }
@@ -2050,7 +2012,7 @@
   .mobile-topbar button span { height: 2px; border-radius: 2px; background: var(--color-brand); }
 
   .sidebar,
-  .shell.sidebar-collapsed .sidebar {
+  [data-shell].sidebar-collapsed .sidebar {
     position: fixed;
     top: 0;
     bottom: 0;
@@ -2071,30 +2033,30 @@
   }
 
   /* 抽屜是靠 transform 開合的，收合窄欄那套在手機上沒有意義。 */
-  .shell.sidebar-collapsed .brand-logo,
-  .shell.sidebar-collapsed .nav-label,
-  .shell.sidebar-collapsed .nav-chevron,
-  .shell.sidebar-collapsed .account-copy,
-  .shell.sidebar-collapsed .account-chevron,
-  .shell.sidebar-collapsed .system-switcher-copy { display: revert; }
-  .shell.sidebar-collapsed .brand-icon { display: none; }
-  .shell.sidebar-collapsed .nav-section-head,
-  .shell.sidebar-collapsed .nav-item {
+  [data-shell].sidebar-collapsed .brand-logo,
+  [data-shell].sidebar-collapsed .nav-label,
+  [data-shell].sidebar-collapsed .nav-chevron,
+  [data-shell].sidebar-collapsed .account-copy,
+  [data-shell].sidebar-collapsed .account-chevron,
+  [data-shell].sidebar-collapsed .system-switcher-copy { display: revert; }
+  [data-shell].sidebar-collapsed .brand-icon { display: none; }
+  [data-shell].sidebar-collapsed .nav-section-head,
+  [data-shell].sidebar-collapsed .nav-item {
     grid-template-columns: 24px minmax(0, 1fr);
     gap: 14px;
     justify-content: stretch;
     padding: 0 14px;
   }
-  .shell.sidebar-collapsed .nav-section-head { min-height: 48px; }
-  .shell.sidebar-collapsed .nav-item { min-height: 44px; }
-  .shell.sidebar-collapsed .nav-section.open .nav-section-items { margin: 2px 0 4px; }
-  .shell.sidebar-collapsed .nav-section-items-inner { padding-left: 14px; }
-  .shell.sidebar-collapsed .nav-children { margin-left: 14px; }
-  .shell.sidebar-collapsed .nav-children .nav-item { grid-template-columns: 20px minmax(0, 1fr); }
-  .shell.sidebar-collapsed .account-trigger,
-  .shell.sidebar-collapsed .system-switcher-trigger { display: grid; gap: 9px; padding: 8px; }
-  .shell.sidebar-collapsed .system-switcher-trigger { grid-template-columns: 36px minmax(0, 1fr); }
-  .shell.sidebar-collapsed .account-menu { left: 0; right: 0; bottom: calc(100% + 9px); width: auto; }
+  [data-shell].sidebar-collapsed .nav-section-head { min-height: 48px; }
+  [data-shell].sidebar-collapsed .nav-item { min-height: 44px; }
+  [data-shell].sidebar-collapsed .nav-section.open .nav-section-items { margin: 2px 0 4px; }
+  [data-shell].sidebar-collapsed .nav-section-items-inner { padding-left: 14px; }
+  [data-shell].sidebar-collapsed .nav-children { margin-left: 14px; }
+  [data-shell].sidebar-collapsed .nav-children .nav-item { grid-template-columns: 20px minmax(0, 1fr); }
+  [data-shell].sidebar-collapsed .account-trigger,
+  [data-shell].sidebar-collapsed .system-switcher-trigger { display: grid; gap: 9px; padding: 8px; }
+  [data-shell].sidebar-collapsed .system-switcher-trigger { grid-template-columns: 36px minmax(0, 1fr); }
+  [data-shell].sidebar-collapsed .account-menu { left: 0; right: 0; bottom: calc(100% + 9px); width: auto; }
   .sidebar-toggle { display: none; }
 
   .mobile-menu-open .mobile-menu-backdrop {
@@ -3444,7 +3406,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .shell,
   .nav-scroll-arrow,
   .nav-section-head,
   .nav-chevron,
