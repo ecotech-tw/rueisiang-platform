@@ -3,7 +3,7 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { inJsonArray } from "./sql-lists.js";
-import { hrEmployeePersonalData, hrEmployeePhotos, hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes } from "./schema/hr-people.js";
+import { hrEmployeePersonalData, hrEmployeePhotos, hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes, hrWorkerAccountLinks } from "./schema/hr-people.js";
 import { HR_PROFILE_FIELDS, emptyHrPersonalData, type HrPersonalData, type HrProfileField } from "./hr-profile-fields.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrAnnualLeaveEntitlements, hrCompensationItems, hrCompensationVersions, hrInsuranceVersions, hrLeaveRequests, hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
@@ -52,7 +52,7 @@ async function write(db: Database, statement: SQL | SQL[], id: string, actor: Hr
     const messages: string[] = [];
     let cause: unknown = error;
     for (let depth = 0; depth < 5 && cause instanceof Error; depth += 1) { messages.push(cause.message); cause = cause.cause; }
-    if (messages.some((message) => /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed|attendance_monthly_rest_days_invalid|daily_leave_capacity_exceeded|monthly_leave_validation_failed|monthly_hourly_validation_failed|payroll_period_closed|payroll_period_not_ready|payroll_run_closed|payroll_run_snapshot_invalid|payroll_adjustment_amount_invalid|bonus_performance_idempotency_required|special_workday_source_server_determined|overtime_rate_server_determined|payroll_run_withdrawal_invalid|payroll_run_withdrawal_immutable/.test(message))) {
+    if (messages.some((message) => /UNIQUE constraint failed|FOREIGN KEY constraint failed|CHECK constraint failed|attendance_monthly_rest_days_invalid|daily_leave_capacity_exceeded|monthly_leave_validation_failed|monthly_hourly_validation_failed|payroll_period_closed|payroll_period_not_ready|payroll_run_closed|payroll_run_snapshot_invalid|payroll_adjustment_amount_invalid|bonus_performance_idempotency_required|special_workday_source_server_determined|overtime_rate_server_determined|payroll_run_withdrawal_invalid|payroll_run_withdrawal_immutable|worker_account_identity_conflict|worker_account_identity_immutable|hr_clock_identity_mismatch/.test(message))) {
       throw new HrError(409, conflictMessage);
     }
     throw error;
@@ -119,7 +119,8 @@ const employeeFields = {
   revision: hrEmployments.revision,
 };
 
-const lineLinkedAt = sql<string | null>`(SELECT ${authLineAccountLinks.linkedAt} FROM ${authLineAccountLinks} WHERE ${authLineAccountLinks.userId} = ${hrEmployments.employeeUserId})`;
+const personnelAccountId = sql<string | null>`coalesce(${hrEmployments.employeeUserId}, (SELECT user_id FROM hr_worker_account_links WHERE worker_id=${hrEmployments.id}))`;
+const lineLinkedAt = sql<string | null>`(SELECT ${authLineAccountLinks.linkedAt} FROM ${authLineAccountLinks} WHERE ${authLineAccountLinks.userId} = ${personnelAccountId})`;
 
 const EMPLOYEE_SORT_COLUMNS = {
   employeeNumber: hrEmployments.employeeNumber,
@@ -159,6 +160,7 @@ export async function listHrCandidates(db: Database, input: { page: number; sear
     .where(and(
       hrEmployableUser,
       notExists(db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, users.id), isNull(hrEmployments.archivedAt)))),
+      notExists(db.select({ id: hrWorkerAccountLinks.workerId }).from(hrWorkerAccountLinks).where(eq(hrWorkerAccountLinks.userId, users.id))),
       input.userId ? eq(users.id, input.userId) : undefined,
       input.search ? or(like(users.email, `%${input.search}%`), like(users.displayName, `%${input.search}%`), like(users.googleName, `%${input.search}%`)) : undefined,
     )).orderBy(asc(users.email)).limit(51).offset((input.page - 1) * 50);
@@ -245,7 +247,7 @@ const personnelFields = {
   revision: hrEmployments.revision,
 };
 
-/** 正式員工與排班支援人員共用 roster；支援人員沒有 User，所以必須 left join。 */
+/** 正式員工與排班支援人員共用 roster；未連結帳號的人員仍需呈現。 */
 export async function listHrPersonnel(db: Database, query: HrPersonnelListQuery) {
   const activeCondition = employmentActiveCondition();
   const employmentStatusCondition = query.employmentStatus === "active" ? activeCondition : query.employmentStatus === "inactive" ? sql`NOT (${activeCondition})` : undefined;
@@ -256,7 +258,7 @@ export async function listHrPersonnel(db: Database, query: HrPersonnelListQuery)
     ? undefined
     : query.status === "employable"
       ? and(eq(hrEmployments.personKind, "employee"), hrEmployableUser)
-      : and(eq(hrEmployments.personKind, "employee"), eq(users.status, query.status));
+      : eq(users.status, query.status);
   const conditions = [
     personKindCondition,
     canonicalPersonCondition,
@@ -280,12 +282,12 @@ export async function listHrPersonnel(db: Database, query: HrPersonnelListQuery)
   const activeWhere = and(...baseConditions, activeCondition);
   const inactiveWhere = and(...baseConditions, sql`NOT (${activeCondition})`);
   const [employees, [totalRow], [activeRow], [inactiveRow]] = await Promise.all([
-    db.select({ ...personnelFields, ...(query.includeLineBinding ? { lineLinkedAt } : {}) }).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    db.select({ ...personnelFields, ...(query.includeLineBinding ? { lineLinkedAt } : {}) }).from(hrEmployments).leftJoin(users, eq(users.id, personnelAccountId))
       .where(where).orderBy(...orderColumns, asc(hrEmployments.id))
       .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
-    db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(where),
-    db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(activeWhere),
-    db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId)).where(inactiveWhere),
+    db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, personnelAccountId)).where(where),
+    db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, personnelAccountId)).where(activeWhere),
+    db.select({ value: count() }).from(hrEmployments).leftJoin(users, eq(users.id, personnelAccountId)).where(inactiveWhere),
   ]);
   const total = totalRow?.value ?? 0;
   return { employees, total, page: query.page, pageSize: query.pageSize, hasMore: query.page * query.pageSize < total, counts: { active: activeRow?.value ?? 0, inactive: inactiveRow?.value ?? 0 } };
@@ -403,10 +405,10 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   };
 }
 
-/** 以 employmentId 或既有 userId 讀取 roster 內頁；支援人員沒有帳號與正式人事區塊。 */
+/** 以 employmentId 或既有正式員工 userId 讀取 roster 內頁，支援人員保留獨立類型。 */
 export async function getHrPerson(db: Database, id: string, options: HrEmployeeDetailOptions = {}) {
   const [row] = await db.select({ employment: hrEmployments, email: users.email, userStatus: users.status, accountName: displayName })
-    .from(hrEmployments).leftJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .from(hrEmployments).leftJoin(users, eq(users.id, personnelAccountId))
     .where(or(eq(hrEmployments.id, id), eq(hrEmployments.employeeUserId, id))).limit(1);
   if (!row) throw new HrError(404, "找不到人員資料。");
   if (row.employment.personKind === "employee") return getHrEmployee(db, row.employment.employeeUserId!, options);
@@ -426,14 +428,14 @@ export async function getHrPerson(db: Database, id: string, options: HrEmployeeD
     employeeNumber: row.employment.employeeNumber,
     legalName: row.employment.legalName,
     displayName: row.employment.legalName,
-    accountName: "",
+    accountName: row.accountName ?? "",
     position: row.employment.position,
     supervisorUserId: null,
     supervisorName: null,
     archivedAt: row.employment.archivedAt,
     revision: row.employment.revision,
-    email: "",
-    userStatus: "disabled" as const,
+    email: row.email ?? "",
+    userStatus: row.userStatus ?? "disabled",
     employmentStatus: row.employment.archivedAt === null ? "active" as const : "inactive" as const,
   };
   const compensation = workerCompensation?.map((version) => ({
@@ -453,7 +455,12 @@ export async function getHrPerson(db: Database, id: string, options: HrEmployeeD
     createdBy: version.createdBy,
     items: [],
   }));
-  return { employee, employments: [employment], assignments: [], attendanceAssignments: [], ...(compensation ? { compensation } : {}) };
+  const attendanceAssignments = await db.select({ id: hrEmployeeAttendanceLocations.id, employmentId: hrEmployeeAttendanceLocations.employmentId,
+    locationId: hrEmployeeAttendanceLocations.locationId, locationName: hrAttendanceLocations.name, validFrom: hrEmployeeAttendanceLocations.validFrom,
+    validTo: hrEmployeeAttendanceLocations.validTo, revision: hrEmployeeAttendanceLocations.revision })
+    .from(hrEmployeeAttendanceLocations).innerJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrEmployeeAttendanceLocations.locationId))
+    .where(eq(hrEmployeeAttendanceLocations.employmentId, row.employment.id));
+  return { employee, employments: [employment], assignments: [], attendanceAssignments, ...(compensation ? { compensation } : {}) };
 }
 
 export async function getHrSelf(db: Database, userId: string) {
@@ -476,6 +483,40 @@ export async function isHrEmployee(db: Database, userId: string) {
   const [employee] = await db.select({ id: hrEmployments.id }).from(hrEmployments)
     .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1);
   return Boolean(employee);
+}
+
+export async function getHrWorkerAccount(db: Database, userId: string) {
+  const [worker] = await db.select({ id: hrEmployments.id, archivedAt: hrEmployments.archivedAt }).from(hrWorkerAccountLinks)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrWorkerAccountLinks.workerId))
+    .where(and(eq(hrWorkerAccountLinks.userId, userId), eq(hrEmployments.personKind, "worker"))).limit(1);
+  return worker;
+}
+
+export async function isHrSupportWorker(db: Database, userId: string) {
+  const worker = await getHrWorkerAccount(db, userId);
+  return Boolean(worker && worker.archivedAt === null);
+}
+
+export async function linkHrWorkerAccount(db: Database, workerId: string, emailInput: string, actor: HrActor) {
+  const email = emailInput.trim().toLowerCase();
+  const [account] = await db.select({ id: users.id }).from(users).where(and(eq(users.email, email), sql`${users.status} IN ('active', 'invited')`)).limit(1);
+  if (!account) throw new HrError(400, "請先到權限管理邀請此 Email，再連結支援人員帳號。");
+  await write(db, sql`INSERT INTO hr_worker_account_links (worker_id, user_id, linked_by)
+    SELECT id, ${account.id}, ${actor.id} FROM hr_employments
+    WHERE id=${workerId} AND person_kind='worker' AND archived_at IS NULL
+      AND NOT EXISTS (SELECT 1 FROM hr_employments WHERE employee_user_id=${account.id})
+    RETURNING worker_id`, workerId, actor, "worker_account_linked", "帳號已連結其他人員、支援人員已停用，或資料已變更。", { activity: { summary: "支援人員帳號已連結" } });
+  return { linked: true };
+}
+
+export async function isHrSelfServiceUser(db: Database, userId: string) {
+  return await isHrEmployee(db, userId) || await isHrSupportWorker(db, userId);
+}
+
+export async function getHrSelfServiceKind(db: Database, userId: string): Promise<"employee" | "worker" | null> {
+  if (await isHrEmployee(db, userId)) return "employee";
+  if (await isHrSupportWorker(db, userId)) return "worker";
+  return null;
 }
 
 export async function listHrScopes(db: Database) {
@@ -516,7 +557,8 @@ export async function assignHrEmployee(db: Database, input: { userId: string; le
         WHERE id=${employmentId} AND archived_at IS NOT NULL${revisionGuard} RETURNING id`, attendanceSettings, servicePeriod]
     : [sql`INSERT INTO hr_employments (id, employee_user_id, employee_number, legal_name, position)
         SELECT ${employmentId}, id, ${input.employeeNumber}, ${legalName}, ${input.position} FROM users
-        WHERE id=${input.userId} AND status IN ('active', 'invited') RETURNING id`, attendanceSettings, servicePeriod];
+        WHERE id=${input.userId} AND status IN ('active', 'invited')
+          AND NOT EXISTS (SELECT 1 FROM hr_worker_account_links WHERE user_id=${input.userId}) RETURNING id`, attendanceSettings, servicePeriod];
   const mutationOptions: HrMutationOptions = { activity: { payload: { employmentId, userId: input.userId, legalName }, summary: "員工已指派" }, allowEmptyMutationIndexes: new Set([2]) };
   await write(db, mutations, employmentId, actor, "employee_assigned", "無法指派員工，資料可能已變更或已存在。", mutationOptions);
   return { id: input.userId, employmentId };

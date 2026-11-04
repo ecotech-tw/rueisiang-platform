@@ -25,6 +25,7 @@ import {
   findInvitation,
   loadAuthUser,
   isHrEmployee,
+  getHrSelfServiceKind,
   isHrAdministrator,
   recordLogin,
   updateProfile,
@@ -330,6 +331,7 @@ export async function sessionUserPayload(db: Database, user: AuthUser) {
     permissions: permissionsOf(user),
     roles: user.assignments.map((assignment) => assignment.roleKey),
     isEmployee: await isHrEmployee(db, user.id),
+    hrSelfServiceKind: await getHrSelfServiceKind(db, user.id),
     isHrAdministrator: await isHrAdministrator(db, user.id),
   };
 }

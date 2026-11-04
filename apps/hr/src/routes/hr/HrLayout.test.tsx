@@ -9,6 +9,26 @@ import { HrLayout } from "./HrLayout.js";
 afterEach(() => { vi.unstubAllGlobals(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
 describe("HR 手機導覽", () => {
+  it("支援人員只顯示兩項等寬導覽，不讀取通知或顯示工作與個人中心", async () => {
+    Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    client.setQueryData(["session"], { id: "worker", isEmployee: false, hrSelfServiceKind: "worker", lineLiffAuthenticated: true });
+    const fetch = vi.fn(async () => Response.json({})); vi.stubGlobal("fetch", fetch);
+    const container = document.createElement("div"); document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/clock/logs"]}><Routes>
+        <Route element={<HrLayout />}><Route path="*" element={<p>本人功能</p>} /></Route>
+      </Routes></MemoryRouter></QueryClientProvider>));
+      const nav = container.querySelector<HTMLElement>(".hr-personal-bottom-nav")!;
+      expect([...nav.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual(["/payroll", "/clock"]);
+      expect(nav.querySelector('a[href="/clock"]')?.getAttribute("aria-current")).toBe("page");
+      expect(nav.style.gridTemplateColumns).toBe("repeat(2, minmax(0, 1fr))");
+      expect(container.textContent).not.toMatch(/通知|個人中心|工作/);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
+  });
+
   it.each(["/clock", "/work", "/forms", "/forms/leave", "/scheduling", "/CLOCK", "/SCHEDULING", "/FORMS/leave", "/PAYROLL"])("LINE 登入在 %s 顯示對稱五項導覽、工作分類選取與通知數", async (path) => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     notifyManager.setScheduler(queueMicrotask);

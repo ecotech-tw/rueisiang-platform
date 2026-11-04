@@ -8,7 +8,7 @@
 
 | 領域 | 唯一來源／邊界 |
 |---|---|
-| 帳號 | `users` 保存姓名、Email 與 `status`；停用帳號和員工封存是兩個操作。LINE LIFF 關聯由 `auth_line_account_links` 保存 LINE Login channel 與已驗證 subject，不保存 LINE access token 或前端 profile |
+| 帳號 | `users` 保存姓名、Email 與 `status`；停用帳號和員工封存是兩個操作。支援人員以 `hr_worker_account_links` 一對一連結既有帳號，不改原任職或計薪類型。LINE LIFF 關聯由 `auth_line_account_links` 保存 LINE Login channel 與已驗證 subject，不保存 LINE access token 或前端 profile |
 | 員工主檔 | `hr_employments`；員工編號、目前職位、主管與 `archived_at` 都在同一列 |
 | 出勤 | `hr_employment_attendance_settings`、工作範圍、辦公位置與 append-only clock events |
 | 敘薪／保險 | `hr_compensation_versions`、`hr_insurance_versions` 自己維護版本，不因職位更新自動新增版本 |
@@ -17,7 +17,11 @@
 | 權限 | `packages/auth/src/permissions.ts` 是唯一來源；後端每次請求重新判定，不信任前端顯示 |
 | LIFF 登入 | `auth_device_sessions.auth_method='line_liff'` 與一般記住裝置分開標記；可使用既有 HR 本人 API，資料歸屬與權限仍由各服務判定；不提供管理端認證，且每次請求確認帳號 active、員工任職有效 |
 
-HR 人員列表沿用 `hr:employee:read`／`hr:office:read` 讀取權限，僅回傳 LINE 綁定時間、不回傳 channel 或 subject；UI 將綁定狀態與帳號啟用、在職狀態分開，無平台帳號的支援人員不適用。
+HR 人員列表沿用 `hr:employee:read`／`hr:office:read` 讀取權限，僅回傳 LINE 綁定時間、不回傳 channel 或 subject；UI 將綁定狀態與帳號啟用、在職狀態分開。支援人員連結帳號後顯示實際 Email、帳號與 LINE 綁定狀態；未連結時才顯示不適用。
+
+支援人員保留 `person_kind='worker'`、`employee_user_id=NULL` 與原 `employmentId`，不因開通帳號而變成正式員工。帳號關聯禁止與正式員工身分重複，也不允許原地改配，避免既有薪資與打卡換了擁有者。本人 session 以 `hrSelfServiceKind` 區分資格，不能把支援人員塞進 `isEmployee`，否則會誤開假勤、照片及正式人事功能。
+
+支援人員沿用 Email 登入與 LINE 綁定，後端本人 API 僅開放登入／登出、LINE 解除綁定、GPS 打卡／出勤日曆／紀錄與已發放薪資袋；個資、通知、請假、加班及忘刷申請皆不開放。打卡位置沿用出勤範圍指派，一律要求 GPS；班表只作時段與出勤異常判斷，不改變既有計薪方式。薪資查詢在 SQL 限定本人支援人員與已發放結果，包含部分批次已確定發放的個人紀錄，排除撤回批次；不逐月載入整批薪資資料。停用帳號或封存支援人員後，既有 session 也不能繼續使用本人功能。
 
 HR 主動登出先撤銷裝置憑證，再以當次登入頁的 URL 狀態暫停自動認證，避免 LIFF SSO 立即抵銷登出。LINE 綁定不刪除，也不保存永久停用自動登入的旗標；明確重新登入或從 LINE 重新開啟正常入口時恢復身分驗證。
 
@@ -132,7 +136,7 @@ RETURNING id;
 | `POST /api/hr/employments/:id/archive` | 設為未在職，保留所有歷史 |
 | `PATCH /api/hr/employments/:id/attendance-mode` | 更新出勤設定，不改職位或 employment ID |
 
-員工列表／基本資料需要 `hr:employee:read`；指派、編輯、設為未在職、恢復在職與主管需要 `hr:employee:write`；出勤設定使用 `hr:office:read/write`；薪資、保險、假勤與打卡明細仍依各自敏感資料權限。本人 API 只依 session user 找活動 `hr_employments`，不得接受 URL／body 的替代 User ID。
+員工列表／基本資料需要 `hr:employee:read`；指派、編輯、設為未在職、恢復在職與主管需要 `hr:employee:write`；出勤設定使用 `hr:office:read/write`；薪資、保險、假勤與打卡明細仍依各自敏感資料權限。本人 API 只依 session user 找正式員工任職或支援人員帳號關聯，並檢查活動資格，不得接受 URL／body 的替代 User ID。
 
 Portal 沿用 Material 3 元件、`.page.fills`／`.panel.grows`、sticky `.data-table`、既有 Dialog、Tooltip 與 design tokens。員工列表主要操作靠右，員工資料 Dialog 直接編輯基本資料與主管；辦公位置在此只讀。狀態以「在職／未在職」呈現，底層仍使用 archive 語意保存歷史；手機與鍵盤操作必須有可見焦點、欄位 label、錯誤文字與足夠 hit area。未在職員工仍可進入內頁查歷史，但不可被活動員工入口或本人 HRIS 判定為目前員工。
 

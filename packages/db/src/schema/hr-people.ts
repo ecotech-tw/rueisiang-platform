@@ -35,7 +35,15 @@ export const hrEmployments = sqliteTable("hr_employments", {
   check("ck_hr_employments_revision", sql`${t.revision} > 0`),
 ]);
 
-/** 舊任職動作資料是稽核歷史，保留 table 定義避免後續 schema diff 物理刪除。 */
+/** 登入身分與支援人員分開關聯，不改原 employmentId 或既有計薪類型。 */
+export const hrWorkerAccountLinks = sqliteTable("hr_worker_account_links", {
+  workerId: text("worker_id").primaryKey().references(() => hrEmployments.id, { onDelete: "restrict" }),
+  userId: text("user_id").notNull().unique().references(() => users.id, { onDelete: "restrict" }),
+  linkedBy: text("linked_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
 /** 服務年資起算日獨立於目前任職主檔；封存／復職沿用同一 employmentId 與這筆歷史。 */
 export const hrEmploymentServicePeriods = sqliteTable("hr_employment_service_periods", {
   employmentId: text("employment_id").primaryKey().references(() => hrEmployments.id, { onDelete: "restrict" }),

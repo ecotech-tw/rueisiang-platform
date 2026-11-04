@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Link, Outlet, useLocation } from "react-router";
+import { useSession } from "../../auth/session.js";
 import { DialogScope } from "../../ui/index.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { useHrQuery, type HrNotificationsResponse } from "./api.js";
@@ -20,9 +21,12 @@ function navigationPath(pathname: string) {
 
 function PersonalNav({ className }: { className: string }) {
   const pathname = navigationPath(useLocation().pathname);
-  const notifications = useHrQuery<HrNotificationsResponse>("/me/notifications");
-  return <nav className={className} aria-label="本人 HR 功能">
-    {personalLinks.map((link) => {
+  const { user } = useSession();
+  const worker = user?.hrSelfServiceKind === "worker";
+  const notifications = useHrQuery<HrNotificationsResponse>("/me/notifications", !worker);
+  const links = worker ? personalLinks.filter((link) => ["/clock", "/payroll"].includes(link.to)).map((link) => ({ ...link, center: false })) : personalLinks;
+  return <nav className={className} style={worker ? { gridTemplateColumns: "repeat(2, minmax(0, 1fr))" } : undefined} aria-label="本人 HR 功能">
+    {links.map((link) => {
       const active = pathname === link.to || (!link.center && pathname.startsWith(`${link.to}/`));
       return <Link
       key={link.to}

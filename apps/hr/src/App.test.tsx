@@ -37,6 +37,7 @@ let platformOnly: boolean;
 let expired: boolean;
 let sessionAuthorized: boolean;
 let requested: string[];
+let supportWorker: boolean;
 
 beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -52,6 +53,7 @@ beforeEach(() => {
   expired = false;
   sessionAuthorized = true;
   requested = [];
+  supportWorker = false;
   liff.token = null;
   client = new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false }, mutations: { retry: false } } });
   container = document.createElement("div");
@@ -67,7 +69,7 @@ beforeEach(() => {
     if (path.endsWith("/me/session")) {
       if (lineAuthenticated && sessionReadDelay) await sessionReadDelay;
       if (!sessionAuthorized) return Response.json({ error: "請先登入。" }, { status: 401 });
-      return Response.json({ ...user, deviceRemembered: !platformOnly || lineAuthenticated, lineLiffAuthenticated: lineAuthenticated });
+      return Response.json({ ...user, isEmployee: !supportWorker, hrSelfServiceKind: supportWorker ? "worker" : "employee", deviceRemembered: !platformOnly || lineAuthenticated, lineLiffAuthenticated: lineAuthenticated });
     }
     if (path.endsWith("/me/schedule-scopes")) return Response.json({ scopes: [{ id: "store", name: "門市" }] });
     if (path.endsWith("/liff/link")) {
@@ -124,6 +126,32 @@ async function clickButton(label: string) {
 }
 
 describe("LIFF 與一般 HR 登入流程", () => {
+  it("支援人員以 Email 登入後可確認小香綁定，不誤報尚未指派正式員工", async () => {
+    supportWorker = true;
+    platformOnly = true;
+    intentPending = true;
+    await renderApp();
+    await expectText("確認並綁定這個帳號");
+    expect(container.textContent).not.toContain("此帳號尚未指派為在職員工");
+    const confirm = [...container.querySelectorAll("button")].find((button) => button.textContent === "確認並綁定這個帳號");
+    expect(confirm?.disabled).toBe(false);
+    await clickButton("確認並綁定這個帳號");
+    await expectText("打卡入口");
+    expect(requested).toContain("POST /api/hr/liff/link");
+  });
+
+  it.each(["/work", "/forms", "/forms/new", "/forms/overtime", "/forms/leave", "/scheduling", "/profile", "/notifications"])("支援人員直接開啟未開放路徑 %s 會回到打卡", async (path) => {
+    supportWorker = true;
+    await renderApp(path);
+    await expectText("打卡入口");
+  });
+
+  it("支援人員仍可進入已發放薪資袋", async () => {
+    supportWorker = true;
+    await renderApp("/payroll");
+    await expectText("薪資袋入口");
+  });
+
   it("工作分類沿用本人登入 gate，連結排班與既有申請路徑", async () => {
     await renderApp("/work"); await expectText("可使用的工作項目集中在這裡");
     expect(container.querySelector('a[href="/scheduling"]')?.textContent).toContain("排班");

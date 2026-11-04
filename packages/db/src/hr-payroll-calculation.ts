@@ -10,7 +10,7 @@ import { calculateHrInsuranceEmployeeBreakdown, hasCompleteHrInsuranceContributi
 import { listHrPayrollAdjustmentsForPeriod } from "./hr-payroll-adjustments.js";
 import { listHrSpecialWorkdaysForPayroll, parseSpecialWorkdayAllowanceSnapshot, payrollSpecialWorkdaySourceStatements } from "./hr-special-workdays.js";
 import { payrollRequestSourceStatements } from "./hr-payroll-request-sources.js";
-import { HrError, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
+import { HrError, getHrWorkerAccount, hrEmployeeName, hrEmployableUser, writeHrMutation, type HrActor } from "./hr-people.js";
 import { listEffectiveDailyPayouts } from "./report-data.js";
 import { activityEvents } from "./schema/activity.js";
 import { hrClockEvents } from "./schema/hr-attendance.js";
@@ -49,7 +49,7 @@ import {
   hrPayrollAdjustmentItems,
   hrPayrollAdjustments,
 } from "./schema/hr-payroll-runs.js";
-import { hrEmploymentServicePeriods, hrEmployments } from "./schema/hr-people.js";
+import { hrEmploymentServicePeriods, hrEmployments, hrWorkerAccountLinks } from "./schema/hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrShiftVersions, hrSpecialWorkdayAssignments, hrSpecialWorkdayRules, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
@@ -982,13 +982,7 @@ async function getPayrollRunResult(db: Database, runId: string, warnings: string
       } catch {
         overtimeExplanation = {};
       }
-      let lines: HrPayrollLineResult[] = [];
-      try {
-        const parsed = JSON.parse(worker.payrollLinesJson) as unknown;
-        if (Array.isArray(parsed)) lines = parsed as HrPayrollLineResult[];
-      } catch {
-        lines = [];
-      }
+      const lines = parseWorkerPayrollLines(worker.payrollLinesJson);
       return { workerId: worker.workerId, workerName: worker.workerName, payBasis: worker.payBasis, scheduledDays: worker.scheduledDays, amountMinor: worker.amountMinor, lines, ...(worker.overtimeMinor || worker.overtimeSeconds ? { overtimeMinor: worker.overtimeMinor, overtimeSeconds: worker.overtimeSeconds, overtimeExplanation } : {}), typhoonStopDays: worker.typhoonStopDays, typhoonStopPayMinor: worker.typhoonStopPayMinor, compensationVersionId: worker.compensationVersionId, scheduleAllocationDetails };
     }),
     warnings: [...new Set([...(hasInsuranceDeduction ? [] : [PAYROLL_DEMO_WARNING]), ...persistedWarnings, ...warnings])],
@@ -3456,6 +3450,73 @@ export async function listHrPayrollEmployeeHistory(db: Database, employeeUserId:
     netMinor: row.netMinor,
     closedAt: row.closedAt,
   }));
+}
+
+function parseWorkerPayrollLines(json: string): HrPayrollLineResult[] {
+  try {
+    const parsed: unknown = JSON.parse(json);
+    return Array.isArray(parsed) ? parsed as HrPayrollLineResult[] : [];
+  } catch {
+    return [];
+  }
+}
+
+function workerSelfPayrollRows(db: Database, userId: string, target?: { runId: string; employmentId: string }) {
+  return db.select({
+    runId: hrPayrollRuns.id, runNameInput: hrPayrollRuns.calculationInputJson, periodKey: hrPayrollPeriods.periodKey,
+    versionNumber: hrPayrollRuns.versionNumber, payDate: hrPayrollRuns.payDate,
+    employmentId: hrPayrollWorkerResults.workerId, employeeName: hrPayrollWorkerResults.workerName,
+    employeeNumber: hrEmployments.employeeNumber, amountMinor: hrPayrollWorkerResults.amountMinor,
+    payrollLinesJson: hrPayrollWorkerResults.payrollLinesJson,
+    earningItems: sql<number>`coalesce((SELECT sum(amount_minor) FROM hr_payroll_record_items WHERE payroll_run_id=${hrPayrollRuns.id} AND person_kind='worker' AND worker_id=${hrPayrollWorkerResults.workerId} AND direction='earning'), 0)`,
+    deductionItems: sql<number>`coalesce((SELECT sum(amount_minor) FROM hr_payroll_record_items WHERE payroll_run_id=${hrPayrollRuns.id} AND person_kind='worker' AND worker_id=${hrPayrollWorkerResults.workerId} AND direction='deduction'), 0)`,
+    closedAt: sql<string>`coalesce((SELECT closed_at FROM hr_payroll_closed_workers WHERE payroll_run_id=${hrPayrollRuns.id} AND worker_id=${hrPayrollWorkerResults.workerId}), ${hrPayrollRuns.updatedAt})`,
+  }).from(hrPayrollWorkerResults)
+    .innerJoin(hrWorkerAccountLinks, eq(hrWorkerAccountLinks.workerId, hrPayrollWorkerResults.workerId))
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrWorkerAccountLinks.workerId))
+    .innerJoin(hrPayrollRuns, eq(hrPayrollRuns.id, hrPayrollWorkerResults.payrollRunId))
+    .innerJoin(hrPayrollPeriods, eq(hrPayrollPeriods.id, hrPayrollRuns.payrollPeriodId))
+    .where(and(eq(hrWorkerAccountLinks.userId, userId), eq(hrEmployments.personKind, "worker"), sql`${hrEmployments.archivedAt} IS NULL`,
+      target ? and(eq(hrPayrollRuns.id, target.runId), eq(hrPayrollWorkerResults.workerId, target.employmentId)) : undefined,
+      or(eq(hrPayrollRuns.status, "closed"), and(eq(hrPayrollRuns.status, "ready"), sql`EXISTS (SELECT 1 FROM hr_payroll_closed_workers WHERE payroll_run_id=${hrPayrollRuns.id} AND worker_id=${hrPayrollWorkerResults.workerId})`))))
+    .orderBy(desc(hrPayrollPeriods.periodKey), desc(hrPayrollRuns.versionNumber), desc(hrPayrollRuns.createdAt));
+}
+
+function workerSelfPayrollRecord(row: Awaited<ReturnType<typeof workerSelfPayrollRows>>[number]): HrPayrollEmployeeHistory {
+  const lines = parseWorkerPayrollLines(row.payrollLinesJson);
+  const earningMinor = (lines.length ? lines.filter((line) => line.direction === "earning").reduce((sum, line) => sum + line.amountMinor, 0) : row.amountMinor) + row.earningItems;
+  const deductionMinor = lines.filter((line) => line.direction === "deduction").reduce((sum, line) => sum + line.amountMinor, 0) + row.deductionItems;
+  return { runId: row.runId, runName: payrollRunNameFromInput(row.runNameInput, [row.employeeName]), periodKey: row.periodKey,
+    versionNumber: row.versionNumber, payDate: row.payDate, employmentId: row.employmentId, employeeNumber: row.employeeNumber,
+    employeeName: row.employeeName, earningMinor, deductionMinor, netMinor: earningMinor - deductionMinor, closedAt: row.closedAt };
+}
+
+export async function listHrPayrollSelfHistory(db: Database, userId: string): Promise<HrPayrollEmployeeHistory[]> {
+  const worker = await getHrWorkerAccount(db, userId);
+  if (!worker) return listHrPayrollEmployeeHistory(db, userId);
+  if (worker.archivedAt !== null) throw new HrError(403, "支援人員已停用。");
+  return (await workerSelfPayrollRows(db, userId)).map(workerSelfPayrollRecord);
+}
+
+export async function getHrPayrollSelfDetail(db: Database, userId: string, runId: string, employmentId: string) {
+  const worker = await getHrWorkerAccount(db, userId);
+  if (worker) {
+    const [row] = await workerSelfPayrollRows(db, userId, { runId, employmentId });
+    if (!row) throw new HrError(404, "找不到已發放的薪資明細。");
+    const items = await listHrPayrollRecordItems(db, { runId, personKind: "worker", personId: employmentId });
+    const lines = parseWorkerPayrollLines(row.payrollLinesJson);
+    return { record: workerSelfPayrollRecord(row), lines: [
+      ...(lines.length ? lines : [{ lineKey: "legacy_worker_pay", direction: "earning" as const, amountMinor: row.amountMinor, explanation: { itemName: "歷史薪資金額（未保存項目明細）" } }]),
+      ...items.map((item) => ({ lineKey: `legacy_adjustment_${item.id}`, direction: item.direction, amountMinor: item.amountMinor, explanation: { itemName: item.itemName, reason: item.reason } })),
+    ] };
+  }
+  const owned = (await listHrPayrollEmployeeHistory(db, userId)).find((record) => record.runId === runId && record.employmentId === employmentId);
+  if (!owned) throw new HrError(404, "找不到已發放的薪資明細。");
+  const detail = await getHrPayrollRecordDetail(db, { runId, personKind: "employee", personId: employmentId });
+  return { record: owned, lines: [
+    ...(detail.employee?.lines ?? []),
+    ...detail.items.map((item) => ({ lineKey: `legacy_adjustment_${item.id}`, direction: item.direction, amountMinor: item.amountMinor, explanation: { itemName: item.itemName, reason: item.reason } })),
+  ] };
 }
 
 /** 未結帳或撤回後尚未再次結帳的試算可以刪除；已結帳薪資單與其明細是歷史文件，不提供物理刪除。 */

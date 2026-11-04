@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ClockCalendar, ClockCalendarDay } from "./api.js";
-import { HrClockLogs } from "./Clock.js";
+import { HrClockCalendar, HrClockLogs } from "./Clock.js";
 
 // 打卡紀錄頁不畫地圖；maplibre 在 jsdom 沒有 WebGL，連 import 都過不了。
 vi.mock("maplibre-gl", () => ({ default: {} }));
@@ -22,7 +22,7 @@ const november: ClockCalendar = { year: 2026, month: 11, today: "2026-10-12", da
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
-async function renderPage() {
+async function renderPage(calendarView = false, worker = false) {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-10-12T04:00:00Z"));
@@ -34,9 +34,10 @@ async function renderPage() {
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } });
   client.setQueryData(["hr", "/me/attendance-calendar?year=2026&month=10"], october);
+  client.setQueryData(["session"], { id: "self", hrSelfServiceKind: worker ? "worker" : "employee" });
   const container = document.createElement("div"); document.body.append(container);
   const root = createRoot(container);
-  await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter><HrClockLogs /></MemoryRouter></QueryClientProvider>));
+  await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter>{calendarView ? <HrClockCalendar /> : <HrClockLogs />}</MemoryRouter></QueryClientProvider>));
   return {
     container,
     summary: () => [...container.querySelectorAll(".hr-clock-history-summary strong")].map((node) => node.textContent),
@@ -47,6 +48,14 @@ async function renderPage() {
 }
 
 describe("HR 前台打卡紀錄", () => {
+  it("支援人員出勤異常提示聯絡管理者，不顯示請假與忘刷入口", async () => {
+    const page = await renderPage(true, true);
+    try {
+      expect(page.container.textContent).toContain("如需更正紀錄，請聯絡管理者。");
+      expect(page.container.textContent).not.toMatch(/申請忘刷|請假申請/);
+    } finally { await page.cleanup(); }
+  });
+
   it("換月份載入中仍然畫出月份與統計，數字先顯示「—」", async () => {
     const page = await renderPage();
     try {

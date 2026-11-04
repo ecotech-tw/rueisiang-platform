@@ -252,6 +252,8 @@ function CalendarGrid({ data, selectedDate, onSelect, slideClass = "" }: { data:
 }
 
 function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendarDay; onCorrection: (date: string, kind: "clock_in" | "clock_out") => void; onLeave: (date: string) => void }) {
+  const { user } = useSession();
+  const canApply = user?.hrSelfServiceKind !== "worker";
   const correctionKind = day.events.at(-1)?.eventKind === "clock_in" ? "clock_out" : "clock_in";
   const dayLabel = `${Number(day.date.slice(5, 7))} 月 ${Number(day.date.slice(-2))} 日`;
   const anomalyTitle = day.anomaly === "missing" ? "尚未完成打卡" : day.anomaly === "short-duration" ? "出勤時數異常" : day.anomaly === "late-arrival" ? "上班打卡較晚" : day.anomaly === "early-leave" ? "下班打卡較早" : day.anomaly === "unscheduled" ? "非排班日打卡" : "打卡紀錄順序異常";
@@ -262,7 +264,7 @@ function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendar
     {day.status === "leave" ? <p className="hr-clock-calendar-empty-detail">已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="hr-clock-calendar-events">
       {day.events.map((event) => <li key={event.id}><span>{event.eventKind === "clock_in" ? "上班" : "下班"}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}
     </ul> : day.anomaly ? null : <p className="hr-clock-calendar-empty-detail">{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "目前不是活動員工。" : "這天尚未有打卡紀錄。"}</p>}
-    {day.anomaly ? <div className="hr-clock-calendar-anomaly"><strong>{anomalyTitle}</strong><span>{day.anomalyMessage ?? "請確認當日出勤紀錄。"}</span><div className="hr-clock-calendar-actions"><Button size="lg" tone="success" className="max-[760px]:flex-1" onClick={() => onCorrection(day.date, correctionKind)}>申請忘刷</Button><Button size="lg" variant="secondary" tone="success" className="max-[760px]:flex-1" onClick={() => onLeave(day.date)}>請假申請</Button></div></div> : null}
+    {day.anomaly ? <div className="hr-clock-calendar-anomaly"><strong>{anomalyTitle}</strong><span>{day.anomalyMessage ?? "請確認當日出勤紀錄。"}</span>{canApply ? <div className="hr-clock-calendar-actions"><Button size="lg" tone="success" className="max-[760px]:flex-1" onClick={() => onCorrection(day.date, correctionKind)}>申請忘刷</Button><Button size="lg" variant="secondary" tone="success" className="max-[760px]:flex-1" onClick={() => onLeave(day.date)}>請假申請</Button></div> : <span>如需更正紀錄，請聯絡管理者。</span>}</div> : null}
   </section>;
 }
 
@@ -421,6 +423,7 @@ export function HrClock() {
         </nav>
         {lastEvent ? <p className="hr-clock-last-event">最近一次：{lastEvent.eventKind === "clock_out" ? "下班" : "上班"}・{formatTaipei(lastEvent.occurredAt)}</p> : <p className="hr-clock-last-event">今天尚未打卡。</p>}
         {(demoLocationFailed || status?.geolocationRequired) && (visibleLocationError || outsideOffice) ? <Button tone="info" size="lg" className="max-[760px]:w-full" variant="secondary" disabled={!status?.canClock || locating} onClick={() => { void verifyLocation(); }}>重新定位</Button> : null}
+        {user?.hrSelfServiceKind === "worker" ? <Button variant="link" onClick={() => { void signOut().catch((error: unknown) => setUnlinkError(error instanceof Error ? error.message : "登出失敗，請稍後再試。")); }}>登出</Button> : null}
         {lineLiffAuthenticated ? <Button variant="link" disabled={unlink.isPending} onClick={() => setUnlinkConfirmOpen(true)}>解除 LINE 綁定</Button> : null}
       </div>
       {successMessage || status?.message || query.error || visibleLocationError || clock.error || unlinkError ? <div className="hr-clock-feedback-corner">

@@ -6,7 +6,7 @@ import {
   isHrAdministrator, requireHrSelfEmployment,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests, listHrPersonnel,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
-  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollCandidateExclusions, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
+  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollSelfHistory, getHrPayrollSelfDetail, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollCandidateExclusions, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   listHrScheduleManagers, setHrScheduleManager, listHrManagedScheduleScopes, getHrManagedSchedule, saveHrManagedSchedule, setHrManagedScheduleLock, saveHrScheduleChanges,
@@ -19,7 +19,7 @@ import {
   createHrAnnualLeaveAdjustment, ensureHrAnnualLeaveEntitlements, getHrAnnualLeaveEntitlementDetail, getHrAnnualLeavePolicy, listHrAnnualLeaveEntitlements,
   createHrLeaveType, createHrMonthlyHourly, createHrMonthlyLeave, createHrPayrollAdjustment, deleteHrPayrollAdjustment, listHrLeaveTypes, listHrMonthlyData, listHrPayrollAdjustments, setHrLeaveTypeActive, updateHrLeaveType, updateHrMonthlyHourly, updateHrMonthlyLeave, updateHrPayrollAdjustment,
   formatTaipeiDate, taipeiWallClockToUtc,
-  createDeviceSession, createLineLiffSession, findUserByLineIdentity, getLineAccountLink, isHrEmployee, linkLineAccount, loadAuthUser, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession, replaceLineAccount, unlinkLineAccount, useDeviceSession,
+  createDeviceSession, createLineLiffSession, findUserByLineIdentity, getLineAccountLink, isHrSelfServiceUser, getHrWorkerAccount, linkHrWorkerAccount, linkLineAccount, loadAuthUser, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, revokeDeviceSession, replaceLineAccount, unlinkLineAccount, useDeviceSession,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { employeePhotoBodyLimit, readEmployeePhoto, uploadEmployeePhoto, removeEmployeePhoto } from "../employee-photo-storage.js";
@@ -593,6 +593,19 @@ async function verifiedLineIdentity(idToken: string, channelId: string) {
 export const hr = new Hono<AppEnv>()
   // LINE bootstrap 僅接受已驗證 ID token；本人 API 可用受限 LIFF device session，其餘仍需一般 session。
   .use("*", (c, next) => isLineLiffBootstrapPath(c.req.path) ? next() : isSelfServicePath(c.req.path) ? requireSelfAuth(c, next) : requireAuth(c, next))
+  .use("*", async (c, next) => {
+    if (isLineLiffBootstrapPath(c.req.path) || !isSelfServicePath(c.req.path)) return next();
+    const worker = await getHrWorkerAccount(c.get("db"), c.get("user").id);
+    if (!worker) return next();
+    const path = c.req.path.replace(/^\/api\/hr/, "");
+    const logout = path === "/me/device" && c.req.method === "DELETE";
+    if (worker.archivedAt !== null && !logout) throw new HTTPException(403, { message: "支援人員已停用，無法使用本人功能。" });
+    const allowed = c.req.method === "GET" && /^\/me\/(session|clock-events|attendance-calendar|attendance-map(?:\/locations)?|payroll-history(?:\/[^/]+\/[^/]+)?)$/.test(path)
+      || c.req.method === "POST" && ["/me/device", "/me/clock-events", "/me/attendance-location/check"].includes(path)
+      || c.req.method === "DELETE" && ["/me/device", "/me/liff-link"].includes(path);
+    if (!allowed) throw new HTTPException(403, { message: "支援人員目前僅開放打卡與已發放薪資袋。" });
+    return next();
+  })
   .onError((error, c) => {
     if (error instanceof HrError || error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     throw error;
@@ -612,7 +625,7 @@ export const hr = new Hono<AppEnv>()
     }
 
     const user = await loadAuthUser(c.get("db"), { id: userId });
-    if (!user || user.status !== "active" || !await isHrEmployee(c.get("db"), userId)) {
+    if (!user || user.status !== "active" || !await isHrSelfServiceUser(c.get("db"), userId)) {
       await revokeDeviceSession(c.get("db"), rawDevice);
       c.header("Set-Cookie", clearDeviceCookie(), { append: true });
       throw new HTTPException(403, { message: "LINE 打卡僅限在職員工使用。" });
@@ -656,7 +669,7 @@ export const hr = new Hono<AppEnv>()
       throw new HTTPException(400, { message: "LINE 身分與本次登入流程不一致，請重新開始綁定。" });
     }
     const userId = c.get("user").id;
-    if (!await isHrEmployee(c.get("db"), userId)) throw new HTTPException(403, { message: "LINE 打卡僅限在職員工使用。" });
+    if (!await isHrSelfServiceUser(c.get("db"), userId)) throw new HTTPException(403, { message: "LINE 打卡僅限在職員工使用。" });
     const linked = replaceExisting
       ? await replaceLineAccount(c.get("db"), userId, identity)
       : await linkLineAccount(c.get("db"), userId, identity);
@@ -682,22 +695,8 @@ export const hr = new Hono<AppEnv>()
   })
   .post("/me/notifications/:id/read", async (c) => c.json(await markHrNotificationRead(c.get("db"), c.req.param("id"), c.get("user").id)))
   .post("/me/notifications/read-all", async (c) => c.json(await markAllHrNotificationsRead(c.get("db"), c.get("user").id)))
-  .get("/me/payroll-history", async (c) => c.json({ records: await listHrPayrollEmployeeHistory(c.get("db"), c.get("user").id) }))
-  .get("/me/payroll-history/:runId/:employmentId", async (c) => {
-    const userId = c.get("user").id;
-    const runId = c.req.param("runId");
-    const employmentId = c.req.param("employmentId");
-    const owned = (await listHrPayrollEmployeeHistory(c.get("db"), userId)).find((record) => record.runId === runId && record.employmentId === employmentId);
-    if (!owned) throw new HTTPException(404, { message: "找不到已發放的薪資明細。" });
-    const detail = await getHrPayrollRecordDetail(c.get("db"), { runId, personKind: "employee", personId: employmentId });
-    return c.json({ detail: {
-      record: owned,
-      lines: [
-        ...(detail.employee?.lines ?? []),
-        ...detail.items.map((item) => ({ lineKey: `legacy_adjustment_${item.id}`, direction: item.direction, amountMinor: item.amountMinor, explanation: { itemName: item.itemName, reason: item.reason } })),
-      ],
-    } });
-  })
+  .get("/me/payroll-history", async (c) => c.json({ records: await listHrPayrollSelfHistory(c.get("db"), c.get("user").id) }))
+  .get("/me/payroll-history/:runId/:employmentId", async (c) => c.json({ detail: await getHrPayrollSelfDetail(c.get("db"), c.get("user").id, c.req.param("runId"), c.req.param("employmentId")) }))
   /*
    * 記住這台手機。只接受 12 小時 session 發：裝置 cookie 能自己再發一台的話，
    * 被偷的那台撤銷之後，它早先替自己發出去的另一台還活著。
@@ -1182,6 +1181,11 @@ export const hr = new Hono<AppEnv>()
     const search = c.req.query("search")?.trim() ?? "";
     if (search.length > 100) throw new HTTPException(400, { message: "搜尋條件不正確。" });
     return c.json(await listHrScheduleWorkersPage(c.get("db"), { page, pageSize, search, status, sortField, sortDirection }));
+  })
+  .post("/schedule-workers/:id/account", requirePermission("hr:employee:write"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const input = await body(c);
+    return c.json(await linkHrWorkerAccount(c.get("db"), c.req.param("id"), text(input, "email", "Email", 254), c.get("user")), 201);
   })
   .post("/schedule-workers", requirePermission("hr:schedule:write"), async (c) => c.json(await createHrScheduleWorker(c.get("db"), { displayName: text(await body(c), "displayName", "姓名", 100) }, c.get("user")), 201))
   .patch("/schedule-workers/:id", requirePermission("hr:schedule:write"), async (c) => {

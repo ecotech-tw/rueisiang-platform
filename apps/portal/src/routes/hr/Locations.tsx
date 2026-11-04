@@ -4,7 +4,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, EmptyState, Field, FilterInput, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField, Tooltip } from "../../ui/index.js";
-import { isHrFormalEmployee, useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type HrFormalEmployee, type Profile } from "./api.js";
+import { useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type Profile } from "./api.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 
 interface EmployeeListResponse { employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }
@@ -25,6 +25,7 @@ function activeAssignment(assignment: AttendanceAssignment, date: string) {
 }
 
 function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profile; locations: AttendanceLocation[]; onClose: () => void }) {
+  const worker = profile.employee.personKind === "worker";
   const initialEmployment = currentEmployment(profile.employments);
   const [selectedLocationIds, setSelectedLocationIds] = useState<string[]>(() => (profile.attendanceAssignments ?? []).filter((assignment) => assignment.employmentId === initialEmployment?.id && activeAssignment(assignment, today())).map((assignment) => assignment.locationId));
   const [mode, setMode] = useState<"general" | "scheduled">(initialEmployment?.attendanceMode ?? "general");
@@ -39,7 +40,7 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
   return <Dialog title={`編輯 ${profile.employee.legalName} 的出勤範圍`} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     if (!employment) { setMessage("請選擇任職。"); return; }
-    if (mode === "scheduled" && (!monthlyRestDays.trim() || !Number.isSafeInteger(Number(monthlyRestDays)) || Number(monthlyRestDays) < 0 || Number(monthlyRestDays) > 31)) { setMessage("請填寫 0～31 天的每月休假天數。"); return; }
+    if (!worker && mode === "scheduled" && (!monthlyRestDays.trim() || !Number.isSafeInteger(Number(monthlyRestDays)) || Number(monthlyRestDays) < 0 || Number(monthlyRestDays) > 31)) { setMessage("請填寫 0～31 天的每月休假天數。"); return; }
     setMessage("");
     const currentAssignments = (profile.attendanceAssignments ?? []).filter((assignment) => assignment.employmentId === employment.id && activeAssignment(assignment, today()));
     const currentByLocation = new Map(currentAssignments.map((assignment) => [assignment.locationId, assignment]));
@@ -47,21 +48,21 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
     const validTo = today();
     const toEnd = currentAssignments.filter((assignment) => !selectedLocationIds.includes(assignment.locationId) && (assignment.validTo === null || assignment.validTo > validTo));
     save.mutate({ path: `/employments/${employment.id}/attendance-scope`, method: "PATCH", values: {
-      attendanceMode: mode, monthlyRestDays: mode === "scheduled" ? Number(monthlyRestDays) : null, revision: employment.revision,
+      attendanceMode: worker ? "scheduled" : mode, monthlyRestDays: worker ? 0 : mode === "scheduled" ? Number(monthlyRestDays) : null, revision: employment.revision,
       locationIds: toAdd, assignmentsToEnd: toEnd.map((assignment) => ({ id: assignment.id, revision: assignment.revision })),
     } }, { onSuccess: () => { toast.show("出勤範圍已更新。"); (closeRequestRef.current ?? onClose)(); } });
   } }} actions={<Button type="submit" icon="check" tone="info" disabled={!employment} loading={save.isPending}>儲存</Button>}>
     <p>出勤範圍決定員工可在哪些辦公位置打卡；排班不會限制員工只能在當日排班位置打卡。移除辦公位置並儲存後，今天起停止可打卡，歷史資料仍會保留。</p>
     {!employment ? <Alert tone="danger">目前沒有活動員工資料，無法設定出勤範圍。</Alert> : null}
-    <SelectField label="出勤方式" value={mode} required options={[{ value: "general", label: "一般辦公" }, { value: "scheduled", label: "排班" }]} onChange={(event) => setMode(event.target.value as "general" | "scheduled")} />
-    {mode === "scheduled" ? <TextField label="每月休假天數" type="number" min="0" max="31" step="1" required value={monthlyRestDays} onChange={(event) => setMonthlyRestDays(event.target.value)} hint="薪資結算時依實際上班日數與約定月休天數調整月薪。" /> : null}
+    {worker ? <p className="muted">支援人員固定依排班出勤，打卡一律需要 GPS 定位。</p> : <SelectField label="出勤方式" value={mode} required options={[{ value: "general", label: "一般辦公" }, { value: "scheduled", label: "排班" }]} onChange={(event) => setMode(event.target.value as "general" | "scheduled")} />}
+    {!worker && mode === "scheduled" ? <TextField label="每月休假天數" type="number" min="0" max="31" step="1" required value={monthlyRestDays} onChange={(event) => setMonthlyRestDays(event.target.value)} hint="薪資結算時依實際上班日數與約定月休天數調整月薪。" /> : null}
     <Field as="div" label="可打卡辦公位置"><div className="hr-bonus-picker-list">{selectedLocationIds.map((locationId, index) => <div key={`${locationId}-${index}`} className="hr-bonus-picker-row"><DropdownSelect value={locationId} aria-label="選擇辦公位置" options={locationOptions.map((option) => ({ ...option, disabled: selectedLocationIds.includes(option.value) && option.value !== locationId }))} onChange={(event) => setSelectedLocationIds((current) => current.map((id, currentIndex) => currentIndex === index ? event.target.value : id))} /><Button className="justify-self-end" type="button" variant="icon" icon="trash" aria-label="移除辦公位置" title="移除辦公位置" onClick={() => setSelectedLocationIds((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></div>)}{!selectedLocationIds.length ? <p className="muted hr-bonus-picker-empty">尚未設定可打卡辦公位置。</p> : null}<Chip variant="action" tone="success" className="justify-self-start" type="button" icon="plus" onClick={addLocation} disabled={selectedLocationIds.length >= locationOptions.length}>{selectedLocationIds.length ? "新增辦公位置" : "新增第一個辦公位置"}</Chip></div></Field>
     {message || save.error ? <Alert tone="danger">{message || save.error?.message}</Alert> : null}
   </Dialog>;
 }
 
-function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: HrFormalEmployee; canWrite: boolean; onEdit: (edit: LocationEdit) => void }) {
-  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.userId)}`, true, { keepPreviousData: false });
+function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (edit: LocationEdit) => void }) {
+  const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.employmentId ?? employee.userId ?? "")}`, true, { keepPreviousData: false });
   if (profile.isPending) return <HrSkeletonTableRow columns={5} />;
   if (profile.error || !profile.data) return <tr><td>{employee.legalName}</td><td colSpan={5}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
   const data = profile.data;
@@ -83,7 +84,7 @@ export function HrAttendanceScopeManagement() {
   const canWrite = permissions.has("hr:office:write");
   const [filters, setFilters] = useState({ page: 1, pageSize: 25, search: "" });
   const [editing, setEditing] = useState<LocationEdit | null>(null);
-  const employees = useHrQuery<EmployeeListResponse>(`/employees?page=${filters.page}&pageSize=${filters.pageSize}&status=all&employmentStatus=active&search=${encodeURIComponent(filters.search)}&sortField=employeeNumber&sortDirection=asc`, canRead);
+  const employees = useHrQuery<EmployeeListResponse>(`/employees?page=${filters.page}&pageSize=${filters.pageSize}&status=all&employmentStatus=active&personKind=all&search=${encodeURIComponent(filters.search)}&sortField=employeeNumber&sortDirection=asc`, canRead);
   const updateFilters = (patch: Partial<typeof filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   const locations = useHrQuery<{ locations: AttendanceLocation[] }>("/attendance-settings/locations?active=1", canRead);
   if (!canRead) return <Alert tone="danger">你沒有檢視出勤範圍管理的權限。</Alert>;
@@ -95,7 +96,7 @@ export function HrAttendanceScopeManagement() {
       {employees.error || locations.error ? <Alert tone="danger">{employees.error?.message ?? locations.error?.message}</Alert> : null}
       {employees.isFetching || locations.isFetching ? <p className="form-hint">更新中…</p> : null}
       <DataTable className="hr-location-assignment-table"><thead><tr><th>員工</th><th>目前任職</th><th>出勤方式</th><th>有效辦公位置</th><th>操作</th></tr></thead><tbody>
-        {(employees.data?.employees ?? []).filter(isHrFormalEmployee).map((employee) => <EmployeeLocationRow key={employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
+        {(employees.data?.employees ?? []).map((employee) => <EmployeeLocationRow key={employee.employmentId ?? employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
       </tbody></DataTable>
       {!employees.data?.employees.length ? <EmptyState className="mt-[18px]">沒有符合條件的員工。</EmptyState> : null}
       {employees.data && employees.data.total > 0 ? <Pager className="mt-4 shrink-0" page={employees.data.page} pageSize={employees.data.pageSize} pageSizes={[25, 50, 100]} totalPages={Math.max(1, Math.ceil(employees.data.total / employees.data.pageSize))} totalLabel={`共 ${employees.data.total.toLocaleString("zh-TW")} 位員工`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
