@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
@@ -283,8 +283,7 @@ export function Items() {
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
         {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 <th>品項</th>
@@ -329,8 +328,7 @@ export function Items() {
                 </tr>
               )))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
 
         {query.isPending ? <p className="muted table-note">載入中…</p> : null}
         {query.data && visible.length === 0 ? <p className="muted table-note">沒有符合條件的品項。</p> : null}

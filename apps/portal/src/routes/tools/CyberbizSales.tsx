@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterToolbar, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   useCyberbizSalesState,
@@ -86,8 +86,7 @@ export function CyberbizSales() {
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
         {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 <th>
@@ -133,8 +132,7 @@ export function CyberbizSales() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
         {!stores.length ? <p className="muted table-note">還沒有任何店別，請先到「店別與報表設定」新增一家。</p> : null}
       </Panel>
 

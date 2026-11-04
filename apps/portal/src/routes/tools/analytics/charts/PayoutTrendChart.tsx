@@ -9,8 +9,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Panel } from "../../../../ui/index.js";
+import { DataTable, Panel } from "../../../../ui/index.js";
 import {
+  ANALYTICS_TABLE,
   AnalyticsDataDialog,
   AnalyticsLegend,
   AnalyticsTooltip,
@@ -45,7 +46,7 @@ export function PayoutTrendChart({ current, lastYear, granularity, valueFormatte
       description={lastYear ? "長條是本期，虛線是去年同期；沒有資料的日期會保留空白。" : "沒有去年同期資料時只顯示本期，缺漏日期不補成 0。"}
       actions={(
         <AnalyticsDataDialog title="出金趨勢資料" description="沒有資料的期間會保留為空白。">
-          <table className="data-table analytics-table">
+          <DataTable className={ANALYTICS_TABLE} scroll={false}>
             <thead><tr><th>期間</th><th className="numeric">本期</th><th className="numeric">去年同期</th></tr></thead>
             <tbody>
               {data.map((point) => (
@@ -56,7 +57,7 @@ export function PayoutTrendChart({ current, lastYear, granularity, valueFormatte
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </AnalyticsDataDialog>
       )}
       className="analytics-chart-panel analytics-trend-panel"

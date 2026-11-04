@@ -1,1 +1,1 @@
-export { DataTable } from "@rueisiang/ui";
+export { DataTable, TableSkin, type TableSkinName } from "@rueisiang/ui";

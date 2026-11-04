@@ -6,67 +6,6 @@
   overflow-x: auto;
 }
 
-.table-scroll .data-table thead th {
-  position: sticky;
-  top: 0;
-  z-index: 2;
-  background: var(--color-paper);
-  box-shadow: inset 0 -1px 0 var(--color-line);
-}
-
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.data-table th {
-  height: 56px;
-  padding: 0 16px;
-  color: var(--color-muted);
-  font-size: 14px;
-  font-weight: 500;
-  text-align: left;
-  white-space: nowrap;
-  vertical-align: middle;
-}
-
-.data-table td {
-  height: 52px;
-  padding: 14px 16px;
-  border-top: 1px solid var(--color-soft-line);
-  font-size: 14px;
-  vertical-align: middle;
-}
-
-.data-table th:first-child,
-.data-table td:first-child {
-  padding-left: 24px;
-}
-
-.data-table th:last-child,
-.data-table td:last-child {
-  padding-right: 24px;
-}
-
-.data-table tbody tr {
-  transition-property: background-color;
-  transition-duration: 120ms;
-  transition-timing-function: ease-out;
-}
-
-.data-table tbody tr:hover {
-  background: --alpha(var(--color-brand) / 4%);
-}
-
-.data-table tbody tr:first-child td {
-  border-top: 0;
-}
-
-.data-table .numeric {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-
 .cell-strong {
   font-weight: 700;
 }
@@ -74,12 +13,6 @@
 .cell-sub {
   color: var(--color-muted);
   font-size: 12px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .data-table tbody tr {
-    transition: none;
-  }
 }
 
 /* Panel base styles; page spacing and domain modifiers remain app-specific. */
@@ -325,6 +258,7 @@
   .data-table td {
     display: grid;
     grid-template-columns: 76px minmax(0, 1fr);
+    font-size: 14px;
     align-items: start;
     gap: 12px;
     height: auto;
@@ -340,6 +274,8 @@
   }
   /* 沒有 data-label 的欄位（例如純操作欄）不要留一格空白。 */
   .data-table td:not([data-label]) { grid-template-columns: minmax(0, 1fr); }
+  /* 卡片最後一欄留跟桌機一樣的 24px 右內距；操作欄另外釘在右上角，不吃這條。 */
+  .data-table td:last-child { padding-right: 24px; }
   .data-table .numeric { text-align: left; }
   /*
    * 卡片改成 flex-wrap，再用 order 重排欄位。markup 的順序是為了桌機表格

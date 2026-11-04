@@ -7,8 +7,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Chip, Panel } from "../../../../ui/index.js";
-import { AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
+import { Chip, DataTable, Panel } from "../../../../ui/index.js";
+import { ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
 import type { SalesSkuBreakdown, SalesTopSkuMetric } from "../api.js";
 
 interface TopSkuChartProps {
@@ -47,7 +47,7 @@ export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, va
             description="依目前選定指標排序，列出這段期間所有有銷售的商品。"
             disabled={loading || !allRows.length}
           >
-            <table className="data-table analytics-table">
+            <DataTable className={ANALYTICS_TABLE} scroll={false}>
               <thead><tr><th>商品</th><th>SKU</th><th className="numeric">淨銷量</th><th className="numeric">售額（參考）</th><th className="numeric">銷量佔比</th></tr></thead>
               <tbody>
                 {allRows.map((row) => (
@@ -60,7 +60,7 @@ export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, va
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           </AnalyticsDataDialog>
         </div>
       )}

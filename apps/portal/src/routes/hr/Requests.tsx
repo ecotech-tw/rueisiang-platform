@@ -605,7 +605,7 @@ export function HrRequestCenter() {
       {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
       {cancellableOvertimeIds.length ? <div className="hr-request-mobile-select-all"><label className="table-select-all"><input ref={mobileSelectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => toggleVisibleOvertime(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /><span>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</span></label></div> : null}
       <div className="hr-request-table-region">
-      <DataTable className="hr-request-table" containerClassName={requests.isFetching ? "is-refreshing" : ""}>
+      <DataTable className="hr-request-table [&_.hr-request-select-cell]:text-center" containerClassName={requests.isFetching ? "is-refreshing" : ""}>
         <thead><tr>
           <th className="hr-request-select-cell"><input ref={selectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={!cancellableOvertimeIds.length || requests.isFetching || cancelOvertime.isPending} onChange={(event) => toggleVisibleOvertime(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /></th>
           <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th>操作</th>

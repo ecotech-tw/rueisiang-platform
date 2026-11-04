@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 /**
  * 倉儲的操作紀錄。
@@ -204,8 +204,7 @@ export function Activity() {
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table activity-table">
+        <DataTable className="activity-table">
             <thead>
               <tr>
                 <th>時間</th>
@@ -245,8 +244,7 @@ export function Activity() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
 
         {query.isPending ? <p className="muted table-note">載入中…</p> : null}
 

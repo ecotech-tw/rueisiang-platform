@@ -86,6 +86,9 @@ export function AnalyticsKpiHint({ children }: { children: string }) {
   );
 }
 
+/** 資料視窗裡的表：數字一律不換行，左右留白配合對話框的內距（手機上再窄一點）。 */
+export const ANALYTICS_TABLE = "[&_th]:whitespace-nowrap [&_td]:whitespace-nowrap [&_th:first-child]:pl-[18px] [&_td:first-child]:pl-[18px] [&_th:last-child]:pr-[18px] [&_td:last-child]:pr-[18px] max-[760px]:[&_th:first-child]:pl-[13px] max-[760px]:[&_td:first-child]:pl-[13px] max-[760px]:[&_th:last-child]:pr-[13px] max-[760px]:[&_td:last-child]:pr-[13px]";
+
 export interface AnalyticsDataDialogProps {
   title: ReactNode;
   description?: ReactNode;

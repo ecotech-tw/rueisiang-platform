@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, DataTable, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 interface SyncStatus {
   configured: boolean;
@@ -262,8 +262,7 @@ export function Sync() {
         {retry.error ? <Alert tone="danger">{retry.error.message}</Alert> : null}
         {cleanup.error ? <Alert tone="danger">{cleanup.error.message}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 <th>收到時間</th>
@@ -295,8 +294,7 @@ export function Sync() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
 
         {data.recent.length === 0 ? (
           <p className="muted table-note">

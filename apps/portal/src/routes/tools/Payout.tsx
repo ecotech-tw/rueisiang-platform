@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterToolbar, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterToolbar, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   usePayoutState,
@@ -98,8 +98,7 @@ export function Payout() {
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
         {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 <th>
@@ -163,8 +162,7 @@ export function Payout() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
 
         {stores.length === 0 ? (
           <p className="muted table-note">還沒有任何店別，先到「店別與報表設定」加一家。</p>

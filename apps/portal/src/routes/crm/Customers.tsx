@@ -14,7 +14,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterSelect, FilterToolbar, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 const SYNC_TONE: Record<string, StatusTone> = {
   synced: "success",
@@ -246,8 +246,7 @@ export function Customers() {
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
         {block.error ? <Alert tone="danger">{block.error.message}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 {/*
@@ -277,8 +276,7 @@ export function Customers() {
                 />
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
 
         {query.isPending ? <p className="muted table-note">載入中…</p> : null}
 

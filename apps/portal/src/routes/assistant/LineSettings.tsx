@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Switch } from "../../shell/Switch.js";
-import { Alert, Button, Dialog, EmptyState, FilterInput, FilterSelect, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -286,8 +286,7 @@ export function LineSettings() {
         {addGroup.error ? <Alert tone="danger">{addGroup.error.message}</Alert> : null}
 
         {data.groups.length ? (
-          <div className="table-scroll line-groups-table">
-            <table className="data-table">
+          <DataTable containerClassName="line-groups-table">
               <thead><tr><th>對話</th><th>LINE ID</th><th>發現時間</th><th>工具</th><th>回覆</th><th>操作</th></tr></thead>
               <tbody>
                 {data.groups.map((group) => (
@@ -301,8 +300,7 @@ export function LineSettings() {
                   />
                 ))}
               </tbody>
-            </table>
-          </div>
+            </DataTable>
         ) : <EmptyState className="mt-[18px]">尚未有對話。可以先貼上 LINE webhook 收到的對話 ID，或讓使用者先傳一則訊息給小香。</EmptyState>}
         {saveGroup.error ? <Alert tone="danger">{saveGroup.error.message}</Alert> : null}
       </Panel>

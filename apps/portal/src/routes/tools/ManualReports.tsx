@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -709,8 +709,7 @@ function StandardReportImportDialog({
                 </div>
                 <span className="form-hint">確認後才會寫入</span>
               </div>
-              <div className="table-scroll manual-report-import-table-scroll">
-                <table className="data-table">
+              <DataTable containerClassName="manual-report-import-table-scroll">
                   <thead><tr><th>來源列</th><th>日期</th><th className="numeric">金額</th><th /></tr></thead>
                   <tbody>
                     {preview.rows.map((row) => (
@@ -722,8 +721,7 @@ function StandardReportImportDialog({
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
+                </DataTable>
             </section>
           ) : null}
 
@@ -736,8 +734,7 @@ function StandardReportImportDialog({
                 </div>
                 <span className="form-hint">確認後才會寫入</span>
               </div>
-              <div className="table-scroll manual-report-import-table-scroll">
-                <table className="data-table manual-sales-table">
+              <DataTable className="manual-sales-table" containerClassName="manual-report-import-table-scroll">
                   <thead><tr><th>來源列</th><th>月份</th><th>SKU</th><th>商品名稱</th><th>類別</th><th className="numeric">銷售數量</th><th className="numeric">退回數量</th><th className="numeric">淨銷售數量</th><th className="numeric">售額總計</th><th /></tr></thead>
                   <tbody>
                     {preview.rows.map((row) => (
@@ -755,8 +752,7 @@ function StandardReportImportDialog({
                       </tr>
                     ))}
                   </tbody>
-                </table>
-              </div>
+                </DataTable>
             </section>
           ) : null}
         </div>
@@ -1296,7 +1292,7 @@ function PayoutTable({
           onToggleAll={onToggleAll}
           ariaLabel={allSelected ? "取消全選本頁出金紀錄" : "全選本頁出金紀錄"}
         />
-        <table className="data-table manual-report-table">
+        <DataTable className="manual-report-table" scroll={false}>
           <thead>
             <tr>
               <th>
@@ -1359,7 +1355,7 @@ function PayoutTable({
               </tr>
             ))}
           </tbody>
-        </table>
+        </DataTable>
       </div>
       {selectedCount > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
     </div>
@@ -1407,7 +1403,7 @@ function SalesTable({
           onToggleAll={onToggleAll}
           ariaLabel={allSelected ? "取消全選本頁商品銷售紀錄" : "全選本頁商品銷售紀錄"}
         />
-        <table className="data-table manual-report-table manual-sales-table">
+        <DataTable className="manual-report-table manual-sales-table" scroll={false}>
           <thead>
             <tr>
               <th>
@@ -1484,7 +1480,7 @@ function SalesTable({
               </tr>
             ))}
           </tbody>
-        </table>
+        </DataTable>
       </div>
       {selectedCount > 0 ? <SelectionActions selectedCount={selectedCount} busy={busy} onDelete={onDeleteSelected} /> : null}
     </div>

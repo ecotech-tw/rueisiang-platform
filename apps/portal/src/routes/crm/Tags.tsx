@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterToolbar, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, PageHeader, Panel } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -136,8 +136,7 @@ export function Tags() {
         {create.error ? <Alert tone="danger">{create.error.message}</Alert> : null}
         {error ? <Alert tone="danger">{error}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 <th>標籤</th>
@@ -212,8 +211,7 @@ export function Tags() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
 
         {rows.length === 0 ? (
           <p className="muted table-note">

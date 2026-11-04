@@ -18,7 +18,7 @@ function SkeletonBlock({ className = "" }: { className?: string }) {
 }
 
 export function HrSkeletonTableRow({ columns = 5 }: { columns?: number }) {
-  return <tr className="hr-skeleton-table-row" aria-hidden="true">
+  return <tr className="hr-skeleton-table-row [&>td]:py-3" aria-hidden="true">
     {Array.from({ length: columns }, (_, index) => <td key={index}><SkeletonBlock className={index === 0 ? "is-long" : index === columns - 1 ? "is-short" : ""} /></td>)}
   </tr>;
 }
