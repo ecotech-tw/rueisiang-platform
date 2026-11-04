@@ -514,7 +514,7 @@
 .page.fills > .page-head,
 .page.fills > .stat-row,
 .page.fills > details { flex: none; }
-.page.fills > .panel.grows {
+.page.fills > [data-panel].grows {
   flex: 1;
   min-width: 0;
   min-height: 0;
@@ -522,11 +522,11 @@
   flex-direction: column;
   overflow: hidden;
 }
-.page.fills > .panel.grows > .panel-head,
-.page.fills > .panel.grows > .manual-report-toolbar,
-.page.fills > .panel.grows > .muted,
-.page.fills > .panel.grows > .table-note { flex: none; }
-.page.fills > .panel.grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
+.page.fills > [data-panel].grows > [data-panel-head],
+.page.fills > [data-panel].grows > .manual-report-toolbar,
+.page.fills > [data-panel].grows > .muted,
+.page.fills > [data-panel].grows > .table-note { flex: none; }
+.page.fills > [data-panel].grows > .table-scroll { flex: 1; min-height: 0; overflow: auto; }
 
 /*
  * 頁面層級的間距由容器負責，不由各元件自己記得加 margin。
@@ -542,14 +542,12 @@
 /* useHrQuery 換條件時畫面上還是舊資料；變淡並擋掉點擊，免得對著舊資料操作。 */
 .is-refreshing { opacity: .55; pointer-events: none; transition: opacity 150ms ease-out; }
 
-.page > .panel + .panel { margin-top: 20px; }
+.page > [data-panel] + [data-panel] { margin-top: 20px; }
 
 /* AI 助理 Sandbox */
 .assistant-sandbox-page { display: flex; height: 100%; min-height: 0; flex-direction: column; }
 .assistant-sandbox-page > .page-head { flex: none; margin-bottom: 12px; }
 .assistant-sandbox-page > .assistant-sandbox-layout { flex: 1; min-height: 0; }
-.assistant-sandbox-page .panel { padding: 16px 18px; }
-.assistant-sandbox-page .panel-title { margin-bottom: 10px; }
 .assistant-sandbox-layout { display: grid; grid-template-columns: minmax(280px, .85fr) minmax(0, 1.15fr); align-items: stretch; gap: 16px; min-height: 0; }
 .assistant-settings-column { display: grid; align-content: start; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
 .assistant-chat-panel { display: flex; min-width: 0; min-height: 0; height: 100%; flex-direction: column; overflow: hidden; }
@@ -805,7 +803,7 @@
 .line-groups-table code { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
 
 /* 權限管理頁 */
-/* 跟在 .panel-head 後面時，距離由 panel-head 的 margin-bottom 決定，這裡不再疊加。 */
+/* 跟在面板標題列後面時，距離由 panel-head 的 margin-bottom 決定，這裡不再疊加。 */
 /*
  * 修飾詞叫 row 不叫 inline。
  *
@@ -815,7 +813,7 @@
  * 命名修飾詞之前先確認它不是 Tailwind 已經有的 utility。
  */
 .admin-form.row { margin-top: 16px; }
-.panel-head + .admin-form.row { margin-top: 0; }
+[data-panel-head] + .admin-form.row { margin-top: 0; }
 .sku-mapping-form { display: grid; gap: 16px; align-items: stretch; }
 .sku-mapping-form > .field-grid,
 .sku-mapping-form > .sku-mapping-components { min-width: 0; }
@@ -2032,7 +2030,7 @@
 .style-guide-liquid-copy h3,
 .style-guide-liquid-copy p { margin: 0; }
 .style-guide-liquid-copy h3 { font-size: 20px; }
-.style-guide-liquid-preview .panel { margin: 0; }
+.style-guide-liquid-preview [data-panel] { margin: 0; }
 .style-guide-liquid-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
 .style-guide-liquid-metrics > div {
   display: grid;
@@ -2484,7 +2482,7 @@
 .hr-employee-section-nav a[aria-current] { background: var(--color-brand-soft); color: var(--color-brand-dark); }
 .hr-employee-section-nav a:active { scale: .96; }
 .hr-employee-section-nav a:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
-.hr-employee-detail-page .panel[id] { scroll-margin-block-start: 88px; }
+.hr-employee-detail-page [data-panel][id] { scroll-margin-block-start: 88px; }
 .hr-employee-photo-block { display: flex; align-items: center; gap: 24px; }
 .hr-employee-photo-preview { display: grid; flex: none; place-items: center; width: 112px; height: 112px; overflow: hidden; border-radius: 50%; background: var(--color-canvas); color: var(--color-muted); }
 .hr-employee-photo-preview > svg { width: 48px; height: 48px; }
@@ -2701,7 +2699,6 @@
   display: grid;
   gap: 16px;
   margin-bottom: 12px;
-  padding: 15px 18px 16px;
 }
 .analytics-filter-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
 .analytics-filter-heading > div:nth-child(2) { flex: 1 1 260px; min-width: 220px; }
@@ -2840,9 +2837,7 @@
 .analytics-chart-column > .analytics-chart-panel { min-width: 0; margin: 0; }
 .analytics-chart-column { display: grid; align-content: start; gap: 14px; min-width: 0; }
 .analytics-sales-chart-grid .analytics-sales-trend-panel { grid-column: 1 / -1; }
-.analytics-chart-panel { min-width: 0; padding: 17px 18px 14px; }
-.analytics-chart-panel .panel-head { margin-bottom: 12px; }
-.analytics-chart-panel .panel-title { font-size: 14px; }
+.analytics-chart-panel { min-width: 0; }
 .analytics-chart { width: 100%; height: 300px; min-height: 240px; }
 .analytics-scope-chart { height: 300px; }
 .analytics-category-chart { height: 300px; }
@@ -2876,7 +2871,7 @@
 /* 不換行，才不會在標籤擠不下時被逐字折成直的；擠不下就整個項目換到下一列。 */
 .analytics-legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
 
-.analytics-empty-panel { display: grid; justify-items: start; gap: 10px; padding: 30px; }
+.analytics-empty-panel { display: grid; justify-items: start; gap: 10px; }
 .analytics-empty-panel h2 { margin: 0; font-size: 18px; }
 .analytics-empty-panel p { margin: 0; color: var(--color-muted); }
 
@@ -2896,7 +2891,7 @@
 
 @media (max-width: 760px) {
   .analytics-page > .page-head { margin-bottom: 12px; }
-  .analytics-filters { gap: 12px; padding: 13px 14px 14px; }
+  .analytics-filters { gap: 12px; }
   .analytics-filter-heading > div:nth-child(2) { min-width: 0; }
   .analytics-filter-heading .analytics-tabs { width: 100%; margin-left: 0; }
   .analytics-tab { flex: 1; }
@@ -2914,16 +2909,12 @@
   .analytics-kpi strong { font-size: 20px; }
   .analytics-result-heading { align-items: start; flex-direction: column; gap: 7px; }
   .analytics-result-meta { justify-content: flex-start; text-align: left; }
-  .analytics-chart-panel { padding-inline: 13px; }
   .analytics-panel-actions { align-items: flex-start; justify-content: flex-start; }
   .analytics-chart-actions { justify-content: flex-start; margin-top: 8px; }
-  .analytics-empty-panel { padding: 24px 20px; }
 }
 
 /* 報表管理：一頁一個資料入口，兩種報表用同一套列編輯節奏。 */
 .manual-report-panel { min-width: 0; }
-.manual-report-panel > .panel-head { align-items: center; }
-.manual-report-panel > .panel-head > div:last-child { flex: 1 1 auto; min-width: 0; }
 .manual-report-toolbar {
   display: flex;
   align-items: center;
@@ -2959,7 +2950,7 @@
   min-height: 0;
   overflow: hidden;
 }
-.page.fills > .panel.grows > .manual-report-table-region { flex: 1; min-height: 0; }
+.page.fills > [data-panel].grows > .manual-report-table-region { flex: 1; min-height: 0; }
 .manual-report-table-region > .table-scroll {
   flex: 1 1 auto;
   min-height: 0;
@@ -3054,8 +3045,6 @@
 .manual-report-import-table-scroll small { display: block; }
 
 @media (max-width: 620px) {
-  .manual-report-panel > .panel-head { align-items: stretch; flex-direction: column; gap: 12px; }
-  .manual-report-panel > .panel-head > div:last-child { width: 100%; }
   .manual-report-toolbar { align-items: stretch; flex-direction: column; gap: 12px; }
   .manual-report-tabs { width: 100%; margin-right: 0; margin-left: 0; }
   .manual-report-actions { width: 100%; }
@@ -3091,9 +3080,9 @@
 /* HR 月曆排班 */
 /* 只有日期格那一塊捲；月份、快速排班、星期列放在捲動區外，不需要 sticky。 */
 .hr-calendar-panel { gap: 12px; }
-.page.fills > .panel.grows > .hr-calendar-head,
-.page.fills > .panel.grows > .hr-quick-bar,
-.page.fills > .panel.grows > .hr-calendar.weekdays { flex: none; }
+.page.fills > [data-panel].grows > .hr-calendar-head,
+.page.fills > [data-panel].grows > .hr-quick-bar,
+.page.fills > [data-panel].grows > .hr-calendar.weekdays { flex: none; }
 .hr-calendar-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .hr-calendar-scroll { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; margin: 0 -22px -20px; padding: 0 22px 20px; }
 .hr-schedule-month { display: flex; align-items: center; gap: 2px; }
@@ -3167,7 +3156,7 @@
   .hr-calendar-entry button { display: none; }
   .hr-calendar-entry small { display: none; }
 }
-.hr-schedule-page > .panel.grows { overflow: auto; }
+.hr-schedule-page > [data-panel].grows { overflow: auto; }
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
 .hr-payroll-records-panel { display: grid; gap: 14px; }
@@ -3403,13 +3392,13 @@
 }
 
 .hr-payroll-table-region { position: relative; min-width: 0; }
-.page.fills > .panel.grows > .hr-payroll-table-region {
+.page.fills > [data-panel].grows > .hr-payroll-table-region {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
-.page.fills > .panel.grows > .hr-payroll-table-region > .table-scroll {
+.page.fills > [data-panel].grows > .hr-payroll-table-region > .table-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
@@ -3425,13 +3414,13 @@
 .hr-payroll-select-cell input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-payroll-adjustments-panel { display: grid; gap: 14px; }
 .hr-payroll-adjustments-table-region { position: relative; min-width: 0; }
-.page.fills > .panel.grows > .hr-payroll-adjustments-table-region {
+.page.fills > [data-panel].grows > .hr-payroll-adjustments-table-region {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
-.page.fills > .panel.grows > .hr-payroll-adjustments-table-region > .table-scroll {
+.page.fills > [data-panel].grows > .hr-payroll-adjustments-table-region > .table-scroll {
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;

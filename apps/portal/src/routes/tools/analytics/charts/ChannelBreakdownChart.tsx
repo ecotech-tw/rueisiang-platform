@@ -114,7 +114,8 @@ export function ChannelBreakdownChart({
           </DataTable>
         </AnalyticsDataDialog>
       ) : null}
-      className="analytics-chart-panel analytics-channel-panel"
+      headerClassName="mb-3" titleClassName="text-[14px]"
+      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-channel-panel"
     >
       {data.length ? (
         <div

@@ -23,7 +23,7 @@ export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterIn
 export { SelectionActionBar, type SelectionActionBarProps } from "./SelectionActionBar.js";
 export { Pager, type PagerProps } from "./Pager.js";
 export { SortableHeader, type SortableHeaderProps } from "./SortableHeader.js";
-export { PageHeader, Panel } from "./Panel.js";
+export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
 export { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";
 export { OvertimeDayPicker, type OvertimePickerDay } from "./OvertimeDayPicker.js";

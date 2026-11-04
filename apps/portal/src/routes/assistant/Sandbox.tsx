@@ -277,7 +277,7 @@ export function Sandbox() {
 
       <div className="assistant-sandbox-layout">
         <div className="assistant-settings-column">
-          <Panel title="執行設定" className="assistant-settings-panel">
+          <Panel title="執行設定" className="assistant-settings-panel px-[18px] py-4" titleClassName="mb-2.5">
             <div className="field-grid">
               <Field label="Pi 模型">
                 <DropdownSelect options={modelOptions} value={model} onChange={(event) => setModel(event.target.value)} aria-label="Pi 模型" />
@@ -378,7 +378,7 @@ export function Sandbox() {
           </Panel>
         </div>
 
-      <Panel title="測試對話" className="assistant-chat-panel">
+      <Panel title="測試對話" className="assistant-chat-panel px-[18px] py-4" titleClassName="mb-2.5">
         <div className="assistant-session-bar">
           <div className="assistant-session-copy">
             <strong>Sandbox session</strong>

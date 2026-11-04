@@ -23,6 +23,7 @@ import {
   PageHeader,
   Pager,
   Panel,
+  PanelSkin,
   SearchFilterInput,
   SegmentedControl,
   SelectField,
@@ -71,7 +72,7 @@ function LiquidGlassPreview() {
 
   return (
     <div className="style-guide-liquid-preview">
-      <ButtonSkin skin="glass"><div className="hr-module hr-system style-guide-liquid-system">
+      <ButtonSkin skin="glass"><PanelSkin skin="glass"><div className="hr-module hr-system style-guide-liquid-system">
         <svg className="hr-liquid-defs" aria-hidden="true" focusable="false">
           <filter id="hr-liquid-glass-soft" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
             <feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="2" seed="7" result="noise" />
@@ -128,7 +129,7 @@ function LiquidGlassPreview() {
             </Panel>
           </div>
         </div>
-      </div></ButtonSkin>
+      </div></PanelSkin></ButtonSkin>
     </div>
   );
 }

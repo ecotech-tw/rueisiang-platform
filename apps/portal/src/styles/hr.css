@@ -383,43 +383,32 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   60% { opacity: .9; filter: blur(4px); }
   100% { opacity: 1; translate: 0 0; filter: blur(0); }
 }
-.hr-system .panel:not(.hr-overview-panel),
+/* HRIS 概覽卡跟玻璃面板（Panel 的 glass）是同一塊玻璃，數值共用 theme 裡的 token。 */
 .hr-overview-card {
   position: relative;
   isolation: isolate;
   overflow: hidden;
   border: 1px solid transparent;
   background: --alpha(var(--color-paper) / 24%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 20%) inset,
-    0 -16px 34px --alpha(var(--color-brand) / 5%) inset,
-    0 16px 38px --alpha(var(--color-ink) / 9%);
+  box-shadow: var(--shadow-glass-panel);
   -webkit-backdrop-filter: blur(7px) saturate(150%) contrast(102%);
   backdrop-filter: blur(7px) saturate(150%) contrast(102%);
 }
-.hr-system .panel:not(.hr-overview-panel)::before,
 .hr-overview-card::before {
   position: absolute;
   inset: 1px;
   z-index: -1;
   border-radius: inherit;
-  background:
-    radial-gradient(circle at 16% 0%, --alpha(var(--color-paper) / 20%), transparent 34%),
-    radial-gradient(circle at 90% 100%, --alpha(var(--color-brand) / 6%), transparent 38%),
-    linear-gradient(135deg, --alpha(var(--color-paper) / 13%) 0%, transparent 30%, --alpha(var(--color-paper) / 6%) 68%, transparent 100%);
+  background: var(--glass-panel-sheen);
   content: "";
   pointer-events: none;
 }
-.hr-system .panel:not(.hr-overview-panel)::after,
 .hr-overview-card::after {
   position: absolute;
   inset: 0;
   z-index: -1;
   border-radius: inherit;
-  box-shadow:
-    0 0 16px --alpha(var(--color-paper) / 20%) inset,
-    0 0 30px --alpha(var(--color-brand) / 4%) inset;
+  box-shadow: var(--shadow-glass-panel-glow);
   content: "";
   pointer-events: none;
 }
@@ -431,9 +420,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   white-space: nowrap;
 }
 
-.hr-system .panel:has(> .table-scroll) > .table-scroll { margin-inline: -22px; }
-.hr-system .panel:has(> .table-scroll)::before,
-.hr-system .panel:has(> .table-scroll)::after { content: none; }
 .hr-system .table-scroll { min-width: 0; }
 .hr-system .row-actions { gap: 8px; }
 /*
@@ -605,7 +591,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 
 /* HRIS 概覽卡片 */
 .hr-overview-page { gap: 22px; }
-.hr-overview-page > .hr-overview-panel { padding: 0; border: 0; background: transparent; box-shadow: none; }
 .hr-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
 .hr-overview-card { display: grid; gap: 13px; min-height: 190px; padding: 18px; border-radius: 18px; color: var(--color-ink); text-decoration: none; transition-property: background-color, box-shadow, transform; transition-duration: 150ms; transition-timing-function: ease-out; }
 .hr-overview-card:hover { background-color: --alpha(var(--color-paper) / 42%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 18px 42px --alpha(var(--color-ink) / 11%); transform: translateY(-2px); }
@@ -822,8 +807,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 
 @media (max-width: 1100px) { .hr-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) {
-  .hr-overview-page > .panel { padding: 12px; }
-  .hr-overview-page > .hr-overview-panel { padding: 0; }
   .hr-overview-grid,
   .hr-skeleton-dashboard-grid { grid-template-columns: 1fr; }
   .hr-overview-card { min-height: 0; }
@@ -955,7 +938,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-annual-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
 .hr-annual-leave-page small,
 .hr-annual-settings-page small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 12px; line-height: 1.45; }
-.hr-annual-list-panel > .panel-head { align-items: center; }
 .hr-annual-view-tabs { width: 214px !important; }
 .hr-annual-leave-page th,
 .hr-annual-leave-page td { vertical-align: middle; }
@@ -1003,7 +985,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
   .hr-annual-settings-page { gap: 14px; }
   .hr-annual-settings-overview { grid-template-columns: minmax(0, 1fr); }
   .hr-annual-header-actions { justify-content: flex-start; }
-  .hr-annual-list-panel > .panel-head { align-items: stretch; flex-direction: column; gap: 12px; }
   .hr-annual-view-tabs { width: 100% !important; }
   .hr-annual-detail-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .hr-annual-detail-list > div { grid-template-columns: minmax(100px, 0.35fr) minmax(0, 1fr); }

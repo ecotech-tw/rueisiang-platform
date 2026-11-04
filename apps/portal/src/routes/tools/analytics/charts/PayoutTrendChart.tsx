@@ -60,7 +60,8 @@ export function PayoutTrendChart({ current, lastYear, granularity, valueFormatte
           </DataTable>
         </AnalyticsDataDialog>
       )}
-      className="analytics-chart-panel analytics-trend-panel"
+      headerClassName="mb-3" titleClassName="text-[14px]"
+      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-trend-panel"
     >
       <div className="analytics-chart" role="img" aria-label="出金趨勢圖">
         <ResponsiveContainer width="100%" height="100%">

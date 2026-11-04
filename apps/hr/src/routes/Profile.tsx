@@ -8,6 +8,12 @@ import { useHrQuery, type Employment, type Profile as HrProfile } from "./hr/api
 import { dateLabel } from "./hr/format.js";
 import { HrProfilePhoto } from "./hr/ProfilePhoto.js";
 
+// 個人資料的區塊：標題帶圖示，手機上標題與說明疊成兩行、內距縮小。
+const PROFILE_PANEL = {
+  className: "min-w-0 max-[760px]:px-3.5 max-[760px]:py-4",
+  headerClassName: "mb-4 max-[760px]:grid max-[760px]:gap-[5px] max-[760px]:mb-3.5 max-[760px]:[&>div]:min-w-0",
+  titleClassName: "gap-[9px] [&_svg]:size-[19px] [&_svg]:text-brand-dark max-[760px]:text-[16px]",
+};
 function userStatusLabel(status: HrProfile["employee"]["userStatus"]) {
   if (status === "active") return "帳號啟用中";
   if (status === "invited") return "等待啟用";
@@ -52,7 +58,7 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
   const employeeName = employee.legalName.trim() || employee.displayName || "員工";
   const navigate = useNavigate();
   return <>
-    <Panel className="hr-profile-overview">
+    <Panel className="hr-profile-overview bg-[linear-gradient(125deg,var(--color-brand-soft),var(--color-paper)_72%)] max-[760px]:p-4">
       <div className="hr-profile-overview-main">
         <HrProfilePhoto profile={profile} />
         <div className="hr-profile-overview-copy">
@@ -64,11 +70,11 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
     </Panel>
 
     <div className="hr-profile-sections">
-      <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="calendar">我的假勤</ProfileSectionTitle>} description="可用特休、到期日與各月請假時數。">
+      <Panel {...PROFILE_PANEL} title={<ProfileSectionTitle icon="calendar">我的假勤</ProfileSectionTitle>} description="可用特休、到期日與各月請假時數。">
         <Button variant="secondary" onClick={() => navigate("/profile/leave")}>查看假勤</Button>
       </Panel>
 
-      <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="person">帳號資訊</ProfileSectionTitle>} description="與目前登入帳號連結的資訊。">
+      <Panel {...PROFILE_PANEL} title={<ProfileSectionTitle icon="person">帳號資訊</ProfileSectionTitle>} description="與目前登入帳號連結的資訊。">
         <ProfileInfoRows rows={[
           { label: "Google 帳號名稱", value: employee.accountName || "未提供" },
           { label: "登入帳號", value: employee.email || "未提供" },
@@ -76,15 +82,15 @@ function ProfileDetails({ profile }: { profile: HrProfile }) {
         ]} />
       </Panel>
 
-      <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="people">任職紀錄</ProfileSectionTitle>} description="包含目前與已封存的任職資料。">
+      <Panel {...PROFILE_PANEL} title={<ProfileSectionTitle icon="people">任職紀錄</ProfileSectionTitle>} description="包含目前與已封存的任職資料。">
         {profile.employments.length ? <div className="hr-profile-card-list">{profile.employments.map((job) => <EmploymentCard key={job.id} job={job} />)}</div> : <EmptyState size="compact">尚未建立任職資料。</EmptyState>}
       </Panel>
 
-      <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="storefront">營運櫃點</ProfileSectionTitle>} description="依日期記錄的營運櫃點歸屬。">
+      <Panel {...PROFILE_PANEL} title={<ProfileSectionTitle icon="storefront">營運櫃點</ProfileSectionTitle>} description="依日期記錄的營運櫃點歸屬。">
         {profile.assignments?.length ? <div className="hr-profile-card-list">{profile.assignments.map((assignment) => <AssignmentCard key={assignment.id} name={assignment.scopeName} from={assignment.validFrom} to={assignment.validTo} />)}</div> : <EmptyState size="compact">尚無營運櫃點歸屬。</EmptyState>}
       </Panel>
 
-      <Panel className="hr-profile-panel" title={<ProfileSectionTitle icon="warehouse">辦公位置</ProfileSectionTitle>} description="出勤打卡所使用的辦公位置。">
+      <Panel {...PROFILE_PANEL} title={<ProfileSectionTitle icon="warehouse">辦公位置</ProfileSectionTitle>} description="出勤打卡所使用的辦公位置。">
         {profile.attendanceAssignments?.length ? <div className="hr-profile-card-list">{profile.attendanceAssignments.map((assignment) => <AssignmentCard key={assignment.id} name={assignment.locationName} from={assignment.validFrom} to={assignment.validTo} primary={assignment.isPrimary} />)}</div> : <EmptyState size="compact">尚未指派辦公位置。</EmptyState>}
       </Panel>
     </div>
