@@ -199,7 +199,7 @@ styles 入口必須用 `@source` 指到 `packages/ui/src`。少了這一行不�
 只是不會被產生，畫面上就是一顆沒有樣式的按鈕。
 
 **既有的 `components.css` 用 `layer(components)` 匯入**，所以 utility 一定贏過還沒搬的
-舊 class。沒有 layer 的話「`.panel` 的 padding」跟「`p-6`」誰贏要看誰寫在後面，
+舊 class。沒有 layer 的話「`.page-head` 的 margin」跟「`mt-6`」誰贏要看誰寫在後面，
 那是最難查的一種 bug。
 
 **preflight 會重置掉瀏覽器預設樣式**，所以標題字重、清單的項目符號這類東西要自己寫回來
@@ -254,7 +254,7 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
    在畫面外，而 fixed 不像相對定位那樣捲得回來。
 3. **捲動、縮放、Escape 都要關掉。** 座標是進場時算的，捲動後就跟錨點脫節，
    而且指標還停在同一個元素上，不會觸發 mouseleave。長列表是表格自己捲
-   （`.page.fills`），所以捲動事件要用 capture 才聽得到內層容器。
+   （`<Page layout="fills">`），所以捲動事件要用 capture 才聽得到內層容器。
 
 **非互動的錨點**（`<span>`、`<td>`）才加 `tabIndex={0}`，而且只加在少數重點欄位——
 一張兩百列的表每格都加，鍵盤使用者要按過整張表才離得開。錨點本來就是
@@ -278,7 +278,7 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
 表格上方的工具列（搜尋、篩選）要有自己的下緣分隔線，跟表頭分成兩個區塊——
 沒有那條線的話兩排東西會黏在一起。
 
-長列表用 `.page.fills` ＋ `.panel.grows`：整頁不捲，只有表格自己捲，表頭 sticky。
+長列表用 `<Page layout="fills">` ＋ `<Panel grows>`：整頁不捲，只有表格自己捲，表頭 sticky。
 
 **表格一律用 `<DataTable>`，改格子的預設值寫在表格的 `className`，不寫在單一格子上。**
 格子的預設外觀是 DataTable 用後代選擇器套上去的，權重壓到最低；`<td className="align-top">`
@@ -293,7 +293,9 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
   拿掉標籤或釘在右上角，完整清單在 DataTable 的 `MOBILE_CARD`）：寫
   `[&_tbody_tr>td[data-label=狀態]]:…`。新表格的欄位取了這些名字就會套上去，不想要時用這個寫法蓋掉。
   「分類」那條多排除了第一格，要蓋它得照抄：`[&_tbody_tr>td[data-label=分類]:not(:first-child)]:…`。
-- **釘住的表頭**（底色、陰影、圓角）：寫 `[.table-scroll>&_thead_th]:…`，只寫 `[&_th]:` 會輸。
+- **釘住的表頭**（底色、陰影）：寫 `[[data-table-scroll]>&_thead_th]:…`，只寫 `[&_th]:` 會輸。
+  圓角寫在首欄與末欄上，要再帶 `:first-child`／`:last-child`（`[[data-table-scroll]>&_thead_th:first-child]:rounded-tl-[14px]`）；
+  表格直接放在 Panel 裡時，前面還要加 `[data-panel]>`。
 
 ### 導覽
 
