@@ -47,7 +47,7 @@ interface StatusBadgeProps {
  * justify-self-start：手機版表格的 td 是兩欄 grid，膠囊會被拉滿整格，就不像標記了。
  * 同一格兩個標記（「已同步」＋「已封鎖」）在手機上並排，要隔開一點。
  */
-const BADGE_BASE = "inline-block shrink-0 justify-self-start rounded-full px-[9px] py-0.5 text-[12px] whitespace-nowrap max-[760px]:[.data-table_td>&+&]:ml-1.5";
+const BADGE_BASE = "inline-block shrink-0 justify-self-start rounded-full px-[9px] py-0.5 text-[12px] whitespace-nowrap max-[760px]:[td>&+&]:ml-1.5";
 
 export function StatusBadge({ tone = "neutral", palette, quiet = false, className = "", children }: StatusBadgeProps) {
   const color = palette ? (PALETTE_COLOR[palette] ?? PALETTE_COLOR.slate) : TONE_COLOR[quiet ? "neutral" : tone];

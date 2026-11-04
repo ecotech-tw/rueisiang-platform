@@ -913,7 +913,7 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-request-mobile-select-all { display: none; }
 .hr-request-table-region { position: relative; min-width: 0; }
 .hr-request-table tr.selected td { background: --alpha(var(--color-brand) / 7%); }
-.hr-request-table .hr-request-select-cell { width: 48px; padding-inline: 10px !important; }
+.hr-request-table .hr-request-select-cell { width: 48px; }
 .hr-request-row-select { display: inline-grid; width: 40px; height: 40px; place-items: center; cursor: pointer; }
 .hr-request-select-cell input:focus-visible,
 .hr-request-mobile-select-all input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
@@ -928,27 +928,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 
 @media (max-width: 760px) {
   .hr-request-mobile-select-all { display: flex; align-items: center; margin: 0 0 8px; }
-  .hr-request-table tbody tr > td.hr-request-select-cell {
-    position: absolute;
-    top: 8px;
-    left: 8px;
-    display: block;
-    width: 40px;
-    min-width: 40px;
-    padding: 0 !important;
-    border: 0;
-    margin: 0;
-  }
-  .hr-request-table tbody tr > td[data-label="類型"] {
-    order: 1;
-    display: block;
-    width: 100%;
-    padding: 0 84px 8px 48px;
-    border-bottom: 1px solid var(--color-soft-line);
-    margin-bottom: 6px;
-    font-weight: 600;
-  }
-  .hr-request-table tbody tr > td[data-label="類型"]::before { display: none; }
 }
 
 @media (max-width: 620px) {
@@ -958,14 +937,14 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 
 /* 假別是出勤主檔；保留足夠留白讓狀態與操作在窄螢幕仍可辨識。 */
 .hr-leave-types-page { gap: 18px; }
-.hr-leave-types-page .data-table td:first-child { min-width: 180px; }
-.hr-leave-types-page .data-table td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.hr-leave-types-page .data-table td:last-child { min-width: 190px; }
+.hr-leave-types-page td:first-child { min-width: 180px; }
+.hr-leave-types-page td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.hr-leave-types-page td:last-child { min-width: 190px; }
 .hr-leave-grant-dialog .hr-leave-grant-fields { display: grid; gap: 18px; }
 .hr-leave-grant-dialog .hr-leave-grant-date-row { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 @media (max-width: 620px) {
   .hr-leave-types-page { gap: 14px; }
-  .hr-leave-types-page .data-table td:last-child { min-width: 0; }
+  .hr-leave-types-page td:last-child { min-width: 0; }
   .hr-leave-grant-dialog .hr-leave-grant-fields { gap: 16px; }
   .hr-leave-grant-dialog .hr-leave-grant-date-row { grid-template-columns: 1fr; gap: 14px; }
 }
@@ -974,16 +953,16 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-annual-leave-page,
 .hr-annual-settings-page { gap: 18px; }
 .hr-annual-header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 10px; }
-.hr-annual-leave-page .data-table small,
+.hr-annual-leave-page small,
 .hr-annual-settings-page small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 12px; line-height: 1.45; }
 .hr-annual-list-panel > .panel-head { align-items: center; }
 .hr-annual-view-tabs { width: 214px !important; }
-.hr-annual-leave-page .data-table th,
-.hr-annual-leave-page .data-table td { vertical-align: middle; }
-.hr-annual-leave-page .data-table td:first-child { min-width: 160px; }
-.hr-annual-leave-page .data-table td:nth-child(2) { min-width: 145px; }
-.hr-annual-leave-page .data-table td:nth-child(4) { min-width: 112px; white-space: nowrap; }
-.hr-annual-leave-page .data-table td:nth-child(5) { min-width: 168px; white-space: nowrap; }
+.hr-annual-leave-page th,
+.hr-annual-leave-page td { vertical-align: middle; }
+.hr-annual-leave-page td:first-child { min-width: 160px; }
+.hr-annual-leave-page td:nth-child(2) { min-width: 145px; }
+.hr-annual-leave-page td:nth-child(4) { min-width: 112px; white-space: nowrap; }
+.hr-annual-leave-page td:nth-child(5) { min-width: 168px; white-space: nowrap; }
 .hr-annual-balance { display: grid; gap: 2px; min-width: 118px; }
 .hr-annual-balance > strong { color: var(--color-brand-dark); font-size: 16px; font-variant-numeric: tabular-nums; }
 .hr-annual-progress { display: block; width: 100%; height: 5px; margin-top: 5px; overflow: hidden; border-radius: 999px; background: --alpha(var(--color-ink) / 10%); }

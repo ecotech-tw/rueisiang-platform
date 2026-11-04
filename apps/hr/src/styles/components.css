@@ -411,32 +411,6 @@
 
 @media (max-width: 760px) {
 
-  .data-table td:first-child {
-    display: block;
-    padding: 0 0 8px;
-    border-bottom: 1px solid var(--color-soft-line);
-    margin-bottom: 6px;
-  }
-  .data-table td:first-child::before { display: none; }
-
-  .data-table td:not([data-label])::before { display: none; }
-
-  .data-table td:first-child { order: 1; width: 100%; }
-  .data-table td[data-label="狀態"] { order: 5; }
-
-  .data-table td[data-label="位置"] { order: 2; width: 100%; }
-  .data-table td[data-label="數量"] { order: 3; width: 100%; }
-
-  .data-table td[data-label="操作"] {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    display: block;
-    padding: 0;
-  }
-  .data-table td[data-label="操作"]::before { display: none; }
-   
-  .data-table td:first-child { padding-right: 84px; }
 
   .page-head-row { align-items: center; gap: 12px; }
 

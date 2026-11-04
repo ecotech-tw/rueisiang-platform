@@ -8,7 +8,7 @@ import {
   useCyberbizSalesStatus,
   useRunCyberbizSales,
 } from "./api.js";
-import { useStoreSelection } from "./store-selection.js";
+import { STORE_TABLE, useStoreSelection } from "./store-selection.js";
 
 function monthRange(value: string): { start: string; end: string } | null {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return null;
@@ -86,7 +86,7 @@ export function CyberbizSales() {
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
         {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
 
-        <DataTable>
+        <DataTable className={STORE_TABLE}>
             <thead>
               <tr>
                 <th>

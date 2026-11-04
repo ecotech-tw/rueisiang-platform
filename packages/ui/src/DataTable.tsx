@@ -18,11 +18,11 @@ export function TableSkin({ skin, children }: { skin: TableSkinName; children: R
  * 首欄、末欄、第一列這些例外多一個偽類，權重高一級；要改它們就寫
  * `[&_td:first-child]:pl-0` 這種同樣帶偽類的寫法。
  *
- * 寬度 760px 以下的表格會變成一列一張卡片，那一段還在 components.css（.data-table），
- * 所以格子的高度、內距、分隔線與 hover 只在桌機生效，不要跟卡片的規則打架。
+ * 寬度 760px 以下的表格會變成一列一張卡片（MOBILE_CARD），所以格子的高度、內距、
+ * 分隔線與 hover 只在桌機生效，兩邊不會互相蓋。
  */
 const TABLE_BASE = [
-  "data-table min-[761px]:w-full",
+  "min-[761px]:w-full",
   "[&_:where(th)]:h-14 [&_:where(th)]:px-4 [&_:where(th)]:text-left [&_:where(th)]:align-middle [&_:where(th)]:text-[14px] [&_:where(th)]:font-medium [&_:where(th)]:whitespace-nowrap [&_:where(th)]:text-muted",
   "[&_:where(th):first-child]:pl-6 [&_:where(th):last-child]:pr-6",
   "min-[761px]:[&_:where(td)]:text-[14px] min-[761px]:[&_:where(td)]:h-[52px] min-[761px]:[&_:where(td)]:px-4 min-[761px]:[&_:where(td)]:py-3.5 min-[761px]:[&_:where(td)]:border-t min-[761px]:[&_:where(td)]:border-soft-line min-[761px]:[&_:where(td)]:align-middle",
@@ -34,6 +34,58 @@ const TABLE_BASE = [
   "[&_.numeric]:tabular-nums min-[761px]:[&_.numeric]:text-right",
   // 表頭只有放在捲動外框裡才釘住；對話框裡沒有外框的表跟著對話框捲。
   "[.table-scroll>&_:where(thead_th)]:sticky [.table-scroll>&_:where(thead_th)]:top-0 [.table-scroll>&_:where(thead_th)]:z-2",
+].join(" ");
+
+/*
+ * 手機：一列一張卡片，每一格是「標籤＋值」兩欄，標籤取自 td 的 data-label，所以 markup 只有一份。
+ * 表格在 400px 寬的螢幕上沒救：七個欄位擠不下，橫向捲的話看得到第一欄就看不到狀態。
+ *
+ * 權重分三層，後面的蓋前面的：
+ * 1. 每一格的預設（:where，跟桌機一樣最輕）。
+ * 2. 首欄、末欄、沒有標籤的格子（多一個偽類）。
+ * 3. 照欄位名稱的慣例（`tr>td[data-label=…]`）。欄位名稱比位置優先：
+ *    分類管理頁第一格叫「分類」，所以「分類」那條另外排除了第一格。
+ */
+const MOBILE_CARD = [
+  "max-[760px]:block max-[760px]:[&_:where(thead)]:hidden max-[760px]:[&_:where(tbody)]:block",
+  /*
+   * 卡片用 flex-wrap 再以 order 重排欄位：markup 的順序是為了桌機表格，照那個順序疊在手機上，
+   * 兩個標記膠囊會被地址隔開、各佔一列。
+   */
+  "max-[760px]:[&_:where(tbody_tr)]:relative max-[760px]:[&_:where(tbody_tr)]:flex max-[760px]:[&_:where(tbody_tr)]:flex-wrap max-[760px]:[&_:where(tbody_tr)]:items-center max-[760px]:[&_:where(tbody_tr)]:gap-x-2 max-[760px]:[&_:where(tbody_tr)]:gap-y-0 max-[760px]:[&_:where(tbody_tr)]:mb-2.5 max-[760px]:[&_:where(tbody_tr)]:px-3.5 max-[760px]:[&_:where(tbody_tr)]:pt-3 max-[760px]:[&_:where(tbody_tr)]:pb-2.5 max-[760px]:[&_:where(tbody_tr)]:border max-[760px]:[&_:where(tbody_tr)]:border-line max-[760px]:[&_:where(tbody_tr)]:rounded-(--radius-card) max-[760px]:[&_:where(tbody_tr)]:bg-paper",
+  /*
+   * 每一格都要有 order，而且預設值要大於標題那一格：沒有 order 的格子會落在 0、排到標題前面，
+   * 整張卡片從第二個欄位開始讀。分類管理頁踩過。
+   */
+  "max-[760px]:[&_:where(td)]:grid max-[760px]:[&_:where(td)]:grid-cols-[76px_minmax(0,1fr)] max-[760px]:[&_:where(td)]:items-start max-[760px]:[&_:where(td)]:gap-3 max-[760px]:[&_:where(td)]:px-0 max-[760px]:[&_:where(td)]:py-[5px] max-[760px]:[&_:where(td)]:border-0 max-[760px]:[&_:where(td)]:text-[14px] max-[760px]:[&_:where(td)]:order-10",
+  "max-[760px]:[&_:where(td)]:before:content-[attr(data-label)] max-[760px]:[&_:where(td)]:before:text-[12px] max-[760px]:[&_:where(td)]:before:leading-[1.6] max-[760px]:[&_:where(td)]:before:text-muted",
+  // 沒有標籤的格子（例如純操作欄）不要留一格空白。
+  "max-[760px]:[&_:where(td):not([data-label])]:grid-cols-[minmax(0,1fr)] max-[760px]:[&_:where(td):not([data-label])]:before:hidden",
+  "max-[760px]:[&_:where(td):last-child]:pr-6",
+  // 第一格是「這是誰」，獨占一行當卡片標題，右邊讓開釘在右上角的操作鈕。
+  "max-[760px]:[&_:where(td):first-child]:order-1 max-[760px]:[&_:where(td):first-child]:block max-[760px]:[&_:where(td):first-child]:w-full max-[760px]:[&_:where(td):first-child]:pt-0 max-[760px]:[&_:where(td):first-child]:pb-2 max-[760px]:[&_:where(td):first-child]:pr-[84px] max-[760px]:[&_:where(td):first-child]:mb-1.5 max-[760px]:[&_:where(td):first-child]:border-b max-[760px]:[&_:where(td):first-child]:border-soft-line max-[760px]:[&_:where(td):first-child]:before:hidden",
+  /*
+   * 不必解釋的欄位拿掉標籤、各佔一整行：看到一串數字就知道是電話，看到地址就知道是地址。
+   * 卡片原本每個欄位一列標籤＋值，一張 287px，一個螢幕只看得到 1.4 張。
+   */
+  "max-[760px]:[&_tr>td[data-label=電話]]:order-2 max-[760px]:[&_tr>td[data-label=地址]]:order-3 max-[760px]:[&_tr>td[data-label=最近更新]]:order-6",
+  "max-[760px]:[&_tr>td[data-label=電話]]:w-full max-[760px]:[&_tr>td[data-label=地址]]:w-full max-[760px]:[&_tr>td[data-label=最近更新]]:w-full",
+  "max-[760px]:[&_tr>td[data-label=電話]]:grid-cols-[minmax(0,1fr)] max-[760px]:[&_tr>td[data-label=地址]]:grid-cols-[minmax(0,1fr)] max-[760px]:[&_tr>td[data-label=最近更新]]:grid-cols-[minmax(0,1fr)]",
+  "max-[760px]:[&_tr>td[data-label=電話]]:py-0.5 max-[760px]:[&_tr>td[data-label=地址]]:py-0.5 max-[760px]:[&_tr>td[data-label=最近更新]]:py-0.5",
+  "max-[760px]:[&_tr>td[data-label=電話]]:before:hidden max-[760px]:[&_tr>td[data-label=地址]]:before:hidden max-[760px]:[&_tr>td[data-label=最近更新]]:before:hidden",
+  "max-[760px]:[&_tr>td[data-label=最近更新]]:text-[12px] max-[760px]:[&_tr>td[data-label=最近更新]]:text-muted",
+  "max-[760px]:[&_tr>td[data-label=位置]]:order-2 max-[760px]:[&_tr>td[data-label=數量]]:order-3 max-[760px]:[&_tr>td[data-label=安全庫存]]:order-4",
+  "max-[760px]:[&_tr>td[data-label=位置]]:w-full max-[760px]:[&_tr>td[data-label=數量]]:w-full max-[760px]:[&_tr>td[data-label=安全庫存]]:w-full",
+  // 通路、狀態、分類都是膠囊，在最後排成同一行；各佔一列的話兩個小膠囊就吃掉 64px。
+  "max-[760px]:[&_tr>td[data-label=通路]]:order-4 max-[760px]:[&_tr>td[data-label=狀態]]:order-5 max-[760px]:[&_tr>td[data-label=分類]:not(:first-child)]:order-5",
+  "max-[760px]:[&_tr>td[data-label=通路]]:block max-[760px]:[&_tr>td[data-label=狀態]]:block max-[760px]:[&_tr>td[data-label=分類]:not(:first-child)]:block",
+  "max-[760px]:[&_tr>td[data-label=通路]]:w-auto max-[760px]:[&_tr>td[data-label=狀態]]:w-auto max-[760px]:[&_tr>td[data-label=分類]:not(:first-child)]:w-auto",
+  "max-[760px]:[&_tr>td[data-label=通路]]:py-1 max-[760px]:[&_tr>td[data-label=狀態]]:py-1 max-[760px]:[&_tr>td[data-label=分類]:not(:first-child)]:py-1",
+  "max-[760px]:[&_tr>td[data-label=通路]]:before:hidden max-[760px]:[&_tr>td[data-label=狀態]]:before:hidden max-[760px]:[&_tr>td[data-label=分類]:not(:first-child)]:before:hidden",
+  // 操作鈕釘在卡片右上角，不要自己佔一列（那一列量出來 50px）。
+  "max-[760px]:[&_tr>td[data-label=操作]]:absolute max-[760px]:[&_tr>td[data-label=操作]]:top-2 max-[760px]:[&_tr>td[data-label=操作]]:right-2 max-[760px]:[&_tr>td[data-label=操作]]:block max-[760px]:[&_tr>td[data-label=操作]]:p-0 max-[760px]:[&_tr>td[data-label=操作]]:before:hidden",
+  // 值那一欄是 grid item，預設會被拉滿整格；膠囊撐成一整條就不像標記了。
+  "max-[760px]:[&_td>.chips]:justify-self-start",
 ].join(" ");
 
 const STICKY_HEADER_SKIN: Record<TableSkinName, string> = {
@@ -68,7 +120,7 @@ type DataTableProps = DataTableBaseProps & (
 export function DataTable({ children, className = "", containerClassName = "", scroll = true, ...tableProps }: DataTableProps) {
   const skin = useContext(TableSkinContext);
   const table = (
-    <table {...tableProps} className={`${defaultUnless(className, "border-separate", "border-collapse")} ${TABLE_BASE} ${STICKY_HEADER_SKIN[skin]} ${className}`.trim()}>
+    <table {...tableProps} className={`${defaultUnless(className, "border-separate", "border-collapse")} ${TABLE_BASE} ${MOBILE_CARD} ${STICKY_HEADER_SKIN[skin]} ${className}`.trim()}>
       {children}
     </table>
   );

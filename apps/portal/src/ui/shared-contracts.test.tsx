@@ -24,7 +24,7 @@ describe("shared HRIS UI contracts", () => {
 
     expect(markup).toContain('class="table-scroll mobile-table"');
     const tableClasses = (markup.match(/<table class="([^"]*)"/)?.[1] ?? "").split(/\s+/);
-    expect(tableClasses).toEqual(expect.arrayContaining(["data-table", "border-collapse", "payroll-table"]));
+    expect(tableClasses).toEqual(expect.arrayContaining(["border-collapse", "payroll-table"]));
     expect(markup).toContain("<thead>");
     expect(markup).toContain("<tbody>");
   });

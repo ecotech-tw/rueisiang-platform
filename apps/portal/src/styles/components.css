@@ -2387,129 +2387,8 @@
 .toast-info { --toast-tint: var(--color-info); }
 .toast-danger { --toast-tint: var(--color-brand-dark); }
 
-/*
- * ── 手機版的資料表 ────────────────────────────────────────────────────────
- *
- * 表格在 400px 寬的螢幕上沒救：七個欄位擠不下，橫向捲的話看得到第一欄就看不到
- * 狀態，而且 .page.fills 的「只有表格自己捲」在手機上會讓整片資料躲在第二個
- * 捲軸裡——實際情況是打開頁面連一筆資料都看不到。
- *
- * 改成卡片：每一列變一張卡，每個欄位變「標籤 ＋ 值」的一行。標籤來自 td 的
- * data-label，所以 markup 只有一份。
- */
 @media (max-width: 760px) {
-
-  /* 第一格是「這是誰」，讓它獨占一行當卡片標題。 */
-  .data-table td:first-child {
-    display: block;
-    padding: 0 0 8px;
-    border-bottom: 1px solid var(--color-soft-line);
-    margin-bottom: 6px;
-  }
-  .data-table td:first-child::before { display: none; }
-  .data-table tbody tr > td.store-selection-cell {
-    display: block;
-    order: 0;
-    width: auto;
-    padding: 0;
-    border: 0;
-    margin: 0;
-  }
-  .data-table tbody tr > td.store-selection-cell::before { display: none; }
-  .data-table tbody tr > td.store-name-cell {
-    display: block;
-    order: 1;
-    width: 100%;
-    padding: 0 84px 8px 0;
-    border-bottom: 1px solid var(--color-soft-line);
-    margin-bottom: 6px;
-  }
-  .data-table tbody tr > td.store-name-cell::before { display: none; }
-
-  .data-table td:not([data-label])::before { display: none; }
-
-  /*
-   * 卡片本來是「每個欄位一列標籤＋值」，量出來一張 287px，一個螢幕只看得到
-   * 1.4 張——滑三下才換一個人。壓縮的作法是把「不必解釋的欄位」拿掉標籤：
-   * 看到一串數字就知道是電話，看到地址就知道是地址。
-   */
-  .data-table td:first-child { order: 1; width: 100%; }
-  .data-table td[data-label="電話"] { order: 2; width: 100%; }
-  .data-table td[data-label="地址"] { order: 3; width: 100%; }
-  .data-table td[data-label="通路"] { order: 4; }
-  .data-table td[data-label="狀態"] { order: 5; }
-  .data-table td[data-label="最近更新"] { order: 6; width: 100%; }
-
-  .data-table td[data-label="電話"],
-  .data-table td[data-label="地址"],
-  .data-table td[data-label="最近更新"] {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 2px 0;
-  }
-  .data-table td[data-label="電話"]::before,
-  .data-table td[data-label="地址"]::before,
-  .data-table td[data-label="最近更新"]::before { display: none; }
-  .data-table td[data-label="最近更新"] { color: var(--color-muted); font-size: 12px; }
-
-  /*
-   * 通路與狀態都是標記，讓它們排在同一行——各自佔一列的話，兩個小膠囊就吃掉
-   * 64px。用 inline-block 而不是 flex 容器：它們是分開的 td，包不進同一個父層。
-   */
-  .data-table td[data-label="通路"],
-  .data-table td[data-label="狀態"] {
-    display: block;
-    width: auto;
-    padding: 4px 0;
-  }
-  .data-table td[data-label="通路"]::before,
-  .data-table td[data-label="狀態"]::before { display: none; }
-
-  /*
-   * 倉儲庫存的卡片。
-   *
-   * 上面那組 order 是照 CRM 的欄位名寫的（電話、地址、通路…），倉儲的欄位名不同，
-   * 所以那些規則一條都對不上，全部落在預設的 order: 0——結果是「商品」（唯一有
-   * order 的那個）被擠到所有欄位後面，卡片變成從「分類」開始讀。
-   *
-   * 這也是 order 這種寫法的代價：新增一張表就要在這裡補一次。與其把它做成通用的
-   * 機制，不如照實列出來——反正只有兩張表，而且每張表想要的順序本來就不一樣。
-   */
-  .data-table td[data-label="位置"] { order: 2; width: 100%; }
-  .data-table td[data-label="數量"] { order: 3; width: 100%; }
-  .data-table td[data-label="安全庫存"] { order: 4; width: 100%; }
-  /* 分類與狀態都是膠囊，跟 CRM 的通路一樣讓它們並排在最後一行。 */
-  /*
-   * :not(:first-child) 是必要的。分類管理頁的第一格也叫「分類」，但那裡它是卡片
-   * 標題、要獨占一整行；這條規則是給庫存頁用的（分類在中間，跟狀態並排成一行）。
-   * 兩條規則的權重一樣，不排除的話後寫的這條會贏，分類管理頁的標題就縮到右邊
-   * 跟操作鈕擠在一起。
-   */
-  .data-table td[data-label="分類"]:not(:first-child) {
-    order: 5;
-    display: block;
-    width: auto;
-    padding: 4px 0;
-  }
-  .data-table td[data-label="分類"]:not(:first-child)::before { display: none; }
-
-  /* 操作鈕釘在卡片右上角，不要自己佔一列（那一列量出來 50px）。 */
-  .data-table td[data-label="操作"] {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    display: block;
-    padding: 0;
-  }
-  .data-table td[data-label="操作"]::before { display: none; }
-  /* 名字那一格要讓開右上角的按鈕，不然長名字會被壓到。 */
-  .data-table td:first-child { padding-right: 84px; }
-
   .row-actions { justify-content: flex-start; }
-  /*
-   * 值那一欄是 grid item，預設會被拉滿整格——膠囊撐成一整條就不像標記了。
-   * justify-self: start 讓它縮回內容寬度。
-   */
-  .data-table td > .chips { justify-self: start; }
 
   /* 統計卡在窄螢幕上排成兩欄，避免每張卡都佔滿整列。 */
   .stat-row {
@@ -2562,8 +2441,6 @@
 }
 
 /* 整列就是員工檔案入口，滑鼠與鍵盤使用相同的導覽路徑。 */
-.data-table tr.clickable-row { cursor: pointer; }
-.data-table tr.clickable-row:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
 @media (min-width: 761px) {
   .hr-employee-list-table { min-width: 1200px; table-layout: fixed; }
   .hr-employee-number-column { width: 128px; }
@@ -3670,5 +3547,5 @@
 .hr-calendar-year-count strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
 .hr-calendar-year-bar .hr-schedule-status { margin: 0; }
 .hr-calendar-type-fields { display: grid; gap: 6px; min-width: 0; }
-.data-table .hr-calendar-scope-picker { max-width: 240px; }
-.data-table .hr-calendar-scope-picker > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+td .hr-calendar-scope-picker { max-width: 240px; }
+td .hr-calendar-scope-picker > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -242,64 +242,6 @@
    * 前提是上面那一段夠矮，所以統計卡在這個斷點以下是收起來的。
    */
   .table-scroll { overflow-x: visible; }
-  .data-table thead { display: none; }
-  .data-table,
-  .data-table tbody,
-  .data-table tr,
-  .data-table td { display: block; width: auto; }
-  .data-table tbody tr {
-    margin: 0 0 10px;
-    padding: 12px 14px;
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-card);
-    background: var(--color-paper);
-  }
-  .data-table tbody tr:hover { background: var(--color-paper); }
-  .data-table td {
-    display: grid;
-    grid-template-columns: 76px minmax(0, 1fr);
-    font-size: 14px;
-    align-items: start;
-    gap: 12px;
-    height: auto;
-    min-height: 0;
-    padding: 5px 0;
-    border: 0;
-  }
-  .data-table td::before {
-    content: attr(data-label);
-    color: var(--color-muted);
-    font-size: 12px;
-    line-height: 1.6;
-  }
-  /* 沒有 data-label 的欄位（例如純操作欄）不要留一格空白。 */
-  .data-table td:not([data-label]) { grid-template-columns: minmax(0, 1fr); }
-  /* 卡片最後一欄留跟桌機一樣的 24px 右內距；操作欄另外釘在右上角，不吃這條。 */
-  .data-table td:last-child { padding-right: 24px; }
-  .data-table .numeric { text-align: left; }
-  /*
-   * 卡片改成 flex-wrap，再用 order 重排欄位。markup 的順序是為了桌機表格
-   * （電話→通路→地址→狀態），照那個順序疊在手機上，兩個標記膠囊會被地址隔開、
-   * 各佔一列。用 order 把它們拉到一起，一列就放得下。
-   */
-  .data-table tbody tr {
-    position: relative;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 0 8px;
-    padding: 12px 14px 10px;
-  }
-  /*
-   * 每個 td 都要有 order，而且預設值要大於標題那一格。
-   *
-   * 少了這一行的話，沒被下面列到的欄位會落在 order: 0——**排在標題前面**。
-   * 新增一張欄位名不同的表時，整張卡片會從第二個欄位開始讀，而標題被擠到最後。
-   * 這是分類管理頁真的踩到的。
-   *
-   * 下面那些具名的 order 是「刻意調整過順序」的例外，不是必填項目。
-   */
-  .data-table td { order: 10; }
   /*
    * 頁首壓扁：標題與動作鈕排同一行，動作鈕縮成一顆圓形的圖示。
    *
