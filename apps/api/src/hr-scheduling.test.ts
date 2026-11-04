@@ -37,7 +37,7 @@ beforeEach(async () => {
   await db.insert(userRoleAssignments).values({ userId: "admin", roleId: "role-admin" });
   await db.insert(scopes).values(["store-a", "store-b"].map((id) => ({ id, name: id, normalizedName: id, sourceType: "manual" as const, scopeKind: "store" as const })));
   await db.insert(hrEmployments).values(["worker-1", "worker-2"].map((id) => ({ id, employeeNumber: id, legalName: id, position: "支援", personKind: "worker" as const })));
-  const created = await request("/shift-templates", "POST", { scopeId: "store-a", name: "早班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }, { dayType: "weekend", startTime: "10:00", endTime: "19:00", requiredHeadcount: 2 }] });
+  const created = await request("/shift-templates", "POST", { scopeId: "store-a", name: "早班", times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
   expect(created.status).toBe(201);
   shiftId = (await created.json() as { versionId: string }).versionId;
 });
@@ -46,8 +46,26 @@ afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); });
 async function setMembers(allowedPersonIds: string[] | null | undefined, revision?: number) {
   const current = await getHrSchedule(db, "2026-02");
   const shift = current.shifts.find((shift) => shift.versionId === shiftId)!;
-  return request(`/shift-templates/${shift.templateId}`, "PATCH", { scopeId: "store-a", name: "早班", revision: revision ?? shift.revision, allowedPersonIds, times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }, { dayType: "weekend", startTime: "10:00", endTime: "19:00", requiredHeadcount: 2 }] });
+  return request(`/shift-templates/${shift.templateId}`, "PATCH", { scopeId: "store-a", name: "早班", revision: revision ?? shift.revision, allowedPersonIds, times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
 }
+
+describe("班別星期時間", () => {
+  it("未設定星期沿用共用時間，指定週五則依日期套用，即使行事曆標為國定假日", async () => {
+    const created = await request("/shift-templates", "POST", { scopeId: "store-a", name: "週五特別班", times: [
+      { dayType: "weekday", startTime: "09:00", endTime: "18:00" },
+      { dayType: "friday", startTime: "11:00", endTime: "20:00", requiredHeadcount: 2 },
+    ] });
+    expect(created.status).toBe(201);
+    const versionId = (await created.json() as { versionId: string }).versionId;
+    await request("/calendar/2026-02", "PUT", { days: [{ date: "2026-02-06", dayType: "holiday", name: "公司假日" }] });
+    const result = await changes({ entries: ["worker-1", "worker-2"].map((workerId, index) => ({ personKind: "worker", workerId, scopeId: "store-a", shiftVersionId: versionId, workDate: index === 0 ? "2026-02-06" : "2026-02-07" })) });
+    expect(result.status, await result.clone().text()).toBe(200);
+    const entries = (await getHrSchedule(db, "2026-02")).entries;
+    expect(entries.find((row) => row.workDate === "2026-02-06")).toMatchObject({ startsAt: "2026-02-06 11:00:00", requiredHeadcount: 2 });
+    expect(entries.find((row) => row.workDate === "2026-02-07")).toMatchObject({ startsAt: "2026-02-07 09:00:00", requiredHeadcount: 1 });
+    expect(versionId).toBeTruthy();
+  });
+});
 
 describe("班別前台可排人員", () => {
   it("只回傳納入人員，正式員工與支援人員都由 API 限制，HR 可安排跨櫃支援", async () => {
@@ -128,7 +146,7 @@ describe("據點負責人的 HR 前台排班", () => {
     expect(data.shifts.every((shift) => shift.scopeId === "store-a")).toBe(true);
     const saved = await changes({ entries: [{ personKind: "employee", employmentId: "employment-other", scopeId: "store-a", shiftVersionId: shiftId, workDate: "2026-02-07" }] }, "scheduler");
     expect(saved.status, await saved.clone().text()).toBe(200);
-    expect((await getHrSchedule(db, "2026-02")).entries[0]).toMatchObject({ startsAt: "2026-02-07 10:00:00", requiredHeadcount: 2 });
+    expect((await getHrSchedule(db, "2026-02")).entries[0]).toMatchObject({ startsAt: "2026-02-07 09:00:00", requiredHeadcount: 1 });
     expect((await request("/me/schedules?periodKey=2026-02&scopeId=store-b", "GET", undefined, "scheduler")).status).toBe(403);
     expect((await changes({ scopeId: "store-b", entries: [entry("worker-1", undefined, "store-b")] }, "scheduler")).status).toBe(403);
     expect((await request("/schedules?periodKey=2026-02", "GET", undefined, "scheduler")).status).toBe(401);
@@ -324,21 +342,17 @@ describe("排班差異儲存", () => {
     await request("/calendar/2026-02", "PUT", { days: [{ date: "2026-02-06", dayType: "weekend", name: "調整" }] });
     expect((await changes({ refreshIds: [before.entries.find((entry) => entry.workDate === "2026-02-06")!.id] })).status).toBe(200);
     const after = await getHrSchedule(db, "2026-02");
-    expect(after.entries.find((entry) => entry.workDate === "2026-02-06")).toMatchObject({ startsAt: "2026-02-06 10:00:00", requiredHeadcount: 2 });
+    expect(after.entries.find((entry) => entry.workDate === "2026-02-06")).toMatchObject({ startsAt: "2026-02-06 09:00:00", requiredHeadcount: 1 });
     expect(after.entries.find((entry) => entry.workDate === "2026-02-09")).toEqual(before.entries.find((entry) => entry.workDate === "2026-02-09"));
   });
 
-  it("同班不同日型的人力不一致時拒絕部分更新，一併 refresh 後才發布", async () => {
+  it("行事曆假日標記不會改變依星期決定的班別設定", async () => {
     await changes({ entries: [entry("worker-1")] });
-    const original = await getHrSchedule(db, "2026-02");
     await request("/calendar/2026-02", "PUT", { days: [{ date: "2026-02-06", dayType: "weekend", name: "調整" }] });
     const partial = await changes({ entries: [entry("worker-2")] });
-    expect(partial.status).toBe(409);
-    expect(await partial.text()).toContain("一併重新套用");
-    expect((await getHrSchedule(db, "2026-02")).entries).toEqual(original.entries);
-    expect((await changes({ entries: [entry("worker-2")], refreshIds: [original.entries[0]!.id] })).status).toBe(200);
+    expect(partial.status).toBe(200);
     const after = await getHrSchedule(db, "2026-02");
-    expect(after.entries.every((entry) => entry.requiredHeadcount === 2 && entry.startsAt === "2026-02-06 10:00:00")).toBe(true);
+    expect(after.entries.every((entry) => entry.requiredHeadcount === 1 && entry.startsAt === "2026-02-06 09:00:00")).toBe(true);
     expect(new Set(after.entries.map((entry) => entry.shiftGroupId)).size).toBe(1);
   });
 
@@ -350,7 +364,7 @@ describe("排班差異儲存", () => {
     expect((await changes({ entries: [entry("worker-2")] })).status).toBe(200);
     const after = await getHrSchedule(db, "2026-02");
     expect(after.entries.find((entry) => entry.workerId === "worker-1")).toMatchObject({ id: original.id, requiredHeadcount: 1 });
-    expect(after.entries.find((entry) => entry.workerId === "worker-2")).toMatchObject({ requiredHeadcount: 2, shiftGroupId: original.shiftGroupId });
+    expect(after.entries.find((entry) => entry.workerId === "worker-2")).toMatchObject({ requiredHeadcount: 1, shiftGroupId: original.shiftGroupId });
   });
 
   it("資料庫 CAS 過期時不會因為別人的 revision+1 而刪寫資料", async () => {

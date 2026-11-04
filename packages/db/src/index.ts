@@ -8,7 +8,7 @@ export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } fr
 export { insertHrNotification, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, type HrNotificationEntityKind, type HrNotificationInsert, type HrNotificationKind } from "./hr-notifications.js";
 export {
   saveHrScheduleChanges, createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, getHrScheduleScopeLock, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, setHrScheduleScopeLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
-  monthPeriodFromKey, HR_SCHEDULE_ATTENDANCE_STATUSES,
+  monthPeriodFromKey, HR_SCHEDULE_ATTENDANCE_STATUSES, isHrShiftDayKey,
   type HrScheduleChangesInput, type HrScheduleAttendanceStatus, type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type HrWorkerCompensationInput, type HrWorkerPayBasis, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";
 export { listHrScheduleManagers, setHrScheduleManager, listHrManagedScheduleScopes, getHrManagedSchedule, saveHrManagedSchedule, setHrManagedScheduleLock } from "./hr-schedule-managers.js";
@@ -17,8 +17,8 @@ export {
   resolveCalendarSpecialKinds, resolveCalendarSpecials, resolveDayTypes, saveHrCalendarMonth, saveHrCalendarYear, HR_CALENDAR_SOURCE_URL, HR_DAY_TYPE_LABELS,
   type HrCalendarDayInput, type HrCalendarDayView, type HrCalendarSpecial,
 } from "./hr-calendar.js";
-export { HR_CALENDAR_SPECIAL_KINDS } from "./schema/hr-scheduling.js";
-export type { HrCalendarSpecialKind, HrDayType } from "./schema/hr-scheduling.js";
+export { HR_CALENDAR_SPECIAL_KINDS, HR_SHIFT_DAY_KEYS } from "./schema/hr-scheduling.js";
+export type { HrCalendarSpecialKind, HrDayType, HrShiftDayKey } from "./schema/hr-scheduling.js";
 export {
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, parseSpecialWorkdayAllowanceSnapshot, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, specialWorkdayAllowanceTotal, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
   type SpecialWorkdayAllowanceInput, type SpecialWorkdayAllowanceQuantityInput, type SpecialWorkdayAllowanceSnapshot, type SpecialWorkdayAssignmentInput, type SpecialWorkdayAssignmentItem, type SpecialWorkdayAssignmentUpdateInput, type SpecialWorkdayOvertimeRateKind, type SpecialWorkdayOvertimeRuleInput, type SpecialWorkdayRuleInput,

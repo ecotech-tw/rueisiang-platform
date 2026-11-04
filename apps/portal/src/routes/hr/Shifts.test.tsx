@@ -62,7 +62,7 @@ it("時間可手動輸入並驗證 HH:mm，班別名單可多選後一起儲存"
   });
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   const change = async (value: string) => act(async () => {
-    const input = document.querySelector<HTMLInputElement>('[aria-label="早班平日開始時間"]')!;
+    const input = document.querySelector<HTMLInputElement>('[aria-label="早班共用時間開始時間"]')!;
     Object.getOwnPropertyDescriptor(input.constructor.prototype, "value")!.set!.call(input, value);
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
@@ -70,13 +70,13 @@ it("時間可手動輸入並驗證 HH:mm，班別名單可多選後一起儲存"
   try {
     await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrShifts /></QueryClientProvider></MemoryRouter>));
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="編輯 門市 的班別與排班負責人"]')!.click());
-    expect(document.querySelector<HTMLInputElement>('[aria-label="早班平日開始時間"]')!.type).toBe("text");
+    expect(document.querySelector<HTMLInputElement>('[aria-label="早班共用時間開始時間"]')!.type).toBe("text");
     expect(document.body.textContent).not.toContain("每個據點指定一位在職員工");
     expect(document.body.textContent).not.toContain("時間可直接輸入，格式為");
     expect(document.querySelector('[aria-label="早班前台人員範圍"]')).toBeNull();
-    const picker = document.querySelector<HTMLInputElement>('[aria-label="早班平日開始時間時間選擇器"]')!;
+    const picker = document.querySelector<HTMLInputElement>('[aria-label="早班共用時間開始時間時間選擇器"]')!;
     const showPicker = vi.fn(); Object.assign(picker, { showPicker });
-    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="點選早班平日開始時間"]')!.click());
+    await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="點選早班共用時間開始時間"]')!.click());
     expect(showPicker).toHaveBeenCalledOnce();
     await change("25:00"); await save();
     expect(document.body.textContent).toContain("請輸入有效的 HH:mm"); expect(writes).toHaveLength(0);

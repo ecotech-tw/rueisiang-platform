@@ -4,7 +4,7 @@ import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
-import { groupShiftsByTemplate, isDefaultHrCalendarSpecialName, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, SCHEDULE_ATTENDANCE_STATUS_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
+import { groupShiftsByTemplate, isDefaultHrCalendarSpecialName, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, HR_SHIFT_DAY_LABELS, SCHEDULE_ATTENDANCE_STATUS_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { GuardedNavLink, useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 import { CalendarScopePicker } from "./Calendar.js";
@@ -27,9 +27,8 @@ function shiftLabel(shift: ScheduleShift) { return `${shift.name}（${shiftTimeR
 /**
  * 一次排班的四個條件。快速排班把它固定住，之後每點一天就套用同一組。
  *
- * 這裡記的是**班別**而不是某一組時間：同一個「早班」在平日與國定假日是兩個版本 ID，
- * 記版本的話一路點下去會把假日那幾天也排成平日的時間，而畫面上選的明明是同一個早班。
- * 真正要寫進班表的版本由 makeEntry 依那天的日型挑。
+ * 這裡記的是**班別**而不是某一組時間：同一個「早班」在不同星期可能套用不同版本，
+ * 真正寫進班表的版本由 makeEntry 依工作日與星期覆蓋挑選。
  */
 interface QuickPick { personKind: "employee" | "worker"; personId: string; scopeId: string; shiftTemplateId: string }
 type QuickSelection = Pick<QuickPick, "scopeId" | "shiftTemplateId"> & { personValue: string | null };
@@ -72,7 +71,7 @@ export function outdatedScheduleShiftCount(entries: readonly ScheduleEntry[], sh
 
 /** 對話框與快速排班共用，避免兩種新增方式產生不同的日型、班別名稱與人力。 */
 function makeEntry(data: HrScheduleResponse, pick: QuickPick, workDate: string, dayType: HrDayType): ScheduleEntry | null {
-  const shift = pickShiftForDay(data.shifts.filter((item) => item.templateId === pick.shiftTemplateId && item.scopeId === pick.scopeId), dayType);
+  const shift = pickShiftForDay(data.shifts.filter((item) => item.templateId === pick.shiftTemplateId && item.scopeId === pick.scopeId), dayType, workDate);
   if (!shift || !canSchedulePerson(shift, pick.personId)) return null;
   const employee = data.employees.find((item) => item.employmentId === pick.personId);
   const worker = data.workers.find((item) => item.id === pick.personId);
@@ -153,10 +152,9 @@ function ScheduleOverlapRulesDialog({ onClose }: { onClose: () => void }) {
 }
 
 /**
- * 單日新增排班。班別選的是班別本身，帶出來的時間依當天日型而定。
+ * 單日新增排班。班別選的是班別本身，時間依該日期的星期覆蓋決定。
  *
- * 使用者仍然改得動：在國定假日排一個平日時間的班是合理的需求，
- * 系統不該因為那天被標成假日就不給選。
+ * 行事曆假日標記只供出勤與薪資辨識，不會改變依星期設定的班別時間。
  */
 function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAdd, onClose }: { data: HrScheduleResponse; entries: ScheduleEntry[]; day: string; dayType: HrDayType; defaultScopeId: string; onAdd: (entry: ScheduleEntry) => void; onClose: () => void }) {
   const [personKind, setPersonKind] = useState<"employee" | "worker">("employee");
@@ -167,8 +165,8 @@ function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAd
   const templates = useMemo(() => [...groupShiftsByTemplate(shifts).values()], [shifts]);
   useEffect(() => {
     const first = templates[0];
-    setShiftVersionId(first ? pickShiftForDay(first, dayType)?.versionId ?? "" : "");
-  }, [templates, dayType]);
+    setShiftVersionId(first ? pickShiftForDay(first, dayType, day)?.versionId ?? "" : "");
+  }, [templates, dayType, day]);
   const selectedShift = shifts.find((shift) => shift.versionId === shiftVersionId);
   const employees = data.employees.filter((person) => canSchedulePerson(selectedShift, person.employmentId));
   const workers = data.workers.filter((person) => canSchedulePerson(selectedShift, person.id));
@@ -181,7 +179,7 @@ function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAd
   return <Dialog title={`${day} 新增排班`} onClose={onClose} closeRequestRef={closeRequestRef} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     if (!selectedShift) return;
-    const entry = makeEntry(data, { personKind, personId, scopeId, shiftTemplateId: selectedShift.templateId }, day, selectedShift.dayType);
+    const entry = makeEntry(data, { personKind, personId, scopeId, shiftTemplateId: selectedShift.templateId }, day, dayType);
     if (!entry) return;
     onAdd(entry);
     (closeRequestRef.current ?? onClose)();
@@ -191,10 +189,10 @@ function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAd
     <SelectField label="營運據點" aria-label="新增排班據點" value={scopeId} options={data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))} onChange={(event) => setScopeId(event.target.value)} />
     {/* 一個班別一個選項，label 直接寫出那天會用到的時間，使用者不必自己推今天算哪一型。 */}
     <SelectField label="班別" aria-label="新增排班班別" value={shiftVersionId} options={templates.flatMap((versions) => {
-      const shift = pickShiftForDay(versions, dayType);
+      const shift = pickShiftForDay(versions, dayType, day);
       return shift ? [{ value: shift.versionId, label: shiftLabel(shift) }] : [];
     })} onChange={(event) => setShiftVersionId(event.target.value)} />
-    {selectedShift && selectedShift.dayType !== "weekday" ? <p className="muted field-note">這天是{HR_DAY_TYPE_LABELS[dayType]}，已套用{HR_DAY_TYPE_LABELS[selectedShift.dayType]}時間。</p> : null}
+    {selectedShift && selectedShift.dayType !== "weekday" ? <p className="muted field-note">這天是{HR_DAY_TYPE_LABELS[dayType]}，已套用{HR_SHIFT_DAY_LABELS[selectedShift.dayType]}時間。</p> : null}
     {otherScopeNames.length ? <Alert tone="warning">此人員已在 {day} 排入「{otherScopeNames.join("、")}」。仍可加入另一據點；請確認支援安排，日薪會依排班單位計算。</Alert> : null}
     {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先到 <GuardedNavLink to="/hr/scheduling/shifts">班別管理</GuardedNavLink> 新增。</Alert> : selectedShift && !personIds.length ? <Alert>此班別沒有可排的{personKind === "employee" ? "正式員工" : "支援人員"}。</Alert> : null}
   </Dialog>;
@@ -459,14 +457,14 @@ export function HrScheduling() {
         <strong>快速排班</strong>
         <SelectField className="min-w-[132px] max-w-60 flex-[1_1_150px]" aria-label="人員" value={quickPersonValue ?? ""} placeholder="請選擇人員" searchable options={quickPeople} onChange={(event) => setQuick((current) => current ? { ...current, personValue: event.target.value } : current)} />
         {/*
-          * 選班別而不是選某一組時間：點到哪一天就用那天的日型挑。所以 label
-          * 只寫平日的時間做代表，後面再註明還有哪些日型有自己的時間。
+          * 選班別而不是選某一組時間：點到哪一天就依星期挑選時間；摘要以共用時間代表，
+          * 再列出另有覆蓋的星期。
           */}
         {quickTemplates.length
           ? <SelectField className="min-w-[132px] max-w-60 flex-[1_1_150px]" aria-label="班別" value={quick.shiftTemplateId} options={quickTemplates.flatMap((versions) => {
               const weekday = pickShiftForDay(versions, "weekday");
               if (!weekday) return [];
-              const extras = versions.filter((shift) => shift.dayType !== "weekday").map((shift) => HR_DAY_TYPE_LABELS[shift.dayType]);
+              const extras = versions.filter((shift) => shift.dayType !== "weekday").map((shift) => HR_SHIFT_DAY_LABELS[shift.dayType]);
               return [{ value: weekday.templateId, label: `${shiftLabel(weekday)}${extras.length ? ` 另設${extras.join("、")}` : ""}` }];
             })} onChange={(event) => { if (event.target.value) setQuick((current) => current ? { ...current, shiftTemplateId: event.target.value } : current); }} />
           : <span className="hr-quick-bar-empty">這個據點還沒有班別，<GuardedNavLink to="/hr/scheduling/shifts">前往班別管理</GuardedNavLink></span>}

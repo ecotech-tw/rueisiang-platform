@@ -1,10 +1,14 @@
 // 純排班資料與差異計算，供兩個前台使用；不載入資料庫或 Worker 程式碼。
-export interface ScheduleShift { allowedPersonIds?: string[] | null; versionId: string; templateId: string; scopeId: string; name: string; dayType: "weekday" | "weekend" | "holiday"; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number; requiredHeadcount: number }
+import type { HrDayType, HrShiftDayKey } from "./schema/hr-scheduling.js";
+
+export type { HrShiftDayKey };
+export type HrCalendarDayType = HrDayType;
+export interface ScheduleShift { allowedPersonIds?: string[] | null; versionId: string; templateId: string; scopeId: string; name: string; dayType: HrShiftDayKey; revision: number; startSecond: number; endSecond: number; endDayOffset: number; standardMinutes: number; breakMinutes: number; requiredHeadcount: number }
 export interface ScheduleEntry extends ScheduleDraftEntry { scheduleVersionId: string; employmentId: string | null; workerId: string | null; shiftGroupId: string | null; startsAt: string; endsAt: string; standardMinutes: number; breakMinutes: number; requiredHeadcount: number; employeeNumber: string | null; personName: string; scopeName: string; shiftName: string }
 export interface ScheduleEmployee { employmentId: string; userId: string; employeeNumber: string; name: string; attendanceMode?: "general" | "scheduled"; monthlyRestDays?: number | null }
 export interface ScheduleWorker { id: string; name: string; active: boolean | number }
 export interface ScheduleScope { id: string; name: string }
-export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopeLock?: { revision: number; locked: boolean; lockedAt: string | null; globallyLocked: boolean }; scopes: ScheduleScope[]; calendar: Array<{ date: string; dayType: ScheduleShift["dayType"]; name: string; specialKind: "none" | "typhoon_stop"; specialScopeIds: string[]; overridden: boolean }>; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
+export interface HrScheduleResponse { periodKey: string; period: { start: string; end: string }; version: { id: string; revision: number; status: "published"; locked: boolean; lockedAt: string | null } | null; scopeLock?: { revision: number; locked: boolean; lockedAt: string | null; globallyLocked: boolean }; scopes: ScheduleScope[]; calendar: Array<{ date: string; dayType: HrCalendarDayType; name: string; specialKind: "none" | "typhoon_stop"; specialScopeIds: string[]; overridden: boolean }>; shifts: ScheduleShift[]; employees: ScheduleEmployee[]; workers: ScheduleWorker[]; entries: ScheduleEntry[] }
 
 export function canSchedulePerson(shift: Pick<ScheduleShift, "allowedPersonIds"> | undefined, personId: string) {
   return Boolean(shift && personId && (shift.allowedPersonIds == null || shift.allowedPersonIds.includes(personId)));
@@ -24,8 +28,16 @@ export function resolveSchedulePerson(options: readonly SchedulePersonOption[], 
   return value === "" ? undefined : options.find((person) => person.value === value) ?? options[0];
 }
 
-export function pickShiftForDay(versions: ScheduleShift[], dayType: ScheduleShift["dayType"]) {
-  return versions.find((shift) => shift.dayType === dayType) ?? versions.find((shift) => shift.dayType === "weekday");
+const WEEKDAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"] as const;
+
+export function hrShiftDayKeyForDate(date: string): Exclude<HrShiftDayKey, "weekday" | "weekend" | "holiday"> {
+  return WEEKDAY_KEYS[new Date(`${date}T00:00:00Z`).getUTCDay()]!;
+}
+
+export function pickShiftForDay(versions: ScheduleShift[], _dayType: HrCalendarDayType, date?: string) {
+  const weekdayKey = date ? hrShiftDayKeyForDate(date) : undefined;
+  return (weekdayKey && versions.find((shift) => shift.dayType === weekdayKey))
+    ?? versions.find((shift) => shift.dayType === "weekday");
 }
 
 export function shiftTimeRange(shift: Pick<ScheduleShift, "startSecond" | "endSecond" | "endDayOffset">) {
@@ -51,7 +63,7 @@ export function outdatedScheduleIds(entries: readonly ScheduleEntry[], shifts: S
     const selected = shifts.find((shift) => shift.versionId === entry.shiftVersionId && shift.scopeId === entry.scopeId);
     const dayType = dayTypes.get(entry.workDate);
     if (!selected || !dayType) return false;
-    const applicable = pickShiftForDay(shifts.filter((shift) => shift.templateId === selected.templateId && shift.scopeId === entry.scopeId), dayType);
+    const applicable = pickShiftForDay(shifts.filter((shift) => shift.templateId === selected.templateId && shift.scopeId === entry.scopeId), dayType, entry.workDate);
     if (!applicable) return false;
     const second = (time: string) => Number(time.slice(11, 13)) * 3600 + Number(time.slice(14, 16)) * 60 + Number(time.slice(17, 19));
     return applicable.versionId !== entry.shiftVersionId || applicable.requiredHeadcount !== entry.requiredHeadcount || applicable.standardMinutes !== entry.standardMinutes || applicable.breakMinutes !== entry.breakMinutes || applicable.startSecond !== second(entry.startsAt) || applicable.endSecond !== second(entry.endsAt);
