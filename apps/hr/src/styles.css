@@ -7,9 +7,9 @@
 @layer base {
   html, body, #root { min-height: 100%; }
 
-  html:has(.shell),
-  body:has(.shell),
-  #root:has(.shell) {
+  html:has([data-shell]),
+  body:has([data-shell]),
+  #root:has([data-shell]) {
     height: 100%;
     overflow: hidden;
   }

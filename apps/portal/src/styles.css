@@ -27,11 +27,11 @@
   /*
    * 登入後的 AppShell 由自己的 content 區域負責捲動。若 document 仍允許被
    * 子頁面的實際高度撐開，瀏覽器會多出一層外部 scrollbar，滑到底就只剩空白。
-   * 登入頁與邀請頁沒有 .shell，不會被這條規則鎖住。
+   * 登入頁與邀請頁沒有外層框（data-shell），不會被這條規則鎖住。
    */
-  html:has(.shell),
-  body:has(.shell),
-  #root:has(.shell) {
+  html:has([data-shell]),
+  body:has([data-shell]),
+  #root:has([data-shell]) {
     height: 100%;
     overflow: hidden;
   }

@@ -424,7 +424,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 .hr-system .button-row { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 
 @media (max-width: 900px) {
-  .hr-shell .content { padding: 0; }
   .hr-system-header {
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: start;
