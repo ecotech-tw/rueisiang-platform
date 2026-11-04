@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
 import { Switch } from "../../shell/Switch.js";
-import { Alert, Button, Dialog, EmptyState, FilterInput, FilterSelect, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, EmptyState, FilterInput, FilterSelect, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -121,9 +121,9 @@ export function LineSettings() {
         title="LINE channel 設定"
         description="官方帳號名稱：Rueisiang 小香"
         actions={
-          <span className={`status ${data.channel.enabled ? "status-active" : "status-disabled"}`}>
+          <StatusBadge tone={data.channel.enabled ? "success" : "danger"}>
             {data.channel.enabled ? "channel 已開通" : "channel 未開通"}
-          </span>
+          </StatusBadge>
         }
       >
 
@@ -188,13 +188,13 @@ export function LineSettings() {
         title="Webhook URL"
         description="請複製這個網址，貼到 LINE Developers 的 Messaging API webhook 設定。"
         actions={
-          <span className={`status ${data.credentials.channelSecretConfigured ? "status-active" : "status-disabled"}`}>
+          <StatusBadge tone={data.credentials.channelSecretConfigured ? "success" : "danger"}>
             {data.credentials.channelSecretDecryptionFailed
               ? "Channel Secret 無法解密"
               : data.credentials.channelSecretConfigured
                 ? "Channel Secret 已設定"
                 : "尚未設定 Channel Secret"}
-          </span>
+          </StatusBadge>
         }
       >
         <div className="copy-field">
@@ -239,7 +239,7 @@ export function LineSettings() {
               return (
                 <li key={tool.key}>
                   <strong>{tool.label}</strong>
-                  {blocked ? <em className="status status-development">{blocked}</em> : null}
+                  {blocked ? <StatusBadge tone="warning">{blocked}</StatusBadge> : null}
                 </li>
               );
             })}
@@ -355,7 +355,7 @@ export function LineSettings() {
                         <strong>{tool.label}</strong>
                         <small>{tool.description}</small>
                       </span>
-                      {blocked ? <em className="status status-development">{blocked}</em> : null}
+                      {blocked ? <StatusBadge tone="warning">{blocked}</StatusBadge> : null}
                     </label>
                   );
                 })}
@@ -399,7 +399,7 @@ function LineGroupRow({
             : <span className="line-group-avatar is-fallback" aria-hidden="true">{(group.displayName || group.lineGroupId).slice(0, 1)}</span>}
           <div className="line-group-main">
             <div className="line-group-label">
-              <span className="status status-disabled">{sourceTypeLabel(group.sourceType)}</span>
+              <StatusBadge tone="danger">{sourceTypeLabel(group.sourceType)}</StatusBadge>
             </div>
             <FilterInput
               label={`${group.displayName || group.lineGroupId} 對話名稱`}

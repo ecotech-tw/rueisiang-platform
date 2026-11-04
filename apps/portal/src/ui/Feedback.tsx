@@ -1,1 +1,1 @@
-export { Alert, StatusBadge } from "@rueisiang/ui";
+export { Alert, StatusBadge, type StatusTone } from "@rueisiang/ui";

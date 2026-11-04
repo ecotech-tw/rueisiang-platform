@@ -1024,33 +1024,7 @@
   font-size: 11px;
   font-weight: 400;
 }
-.status-channel-cyberbiz { background: var(--color-info-soft); color: var(--color-info); }
-.status-channel-manual { background: var(--color-soft-line); color: var(--color-muted); }
-.status-sync-synced { background: var(--color-ok-soft); color: var(--color-ok); }
-.status-sync-failed { background: var(--color-brand-soft); color: var(--color-brand-dark); }
-.status-webhook-processed { background: var(--color-ok-soft); color: var(--color-ok); }
-.status-webhook-ignored { background: var(--color-soft-line); color: var(--color-muted); }
-.status-webhook-processing { background: var(--color-warn-soft); color: var(--color-warn); }
-.status-webhook-failed { background: var(--color-brand-soft); color: var(--color-brand-dark); }
-.status-source-crm { background: var(--color-soft-line); color: var(--color-muted); }
-.status-source-cyberbiz_webhook { background: var(--color-info-soft); color: var(--color-info); }
-.status-source-cyberbiz_sync { background: var(--color-ok-soft); color: var(--color-ok); }
 .cell-error { margin-top: 2px; color: var(--color-brand-dark); font-size: 12px; }
-
-/*
- * 商品分類的色調。主色從 @theme 來，底色用 --alpha() 推——寫死一組淡色的話，
- * 主色改了那些淡色不會跟著改。
- */
-.status-tone-rose { background: --alpha(var(--color-tone-rose) / 12%); color: var(--color-tone-rose); }
-.status-tone-sky { background: --alpha(var(--color-tone-sky) / 12%); color: var(--color-tone-sky); }
-.status-tone-mint { background: --alpha(var(--color-tone-mint) / 12%); color: var(--color-tone-mint); }
-.status-tone-amber { background: --alpha(var(--color-tone-amber) / 12%); color: var(--color-tone-amber); }
-.status-tone-violet { background: --alpha(var(--color-tone-violet) / 12%); color: var(--color-tone-violet); }
-.status-tone-teal { background: --alpha(var(--color-tone-teal) / 12%); color: var(--color-tone-teal); }
-.status-tone-peach { background: --alpha(var(--color-tone-peach) / 12%); color: var(--color-tone-peach); }
-.status-tone-slate { background: --alpha(var(--color-tone-slate) / 12%); color: var(--color-tone-slate); }
-.status-tone-lime { background: --alpha(var(--color-tone-lime) / 12%); color: var(--color-tone-lime); }
-.status-tone-sand { background: --alpha(var(--color-tone-sand) / 12%); color: var(--color-tone-sand); }
 
 /*
  * 低於安全庫存的數字。
@@ -1059,14 +1033,6 @@
  * 染色——掃過一整欄數字時，眼睛找的是數字，不是旁邊那一欄。
  */
 .stock-low { color: var(--color-brand-dark); font-weight: 700; }
-
-/*
- * 「正常」這種不需要注意的狀態。
- *
- * 仍然給膠囊而不是留成裸字：同一欄一半有底色、一半沒有，看起來像哪一列沒渲染完，
- * 而不像刻意的區別。用最低的對比讓它安靜地待著就好。
- */
-.status.quiet { background: var(--color-soft-line); color: var(--color-muted); font-weight: 500; }
 
 /*
  * ── 倉位地圖 ────────────────────────────────────────────────────────────
@@ -2546,7 +2512,6 @@
    * 值那一欄是 grid item，預設會被拉滿整格——膠囊撐成一整條就不像標記了。
    * justify-self: start 讓它縮回內容寬度。
    */
-  .data-table td > .status,
   .data-table td > .chips { justify-self: start; }
 
   /* 統計卡在窄螢幕上排成兩欄，避免每張卡都佔滿整列。 */
@@ -3270,7 +3235,6 @@
 .hr-schedule-month { display: flex; align-items: center; gap: 2px; }
 .hr-schedule-month > strong { min-width: 112px; text-align: center; font-variant-numeric: tabular-nums; }
 .hr-schedule-status { display: flex; align-items: center; align-self: center; gap: 8px; margin: 0 0 0 auto; color: var(--color-muted); font-size: 13px; }
-.hr-schedule-status .status { flex: none; }
 .hr-schedule-rest-summary { display: flex; align-items: flex-start; gap: 12px; margin-top: 14px; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-paper); }
 .hr-schedule-rest-summary > strong { flex: none; color: var(--color-brand-dark); }
 .hr-schedule-rest-summary > div { display: flex; flex-wrap: wrap; gap: 8px 14px; }

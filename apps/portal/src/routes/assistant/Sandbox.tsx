@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon } from "../../shell/icons.js";
-import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, PageHeader, Panel, Textarea } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, PageHeader, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -57,6 +57,12 @@ function ToolCallList({ calls }: { calls: SandboxToolCall[] }) {
     </div>
   );
 }
+
+const TOOL_STATUS_TONE: Record<"enabled" | "development" | "disabled", StatusTone> = {
+  enabled: "success",
+  development: "warning",
+  disabled: "danger",
+};
 
 function statusLabel(status: "enabled" | "development" | "disabled"): string {
   if (status === "enabled") return "已啟用";
@@ -330,7 +336,7 @@ export function Sandbox() {
               <div className="assistant-selection-summary">
                 {activeToolKeys.length
                   ? data.tools.filter((tool) => activeToolKeys.includes(tool.key)).map((tool) => (
-                    <span className="status status-active" key={tool.key}>{tool.label}</span>
+                    <StatusBadge tone="success" key={tool.key}>{tool.label}</StatusBadge>
                   ))
                   : <span className="muted">尚未選擇 tools</span>}
               </div>
@@ -353,7 +359,7 @@ export function Sandbox() {
                   <h3>System prompt</h3>
                   <p className="muted">目前 Revision {activeRevision?.revision ?? "—"}；儲存後會立即套用。</p>
                 </div>
-                <span className="status status-active">編輯中</span>
+                <StatusBadge tone="success">編輯中</StatusBadge>
               </div>
               <Field label="目前編輯內容" hint="儲存後會建立新的 revision，並立即成為之後執行與未來 LINE channel 的 active prompt。">
                 <Textarea className="max-h-60 min-h-40" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
@@ -625,7 +631,7 @@ export function Sandbox() {
                       <small>{tool.description}</small>
                       {tool.requiredPermissions.length ? <small>需要權限：{tool.requiredPermissions.join("、")}</small> : null}
                     </span>
-                    <em className={`status status-${tool.status}`}>{statusLabel(tool.status)}</em>
+                    <StatusBadge tone={TOOL_STATUS_TONE[tool.status]}>{statusLabel(tool.status)}</StatusBadge>
                   </label>
                 ))}
               </div>

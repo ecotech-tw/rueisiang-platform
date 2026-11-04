@@ -19,7 +19,13 @@ import {
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ButtonSkin, Dialog, Field, FieldHint, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, Field, FieldHint, PageHeader, Panel, SelectField, StatusBadge, type StatusTone, TextField } from "../../ui/index.js";
+
+const USER_STATUS_TONE: Record<AdminUser["status"], StatusTone> = {
+  invited: "neutral",
+  active: "success",
+  disabled: "danger",
+};
 
 const STATUS_LABEL: Record<AdminUser["status"], string> = {
   invited: "已邀請",
@@ -245,7 +251,7 @@ function UserEditor({
 
           <Field as="div" label="狀態">
             <div className="admin-form row">
-              <span className={`status status-${user.status}`}>{STATUS_LABEL[user.status]}</span>
+              <StatusBadge tone={USER_STATUS_TONE[user.status]}>{STATUS_LABEL[user.status]}</StatusBadge>
               {user.status === "disabled" ? (
                 <Button
                   variant="secondary"
@@ -431,7 +437,7 @@ function UserRow({
         </td>
 
         <td>
-          <span className={`status status-${user.status}`}>{STATUS_LABEL[user.status]}</span>
+          <StatusBadge tone={USER_STATUS_TONE[user.status]}>{STATUS_LABEL[user.status]}</StatusBadge>
           {isSelf ? <span className="cell-sub">這是你自己</span> : null}
         </td>
 

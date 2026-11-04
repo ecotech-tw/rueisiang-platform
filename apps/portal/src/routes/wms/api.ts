@@ -230,7 +230,7 @@ export function useCountItem() {
 
 /**
  * WMS 使用的色階。與 packages/db 的 WAREHOUSE_CATEGORY_COLORS 同一份清單——那邊加一個，
- * 這裡與 @theme 的 --color-tone-* 都要跟著補。後端會擋掉不認得的值，
+ * 這裡、@theme 的 --color-tone-* 與 StatusBadge 的 PALETTE_COLOR 都要跟著補。後端會擋掉不認得的值，
  * 所以漏了不會寫進髒資料，只是選不到。
  */
 export const WAREHOUSE_CATEGORY_COLORS = [
