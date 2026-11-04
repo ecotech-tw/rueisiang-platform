@@ -254,7 +254,7 @@ export function HrAttendanceSettings() {
           <FilterSelect label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => { setScopeId(event.target.value); setPage(1); }} />
         </FilterToolbar>
         {locations.isFetching ? <p className="form-hint">更新中…</p> : null}
-        <DataTable className="hr-location-table">
+        <DataTable className="hr-location-table [&_td]:align-top">
             <thead><tr><SortableHeader label="辦公位置" field="name" active={sortField} direction={sortDirection} onSort={updateSort} /><SortableHeader label="營運據點" field="scope" active={sortField} direction={sortDirection} onSort={updateSort} /><th>定位判斷</th><SortableHeader label="半徑" field="radius" active={sortField} direction={sortDirection} onSort={updateSort} />{canWrite ? <th>操作</th> : null}</tr></thead>
             <tbody>
               {rows.map((office) => (

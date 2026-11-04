@@ -1,6 +1,6 @@
 export { Button, ButtonLink, ButtonSkin } from "./Button.js";
 export { Chip, ChipGroup } from "./Chip.js";
-export { DataTable } from "./DataTable.js";
+export { DataTable, TableSkin, type TableSkinName } from "./DataTable.js";
 export { Dialog, DialogScope, useDialogScope } from "./Dialog.js";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog.js";
 export {

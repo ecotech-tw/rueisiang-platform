@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterInput, FilterSelect, FilterToolbar, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 
 /**
  * 通路管理。
@@ -285,8 +285,7 @@ export function Scopes() {
         {saveScope.error ? <Alert tone="danger">{saveScope.error.message}</Alert> : null}
         {archiveScope.error ? <Alert tone="danger">{archiveScope.error.message}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 <SortableHeader label="通路" field="name" active={sortField} direction={sortDirection} onSort={sort} />
@@ -365,8 +364,7 @@ export function Scopes() {
                   </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
 
         {visible.length === 0 ? <p className="muted table-note">沒有符合條件的通路。</p> : null}
         {visible.length > 0 ? (

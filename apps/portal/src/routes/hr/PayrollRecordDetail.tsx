@@ -10,6 +10,12 @@ import { downloadPayslipImage } from "./exportPayslip.js";
 import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail, type PayrollScheduleAllocationDetail, type PayrollWorker } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
+/*
+ * 薪資單的明細表是給員工看、也會匯出成圖片的單據，不是管理用的資料表：
+ * 沒有左右留白、列與列之間用下緣線、表頭小一級。最後一欄固定寬，金額才會對齊。
+ */
+const PAYSLIP_TABLE = "table-fixed [&_th]:h-auto [&_td]:h-auto [&_th]:px-0 [&_td]:px-0 [&_th]:py-[9px] [&_td]:py-[9px] [&_th]:border-t-0 [&_td]:border-t-0 [&_th]:border-b [&_td]:border-b [&_th]:border-soft-line [&_td]:border-soft-line [&_th]:text-left [&_td]:text-left [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:w-[180px] [&_td:last-child]:w-[180px] [&_th:last-child]:pr-0 [&_td:last-child]:pr-0 [&_th]:text-[12px] [&_th]:font-bold [&_.numeric]:text-right [.table-scroll>&_thead_th]:shadow-none";
+
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
 const PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const LINE_LABELS: Record<string, string> = {
@@ -357,7 +363,7 @@ function PayrollPayslipTable({ title, lines, direction }: { title: string; lines
   const filteredLines = lines.filter((line) => line.direction === direction);
   return <section className="hr-payroll-payslip-section" aria-labelledby={`payroll-payslip-${direction}`}>
     <h2 id={`payroll-payslip-${direction}`}>{title}</h2>
-    <DataTable className="hr-payroll-payslip-table" containerClassName="hr-payroll-payslip-table-scroll">
+    <DataTable skin="solid" className={PAYSLIP_TABLE} containerClassName="hr-payroll-payslip-table-scroll">
       <thead><tr><th>薪資項目</th><th className="numeric">金額</th></tr></thead>
       <tbody>{filteredLines.length ? filteredLines.map((line) => <tr key={line.lineKey}><td>{payrollLineLabel(line)}</td><td className="numeric">{direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</td></tr>) : <tr><td colSpan={2}>—</td></tr>}</tbody>
     </DataTable>
@@ -474,7 +480,7 @@ export function HrPayrollRecordDetail() {
 
       <section className="hr-payroll-record-items" aria-labelledby="payroll-items-title">
         <div className="hr-payroll-section-head"><div><h3 id="payroll-items-title">薪資加扣項</h3><p>附加在這筆紀錄的補發與扣款。{canCalculate && detail.record.status === "unsettled" ? "請從上方「新增薪資加扣項」開始。" : ""}</p></div></div>
-        {detail.items.length ? <DataTable className="compact"><thead><tr><th>項目</th><th>原因</th><th className="numeric">金額</th><th>操作</th></tr></thead><tbody>{detail.items.map((item) => <tr key={item.id}><td><strong>{item.itemName}</strong><small className="cell-sub">{item.direction === "earning" ? "補發" : "扣款"}</small></td><td>{item.reason}</td><td className="numeric">{item.direction === "earning" ? money(item.amountMinor) : deductionMoney(item.amountMinor)}</td><td>{canCalculate && detail.record.status === "unsettled" ? <Button variant="danger" onClick={() => setDeleteItemId(item.id)}>刪除</Button> : null}</td></tr>)}</tbody></DataTable> : <EmptyState className="mt-[18px]">尚未加入薪資加扣項。</EmptyState>}
+        {detail.items.length ? <DataTable><thead><tr><th>項目</th><th>原因</th><th className="numeric">金額</th><th>操作</th></tr></thead><tbody>{detail.items.map((item) => <tr key={item.id}><td><strong>{item.itemName}</strong><small className="cell-sub">{item.direction === "earning" ? "補發" : "扣款"}</small></td><td>{item.reason}</td><td className="numeric">{item.direction === "earning" ? money(item.amountMinor) : deductionMoney(item.amountMinor)}</td><td>{canCalculate && detail.record.status === "unsettled" ? <Button variant="danger" onClick={() => setDeleteItemId(item.id)}>刪除</Button> : null}</td></tr>)}</tbody></DataTable> : <EmptyState className="mt-[18px]">尚未加入薪資加扣項。</EmptyState>}
         {detail.items.length ? <p className="form-hint">加扣項合計：補發 {money(itemTotals.earningMinor)}・扣款 {itemTotals.deductionMinor ? deductionMoney(itemTotals.deductionMinor) : "—"}</p> : null}
       </section>
     </Panel>

@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FilterInput, FilterToolbar, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import {
   WAREHOUSE_CATEGORY_COLORS,
   useCreateWarehouseCategory,
@@ -96,8 +96,7 @@ export function Categories() {
 
         {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table category-table">
+        <DataTable className="category-table">
             <thead>
               <tr>
                 <th>分類</th>
@@ -151,8 +150,7 @@ export function Categories() {
                 );
               })}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
 
         {query.isPending ? <p className="muted table-note">載入中…</p> : null}
 

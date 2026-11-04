@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input, InputSkin, SearchCombobox, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, Textarea, TextField, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
-import { DataTable } from "./DataTable";
+import { DataTable, TableSkin } from "./DataTable";
 import { FilterInput, FilterSelect, FilterToolbar, SEARCH_INPUT_WIDTH, SearchFilterInput } from "./index.js";
 
 describe("shared HRIS UI contracts", () => {
@@ -23,9 +23,27 @@ describe("shared HRIS UI contracts", () => {
     );
 
     expect(markup).toContain('class="table-scroll mobile-table"');
-    expect(markup).toContain('class="data-table payroll-table"');
+    const tableClasses = (markup.match(/<table class="([^"]*)"/)?.[1] ?? "").split(/\s+/);
+    expect(tableClasses).toEqual(expect.arrayContaining(["data-table", "border-collapse", "payroll-table"]));
     expect(markup).toContain("<thead>");
     expect(markup).toContain("<tbody>");
+  });
+
+  it("DataTable 的表頭外觀跟著 TableSkin，scroll={false} 只輸出 table", () => {
+    const head = (markup: string) => (markup.match(/<table class="([^"]*)"/)?.[1] ?? "").replaceAll("&gt;", ">").replaceAll("&amp;", "&").split(/\s+/).filter((name) => name.includes("thead_th"));
+    const rows = <><thead><tr><th>員工</th></tr></thead><tbody><tr><td>王小明</td></tr></tbody></>;
+    const solid = head(renderToStaticMarkup(<DataTable>{rows}</DataTable>));
+    const glass = head(renderToStaticMarkup(<TableSkin skin="glass"><DataTable>{rows}</DataTable></TableSkin>));
+    const override = head(renderToStaticMarkup(<TableSkin skin="glass"><DataTable skin="solid">{rows}</DataTable></TableSkin>));
+    expect(solid).toContain("[.table-scroll>&_:where(thead_th)]:bg-paper");
+    expect(glass).toContain("[.table-scroll>&_:where(thead_th)]:[box-shadow:var(--shadow-glass-table-head)]");
+    expect(glass).not.toContain("[.table-scroll>&_:where(thead_th)]:bg-paper");
+    expect(override).toEqual(solid);
+
+    const bare = renderToStaticMarkup(<DataTable scroll={false} className="border-separate">{rows}</DataTable>);
+    expect(bare.startsWith("<table ")).toBe(true);
+    // 兩個 border-collapse 值同時出現時誰贏要看產生順序，所以呼叫端給了就整組取代。
+    expect(bare).not.toContain("border-collapse");
   });
 
   it("renders selected-count actions in the shared live status bar", () => {

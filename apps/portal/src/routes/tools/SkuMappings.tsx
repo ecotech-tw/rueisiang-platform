@@ -7,6 +7,7 @@ import { Pager } from "../../shell/Pager.js";
 import {
   Alert,
   Button,
+  DataTable,
   FilterInput,
   FilterSelect,
   FilterToolbar,
@@ -108,8 +109,7 @@ export function SkuMappings() {
 
       <Panel className="mapping-pending-panel" title="待處理外部商品" description={unmappedProducts.length ? `最近匯入有 ${unmappedProducts.length} 筆外部商品尚未建立對應。` : "目前沒有待建立對應的外部商品。"}>
         {unmappedProducts.length ? (
-          <div className="table-scroll">
-            <table className="data-table">
+          <DataTable>
               <thead><tr><th>通路</th><th>外部商品</th><th>最近出現</th><th className="numeric">資料列</th><th /></tr></thead>
               <tbody>
                 {unmappedProducts.map((product) => (
@@ -122,8 +122,7 @@ export function SkuMappings() {
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
+            </DataTable>
         ) : <p className="muted">報表匯入找不到對應時，外部 SKU 會在這裡集中處理。已建立對應或標記忽略的商品不會重複顯示。</p>}
       </Panel>
 
@@ -231,8 +230,7 @@ export function SkuMappings() {
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
         {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
 
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 <th>通路</th>
@@ -286,8 +284,7 @@ export function SkuMappings() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
 
         {query.isPending ? <p className="muted table-note">載入中…</p> : null}
         {query.data && visible.length === 0 ? (

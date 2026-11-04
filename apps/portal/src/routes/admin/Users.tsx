@@ -19,7 +19,7 @@ import {
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ButtonSkin, Dialog, Field, FieldHint, PageHeader, Panel, SelectField, StatusBadge, type StatusTone, TextField } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, PageHeader, Panel, SelectField, StatusBadge, type StatusTone, TextField } from "../../ui/index.js";
 
 const USER_STATUS_TONE: Record<AdminUser["status"], StatusTone> = {
   invited: "neutral",
@@ -572,8 +572,7 @@ export function AdminUsers() {
       </Panel>
 
       <Panel title={`帳號（${list.length}）`} className="grows">
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 <th>成員</th>
@@ -595,8 +594,7 @@ export function AdminUsers() {
                 />
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
       </Panel>
 
     </div>

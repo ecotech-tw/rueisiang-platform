@@ -2,7 +2,7 @@ import type { Permission } from "@rueisiang/auth/permissions";
 import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useCatalog,
   useCreateRole,
@@ -132,8 +132,7 @@ export function Roles() {
       {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
       <Panel className="grows">
-        <div className="table-scroll">
-          <table className="data-table">
+        <DataTable>
             <thead>
               <tr>
                 <th>角色</th>
@@ -188,8 +187,7 @@ export function Roles() {
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+          </DataTable>
         {catalog.isPending ? <p className="muted table-note">載入中…</p> : null}
       </Panel>
 

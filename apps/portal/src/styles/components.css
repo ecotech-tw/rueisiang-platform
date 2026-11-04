@@ -474,7 +474,6 @@
   background: var(--color-paper); color: var(--color-brand-dark); font-weight: 700;
   box-shadow: 0 1px 2px --alpha(var(--color-ink) / 8%), 0 4px 10px --alpha(var(--color-ink) / 6%);
 }
-.hr-location-table td { vertical-align: top; }
 .hr-location-table td > small { display: block; margin-top: 4px; }
 .attendance-event-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hr-location-section { display: grid; gap: 12px; }
@@ -1741,8 +1740,6 @@
 .category-drag-handle:active { cursor: grabbing; }
 .category-drag-handle:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; border-radius: 6px; }
 .drag-drop-hint { margin: 0 24px 10px; padding: 8px 12px; border-radius: 10px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 13px; }
-.category-table tr.drop-target > td { border-top: 2px solid var(--color-brand); background: --alpha(var(--color-brand) / 4%); }
-.category-table tr.drop-parent > td { background: --alpha(var(--color-brand) / 7%); }
 .category-table tr.dragging { opacity: .72; }
 .category-drag-handle svg { width: 18px; height: 18px; }
 /*
@@ -2985,12 +2982,6 @@
 .analytics-empty-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .analytics-data-dialog-table { max-height: calc(100vh - 170px); overflow: auto; }
 .analytics-table-selected { background: --alpha(var(--color-brand) / 6%); }
-.analytics-table th,
-.analytics-table td { white-space: nowrap; }
-.analytics-table th:first-child,
-.analytics-table td:first-child { padding-left: 18px; }
-.analytics-table th:last-child,
-.analytics-table td:last-child { padding-right: 18px; }
 /*
  * Material 3 的 plain tooltip：inverse surface（深底淺字）、10px 圓角、
  * 12px 字、hover 立刻出現。圓角取「小元件 9–12px」那一段，跟輸入框同級。
@@ -3049,10 +3040,6 @@
   .analytics-chart-panel { padding-inline: 13px; }
   .analytics-panel-actions { align-items: flex-start; justify-content: flex-start; }
   .analytics-chart-actions { justify-content: flex-start; margin-top: 8px; }
-  .analytics-table th:first-child,
-  .analytics-table td:first-child { padding-left: 13px; }
-  .analytics-table th:last-child,
-  .analytics-table td:last-child { padding-right: 13px; }
   .analytics-empty-panel { padding: 24px 20px; }
 }
 
@@ -3552,7 +3539,7 @@
 }
 .hr-payroll-mobile-select-all { display: none; }
 .hr-payroll-record-table tr.selected td { background: --alpha(var(--color-brand) / 8%); }
-.hr-payroll-select-cell { width: 44px; padding-inline: 10px !important; text-align: center; }
+.hr-payroll-select-cell { width: 44px; padding-inline: 10px !important; }
 @media (min-width: 761px) {
   /* th 的預設首欄 padding 會讓全選框的內容中心比資料列偏左；固定同一個內容盒。 */
   .hr-payroll-record-table .hr-payroll-select-cell { width: 64px; min-width: 64px; padding: 0 !important; }
@@ -3612,15 +3599,6 @@
 .hr-payroll-payslip-meta dd { margin: 3px 0 0; overflow-wrap: anywhere; }
 .hr-payroll-payslip-section { margin-top: 20px; break-inside: avoid; }
 .hr-payroll-payslip-section h2 { margin: 0 0 8px; font-size: 15px; }
-.hr-payroll-payslip-table-scroll .data-table { table-layout: fixed; }
-.hr-payroll-payslip-table-scroll .data-table th,
-.hr-payroll-payslip-table-scroll .data-table td { height: auto; padding: 9px 0; border-top: 0; border-bottom: 1px solid var(--color-soft-line); text-align: left; }
-.hr-payroll-payslip-table-scroll .data-table th:first-child,
-.hr-payroll-payslip-table-scroll .data-table td:first-child { padding-left: 0; }
-.hr-payroll-payslip-table-scroll .data-table th:last-child,
-.hr-payroll-payslip-table-scroll .data-table td:last-child { width: 180px; padding-right: 0; }
-.hr-payroll-payslip-table-scroll .data-table th { color: var(--color-muted); font-size: 12px; font-weight: 700; }
-.hr-payroll-payslip-table-scroll .data-table .numeric { text-align: right; font-variant-numeric: tabular-nums; }
 .hr-payroll-payslip-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 28px 0 0; padding-top: 14px; border-top: 2px solid var(--color-ink); }
 .hr-payroll-payslip-totals > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .hr-payroll-payslip-totals dt { color: var(--color-muted); font-size: 12px; }

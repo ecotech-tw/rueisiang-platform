@@ -7,8 +7,8 @@ import {
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
-import { Button, Panel } from "../../../../ui/index.js";
-import { AnalyticsDataDialog, AnalyticsLegend, AnalyticsTooltip, type ChartLegendEntry } from "./ChartPrimitives.js";
+import { Button, DataTable, Panel } from "../../../../ui/index.js";
+import { ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsLegend, AnalyticsTooltip, type ChartLegendEntry } from "./ChartPrimitives.js";
 import type { SalesCategoryBreakdown } from "../api.js";
 
 const TONES = ["rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand"] as const;
@@ -179,7 +179,7 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
       description="同時呈現母分類在本期淨銷量與銷售額的占比；兩張圖可各自點選有子分類的母分類下鑽。"
       actions={parentRows.length ? (
         <AnalyticsDataDialog title="分類銷量與銷售額資料" description="依本期淨銷量排序，並列銷售額佔比。">
-          <table className="data-table analytics-table">
+          <DataTable className={ANALYTICS_TABLE} scroll={false}>
             <thead><tr><th>分類</th><th className="numeric">淨銷量</th><th className="numeric">銷量佔比</th><th className="numeric">銷售額</th><th className="numeric">銷售額佔比</th></tr></thead>
             <tbody>
               {parentRows.map((row) => (
@@ -192,7 +192,7 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </AnalyticsDataDialog>
       ) : null}
       className="analytics-chart-panel analytics-category-panel"

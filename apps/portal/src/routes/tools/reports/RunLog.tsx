@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Pager } from "../../../shell/Pager.js";
 import { SortableHeader } from "../../../shell/SortableHeader.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
-import { Alert, FilterSelect, FilterToolbar, Panel, SearchFilterInput } from "../../../ui/index.js";
+import { Alert, DataTable, FilterSelect, FilterToolbar, Panel, SearchFilterInput } from "../../../ui/index.js";
 import { useReportRuns, type ReportRunKind, type ReportRunListRow } from "../api.js";
 import { useReportTabs } from "./ReportsLayout.js";
 
@@ -109,8 +109,7 @@ export function RunLog() {
 
       {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
 
-      <div className="table-scroll">
-        <table className="data-table">
+      <DataTable>
           <thead>
             <tr>
               <SortableHeader label="時間" field="createdAt" active={sortField} direction={sortDirection} onSort={sort} />
@@ -133,8 +132,7 @@ export function RunLog() {
               );
             })}
           </tbody>
-        </table>
-      </div>
+        </DataTable>
 
       {query.isPending ? <p className="muted table-note">載入中…</p> : null}
       {!query.isPending && !filtered.length ? <p className="muted table-note">沒有符合的執行紀錄。</p> : null}

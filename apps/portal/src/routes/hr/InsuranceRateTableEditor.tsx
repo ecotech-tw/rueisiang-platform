@@ -97,7 +97,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
     <form className="hr-rate-editor-form" onSubmit={submit}>
       <div className="hr-rate-editor-intro"><strong>{isExistingDraft ? "編輯待審閱版本" : table ? "從目前啟用版本建立人工版本" : "建立人工版本"}</strong><span className="muted">{year} 年・{SCHEME_LABEL[scheme]}；人工資料會保留來源與覆核備註。</span></div>
       <div className="hr-rate-editor">
-        <DataTable containerClassName="hr-rate-editor-scroll" className="compact hr-rate-editor-table">
+        <DataTable containerClassName="hr-rate-editor-scroll" className="hr-rate-editor-table min-w-[820px] border-separate border-spacing-0 max-[760px]:min-w-0 [&_th]:h-11 [&_th]:py-1.5 [&_th]:text-[12px] min-[761px]:[&_td]:py-2 [.table-scroll>&_thead_th:first-child]:rounded-tl-[14px] [.table-scroll>&_thead_th:last-child]:rounded-tr-[14px]">
             <thead><tr><th>級距</th><th>薪資下限（元）</th><th>薪資上限（元）</th><th>投保金額（元）</th><th>員工負擔／月<br /><span className="muted">健保以 0 位眷屬</span></th><th>操作</th></tr></thead>
             <tbody>
               {brackets.map((bracket, index) => <tr key={bracket.key}>

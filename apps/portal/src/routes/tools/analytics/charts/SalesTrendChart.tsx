@@ -10,8 +10,9 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Panel } from "../../../../ui/index.js";
+import { DataTable, Panel } from "../../../../ui/index.js";
 import {
+  ANALYTICS_TABLE,
   AnalyticsDataDialog,
   AnalyticsLegend,
   AnalyticsTooltip,
@@ -99,7 +100,7 @@ export function SalesTrendChart({
         description="左軸是淨銷量、右軸是銷售額；沒有匯入資料的月份不畫長條，標線是目前選取的月份。"
         actions={(
           <AnalyticsDataDialog title="近 13 個月銷量與銷售額資料" description="沒有匯入資料的月份會保留為空白。">
-            <table className="data-table analytics-table">
+            <DataTable className={ANALYTICS_TABLE} scroll={false}>
               <thead><tr><th>月份</th><th className="numeric">淨銷量</th><th className="numeric">銷售額</th></tr></thead>
               <tbody>
                 {data.map((point) => (
@@ -110,7 +111,7 @@ export function SalesTrendChart({
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </DataTable>
           </AnalyticsDataDialog>
         )}
         className="analytics-chart-panel analytics-trend-panel analytics-sales-trend-panel"
@@ -156,7 +157,7 @@ export function SalesTrendChart({
         : "紅色長條是本期淨銷量（左軸）、藍色長條是銷售額（右軸）；缺漏月份不補成 0。"}
       actions={(
         <AnalyticsDataDialog title="商品銷量與銷售額資料" description="沒有匯入資料的期間會保留為空白。">
-          <table className="data-table analytics-table">
+          <DataTable className={ANALYTICS_TABLE} scroll={false}>
             <thead><tr><th>期間</th><th className="numeric">本期淨銷量</th><th className="numeric">本期銷售額</th><th className="numeric">去年同期淨銷量</th></tr></thead>
             <tbody>
               {data.map((point) => (
@@ -168,7 +169,7 @@ export function SalesTrendChart({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </AnalyticsDataDialog>
       )}
       className="analytics-chart-panel analytics-trend-panel analytics-sales-trend-panel"

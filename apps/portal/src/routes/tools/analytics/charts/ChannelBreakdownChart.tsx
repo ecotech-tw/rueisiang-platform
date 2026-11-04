@@ -8,8 +8,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Panel } from "../../../../ui/index.js";
-import { AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
+import { DataTable, Panel } from "../../../../ui/index.js";
+import { ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
 import type { SalesBreakdown } from "../api.js";
 
 /** 銷量與銷售額是同一份 breakdown 的兩種讀法，圖表本身完全一樣，只有取值與文案不同。 */
@@ -84,7 +84,7 @@ export function ChannelBreakdownChart({
             ? "依本期銷售額排序，列出所有店別與通路；YoY 為相同店別比較。"
             : "依本期淨銷量排序，列出所有店別與通路；銷售額僅作參考。"}
         >
-          <table className="data-table analytics-table">
+          <DataTable className={ANALYTICS_TABLE} scroll={false}>
             <thead>
               <tr>
                 <th>店別</th>
@@ -111,7 +111,7 @@ export function ChannelBreakdownChart({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </DataTable>
         </AnalyticsDataDialog>
       ) : null}
       className="analytics-chart-panel analytics-channel-panel"
