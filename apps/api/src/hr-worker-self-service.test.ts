@@ -165,6 +165,17 @@ describe("支援人員本人服務", () => {
     expect(candidates.users).toEqual([]);
   });
 
+  it("舊薪資未保存項目快照時，明細以歷史金額標示而非顯示無項目", async () => {
+    const id = await worker(); await link(id);
+    await db().insert(hrPayrollPeriods).values({ id: "legacy-period", periodKey: "2026-10", attendanceStart: "2026-10-01", attendanceEnd: "2026-11-01", createdBy: "admin" });
+    await db().insert(hrPayrollRuns).values({ id: "legacy-run", payrollPeriodId: "legacy-period", versionNumber: 1, requestId: "legacy-run", inputRevision: 1, engineVersion: "legacy", status: "ready", createdBy: "admin" });
+    await db().insert(hrPayrollWorkerResults).values({ id: "legacy-result", payrollRunId: "legacy-run", workerId: id, workerName: "支援小明", payBasis: "daily", scheduledDays: 1, amountMinor: 190000, payrollLinesJson: "[]" });
+    await db().update(hrPayrollRuns).set({ status: "closed" }).where(eq(hrPayrollRuns.id, "legacy-run"));
+    const detail = await getHrPayrollSelfDetail(db(), "self", "legacy-run", id);
+    expect(detail.record).toMatchObject({ earningMinor: 190000, deductionMinor: 0, netMinor: 190000 });
+    expect(detail.lines).toEqual([{ lineKey: "legacy_worker_pay", direction: "earning", amountMinor: 190000, explanation: { itemName: "歷史薪資金額（未保存項目明細）" } }]);
+  });
+
   it("薪資只查本人已發放資料，包含部分結帳與加扣項；歷史筆數不增加查詢次數", async () => {
     const id = await worker(); await link(id);
     const other = await worker("另一位薪資機密"); await link(other, "other");

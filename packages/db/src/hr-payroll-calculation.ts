@@ -3504,8 +3504,9 @@ export async function getHrPayrollSelfDetail(db: Database, userId: string, runId
     const [row] = await workerSelfPayrollRows(db, userId, { runId, employmentId });
     if (!row) throw new HrError(404, "找不到已發放的薪資明細。");
     const items = await listHrPayrollRecordItems(db, { runId, personKind: "worker", personId: employmentId });
+    const lines = parseWorkerPayrollLines(row.payrollLinesJson);
     return { record: workerSelfPayrollRecord(row), lines: [
-      ...parseWorkerPayrollLines(row.payrollLinesJson),
+      ...(lines.length ? lines : [{ lineKey: "legacy_worker_pay", direction: "earning" as const, amountMinor: row.amountMinor, explanation: { itemName: "歷史薪資金額（未保存項目明細）" } }]),
       ...items.map((item) => ({ lineKey: `legacy_adjustment_${item.id}`, direction: item.direction, amountMinor: item.amountMinor, explanation: { itemName: item.itemName, reason: item.reason } })),
     ] };
   }
