@@ -12,7 +12,8 @@ describe("shared HRIS UI contracts", () => {
     const markup = renderToStaticMarkup(<SegmentedControl skin="outlined" iconOnly aria-label="圖片檢視方式" value="grid" onChange={() => {}} options={[{ value: "list", label: "列表檢視", icon: "list" }, { value: "grid", label: "縮圖檢視", icon: "grid" }]} />);
     expect(markup).toContain('aria-label="列表檢視"'); expect(markup).toContain('aria-label="縮圖檢視"');
     expect(markup.match(/aria-pressed="true"/g)).toHaveLength(1); expect(markup).toContain("bg-brand-soft text-brand-dark");
-    expect(markup).toContain("scale-[.25] blur-[4px]"); expect(markup).toContain("cubic-bezier(0.2,0,0,1)");
+    expect(markup.match(/<svg\b/g)).toHaveLength(2);
+    expect(markup).not.toContain("opacity-0");
     expect(markup).not.toContain("backdrop-filter");
   });
   it("人員未選取時保留指定提示，不冒充第一個選項", () => {

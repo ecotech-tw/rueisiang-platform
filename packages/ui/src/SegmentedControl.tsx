@@ -90,7 +90,6 @@ export function SegmentedControl({ options, value, onChange, "aria-label": ariaL
             disabled={disabled || option.disabled}
             onClick={() => onChange(option.value)}
           >
-            {skin === "outlined" ? <Icon name="check" className={`size-4 shrink-0 transition-[opacity,scale,filter] duration-150 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none ${selected ? "opacity-100 scale-100 blur-none" : "opacity-0 scale-[.25] blur-[4px]"}`} /> : null}
             {option.icon ? <Icon name={option.icon} className="size-[18px] shrink-0" /> : null}
             {iconOnly ? <span className="sr-only">{option.label}</span> : option.badge === undefined ? option.label : <>
               <span>{option.label}</span>
