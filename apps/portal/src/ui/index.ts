@@ -8,7 +8,7 @@ export { FilterToolbar } from "./FilterToolbar.js";
 export { FilterInput, FilterSelect, SEARCH_INPUT_WIDTH, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";
 export { Field, FieldHint, Input, InputSkin, SelectField, Textarea, TextField } from "./Field.js";
 export { Alert, StatusBadge, type StatusTone } from "./Feedback.js";
-export { PageHeader, Panel } from "./Panel.js";
+export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
 export { PageTabs } from "./PageTabs.js";
 export { SegmentedControl } from "./SegmentedControl.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";

@@ -50,6 +50,7 @@ export function ScopeBreakdownChart({ breakdown, valueFormatter }: ScopeBreakdow
           </DataTable>
         </AnalyticsDataDialog>
       ) : null}
+      headerClassName="mb-3" titleClassName="text-[14px]"
       className="analytics-chart-panel analytics-scope-panel"
     >
       {/*

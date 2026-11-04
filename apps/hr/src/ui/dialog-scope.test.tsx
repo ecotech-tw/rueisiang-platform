@@ -58,7 +58,7 @@ describe("圖示按鈕觸控尺寸", () => {
 describe("Panel 內距契約", () => {
   it("預設內距不變，compact 透過 prop 縮減內距而非從 route 蓋樣式", async () => {
     await render(<><Panel>預設</Panel><Panel density="compact">緊湊</Panel></>);
-    const panels = [...host!.querySelectorAll(".panel")];
+    const panels = [...host!.querySelectorAll("[data-panel]")];
     expect(panels[0]!.classList.contains("p-2")).toBe(false);
     expect(panels[1]!.classList.contains("p-2")).toBe(true);
   });

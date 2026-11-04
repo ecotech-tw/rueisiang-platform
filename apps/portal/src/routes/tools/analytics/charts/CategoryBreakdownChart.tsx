@@ -195,6 +195,7 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
           </DataTable>
         </AnalyticsDataDialog>
       ) : null}
+      headerClassName="mb-3" titleClassName="text-[14px]"
       className="analytics-chart-panel analytics-category-panel"
     >
       {parentRows.length ? (

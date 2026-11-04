@@ -140,7 +140,7 @@ describe("HR 前台快速排班", () => {
     try {
       await page.click("快速排班");
       const pageSurface = document.querySelector(".hr-front-schedule-page");
-      const fieldsPanel = document.querySelector<HTMLElement>('[aria-label="人員"]')?.closest("section.panel");
+      const fieldsPanel = document.querySelector<HTMLElement>('[aria-label="人員"]')?.closest("section[data-panel]");
       expect(pageSurface?.classList.contains("pt-6")).toBe(false);
       expect(fieldsPanel?.classList.contains("grid")).toBe(true);
       expect(fieldsPanel?.classList.contains("gap-2")).toBe(true);
@@ -644,7 +644,7 @@ describe("HR 前台快速排班", () => {
       await act(async () => { finish(); await new Promise((resolve) => setTimeout(resolve, 30)); });
       expect(document.querySelector('[role="status"][aria-label="載入班表中"]')).toBeNull();
       expect(document.querySelector('[aria-label="排班月份"]')!.textContent).toContain("2026 年 3 月");
-      const calendar = document.querySelector(".hr-front-schedule-page section.panel.min-w-0")!;
+      const calendar = document.querySelector(".hr-front-schedule-page section[data-panel].min-w-0")!;
       expect(calendar.className).toContain("transition-[opacity,translate]");
       expect(calendar.className).toContain("duration-150");
       expect(calendar.className).toContain("motion-reduce:transition-none");

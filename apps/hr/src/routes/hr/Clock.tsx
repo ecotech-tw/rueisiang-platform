@@ -5,7 +5,7 @@ import { useSession, useSignOut } from "../../auth/session.js";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, PageHeader } from "../../ui/index.js";
+import { Alert, Button, Dialog, PageHeader, PANEL_SURFACE } from "../../ui/index.js";
 import { API_BASE_URL } from "../../config.js";
 import { useHrQuery, useHrWrite, type ClockCalendar, type ClockCalendarDay, type ClockLocationCheck, type ClockMapLocation, type ClockStatus } from "./api.js";
 
@@ -487,7 +487,7 @@ export function HrClockCalendar() {
     <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
     <PageHeader title="出勤日曆" description="左右滑動切換月份，點擊日期查看打卡紀錄。" />
     {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
-    <section className="panel hr-clock-calendar hr-clock-calendar-open" onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+    <section data-panel="" className={`${PANEL_SURFACE} [&>:last-child]:mb-0 hr-clock-calendar hr-clock-calendar-open`} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
       <div className="hr-clock-calendar-toolbar">
         <Button variant="icon" icon="chevronLeft" aria-label="上一個月" onClick={() => changeMonth(-1)} />
         <strong>{monthLabel(calendarMonth.year, calendarMonth.month)}</strong>

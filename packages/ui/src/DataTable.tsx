@@ -96,7 +96,7 @@ const STICKY_HEADER_SKIN: Record<TableSkinName, string> = {
    * 玻璃表頭：資料從底下捲過去時要看得出是浮在上面的一層。兩端圓角，但表格直接貼在
    * 面板裡時面板本身已經有圓角與邊界，表頭就不再自己圓。
    */
-  glass: "[.table-scroll>&_:where(thead_th)]:bg-paper/82 [.table-scroll>&_:where(thead_th)]:[-webkit-backdrop-filter:blur(14px)_saturate(165%)] [.table-scroll>&_:where(thead_th)]:[backdrop-filter:blur(14px)_saturate(165%)] [.table-scroll>&_:where(thead_th)]:[box-shadow:var(--shadow-glass-table-head)] [.table-scroll>&_:where(thead_th):first-child]:rounded-tl-xl [.table-scroll>&_:where(thead_th):last-child]:rounded-tr-xl [.panel>.table-scroll>&_:where(thead_th):first-child]:rounded-tl-none [.panel>.table-scroll>&_:where(thead_th):last-child]:rounded-tr-none",
+  glass: "[.table-scroll>&_:where(thead_th)]:bg-paper/82 [.table-scroll>&_:where(thead_th)]:[-webkit-backdrop-filter:blur(14px)_saturate(165%)] [.table-scroll>&_:where(thead_th)]:[backdrop-filter:blur(14px)_saturate(165%)] [.table-scroll>&_:where(thead_th)]:[box-shadow:var(--shadow-glass-table-head)] [.table-scroll>&_:where(thead_th):first-child]:rounded-tl-xl [.table-scroll>&_:where(thead_th):last-child]:rounded-tr-xl [[data-panel]>.table-scroll>&_:where(thead_th):first-child]:rounded-tl-none [[data-panel]>.table-scroll>&_:where(thead_th):last-child]:rounded-tr-none",
 };
 
 interface DataTableBaseProps extends Omit<TableHTMLAttributes<HTMLTableElement>, "children" | "className"> {

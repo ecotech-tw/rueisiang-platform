@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Icon } from "../../../shell/icons.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
-import { Alert, Button, DropdownSelect, PageHeader } from "../../../ui/index.js";
+import { Alert, Button, DropdownSelect, PageHeader, Panel } from "../../../ui/index.js";
 import { PayoutTab } from "./PayoutTab.js";
 import { SalesTab } from "./SalesTab.js";
 import { useReportScopes } from "./api.js";
@@ -184,7 +184,7 @@ export function Analytics() {
         description="比較商品銷量、通路與出金表現；先看整體，再下鑽到單一店別、通路或商品。"
       />
 
-      <section className="panel analytics-filters" aria-label="報表篩選條件">
+      <Panel className="analytics-filters" aria-label="報表篩選條件">
         <div className="analytics-filter-heading">
           <span className="analytics-filter-icon"><Icon name="calendar" /></span>
           <div>
@@ -280,7 +280,7 @@ export function Analytics() {
         </div>
         {dateError ? <Alert tone="danger">起日不能晚於迄日。</Alert> : null}
         {scopes.error ? <Alert tone="danger">{scopes.error.message}</Alert> : null}
-      </section>
+      </Panel>
 
       <div className="analytics-body" role="tabpanel">
         {tab === "payout" ? (

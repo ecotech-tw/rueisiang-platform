@@ -39,7 +39,7 @@ describe("人事資料呈現", () => {
 
   it("內頁將敘薪、保險、出勤分區，僅較長紀錄預設收合", () => {
     const html = renderToStaticMarkup(<HrProfileDetails profile={{ employee, employments: [], assignments: [] }} />);
-    expect(html.match(/class="panel-title"/g)).toHaveLength(4);
+    expect(html.match(/<div data-panel-head=""/g)).toHaveLength(4);
     expect(html).toContain(">基本資料</h2>");
     expect(html).toContain(">敘薪資料</h2>");
     expect(html).toContain(">保險資料</h2>");

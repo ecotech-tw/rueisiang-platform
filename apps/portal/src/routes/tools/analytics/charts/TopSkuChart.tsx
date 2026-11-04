@@ -64,6 +64,7 @@ export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, va
           </AnalyticsDataDialog>
         </div>
       )}
+      headerClassName="mb-3" titleClassName="text-[14px]"
       className="analytics-chart-panel analytics-sku-panel"
     >
       {loading ? (

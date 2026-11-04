@@ -871,6 +871,7 @@ export function ManualReports() {
 
       <Panel
         className="manual-report-panel grows"
+        headerClassName="items-center [&>div:last-child]:flex-[1_1_auto] [&>div:last-child]:min-w-0 max-[620px]:items-stretch max-[620px]:flex-col max-[620px]:gap-3 max-[620px]:[&>div:last-child]:w-full"
         title={kind === "payout" ? "每日出金紀錄" : "每月商品銷售紀錄"}
         description={kind === "payout" ? "依每日出金日期查看、篩選與修訂紀錄。" : "依報表月份查看、篩選與修訂商品銷售紀錄。"}
         actions={(
