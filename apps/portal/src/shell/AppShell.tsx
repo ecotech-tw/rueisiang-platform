@@ -29,7 +29,7 @@ export function AppShell() {
     <div data-shell="" className={`grid h-screen min-h-screen overflow-hidden ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 max-[900px]:grid-rows-[auto_minmax(0,1fr)]`}>
       {!isHrModule ? <>
         {/* 手機上 sidebar 收成抽屜，靠這條上方列開關——沿用 CRM 的作法。 */}
-        <header className="sticky top-0 z-30 hidden items-center justify-between gap-3 border-b border-line bg-[#fffafa] px-4 py-2.5 max-[900px]:flex">
+        <header className="sticky top-0 z-30 hidden items-center justify-between gap-3 border-b border-line bg-drawer px-4 py-2.5 max-[900px]:flex">
           <div className="flex min-w-0 items-center gap-3">
             <img className="h-auto w-[118px]" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" />
           </div>

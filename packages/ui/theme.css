@@ -15,6 +15,8 @@
   --color-soft-line: #f1e7e4;
   --color-paper: #fffefd;
   --color-canvas: #fbf7f5;
+  /* 平台側邊選單與手機上方列的底色：比 canvas 多一點粉，讓導覽跟內容分得開。 */
+  --color-drawer: #fffafa;
   --color-ok: #2f6b45;
   --color-ok-soft: #e8f3ec;
   --color-info: #2f4d86;
