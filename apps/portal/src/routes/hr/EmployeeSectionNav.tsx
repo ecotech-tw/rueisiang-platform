@@ -19,7 +19,7 @@ export function EmployeeSectionNav({ profile }: { profile: Profile }) {
   const sectionIds = sections.map(({ id }) => id).join(",");
   const [active, setActive] = useState(sections[0]?.id ?? "");
   useEffect(() => {
-    const root = nav.current?.closest(".hr-system-main");
+    const root = nav.current?.closest("[data-hr-main]");
     const update = () => {
       const top = (nav.current?.getBoundingClientRect().bottom ?? root?.getBoundingClientRect().top ?? 0) + 24;
       const passed = sections.filter(({ id }) => { const block = document.getElementById(id); return block && block.getBoundingClientRect().top <= top; });
