@@ -86,6 +86,16 @@ function presets(): { label: string; start: string; end: string }[] {
   ];
 }
 
+const TRIGGER = "inline-flex h-[34px] items-center gap-2 rounded-full border border-line bg-paper px-3.5 text-ink tabular-nums enabled:hover:bg-brand/5 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-secondary";
+const DAY = "h-8 border-0 text-[13px] tabular-nums focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary";
+
+/** 區間中間的日子是方角，才連得成一條；圓角會在區間中間留下缺口。只有兩端與 hover 是圓的。 */
+function dayClass(inRange: boolean, edge: boolean): string {
+  if (edge) return `${DAY} rounded-full bg-brand font-medium text-white`;
+  if (inRange) return `${DAY} bg-brand-soft text-brand-dark hover:rounded-full`;
+  return `${DAY} bg-transparent text-ink hover:rounded-full hover:bg-brand/7`;
+}
+
 function label(start: string, end: string): string {
   if (!start || !end) return "選擇對帳區間";
   // 同一個月就不重複寫年月，「2026-07-01 ~ 31」比整串好讀。
@@ -137,10 +147,10 @@ export function DateRangePicker({ start, end, onChange, disabled }: Props) {
   const [from, to] = preview as [string, string];
 
   return (
-    <div className="range-picker" ref={rootRef}>
+    <div className="relative" ref={rootRef}>
       <button
         type="button"
-        className="range-trigger"
+        className={TRIGGER}
         disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -156,13 +166,13 @@ export function DateRangePicker({ start, end, onChange, disabled }: Props) {
           setOpen((current) => !current);
         }}
       >
-        <Icon name="calendar" />
+        <Icon name="calendar" className="size-[18px] text-muted" />
         {label(start, end)}
       </button>
 
       {open ? (
-        <div className="range-panel" role="dialog" aria-label="選擇對帳區間">
-          <div className="range-presets">
+        <div className="absolute top-[calc(100%+8px)] left-0 z-20 rounded-[14px] border border-soft-line bg-paper p-3.5 [box-shadow:var(--shadow-popover)]" role="dialog" aria-label="選擇對帳區間">
+          <div className="mb-3 flex gap-2 border-b border-soft-line pb-3">
             {presets().map((preset) => (
               <Chip
                 type="button"
@@ -177,7 +187,7 @@ export function DateRangePicker({ start, end, onChange, disabled }: Props) {
             ))}
           </div>
 
-          <div className="range-head">
+          <div className="mb-1.5 flex items-center justify-between">
             <Button
               variant="icon"
               icon="chevronLeft"
@@ -185,7 +195,7 @@ export function DateRangePicker({ start, end, onChange, disabled }: Props) {
               title="上一個月"
               aria-label="上一個月"
             />
-            <span className="range-hint">
+            <span className="text-[12px] text-muted">
               {pendingStart ? "再點一次選迄日" : "點一下選起日"}
             </span>
             <Button
@@ -197,15 +207,15 @@ export function DateRangePicker({ start, end, onChange, disabled }: Props) {
             />
           </div>
 
-          <div className="range-months" onMouseLeave={() => setHovered(null)}>
+          <div className="flex gap-[22px]" onMouseLeave={() => setHovered(null)}>
             {[anchor, addMonths(anchor, 1)].map((month) => (
-              <div className="range-month" key={iso(month)}>
-                <div className="range-month-title">
+              <div key={iso(month)}>
+                <div className="mb-2 text-center text-[13px] font-medium">
                   {month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月
                 </div>
-                <div className="range-grid">
+                <div className="grid grid-cols-[repeat(7,34px)] gap-x-0 gap-y-px">
                   {WEEKDAYS.map((day) => (
-                    <span className="range-weekday" key={day}>{day}</span>
+                    <span className="grid h-7 place-items-center text-[11px] text-muted" key={day}>{day}</span>
                   ))}
                   {daysOf(month).map((day, index) => {
                     if (!day) return <span key={`pad-${index}`} />;
@@ -216,7 +226,7 @@ export function DateRangePicker({ start, end, onChange, disabled }: Props) {
                       <button
                         type="button"
                         key={value}
-                        className={`range-day${inRange ? " in" : ""}${edge ? " edge" : ""}`}
+                        className={dayClass(inRange, edge)}
                         onMouseEnter={() => setHovered(value)}
                         onClick={() => pick(value)}
                       >
