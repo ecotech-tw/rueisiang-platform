@@ -325,7 +325,7 @@ export const hrPayslipLines = sqliteTable("hr_payslip_lines", {
   check("ck_hr_payslip_lines_direction", sql`${table.direction} IN ('earning', 'deduction')`),
   check("ck_hr_payslip_lines_amount", sql`${table.amountMinor} >= 0`),
   check("ck_hr_payslip_lines_quantity", sql`${table.quantitySeconds} IS NULL OR ${table.quantitySeconds} >= 0`),
-  check("ck_hr_payslip_lines_explanation", sql`length(${table.explanationJson}) <= 10000`),
+  check("ck_hr_payslip_lines_explanation", sql`length(${table.explanationJson}) <= 20000`),
 ]);
 
 export const hrPayslipCompensationLinks = sqliteTable("hr_payslip_compensation_links", {
