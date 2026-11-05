@@ -2531,6 +2531,7 @@
  */
 .hr-calendar-cell.day-weekend { background: --alpha(var(--color-ink) / 3%); }
 .hr-calendar-cell.day-holiday { border-color: var(--color-brand-soft); background: --alpha(var(--color-brand) / 7%); }
+.hr-calendar-date-row { display: contents; }
 .hr-calendar-holiday { display: block; overflow: hidden; margin-top: 6px; padding: 3px 6px; border-radius: 8px; background: --alpha(var(--color-brand) / 12%); color: var(--color-brand-dark); font-size: 11px; font-weight: 700; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .hr-calendar-holiday.hr-calendar-typhoon { background: var(--color-warn-soft); color: var(--color-warn); }
 .hr-calendar-scope-picker { display: grid; gap: 4px; min-width: 0; }
@@ -2576,6 +2577,10 @@
 @media (max-width: 800px) {
   .hr-quick-bar-count { margin-left: 0; }
   .hr-calendar-cell { min-height: 88px; padding: 5px; }
+  .hr-calendar-date-row { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; padding-right: 24px; }
+  .hr-calendar-date { flex: none; justify-content: flex-start; }
+  .hr-calendar-date .hr-calendar-add-button { position: absolute; top: 0; right: 0; }
+  .hr-calendar-date-row .hr-calendar-holiday { flex: 1 1 0; min-width: 0; margin-top: 0; }
   .hr-calendar-entry { padding-right: 4px; }
   .hr-calendar-entry button { display: none; }
   .hr-calendar-entry small { display: none; }
