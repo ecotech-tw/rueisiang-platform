@@ -14,6 +14,36 @@ import type { Env } from "./env.js";
 import { isPayrollQueueMessage } from "./payroll-queue.js";
 
 const PAYROLL_RUN_MAX_ATTEMPTS = 3;
+const MAX_ERROR_DETAIL_LENGTH = 2_000;
+
+type PayrollErrorDetails = {
+  name: string;
+  message: string;
+  stack?: string;
+  code?: string | number;
+  cause?: PayrollErrorDetails;
+};
+
+function boundedErrorText(value: string): string {
+  return value.length > MAX_ERROR_DETAIL_LENGTH ? `${value.slice(0, MAX_ERROR_DETAIL_LENGTH - 1)}…` : value;
+}
+
+function payrollErrorDetails(error: unknown, depth = 0): PayrollErrorDetails {
+  if (depth > 2) return { name: "CauseDepthLimit", message: "Further causes omitted" };
+  if (error === null || typeof error !== "object") return { name: typeof error, message: boundedErrorText(String(error)) };
+
+  const detail = error as { name?: unknown; message?: unknown; stack?: unknown; code?: unknown; cause?: unknown };
+  const name = error instanceof Error ? error.name : typeof detail.name === "string" ? detail.name : "UnknownError";
+  const message = typeof detail.message === "string" && detail.message ? detail.message : String(error);
+  const cause = detail.cause;
+  return {
+    name,
+    message: boundedErrorText(message),
+    ...(typeof detail.stack === "string" ? { stack: boundedErrorText(detail.stack) } : {}),
+    ...(typeof detail.code === "string" || typeof detail.code === "number" ? { code: detail.code } : {}),
+    ...(cause === undefined ? {} : { cause: payrollErrorDetails(cause, depth + 1) }),
+  };
+}
 
 /**
  * 每個背景薪資工作一個 DO；DO 只保存 job id 與 alarm cursor，薪資結果仍由 D1 保存。
@@ -87,7 +117,18 @@ export class PayrollRunAgent {
         return;
       }
 
-      console.error("薪資背景工作執行失敗", error);
+      const errorDetails = payrollErrorDetails(error);
+      console.error({
+        event: "hr.payroll.background_job_failed",
+        message: "薪資背景工作執行失敗",
+        jobId,
+        attemptCount: job.attemptCount,
+        errorName: errorDetails.name,
+        errorMessage: errorDetails.message,
+        ...(errorDetails.stack ? { errorStack: errorDetails.stack } : {}),
+        ...(errorDetails.code === undefined ? {} : { errorCode: errorDetails.code }),
+        ...(errorDetails.cause ? { errorCause: errorDetails.cause } : {}),
+      });
       if (job.attemptCount >= PAYROLL_RUN_MAX_ATTEMPTS) {
         await failHrPayrollJob(db, jobId, "薪資背景工作自動重試次數已用盡，請按「重新試算」。 ", job.attemptCount);
         return;
