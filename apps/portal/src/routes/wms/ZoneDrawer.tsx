@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
@@ -248,6 +248,22 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
   );
 }
 
+/*
+ * 進場與退場的動畫（keyframes 在 components.css）。
+ *
+ * 抽屜從右邊滑進來，遮罩淡入。用 Material 的 emphasized decelerate——進場快、
+ * 收尾慢，看起來像被推進來停住，而不是等速滑行。退場用對稱的 accelerate：
+ * 離開的東西不需要慢慢停，快一點反而俐落。動畫純粹是修飾，減少動態時整組關掉。
+ */
+const DRAWER_ENTER = {
+  backdrop: "animate-[drawer-fade-in_200ms_ease-out]",
+  panel: "animate-[drawer-slide-in_280ms_cubic-bezier(.05,.7,.1,1)]",
+};
+const DRAWER_EXIT = {
+  backdrop: "animate-[drawer-fade-in_180ms_ease-in_reverse_forwards]",
+  panel: "animate-[drawer-slide-out_180ms_cubic-bezier(.3,0,.8,.15)_forwards]",
+};
+
 /**
  * 倉位明細。
  *
@@ -277,10 +293,10 @@ export function ZoneDrawer({
    * 關閉要等退場動畫跑完。
    *
    * 直接呼叫 onClose 的話元件立刻卸載，滑進來的東西「啪」一聲消失——進場有動畫、
-   * 退場沒有，會比兩邊都沒有更奇怪。所以先標成 closing 讓 CSS 播退場，
+   * 退場沒有，會比兩邊都沒有更奇怪。所以先標成 closing 讓退場動畫播完，
    * 時間到了才真的收掉。
    *
-   * 這裡的毫秒數要跟 components.css 的 drawer-out 對齊，改一邊就要改另一邊。
+   * 這裡的 200ms 要蓋過下面 DRAWER_EXIT 的 180ms，改一邊就要改另一邊。
    */
   const requestClose = useCallback(() => {
     if (closing) return;
@@ -303,33 +319,44 @@ export function ZoneDrawer({
 
   return (
     <div
-      className={`drawer-backdrop${closing ? " closing" : ""}`}
+      className={`fixed inset-0 z-40 flex justify-end bg-ink/32 motion-reduce:animate-none ${closing ? DRAWER_EXIT.backdrop : DRAWER_ENTER.backdrop}`}
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) requestClose();
       }}
     >
-      <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby="zone-drawer-title">
-        <header className={`drawer-head tone-${zone.color}`}>
+      {/* 抽屜在手機上是滿版的，不然商品那幾列擠不下。 */}
+      <aside
+        className={`flex w-[min(520px,100%)] flex-col bg-paper [box-shadow:var(--shadow-panel)] motion-reduce:animate-none max-[760px]:w-full ${closing ? DRAWER_EXIT.panel : DRAWER_ENTER.panel}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="zone-drawer-title"
+      >
+        {/* 頁首的底色跟著區塊的色階；色階清單是 WAREHOUSE_CATEGORY_COLORS，對應的 --color-tone-* 在 theme.css。 */}
+        <header
+          className="relative bg-(--tone)/18 px-6 pt-[22px] pb-[18px] text-(--tone) max-[760px]:px-4 max-[760px]:pt-[18px] max-[760px]:pb-3.5"
+          style={{ "--tone": `var(--color-tone-${zone.color})` } as CSSProperties}
+        >
           <Button variant="icon" className="absolute top-3.5 right-3.5" icon="close" type="button" onClick={requestClose} aria-label="關閉" />
-          <p className="drawer-eyebrow">STORAGE ZONE</p>
-          <div className="drawer-title">
-            <span className="drawer-code">{zone.code}</span>
+          <p className="mx-0 mt-0 mb-2.5 text-[11px] font-bold tracking-[.12em] opacity-65">STORAGE ZONE</p>
+          <div className="flex items-center gap-3.5">
+            {/* 代碼做成一個方牌，跟名稱分開——它是編號不是標題。 */}
+            <span className="grid size-[62px] flex-none place-items-center rounded-xl bg-paper/75 text-[15px] font-bold">{zone.code}</span>
             <div>
-              <h2 id="zone-drawer-title">{zone.name}</h2>
-              <p className="muted">{zone.category}</p>
+              <h2 id="zone-drawer-title" className="m-0 text-[21px]">{zone.name}</h2>
+              <p className="muted mx-0 mt-0.5 mb-0 text-[13px]">{zone.category}</p>
             </div>
           </div>
         </header>
 
-        <div className="drawer-body">
+        <div className="grid flex-1 content-start gap-[18px] overflow-y-auto px-6 pt-[18px] pb-7 max-[760px]:px-4 max-[760px]:pt-3.5 max-[760px]:pb-6">
           {canWrite ? (
-            <div className="drawer-actions">
+            <div className="flex justify-end">
               <Button variant="secondary" type="button" onClick={onEdit}>修改區塊</Button>
             </div>
           ) : null}
 
-          <div className="stat-row drawer-stats">
+          <div className="stat-row m-0">
             <div className="stat">
               <strong>{items.length}</strong>
               <span>商品品項</span>
@@ -340,7 +367,7 @@ export function ZoneDrawer({
             </div>
           </div>
 
-          {zone.notes ? <p className="muted drawer-notes">{zone.notes}</p> : null}
+          {zone.notes ? <p className="muted m-0 text-[13px]">{zone.notes}</p> : null}
 
           {canReadItems ? (
             <section className="zone-section">

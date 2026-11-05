@@ -842,22 +842,7 @@
 .preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .preset-row small { color: var(--color-muted); font-size: 11px; font-weight: 400; }
 
-/*
- * ── 倉位明細抽屜 ────────────────────────────────────────────────────────
- *
- * 貼右邊而不是置中：內容很長（統計、層架分頁、商品清單、照片），置中的對話框
- * 在桌機上會變成又高又窄的一條，而且蓋住剛才點的那一格。抽屜留著地圖看得見。
- */
-/*
- * 進場與退場的動畫。
- *
- * 抽屜從右邊滑進來，遮罩淡入。用 Material 的 emphasized decelerate——進場快、
- * 收尾慢，看起來像被推進來停住，而不是等速滑行。退場用對稱的 accelerate：
- * 離開的東西不需要慢慢停，快一點反而俐落。
- *
- * 退場之所以做得到，是因為 ZoneDrawer 在真正卸載前會先掛上 .closing 等動畫跑完
- * ——那邊的毫秒數要跟這裡的 180ms 對齊。
- */
+/* 倉位明細抽屜（wms/ZoneDrawer.tsx）的進退場。用法與曲線的取捨寫在元件裡。 */
 @keyframes drawer-slide-in {
   from { transform: translateX(100%); }
   to { transform: none; }
@@ -870,77 +855,6 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
-
-.drawer-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  display: flex;
-  justify-content: flex-end;
-  background: --alpha(var(--color-ink) / 32%);
-  animation: drawer-fade-in 200ms ease-out;
-}
-.drawer-backdrop.closing { animation: drawer-fade-in 180ms ease-in reverse forwards; }
-.drawer {
-  display: flex;
-  flex-direction: column;
-  width: min(520px, 100%);
-  background: var(--color-paper);
-  box-shadow: var(--shadow-panel);
-  animation: drawer-slide-in 280ms cubic-bezier(.05, .7, .1, 1);
-}
-.drawer-backdrop.closing .drawer {
-  animation: drawer-slide-out 180ms cubic-bezier(.3, 0, .8, .15) forwards;
-}
-
-/*
- * 會動的東西一律尊重系統設定。前庭功能失調的人看到滑動會不舒服，而這個動畫
- * 純粹是修飾——關掉之後功能一模一樣。
- */
-@media (prefers-reduced-motion: reduce) {
-  .drawer-backdrop,
-  .drawer-backdrop.closing,
-  .drawer,
-  .drawer-backdrop.closing .drawer { animation: none; }
-}
-.drawer-head { position: relative; padding: 22px 24px 18px; }
-.drawer-eyebrow {
-  margin: 0 0 10px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: .12em;
-  opacity: .65;
-}
-.drawer-title { display: flex; align-items: center; gap: 14px; }
-.drawer-title h2 { margin: 0; font-size: 21px; }
-.drawer-title p { margin: 2px 0 0; font-size: 13px; }
-/* 代碼做成一個方牌，跟名稱分開——它是編號不是標題。 */
-.drawer-code {
-  display: grid;
-  place-items: center;
-  width: 62px;
-  height: 62px;
-  flex: none;
-  border-radius: 12px;
-  background: --alpha(var(--color-paper) / 75%);
-  font-size: 15px;
-  font-weight: 700;
-}
-.drawer-head.tone-rose { background: --alpha(var(--color-tone-rose) / 18%); color: var(--color-tone-rose); }
-.drawer-head.tone-sky { background: --alpha(var(--color-tone-sky) / 18%); color: var(--color-tone-sky); }
-.drawer-head.tone-mint { background: --alpha(var(--color-tone-mint) / 18%); color: var(--color-tone-mint); }
-.drawer-head.tone-amber { background: --alpha(var(--color-tone-amber) / 18%); color: var(--color-tone-amber); }
-.drawer-head.tone-violet { background: --alpha(var(--color-tone-violet) / 18%); color: var(--color-tone-violet); }
-.drawer-head.tone-teal { background: --alpha(var(--color-tone-teal) / 18%); color: var(--color-tone-teal); }
-.drawer-head.tone-peach { background: --alpha(var(--color-tone-peach) / 18%); color: var(--color-tone-peach); }
-.drawer-head.tone-slate { background: --alpha(var(--color-tone-slate) / 18%); color: var(--color-tone-slate); }
-.drawer-head.tone-lime { background: --alpha(var(--color-tone-lime) / 18%); color: var(--color-tone-lime); }
-.drawer-head.tone-sand { background: --alpha(var(--color-tone-sand) / 18%); color: var(--color-tone-sand); }
-
-.drawer-body { flex: 1; display: grid; align-content: start; gap: 18px; padding: 18px 24px 28px; overflow-y: auto; }
-.drawer-actions { display: flex; justify-content: flex-end; }
-.drawer-stats { margin: 0; }
-.drawer-notes { margin: 0; font-size: 13px; }
 
 .zone-section { display: grid; gap: 10px; }
 .zone-section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
@@ -1157,11 +1071,6 @@
 }
 
 @media (max-width: 760px) {
-  /* 抽屜在手機上是滿版的，不然商品那幾列擠不下。 */
-  .drawer { width: 100%; }
-  .drawer-head { padding: 18px 16px 14px; }
-  .drawer-body { padding: 14px 16px 24px; }
-
   /*
    * 手機上浮動的東西改成貼齊上下緣、左右滿版。角落定位在 390px 的螢幕上會讓
    * 左上那組跟右上那組直接重疊。
