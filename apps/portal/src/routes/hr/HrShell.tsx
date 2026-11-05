@@ -78,7 +78,8 @@ export function HrNav({ label, ref, thumbRef, style, children }: { label: string
   );
 }
 
-type NavItemProps = ComponentProps<"div"> & { active: boolean; open?: boolean; compact?: boolean };
+// 版面由這裡決定，不收 className：收了也會被下面寫死的 className 蓋掉，等於靜靜吞掉。
+type NavItemProps = Omit<ComponentProps<"div">, "className"> & { active: boolean; open?: boolean; compact?: boolean };
 
 /** 一格導覽。底下多一條 10px 的透明橋，滑鼠從大項移到子選單的途中不會掉出 hover。 */
 export function HrNavItem({ active, open = false, compact = false, children, ...rest }: NavItemProps) {
@@ -138,14 +139,14 @@ export function hrUserTriggerClass(open: boolean) {
 }
 
 /** 頁首底下的內容區。fills 的頁面只讓表格自己捲，內容區就不捲、高度吃滿。 */
-export function HrMain({ compact = false, className = "", children }: { compact?: boolean; className?: string; children: ReactNode }) {
+export function HrMain({ compact = false, children }: { compact?: boolean; children: ReactNode }) {
   return (
     <div
       data-hr-main=""
       className={`grid w-full min-w-0 min-h-0 grid-cols-[minmax(0,1fr)] gap-5 overscroll-y-contain [scrollbar-gutter:stable] ${compact
         ? "overflow-visible px-[18px] pt-3 pb-[18px]"
         // 手機的右內距留給頁首按鈕 24px 的外陰影，否則會被內容區切掉。
-        : "overflow-y-auto px-9 pt-7 pb-9 has-[[data-page=fills]]:h-full has-[[data-page=fills]]:overflow-hidden max-[900px]:px-6 max-[900px]:pt-5 max-[900px]:pb-7"} ${className}`}
+        : "overflow-y-auto px-9 pt-7 pb-9 has-[[data-page=fills]]:h-full has-[[data-page=fills]]:overflow-hidden max-[900px]:px-6 max-[900px]:pt-5 max-[900px]:pb-7"}`}
     >
       {children}
     </div>
