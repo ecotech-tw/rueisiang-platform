@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, markHrPayrollJobDispatchFailed, markHrPayrollJobEnqueued } from "@rueisiang/db";
-import { beforeEach, afterEach, describe, expect, it } from "vitest";
+import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
 import app, { queue } from "./index.js";
 import { PayrollRunAgent } from "./payroll-run-do.js";
 import type { PayrollQueueMessage } from "./payroll-queue.js";
@@ -235,6 +235,37 @@ describe("薪資背景 Queue 與 Durable Object", () => {
     });
     expect(response.status, await response.clone().text()).toBe(400);
     expect(queueMessages).toHaveLength(0);
+  });
+
+  it("DO alarm 以結構化 log 保留薪資計算錯誤與 cause", async () => {
+    const created = await request("/hr/payroll/calculate", "POST", {
+      periodKey: "2026-08", employeeUserIds: ["dev-eli-lin@ecotech.tw"], expectedCount: 1, requestId: "async-payroll-error-log",
+    });
+    const createdBody = await created.json() as { job: { jobId: string } };
+    const local = doState();
+    const agent = new PayrollRunAgent(local.state, testEnv());
+    await agent.fetch(new Request("https://payroll-run/start", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ kind: "payroll", jobId: createdBody.job.jobId }),
+    }));
+
+    const failure = new Error("D1 batch failed", { cause: new Error("diagnostic constraint failure") });
+    const batch = vi.spyOn(d1, "batch").mockRejectedValue(failure);
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await agent.alarm();
+      expect(errorLog).toHaveBeenCalledWith(expect.objectContaining({
+        event: "hr.payroll.background_job_failed",
+        message: "薪資背景工作執行失敗",
+        jobId: createdBody.job.jobId,
+        attemptCount: 1,
+        errorName: "Error",
+        errorMessage: "D1 batch failed",
+        errorCause: expect.objectContaining({ name: "Error", message: "diagnostic constraint failure" }),
+      }));
+    } finally {
+      batch.mockRestore();
+      errorLog.mockRestore();
+    }
   });
 
   it("DO alarm 會更新進度，完成後建立可覆核的薪資紀錄", async () => {
