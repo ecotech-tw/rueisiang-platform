@@ -300,7 +300,12 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
 ### 導覽
 
 側邊選單是 Material 的 navigation drawer：膠囊列、24px 圖示、大項可收合、
-收合成窄欄時只剩圖示。細節見 `shell/Sidebar.tsx` 與 `styles.css` 的導覽段落。
+收合成窄欄時只剩圖示。外觀全部寫在 `shell/Sidebar.tsx`、`SystemSwitcher.tsx`、
+`AccountPanel.tsx` 裡，底色是 `@theme` 的 `--color-drawer`。
+
+收合狀態用 `collapsed` prop 往下傳，樣式一律掛在 `min-[901px]:` 底下。手機的 sidebar 是
+抽屜、靠位移開合，收合窄欄在那裡沒有意義；寫成不分斷點的話，桌機收合過再縮成手機寬，
+抽屜就會帶著窄欄的排版打開。
 
 ## 禁止事項
 
