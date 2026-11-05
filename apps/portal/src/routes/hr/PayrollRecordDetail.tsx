@@ -1,11 +1,11 @@
-import { useMemo, useRef, useState, type FormEvent, type ReactNode, type Ref } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useMemo, useRef, useState, type ReactNode, type Ref } from "react";
+import { Link, useNavigate, useParams } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import { downloadPayslipImage } from "./exportPayslip.js";
 import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail, type PayrollScheduleAllocationDetail, type PayrollWorker } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -313,53 +313,6 @@ function PayrollLineList({ lines }: { lines: PayrollLine[] }) {
   })}</div>;
 }
 
-interface PayrollRecordItemDialogProps {
-  detail: PayrollRecordDetail;
-  onClose: () => void;
-  onSuccess: () => void;
-}
-
-function PayrollRecordItemDialog({ detail, onClose, onSuccess }: PayrollRecordItemDialogProps) {
-  const [direction, setDirection] = useState<"earning" | "deduction">("deduction");
-  const [itemName, setItemName] = useState("");
-  const [amount, setAmount] = useState("");
-  const [reason, setReason] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const createItem = useHrWrite();
-
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const amountYuan = Number(amount);
-    if (!itemName.trim()) { setValidationError("請填寫加扣項名稱。"); return; }
-    if (!Number.isSafeInteger(amountYuan) || amountYuan <= 0) { setValidationError("金額必須是正整數元。"); return; }
-    if (!reason.trim()) { setValidationError("請填寫加扣項原因。"); return; }
-    setValidationError(null);
-    createItem.mutate({
-      path: "/payroll/records/items",
-      method: "POST",
-      values: { runId: detail.record.runId, personKind: detail.record.personKind, personId: detail.record.personId, direction, itemName: itemName.trim(), amountMinor: amountYuan * 100, reason: reason.trim() },
-    }, { onSuccess });
-  }
-
-  return <Dialog
-    title="薪資加扣項"
-    titleMeta={`${detail.record.personName}・${periodLabel(detail.record.periodKey)}`}
-    onClose={onClose}
-    closeDisabled={createItem.isPending}
-    formProps={{ onSubmit: submit }}
-    actions={<><Button variant="secondary" onClick={onClose} disabled={createItem.isPending}>取消</Button><Button type="submit" icon="check" tone="success" loading={createItem.isPending}>保存加扣項</Button></>}
-  >
-    <Alert tone="info">加扣項會直接附加到這筆尚未結算的發放紀錄，不需要對應原薪資月份。</Alert>
-    <div className="form-grid two">
-      <SelectField label="項目類型" value={direction} options={[{ value: "deduction", label: "扣款" }, { value: "earning", label: "補發" }]} onChange={(event) => setDirection(event.target.value as "earning" | "deduction")} />
-      <TextField label="項目名稱" value={itemName} maxLength={100} required placeholder="例如：一次性獎金" onChange={(event) => setItemName(event.target.value)} />
-    </div>
-    <TextField label="金額（元）" type="number" min="1" step="1" value={amount} required onChange={(event) => setAmount(event.target.value)} />
-    <TextField label="原因" value={reason} maxLength={1000} required placeholder="說明這筆加扣項的依據" onChange={(event) => setReason(event.target.value)} />
-    {validationError || createItem.error ? <Alert tone="danger">{validationError ?? createItem.error?.message}</Alert> : null}
-  </Dialog>;
-}
-
 function PayrollPayslipTable({ title, lines, direction }: { title: string; lines: PayrollLine[]; direction: PayrollLine["direction"] }) {
   const filteredLines = lines.filter((line) => line.direction === direction);
   return <section className="hr-payroll-payslip-section" aria-labelledby={`payroll-payslip-${direction}`}>
@@ -403,7 +356,6 @@ export function HrPayrollRecordDetail() {
   const canRead = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:read"));
   const canCalculate = Boolean(user?.isHrAdministrator && permissions.has("hr:payroll:calculate"));
   const [approveOpen, setApproveOpen] = useState(false);
-  const [itemDialogOpen, setItemDialogOpen] = useState(false);
   const [deleteItemId, setDeleteItemId] = useState<string | null>(null);
   const [deleteRunOpen, setDeleteRunOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -465,7 +417,7 @@ export function HrPayrollRecordDetail() {
       <div className="hr-payroll-detail-head">
         <div className="hr-payroll-detail-status"><span className="hr-payroll-detail-status-label">發放狀態</span><StatusBadge tone={detail.record.status === "closed" ? "success" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : "尚未結算"}</StatusBadge><small>{detail.record.personNumber ? `${detail.record.personNumber}・` : ""}{PERSON_KIND_LABEL[detail.record.personKind]}・建立於 {detail.record.createdAt}</small></div>
         <div className="hr-payroll-detail-actions" role="group" aria-label="薪資發放操作">
-          {canCalculate && detail.record.status === "unsettled" ? <div className="hr-payroll-detail-action-group" role="group" aria-label="未結算操作"><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={() => { approve.reset(); setApproveOpen(true); }}>確定發放此筆</Button><Button variant="secondary" icon="plus" tone="success" disabled={deleteRun.isPending || withdraw.isPending} onClick={() => setItemDialogOpen(true)}>新增薪資加扣項</Button></div> : null}
+          {canCalculate && detail.record.status === "unsettled" ? <div className="hr-payroll-detail-action-group" role="group" aria-label="未結算操作"><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={() => { approve.reset(); setApproveOpen(true); }}>確定發放此筆</Button></div> : null}
           <div className="hr-payroll-detail-action-group" role="group" aria-label="其他操作"><Button variant="secondary" icon="eye" tone="info" onClick={() => setPayslipPreviewOpen(true)}>預覽薪資條</Button>{canCalculate && detail.record.status === "unsettled" && detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除整批試算</Button> : null}{canCalculate && detail.record.status === "closed" && !detail.run.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回整批發放</Button> : null}</div>
         </div>
       </div>
@@ -480,7 +432,7 @@ export function HrPayrollRecordDetail() {
       {detail.employee ? <PayrollLineList lines={detailLines} /> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班、有效敘薪與核准付薪加班計算；原始試算結果保留在這筆發放紀錄中。</p>{detail.worker?.overtimeMinor ? <p className="muted">其中核准付薪加班：{money(detail.worker.overtimeMinor)}（{((detail.worker.overtimeSeconds ?? 0) / 3600).toFixed(1)} 小時）</p> : null}{detail.worker ? <PayrollWorkerWorkSummary worker={detail.worker} details={workerAllocationDetails} /> : null}<PayrollAllocationDetails details={workerAllocationDetails} /><PayrollLineList lines={detailLines} /></div>}
 
       <section className="hr-payroll-record-items" aria-labelledby="payroll-items-title">
-        <div className="hr-payroll-section-head"><div><h3 id="payroll-items-title">薪資加扣項</h3><p>附加在這筆紀錄的補發與扣款。{canCalculate && detail.record.status === "unsettled" ? "請從上方「新增薪資加扣項」開始。" : ""}</p></div></div>
+        <div className="hr-payroll-section-head"><div><h3 id="payroll-items-title">薪資加扣項</h3><p>附加在這筆紀錄的補發與扣款。{canCalculate && detail.record.status === "unsettled" ? <>新增與管理請至 <Link to="/hr/payroll-adjustments">薪資加扣項</Link>。</> : ""}</p></div></div>
         {detail.items.length ? <DataTable><thead><tr><th>項目</th><th>原因</th><th className="numeric">金額</th><th>操作</th></tr></thead><tbody>{detail.items.map((item) => <tr key={item.id}><td><strong>{item.itemName}</strong><small className="cell-sub">{item.direction === "earning" ? "補發" : "扣款"}</small></td><td>{item.reason}</td><td className="numeric">{item.direction === "earning" ? money(item.amountMinor) : deductionMoney(item.amountMinor)}</td><td>{canCalculate && detail.record.status === "unsettled" ? <Button variant="danger" onClick={() => setDeleteItemId(item.id)}>刪除</Button> : null}</td></tr>)}</tbody></DataTable> : <EmptyState className="mt-[18px]">尚未加入薪資加扣項。</EmptyState>}
         {detail.items.length ? <p className="form-hint">加扣項合計：補發 {money(itemTotals.earningMinor)}・扣款 {itemTotals.deductionMinor ? deductionMoney(itemTotals.deductionMinor) : "—"}</p> : null}
       </section>
@@ -489,7 +441,6 @@ export function HrPayrollRecordDetail() {
       <p><strong>{detail.record.personName}</strong>（{periodLabel(detail.record.periodKey)}）的這筆薪資紀錄會標記為「已確定發放」，之後明細將以歷史快照保存。</p>
       {approve.error ? <Alert tone="danger">{approve.error.message}</Alert> : null}
     </ConfirmDialog> : null}
-    {itemDialogOpen ? <PayrollRecordItemDialog detail={detail} onClose={() => setItemDialogOpen(false)} onSuccess={() => { setItemDialogOpen(false); void result.refetch(); toast.show("薪資加扣項已新增。", "success"); }} /> : null}
     {deleteItemId ? <ConfirmDialog title="刪除這筆薪資加扣項？" confirmLabel="刪除" pending={deleteItem.isPending} onCancel={() => { if (!deleteItem.isPending) setDeleteItemId(null); }} onConfirm={removeItem}>
       <p>刪除後會立即從這筆尚未結算的發放紀錄移除。</p>
       {deleteItem.error ? <Alert tone="danger">{deleteItem.error.message}</Alert> : null}
