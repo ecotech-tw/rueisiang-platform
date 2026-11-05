@@ -1541,6 +1541,13 @@
       "when": 1793800002000,
       "tag": "0243_hr_holiday_shift_override",
       "breakpoints": true
+    },
+    {
+      "idx": 244,
+      "version": "6",
+      "when": 1793868281106,
+      "tag": "0244_chief_moon_knight",
+      "breakpoints": true
     }
   ]
 }
