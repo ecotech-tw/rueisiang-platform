@@ -494,11 +494,13 @@ export function HrScheduling() {
             * 假日名稱是文字，不是只用底色：顏色一旦成為唯一的訊號，色弱的人就看不出
             * 這天跟旁邊差在哪裡，而「今天是不是國定假日」正是排班時最需要看清楚的事。
             */}
-          <div className="hr-calendar-date" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
-            ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
-            : <><strong>{index + 1}</strong>{canEdit ? <button type="button" className="hr-calendar-add-button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
-          {typhoonForScope ? <span className="hr-calendar-holiday hr-calendar-typhoon">災防停班</span> : null}
-          {calendarDay?.name && !(typhoonForScope && isDefaultHrCalendarSpecialName(calendarDay.name)) ? <span className="hr-calendar-holiday">{calendarDay.name}</span> : null}
+          <div className="hr-calendar-date-row">
+            <div className="hr-calendar-date" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
+              ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
+              : <><strong>{index + 1}</strong>{canEdit ? <button type="button" className="hr-calendar-add-button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
+            {typhoonForScope ? <span className="hr-calendar-holiday hr-calendar-typhoon">災防停班</span> : null}
+            {calendarDay?.name && !(typhoonForScope && isDefaultHrCalendarSpecialName(calendarDay.name)) ? <span className="hr-calendar-holiday">{calendarDay.name}</span> : null}
+          </div>
           <div className="hr-calendar-entries">{entriesOn(day).map((entry) => {
             const group = groupStats.get(scheduleGroupKey(entry));
             const statusLabel = SCHEDULE_ATTENDANCE_STATUS_LABELS[entry.attendanceStatus];
