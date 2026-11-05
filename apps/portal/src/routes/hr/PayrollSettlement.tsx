@@ -82,11 +82,16 @@ function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "pers
   return `${record.runId}:${record.personKind}:${record.personId}`;
 }
 
-export function availablePayrollEmployees<T extends Pick<HrFormalEmployee, "userId" | "serviceStartOn">>(employees: readonly T[], exclusions: PayrollCandidateExclusions | undefined, periodKey: string): T[] {
-  if (!exclusions || exclusions.allEmployees || !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKey)) return [];
-  const excludedIds = new Set(exclusions.employeeUserIds);
+export function payrollEmployeesInPeriod<T extends Pick<HrFormalEmployee, "serviceStartOn">>(employees: readonly T[], periodKey: string): T[] {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKey)) return [];
   const periodEnd = `${periodKey}-${new Date(Date.UTC(Number(periodKey.slice(0, 4)), Number(periodKey.slice(5, 7)), 0)).getUTCDate().toString().padStart(2, "0")}`;
-  return employees.filter((employee) => Boolean(employee.serviceStartOn && employee.serviceStartOn <= periodEnd) && !excludedIds.has(employee.userId));
+  return employees.filter((employee) => Boolean(employee.serviceStartOn && employee.serviceStartOn <= periodEnd));
+}
+
+export function availablePayrollEmployees<T extends Pick<HrFormalEmployee, "userId" | "serviceStartOn">>(employees: readonly T[], exclusions: PayrollCandidateExclusions | undefined, periodKey: string): T[] {
+  if (!exclusions || exclusions.allEmployees) return [];
+  const excludedIds = new Set(exclusions.employeeUserIds);
+  return payrollEmployeesInPeriod(employees, periodKey).filter((employee) => !excludedIds.has(employee.userId));
 }
 
 export function availablePayrollWorkers<T extends Pick<PayrollWorkerCandidate, "id">>(workers: readonly T[], exclusions: PayrollCandidateExclusions | undefined): T[] {
@@ -117,6 +122,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const supportWorkers = useHrQuery<{ workers: PayrollWorkerCandidate[] }>(periodKey ? `/payroll/workers?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/workers?periodKey=", Boolean(periodKey), { keepPreviousData: false });
   const candidateExclusions = useHrQuery<PayrollCandidateExclusions>(periodKey ? `/payroll/candidate-exclusions?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/candidate-exclusions?periodKey=", Boolean(periodKey), { keepPreviousData: false });
   const rawWorkerOptions = supportWorkers.data?.workers ?? NO_PAYROLL_WORKERS;
+  const employeesInPeriod = useMemo(() => payrollEmployeesInPeriod(employees, periodKey), [employees, periodKey]);
   const availableEmployees = useMemo(() => availablePayrollEmployees(employees, candidateExclusions.data, periodKey), [candidateExclusions.data, employees, periodKey]);
   const workerOptions = useMemo(() => {
     if (!candidateExclusions.data || candidateExclusions.data.allWorkers) return NO_PAYROLL_WORKERS;
@@ -237,7 +243,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             // 載入失敗也算沒載完：重試成功之前名單一樣是空的。
             disabled={calculatePayroll.isPending || supportWorkers.isLoading || Boolean(supportWorkers.error) || candidateExclusions.isLoading || Boolean(candidateExclusions.error)}
             onValueChange={updateEmployeeSelection}
-          /> : <p className="muted hr-payroll-picker-empty">{employees.length ? "本月份正式員工皆已有試算結果或正在試算。" : "目前沒有符合資格的正式員工。"}</p>}
+          /> : <p className="muted hr-payroll-picker-empty">{employeesInPeriod.length ? "符合本月份日期條件的正式員工皆已有試算結果或正在試算。" : employees.length ? "本月份沒有符合在職日期條件的正式員工。" : "目前沒有符合資格的正式員工。"}</p>}
         </div>
         <div className="hr-payroll-picker-group">
           <strong className="hr-payroll-picker-group-title">支援人員</strong>

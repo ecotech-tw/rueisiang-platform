@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { availablePayrollEmployees, availablePayrollWorkers, visiblePayrollJobs } from "./PayrollSettlement.js";
+import { availablePayrollEmployees, availablePayrollWorkers, payrollEmployeesInPeriod, visiblePayrollJobs } from "./PayrollSettlement.js";
 
 type Job = Parameters<typeof visiblePayrollJobs>[0][number];
 
@@ -35,13 +35,15 @@ describe("新增薪資試算的可選人員", () => {
     expect(availablePayrollWorkers([{ id: "worker-calculated" }, { id: "worker-available" }], exclusions)).toEqual([{ id: "worker-available" }]);
   });
 
-  it("依薪資月份排除尚未到職或未設定服務起算日的正式員工", () => {
-    const exclusions = { employeeUserIds: [], workerIds: [], allEmployees: false, allWorkers: false };
-    expect(availablePayrollEmployees([
+  it("依薪資月份排除尚未到職或未設定服務起算日的正式員工，且明確區分日期資格與試算排除", () => {
+    const exclusions = { employeeUserIds: ["october"], workerIds: [], allEmployees: false, allWorkers: false };
+    const employees = [
       { userId: "october", serviceStartOn: "2026-10-31" },
       { userId: "november", serviceStartOn: "2026-11-01" },
       { userId: "missing", serviceStartOn: null },
-    ], exclusions, "2026-10").map((employee) => employee.userId)).toEqual(["october"]);
+    ];
+    expect(payrollEmployeesInPeriod(employees, "2026-10").map((employee) => employee.userId)).toEqual(["october"]);
+    expect(availablePayrollEmployees(employees, exclusions, "2026-10")).toEqual([]);
   });
 
   it("名單載入失敗或當月全體都已被占用時不提供可選人員", () => {
