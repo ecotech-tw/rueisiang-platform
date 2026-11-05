@@ -1606,111 +1606,11 @@
 .perm-item small { margin-left: 6px; color: var(--color-muted); font-size: 11px; font-weight: 400; }
 .perm-item:has(input:disabled) span { color: var(--color-muted); }
 
-/*
- * ── 操作提示 ──────────────────────────────────────────────────────────────
- *
- * 桌機釘右下角，手機改成從上方滑下來——手機的右下角是拇指區，浮一張卡片在
- * 那裡會擋住正要按的東西。
- */
-.toast-stack {
-  position: fixed;
-  right: 24px;
-  bottom: 24px;
-  /*
-   * 要比對話框（60）高。很多提示就是從對話框裡的操作發出來的——同層的話
-   * 後出現的 backdrop 會蓋住它，變成「按了角色沒有任何回饋」。
-   */
-  z-index: 70;
-  display: grid;
-  gap: 10px;
-  justify-items: end;
-  pointer-events: none;
-}
-.toast {
-  position: relative;
-  isolation: isolate;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: min(400px, calc(100vw - 32px));
-  padding: 12px 12px 12px 14px;
-  overflow: hidden;
-  border: 1px solid --alpha(var(--color-paper) / 56%);
-  border-radius: 18px;
-  background:
-    linear-gradient(135deg, --alpha(var(--toast-tint, var(--color-brand)) / 16%), transparent 42%),
-    --alpha(var(--color-paper) / 58%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 72%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 18%) inset,
-    0 -12px 28px --alpha(var(--toast-tint, var(--color-brand)) / 7%) inset,
-    0 18px 46px --alpha(var(--color-ink) / 20%);
-  -webkit-backdrop-filter: blur(18px) saturate(180%) contrast(106%);
-  backdrop-filter: blur(18px) saturate(180%) contrast(106%);
-  color: var(--toast-tint, var(--color-brand));
-  font-size: 13.5px;
-  pointer-events: auto;
-  animation: toast-in 220ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-.toast::before {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background: radial-gradient(circle at 16px 0, --alpha(var(--color-paper) / 68%), transparent 38%);
-  content: "";
-}
+/* 操作提示（shell/Toast.tsx）的進場。 */
 @keyframes toast-in {
   from { opacity: 0; filter: blur(4px); transform: translateY(10px) scale(.96); }
   to { opacity: 1; filter: blur(0); transform: translateY(0) scale(1); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .toast { animation: none; }
-}
-.toast > svg {
-  width: 28px;
-  height: 28px;
-  flex: none;
-  padding: 5px;
-  border-radius: 999px;
-  background: --alpha(var(--toast-tint, var(--color-brand)) / 12%);
-  color: var(--toast-tint, var(--color-brand));
-  box-shadow: 0 1px 0 --alpha(var(--color-paper) / 50%) inset;
-}
-.toast span { flex: 1; min-width: 0; color: var(--color-ink); font-weight: 700; }
-.toast button {
-  flex: none;
-  border: 0;
-  font: inherit;
-  transition-property: background-color, color, scale;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.toast button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.toast button:active { scale: .96; }
-.toast-action {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: --alpha(var(--toast-tint, var(--color-brand)) / 10%);
-  color: var(--toast-tint, var(--color-brand));
-  font-size: 12px;
-  font-weight: 700;
-}
-.toast-action:hover { background: --alpha(var(--toast-tint, var(--color-brand)) / 18%); }
-.toast-close {
-  width: 26px;
-  height: 26px;
-  display: grid;
-  place-items: center;
-  padding: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--color-muted);
-}
-.toast-close:hover { background: --alpha(var(--toast-tint, var(--color-brand)) / 10%); color: var(--toast-tint, var(--color-brand)); }
-.toast-close svg { width: 14px; height: 14px; }
-.toast-success { --toast-tint: var(--color-ok); }
-.toast-info { --toast-tint: var(--color-info); }
-.toast-danger { --toast-tint: var(--color-brand-dark); }
 
 @media (max-width: 760px) {
   .row-actions { justify-content: flex-start; }
@@ -1753,15 +1653,6 @@
     padding-top: 4px;
   }
 
-  /* 提示改從上面下來：手機的右下角是拇指區，浮卡片在那裡會擋住要按的東西。 */
-  .toast-stack {
-    top: 12px;
-    right: 12px;
-    left: 12px;
-    bottom: auto;
-    justify-items: stretch;
-  }
-  .toast { max-width: none; }
 }
 
 /* 整列就是員工檔案入口，滑鼠與鍵盤使用相同的導覽路徑。 */
