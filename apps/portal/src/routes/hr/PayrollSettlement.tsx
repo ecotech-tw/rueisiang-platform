@@ -82,10 +82,11 @@ function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "pers
   return `${record.runId}:${record.personKind}:${record.personId}`;
 }
 
-export function availablePayrollEmployees<T extends Pick<HrFormalEmployee, "userId">>(employees: readonly T[], exclusions: PayrollCandidateExclusions | undefined): T[] {
-  if (!exclusions || exclusions.allEmployees) return [];
+export function availablePayrollEmployees<T extends Pick<HrFormalEmployee, "userId" | "serviceStartOn">>(employees: readonly T[], exclusions: PayrollCandidateExclusions | undefined, periodKey: string): T[] {
+  if (!exclusions || exclusions.allEmployees || !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKey)) return [];
   const excludedIds = new Set(exclusions.employeeUserIds);
-  return employees.filter((employee) => !excludedIds.has(employee.userId));
+  const periodEnd = `${periodKey}-${new Date(Date.UTC(Number(periodKey.slice(0, 4)), Number(periodKey.slice(5, 7)), 0)).getUTCDate().toString().padStart(2, "0")}`;
+  return employees.filter((employee) => Boolean(employee.serviceStartOn && employee.serviceStartOn <= periodEnd) && !excludedIds.has(employee.userId));
 }
 
 export function availablePayrollWorkers<T extends Pick<PayrollWorkerCandidate, "id">>(workers: readonly T[], exclusions: PayrollCandidateExclusions | undefined): T[] {
@@ -116,7 +117,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
   const supportWorkers = useHrQuery<{ workers: PayrollWorkerCandidate[] }>(periodKey ? `/payroll/workers?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/workers?periodKey=", Boolean(periodKey), { keepPreviousData: false });
   const candidateExclusions = useHrQuery<PayrollCandidateExclusions>(periodKey ? `/payroll/candidate-exclusions?periodKey=${encodeURIComponent(periodKey)}` : "/payroll/candidate-exclusions?periodKey=", Boolean(periodKey), { keepPreviousData: false });
   const rawWorkerOptions = supportWorkers.data?.workers ?? NO_PAYROLL_WORKERS;
-  const availableEmployees = useMemo(() => availablePayrollEmployees(employees, candidateExclusions.data), [candidateExclusions.data, employees]);
+  const availableEmployees = useMemo(() => availablePayrollEmployees(employees, candidateExclusions.data, periodKey), [candidateExclusions.data, employees, periodKey]);
   const workerOptions = useMemo(() => {
     if (!candidateExclusions.data || candidateExclusions.data.allWorkers) return NO_PAYROLL_WORKERS;
     return availablePayrollWorkers(rawWorkerOptions, candidateExclusions.data);
