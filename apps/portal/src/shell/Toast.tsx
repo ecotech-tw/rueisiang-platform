@@ -77,8 +77,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
       {/*
         * aria-live="polite"：讀螢幕的人也要知道操作成功了，但不要打斷他當下
         * 正在讀的東西。role="status" 讓它被當成狀態而不是警告。
-        */}
-      {/*
+        *
         * 桌機釘右下角，手機改成從上方滑下來——手機的右下角是拇指區，浮一張卡片在那裡會擋住正要按的東西。
         * z-70 要比對話框（60）高：很多提示就是從對話框裡的操作發出來的，同層的話後出現的 backdrop
         * 會蓋住它，變成「按了沒有任何回饋」。
