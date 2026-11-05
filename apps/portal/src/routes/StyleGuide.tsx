@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { UserAvatar } from "../shell/AccountPanel.js";
 import { DateRangePicker } from "../shell/DateRangePicker.js";
 import { Switch } from "../shell/Switch.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
@@ -105,7 +106,7 @@ function LiquidGlassPreview() {
           </nav>
           <div className="hr-user-menu">
             <button type="button" className="hr-user-trigger" aria-label="Liquid Glass 帳號選單範例">
-              <span className="account-avatar"><span className="account-avatar-initial">R</span></span>
+              <UserAvatar user={{ name: "R", email: "", pictureUrl: "" }} variant="glass" />
             </button>
           </div>
         </header>

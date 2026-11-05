@@ -16,11 +16,6 @@ export function AppShell() {
 
   // 左欄寬度：HRIS 沒有 sidebar（自己有一套導覽），收合時只剩圖示欄。手機一律單欄，上面一條 topbar。
   const columns = isHrModule ? "grid-cols-[minmax(0,1fr)]" : collapsed ? "grid-cols-[76px_minmax(0,1fr)]" : "grid-cols-[252px_minmax(0,1fr)]";
-  // sidebar-collapsed、mobile-menu-open 是 sidebar 自己的樣式在看的狀態，等 Sidebar 搬完再一起換掉。
-  const sidebarState = [
-    !isHrModule && collapsed ? "sidebar-collapsed" : "",
-    !isHrModule && mobileMenuOpen ? "mobile-menu-open" : "",
-  ].filter(Boolean).join(" ");
   /*
    * 內容區自己捲，整頁不捲（html/body 看 data-shell 鎖住）。
    * fills 的頁面只讓表格捲、bleed 的頁面（地圖）連內距都不要；小香測試台自己分兩欄各自捲。
@@ -31,29 +26,30 @@ export function AppShell() {
 
   return (
     <ToastProvider>
-    <div data-shell="" className={`grid h-screen min-h-screen overflow-hidden ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 max-[900px]:grid-rows-[auto_minmax(0,1fr)] ${sidebarState}`.trim()}>
+    <div data-shell="" className={`grid h-screen min-h-screen overflow-hidden ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 max-[900px]:grid-rows-[auto_minmax(0,1fr)]`}>
       {!isHrModule ? <>
         {/* 手機上 sidebar 收成抽屜，靠這條上方列開關——沿用 CRM 的作法。 */}
-        <header className="mobile-topbar">
-          <div className="mobile-topbar-brand">
-            <img src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" />
+        <header className="sticky top-0 z-30 hidden items-center justify-between gap-3 border-b border-line bg-[#fffafa] px-4 py-2.5 max-[900px]:flex">
+          <div className="flex min-w-0 items-center gap-3">
+            <img className="h-auto w-[118px]" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" />
           </div>
           <button
             type="button"
+            className="grid w-10 gap-1 rounded-[11px] border border-line bg-paper p-[9px]"
             onClick={() => setMobileMenuOpen((open) => !open)}
             aria-expanded={mobileMenuOpen}
             aria-controls="portal-sidebar"
             aria-label={mobileMenuOpen ? "關閉選單" : "開啟選單"}
           >
-            <span />
-            <span />
-            <span />
+            <span className="h-0.5 rounded-[2px] bg-brand" />
+            <span className="h-0.5 rounded-[2px] bg-brand" />
+            <span className="h-0.5 rounded-[2px] bg-brand" />
           </button>
         </header>
 
         <button
           type="button"
-          className="mobile-menu-backdrop"
+          className={`fixed inset-0 z-19 hidden border-0 bg-ink/38 ${mobileMenuOpen ? "max-[900px]:block" : ""}`}
           onClick={() => setMobileMenuOpen(false)}
           aria-label="關閉選單"
         />
@@ -61,6 +57,7 @@ export function AppShell() {
         <Sidebar
           permissions={permissions}
           collapsed={collapsed}
+          mobileOpen={mobileMenuOpen}
           onToggle={() => setCollapsed((value) => !value)}
           user={user}
           onLogout={() => void logout()}

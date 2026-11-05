@@ -48,7 +48,7 @@ export function HrUserMenu() {
         aria-label={`帳號選單：${displayName}`}
         onClick={() => setOpen((value) => !value)}
       >
-        <UserAvatar user={user} />
+        <UserAvatar user={user} variant="glass" />
       </button>
 
       <div id="hr-user-dropdown" className="hr-user-dropdown" role="menu" aria-label="帳號選單" inert={!open}>

@@ -312,14 +312,6 @@ button.hr-system-submenu-link { width: 100%; border: 0; background: none; font-f
 }
 .hr-user-trigger:hover,
 .hr-user-menu.open .hr-user-trigger { background: --alpha(var(--color-brand) / 7%); }
-.hr-user-trigger .account-avatar {
-  width: 36px;
-  height: 36px;
-  border: 0;
-  box-shadow: none;
-  outline: 1px solid --alpha(var(--color-ink) / 10%);
-  outline-offset: -1px;
-}
 .hr-user-dropdown {
   right: 0;
   min-width: 220px;
