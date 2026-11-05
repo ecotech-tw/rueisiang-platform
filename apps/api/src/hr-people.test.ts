@@ -227,8 +227,9 @@ describe("HR 扁平員工主檔", () => {
   it("員工清單依員工編號自然排序", async () => {
     await assign("self", "E10");
     await assign("other", "E2");
-    const listed = await (await request("/hr/employees?page=1&pageSize=100&sortField=employeeNumber&sortDirection=asc")).json() as { employees: Array<{ employeeNumber: string }> };
+    const listed = await (await request("/hr/employees?page=1&pageSize=100&sortField=employeeNumber&sortDirection=asc")).json() as { employees: Array<{ employeeNumber: string; serviceStartOn: string | null }> };
     expect(listed.employees.map((employee) => employee.employeeNumber)).toEqual(["E2", "E10"]);
+    expect(listed.employees.map((employee) => employee.serviceStartOn)).toEqual([expect.any(String), expect.any(String)]);
   });
 
   it("統一人員 roster 回傳支援人員的 employmentId 與 nullable userId", async () => {

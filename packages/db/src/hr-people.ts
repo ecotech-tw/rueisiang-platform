@@ -112,6 +112,7 @@ const employeeFields = {
   position: hrEmployments.position,
   supervisorUserId: hrEmployments.supervisorUserId,
   supervisorName,
+  serviceStartOn: sql<string | null>`(SELECT service_start_on FROM hr_employment_service_periods WHERE employment_id = ${hrEmployments.id})`,
   archivedAt: hrEmployments.archivedAt,
   employmentStatus,
   email: users.email,
