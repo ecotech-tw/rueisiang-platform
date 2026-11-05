@@ -317,12 +317,10 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
 - **不要在 Worker 程式碼裡用 `node:` 內建模組。** `apps/api/tsconfig.json` 的 `types` 只有 `@cloudflare/workers-types`，會被擋下。要用 Node 的只能在 `src/dev/`、`src/local-d1/`、測試檔裡。
 - **不要打開 `workerd` 的安裝腳本。** `pnpm-workspace.yaml` 刻意設 `workerd: false`，開著會讓整個 `pnpm install` 在這台機器直接失敗。
 - **改 CYBERBIZ 同步前先讀 `packages/db/src/crm-sync.ts` 的檔頭註解。** 那四條不變條件（只用會員 ID 對應、沒 ID 就不寫、manual 客戶不改成 cyberbiz、空值不覆蓋既有資料）是舊系統踩過才學到的。
-- **不要手改 `packages/db/migrations/` 裡的 SQL。** 改 schema 再用 `pnpm generate` 產生。
-  唯一的例外是**資料搬移**：drizzle 只會產「建新表」與「刪舊表」，中間那段
-  `INSERT INTO 新表 SELECT … FROM 舊表` 沒有人會幫你寫，不寫就是把歷史資料丟掉。
-  作法是**額外加一個檔案**（不改 drizzle 產的那幾個），順序切成三步：先讓兩張表
-  並存產出「建表」、手寫搬移、最後才移除舊表定義產出「刪表」。例子見
-  `0007`→`0008_move_customer_events`→`0009`，測試在 `activity-migration.test.ts`。
+- **不要手改 Drizzle 產生的 schema DDL。** 改 schema 再用 `pnpm generate` 產生；不要修改產生的建表、欄位、索引或資料複製語句。
+  只有兩種窄例外：
+  1. **資料搬移**：Drizzle 只會產「建新表」與「刪舊表」，中間的 `INSERT INTO 新表 SELECT … FROM 舊表` 沒有人會幫你寫，不寫就是把歷史資料丟掉。作法是額外加一個檔案（不改 Drizzle 產的檔案），依序讓新舊表並存、手寫搬移、最後移除舊表定義產出刪表。例子見 `0007`→`0008_move_customer_events`→`0009`，測試在 `activity-migration.test.ts`。
+  2. **恢復 Drizzle 不管理的 SQLite trigger**：若產生的 migration 重建了有既存 trigger 的表，允許在同一支產生的 migration 尾端補上原有 trigger 的 `CREATE TRIGGER`，因為 `DROP TABLE` 會一併刪除 trigger；必須放在新表完成改名後，確保它與重建處於同一個 D1 transaction，不留下保護中斷的空窗。不得藉此改變 trigger 行為；migration 測試必須以單一 transaction 執行，並驗證 trigger 仍存在且保護行為不變。
 - **不要在 migration 裡靠 `PRAGMA foreign_keys=OFF` 保護重建。** 正式環境走
   `wrangler d1 migrations apply`，**整支 migration 包在一個 transaction 裡**，而
   `PRAGMA foreign_keys` 在 transaction 裡是 no-op（SQLite 的規格），`defer_foreign_keys`
