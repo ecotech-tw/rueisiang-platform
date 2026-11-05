@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { UserAvatar } from "../shell/AccountPanel.js";
+import { HR_SHELL, HR_USER_MENU, HrBrand, HrGlassDefs, HrHeader, HrMain, HrNav, HrNavItem, hrNavIconClass, hrNavLinkClass, hrUserTriggerClass } from "./hr/HrShell.js";
 import { DateRangePicker } from "../shell/DateRangePicker.js";
 import { Switch } from "../shell/Switch.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
@@ -73,44 +74,30 @@ function LiquidGlassPreview() {
 
   return (
     <div className="style-guide-liquid-preview">
-      <ButtonSkin skin="glass"><PanelSkin skin="glass"><div className="hr-module hr-system style-guide-liquid-system">
-        <svg className="hr-liquid-defs" aria-hidden="true" focusable="false">
-          <filter id="hr-liquid-glass-soft" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
-            <feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="2" seed="7" result="noise" />
-            <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R" yChannelSelector="G" />
-          </filter>
-          <filter id="hr-liquid-glass-menu" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
-            <feTurbulence type="fractalNoise" baseFrequency="0.014 0.02" numOctaves="2" seed="11" result="noise" />
-            <feDisplacementMap in="SourceGraphic" in2="noise" scale="7" xChannelSelector="R" yChannelSelector="G" />
-          </filter>
-        </svg>
-        <header className="hr-system-header">
-          <div className="hr-system-brand">
-            <img src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={150} height={38} />
-            <span>HRIS</span>
-            <strong>元件展示</strong>
-          </div>
-          <nav className="hr-system-nav style-guide-liquid-nav" aria-label="Liquid Glass 範例導覽" style={navStyle}>
-            <span className="hr-system-nav-thumb" aria-hidden="true" />
+      <ButtonSkin skin="glass"><PanelSkin skin="glass"><div className={HR_SHELL}>
+        <HrGlassDefs />
+        <HrHeader compact>
+          <HrBrand current="元件展示" compact />
+          <HrNav label="Liquid Glass 範例導覽" style={navStyle}>
             {LIQUID_GLASS_NAV.map((item) => {
               const active = item.label === activeNav;
               return (
-                <div className={`hr-system-nav-item${active ? " active" : ""}`} key={item.label}>
-                  <button type="button" className="hr-system-nav-link" aria-pressed={active} onClick={() => setActiveNav(item.label)}>
-                    <Icon name={item.icon} />
+                <HrNavItem active={active} compact key={item.label}>
+                  <button type="button" className={hrNavLinkClass({ active, compact: true })} aria-pressed={active} onClick={() => setActiveNav(item.label)}>
+                    <Icon name={item.icon} className={hrNavIconClass(active)} />
                     <span>{item.label}</span>
                   </button>
-                </div>
+                </HrNavItem>
               );
             })}
-          </nav>
-          <div className="hr-user-menu">
-            <button type="button" className="hr-user-trigger" aria-label="Liquid Glass 帳號選單範例">
+          </HrNav>
+          <div className={HR_USER_MENU}>
+            <button type="button" className={hrUserTriggerClass(false)} aria-label="Liquid Glass 帳號選單範例">
               <UserAvatar user={{ name: "R", email: "", pictureUrl: "" }} variant="glass" />
             </button>
           </div>
-        </header>
-        <div className="hr-system-main style-guide-liquid-main">
+        </HrHeader>
+        <HrMain compact>
           <div className="style-guide-liquid-content">
             <div className="style-guide-liquid-copy">
               <span className="style-guide-eyebrow">HRIS SHELL / LIQUID GLASS</span>
@@ -129,7 +116,7 @@ function LiquidGlassPreview() {
               </div>
             </Panel>
           </div>
-        </div>
+        </HrMain>
       </div></PanelSkin></ButtonSkin>
     </div>
   );

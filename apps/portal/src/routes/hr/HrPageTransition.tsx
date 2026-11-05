@@ -11,5 +11,6 @@ export function HrPageTransition({ children }: { children: ReactNode }) {
     previousPath.current = pathname;
   }, [pathname]);
 
-  return <div key={pathname} className={`hr-page-transition${changed ? " is-entering" : ""}`}>{children}</div>;
+  // fills 的頁面高度吃滿，但不裁掉頁首按鈕的外陰影；限制整個內容區的是外層的 HrMain。keyframes 在 hr.css。
+  return <div key={pathname} className={`relative block w-full min-w-0 min-h-0 justify-self-stretch has-[[data-page=fills]]:h-full has-[[data-page=fills]]:overflow-visible [&>[data-page]]:w-full ${changed ? "animate-[hr-page-enter_560ms_cubic-bezier(0.2,0,0,1)_both] motion-reduce:animate-none" : ""}`}>{children}</div>;
 }

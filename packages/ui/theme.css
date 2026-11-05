@@ -55,6 +55,17 @@
   --shadow-glass-menu: 0 1px 0 --alpha(var(--color-paper) / 48%) inset, 0 0 0 1px --alpha(var(--color-paper) / 18%) inset, 0 -12px 28px --alpha(var(--color-brand) / 5%) inset, 0 22px 52px --alpha(var(--color-ink) / 14%), 0 6px 18px --alpha(var(--color-brand) / 8%);
   /* 玻璃選單內層的光澤；選單本身已經是 backdrop-filter，這層再疊上 SVG 扭曲（#hr-liquid-glass-menu）。 */
   --glass-menu-sheen: radial-gradient(circle at 18% 0%, --alpha(var(--color-paper) / 22%), transparent 34%), radial-gradient(circle at 86% 100%, --alpha(var(--color-brand) / 6%), transparent 40%), linear-gradient(135deg, --alpha(var(--color-paper) / 12%) 0%, transparent 30%, --alpha(var(--color-paper) / 5%) 68%, transparent 100%);
+  /*
+   * HRIS 頁首的玻璃膠囊（品牌、導覽、頭像）：頂端一條 1px 高光＋一圈 1px 淡框，其餘交給柔和的外陰影。
+   * Liquid Glass Switcher 範例那種多層斜角高光在這裡太厚，膠囊邊緣會變成一圈白框，所以不用。
+   */
+  --shadow-glass-rim: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 0 0 1px --alpha(var(--color-paper) / 22%) inset, 0 -12px 26px --alpha(var(--color-brand) / 5%) inset, 0 14px 34px --alpha(var(--color-ink) / 10%);
+  --shadow-glass-thumb: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 8px 18px --alpha(var(--color-ink) / 9%);
+  --glass-chip-sheen: radial-gradient(circle at 18% 0%, --alpha(var(--color-paper) / 24%), transparent 32%), radial-gradient(circle at 82% 100%, --alpha(var(--color-brand) / 7%), transparent 38%), linear-gradient(135deg, --alpha(var(--color-paper) / 16%) 0%, transparent 28%, --alpha(var(--color-paper) / 7%) 66%, transparent 100%);
+  --shadow-glass-chip-glow: 0 0 18px --alpha(var(--color-paper) / 24%) inset, 0 0 34px --alpha(var(--color-brand) / 5%) inset;
+  /* HRIS 頁首的下拉（子選單、帳號選單）：比膠囊更實的一塊玻璃，光澤也更亮，疊在頁面上才讀得清楚。 */
+  --shadow-glass-dropdown: 0 1px 0 --alpha(var(--color-paper) / 82%) inset, 0 0 0 1px --alpha(var(--color-paper) / 44%) inset, 0 -12px 28px --alpha(var(--color-brand) / 9%) inset, 0 24px 56px --alpha(var(--color-ink) / 20%), 0 6px 18px --alpha(var(--color-brand) / 13%);
+  --glass-dropdown-sheen: radial-gradient(circle at 18% 0%, --alpha(var(--color-paper) / 50%), transparent 34%), radial-gradient(circle at 86% 100%, --alpha(var(--color-brand) / 13%), transparent 40%), linear-gradient(135deg, --alpha(var(--color-paper) / 34%) 0%, transparent 30%, --alpha(var(--color-paper) / 16%) 68%, transparent 100%);
   --shadow-dialog: 0 24px 60px --alpha(var(--color-ink) / 28%);
   --shadow-dialog-footer: 0 -10px 20px --alpha(var(--color-ink) / 8%);
   --animate-dialog-backdrop-enter: dialog-backdrop-enter 150ms ease-out both;

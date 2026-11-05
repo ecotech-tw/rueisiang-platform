@@ -5,6 +5,7 @@ import { UserAvatar, useDismiss } from "../../shell/AccountPanel.js";
 import { navigateAcrossHr } from "../../shell/hr-transition.js";
 import { useGuardedAction, useGuardedClick } from "../../shell/UnsavedChanges.js";
 import { Icon } from "../../shell/icons.js";
+import { HR_USER_MENU, hrMenuItemClass, hrUserDropdownClass, hrUserTriggerClass } from "./HrShell.js";
 
 /**
  * HRIS 右上角的帳號選單。HRIS 不借用平台 sidebar，所以「回平台」與「登出」收在頭像底下，
@@ -37,11 +38,11 @@ export function HrUserMenu() {
   const displayName = user.name || user.email;
 
   return (
-    <div className={`hr-user-menu${open ? " open" : ""}`} ref={rootRef}>
+    <div className={HR_USER_MENU} ref={rootRef}>
       <button
         ref={triggerRef}
         type="button"
-        className="hr-user-trigger"
+        className={hrUserTriggerClass(open)}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls="hr-user-dropdown"
@@ -51,16 +52,16 @@ export function HrUserMenu() {
         <UserAvatar user={user} variant="glass" />
       </button>
 
-      <div id="hr-user-dropdown" className="hr-user-dropdown" role="menu" aria-label="帳號選單" inert={!open}>
-        <div className="hr-user-profile">
-          <strong>{displayName}</strong>
-          <small>{user.email}</small>
+      <div id="hr-user-dropdown" className={hrUserDropdownClass(open)} role="menu" aria-label="帳號選單" inert={!open}>
+        <div className="mb-1 grid min-w-0 gap-0.5 border-b border-b-ink/8 px-3 pt-2 pb-2.5">
+          <strong className="truncate text-[13px] text-ink">{displayName}</strong>
+          <small className="truncate text-[12px] text-muted">{user.email}</small>
         </div>
         <Link
           ref={firstItemRef}
           to="/"
           role="menuitem"
-          className="hr-system-submenu-link"
+          className={hrMenuItemClass({})}
           onClick={(event) => guardedClick(event, "/", () => {
             setOpen(false);
             navigateAcrossHr(event, navigate, "/");
@@ -69,7 +70,7 @@ export function HrUserMenu() {
           <Icon name="apps" />
           <span>Ruei Siang 平台</span>
         </Link>
-        <button type="button" role="menuitem" className="hr-system-submenu-link danger" onClick={() => { void guardedAction(() => logout()); }}>
+        <button type="button" role="menuitem" className={hrMenuItemClass({ danger: true, button: true })} onClick={() => { void guardedAction(() => logout()); }}>
           <Icon name="logout" />
           <span>登出</span>
         </button>

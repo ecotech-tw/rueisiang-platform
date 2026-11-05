@@ -7,6 +7,7 @@ import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { HrOverview } from "./Overview.js";
 import { HrPageTransition } from "./HrPageTransition.js";
+import { HR_SHELL, HrBrand, HrGlassDefs, HrHeader, HrMain, HrNav, HrNavItem, hrMenuItemClass, hrNavChevronClass, hrNavIconClass, hrNavLinkClass, hrSubmenuClass } from "./HrShell.js";
 import { HrUserMenu } from "./HrUserMenu.js";
 
 /** platform 只承載 HR 管理功能；員工本人入口在 hr.rueisiang.com。 */
@@ -133,7 +134,7 @@ export function HrLayout() {
   const placeThumb = useCallback(() => {
     const nav = navRef.current;
     if (!nav) return null;
-    const item = nav.querySelector<HTMLElement>(".hr-system-nav-item.active");
+    const item = nav.querySelector<HTMLElement>(":scope > [data-active]");
     if (!item) {
       nav.removeAttribute("data-thumb");
       return null;
@@ -175,32 +176,20 @@ export function HrLayout() {
     return () => observer.disconnect();
   }, [placeThumb]);
 
-  return <ButtonSkin skin="glass"><InputSkin skin="glass"><TableSkin skin="glass"><PanelSkin skin="glass"><PageDescriptions visible={false}><DialogScope className="hr-system"><div className="hr-module hr-system">
-    <svg className="hr-liquid-defs" aria-hidden="true" focusable="false">
-      <filter id="hr-liquid-glass-soft" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="2" seed="7" result="noise" />
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R" yChannelSelector="G" />
-      </filter>
-      <filter id="hr-liquid-glass-menu" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.014 0.02" numOctaves="2" seed="11" result="noise" />
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="7" xChannelSelector="R" yChannelSelector="G" />
-      </filter>
-    </svg>
-    <header className="hr-system-header">
-      <div className="hr-system-brand">
-        <img src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={150} height={38} />
-        <span>HRIS</span>
-        <strong>{current}</strong>
-      </div>
-      <nav className="hr-system-nav" aria-label="HRIS 主要導覽" ref={navRef}>
-        <span className="hr-system-nav-thumb" ref={thumbRef} aria-hidden="true" />
+  // .hr-system 本身不帶樣式，只是範圍：日曆、保險、費率等頁面的規則與 portal 出去的對話框靠它套上 HRIS 的玻璃與語意色。
+  return <ButtonSkin skin="glass"><InputSkin skin="glass"><TableSkin skin="glass"><PanelSkin skin="glass"><PageDescriptions visible={false}><DialogScope className="hr-system"><div className={HR_SHELL}>
+    <HrGlassDefs />
+    <HrHeader>
+      <HrBrand current={current} />
+      <HrNav label="HRIS 主要導覽" ref={navRef} thumbRef={thumbRef}>
         {visiblePrimaryNav.map((item) => {
           const active = isActive(item.activePaths ?? [item.to], pathname);
           const hasChildren = item.children.length > 0;
           const open = openMenu === item.label;
           const submenuId = `hr-system-submenu-${item.to.replace(/^\/+/, "").replaceAll("/", "-")}`;
-          return <div
-            className={`hr-system-nav-item${active ? " active" : ""}${open ? " open" : ""}`}
+          return <HrNavItem
+            active={active}
+            open={open}
             key={item.label}
             // 觸控裝置不應把合成 mouse 事件當成 hover，否則展開後可能立刻被離開事件收合。
             onPointerEnter={(event) => { if (hasChildren && event.pointerType === "mouse") setOpenMenu(item.label); }}
@@ -212,29 +201,29 @@ export function HrLayout() {
           >
             {hasChildren ? <button
               type="button"
-              className="hr-system-nav-link"
+              className={hrNavLinkClass({ active, open })}
               aria-haspopup="menu"
               aria-expanded={open}
               aria-controls={submenuId}
               onClick={() => setOpenMenu(item.label)}
             >
-              <Icon name={item.icon} />
+              <Icon name={item.icon} className={hrNavIconClass(active)} />
               <span>{item.label}</span>
-              <Icon name="chevronDown" className="hr-system-nav-chevron" />
+              <Icon name="chevronDown" className={hrNavChevronClass(open)} />
             </button> : <GuardedNavLink
               to={item.to}
               end={item.to === "/hr"}
-              className="hr-system-nav-link"
+              className={hrNavLinkClass({ active, open })}
               onClick={() => setOpenMenu(null)}
             >
-              <Icon name={item.icon} />
+              <Icon name={item.icon} className={hrNavIconClass(active)} />
               <span>{item.label}</span>
             </GuardedNavLink>}
-            {hasChildren ? <div id={submenuId} className="hr-system-submenu" role="menu" aria-label={`${item.label}子選單`} aria-hidden={!open}>
+            {hasChildren ? <div id={submenuId} className={hrSubmenuClass(open)} role="menu" aria-label={`${item.label}子選單`} aria-hidden={!open}>
               {item.children.map((child) => <GuardedNavLink
                 key={child.to}
                 to={child.to}
-                className={() => `hr-system-submenu-link${isActiveChild(item.children, child, pathname) ? " active" : ""}`}
+                className={hrMenuItemClass({ active: isActiveChild(item.children, child, pathname) })}
                 end={child.end ?? true}
                 role="menuitem"
                 onClick={() => setOpenMenu(null)}
@@ -243,15 +232,15 @@ export function HrLayout() {
                 <span>{child.label}</span>
               </GuardedNavLink>)}
             </div> : null}
-          </div>;
+          </HrNavItem>;
         })}
-      </nav>
+      </HrNav>
       <HrUserMenu />
-    </header>
+    </HrHeader>
 
-    <div className="hr-system-main">
+    <HrMain>
       <HrPageTransition><Outlet /></HrPageTransition>
-    </div>
+    </HrMain>
   </div></DialogScope></PageDescriptions></PanelSkin></TableSkin></InputSkin></ButtonSkin>;
 }
 
