@@ -4,7 +4,7 @@
 
 ## CLI
 
-完整月份執行時，同一份報表會依 F 欄日期產生每日 payout 資料，並將「商品 ID＋規格 ID」數量彙總成 sales 月資料；scope 固定為 `shopee:store:default`（蝦皮）。
+完整月份執行時，同一份報表會依 F 欄日期產生每日 payout 資料，並將「商品 ID＋規格 ID」數量彙總成 sales 月資料；scope 由上傳時選擇的蝦皮通路提供；直接執行 CLI 時預設為 `shopee:store:default`（蝦皮）。
 
 sales 的外部 SKU 使用報表 Z 欄商品 ID 與 AB 欄規格 ID 組成的 `商品ID_規格ID`。若該 mapping 有組合用料，平台匯入 D1 時會依每組用料數量展開成各 WMS SKU；因為蝦皮報表沒有用料層級金額，匯入時仍只把 salesAmount 掛在第一個用料，避免組合包營收重複計算。
 

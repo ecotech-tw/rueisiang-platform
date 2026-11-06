@@ -28,7 +28,7 @@ function parseArgs(argv) {
 
 function usage() {
   return [
-    "用法：node driver.mjs --input <蝦皮xlsx> --password <密碼> [--output <新xlsx>] [--drive-folder-url <Drive資料夾連結>]",
+    "用法：node driver.mjs --input <蝦皮xlsx> --password <密碼> [--output <新xlsx>] [--drive-folder-url <Drive資料夾連結>] [--scope-id <通路ID> --scope-name <通路名稱>]",
     "不帶 --start/--end 時預設上個月；--skip-upload 只產出新檔，不連 Drive。",
   ].join("\n");
 }
@@ -37,7 +37,7 @@ function usage() {
  * 整理一份使用者已下載的蝦皮報表。這個函式由 CLI 與 GitHub Actions 使用，
  * 因此不會嘗試登入蝦皮。
  */
-export async function processShopeeWorkbook({ inputPath, password = "", outputPath, driveFolderUrl = "", sourceSheet, start, end, skipUpload = false, config: suppliedConfig, env: suppliedEnv } = {}) {
+export async function processShopeeWorkbook({ inputPath, password = "", outputPath, driveFolderUrl = "", scopeId = SHOPEE_SCOPE_ID, scopeName = SHOPEE_SCOPE_NAME, sourceSheet, start, end, skipUpload = false, config: suppliedConfig, env: suppliedEnv } = {}) {
   if (!inputPath) throw new Error("請提供 inputPath。");
   const config = suppliedConfig ?? await loadConfig();
   const env = suppliedEnv ?? await loadEnv();
@@ -75,8 +75,9 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
       ingested = await ingestReport({
         apiUrl: String(env.PLATFORM_API_URL ?? "").trim() || DEFAULT_PLATFORM_API_URL,
         ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
-        scopeId: SHOPEE_SCOPE_ID,
-        scopeName: SHOPEE_SCOPE_NAME,
+        scopeId,
+        scopeName,
+        scopeType: "channel",
         salesRows: monthlySalesIngestRows(summary.dailySalesRows, range.label),
         payoutRows: summary.dailyPayoutRows,
         reportMonth: range.label,
@@ -119,6 +120,8 @@ async function main() {
     password: args.password ?? "",
     outputPath: args.output,
     driveFolderUrl: args.driveFolderUrl,
+    scopeId: args.scopeId,
+    scopeName: args.scopeName,
     sourceSheet: args.sourceSheet,
     start: args.start,
     end: args.end,

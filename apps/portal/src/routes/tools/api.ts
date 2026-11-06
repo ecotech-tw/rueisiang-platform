@@ -196,15 +196,15 @@ export function usePayoutStatus(requestId: string | null) {
   });
 }
 
-interface ShopeeSalesSettings {
+export interface ShopeeSalesScope {
   id: string;
+  name: string;
   driveFolderUrl: string;
   driveFolderName: string;
-  updatedAt: string;
 }
 
 export interface ShopeeSalesState {
-  settings: ShopeeSalesSettings;
+  scopes: ShopeeSalesScope[];
   start: string;
   end: string;
   configured: boolean;
@@ -221,10 +221,11 @@ export function useShopeeSalesState() {
 export function useRunShopeeSales() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { file: File; password: string }) => {
+    mutationFn: async (input: { file: File; password: string; scopeId: string }) => {
       const form = new FormData();
       form.append("file", input.file);
       form.append("password", input.password);
+      form.append("scopeId", input.scopeId);
       const response = await fetch("/api/tools/shopee-sales/upload", { method: "POST", credentials: "same-origin", body: form });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
