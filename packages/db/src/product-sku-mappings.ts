@@ -645,7 +645,7 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
       .where(sql`UPPER(${itemMasters.sku}) IN (${sql.join(batch.map((sku) => sql`${sku}`), sql`, `)})`)),
     categoryNames(db),
   ]);
-  if (normalizedChannel === "mo_plus") {
+  if (normalizedChannel === "momo") {
     const exactSkuItems = await inBatches(lookupWanted, (batch) => db.select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
       .from(itemMasters)
       .where(sql`UPPER(${itemMasters.sku}) IN (${sql.join(batch.map((sku) => sql`${sku}`), sql`, `)})`));
@@ -717,7 +717,7 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
     const direct = directWms.get(key);
     const explicit = mapped.get(key);
     // Mo+ 的原廠編號會先自動比對品項 SKU；明確 mapping 必須優先，讓人工修正能覆蓋自動結果。
-    if (normalizedChannel === "mo_plus" && explicit) {
+    if (normalizedChannel === "momo" && explicit) {
       resolved.set(key, {
         externalName: explicit.externalName || explicit.item.name,
         itemId: explicit.item.id,

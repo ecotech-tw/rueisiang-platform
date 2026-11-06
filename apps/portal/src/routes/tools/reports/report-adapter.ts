@@ -12,7 +12,7 @@ export interface NormalizedSalesRow {
 }
 
 export interface ParsedSalesReport {
-  sourceType: "mo_plus";
+  sourceType: "momo";
   sourceSheet: string;
   rows: NormalizedSalesRow[];
   reportMonths: string[];
@@ -126,14 +126,14 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
     if (!sku || !productName || !reportMonth || quantity === null || quantity <= 0 || unitPrice === null || discount === null) {
       throw new Error(`「訂單明細」第 ${sourceRow} 列有缺少或格式錯誤的商品資料。`);
     }
-    if (status !== "已送達" && !status.includes("退貨")) {
+    const isReturn = ["已退貨", "退貨完成", "退貨已完成"].includes(status);
+    if (status !== "已送達" && !isReturn) {
       skippedRowCount += 1;
       skippedStatuses.set(status || "未填訂單狀態", (skippedStatuses.get(status || "未填訂單狀態") ?? 0) + 1);
       continue;
     }
     if (!manufacturerCode) fallbackSkuCount += 1;
 
-    const isReturn = status.includes("退貨");
     const signedQuantity = isReturn ? -quantity : quantity;
     const signedAmount = (unitPrice * quantity - discount) * (isReturn ? -1 : 1);
     if (!Number.isSafeInteger(signedAmount)) throw new Error(`「訂單明細」第 ${sourceRow} 列金額超出安全範圍。`);
@@ -155,7 +155,7 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
   const warnings = [...skippedStatuses.entries()].map(([status, count]) => `略過 ${count} 列「${status}」訂單狀態。`);
   if (fallbackSkuCount) warnings.push(`${fallbackSkuCount} 列沒有商品原廠編號，將改用商品編號進行對應。`);
   return {
-    sourceType: "mo_plus",
+    sourceType: "momo",
     sourceSheet: sheetName,
     rows,
     reportMonths: [...new Set(rows.map((row) => row.reportMonth))],
@@ -166,8 +166,8 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
   };
 }
 
-export const moPlusReportParser: ReportParser = {
-  sourceType: "mo_plus",
+export const momoReportParser: ReportParser = {
+  sourceType: "momo",
   formats: [".xls", ".xlsx"],
   async parse(file) {
     if (!/\.xlsx?$/iu.test(file.name)) throw new Error("Mo+ 對帳明細僅接受 .xls 或 .xlsx 檔案。");
@@ -176,6 +176,6 @@ export const moPlusReportParser: ReportParser = {
   },
 };
 
-export function parseMoPlusWorkbook(buffer: ArrayBuffer): ParsedSalesReport {
+export function parseMomoWorkbook(buffer: ArrayBuffer): ParsedSalesReport {
   return parseRows(XLSX.read(buffer, { type: "array", cellDates: true }));
 }

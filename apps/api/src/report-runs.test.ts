@@ -68,7 +68,7 @@ beforeEach(async () => {
   await upsertReportScope(db(), { id: "cyberbiz:store:a", scopeKind: "store", name: "甲店" });
   await upsertReportScope(db(), { id: "cyberbiz:channel:shop", scopeKind: "channel", name: "官網" });
   await upsertReportScope(db(), { id: "shopee:store:default", scopeKind: "store", sourceType: "shopee", name: "蝦皮" });
-  await upsertReportScope(db(), { id: "mo_plus:channel:main", scopeKind: "channel", sourceType: "mo_plus", name: "Mo+" });
+  await upsertReportScope(db(), { id: "momo:channel:main", scopeKind: "channel", sourceType: "momo", name: "Mo+" });
 });
 
 describe("報表執行紀錄", () => {
@@ -78,11 +78,11 @@ describe("報表執行紀錄", () => {
     await seedRun({ id: "r2", requestId: "b", sourceType: "cyberbiz", importsSales: 1, importsPayout: 0, scopeIds: ["cyberbiz:store:a"], createdAt: "2026-09-01 02:00:00" });
     await seedRun({ id: "r3", requestId: "shop:c", sourceType: "cyberbiz", importsSales: 1, importsPayout: 1, scopeIds: ["cyberbiz:channel:shop"], createdAt: "2026-09-01 03:00:00" });
     await seedRun({ id: "r4", requestId: "d", sourceType: "shopee", importsSales: 1, importsPayout: 1, scopeIds: ["shopee:store:default"], createdAt: "2026-09-01 04:00:00" });
-    await seedRun({ id: "r5", requestId: "mo-plus-upload:x", sourceType: "mo_plus", importsSales: 1, importsPayout: 0, scopeIds: ["mo_plus:channel:main"], createdAt: "2026-09-01 05:00:00" });
+    await seedRun({ id: "r5", requestId: "momo-upload:x", sourceType: "momo", importsSales: 1, importsPayout: 0, scopeIds: ["momo:channel:main"], createdAt: "2026-09-01 05:00:00" });
 
     const runs = await listReportRuns(db());
     expect(runs.map((run) => [run.id, run.kind])).toEqual([
-      ["r5", "mo-plus-sales"],
+      ["r5", "momo-sales"],
       ["r4", "shopee"],
       ["r3", "cyberbiz-shop"],
       ["r2", "cyberbiz-sales"],
@@ -91,7 +91,7 @@ describe("報表執行紀錄", () => {
 
     expect((await listReportRuns(db(), { kinds: ["cyberbiz-shop"] })).map((run) => run.id)).toEqual(["r3"]);
     expect((await listReportRuns(db(), { kinds: ["cyberbiz-payout"] })).map((run) => run.id)).toEqual(["r1"]);
-    expect((await listReportRuns(db(), { kinds: ["mo-plus-sales"] })).map((run) => run.id)).toEqual(["r5"]);
+    expect((await listReportRuns(db(), { kinds: ["momo-sales"] })).map((run) => run.id)).toEqual(["r5"]);
   });
 
   it("匯入自己建的 run 與沒有執行人的 run 都不列出來", async () => {

@@ -123,42 +123,66 @@ describe("target 報表月資料匯入", () => {
   });
 
   it("Mo+ 原廠編號會精確比對平台 SKU，且手動 mapping 可覆蓋自動比對", async () => {
-    await upsertReportScope(db(), { id: "mo_plus:channel:main", scopeKind: "channel", name: "Mo+ 主通路", sourceType: "mo_plus" });
+    await upsertReportScope(db(), { id: "momo:channel:main", scopeKind: "channel", name: "Mo+ 主通路", sourceType: "momo" });
     const autoMatchedItem = await seedWmsItem("mo-auto", "ASO-100", "自動對應品項");
     const manualTargetItem = await seedWmsItem("mo-manual", "TARGET-100", "人工指定品項");
-    await seedMapping("mo-manual-map", "mo_plus", "ASO-100", manualTargetItem, "Mo+ 商品");
+    await seedMapping("mo-manual-map", "momo", "ASO-100", manualTargetItem, "Mo+ 商品");
 
     const response = await request({
       kind: "sales",
       scopeType: "channel",
-      scopeId: "mo_plus:channel:main",
+      scopeId: "momo:channel:main",
       scopeName: "Mo+ 主通路",
-      requestId: "mo-plus-upload:test-run",
+      sourceFileName: "statement_detail_20261002727389.xls",
+      requestId: "momo-upload:test-run",
       actorEmail: "operator@example.com",
       rows: [salesRow("ASO-100", 450, { reportMonth: "2026-09" })],
     });
 
-    expect(response.status).toBe(200);
+    expect(response.status, await response.clone().text()).toBe(200);
     const [sale] = await db().select({ itemId: reportItemSalesMonthly.itemId }).from(reportItemSalesMonthly);
     expect(sale?.itemId).toBe(manualTargetItem);
     expect(sale?.itemId).not.toBe(autoMatchedItem);
-    const [run] = await db().select().from(reportRuns).where(eq(reportRuns.requestId, "mo-plus-upload:test-run"));
-    expect(run).toMatchObject({ sourceType: "mo_plus", actorEmail: "operator@example.com", startDate: "2026-09-01", endDate: "2026-09-30", status: "succeeded" });
+    const [run] = await db().select().from(reportRuns).where(eq(reportRuns.requestId, "momo-upload:test-run"));
+    expect(run).toMatchObject({ sourceType: "momo", actorEmail: "operator@example.com", startDate: "2026-09-01", endDate: "2026-09-30", status: "succeeded" });
   });
 
   it("Mo+ 商品原廠編號可直接對應全平台品項 SKU", async () => {
-    await upsertReportScope(db(), { id: "mo_plus:channel:main", scopeKind: "channel", name: "Mo+ 主通路", sourceType: "mo_plus" });
+    await upsertReportScope(db(), { id: "momo:channel:main", scopeKind: "channel", name: "Mo+ 主通路", sourceType: "momo" });
     const itemId = await seedWmsItem("mo-auto", "ASO-200", "原廠編號對應品項");
     const response = await request({
       kind: "sales",
       scopeType: "channel",
-      scopeId: "mo_plus:channel:main",
+      scopeId: "momo:channel:main",
       scopeName: "Mo+ 主通路",
+      sourceFileName: "statement_detail_20261002727390.xls",
       rows: [salesRow("ASO-200", 600, { reportMonth: "2026-09" })],
     });
 
     expect(response.status).toBe(200);
     expect(await db().select({ itemId: reportItemSalesMonthly.itemId }).from(reportItemSalesMonthly)).toEqual([{ itemId }]);
+  });
+
+  it("Mo+ 多份結算明細會累加，同一份重傳只取代自己的快照", async () => {
+    await upsertReportScope(db(), { id: "momo:channel:main", scopeKind: "channel", name: "Mo+ 主通路", sourceType: "momo" });
+    const itemId = await seedWmsItem("momo-snapshot-item", "ASO-300", "對帳商品");
+    const importStatement = async (file: string, requestId: string, quantity: number, amount: number) => request({
+      kind: "sales",
+      scopeType: "channel",
+      scopeId: "momo:channel:main",
+      scopeName: "Mo+ 主通路",
+      sourceFileName: file,
+      requestId,
+      rows: [salesRow("ASO-300", amount, { reportMonth: "2026-09", grossQuantity: quantity, netQuantity: quantity })],
+    });
+
+    expect((await importStatement("statement_detail_202609000001.xls", "momo-upload:1", 1, 100)).status).toBe(200);
+    expect((await importStatement("statement_detail_202609000002.xls", "momo-upload:2", 2, 200)).status).toBe(200);
+    expect((await importStatement("statement_detail_202609000001.xls", "momo-upload:3", 1, 100)).status).toBe(200);
+
+    const [monthly] = await db().select({ grossQuantity: reportItemSalesMonthly.grossQuantity, salesAmount: reportItemSalesMonthly.salesAmount })
+      .from(reportItemSalesMonthly).where(eq(reportItemSalesMonthly.itemId, itemId));
+    expect(monthly).toEqual({ grossQuantity: 3, salesAmount: 300 });
   });
 
   it("target BOM 會依輸入順序展開用料，銷售額只計一次", async () => {

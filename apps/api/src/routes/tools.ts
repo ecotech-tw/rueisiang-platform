@@ -185,21 +185,21 @@ export const tools = new Hono<AppEnv>()
   .route("/shop-report", shopReport)
   .route("/reports/runs", reportRuns)
 
-  .get("/reports/mo-plus/scopes", requirePermission("tools:mo-plus-sales:run"), async (c) => {
+  .get("/reports/momo/scopes", requirePermission("tools:momo-sales:run"), async (c) => {
     const scopes = await listReportManagementScopes(c.get("db"));
     return c.json({ scopes: scopes
-      .filter((scope) => scope.sourceType === "mo_plus" && scope.scopeKind === "channel" && scope.active)
+      .filter((scope) => scope.sourceType === "momo" && scope.scopeKind === "channel" && scope.active)
       .map(({ id, name }) => ({ id, name })) });
   })
 
-  .post("/reports/mo-plus/import", requirePermission("tools:mo-plus-sales:run"), async (c) => {
+  .post("/reports/momo/import", requirePermission("tools:momo-sales:run"), async (c) => {
     const input = await body(c);
     const scopeId = requireString(input, "scopeId", "Mo+ 通路");
     if (!Array.isArray(input.rows) || !input.rows.length || input.rows.length > 10_000) {
       throw new HTTPException(400, { message: "商品列數必須介於 1 至 10,000 列。" });
     }
     const scope = await findReportScope(c.get("db"), { scopeKind: "channel", id: scopeId });
-    if (!scope || scope.sourceType !== "mo_plus" || !scope.active) {
+    if (!scope || scope.sourceType !== "momo" || !scope.active) {
       throw new HTTPException(400, { message: "請選擇啟用中的 Mo+ 通路。" });
     }
     const user = c.get("user");
@@ -210,7 +210,8 @@ export const tools = new Hono<AppEnv>()
         scopeId: scope.id,
         scopeName: scope.name,
         rows: input.rows,
-        requestId: `mo-plus-upload:${crypto.randomUUID()}`,
+        sourceFileName: requireString(input, "sourceFileName", "Mo+ 對帳明細檔名"),
+        requestId: `momo-upload:${crypto.randomUUID()}`,
         actorEmail: user.email,
       });
       await forgetReportAnalytics(cacheClient(c.env));
@@ -445,8 +446,8 @@ function scopeIdFor(input: Record<string, unknown>, name: string): string {
   if (!isValidScopeId(requested)) throw new HTTPException(400, { message: "通路 ID 含有不允許的字元。" });
   const idPlatform = requested.startsWith("shopee:")
     ? "shopee"
-    : requested.startsWith("mo_plus:")
-      ? "mo_plus"
+    : requested.startsWith("momo:")
+      ? "momo"
       : requested.startsWith("manual:") || requested.startsWith("cyberbiz:") ? "cyberbiz" : "";
   if (idPlatform !== platform) throw new HTTPException(400, { message: "通路 ID 與平台不一致。" });
   return requested;

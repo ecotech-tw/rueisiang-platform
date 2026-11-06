@@ -1,4 +1,4 @@
-import { moPlusReportParser, type ReportParser } from "./report-adapter.js";
+import { momoReportParser, type ReportParser } from "./report-adapter.js";
 
 export interface ReportSourceAdapter {
   readonly sourceType: string;
@@ -14,7 +14,7 @@ export interface ReportSourceAdapter {
 export const REPORT_SOURCE_ADAPTERS: readonly ReportSourceAdapter[] = [
   { sourceType: "cyberbiz", inputMode: "website", acceptedExtensions: [], parser: null },
   { sourceType: "shopee", inputMode: "upload", acceptedExtensions: [".xlsx"], parser: null },
-  { sourceType: "mo_plus", inputMode: "upload", acceptedExtensions: [".xls", ".xlsx"], parser: moPlusReportParser },
+  { sourceType: "momo", inputMode: "upload", acceptedExtensions: [".xls", ".xlsx"], parser: momoReportParser },
 ];
 
 export function reportSourceAdapter(sourceType: string): ReportSourceAdapter | undefined {

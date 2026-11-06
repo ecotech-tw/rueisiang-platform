@@ -13,14 +13,14 @@ import { SHOP_REQUEST_PREFIX } from "./shop-report.js";
  * kind 是算出來的，不是欄位。加一欄要 migration 加回填，而且四個寫入點都得記得
  * 填；這些列的來源本來就決定了種類，算一次比同步四處可靠。
  */
-export type ReportRunKind = "cyberbiz-payout" | "cyberbiz-sales" | "cyberbiz-shop" | "shopee" | "mo-plus-sales";
+export type ReportRunKind = "cyberbiz-payout" | "cyberbiz-sales" | "cyberbiz-shop" | "shopee" | "momo-sales";
 
 export const REPORT_RUN_KINDS: readonly ReportRunKind[] = [
   "cyberbiz-payout",
   "cyberbiz-sales",
   "cyberbiz-shop",
   "shopee",
-  "mo-plus-sales",
+  "momo-sales",
 ];
 
 export interface ReportRunListRow {
@@ -45,7 +45,7 @@ const SCOPE_NAME_SEPARATOR = String.fromCharCode(31);
 /** 種類判斷。順序有意義：官網兩個旗標都是 1，要在銷售那條之前先認出來。 */
 const KIND_SQL = sql`CASE
   WHEN run.source_type = 'shopee' THEN 'shopee'
-  WHEN run.source_type = 'mo_plus' THEN 'mo-plus-sales'
+  WHEN run.source_type = 'momo' THEN 'momo-sales'
   WHEN run.request_id LIKE ${`${SHOP_REQUEST_PREFIX}%`} THEN 'cyberbiz-shop'
   WHEN run.imports_sales = 1 THEN 'cyberbiz-sales'
   ELSE 'cyberbiz-payout'

@@ -12,7 +12,7 @@ export function UploadReports() {
   const { permissions } = useSession();
   const sourcePermissions = {
     shopee: "tools:shopee-sales:run",
-    mo_plus: "tools:mo-plus-sales:run",
+    momo: "tools:momo-sales:run",
   } as const;
   const available = REPORT_SOURCE_ADAPTERS
     .filter((adapter) => adapter.inputMode === "upload")
@@ -33,7 +33,7 @@ export function UploadReports() {
           <SelectField label="報表來源" value={sourceType} onChange={(event) => setSelected(event.target.value)} options={available} />
         </div>
       ) : null}
-      {sourceType === "mo_plus" ? <MoPlusUpload /> : null}
+      {sourceType === "momo" ? <MoPlusUpload /> : null}
       {sourceType === "shopee" ? <ShopeeSales embedded /> : null}
     </Page>
   );

@@ -11,7 +11,7 @@ const KIND_LABELS: Record<ReportRunKind, string> = {
   "cyberbiz-sales": "商品銷售",
   "cyberbiz-shop": "官網對帳單",
   shopee: "蝦皮",
-  "mo-plus-sales": "Mo+ 商品銷售",
+  "momo-sales": "Mo+ 商品銷售",
 };
 
 const PAGE_SIZES = [10, 25, 50] as const;

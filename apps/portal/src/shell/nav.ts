@@ -88,7 +88,7 @@ export const NAV_SECTIONS: NavSection[] = [
       {
         label: "報表執行",
         to: "/tools/reports",
-        permission: ["tools:payout:run", "tools:cyberbiz-sales:run", "tools:shop-report:run", "tools:shopee-sales:run", "tools:mo-plus-sales:run"],
+        permission: ["tools:payout:run", "tools:cyberbiz-sales:run", "tools:shop-report:run", "tools:shopee-sales:run", "tools:momo-sales:run"],
         icon: "report",
       },
       { label: "通路管理", to: "/tools/scopes", permission: "reports:cyberbiz:write", icon: "storefront" },

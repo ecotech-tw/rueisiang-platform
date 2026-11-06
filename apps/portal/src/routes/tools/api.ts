@@ -300,7 +300,7 @@ export function useArchiveScope() {
   });
 }
 
-export type ReportRunKind = "cyberbiz-payout" | "cyberbiz-sales" | "cyberbiz-shop" | "shopee" | "mo-plus-sales";
+export type ReportRunKind = "cyberbiz-payout" | "cyberbiz-sales" | "cyberbiz-shop" | "shopee" | "momo-sales";
 
 export interface ReportRunListRow {
   id: string;
@@ -340,16 +340,16 @@ export interface MoPlusReportScope {
 export function useMoPlusReportScopes(enabled: boolean) {
   return useQuery({
     enabled,
-    queryKey: ["tools", "reports", "mo-plus", "scopes"],
-    queryFn: () => call<{ scopes: MoPlusReportScope[] }>("/api/tools/reports/mo-plus/scopes"),
+    queryKey: ["tools", "reports", "momo", "scopes"],
+    queryFn: () => call<{ scopes: MoPlusReportScope[] }>("/api/tools/reports/momo/scopes"),
   });
 }
 
 export function useImportMoPlusReport() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { scopeId: string; rows: Array<{ reportMonth: string; sku: string; productName: string; grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number }> }) =>
-      call<MoPlusImportResult>("/api/tools/reports/mo-plus/import", {
+    mutationFn: (input: { scopeId: string; sourceFileName: string; rows: Array<{ reportMonth: string; sku: string; productName: string; grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number }> }) =>
+      call<MoPlusImportResult>("/api/tools/reports/momo/import", {
         method: "POST",
         body: JSON.stringify(input),
       }),

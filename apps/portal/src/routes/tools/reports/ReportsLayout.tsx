@@ -10,14 +10,14 @@ interface ReportRunTab {
   to: string;
   permissions: readonly Permission[];
   icon: IconName;
-  kinds: readonly ReportRunKind[];
+  kinds: readonly { kind: ReportRunKind; permission: Permission }[];
 }
 
 const RUN_TABS: readonly ReportRunTab[] = [
-  { label: "出金表", to: "/tools/reports/run/cyberbiz-payout", permissions: ["tools:payout:run"], icon: "payments", kinds: ["cyberbiz-payout"] },
-  { label: "商品銷售", to: "/tools/reports/run/cyberbiz-sales", permissions: ["tools:cyberbiz-sales:run"], icon: "report", kinds: ["cyberbiz-sales"] },
-  { label: "官網對帳單", to: "/tools/reports/run/cyberbiz-shop", permissions: ["tools:shop-report:run"], icon: "globe", kinds: ["cyberbiz-shop"] },
-  { label: "上傳報表", to: "/tools/reports/run/upload", permissions: ["tools:shopee-sales:run", "tools:mo-plus-sales:run"], icon: "attachment", kinds: ["shopee", "mo-plus-sales"] },
+  { label: "出金表", to: "/tools/reports/run/cyberbiz-payout", permissions: ["tools:payout:run"], icon: "payments", kinds: [{ kind: "cyberbiz-payout", permission: "tools:payout:run" }] },
+  { label: "商品銷售", to: "/tools/reports/run/cyberbiz-sales", permissions: ["tools:cyberbiz-sales:run"], icon: "report", kinds: [{ kind: "cyberbiz-sales", permission: "tools:cyberbiz-sales:run" }] },
+  { label: "官網對帳單", to: "/tools/reports/run/cyberbiz-shop", permissions: ["tools:shop-report:run"], icon: "globe", kinds: [{ kind: "cyberbiz-shop", permission: "tools:shop-report:run" }] },
+  { label: "上傳報表", to: "/tools/reports/run/upload", permissions: ["tools:shopee-sales:run", "tools:momo-sales:run"], icon: "attachment", kinds: [{ kind: "shopee", permission: "tools:shopee-sales:run" }, { kind: "momo-sales", permission: "tools:momo-sales:run" }] },
 ];
 
 const LOG_TAB = { label: "執行紀錄", to: "/tools/reports/log", icon: "history" as IconName };
@@ -25,7 +25,7 @@ const LOG_TAB = { label: "執行紀錄", to: "/tools/reports/log", icon: "histor
 export function useReportTabs() {
   const { permissions } = useSession();
   const runTabs = RUN_TABS.filter((tab) => tab.permissions.some((permission) => permissions.has(permission)));
-  const runKinds = [...new Set(runTabs.flatMap((tab) => tab.kinds))];
+  const runKinds = [...new Set(runTabs.flatMap((tab) => tab.kinds.filter(({ permission }) => permissions.has(permission)).map(({ kind }) => kind)))];
   return { runTabs, runKinds, tabs: runTabs.length ? [...runTabs, LOG_TAB] : [] };
 }
 

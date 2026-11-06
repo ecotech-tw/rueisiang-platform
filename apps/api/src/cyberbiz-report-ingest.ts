@@ -1,5 +1,6 @@
-import { eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
+  chunks,
   insertReportPayoutDaily,
   insertReportSalesMonthly,
   findReportScope,
@@ -14,7 +15,7 @@ import {
   type ReportScopeKind,
 } from "@rueisiang/db";
 import { items as itemMasters } from "@rueisiang/db/schema";
-import { reportExternalProducts, reportIngestIssues, reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
+import { momoReportSalesSnapshots, reportExternalProducts, reportIngestIssues, reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
 
 export type CyberbizReportIngestKind = "sales" | "payout" | "sales_and_payout";
 
@@ -30,6 +31,10 @@ export interface CyberbizReportIngestInput {
   salesWriteMode?: "replace" | "merge";
   salesRows?: unknown[];
   payoutRows?: unknown[];
+  /** momo 對帳明細原始檔名，用於同一份結算報表重傳時取代來源快照。 */
+  sourceFileName?: string;
+  /** 內部重建時需要清除的月份，包括修正版快照已不再含有的月份。 */
+  snapshotReportMonths?: string[];
   /** 人工上傳的共用報表執行識別與操作者；內部 runner 不提供時維持舊行為。 */
   requestId?: string;
   actorEmail?: string;
@@ -110,6 +115,10 @@ function readInput(value: unknown): CyberbizReportIngestInput {
     throw new CyberbizReportIngestError(422, "invalid_ingest");
   }
   if (value.coveredDates !== undefined) throw new CyberbizReportIngestError(422, "invalid_ingest");
+  const sourceFileName = typeof value.sourceFileName === "string" ? value.sourceFileName.trim() : "";
+  if (String(value.scopeId).startsWith("momo:") && value.kind === "sales" && !sourceFileName) {
+    throw new CyberbizReportIngestError(422, "invalid_ingest", "Mo+ 匯入需要來源檔名以確保重傳可冪等處理。");
+  }
   return {
     kind: value.kind as CyberbizReportIngestKind,
     scopeType: value.scopeType,
@@ -123,6 +132,7 @@ function readInput(value: unknown): CyberbizReportIngestInput {
     ...((value.kind === "sales" || value.kind === "sales_and_payout") && salesWriteMode === "merge"
       ? { salesWriteMode: "merge" as const }
       : {}),
+    ...(sourceFileName ? { sourceFileName } : {}),
     ...(typeof value.requestId === "string" && value.requestId.trim() ? { requestId: value.requestId.trim() } : {}),
     ...(typeof value.actorEmail === "string" ? { actorEmail: value.actorEmail.trim() } : {}),
   };
@@ -131,6 +141,7 @@ function readInput(value: unknown): CyberbizReportIngestInput {
 interface ParsedSalesRow {
   reportMonth: string;
   externalSku: string;
+  productName: string;
   grossQuantity: number;
   returnQuantity: number;
   netQuantity: number;
@@ -155,6 +166,7 @@ function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
   const rows = new Map<string, {
     reportMonth: string;
     externalSku: string;
+    productName: string;
     grossQuantity: number;
     returnQuantity: number;
     netQuantity: number;
@@ -167,12 +179,13 @@ function parseSalesRows(input: CyberbizReportIngestInput): ParsedSalesRow[] {
     if (input.reportMonth && reportMonth !== input.reportMonth) {
       throw new CyberbizReportIngestError(422, "invalid_ingest");
     }
-    const externalSku = normalizeExternalSku(text(value.sku));
+    const externalSku = normalizeExternalSku(text(value.sku ?? value.externalSku));
     const key = `${reportMonth}\u0000${externalSku}`;
     const previous = rows.get(key);
     rows.set(key, {
       reportMonth,
       externalSku,
+      productName: typeof value.productName === "string" && value.productName.trim() ? value.productName.trim() : previous?.productName ?? "",
       grossQuantity: total((previous?.grossQuantity ?? 0) + integer(value.grossQuantity ?? 0)),
       returnQuantity: total((previous?.returnQuantity ?? 0) + integer(value.returnQuantity ?? 0)),
       netQuantity: total((previous?.netQuantity ?? 0) + integer(value.netQuantity ?? 0)),
@@ -314,6 +327,68 @@ async function normalizeSalesRows(
   return { rows: [...rows.values()], bundleSalesRows, skippedSkus: skipped, mappedProducts, ignoredProducts };
 }
 
+async function replaceMomoSalesSnapshot(
+  db: Database,
+  scopeId: string,
+  sourceFileName: string,
+  rows: readonly ParsedSalesRow[],
+): Promise<{ rows: ParsedSalesRow[]; reportMonths: string[] }> {
+  if (!sourceFileName.trim() || !rows.length) throw new CyberbizReportIngestError(422, "invalid_ingest", "Mo+ 對帳明細缺少檔名或有效商品列。");
+  const encoder = new TextEncoder();
+  const canonicalRows = [...rows].sort((a, b) => `${a.reportMonth}:${a.externalSku}`.localeCompare(`${b.reportMonth}:${b.externalSku}`));
+  const contentDigest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify(canonicalRows)));
+  const contentHash = [...new Uint8Array(contentDigest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const statementId = /statement_detail_(\d+)/iu.exec(sourceFileName)?.[1];
+  const sourceNameDigest = await crypto.subtle.digest("SHA-256", encoder.encode(sourceFileName.trim().toLocaleLowerCase()));
+  const fileKey = [...new Uint8Array(sourceNameDigest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const existingByContent = await db.select({ snapshotKey: momoReportSalesSnapshots.snapshotKey })
+    .from(momoReportSalesSnapshots)
+    .where(and(eq(momoReportSalesSnapshots.scopeId, scopeId), eq(momoReportSalesSnapshots.contentHash, contentHash)))
+    .limit(1);
+  const snapshotKey = statementId
+    ? `statement:${statementId}`
+    : existingByContent[0]?.snapshotKey ?? `file:${fileKey}`;
+  const previousMonths = await db.selectDistinct({ reportMonth: momoReportSalesSnapshots.reportMonth })
+    .from(momoReportSalesSnapshots)
+    .where(and(eq(momoReportSalesSnapshots.scopeId, scopeId), eq(momoReportSalesSnapshots.snapshotKey, snapshotKey)));
+  const months = [...new Set([...previousMonths.map((row) => row.reportMonth), ...rows.map((row) => row.reportMonth)])].sort();
+  const snapshotValues = canonicalRows.map((row) => ({
+    scopeId,
+    snapshotKey,
+    contentHash,
+    reportMonth: row.reportMonth,
+    externalSku: row.externalSku,
+    productName: row.productName,
+    grossQuantity: row.grossQuantity,
+    returnQuantity: row.returnQuantity,
+    netQuantity: row.netQuantity,
+    salesAmount: row.salesAmount,
+  }));
+  type Statement = Parameters<Database["batch"]>[0][number];
+  const statements: Statement[] = [db.delete(momoReportSalesSnapshots).where(and(
+    eq(momoReportSalesSnapshots.scopeId, scopeId),
+    eq(momoReportSalesSnapshots.snapshotKey, snapshotKey),
+  ))];
+  for (const chunk of chunks(snapshotValues, 50)) {
+    statements.push(db.insert(momoReportSalesSnapshots).values(chunk));
+  }
+  await db.batch(statements as [Statement, ...Statement[]]);
+
+  const totals = await db.select({
+    reportMonth: momoReportSalesSnapshots.reportMonth,
+    externalSku: momoReportSalesSnapshots.externalSku,
+    productName: sql<string>`MAX(${momoReportSalesSnapshots.productName})`,
+    grossQuantity: sql<number>`SUM(${momoReportSalesSnapshots.grossQuantity})`.mapWith(Number),
+    returnQuantity: sql<number>`SUM(${momoReportSalesSnapshots.returnQuantity})`.mapWith(Number),
+    netQuantity: sql<number>`SUM(${momoReportSalesSnapshots.netQuantity})`.mapWith(Number),
+    salesAmount: sql<number>`SUM(${momoReportSalesSnapshots.salesAmount})`.mapWith(Number),
+  }).from(momoReportSalesSnapshots).where(and(
+    eq(momoReportSalesSnapshots.scopeId, scopeId),
+    inArray(momoReportSalesSnapshots.reportMonth, months),
+  )).groupBy(momoReportSalesSnapshots.reportMonth, momoReportSalesSnapshots.externalSku);
+  return { rows: totals.map((row) => ({ ...row, productName: row.productName ?? "" })), reportMonths: months };
+}
+
 async function writeSalesRows(
   db: Database,
   input: CyberbizReportIngestInput,
@@ -332,6 +407,7 @@ async function writeSalesRows(
   }
 
   const rowsByMonth = new Map<string, typeof sales.rows>();
+  for (const reportMonth of input.snapshotReportMonths ?? []) rowsByMonth.set(reportMonth, []);
   for (const row of sales.rows) {
     const rows = rowsByMonth.get(row.reportMonth) ?? [];
     rows.push(row);
@@ -497,11 +573,19 @@ export function createCyberbizReportIngestor(db: Database) {
         };
       }
       if (input.kind === "sales") {
-        const sales = await normalizeSalesRows(db, scopedInput, dataChannel);
+        const importedRows = parseSalesRows(scopedInput);
+        const snapshot = dataChannel === "momo"
+          ? await replaceMomoSalesSnapshot(db, scope.id, input.sourceFileName ?? "", importedRows)
+          : null;
+        const salesInput = snapshot
+          ? { ...scopedInput, rows: snapshot.rows, snapshotReportMonths: snapshot.reportMonths }
+          : scopedInput;
+        const aggregatedRows = snapshot ? parseSalesRows(salesInput) : importedRows;
+        const sales = await normalizeSalesRows(db, salesInput, dataChannel, aggregatedRows);
         await recordUnmappedIssues(db, runId, sales.skippedSkus);
         await recordMappedProducts(db, dataChannel, sales.mappedProducts);
         await recordIgnoredProducts(db, dataChannel, sales.ignoredProducts);
-        await writeSalesRows(db, scopedInput, scope.id, runId, sales);
+        await writeSalesRows(db, salesInput, scope.id, runId, sales);
         if (runId) await db.update(reportRuns).set({ status: "succeeded", importedSalesRows: sales.rows.length, skippedRows: sales.skippedSkus.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
         return {
           kind: input.kind,

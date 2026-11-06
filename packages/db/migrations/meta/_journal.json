@@ -1574,7 +1574,14 @@
       "idx": 248,
       "version": "6",
       "when": 1794000000000,
-      "tag": "0248_mo_plus_report_permission",
+      "tag": "0248_momo_report_permission",
+      "breakpoints": true
+    },
+    {
+      "idx": 249,
+      "version": "6",
+      "when": 1794000000001,
+      "tag": "0249_momo_report_sales_snapshots",
       "breakpoints": true
     }
   ]

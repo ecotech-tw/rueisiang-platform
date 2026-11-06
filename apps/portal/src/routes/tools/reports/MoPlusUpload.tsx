@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { useToast } from "../../../shell/Toast.js";
 import { Alert, Button, DataTable, Field, Input, Panel, SelectField } from "../../../ui/index.js";
 import { useImportMoPlusReport, useMoPlusReportScopes, type MoPlusImportResult } from "../api.js";
-import { moPlusReportParser, type ParsedSalesReport } from "./report-adapter.js";
+import { momoReportParser, type ParsedSalesReport } from "./report-adapter.js";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
@@ -33,7 +33,7 @@ export function MoPlusUpload() {
       return;
     }
     try {
-      setPreview(await moPlusReportParser.parse(file));
+      setPreview(await momoReportParser.parse(file));
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "無法解析這份 Mo+ 對帳明細。");
     }
@@ -41,9 +41,9 @@ export function MoPlusUpload() {
 
   function submit() {
     if (!preview || !selectedScopeId || pending) return;
-    importReport.mutate({ scopeId: selectedScopeId, rows: preview.rows }, {
+    importReport.mutate({ scopeId: selectedScopeId, sourceFileName: fileName, rows: preview.rows }, {
       onSuccess: (result) => {
-        toast.show(`已匯入 ${result.rowCount.toLocaleString("zh-TW")} 筆商品銷售資料`);
+        toast.show(`Mo+ 對帳明細已匯入，所涉月份已重新彙整`);
         setImportResult(result);
         setPreview(null);
         setFileName("");

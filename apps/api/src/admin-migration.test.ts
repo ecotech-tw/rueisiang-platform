@@ -82,8 +82,8 @@ const DROP_PRODUCT_CATEGORY_PERMISSION_MIGRATION = fileURLToPath(
 const SHOP_REPORT_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0139_shop_report_permission.sql", import.meta.url),
 );
-const MO_PLUS_REPORT_PERMISSION_MIGRATION = fileURLToPath(
-  new URL("../../../packages/db/migrations/0248_mo_plus_report_permission.sql", import.meta.url),
+const MOMO_REPORT_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0248_momo_report_permission.sql", import.meta.url),
 );
 const HR_ADMIN_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0132_restore_hr_admin_permissions.sql", import.meta.url),
@@ -208,7 +208,7 @@ describe("bootstrap 管理員權限 migration", () => {
       d1.sqlite.exec(statement);
       d1.sqlite.exec(statement);
     }
-    for (const statement of readHistoricalMigration(MO_PLUS_REPORT_PERMISSION_MIGRATION)
+    for (const statement of readHistoricalMigration(MOMO_REPORT_PERMISSION_MIGRATION)
       .split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean)) {
       d1.sqlite.exec(statement);
       d1.sqlite.exec(statement);
