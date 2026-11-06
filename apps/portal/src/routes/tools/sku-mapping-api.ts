@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { REPORT_PLATFORM_OPTIONS, reportPlatformLabel } from "@rueisiang/db/report-platforms";
 
 /**
  * 通路 SKU 對應。
@@ -88,14 +89,12 @@ interface ProductSkuMappingData {
   unmappedProducts: UnmappedProductOption[];
 }
 
-export const PRODUCT_SKU_CHANNEL_OPTIONS = [
-  { value: "cyberbiz", label: "CYBERBIZ（官網 / POS）" },
-  { value: "shopee", label: "蝦皮" },
-] as const;
+export const PRODUCT_SKU_CHANNEL_OPTIONS = REPORT_PLATFORM_OPTIONS;
 
 export function productSkuChannelLabel(channel: string): string {
-  return PRODUCT_SKU_CHANNEL_OPTIONS.find((option) => option.value === channel)?.label
-    ?? (channel === "legacy" ? "未分類（舊資料）" : channel);
+  if (channel === "legacy") return "未分類（舊資料）";
+  if (channel === "manual") return reportPlatformLabel("cyberbiz");
+  return reportPlatformLabel(channel);
 }
 
 export function useProductSkuMappings() {

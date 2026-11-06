@@ -1,4 +1,5 @@
 import { cyberbizScopeIdFromStoreName } from "@rueisiang/db";
+import type { ReportPlatform } from "@rueisiang/db/report-platforms";
 
 export { cyberbizScopeIdFromStoreName };
 
@@ -33,6 +34,12 @@ export function manualScopeIdFromStoreName(name: string): string {
   // 長店名不能只截前綴，否則不同店名會共用同一個 scope。
   const suffix = `-${hashBytes(bytes)}`;
   return `${MANUAL_SCOPE_PREFIX}${encoded.slice(0, MAX_SCOPE_ID_LENGTH - MANUAL_SCOPE_PREFIX.length - suffix.length)}${suffix}`;
+}
+
+/** 新增的人工管理 scope 仍以 manual ID 與 runner scope 分開；蝦皮前綴供報表平台辨識。 */
+export function reportManagementScopeIdFromName(name: string, platform: ReportPlatform): string {
+  const id = manualScopeIdFromStoreName(name);
+  return platform === "shopee" ? id.replace(/^manual:/u, "shopee:") : id;
 }
 
 /**

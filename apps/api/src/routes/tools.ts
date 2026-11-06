@@ -19,6 +19,7 @@ import {
   type ProductBundleComponentInput,
 } from "@rueisiang/db";
 import { can } from "@rueisiang/auth";
+import { isReportPlatform } from "@rueisiang/db/report-platforms";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -56,7 +57,7 @@ function bundleComponents(input: Record<string, unknown>): ProductBundleComponen
   });
 }
 
-import { manualScopeIdFromStoreName, runnerStores } from "../cyberbiz-scope.js";
+import { reportManagementScopeIdFromName, runnerStores } from "../cyberbiz-scope.js";
 
 function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -293,10 +294,13 @@ export const tools = new Hono<AppEnv>()
     const input = await body(c);
     const name = requireString(input, "name", "通路名稱");
     try {
+      const fields = scopeFields(input, canConfigure(c));
+      const sourceType = fields.sourceType ?? "cyberbiz";
       const scope = await createReportManagementScope(c.get("db"), {
-        id: scopeIdFor(input, name),
+        id: scopeIdFor({ ...input, sourceType }, name),
         name,
-        ...scopeFields(input, canConfigure(c)),
+        ...fields,
+        sourceType,
       });
       await forgetReportAnalytics(cacheClient(c.env));
       return c.json({ scope: redactScope(scope, canConfigure(c)) }, 201);
@@ -365,7 +369,11 @@ function scopeFields(input: Record<string, unknown>, configurable: boolean) {
   for (const key of ["externalName", "sourceType", "driveFolderUrl", "driveFolderName"] as const) {
     if (!(key in input)) continue;
     if (typeof input[key] !== "string") throw new HTTPException(400, { message: `${key} 必須是文字。` });
-    fields[key] = (input[key] as string).trim();
+    const value = (input[key] as string).trim();
+    fields[key] = key === "sourceType" ? value.toLowerCase() : value;
+  }
+  if (fields.sourceType && !isReportPlatform(fields.sourceType)) {
+    throw new HTTPException(400, { message: "平台必須是 CYBERBIZ 或蝦皮。" });
   }
   // 空的允許（還沒建資料夾），但填了就要真的是 Drive 資料夾連結——貼錯連結會讓
   // 整批報表上傳到別的地方，而那是跑完才會發現的。
@@ -391,8 +399,14 @@ function scopeFields(input: Record<string, unknown>, configurable: boolean) {
  */
 function scopeIdFor(input: Record<string, unknown>, name: string): string {
   const requested = typeof input.id === "string" ? input.id.trim() : "";
-  if (!requested) return manualScopeIdFromStoreName(name);
+  const platform = typeof input.sourceType === "string" ? input.sourceType.trim().toLowerCase() : "cyberbiz";
+  if (!isReportPlatform(platform)) throw new HTTPException(400, { message: "平台必須是 CYBERBIZ 或蝦皮。" });
+  if (!requested) return reportManagementScopeIdFromName(name, platform);
   if (!isValidScopeId(requested)) throw new HTTPException(400, { message: "通路 ID 含有不允許的字元。" });
+  const idPlatform = requested.startsWith("shopee:")
+    ? "shopee"
+    : requested.startsWith("manual:") || requested.startsWith("cyberbiz:") ? "cyberbiz" : "";
+  if (idPlatform !== platform) throw new HTTPException(400, { message: "通路 ID 與平台不一致。" });
   return requested;
 }
 

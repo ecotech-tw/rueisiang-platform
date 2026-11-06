@@ -2,6 +2,7 @@ import {
   createDatabase,
   createReportManualPayout,
   createReportManualSales,
+  createReportManagementScope,
   deleteReportManualPayout,
   deleteReportManualSales,
   deleteReportPayoutRecord,
@@ -18,6 +19,7 @@ import {
   upsertReportScope,
   updateReportManualPayout,
   updateReportManualSales,
+  updateReportManagementScope,
   type ReportManualActor,
 } from "@rueisiang/db";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -33,6 +35,29 @@ beforeEach(async () => {
   d1 = createLocalD1(":memory:", { targetOnly: true });
   await upsertReportScope(db(), { id: SCOPE, scopeKind: "store", name: "人工測試據點" });
   await upsertReportScope(db(), { id: "cyberbiz:store:disabled", scopeKind: "store", name: "停用據點", active: false });
+});
+
+describe("報表通路平台", () => {
+  it("只允許 SKU 對應共用的平台值，且建立後不可改平台", async () => {
+    const scope = await createReportManagementScope(db(), {
+      id: "shopee:store:test-platform",
+      name: "平台測試店",
+      sourceType: "shopee",
+      scopeKind: "store",
+    });
+    expect(scope.sourceType).toBe("shopee");
+
+    await expect(updateReportManagementScope(db(), {
+      id: scope.id,
+      sourceType: "cyberbiz",
+    })).rejects.toMatchObject({ kind: "conflict" });
+    await expect(createReportManagementScope(db(), {
+      id: "manual:store:not-a-platform",
+      name: "非平台來源",
+      sourceType: "manual",
+      scopeKind: "store",
+    })).rejects.toMatchObject({ kind: "invalid" });
+  });
 });
 
 describe("報表人工修訂資料", () => {

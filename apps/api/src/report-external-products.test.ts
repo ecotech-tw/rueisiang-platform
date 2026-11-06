@@ -25,6 +25,43 @@ beforeEach(() => {
 });
 
 describe("報表外部商品管理", () => {
+  it("mapping 與忽略清單只接受通路管理共用的平台值", async () => {
+    await expect(addProductSkuMapping(db(), {
+      channel: "manual", externalName: "人工平台", externalSku: "MANUAL-001", components: [], actor: ACTOR,
+    })).rejects.toMatchObject({ kind: "invalid" });
+    await expect(addProductSkuMapping(db(), {
+      channel: "legacy", externalName: "舊平台", externalSku: "LEGACY-001", components: [], actor: ACTOR,
+    })).rejects.toMatchObject({ kind: "invalid" });
+    await expect(addReportSkuIgnore(db(), {
+      channel: "manual", externalSku: "MANUAL-001", actor: ACTOR,
+    })).rejects.toMatchObject({ kind: "invalid" });
+  });
+
+  it("舊平台 mapping 可編輯但不能新增", async () => {
+    const itemId = "legacy-mapping-item";
+    await db().insert(schema.items).values({ id: itemId, source: "cyberbiz", kind: "sellable", sku: "LEGACY-ITEM-001", name: "舊 mapping 品項", active: 1 });
+    await db().insert(schema.reportExternalProducts).values({
+      id: "legacy-mapping",
+      sourceType: "legacy",
+      externalKey: "LEGACY-EXT-001",
+      externalVariantKey: "",
+      externalName: "舊外部商品",
+      resolution: "mapped",
+      itemId,
+      ignoredReason: "",
+    });
+
+    const updated = await updateProductSkuMapping(db(), {
+      id: "legacy-mapping",
+      channel: "legacy",
+      externalName: "舊外部商品（已編輯）",
+      externalSku: "LEGACY-EXT-001",
+      components: [{ itemId, quantity: 1 }],
+      actor: ACTOR,
+    });
+    expect(updated).toMatchObject({ channel: "legacy", externalName: "舊外部商品（已編輯）" });
+  });
+
   it("可以對應、忽略與取消忽略外部商品", async () => {
     const itemId = "external-product-item";
     await db().insert(schema.items).values({ id: itemId, source: "custom", kind: "sellable", sku: "ITEM-001", name: "測試品項", active: 1 });

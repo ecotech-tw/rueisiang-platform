@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { isReportPlatform } from "./report-platforms.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { isValidReportDate, normalizeReportScopeName, scopeSourceTypeFromId, type ReportManualSkuSource } from "./report-data.js";
 import type { ScopeKind } from "./schema/reports.js";
@@ -172,11 +173,11 @@ export interface ReportManagementScopeInput {
 
 const SCOPE_KINDS: readonly ScopeKind[] = ["store", "channel", "company"];
 
-/** 來源只是標籤，之後接新通路不想每次都改 enum；擋掉的只有空白與怪字元。 */
+/** scope 平台與 SKU mapping 共用值域；人工輸入是資料方式，不是商品平台。 */
 function normalizeSourceType(value: string): string {
   const normalized = value.trim().toLowerCase();
-  if (!/^[a-z0-9_-]{1,32}$/.test(normalized)) {
-    throw new ReportManualError("invalid", "通路來源只能是英數字、底線與連字號。");
+  if (!isReportPlatform(normalized)) {
+    throw new ReportManualError("invalid", "平台必須是 CYBERBIZ 或蝦皮。");
   }
   return normalized;
 }
@@ -227,7 +228,7 @@ export async function createReportManagementScope(db: Database, input: ReportMan
   const [existingName] = await db.select({ id: targetScopes.id }).from(targetScopes)
     .where(eq(targetScopes.normalizedName, normalizedName)).limit(1);
   if (existingName) throw new ReportManualError("conflict", "這個通路名稱已經存在。");
-  const sourceType = input.sourceType === undefined ? scopeSourceTypeFromId(id) : normalizeSourceType(input.sourceType);
+  const sourceType = normalizeSourceType(input.sourceType ?? scopeSourceTypeFromId(id));
   const scopeKind = input.scopeKind === undefined ? "store" : normalizeScopeKind(input.scopeKind);
   const externalName = (input.externalName ?? "").trim();
   const driveFolderUrl = (input.driveFolderUrl ?? "").trim();
@@ -270,6 +271,11 @@ export async function updateReportManagementScope(
   }
   const externalName = input.externalName === undefined ? existing.externalName : input.externalName.trim();
   const sourceType = input.sourceType === undefined ? existing.sourceType : normalizeSourceType(input.sourceType);
+  const existingPlatform = existing.sourceType === "manual" ? "cyberbiz" : existing.sourceType;
+  const nextPlatform = sourceType === "manual" ? "cyberbiz" : sourceType;
+  if (nextPlatform !== existingPlatform) {
+    throw new ReportManualError("conflict", "通路建立後不可變更平台；請建立新的通路並封存舊通路。");
+  }
   const scopeKind = input.scopeKind === undefined ? existing.scopeKind as ScopeKind : normalizeScopeKind(input.scopeKind);
   const driveFolderUrl = input.driveFolderUrl === undefined ? existing.driveFolderUrl : input.driveFolderUrl.trim();
   const driveFolderName = input.driveFolderName === undefined ? existing.driveFolderName : input.driveFolderName.trim();
