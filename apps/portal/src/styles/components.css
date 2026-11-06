@@ -182,85 +182,6 @@
 .assistant-tool-mode small { display: block; margin-top: 3px; color: var(--color-muted); font-size: 12px; }
 .assistant-tool-mode strong { display: block; }
 
-/*
- * Material 3 Switch。用在「切了就生效」的設定。
- *
- * 規格：軌道 52×32、滑塊關閉 16px／開啟 24px。滑塊變大是 M3 用來表達「已開啟」的
- * 主要訊號，不是裝飾——只換顏色的話色弱使用者分不出兩個狀態。
- */
-.m3-switch { position: relative; display: inline-flex; flex: none; }
-.m3-switch input {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.m3-switch input:disabled { cursor: not-allowed; }
-
-.m3-switch-track {
-  /*
-   * box-sizing 要寫死：外框的 2px 若被算在 52×32 之外，軌道會比滑塊矮，
-   * 滑塊就會凸出來變成一顆撐破膠囊的球。
-   */
-  box-sizing: border-box;
-  display: inline-flex;
-  align-items: center;
-  width: 52px;
-  height: 32px;
-  padding: 0 2px;
-  border: 2px solid var(--color-muted);
-  border-radius: 999px;
-  background: var(--color-canvas);
-  transition-property: background-color, border-color;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.m3-switch-thumb {
-  box-sizing: border-box;
-  flex: none;               /* 不讓 flex 把它拉扁或撐大 */
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  margin-left: 4px;
-  border-radius: 999px;
-  background: var(--color-muted);
-  color: transparent;
-  transition-property: width, height, margin, background-color, color;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.m3-switch-thumb svg { width: 14px; height: 14px; opacity: 0; transition-property: opacity; transition-duration: 150ms; transition-timing-function: ease-out; }
-
-.m3-switch input:checked + .m3-switch-track {
-  border-color: var(--color-brand);
-  background: var(--color-brand);
-}
-.m3-switch input:checked + .m3-switch-track .m3-switch-thumb {
-  width: 24px;
-  height: 24px;
-  margin-left: 20px;
-  margin-right: 0;
-  background: var(--color-paper);
-  color: var(--color-brand-dark);
-}
-.m3-switch input:checked + .m3-switch-track .m3-switch-thumb svg { opacity: 1; }
-
-/* hover 是 state layer：在原本的底色上疊一層品牌色，不是換一個顏色。 */
-.m3-switch input:not(:disabled):hover + .m3-switch-track { background: --alpha(var(--color-brand) / 7%); }
-.m3-switch input:checked:not(:disabled):hover + .m3-switch-track { background: var(--color-brand-dark); }
-
-.m3-switch input:focus-visible + .m3-switch-track {
-  outline: 2px solid var(--color-brand);
-  outline-offset: 2px;
-}
-
-.m3-switch input:disabled + .m3-switch-track { opacity: .38; }
-.m3-switch.is-busy { opacity: .6; }
-
 .assistant-toggle,
 .assistant-inline-toggle { display: inline-flex; align-items: flex-start; gap: 9px; color: var(--color-ink); }
 .assistant-toggle input,
@@ -2455,9 +2376,6 @@
   .hr-location-toggle-track,
   .hr-location-toggle-track span,
   .hr-location-place-result,
-  .m3-switch-track,
-  .m3-switch-thumb,
-  .m3-switch-thumb svg,
   .hr-overview-card,
   .hr-overview-action span,
   .hr-payroll-disclosure-marker,
