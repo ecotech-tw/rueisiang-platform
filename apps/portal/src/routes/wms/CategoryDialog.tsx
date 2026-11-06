@@ -1,32 +1,7 @@
 import { useState } from "react";
 import { Alert, Button, Dialog, Field, TextField } from "../../ui/index.js";
-import { WAREHOUSE_CATEGORY_COLORS, useUpdateWarehouseCategory, type ProductCategory } from "./api.js";
-
-/**
- * 一排色票。
- *
- * 底層是一組 radio，不是自己刻的 div：鍵盤的左右鍵本來就會在同一組 radio 之間
- * 移動，螢幕閱讀器也會念出「10 個裡的第 3 個」。自己刻的話這些都要重寫一遍。
- */
-function ColorPicker({ value, onChange }: { value: string; onChange: (color: string) => void }) {
-  return (
-    <div className="color-picker" role="radiogroup" aria-label="分類顏色">
-      {WAREHOUSE_CATEGORY_COLORS.map((color) => (
-        <label key={color} className={`color-swatch tone-${color}${value === color ? " selected" : ""}`}>
-          <input
-            type="radio"
-            name="category-color"
-            value={color}
-            checked={value === color}
-            onChange={() => onChange(color)}
-          />
-          {/* 顏色本身對看不到顏色的人沒有意義，用名字補上。 */}
-          <span className="sr-only">{color}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
+import { useUpdateWarehouseCategory, type ProductCategory } from "./api.js";
+import { ColorPicker } from "./ColorPicker.js";
 
 /**
  * 改分類的名字與顏色。
@@ -89,7 +64,7 @@ export function CategoryDialog({
           />
 
           <Field as="div" label="顏色">
-            <ColorPicker value={color} onChange={setColor} />
+            <ColorPicker label="分類顏色" value={color} onChange={setColor} />
           </Field>
 
           {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
