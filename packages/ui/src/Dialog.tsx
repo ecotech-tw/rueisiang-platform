@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useId, useRef, useState, type FormH
 import { createPortal } from "react-dom";
 import { Button } from "./Button.js";
 import { DialogContext, DialogScopeContext, type DialogCloseRef } from "./dialog-context.js";
+import { useModalFocus } from "./useModalFocus.js";
 
 interface DialogProps {
   title: ReactNode;
@@ -85,7 +86,6 @@ export function Dialog({
   const closeTimerRef = useRef<number | null>(null);
   const closeAfterRef = useRef<(() => void) | null>(null);
   const cardRef = useRef<HTMLDivElement>(null);
-  const returnFocusRef = useRef(typeof document !== "undefined" && document.activeElement instanceof HTMLElement ? document.activeElement : null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
 
@@ -124,31 +124,7 @@ export function Dialog({
   const requestCloseRef = useRef(requestClose);
   requestCloseRef.current = requestClose;
 
-  useEffect(() => {
-    if (!manageFocus) return;
-    const card = cardRef.current;
-    if (!card) return;
-    const previous = returnFocusRef.current;
-    const focusable = () => Array.from(card.querySelectorAll<HTMLElement>("button, a[href], input, select, textarea, [tabindex]"))
-      .filter((element) => element.tabIndex >= 0 && !element.matches(":disabled") && element.getClientRects().length > 0);
-    if (!card.contains(document.activeElement)) (focusable()[0] ?? card).focus({ preventScroll: true });
-    function onKey(event: KeyboardEvent) {
-      if (event.defaultPrevented) return;
-      if (event.key === "Escape") { event.preventDefault(); requestCloseRef.current(); return; }
-      if (event.key !== "Tab") return;
-      const elements = focusable();
-      const first = elements[0];
-      const last = elements.at(-1);
-      if (!first || !last) { event.preventDefault(); card?.focus(); return; }
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === card || !card?.contains(document.activeElement))) { event.preventDefault(); last.focus(); }
-      else if (!event.shiftKey && (document.activeElement === last || !card?.contains(document.activeElement))) { event.preventDefault(); first.focus(); }
-    }
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      if (previous?.isConnected) previous.focus({ preventScroll: true });
-    };
-  }, [manageFocus]);
+  useModalFocus(cardRef, { enabled: manageFocus, onEscape: () => requestCloseRef.current() });
 
   useEffect(() => {
     if (!closeRequestRef) return;

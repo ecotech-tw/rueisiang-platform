@@ -13,7 +13,7 @@ export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHea
 export { PageTabControl, PageTabs } from "./PageTabs.js";
 export { SegmentedControl } from "./SegmentedControl.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
-export { SelectionActionBar, type SelectionActionBarProps } from "@rueisiang/ui";
+export { SelectionActionBar, type SelectionActionBarProps, useModalFocus } from "@rueisiang/ui";
 export { Tag, TagList } from "./Tag.js";
 export { Tooltip } from "./Tooltip.js";
 export { WorkflowRunPanel } from "./WorkflowRunPanel.js";
