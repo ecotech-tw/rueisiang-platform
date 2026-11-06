@@ -1,38 +1,3 @@
-/*
- * 分頁標籤：分段控制。一條內凹的底槽，選中的那一段浮起來變成一張白卡。
- *
- * 不做成一排裸連結：頁面底色是 canvas，沒有底槽的話那一排跟頁面上其他文字連結
- * 長得一樣，實測會被整個略過。底槽 + 浮起的卡才讀得出「這是可以切換的控制項」。
- *
- * 每一段都是 icon 配文字。只有文字時幾個分頁的長相只差在字，掃過去要一個一個讀；
- * icon 讓人用形狀就認得出要去哪一個。
- *
- * flex: none 與 align-self 都不能省——放在 fills 頁面這種 flex 直欄裡時，前者沒有
- * 會被下面的內容擠成高度 0（DOM 還在，只有眼睛看不到），後者沒有會被拉成滿版。
- */
-.page-tabs {
-  display: inline-flex; flex: none; align-self: flex-start; align-items: center; gap: 4px;
-  max-width: 100%; padding: 5px; overflow-x: auto;
-  border-radius: 999px; background: var(--color-soft-line); scrollbar-width: none;
-}
-.page-tabs::-webkit-scrollbar { display: none; }
-
-.page-tab {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 9px 18px; border-radius: 999px;
-  color: var(--color-muted); font-size: 14px; font-weight: 600;
-  text-decoration: none; white-space: nowrap;
-  transition-property: background-color, color, box-shadow;
-  transition-duration: 120ms;
-  transition-timing-function: ease-out;
-}
-.page-tab svg { width: 20px; height: 20px; flex: none; }
-.page-tab:hover { background-color: --alpha(var(--color-brand) / 4%); color: var(--color-brand-dark); }
-.page-tab:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.page-tab.active {
-  background: var(--color-paper); color: var(--color-brand-dark); font-weight: 700;
-  box-shadow: 0 1px 2px --alpha(var(--color-ink) / 8%), 0 4px 10px --alpha(var(--color-ink) / 6%);
-}
 .hr-location-table td > small { display: block; margin-top: 4px; }
 .attendance-event-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hr-location-section { display: grid; gap: 12px; }
@@ -2634,7 +2599,6 @@
   .m3-switch-track,
   .m3-switch-thumb,
   .m3-switch-thumb svg,
-  .page-tab,
   .hr-overview-card,
   .hr-overview-action span,
   .hr-payroll-disclosure-marker,
