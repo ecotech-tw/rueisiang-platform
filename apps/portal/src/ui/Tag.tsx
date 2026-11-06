@@ -7,15 +7,19 @@ import type { ReactNode } from "react";
  * 做成按鈕的話鍵盤要一顆一顆 Tab 過去，讀螢幕也會唸成「按鈕」，但按下去什麼都不會發生。
  */
 
-interface TagProps {
+/*
+ * onRemove 與 removeLabel 要嘛都不給，要嘛一起給：× 鈕只有一個「×」字元，
+ * 少了 removeLabel 讀螢幕只會唸「乘號，按鈕」，聽不出要移除哪一個。
+ */
+type TagProps = {
   /** 表格與清單裡的次要資訊用 subtle：小一號、不加粗，不搶同一格主要文字的視線。 */
   subtle?: boolean;
-  /** 有給才會出現 × 鈕，例如表單裡正在編輯的標籤。 */
-  onRemove?: () => void;
-  /** × 鈕的 aria-label，例如「移除 VIP」。 */
-  removeLabel?: string;
   children: ReactNode;
-}
+} & (
+  | { onRemove?: undefined; removeLabel?: undefined }
+  /** 出現 × 鈕，例如表單裡正在編輯的標籤。removeLabel 是它的 aria-label，例如「移除 VIP」。 */
+  | { onRemove: () => void; removeLabel: string }
+);
 
 export function Tag({ subtle = false, onRemove, removeLabel, children }: TagProps) {
   return (
