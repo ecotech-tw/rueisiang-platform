@@ -5,7 +5,7 @@ import type { Database } from "./client.js";
 import { inJsonArray } from "./sql-lists.js";
 import { hrShiftDayKeyForDate } from "./schedule-draft.js";
 import { listHrCalendarMonth, resolveDayTypes } from "./hr-calendar.js";
-import { HrError, hrEmployeeName, hrEmployeeNumberOrder, type HrActor } from "./hr-people.js";
+import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrEmployments, hrWorkerAccountLinks } from "./schema/hr-people.js";
 import { hrWorkerCompensationVersions } from "./schema/hr-payroll.js";
@@ -831,13 +831,14 @@ export async function createHrWorkerCompensation(db: Database, input: HrWorkerCo
   if (!worker) throw new HrError(404, "找不到目前有效的支援人員。 ");
   const [[latest], [latestVersionNumber]] = await Promise.all([
     db.select({ id: hrWorkerCompensationVersions.id, validFrom: hrWorkerCompensationVersions.validFrom, validTo: hrWorkerCompensationVersions.validTo, versionNumber: hrWorkerCompensationVersions.versionNumber }).from(hrWorkerCompensationVersions)
-      .where(eq(hrWorkerCompensationVersions.workerId, input.workerId))
+      .where(and(eq(hrWorkerCompensationVersions.workerId, input.workerId), isNull(hrWorkerCompensationVersions.voidedAt)))
       .orderBy(desc(hrWorkerCompensationVersions.validFrom), desc(hrWorkerCompensationVersions.versionNumber)).limit(1),
     db.select({ value: sql<number>`coalesce(max(${hrWorkerCompensationVersions.versionNumber}), 0)` }).from(hrWorkerCompensationVersions).where(eq(hrWorkerCompensationVersions.workerId, input.workerId)),
   ]);
   const closePrevious = latest && latest.validTo === null && latest.validFrom < input.validFrom ? latest : undefined;
   const overlap = await db.select({ id: hrWorkerCompensationVersions.id }).from(hrWorkerCompensationVersions).where(and(
     eq(hrWorkerCompensationVersions.workerId, input.workerId),
+    isNull(hrWorkerCompensationVersions.voidedAt),
     closePrevious ? sql`${hrWorkerCompensationVersions.id} <> ${closePrevious.id}` : undefined,
     sql`${hrWorkerCompensationVersions.validFrom} < ${input.validTo ?? "9999-12-31"} AND (${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.validFrom})`,
   )).limit(1);
@@ -851,4 +852,35 @@ export async function createHrWorkerCompensation(db: Database, input: HrWorkerCo
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email) VALUES (${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail})`,
   ]), false);
   return { id, versionNumber };
+}
+
+/** 解除支援人員最新敘薪；歷史薪資仍以批次快照為準。 */
+export async function voidHrWorkerCompensationVersion(db: Database, workerId: string, versionId: string, actor: HrActor) {
+  const [version] = await db.select({ id: hrWorkerCompensationVersions.id, versionNumber: hrWorkerCompensationVersions.versionNumber, validFrom: hrWorkerCompensationVersions.validFrom, voidedAt: hrWorkerCompensationVersions.voidedAt })
+    .from(hrWorkerCompensationVersions)
+    .where(and(eq(hrWorkerCompensationVersions.id, versionId), eq(hrWorkerCompensationVersions.workerId, workerId))).limit(1);
+  if (!version) throw new HrError(404, "找不到這個支援人員敘薪版本。");
+  if (version.voidedAt !== null) throw new HrError(409, "這個支援人員敘薪版本已經解除。");
+  const [latest] = await db.select({ id: hrWorkerCompensationVersions.id }).from(hrWorkerCompensationVersions)
+    .where(and(eq(hrWorkerCompensationVersions.workerId, workerId), isNull(hrWorkerCompensationVersions.voidedAt)))
+    .orderBy(desc(hrWorkerCompensationVersions.validFrom), desc(hrWorkerCompensationVersions.versionNumber)).limit(1);
+  if (latest?.id !== version.id) throw new HrError(409, "只能解除最新的支援人員敘薪版本；請先依序解除較新的版本。");
+  await writeHrMutation(db, [
+    sql`UPDATE hr_worker_compensation_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
+      WHERE id=${versionId} AND worker_id=${workerId} AND voided_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM hr_worker_compensation_versions AS newer
+          WHERE newer.worker_id=${workerId} AND newer.voided_at IS NULL
+            AND (newer.valid_from > ${version.validFrom} OR (newer.valid_from = ${version.validFrom} AND newer.version_number > ${version.versionNumber})))
+      RETURNING id`,
+    sql`UPDATE hr_worker_compensation_versions SET valid_to=NULL
+      WHERE id=(SELECT previous.id FROM hr_worker_compensation_versions AS previous
+        WHERE previous.worker_id=${workerId} AND previous.voided_at IS NULL AND previous.valid_to=${version.validFrom}
+          AND (previous.valid_from < ${version.validFrom} OR (previous.valid_from = ${version.validFrom} AND previous.version_number < ${version.versionNumber}))
+        ORDER BY previous.valid_from DESC, previous.version_number DESC LIMIT 1)
+      RETURNING id`,
+  ], versionId, actor, "worker_compensation_version_voided", "支援人員敘薪版本已被其他人變更，請重新整理。", {
+    allowEmptyMutationIndexes: new Set([1]),
+    activity: { entityLabel: "支援人員敘薪", summary: "支援人員最新敘薪已解除" },
+  });
+  return { id: versionId, status: "voided" as const };
 }

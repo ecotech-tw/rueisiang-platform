@@ -9,7 +9,7 @@ export {
 export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } from "./hr-overview.js";
 export { insertHrNotification, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, type HrNotificationEntityKind, type HrNotificationInsert, type HrNotificationKind } from "./hr-notifications.js";
 export {
-  saveHrScheduleChanges, createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, getHrSchedule, getHrScheduleScopeLock, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, setHrScheduleScopeLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
+  saveHrScheduleChanges, createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, voidHrWorkerCompensationVersion, getHrSchedule, getHrScheduleScopeLock, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, setHrScheduleScopeLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
   monthPeriodFromKey, HR_SCHEDULE_ATTENDANCE_STATUSES, isHrShiftDayKey,
   type HrScheduleChangesInput, type HrScheduleAttendanceStatus, type HrScheduleWorkerListQuery, type HrScheduleWorkerSortField, type HrShiftInput, type HrShiftTime, type HrWorkerCompensationInput, type HrWorkerPayBasis, type SaveHrScheduleInput, type ScheduleEntryInput,
 } from "./hr-scheduling.js";

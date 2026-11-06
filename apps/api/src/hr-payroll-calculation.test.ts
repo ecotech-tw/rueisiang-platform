@@ -1123,6 +1123,41 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect(close.status, await close.clone().text()).toBe(200);
   });
 
+  it("支援人員可依序解除最新敘薪並保留每一版歷史", async () => {
+    const worker = await request("/hr/schedule-workers", "POST", { displayName: "支援敘薪解除測試" });
+    expect(worker.status, await worker.clone().text()).toBe(201);
+    const workerId = (await worker.json() as { id: string }).id;
+    const path = `/hr/employments/${workerId}/worker-compensation`;
+    const first = await request(path, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 320_000, note: "第一版" });
+    expect(first.status, await first.clone().text()).toBe(201);
+    const firstId = (await first.json() as { id: string }).id;
+    const second = await request(path, "POST", { validFrom: "2026-10-01", payBasis: "daily", baseAmountMinor: 640_000, note: "第二版" });
+    expect(second.status, await second.clone().text()).toBe(201);
+    const secondId = (await second.json() as { id: string }).id;
+
+    expect((await request(`${path}/${firstId}/void`, "POST", {})).status).toBe(409);
+    expect((await request(`${path}/${secondId}/void`, "POST", {})).status).toBe(200);
+    const restoredWorkers = await request(`/hr/schedule-workers?search=${encodeURIComponent("支援敘薪解除測試")}`);
+    const restoredHistory = (await restoredWorkers.json() as { workers: Array<{ compensation: Array<{ id: string; validTo: string | null }> }> }).workers[0]?.compensation ?? [];
+    expect(restoredHistory.find((version) => version.id === firstId)?.validTo).toBeNull();
+    expect((await request(`${path}/${secondId}/void`, "POST", {})).status).toBe(409);
+    const replacement = await request(path, "POST", { validFrom: "2026-10-01", payBasis: "daily", baseAmountMinor: 700_000, note: "第二版修正" });
+    expect(replacement.status, await replacement.clone().text()).toBe(201);
+    const replacementId = (await replacement.json() as { id: string }).id;
+    expect((await request(`${path}/${replacementId}/void`, "POST", {})).status).toBe(200);
+    expect((await request(`${path}/${firstId}/void`, "POST", {})).status).toBe(200);
+
+    const workers = await request(`/hr/schedule-workers?search=${encodeURIComponent("支援敘薪解除測試")}`);
+    const history = (await workers.json() as { workers: Array<{ compensation: Array<{ id: string; voidedAt: string | null; voidedBy: string | null }> }> }).workers[0]?.compensation ?? [];
+    expect(history).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: firstId, voidedAt: expect.any(String), voidedBy: "dev-eli-lin@ecotech.tw" }),
+      expect.objectContaining({ id: secondId, voidedAt: expect.any(String), voidedBy: "dev-eli-lin@ecotech.tw" }),
+      expect.objectContaining({ id: replacementId, voidedAt: expect.any(String), voidedBy: "dev-eli-lin@ecotech.tw" }),
+    ]));
+    const firstRevision = await request(path, "POST", { validFrom: "2026-09-01", payBasis: "daily", baseAmountMinor: 350_000, note: "第一版修正" });
+    expect(firstRevision.status, await firstRevision.clone().text()).toBe(201);
+  });
+
   it("已發布支援人員排班會在薪資結果中獨立列出，且依有效日薪計算", async () => {
     const worker = await request("/hr/schedule-workers", "POST", { displayName: "測試支援人員" });
     expect(worker.status, await worker.clone().text()).toBe(201);

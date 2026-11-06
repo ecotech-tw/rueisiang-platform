@@ -335,6 +335,8 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
 
 export function WorkerCompensationEditor({ worker, onClose }: { worker: ScheduleWorkerRecord; onClose: () => void }) {
   const current = currentVersion(worker.compensation);
+  const latestVersion = latestCompensationVersion(worker.compensation);
+  const allVoided = worker.compensation.length > 0 && !latestVersion;
   const initialPayBasis: SupportWorkerPayBasis = current?.payBasis === "hourly" ? "hourly" : "daily";
   const initialOvertimeMode: WorkerOvertimeMode = current?.overtimeRatePpm != null ? "rate" : current?.overtimeHourlyMinor != null ? "amount" : "none";
   const [validFrom, setValidFrom] = useState(taipeiToday());
@@ -346,17 +348,29 @@ export function WorkerCompensationEditor({ worker, onClose }: { worker: Schedule
   const [note, setNote] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
+  const voidCompensation = useHrWrite();
   const toast = useToast();
   const closeRequestRef = useRef<(() => void) | null>(null);
+  const voidCloseRequestRef = useRef<(() => void) | null>(null);
+  const [voidConfirmation, setVoidConfirmation] = useState(false);
   const basisLabel = WORKER_PAY_BASIS_LABEL[payBasis];
-  return <Dialog title={`設定 ${worker.displayName} 的敘薪`} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: (event) => {
+  const voidLatest = () => {
+    if (!latestVersion) return;
+    voidCompensation.mutate({ path: `/employments/${encodeURIComponent(worker.employmentId ?? worker.id)}/worker-compensation/${encodeURIComponent(latestVersion.id)}/void`, method: "POST", values: {} }, {
+      onSuccess: () => { if (voidCloseRequestRef.current) voidCloseRequestRef.current(); else setVoidConfirmation(false); toast.show("已解除最新支援人員敘薪。"); (closeRequestRef.current ?? onClose)(); },
+    });
+  };
+  return <><Dialog title={`設定 ${worker.displayName} 的敘薪`} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending || voidCompensation.isPending} formProps={{ onSubmit: (event) => {
     event.preventDefault();
     const submission = buildWorkerCompensationSubmission({ employmentId: worker.employmentId ?? worker.id, validFrom, validTo, payBasis, amount, overtimeMode, overtimeValue, note });
     if (!submission.ok) { setMessage(submission.message); return; }
     setMessage(null);
     save.mutate(submission.request, { onSuccess: () => { toast.show("支援人員敘薪已儲存。", "success"); (closeRequestRef.current ?? onClose)(); } });
-  } }} actions={<Button type="submit" loading={save.isPending}>儲存{basisLabel}</Button>}>
-    <p>支援人員可選日薪或時薪；加班設定可固定倍率或固定金額，留空則沿用制度倍率。敘薪版本不覆蓋歷史，特殊工作日級距優先套用。</p>
+  } }} actions={<>
+    {latestVersion ? <Button variant="danger" icon="history" disabled={save.isPending || voidCompensation.isPending} onClick={() => setVoidConfirmation(true)}>解除最新敘薪</Button> : null}
+    <Button type="submit" loading={save.isPending} disabled={voidCompensation.isPending}>儲存{basisLabel}</Button>
+  </>}>
+    <p>{allVoided ? "所有支援人員敘薪版本已撤回；請重新填寫要建立的敘薪版本，生效日可自行指定。" : "支援人員可選日薪或時薪；加班設定可固定倍率或固定金額，留空則沿用制度倍率。敘薪版本不覆蓋歷史，特殊工作日級距優先套用。"}</p>
     <SelectField label="計薪方式" value={payBasis} options={WORKER_PAY_BASIS_OPTIONS} onChange={(event) => { setPayBasis(event.target.value as SupportWorkerPayBasis); setMessage(null); }} />
     <TextField label="生效日" type="date" required value={validFrom} onChange={(event) => setValidFrom(event.target.value)} />
     <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
@@ -364,8 +378,19 @@ export function WorkerCompensationEditor({ worker, onClose }: { worker: Schedule
     <SelectField label="加班計算" value={overtimeMode} options={WORKER_OVERTIME_OPTIONS} onChange={(event) => { setOvertimeMode(event.target.value as WorkerOvertimeMode); setMessage(null); }} />
     {overtimeMode !== "none" ? <TextField label={overtimeMode === "rate" ? "固定加班倍率" : "固定加班金額／時（元）"} type="number" min="0" step={overtimeMode === "rate" ? "0.000001" : "1"} value={overtimeValue} onChange={(event) => setOvertimeValue(event.target.value)} hint={overtimeMode === "rate" ? "例如 1.333333；不接受申請人自行指定倍率。" : "特殊工作日級距覆蓋的時數不使用此固定金額。"} /> : null}
     <TextField label="備註" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
-    {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
-  </Dialog>;
+    {message || save.error || voidCompensation.error ? <Alert tone="danger">{message ?? save.error?.message ?? voidCompensation.error?.message}</Alert> : null}
+  </Dialog>{voidConfirmation && latestVersion ? <ConfirmDialog
+    title="解除最新敘薪？"
+    confirmLabel="解除敘薪"
+    pending={voidCompensation.isPending}
+    closeRequestRef={voidCloseRequestRef}
+    onCancel={() => setVoidConfirmation(false)}
+    onConfirm={voidLatest}
+  >
+    <p>這會解除 <strong>{worker.displayName}</strong> 的第 {latestVersion.versionNumber} 版支援人員敘薪；資料不會刪除，既有月份的薪資快照也不會被改動。</p>
+    <p className="muted">只能依序解除最新版本；若前一版因本版生效而結束，撤回後會恢復前一版的有效期間。全部撤回後可重新建立修正版。</p>
+    {voidCompensation.error ? <Alert tone="danger">{voidCompensation.error.message}</Alert> : null}
+  </ConfirmDialog> : null}</>;
 }
 
 function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: HrFormalEmployee; canWrite: boolean; onEdit: (userId: string) => void }) {
@@ -392,8 +417,11 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: HrF
 }
 
 export function WorkerCompensationRow({ employee, worker, canWrite, onEdit }: { employee: Employee; worker: ScheduleWorkerRecord | undefined; canWrite: boolean; onEdit: () => void }) {
-  const current = currentVersion(worker?.compensation ?? []);
-  return <tr><td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}・排班支援人員</span></td><td>支援人員／排班</td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite && worker ? <Button variant="icon" icon={current ? "edit" : "plus"} tone={current ? "info" : "success"} title={current ? "更新版本" : "新增版本"} aria-label={`為${employee.legalName}${current ? "更新" : "新增"}敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
+  const versions = worker?.compensation ?? [];
+  const current = currentVersion(versions);
+  const latest = latestCompensationVersion(versions);
+  const allVoided = versions.length > 0 && !latest;
+  return <tr><td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}・排班支援人員</span></td><td>支援人員／排班</td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : allVoided ? "已全部撤回" : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite && worker ? <Button variant="icon" icon={latest ? "edit" : versions.length ? "edit" : "plus"} tone={latest ? "info" : versions.length ? "info" : "success"} title={latest ? "更新或解除最新敘薪" : allVoided ? "重新建立敘薪" : "新增版本"} aria-label={`為${employee.legalName}${latest ? "更新或解除最新" : allVoided ? "重新建立" : "新增"}敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
 }
 
 export function HrCompensationManagement({ settingsOnly = false }: { settingsOnly?: boolean } = {}) {

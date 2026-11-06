@@ -359,7 +359,7 @@ export function groupShiftsByTemplate(shifts: ScheduleShift[]) {
 export type ScheduleAttendanceStatus = "scheduled" | "present" | "absent";
 export const SCHEDULE_ATTENDANCE_STATUS_LABELS: Record<ScheduleAttendanceStatus, string> = { scheduled: "待確認", present: "已出勤", absent: "未出勤" };
 export type SupportWorkerPayBasis = "daily" | "hourly";
-export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | SupportWorkerPayBasis; baseAmountMinor: number; overtimeRatePpm?: number | null; overtimeHourlyMinor?: number | null; note: string }
+export interface WorkerCompensation { id: string; workerId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | SupportWorkerPayBasis; baseAmountMinor: number; overtimeRatePpm?: number | null; overtimeHourlyMinor?: number | null; note: string; voidedAt?: string | null; voidedBy?: string | null }
 export interface ScheduleWorkerRecord { id: string; employmentId?: string; displayName: string; active: boolean | number; revision: number; compensation: WorkerCompensation[]; account?: { email: string; status: "invited" | "active" | "disabled" } | null }
 export interface ScheduleWorkerPageResponse { workers: ScheduleWorkerRecord[]; total: number; page: number; pageSize: number; hasMore: boolean }
 

@@ -81,6 +81,8 @@ export const hrWorkerCompensationVersions = sqliteTable("hr_worker_compensation_
   overtimeRatePpm: integer("overtime_rate_ppm"),
   overtimeHourlyMinor: integer("overtime_hourly_minor"),
   note: text("note").notNull().default(""),
+  voidedAt: text("voided_at"),
+  voidedBy: text("voided_by").references(() => users.id, { onDelete: "restrict" }),
   ...historyTimestamps(),
 }, (table) => [
   uniqueIndex("idx_hr_worker_compensation_versions_number").on(table.workerId, table.versionNumber),
