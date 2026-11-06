@@ -141,7 +141,7 @@ function EditItemDialog({ item, categories, onClose }: { item: ItemCatalogItem; 
   });
   const valid = name.trim() !== "" && (item.source !== "custom" || sku.trim() !== "");
   return (
-    <Dialog
+    <Dialog manageFocus
       title="編輯品項"
       onClose={onClose}
       closeDisabled={update.isPending}

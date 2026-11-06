@@ -373,7 +373,7 @@ export function StyleGuide() {
 
       <ButtonSkin skin="glass">
       {dialogOpen ? (
-        <Dialog
+        <Dialog manageFocus
           title="共用 Dialog 預覽"
           onClose={closeDialog}
           actions={<Button type="button" onClick={closeDialog}>完成</Button>}
