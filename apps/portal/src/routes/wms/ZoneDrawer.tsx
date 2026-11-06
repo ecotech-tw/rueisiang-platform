@@ -141,7 +141,8 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
   const inputId = `zone-photo-${zoneId}`;
 
   function accept(file: File | undefined) {
-    if (!file) return;
+    // 上傳中再丟一張進來（拖曳或連點）就是重複上傳同一批照片；等這張傳完再說。
+    if (!file || upload.isPending) return;
     /*
      * iPhone 直接拍的 HEIC 會通過 accept="image/*"，但瀏覽器畫不出來——上傳成功、
      * 清單裡卻是一張破圖，看起來就像功能壞了。與其讓人猜，不如先講清楚。
@@ -180,11 +181,11 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
          * 鍵盤走到那個透明的 input 時，焦點框畫在看得見的外框上（has-focus-visible）。
          */
         <div
-          className={`relative grid place-items-center gap-0.5 rounded-field border px-3 py-[18px] text-[13px] text-muted has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-secondary ${dragging ? "border-solid border-brand bg-brand-soft" : "border-dashed border-line bg-canvas hover:border-secondary hover:bg-brand/4"} ${upload.isPending ? "cursor-progress opacity-70" : "cursor-pointer"}`}
+          className={`relative grid place-items-center gap-0.5 rounded-field border px-3 py-[18px] text-[13px] text-muted has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-secondary ${dragging ? "border-solid border-brand bg-brand-soft" : "border-dashed border-line bg-canvas hover:border-secondary hover:bg-brand/4"} ${upload.isPending ? "opacity-70" : ""}`}
           onDragOver={(event) => {
             // 不擋掉預設行為的話，瀏覽器會直接把檔案當成網址打開，整頁被取代。
             event.preventDefault();
-            setDragging(true);
+            if (!upload.isPending) setDragging(true);
           }}
           onDragLeave={() => setDragging(false)}
           onDrop={(event) => {
@@ -207,12 +208,21 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
             * 不能用 opacity 以外的方式藏它：display: none 與 visibility: hidden 會讓它
             * 不能被點到，sr-only 會把它縮成 1×1，兩者都得靠轉介才點得到。
             */}
+          {/*
+            * 上傳中不用 disabled：停用的 input 會把鍵盤焦點丟掉，用鍵盤選完檔案的人
+            * 一按下去就不知道自己在哪了。改成 aria-disabled ＋ 擋掉這次點擊，
+            * 檔案選擇器不會再開，焦點留在原地。input 鋪滿整塊，游標要畫在它身上才看得到。
+            */}
           <input
             id={inputId}
             type="file"
-            className="absolute inset-0 size-full cursor-pointer opacity-0"
+            className={`absolute inset-0 size-full opacity-0 ${upload.isPending ? "cursor-progress" : "cursor-pointer"}`}
             accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
             aria-label="上傳倉位現場照片"
+            aria-disabled={upload.isPending || undefined}
+            onClick={(event) => {
+              if (upload.isPending) event.preventDefault();
+            }}
             onChange={(event) => {
               const file = event.target.files?.[0];
               // 清掉才能連續上傳同一個檔名，不然 change 不會再觸發。
