@@ -116,7 +116,7 @@ describe("統一人員名單與支援人員薪資／加班表單", () => {
     expect(markup).toContain("時薪");
     expect(markup).toContain("NT$ 420");
     expect(markup).toContain("固定 NT$ 750／時");
-    expect(markup).toContain('aria-label="為王支援更新敘薪版本"');
+    expect(markup).toContain('aria-label="為王支援更新或解除最新敘薪版本"');
   });
 
   it("支援人員敘薪提交使用 canonical employment ID 並換算金額單位", () => {

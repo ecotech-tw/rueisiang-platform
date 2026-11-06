@@ -1548,6 +1548,13 @@
       "when": 1793868281106,
       "tag": "0244_chief_moon_knight",
       "breakpoints": true
+    },
+    {
+      "idx": 245,
+      "version": "6",
+      "when": 1793948895804,
+      "tag": "0245_familiar_iron_monger",
+      "breakpoints": true
     }
   ]
 }

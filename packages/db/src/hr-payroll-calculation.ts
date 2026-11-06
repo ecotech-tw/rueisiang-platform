@@ -801,7 +801,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
   // 分數本薪的餘數分配也依賴未選取同班人員的敘薪；否則他人調薪後仍能把過期結果結帳。
   const [allocationEmployeeCompensations, allocationWorkerCompensations] = await Promise.all([
     db.select().from(hrCompensationVersions).where(and(inJsonArray(hrCompensationVersions.employmentId, allocationEmploymentIds.length ? allocationEmploymentIds : ["__none__"]), sql`${hrCompensationVersions.voidedAt} IS NULL`, sql`${hrCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrCompensationVersions.validTo} IS NULL OR ${hrCompensationVersions.validTo} > ${input.period.start})`)),
-    db.select().from(hrWorkerCompensationVersions).where(and(inJsonArray(hrWorkerCompensationVersions.workerId, allocationWorkerIds.length ? allocationWorkerIds : ["__none__"]), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
+    db.select().from(hrWorkerCompensationVersions).where(and(inJsonArray(hrWorkerCompensationVersions.workerId, allocationWorkerIds.length ? allocationWorkerIds : ["__none__"]), sql`${hrWorkerCompensationVersions.voidedAt} IS NULL`, sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
   ]);
   const [employments, employeeProfiles, accountProfiles, attendanceSettings, calendarDays, calendarDayScopes, compensations, compensationItems, insurance, insuranceRules, leaves, annualLeaveEntitlements, annualLeaveLedger, monthlyLeaves, monthlyHourly, overtime, workerOvertime, clocks, allocationEmploymentStates, allocationClocks, scheduleVersions, scheduleEntries, workerScheduleEntries, workers, workerCompensations, specialWorkdays, bonusMembers, bonusPolicyVersions, bonusPolicies, bonusScopes, bonusPayouts, bonusScheduleDays, adjustments, adjustmentItems] = await Promise.all([
     db.select({
@@ -840,7 +840,7 @@ async function getPayrollSourceSnapshot(db: Database, input: PayrollSourceSnapsh
     // 保留舊 snapshot 的欄位形狀，但姓名、狀態、revision 與建立時間以 canonical employment 為準。
     db.select({ id: hrEmployments.id, displayName: hrEmployments.legalName, active: sql<number>`CASE WHEN ${hrEmployments.archivedAt} IS NULL THEN 1 ELSE 0 END`, createdBy: sql<string | null>`${hrScheduleWorkers.createdBy}`, createdAt: hrEmployments.createdAt, updatedAt: hrEmployments.updatedAt, revision: hrEmployments.revision })
       .from(hrEmployments).leftJoin(hrScheduleWorkers, eq(hrEmployments.id, hrScheduleWorkers.employmentId)).where(and(workerFilter, eq(hrEmployments.personKind, "worker"))),
-    db.select().from(hrWorkerCompensationVersions).where(and(inJsonArray(hrWorkerCompensationVersions.workerId, workerIds), sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
+    db.select().from(hrWorkerCompensationVersions).where(and(inJsonArray(hrWorkerCompensationVersions.workerId, workerIds), sql`${hrWorkerCompensationVersions.voidedAt} IS NULL`, sql`${hrWorkerCompensationVersions.validFrom} < ${input.period.end}`, sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${input.period.start})`)),
     listHrSpecialWorkdaysForPayroll(db, input.period.start, input.period.end, { employmentIds: input.employmentIds, workerIds: input.workerIds }),
     db.select().from(hrBonusPolicyMembers).where(and(inJsonArray(hrBonusPolicyMembers.employmentId, employmentIds), sql`${hrBonusPolicyMembers.validFrom} < ${input.period.end}`, sql`(${hrBonusPolicyMembers.validTo} IS NULL OR ${hrBonusPolicyMembers.validTo} > ${input.period.start})`)),
     db.select().from(hrBonusPolicyVersions).where(sql`${hrBonusPolicyVersions.id} IN (${relevantBonusVersionIds})`),
@@ -1336,6 +1336,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   ));
   const insuranceRules = await listHrInsuranceContributionRulesForPeriod(db, period);
   const workerCompensations = await db.select().from(hrWorkerCompensationVersions).where(and(
+    sql`${hrWorkerCompensationVersions.voidedAt} IS NULL`,
     sql`${hrWorkerCompensationVersions.validFrom} < ${period.end}`,
     sql`(${hrWorkerCompensationVersions.validTo} IS NULL OR ${hrWorkerCompensationVersions.validTo} > ${period.start})`,
   ));
