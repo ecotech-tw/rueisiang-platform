@@ -110,6 +110,8 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toContain("w-[min(420px,100%)]");
     expect(markup).toContain("grid gap-2 px-6 pb-1");
     expect(markup).toContain('role="alertdialog"');
+    // 確認框一律開 manageFocus：Escape、Tab 繞圈與焦點還原都走 Dialog 那一套。
+    expect(markup).toContain('tabindex="-1" role="alertdialog" aria-modal="true"');
     expect(markup).toContain("取消");
     expect(markup).toContain("確定");
   });

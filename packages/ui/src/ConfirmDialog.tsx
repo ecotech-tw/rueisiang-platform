@@ -38,16 +38,14 @@ export function ConfirmDialog({
     cancelRef.current?.focus();
   }, []);
 
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape" && !pending) (dialogCloseRequestRef.current ?? onCancel)();
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [dialogCloseRequestRef, onCancel, pending]);
-
   return (
+    /*
+     * Escape、Tab 繞圈、關掉後焦點還原都交給 Dialog 的 manageFocus（useModalFocus）。
+     * 確認框常疊在另一個對話框上（例如獎金編輯裡的「解除最新版本」），只有最上層會處理按鍵；
+     * 處理中（pending）時 closeDisabled 會擋住 Escape。
+     */
     <Dialog
+      manageFocus
       title={title}
       width={420}
       bodyLayout="grid gap-2 px-6 pb-1 [&_p]:m-0 [&_strong]:text-brand-dark"
