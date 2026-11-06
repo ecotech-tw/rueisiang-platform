@@ -1636,52 +1636,6 @@
   .assistant-message { max-width: 96%; }
 }
 
-/*
- * SKU 對應頁的忽略清單。設定型的東西，收合起來把版面讓給列表。
- *
- * fills 頁面是沒有 gap 的 flex column——間距是各元件自己的 margin-bottom 撐出來的，
- * 所以這裡要自己給，不然會直接黏在下面的表格上。也要 flex: none，否則在 column 裡
- * 會被拉扯變形。
- * preflight 拿掉了 <details> 的預設三角形，自己畫一個。
- */
-.sku-ignore-details {
-  flex: none;
-  border: 1px solid var(--color-line);
-  border-radius: 14px;
-  background: var(--color-paper);
-}
-.sku-ignore-details > summary {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 18px;
-  font-weight: 500;
-  cursor: pointer;
-  list-style: none;
-  border-radius: 14px;
-}
-.sku-ignore-details > summary::-webkit-details-marker { display: none; }
-.sku-ignore-details > summary::before {
-  content: "";
-  flex: none;
-  width: 8px;
-  height: 8px;
-  border-right: 2px solid var(--color-muted);
-  border-bottom: 2px solid var(--color-muted);
-  transform: rotate(-45deg);
-  transition-property: transform;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.sku-ignore-details[open] > summary::before { transform: rotate(45deg); }
-.sku-ignore-details > summary:hover { background: --alpha(var(--color-brand) / 4%); }
-.sku-ignore-details > summary:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
-.sku-ignore-body {
-  display: grid;
-  gap: 12px;
-  padding: 0 18px 18px;
-}
-
 /* ── 營運統計 ────────────────────────────────────────────────────────────
    這一頁的主角是「比較」：篩選器固定在上方，KPI 先給結論，圖表再讓人追問
    哪一天、哪一家店造成差異。顏色只沿用既有 Material 3 token，去年同期用
