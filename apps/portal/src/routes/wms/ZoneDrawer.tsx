@@ -12,6 +12,8 @@ import {
   type Zone,
 } from "./api.js";
 
+const STEPPER_BUTTON = "size-7 rounded-[50%] border-0 bg-transparent text-[15px] leading-none text-ink enabled:hover:bg-brand/7 disabled:text-muted";
+
 /**
  * 一項商品。
  *
@@ -68,17 +70,19 @@ function ZoneItem({ item, levelName, placeLabel }: { item: InventoryItem; levelN
           </div>
         </div>
         {canCount ? (
-          <div className="quantity-stepper">
+          /* 數量的 −／＋。中間的數字寬度固定，按的時候按鈕不會左右跳。 */
+          <div className="flex flex-none items-center gap-0.5 rounded-full border border-line p-0.5">
             <button
               type="button"
+              className={STEPPER_BUTTON}
               aria-label={`${item.name} 減一`}
               disabled={shown <= 0}
               onClick={() => adjust(-1)}
             >
               −
             </button>
-            <span className={low ? "stock-low" : undefined}>{shown.toLocaleString("zh-TW")}</span>
-            <button type="button" aria-label={`${item.name} 加一`} onClick={() => adjust(1)}>
+            <span className={`min-w-[46px] text-center text-[14px] font-bold tabular-nums ${low ? "stock-low" : ""}`}>{shown.toLocaleString("zh-TW")}</span>
+            <button type="button" className={STEPPER_BUTTON} aria-label={`${item.name} 加一`} onClick={() => adjust(1)}>
               ＋
             </button>
           </div>
@@ -170,8 +174,13 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
       {rejected ? <Alert tone="danger">{rejected}</Alert> : null}
 
       {canWrite ? (
+        /*
+         * 上傳照片的放置區。整塊都可點（而不是一行小字），因為手上拿著檔案要上傳的人
+         * 需要一個好按的目標。拖曳經過時整塊亮起來——不然使用者不知道可以放在哪裡。
+         * 鍵盤走到那個透明的 input 時，焦點框畫在看得見的外框上（has-focus-visible）。
+         */
         <div
-          className={`photo-drop${dragging ? " dragging" : ""}${upload.isPending ? " busy" : ""}`}
+          className={`relative grid place-items-center gap-0.5 rounded-field border px-3 py-[18px] text-[13px] text-muted has-focus-visible:outline-2 has-focus-visible:outline-offset-2 has-focus-visible:outline-secondary ${dragging ? "border-solid border-brand bg-brand-soft" : "border-dashed border-line bg-canvas hover:border-secondary hover:bg-brand/4"} ${upload.isPending ? "cursor-progress opacity-70" : "cursor-pointer"}`}
           onDragOver={(event) => {
             // 不擋掉預設行為的話，瀏覽器會直接把檔案當成網址打開，整頁被取代。
             event.preventDefault();
@@ -194,10 +203,14 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
             *
             * 這裡沒有 label：input 自己就是唯一的互動元素，透明鋪滿整塊，
             * 底下那個 div 只負責長相。點擊只會發生一次，沒有東西可以轉發。
+            *
+            * 不能用 opacity 以外的方式藏它：display: none 與 visibility: hidden 會讓它
+            * 不能被點到，sr-only 會把它縮成 1×1，兩者都得靠轉介才點得到。
             */}
           <input
             id={inputId}
             type="file"
+            className="absolute inset-0 size-full cursor-pointer opacity-0"
             accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
             aria-label="上傳倉位現場照片"
             onChange={(event) => {
@@ -208,9 +221,9 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
               accept(file);
             }}
           />
-          <Icon name="plus" />
-          <span>{upload.isPending ? "上傳中…" : "上傳照片"}</span>
-          <small>點一下選檔案，或把照片拖進來</small>
+          <Icon name="plus" className="size-5" />
+          <span className="font-bold text-ink">{upload.isPending ? "上傳中…" : "上傳照片"}</span>
+          <small className="text-[11px]">點一下選檔案，或把照片拖進來</small>
         </div>
       ) : null}
 
