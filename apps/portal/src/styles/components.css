@@ -1844,9 +1844,6 @@
 .hr-calendar-date-row .hr-calendar-holiday { flex: 1 1 0; min-width: 0; margin-top: 0; }
 .hr-calendar-holiday { display: block; overflow: hidden; margin-top: 6px; padding: 3px 6px; border-radius: 8px; background: --alpha(var(--color-brand) / 12%); color: var(--color-brand-dark); font-size: 11px; font-weight: 700; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .hr-calendar-holiday.hr-calendar-typhoon { background: var(--color-warn-soft); color: var(--color-warn); }
-.hr-calendar-scope-picker { display: grid; gap: 4px; min-width: 0; }
-.hr-calendar-scope-row { display: flex; align-items: center; gap: 4px; min-width: 0; }
-.hr-calendar-scope-row > button { flex: 0 0 auto; }
 .hr-calendar-date { display: flex; justify-content: space-between; align-items: center; color: var(--color-ink); }
 .hr-calendar-date button, .hr-calendar-entry button { border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
 .hr-calendar-date button { font-size: 18px; line-height: 1; }
@@ -1860,20 +1857,7 @@
 .hr-calendar-date .hr-quick-day { display: inline-grid; min-width: 28px; height: 28px; place-items: center; border-radius: 999px; }
 .hr-calendar-cell.today .hr-calendar-date strong,
 .hr-calendar-cell.today .hr-calendar-date .hr-quick-day { background: var(--color-brand); color: var(--color-canvas); }
-/* 行事曆編輯：一個月一次看完，所以是自己捲的一欄，不是整個對話框變得比螢幕長。 */
-.hr-calendar-editor { display: grid; gap: 4px; max-height: 52vh; overflow-y: auto; margin-top: 8px; }
-.hr-calendar-editor-row { display: grid; grid-template-columns: 54px 132px 180px 230px minmax(0, 1fr); align-items: center; gap: 10px; padding: 3px 6px; border-radius: 12px; }
-.hr-calendar-editor-row.day-weekend { background: --alpha(var(--color-ink) / 3%); }
-.hr-calendar-editor-row.day-holiday { background: --alpha(var(--color-brand) / 7%); }
-.hr-calendar-editor-row .hr-calendar-scope-picker { grid-column: 4; }
-.hr-calendar-editor-row > .muted { min-width: 0; }
-.hr-calendar-editor-date { display: flex; align-items: baseline; gap: 5px; color: var(--color-ink); font-size: 14px; font-variant-numeric: tabular-nums; }
-.hr-calendar-editor-date small { color: var(--color-muted); font-size: 12px; }
 .field-note { margin: 0 0 4px; font-size: 12px; }
-@media (max-width: 560px) {
-  .hr-calendar-editor-row { grid-template-columns: 44px minmax(0, 1fr); gap: 6px 8px; }
-  .hr-calendar-editor-row .hr-calendar-scope-picker, .hr-calendar-editor-row > .muted { grid-column: 2; }
-}
 .hr-quick-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 8px 8px 16px; border-radius: 12px; background: --alpha(var(--color-brand) / 7%); }
 .hr-quick-bar > strong { color: var(--color-brand-dark); }
 .hr-quick-bar-empty { color: var(--color-warn); font-size: 13px; }
@@ -2256,12 +2240,3 @@
   .hr-payroll-line-details { grid-template-columns: 1fr; }
   .hr-payroll-line-content { padding-inline: 12px; }
 }
-
-/* 行事曆管理頁：年份切換與統計放同一條，跟排班月曆的月份切換用同一組元件。 */
-.hr-calendar-year-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding-bottom: 12px; border-bottom: 1px solid var(--color-soft-line); }
-.hr-calendar-year-count { margin: 0; margin-inline-start: auto; color: var(--color-muted); font-size: 13px; }
-.hr-calendar-year-count strong { color: var(--color-ink); font-size: 15px; font-variant-numeric: tabular-nums; }
-.hr-calendar-year-bar .hr-schedule-status { margin: 0; }
-.hr-calendar-type-fields { display: grid; gap: 6px; min-width: 0; }
-td .hr-calendar-scope-picker { max-width: 240px; }
-td .hr-calendar-scope-picker > button { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

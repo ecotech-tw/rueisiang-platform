@@ -8,6 +8,7 @@ import { HrPageSkeleton } from "./HrSkeleton.js";
 import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
 
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
+const YEAR_COUNT_NUMBER = "text-[15px] text-ink tabular-nums";
 
 function weekdayOf(date: string) { return WEEKDAY_LABELS[new Date(`${date}T00:00:00Z`).getUTCDay()] ?? ""; }
 function isWeekendDate(date: string) {
@@ -40,21 +41,26 @@ function scopeLabel(scopeId: string, scopes: ScheduleScope[]) {
   return scopes.find((scope) => scope.id === scopeId)?.name ?? `${scopeId}（已停用）`;
 }
 
-/** 空清單是「全部門市／地區」；有值才顯示可逐一調整的 scope。 */
-export function CalendarScopePicker({ scopeIds, scopes, disabled, onChange }: { scopeIds: string[]; scopes: ScheduleScope[]; disabled?: boolean; onChange: (scopeIds: string[]) => void }) {
+/**
+ * 空清單是「全部門市／地區」；有值才顯示可逐一調整的 scope。
+ *
+ * inTableCell：放在行事曆表格的一欄裡。欄寬由表格分配，不限寬的話選了長名稱的門市
+ * 會把整欄撐開；新增鍵也不換行，擠不下就截掉，不讓一顆膠囊長成兩行高。
+ */
+export function CalendarScopePicker({ scopeIds, scopes, disabled, inTableCell = false, className = "", onChange }: { scopeIds: string[]; scopes: ScheduleScope[]; disabled?: boolean; inTableCell?: boolean; className?: string; onChange: (scopeIds: string[]) => void }) {
   const addScope = () => {
     const next = scopes.find((scope) => !scopeIds.includes(scope.id));
     if (next) onChange([...scopeIds, next.id]);
   };
   const updateScope = (index: number, value: string) => onChange(scopeIds.map((scopeId, currentIndex) => currentIndex === index ? value : scopeId));
-  return <div className="hr-calendar-scope-picker">
+  return <div className={["grid min-w-0 gap-1", inTableCell ? "max-w-[240px]" : "", className].filter(Boolean).join(" ")}>
     {scopeIds.length === 0
       ? <span className="muted">全部門市／地區</span>
-      : scopeIds.map((scopeId, index) => <div className="hr-calendar-scope-row" key={`${scopeId}-${index}`}><DropdownSelect className="flex-1" value={scopeId} aria-label={`適用門市／地區 ${index + 1}`} disabled={disabled} options={[
+      : scopeIds.map((scopeId, index) => <div className="flex min-w-0 items-center gap-1" key={`${scopeId}-${index}`}><DropdownSelect className="flex-1" value={scopeId} aria-label={`適用門市／地區 ${index + 1}`} disabled={disabled} options={[
         ...scopes.map((scope) => ({ value: scope.id, label: scope.name, disabled: scopeIds.includes(scope.id) && scope.id !== scopeId })),
         ...(scopes.some((scope) => scope.id === scopeId) ? [] : [{ value: scopeId, label: scopeLabel(scopeId, scopes), disabled: true }]),
-      ]} onChange={(event) => updateScope(index, event.target.value)} /><Button type="button" variant="icon" icon="trash" aria-label={`移除適用門市 ${scopeLabel(scopeId, scopes)}`} title="移除適用門市／地區" disabled={disabled} onClick={() => onChange(scopeIds.filter((_, currentIndex) => currentIndex !== index))} /></div>)}
-    <Chip variant="action" tone="success" type="button" icon="plus" disabled={disabled || scopeIds.length >= scopes.length} onClick={addScope}>{scopeIds.length ? "新增門市／地區" : "指定門市／地區"}</Chip>
+      ]} onChange={(event) => updateScope(index, event.target.value)} /><Button type="button" variant="icon" icon="trash" className="flex-none" aria-label={`移除適用門市 ${scopeLabel(scopeId, scopes)}`} title="移除適用門市／地區" disabled={disabled} onClick={() => onChange(scopeIds.filter((_, currentIndex) => currentIndex !== index))} /></div>)}
+    <Chip variant="action" tone="success" type="button" icon="plus" className={inTableCell ? "max-w-full overflow-hidden text-ellipsis whitespace-nowrap" : ""} disabled={disabled || scopeIds.length >= scopes.length} onClick={addScope}>{scopeIds.length ? "新增門市／地區" : "指定門市／地區"}</Chip>
   </div>;
 }
 
@@ -214,7 +220,8 @@ export function HrCalendar() {
       </div> : undefined}
     />
     <Panel grows>
-      <div className="hr-calendar-year-bar">
+      {/* 年份切換與統計放同一條，跟排班月曆的月份切換用同一組元件。 */}
+      <div className="flex flex-wrap items-center gap-[10px_16px] border-b border-soft-line pb-3">
         <div className="hr-schedule-month">
           {/* 換年份跟換月份一樣要先問：草稿會被新資料洗掉，而切換鈕就在清單正上方。 */}
           <Button variant="icon" icon="chevronLeft" aria-label="上一年" onClick={() => void switchYear(-1)} />
@@ -226,8 +233,8 @@ export function HrCalendar() {
           * 載入中時改成破折號而不是繼續顯示舊數字：位置跟寬度都在，版面不會跳，
           * 但不會把上一年的 16 天講成這一年的。
           */}
-        <p className="hr-calendar-year-count">國定假日 <strong>{loading ? "—" : holidays}</strong> 天 · 補班日 <strong>{loading ? "—" : makeups}</strong> 天 · 災防停班 <strong>{loading ? "—" : typhoonStops}</strong> 天</p>
-        {changed ? <p className="hr-schedule-status"><StatusBadge tone="warning">尚未儲存</StatusBadge><span>按「儲存」才會生效。</span></p> : null}
+        <p className="m-0 ms-auto text-[13px] text-muted">國定假日 <strong className={YEAR_COUNT_NUMBER}>{loading ? "—" : holidays}</strong> 天 · 補班日 <strong className={YEAR_COUNT_NUMBER}>{loading ? "—" : makeups}</strong> 天 · 災防停班 <strong className={YEAR_COUNT_NUMBER}>{loading ? "—" : typhoonStops}</strong> 天</p>
+        {changed ? <p className="hr-schedule-status m-0"><StatusBadge tone="warning">尚未儲存</StatusBadge><span>按「儲存」才會生效。</span></p> : null}
       </div>
       {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
       <DataTable containerClassName={loading ? "is-refreshing" : ""}><thead><tr>
@@ -241,7 +248,7 @@ export function HrCalendar() {
             <td data-label="星期">{weekdayOf(day.date)}</td>
             <td data-label="日型／災防">
               {canWrite
-                ? <div className="hr-calendar-type-fields">
+                ? <div className="grid min-w-0 gap-1.5">
                   <SelectField className="min-w-0" aria-label={`${day.date} 類型`} value={day.dayType} disabled={save.isPending || loading} options={HR_DAY_TYPES.map((item) => ({ value: item, label: HR_DAY_TYPE_LABELS[item] }))} onChange={(event) => updateDayType(day, event.target.value as HrDayType)} />
                   {day.dayType === "weekday" ? <SelectField className="min-w-0" aria-label={`${day.date} 災防標記`} value={day.specialKind} disabled={save.isPending || loading} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind: value, specialScopeIds: value === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(value === "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "災防停班" } : {}), ...(value !== "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "" } : {}) }); }} /> : null}
                 </div>
@@ -251,7 +258,7 @@ export function HrCalendar() {
             <td data-label="適用門市／地區">
               {disasterPrevention
                 ? canWrite
-                  ? <CalendarScopePicker scopeIds={day.specialScopeIds ?? []} scopes={calendar.data?.scopes ?? []} disabled={save.isPending || loading} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} />
+                  ? <CalendarScopePicker inTableCell scopeIds={day.specialScopeIds ?? []} scopes={calendar.data?.scopes ?? []} disabled={save.isPending || loading} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} />
                   : (day.specialScopeIds?.length ? day.specialScopeIds.map((scopeId) => scopeLabel(scopeId, calendar.data?.scopes ?? [])).join("、") : "全部門市／地區")
                 : <span className="muted">—</span>}
             </td>
