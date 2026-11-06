@@ -4,7 +4,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Field, Input, Page, PageHeader, Panel, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import { useRunShopeeSales, useShopeeSalesState, useShopeeSalesStatus } from "./api.js";
 
-export function ShopeeSales() {
+export function ShopeeSales({ embedded = false }: { embedded?: boolean } = {}) {
   usePageTitle("蝦皮銷售報表");
   const state = useShopeeSalesState();
   const run = useRunShopeeSales();
@@ -19,9 +19,9 @@ export function ShopeeSales() {
   const running = latest ? latest.status !== "completed" : false;
   const blocked = running || run.isPending || !file || !password || !state.data?.settings.driveFolderUrl || !state.data.configured;
 
-  return (
-    <Page>
-      <PageHeader title="蝦皮銷售報表" />
+  const content = (
+    <>
+      {embedded ? null : <PageHeader title="蝦皮銷售報表" />}
 
       {!state.data?.configured ? <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，現在無法處理報表。</Alert> : null}
       {!state.data?.settings.driveFolderUrl ? <Alert tone="danger">尚未設定 Google Drive 資料夾，請由有權限的人前往「店別與報表設定」。</Alert> : null}
@@ -50,6 +50,7 @@ export function ShopeeSales() {
           steps={status.data?.steps ?? []}
         />
       ) : null}
-    </Page>
+    </>
   );
+  return embedded ? content : <Page>{content}</Page>;
 }

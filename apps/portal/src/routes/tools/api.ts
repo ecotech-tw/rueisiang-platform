@@ -300,7 +300,7 @@ export function useArchiveScope() {
   });
 }
 
-export type ReportRunKind = "cyberbiz-payout" | "cyberbiz-sales" | "cyberbiz-shop" | "shopee";
+export type ReportRunKind = "cyberbiz-payout" | "cyberbiz-sales" | "cyberbiz-shop" | "shopee" | "mo-plus-sales";
 
 export interface ReportRunListRow {
   id: string;
@@ -315,12 +315,48 @@ export interface ReportRunListRow {
   createdAt: string;
 }
 
-/** 四種報表共用的執行紀錄。不給 kind 就是全部。 */
+/** 共用報表執行紀錄。不給 kind 就是全部。 */
 export function useReportRuns(kind?: ReportRunKind) {
   return useQuery({
     queryKey: ["tools", "reports", "runs", kind ?? "all"],
     queryFn: () => call<{ runs: ReportRunListRow[] }>(
       `/api/tools/reports/runs${kind ? `?kind=${encodeURIComponent(kind)}` : ""}`,
     ),
+  });
+}
+
+export interface MoPlusImportResult {
+  scopeId: string;
+  rowCount: number;
+  skippedSkus: string[];
+  salesTotals: { grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number };
+}
+
+export interface MoPlusReportScope {
+  id: string;
+  name: string;
+}
+
+export function useMoPlusReportScopes(enabled: boolean) {
+  return useQuery({
+    enabled,
+    queryKey: ["tools", "reports", "mo-plus", "scopes"],
+    queryFn: () => call<{ scopes: MoPlusReportScope[] }>("/api/tools/reports/mo-plus/scopes"),
+  });
+}
+
+export function useImportMoPlusReport() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { scopeId: string; rows: Array<{ reportMonth: string; sku: string; productName: string; grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number }> }) =>
+      call<MoPlusImportResult>("/api/tools/reports/mo-plus/import", {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["tools", "reports"] });
+      void client.invalidateQueries({ queryKey: ["reports"] });
+      void client.invalidateQueries({ queryKey: ["tools", "product-sku-mappings"] });
+    },
   });
 }

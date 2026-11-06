@@ -122,6 +122,45 @@ describe("target 報表月資料匯入", () => {
     expect(row).toEqual({ sku: "WMS-SOAP", name: "倉庫香皂", grossQuantity: 2 });
   });
 
+  it("Mo+ 原廠編號會精確比對平台 SKU，且手動 mapping 可覆蓋自動比對", async () => {
+    await upsertReportScope(db(), { id: "mo_plus:channel:main", scopeKind: "channel", name: "Mo+ 主通路", sourceType: "mo_plus" });
+    const autoMatchedItem = await seedWmsItem("mo-auto", "ASO-100", "自動對應品項");
+    const manualTargetItem = await seedWmsItem("mo-manual", "TARGET-100", "人工指定品項");
+    await seedMapping("mo-manual-map", "mo_plus", "ASO-100", manualTargetItem, "Mo+ 商品");
+
+    const response = await request({
+      kind: "sales",
+      scopeType: "channel",
+      scopeId: "mo_plus:channel:main",
+      scopeName: "Mo+ 主通路",
+      requestId: "mo-plus-upload:test-run",
+      actorEmail: "operator@example.com",
+      rows: [salesRow("ASO-100", 450, { reportMonth: "2026-09" })],
+    });
+
+    expect(response.status).toBe(200);
+    const [sale] = await db().select({ itemId: reportItemSalesMonthly.itemId }).from(reportItemSalesMonthly);
+    expect(sale?.itemId).toBe(manualTargetItem);
+    expect(sale?.itemId).not.toBe(autoMatchedItem);
+    const [run] = await db().select().from(reportRuns).where(eq(reportRuns.requestId, "mo-plus-upload:test-run"));
+    expect(run).toMatchObject({ sourceType: "mo_plus", actorEmail: "operator@example.com", startDate: "2026-09-01", endDate: "2026-09-30", status: "succeeded" });
+  });
+
+  it("Mo+ 商品原廠編號可直接對應全平台品項 SKU", async () => {
+    await upsertReportScope(db(), { id: "mo_plus:channel:main", scopeKind: "channel", name: "Mo+ 主通路", sourceType: "mo_plus" });
+    const itemId = await seedWmsItem("mo-auto", "ASO-200", "原廠編號對應品項");
+    const response = await request({
+      kind: "sales",
+      scopeType: "channel",
+      scopeId: "mo_plus:channel:main",
+      scopeName: "Mo+ 主通路",
+      rows: [salesRow("ASO-200", 600, { reportMonth: "2026-09" })],
+    });
+
+    expect(response.status).toBe(200);
+    expect(await db().select({ itemId: reportItemSalesMonthly.itemId }).from(reportItemSalesMonthly)).toEqual([{ itemId }]);
+  });
+
   it("target BOM 會依輸入順序展開用料，銷售額只計一次", async () => {
     const componentNet = await seedWmsItem("component-net", "NET-001", "起泡網");
     const componentSoap = await seedWmsItem("component-soap", "SOAP-001", "香皂");

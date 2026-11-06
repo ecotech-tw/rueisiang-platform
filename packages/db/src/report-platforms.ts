@@ -1,6 +1,7 @@
 export const REPORT_PLATFORM_OPTIONS = [
-  { value: "cyberbiz", label: "CYBERBIZ" },
-  { value: "shopee", label: "蝦皮" },
+  { value: "cyberbiz", label: "CYBERBIZ", acquisition: "adapter" },
+  { value: "shopee", label: "蝦皮", acquisition: "upload" },
+  { value: "mo_plus", label: "Mo+", acquisition: "upload" },
 ] as const;
 
 export type ReportPlatform = typeof REPORT_PLATFORM_OPTIONS[number]["value"];

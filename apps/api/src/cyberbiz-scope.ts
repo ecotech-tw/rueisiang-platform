@@ -39,7 +39,7 @@ export function manualScopeIdFromStoreName(name: string): string {
 /** 新增的人工管理 scope 仍以 manual ID 與 runner scope 分開；蝦皮前綴供報表平台辨識。 */
 export function reportManagementScopeIdFromName(name: string, platform: ReportPlatform): string {
   const id = manualScopeIdFromStoreName(name);
-  return platform === "shopee" ? id.replace(/^manual:/u, "shopee:") : id;
+  return platform === "cyberbiz" ? id : id.replace(/^manual:/u, `${platform}:`);
 }
 
 /**

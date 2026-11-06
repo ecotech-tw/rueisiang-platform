@@ -1569,6 +1569,13 @@
       "when": 1793954404977,
       "tag": "0247_individual_payroll_withdrawal",
       "breakpoints": true
+    },
+    {
+      "idx": 248,
+      "version": "6",
+      "when": 1794000000000,
+      "tag": "0248_mo_plus_report_permission",
+      "breakpoints": true
     }
   ]
 }

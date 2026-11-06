@@ -136,7 +136,7 @@ function ScopeDialog({
           hint="CYBERBIZ 後台的店名，runner 拿它找店。跟平台名稱不一樣時才要填。"
         />
       ) : null}
-      {canConfigure ? (
+      {canConfigure && sourceType !== "mo_plus" ? (
         <TextField
           label="Google Drive 資料夾連結"
           value={driveFolderUrl}
@@ -145,7 +145,7 @@ function ScopeDialog({
           hint="報表整理完會放到這個資料夾。"
         />
       ) : null}
-      {canConfigure ? (
+      {canConfigure && sourceType !== "mo_plus" ? (
         <TextField
           label="資料夾顯示名稱"
           value={driveFolderName}
