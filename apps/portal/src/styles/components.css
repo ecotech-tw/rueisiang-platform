@@ -1,34 +1,4 @@
-.hr-location-table td > small { display: block; margin-top: 4px; }
 .attendance-event-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
-.hr-location-section { display: grid; gap: 12px; }
-.hr-location-section + .hr-location-section { padding-top: 20px; border-top: 1px solid var(--color-soft-line); }
-.hr-location-section-heading { display: flex; align-items: center; min-height: 22px; }
-.hr-location-section-heading h3 { margin: 0; color: var(--color-ink); font-size: 15px; line-height: 1.35; }
-.hr-location-form-grid { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 14px; align-items: start; }
-.hr-location-map-search { display: flex; align-items: end; gap: 10px; min-width: 0; }
-.hr-location-map-link { display: inline-flex; align-items: center; align-self: start; min-height: 40px; padding: 0 10px; border-radius: 999px; color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
-.hr-location-map-link:hover { background: --alpha(var(--color-brand) / 7%); }
-.hr-location-map-link:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-location-place-results { display: grid; flex: 0 0 auto; gap: 6px; max-height: 240px; overflow-y: auto; }
-.hr-location-place-result { display: grid; gap: 3px; width: 100%; min-height: 56px; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: var(--radius-field); background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; transition-property: background-color, border-color, scale; transition-duration: 120ms; transition-timing-function: ease-out; }
-.hr-location-place-result:hover { border-color: var(--color-secondary); background: --alpha(var(--color-brand) / 7%); }
-.hr-location-place-result:active { scale: .99; }
-.hr-location-place-result:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-location-place-result small { color: var(--color-muted); }
-.hr-location-selected-place { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: var(--radius-field); background: var(--color-canvas); color: var(--color-ink); }
-.hr-location-selected-place small { color: var(--color-muted); }
-.hr-location-rule-card { display: grid; gap: 14px; padding: 14px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-canvas); }
-.hr-location-radius-field { width: min(100%, 280px); }
-.hr-location-toggle { display: inline-flex; align-items: center; gap: 10px; min-height: 32px; }
-
-.hr-location-toggle input { position: absolute; width: 42px; height: 28px; margin: 0; opacity: 0; cursor: pointer; }
-.hr-location-toggle-track { display: inline-flex; align-items: center; width: 42px; height: 26px; padding: 3px; border-radius: 999px; background: var(--color-line); transition-property: background-color; transition-duration: 120ms; transition-timing-function: ease-out; }
-.hr-location-toggle-track span { width: 20px; height: 20px; border-radius: 50%; background: var(--color-paper); box-shadow: 0 1px 3px rgba(64, 30, 30, .25); transition-property: transform; transition-duration: 120ms; transition-timing-function: ease-out; }
-.hr-location-toggle input:checked + .hr-location-toggle-track { background: var(--color-brand); }
-.hr-location-toggle input:checked + .hr-location-toggle-track span { transform: translateX(16px); }
-.hr-location-toggle input:focus-visible + .hr-location-toggle-track { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-location-toggle strong { color: var(--color-muted); font-size: 13px; }
-.hr-location-toggle input:checked ~ strong { color: var(--color-brand-dark); }
 
 /* 手動報表的頁籤列跟標題列一樣照內容高度，表格那一格才吃得到剩下的空間。 */
 [data-page=fills] > [data-grows] > .manual-report-toolbar { flex: none; }
@@ -1333,10 +1303,6 @@
   .hr-employee-status-tabs { width: 100%; }
   .hr-employee-status-tabs button { flex: 1; justify-content: center; }
 }
-.hr-location-assignment-list { display: grid; gap: 7px; min-width: 220px; }
-.hr-location-assignment { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
-.hr-location-assignment > span { min-width: 0; }
-.hr-location-assignment-table .row-actions { align-items: flex-start; }
 
 /*
  * ── 標籤選擇器 ────────────────────────────────────────────────────────────
@@ -1803,9 +1769,6 @@
 
 @media (max-width: 760px) {
   .hr-module-self { padding-bottom: 84px; }
-  .hr-location-map-search { align-items: stretch; flex-direction: column; }
-  .hr-location-form-grid { grid-template-columns: minmax(0, 1fr); }
-  .hr-location-radius-field { width: 100%; }
 }
 
 /* HR 月曆排班 */
@@ -2235,9 +2198,6 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hr-location-toggle-track,
-  .hr-location-toggle-track span,
-  .hr-location-place-result,
   .hr-overview-card,
   .hr-overview-action span,
   .hr-payroll-disclosure-marker,
