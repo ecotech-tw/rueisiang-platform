@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, Tag } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -172,7 +172,7 @@ export function Tags() {
                         </Button>
                       </form>
                     ) : (
-                      <span className="chip">{tag.name}</span>
+                      <Tag>{tag.name}</Tag>
                     )}
                   </td>
                   <td className="numeric">{tag.customerCount}</td>

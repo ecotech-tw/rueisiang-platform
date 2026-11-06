@@ -93,7 +93,7 @@ const MOBILE_CARD = [
   // 操作鈕釘在卡片右上角，不要自己佔一列（那一列量出來 50px）。
   "max-[760px]:[&_tr>td[data-label=操作]]:absolute max-[760px]:[&_tr>td[data-label=操作]]:top-2 max-[760px]:[&_tr>td[data-label=操作]]:right-2 max-[760px]:[&_tr>td[data-label=操作]]:block max-[760px]:[&_tr>td[data-label=操作]]:p-0 max-[760px]:[&_tr>td[data-label=操作]]:before:hidden",
   // 值那一欄是 grid item，預設會被拉滿整格；膠囊撐成一整條就不像標記了。
-  "max-[760px]:[&_td>.chips]:justify-self-start",
+  "max-[760px]:[&_td>[data-tag-list]]:justify-self-start",
 ].join(" ");
 
 const STICKY_HEADER_SKIN: Record<TableSkinName, string> = {

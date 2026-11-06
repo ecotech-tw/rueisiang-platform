@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Icon } from "../../shell/icons.js";
-import { Field, Input } from "../../ui/index.js";
+import { Field, Input, Tag, TagList } from "../../ui/index.js";
 
 /** 下拉浮在畫面上的位置。用 fixed，所以直接是視窗座標，不必自己扣捲動位移。 */
 interface DropdownBox {
@@ -116,20 +116,13 @@ export function TagPicker({
     <Field as="div" label="標籤">
 
       {value.length ? (
-        <div className="chips tight">
+        <TagList className="mt-1">
           {value.map((tag) => (
-            <span className="chip" key={tag}>
+            <Tag key={tag} removeLabel={`移除 ${tag}`} onRemove={() => onChange(value.filter((item) => item !== tag))}>
               {tag}
-              <button
-                type="button"
-                aria-label={`移除 ${tag}`}
-                onClick={() => onChange(value.filter((item) => item !== tag))}
-              >
-                ×
-              </button>
-            </span>
+            </Tag>
           ))}
-        </div>
+        </TagList>
       ) : null}
 
       {/*

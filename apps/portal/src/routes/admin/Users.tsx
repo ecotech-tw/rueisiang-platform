@@ -20,7 +20,7 @@ import { PermissionCount, PermissionGrid, PermissionGroup, PermissionHint, Permi
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, Page, PageHeader, Panel, SelectField, StatusBadge, type StatusTone, TextField } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, Page, PageHeader, Panel, SelectField, StatusBadge, type StatusTone, Tag, TagList, TextField } from "../../ui/index.js";
 
 const USER_STATUS_TONE: Record<AdminUser["status"], StatusTone> = {
   invited: "neutral",
@@ -357,13 +357,13 @@ function UserEditor({
             {effective.size === 0 ? (
               <p className="muted">沒有任何權限，登入後看不到任何頁面。</p>
             ) : (
-              <div className="chips tight">
+              <TagList className="mt-1">
                 {[...effective].map((permission) => (
-                  <span className="chip subtle" key={permission}>
+                  <Tag subtle key={permission}>
                     {catalog.permissions[permission] ?? permission}
-                  </span>
+                  </Tag>
                 ))}
-              </div>
+              </TagList>
             )}
           </Field>
       </Dialog>
@@ -431,11 +431,11 @@ function UserRow({
           {user.assignments.length === 0 ? (
             <span className="cell-sub">沒有任何角色</span>
           ) : (
-            <div className="chips tight">
+            <TagList className="mt-1">
               {user.assignments.map((assignment) => (
-                <span className="chip subtle" key={assignment.roleKey}>{assignment.roleName}</span>
+                <Tag subtle key={assignment.roleKey}>{assignment.roleName}</Tag>
               ))}
-            </div>
+            </TagList>
           )}
         </td>
 

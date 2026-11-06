@@ -14,7 +14,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone, Tag, TagList } from "../../ui/index.js";
 
 const SYNC_TONE: Record<string, StatusTone> = {
   synced: "success",
@@ -69,12 +69,12 @@ function CustomerRow({
         <div className="cell-strong">{customer.name || "未填姓名"}</div>
         <div className="cell-sub">{customer.email || "未填 Email"}</div>
         {tags.length ? (
-          <div className="chips tight">
+          <TagList className="mt-1">
             {tags.slice(0, 3).map((tag) => (
-              <span className="chip subtle" key={tag}>{tag}</span>
+              <Tag subtle key={tag}>{tag}</Tag>
             ))}
             {tags.length > 3 ? <span className="cell-sub">+{tags.length - 3}</span> : null}
-          </div>
+          </TagList>
         ) : null}
       </td>
       <td data-label="電話" className="whitespace-nowrap">{customer.phone}</td>
