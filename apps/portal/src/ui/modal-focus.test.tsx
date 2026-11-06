@@ -2,12 +2,13 @@
 import { act, StrictMode, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useModalFocus } from "@rueisiang/ui";
+import { ConfirmDialog, Dialog, useModalFocus } from "@rueisiang/ui";
 
 /*
  * useModalFocus 是倉位抽屜與 Dialog（manageFocus）共用的鍵盤行為。
- * 這裡守兩件事：抽屜上疊對話框時只有最上層處理 Tab 與 Escape；
- * dev 的 StrictMode 假卸載不會把 autoFocus 放進欄位的焦點拉走。
+ * 這裡守三件事：抽屜上疊對話框時只有最上層處理 Tab 與 Escape；
+ * dev 的 StrictMode 假卸載不會把 autoFocus 放進欄位的焦點拉走；
+ * 全站共用的 ConfirmDialog 走同一套（焦點在取消、處理中不能 Escape、疊層時只關自己）。
  */
 
 function Layer({ name, onEscape }: { name: string; onEscape: () => void }) {
@@ -116,5 +117,62 @@ describe("useModalFocus", () => {
     expect((document.activeElement as HTMLElement | null)?.getAttribute("aria-label")).toBe("name");
     show(false);
     expect(active()).toBe("opener");
+  });
+});
+
+describe("ConfirmDialog 的鍵盤行為", () => {
+  // Dialog 退場動畫播完才呼叫 onClose；jsdom 沒有 matchMedia，所以走計時器那條。
+  beforeEach(() => { vi.useFakeTimers(); });
+  afterEach(() => { vi.useRealTimers(); });
+  const finishExit = () => act(() => { vi.advanceTimersByTime(500); });
+
+  it("焦點預設在取消、Tab 在兩顆按鈕間繞圈、處理中按 Escape 不會關、關掉後焦點還原", () => {
+    const onCancel = vi.fn();
+    const show = (open: boolean, pending = false) => act(() => root.render(
+      <>
+        <button type="button">opener</button>
+        {open ? <ConfirmDialog title="刪除？" pending={pending} onConfirm={() => {}} onCancel={onCancel}><p>無法復原。</p></ConfirmDialog> : null}
+      </>,
+    ));
+    show(false);
+    (host.querySelector("button") as HTMLButtonElement).focus();
+    show(true);
+    expect(active()).toBe("取消");
+
+    // jsdom 不會自己移動 Tab 焦點，這裡驗的是頭尾繞圈那一段（hook 負責的部分）。
+    press("Tab", true);
+    expect(active()).toBe("確定");
+    press("Tab");
+    expect(active()).toBe("取消");
+
+    show(true, true);
+    press("Escape");
+    finishExit();
+    expect(onCancel).not.toHaveBeenCalled();
+
+    show(true, false);
+    (document.querySelector("[role=alertdialog] button") as HTMLButtonElement).focus();
+    press("Escape");
+    finishExit();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+
+    show(false);
+    expect(active()).toBe("opener");
+  });
+
+  it("疊在另一個對話框上時，Escape 只關確認框", () => {
+    const onClose = vi.fn();
+    const onCancel = vi.fn();
+    act(() => root.render(
+      <>
+        <Dialog manageFocus title="編輯" onClose={onClose}><button type="button">field</button></Dialog>
+        <ConfirmDialog title="解除？" onConfirm={() => {}} onCancel={onCancel}><p>確定要解除？</p></ConfirmDialog>
+      </>,
+    ));
+    expect(active()).toBe("取消");
+    press("Escape");
+    finishExit();
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
