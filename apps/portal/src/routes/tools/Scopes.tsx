@@ -52,8 +52,9 @@ function ScopeDialog({
 }) {
   const [name, setName] = useState(scope?.name ?? "");
   const [externalName, setExternalName] = useState(scope?.externalName ?? "");
-  const [sourceType, setSourceType] = useState(platformOf(scope?.sourceType ?? "cyberbiz"));
-  const [scopeKind, setScopeKind] = useState<ManagementScope["scopeKind"]>(scope?.scopeKind ?? "store");
+  const initialSourceType = platformOf(scope?.sourceType ?? "cyberbiz");
+  const [sourceType, setSourceType] = useState(initialSourceType);
+  const [scopeKind, setScopeKind] = useState<ManagementScope["scopeKind"]>(scope?.scopeKind ?? (initialSourceType === "shopee" || initialSourceType === "momo" ? "channel" : "store"));
   const [driveFolderUrl, setDriveFolderUrl] = useState(scope?.driveFolderUrl ?? "");
   const [driveFolderName, setDriveFolderName] = useState(scope?.driveFolderName ?? "");
   const save = useSaveScope();
@@ -122,7 +123,11 @@ function ScopeDialog({
         <SelectField
           label="平台"
           value={sourceType}
-          onChange={(event) => setSourceType(event.target.value)}
+          onChange={(event) => {
+            const nextSourceType = event.target.value;
+            setSourceType(nextSourceType);
+            if (!scope) setScopeKind(nextSourceType === "shopee" || nextSourceType === "momo" ? "channel" : "store");
+          }}
           options={sourceOptions}
           disabled={Boolean(scope)}
           hint={scope ? "平台建立後不可變更，避免歷史報表與 SKU 對應改掛到其他平台。" : "SKU 對應會依此平台共用；人工補登也請選商品實際所屬的平台。"}
@@ -136,7 +141,7 @@ function ScopeDialog({
           hint="CYBERBIZ 後台的店名，runner 拿它找店。跟平台名稱不一樣時才要填。"
         />
       ) : null}
-      {canConfigure ? (
+      {canConfigure && sourceType !== "momo" ? (
         <TextField
           label="Google Drive 資料夾連結"
           value={driveFolderUrl}
@@ -145,7 +150,7 @@ function ScopeDialog({
           hint="報表整理完會放到這個資料夾。"
         />
       ) : null}
-      {canConfigure ? (
+      {canConfigure && sourceType !== "momo" ? (
         <TextField
           label="資料夾顯示名稱"
           value={driveFolderName}

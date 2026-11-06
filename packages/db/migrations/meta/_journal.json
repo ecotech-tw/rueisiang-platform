@@ -1569,6 +1569,20 @@
       "when": 1793954404977,
       "tag": "0247_individual_payroll_withdrawal",
       "breakpoints": true
+    },
+    {
+      "idx": 248,
+      "version": "6",
+      "when": 1794000000000,
+      "tag": "0248_momo_report_permission",
+      "breakpoints": true
+    },
+    {
+      "idx": 249,
+      "version": "6",
+      "when": 1794000000001,
+      "tag": "0249_momo_report_sales_snapshots",
+      "breakpoints": true
     }
   ]
 }

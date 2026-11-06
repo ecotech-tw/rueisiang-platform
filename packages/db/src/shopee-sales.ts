@@ -1,10 +1,8 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { normalizeReportScopeName } from "./report-data.js";
 import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
 
 const SHOPEE_SCOPE_ID = "shopee:store:default";
-const SHOPEE_SCOPE_NAME = "蝦皮";
 
 export interface ShopeeSalesSettings {
   id: string;
@@ -61,6 +59,7 @@ export async function recordShopeeSalesRun(
   db: Database,
   input: {
     requestId: string;
+    scopeId: string;
     startDate: string;
     endDate: string;
     driveFolderUrl: string;
@@ -69,20 +68,8 @@ export async function recordShopeeSalesRun(
   },
 ): Promise<void> {
   const id = crypto.randomUUID();
-  // 掛在設定解析到的那個蝦皮通路上。寫死 SHOPEE_SCOPE_ID 的話，管理者在通路管理
-  // 建的蝦皮通路會拿到另一個 ID，執行紀錄就會掛到一個沒有人維護的第二列上。
-  const scopeId = (await getShopeeSalesSettings(db)).id;
+  const scopeId = input.scopeId;
   await db.batch([
-    db.insert(scopes).values({
-      id: scopeId,
-      sourceType: "shopee",
-      scopeKind: "store",
-      name: SHOPEE_SCOPE_NAME,
-      normalizedName: normalizeReportScopeName(SHOPEE_SCOPE_NAME),
-      driveFolderUrl: input.driveFolderUrl,
-      active: 1,
-      sortOrder: 0,
-    }).onConflictDoNothing(),
     db.insert(reportRuns).values({
       id,
       requestId: input.requestId,

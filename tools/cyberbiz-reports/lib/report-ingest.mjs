@@ -60,6 +60,7 @@ export async function ingestReport({
   ingestToken,
   scopeId,
   scopeName,
+  scopeType = "store",
   kind,
   rows,
   reportMonth,
@@ -78,14 +79,14 @@ export async function ingestReport({
     body: JSON.stringify(bundle
       ? {
         kind: "sales_and_payout",
-        scopeType: "store",
+        scopeType,
         scopeId,
         scopeName,
         salesRows,
         payoutRows,
         ...(reportMonth ? { reportMonth } : {}),
       }
-      : { kind, scopeType: "store", scopeId, scopeName, rows, ...(reportMonth ? { reportMonth } : {}) }),
+      : { kind, scopeType, scopeId, scopeName, rows, ...(reportMonth ? { reportMonth } : {}) }),
   });
   const payload = await responseJson(response, bundle
     ? "匯入蝦皮 sales 與 payout 月資料"

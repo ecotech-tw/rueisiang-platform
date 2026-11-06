@@ -49,8 +49,8 @@ import { CyberbizSales } from "./routes/tools/CyberbizSales.js";
 import { ShopReport } from "./routes/tools/ShopReport.js";
 import { ReportsLanding, ReportsLayout } from "./routes/tools/reports/ReportsLayout.js";
 import { RunLog } from "./routes/tools/reports/RunLog.js";
+import { UploadReports } from "./routes/tools/reports/UploadReports.js";
 import { ManualReports } from "./routes/tools/ManualReports.js";
-import { ShopeeSales } from "./routes/tools/ShopeeSales.js";
 import { Placeholder } from "./routes/Placeholder.js";
 import { StyleGuide } from "./routes/StyleGuide.js";
 import { AppShell } from "./shell/AppShell.js";
@@ -145,13 +145,14 @@ export function App() {
         </Route>
 
         <Route path="tools">
-          {/* 報表執行：四種報表共用一組分頁與一份執行紀錄。 */}
+          {/* 報表執行：自動來源與上傳來源共用分頁與一份執行紀錄。 */}
           <Route path="reports" element={<ReportsLayout />}>
             <Route index element={<ReportsLanding />} />
             <Route path="run/cyberbiz-payout" element={<Payout />} />
             <Route path="run/cyberbiz-sales" element={<CyberbizSales />} />
             <Route path="run/cyberbiz-shop" element={<ShopReport />} />
-            <Route path="run/shopee" element={<ShopeeSales />} />
+            <Route path="run/upload" element={<UploadReports />} />
+            <Route path="run/shopee" element={<Navigate to="/tools/reports/run/upload" replace />} />
             <Route path="log" element={<RunLog />} />
           </Route>
           {/* 舊網址：可能有人加在書籤裡，留著導過去。 */}

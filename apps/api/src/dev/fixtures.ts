@@ -341,7 +341,7 @@ const DEV_ANALYTICS_SCOPES = [
   { id: "cyberbiz:store:demo-xinyi", scopeKind: "store" as const, name: "示範信義店" },
   { id: "cyberbiz:store:demo-paused", scopeKind: "store" as const, name: "示範已歇業店", active: false },
 ] as const;
-const DEV_SHOPEE_SCOPE = { id: "shopee:store:demo-marketplace", scopeKind: "store" as const, name: "蝦皮示範賣場" };
+const DEV_SHOPEE_SCOPE = { id: "shopee:store:demo-marketplace", scopeKind: "channel" as const, name: "蝦皮示範賣場" };
 
 const DEV_AUGUST_MISSING_DAYS = [4, 11, 18, 24] as const;
 const DEV_AUGUST_XIMEN = [
@@ -559,6 +559,9 @@ async function seedDevAnalytics(db: ReturnType<typeof createDatabase>): Promise<
     await insertReportSalesMonthly(db, DEV_SALES_PERIODS.flatMap(([month, factor]) => (
       salesRowsForMonth(DEV_SHOPEE_SCOPE.id, month, factor * 0.56)
     )));
+  } else {
+    // 舊的 local.sqlite 可能還把蝦皮示範通路記成櫃點；改種類但不覆蓋開發者的名稱與設定。
+    await db.update(scopes).set({ scopeKind: "channel" }).where(eq(scopes.id, DEV_SHOPEE_SCOPE.id));
   }
 
 }

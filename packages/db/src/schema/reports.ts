@@ -139,6 +139,29 @@ export const reportItemSalesPeriod = sqliteTable("report_item_sales_period", {
   check("ck_item_sales_period_month", sql`${table.reportMonth} = substr(${table.periodStart}, 1, 7) AND ${table.reportMonth} = substr(${table.periodEnd}, 1, 7)`),
 ]);
 
+/**
+ * momo 對帳明細的來源快照。每份檔案可橫跨月份，同月也可能有多份結算明細；月報必須由
+ * 所有來源快照重算，不能讓後上傳的檔案覆蓋同月其他結算資料。
+ */
+export const momoReportSalesSnapshots = sqliteTable("momo_report_sales_snapshots", {
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  snapshotKey: text("snapshot_key").notNull(),
+  contentHash: text("content_hash").notNull(),
+  reportMonth: text("report_month").notNull(),
+  externalSku: text("external_sku").notNull(),
+  productName: text("product_name").notNull().default(""),
+  grossQuantity: integer("gross_quantity").notNull().default(0),
+  returnQuantity: integer("return_quantity").notNull().default(0),
+  netQuantity: integer("net_quantity").notNull().default(0),
+  salesAmount: integer("sales_amount").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.scopeId, table.snapshotKey, table.reportMonth, table.externalSku] }),
+  index("idx_momo_sales_snapshots_scope_month").on(table.scopeId, table.reportMonth),
+  index("idx_momo_sales_snapshots_content").on(table.scopeId, table.contentHash),
+]);
+
 /** 商品銷售月報；分類不存 snapshot，本輪先用 item_id join 目前分類。 */
 export const reportItemSalesMonthly = sqliteTable("report_item_sales_monthly", {
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),

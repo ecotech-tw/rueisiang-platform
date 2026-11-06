@@ -9,6 +9,7 @@ import {
   archiveReportManagementScope,
   createReportManagementScope,
   isValidScopeId,
+  findReportScope,
   listReportManagementScopes,
   ReportManualError,
   type ScopeKind,
@@ -28,6 +29,7 @@ import { payoutGithub } from "../payout/github.js";
 import { body, requireString } from "../request.js";
 import { forgetReportAnalytics } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
+import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
 
 /** 只取字串欄位；沒帶就是 undefined（代表「這次不動它」），不是空字串。 */
 function text(input: Record<string, unknown>, field: string): string | undefined {
@@ -182,6 +184,45 @@ export const tools = new Hono<AppEnv>()
   .route("/cyberbiz-sales", cyberbizSales)
   .route("/shop-report", shopReport)
   .route("/reports/runs", reportRuns)
+
+  .get("/reports/momo/scopes", requirePermission("tools:momo-sales:run"), async (c) => {
+    const scopes = await listReportManagementScopes(c.get("db"));
+    return c.json({ scopes: scopes
+      .filter((scope) => scope.sourceType === "momo" && scope.scopeKind === "channel" && scope.active)
+      .map(({ id, name }) => ({ id, name })) });
+  })
+
+  .post("/reports/momo/import", requirePermission("tools:momo-sales:run"), async (c) => {
+    const input = await body(c);
+    const scopeId = requireString(input, "scopeId", "Mo+ 通路");
+    if (!Array.isArray(input.rows) || !input.rows.length || input.rows.length > 10_000) {
+      throw new HTTPException(400, { message: "商品列數必須介於 1 至 10,000 列。" });
+    }
+    const scope = await findReportScope(c.get("db"), { scopeKind: "channel", id: scopeId });
+    if (!scope || scope.sourceType !== "momo" || !scope.active) {
+      throw new HTTPException(400, { message: "請選擇啟用中的 Mo+ 通路。" });
+    }
+    const user = c.get("user");
+    try {
+      const result = await createCyberbizReportIngestor(c.get("db")).ingest({
+        kind: "sales",
+        scopeType: "channel",
+        scopeId: scope.id,
+        scopeName: scope.name,
+        rows: input.rows,
+        sourceFileName: requireString(input, "sourceFileName", "Mo+ 對帳明細檔名"),
+        requestId: `momo-upload:${crypto.randomUUID()}`,
+        actorEmail: user.email,
+      });
+      await forgetReportAnalytics(cacheClient(c.env));
+      return c.json(result, 201);
+    } catch (error) {
+      if (error instanceof CyberbizReportIngestError) {
+        throw new HTTPException(error.status, { message: error.message });
+      }
+      throw error;
+    }
+  })
 
   /** 執行頁一開始要的東西：店別、預設區間、以及後端到底有沒有接上 GitHub。 */
   .get("/payout/state", requirePermission("tools:payout:run"), async (c) => {
@@ -373,7 +414,7 @@ function scopeFields(input: Record<string, unknown>, configurable: boolean) {
     fields[key] = key === "sourceType" ? value.toLowerCase() : value;
   }
   if (fields.sourceType && !isReportPlatform(fields.sourceType)) {
-    throw new HTTPException(400, { message: "平台必須是 CYBERBIZ 或蝦皮。" });
+    throw new HTTPException(400, { message: "平台必須是有效的報表來源。" });
   }
   // 空的允許（還沒建資料夾），但填了就要真的是 Drive 資料夾連結——貼錯連結會讓
   // 整批報表上傳到別的地方，而那是跑完才會發現的。
@@ -400,12 +441,14 @@ function scopeFields(input: Record<string, unknown>, configurable: boolean) {
 function scopeIdFor(input: Record<string, unknown>, name: string): string {
   const requested = typeof input.id === "string" ? input.id.trim() : "";
   const platform = typeof input.sourceType === "string" ? input.sourceType.trim().toLowerCase() : "cyberbiz";
-  if (!isReportPlatform(platform)) throw new HTTPException(400, { message: "平台必須是 CYBERBIZ 或蝦皮。" });
+  if (!isReportPlatform(platform)) throw new HTTPException(400, { message: "平台必須是有效的報表來源。" });
   if (!requested) return reportManagementScopeIdFromName(name, platform);
   if (!isValidScopeId(requested)) throw new HTTPException(400, { message: "通路 ID 含有不允許的字元。" });
   const idPlatform = requested.startsWith("shopee:")
     ? "shopee"
-    : requested.startsWith("manual:") || requested.startsWith("cyberbiz:") ? "cyberbiz" : "";
+    : requested.startsWith("momo:")
+      ? "momo"
+      : requested.startsWith("manual:") || requested.startsWith("cyberbiz:") ? "cyberbiz" : "";
   if (idPlatform !== platform) throw new HTTPException(400, { message: "通路 ID 與平台不一致。" });
   return requested;
 }

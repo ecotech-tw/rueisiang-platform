@@ -1,4 +1,4 @@
-import { getShopeeSalesSettings, listShopeeSalesRuns, recordShopeeSalesRun } from "@rueisiang/db";
+import { getShopeeSalesSettings, listReportManagementScopes, listShopeeSalesRuns, recordShopeeSalesRun } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -49,19 +49,30 @@ function isFile(value: unknown): value is File {
 
 export const shopeeSales = new Hono<AppEnv>()
   .get("/state", requirePermission("tools:shopee-sales:run"), async (c) => {
-    const settings = await getShopeeSalesSettings(c.get("db"));
+    const scopes = (await listReportManagementScopes(c.get("db")))
+      .filter((scope) => scope.sourceType === "shopee" && scope.scopeKind === "channel" && scope.active && !scope.archivedAt)
+      .map(({ id, name, driveFolderUrl, driveFolderName }) => ({ id, name, driveFolderUrl, driveFolderName }));
     // 只要最新一筆來接回進度；歷次紀錄統一看「執行紀錄」分頁。
     const [latest] = await listShopeeSalesRuns(c.get("db"), 1);
-    return c.json({ settings, ...previousMonthRange(), configured: Boolean(shopeeSalesGithub(c.env) && c.env.UPLOADS), latestRequestId: latest?.requestId ?? null });
+    return c.json({ scopes, ...previousMonthRange(), configured: Boolean(shopeeSalesGithub(c.env) && c.env.UPLOADS), latestRequestId: latest?.requestId ?? null });
   })
   .post("/upload", requirePermission("tools:shopee-sales:run"), async (c) => {
     const github = shopeeSalesGithub(c.env);
     if (!github) throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN，無法觸發執行。" });
     if (!c.env.UPLOADS) throw new HTTPException(503, { message: "平台還沒設定報表暫存空間。" });
 
-    const settings = await getShopeeSalesSettings(c.get("db"));
-    const driveFolderUrl = readDriveUrl(settings.driveFolderUrl, true);
     const form = await c.req.formData();
+    const scopeIdValue = form.get("scopeId");
+    if (typeof scopeIdValue !== "string" || !scopeIdValue.trim()) throw new HTTPException(400, { message: "請選擇蝦皮通路。" });
+    const scope = (await listReportManagementScopes(c.get("db"))).find((candidate) =>
+      candidate.id === scopeIdValue.trim()
+      && candidate.sourceType === "shopee"
+      && candidate.scopeKind === "channel"
+      && candidate.active
+      && !candidate.archivedAt,
+    );
+    if (!scope) throw new HTTPException(400, { message: "請選擇啟用中的蝦皮通路。" });
+    const driveFolderUrl = readDriveUrl(scope.driveFolderUrl, true);
     const file = form.get("file");
     if (!isFile(file)) throw new HTTPException(400, { message: "請選擇一份蝦皮 xlsx 報表。" });
     if (!/\.xlsx$/i.test(file.name)) throw new HTTPException(400, { message: "目前只接受 .xlsx 檔案。" });
@@ -81,7 +92,7 @@ export const shopeeSales = new Hono<AppEnv>()
     const baseUrl = c.env.SHOPEE_SOURCE_BASE_URL?.replace(/\/+$/, "") || new URL(c.req.url).origin;
     const sourceUrl = `${baseUrl}/api/internal/shopee-sales/source/${requestId}?token=${sourceToken}`;
     try {
-      await github.dispatch({ sourceUrl, driveFolderUrl, requestId, start: range.start, end: range.end });
+      await github.dispatch({ sourceUrl, driveFolderUrl, requestId, start: range.start, end: range.end, scopeId: scope.id, scopeName: scope.name });
     } catch (error) {
       await c.env.UPLOADS.delete(objectKey);
       throw error;
@@ -90,10 +101,11 @@ export const shopeeSales = new Hono<AppEnv>()
     const user = c.get("user");
     await recordShopeeSalesRun(c.get("db"), {
       requestId,
+      scopeId: scope.id,
       startDate: range.start,
       endDate: range.end,
       driveFolderUrl,
-      driveFolderName: settings.driveFolderName,
+      driveFolderName: scope.driveFolderName,
       actor: { id: user.id, email: user.email },
     });
     return c.json({ requestId, start: range.start, end: range.end }, 202);

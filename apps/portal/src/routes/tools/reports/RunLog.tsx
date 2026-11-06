@@ -11,6 +11,7 @@ const KIND_LABELS: Record<ReportRunKind, string> = {
   "cyberbiz-sales": "商品銷售",
   "cyberbiz-shop": "官網對帳單",
   shopee: "蝦皮",
+  "momo-sales": "Mo+ 商品銷售",
 };
 
 const PAGE_SIZES = [10, 25, 50] as const;
@@ -49,7 +50,7 @@ export function RunLog() {
 
   // 種類篩選只列有權限的那幾種：API 也只會回那幾種，下拉出現選不到東西的選項
   // 只會讓人以為「沒跑過」。
-  const { runTabs } = useReportTabs();
+  const { runKinds } = useReportTabs();
   const query = useReportRuns();
   const runs = useMemo(() => query.data?.runs ?? [], [query.data]);
 
@@ -102,7 +103,7 @@ export function RunLog() {
           onChange={(event) => { setKind(event.target.value as ReportRunKind | ""); setPage(1); }}
           options={[
             { value: "", label: "全部種類" },
-            ...runTabs.map((tab) => ({ value: tab.kind, label: KIND_LABELS[tab.kind] })),
+            ...runKinds.map((kind) => ({ value: kind, label: KIND_LABELS[kind] })),
           ]}
         />
       </FilterToolbar>

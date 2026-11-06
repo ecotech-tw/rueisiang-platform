@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, getShopeeSalesSettings, listShopeeSalesRuns, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, createReportManagementScope, getShopeeSalesSettings, listShopeeSalesRuns, syncSystemRoles } from "@rueisiang/db";
 import { reportRunScopes, reportRuns, rolePermissionGrants, roles, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -70,7 +70,7 @@ describe("蝦皮銷售報表", () => {
       const id = await seedUser("manager@ecotech.tw", "role-manager");
       const response = await as(id, "manager@ecotech.tw", "/api/tools/shopee-sales/state");
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({ start: "2026-07-01", end: "2026-07-31", settings: { driveFolderUrl: "" }, configured: true, latestRequestId: null });
+      expect(await response.json()).toMatchObject({ start: "2026-07-01", end: "2026-07-31", scopes: [], configured: true, latestRequestId: null });
     } finally {
       vi.useRealTimers();
     }
@@ -78,10 +78,12 @@ describe("蝦皮銷售報表", () => {
 
   it("沒有 Drive 連結時不會觸發 GitHub", async () => {
     const calls = stubGithub();
+    await createReportManagementScope(db(), { id: "shopee:store:no-folder", sourceType: "shopee", scopeKind: "channel", name: "蝦皮測試" });
     const id = await seedUser("manager@ecotech.tw", "role-manager");
     const form = new FormData();
     form.append("file", new File(["xlsx"], "report.xlsx"));
     form.append("password", "042213");
+    form.append("scopeId", "shopee:store:no-folder");
     const response = await as(id, "manager@ecotech.tw", "/api/tools/shopee-sales/upload", { method: "POST", body: form });
     expect(response.status).toBe(400);
     expect(calls).toHaveLength(0);
@@ -92,10 +94,15 @@ describe("蝦皮銷售報表", () => {
     const admin = await seedUser("eli@ecotech.tw", "role-admin");
     // Drive 資料夾改在通路管理設定；這裡就是實際的操作路徑。
     const shopeeScopeId = (await getShopeeSalesSettings(db())).id;
+    const selectedScopeId = "shopee:store:mall-b";
+    await createReportManagementScope(db(), {
+      id: selectedScopeId, sourceType: "shopee", scopeKind: "channel", name: "蝦皮二店",
+      driveFolderUrl: "https://drive.google.com/drive/folders/folder456", driveFolderName: "蝦皮二店",
+    });
     const saved = await as(admin, "eli@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(shopeeScopeId)}`, {
       method: "PATCH",
       body: JSON.stringify({
-        name: "蝦皮", sourceType: "shopee",
+        name: "蝦皮", sourceType: "shopee", scopeKind: "channel",
         driveFolderUrl: "https://drive.google.com/drive/folders/folder123", driveFolderName: "蝦皮",
       }),
     });
@@ -105,30 +112,34 @@ describe("蝦皮銷售報表", () => {
     const form = new FormData();
     form.append("file", new File(["xlsx"], "Order.completed.20250201_20250228.xlsx"));
     form.append("password", "042213");
+    form.append("scopeId", selectedScopeId);
     const response = await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/upload", { method: "POST", body: form });
-    expect(response.status).toBe(202);
+    expect(response.status, await response.clone().text()).toBe(202);
     expect(calls[0]?.url).toContain("actions/workflows/shopee-sales-report.yml/dispatches");
     const inputs = (calls[0]?.body.inputs ?? {}) as Record<string, string>;
-    expect(inputs.drive_folder_url).toBe("https://drive.google.com/drive/folders/folder123");
+    expect(inputs.drive_folder_url).toBe("https://drive.google.com/drive/folders/folder456");
+    expect(inputs.scope_id).toBe(selectedScopeId);
+    expect(inputs.scope_name).toBe("蝦皮二店");
     expect(inputs.start).toBe("2025-02-01");
     expect(inputs.end).toBe("2025-02-28");
     const sourceUrl = inputs.source_url!;
     expect(sourceUrl).toContain("/api/internal/shopee-sales/source/");
-    expect(await listShopeeSalesRuns(db())).toMatchObject([{ driveFolderUrl: "https://drive.google.com/drive/folders/folder123" }]);
+    expect(await listShopeeSalesRuns(db())).toMatchObject([{ driveFolderUrl: "https://drive.google.com/drive/folders/folder456" }]);
+    expect(await db().select({ scopeId: reportRunScopes.scopeId }).from(reportRunScopes)).toEqual([{ scopeId: selectedScopeId }]);
     expect(await db().select({ sourceType: reportRuns.sourceType, importsSales: reportRuns.importsSales, importsPayout: reportRuns.importsPayout }).from(reportRuns)).toEqual([
       { sourceType: "shopee", importsSales: 1, importsPayout: 1 },
     ]);
-    expect(await db().select({ id: scopes.id, driveFolderUrl: scopes.driveFolderUrl }).from(scopes).where(eq(scopes.sourceType, "shopee"))).toEqual([
+    expect(await db().select({ id: scopes.id, driveFolderUrl: scopes.driveFolderUrl }).from(scopes).where(eq(scopes.sourceType, "shopee"))).toContainEqual(
       { id: shopeeScopeId, driveFolderUrl: "https://drive.google.com/drive/folders/folder123" },
-    ]);
+    );
     expect(await db().select({ driveFolderUrl: reportRunScopes.driveFolderUrl, driveFolderName: reportRunScopes.driveFolderName }).from(reportRunScopes)).toEqual([
-      { driveFolderUrl: "https://drive.google.com/drive/folders/folder123", driveFolderName: "蝦皮" },
+      { driveFolderUrl: "https://drive.google.com/drive/folders/folder456", driveFolderName: "蝦皮二店" },
     ]);
     await as(admin, "eli@ecotech.tw", `/api/tools/scopes/${encodeURIComponent(shopeeScopeId)}`, {
       method: "PATCH",
       body: JSON.stringify({ driveFolderUrl: "https://drive.google.com/drive/folders/folder456", driveFolderName: "蝦皮新資料夾" }),
     });
-    expect(await listShopeeSalesRuns(db())).toMatchObject([{ driveFolderUrl: "https://drive.google.com/drive/folders/folder123" }]);
+    expect(await listShopeeSalesRuns(db())).toMatchObject([{ driveFolderUrl: "https://drive.google.com/drive/folders/folder456" }]);
     const state = await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/state");
     expect((await state.json()) as { latestRequestId: string }).toMatchObject({ latestRequestId: expect.any(String) });
     expect((await getShopeeSalesSettings(db())).driveFolderName).toBe("蝦皮新資料夾");

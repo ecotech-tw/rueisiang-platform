@@ -177,7 +177,7 @@ const SCOPE_KINDS: readonly ScopeKind[] = ["store", "channel", "company"];
 function normalizeSourceType(value: string): string {
   const normalized = value.trim().toLowerCase();
   if (!isReportPlatform(normalized)) {
-    throw new ReportManualError("invalid", "平台必須是 CYBERBIZ 或蝦皮。");
+    throw new ReportManualError("invalid", "平台必須是 CYBERBIZ、蝦皮或 Mo+。");
   }
   return normalized;
 }

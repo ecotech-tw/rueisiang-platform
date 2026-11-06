@@ -22,7 +22,7 @@ export function normalizeProductSkuChannel(value: string): string {
 
 function requireReportPlatform(value: string): string {
   const platform = normalizeProductSkuChannel(value);
-  if (!isReportPlatform(platform)) throw new WmsError("invalid", "平台必須是 CYBERBIZ 或蝦皮。");
+  if (!isReportPlatform(platform)) throw new WmsError("invalid", "平台必須是有效的報表來源。");
   return platform;
 }
 
@@ -645,6 +645,12 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
       .where(sql`UPPER(${itemMasters.sku}) IN (${sql.join(batch.map((sku) => sql`${sku}`), sql`, `)})`)),
     categoryNames(db),
   ]);
+  if (normalizedChannel === "momo") {
+    const exactSkuItems = await inBatches(lookupWanted, (batch) => db.select({ id: itemMasters.id, source: itemMasters.source, sku: itemMasters.sku, name: itemMasters.name, categoryId: itemMasters.categoryId })
+      .from(itemMasters)
+      .where(sql`UPPER(${itemMasters.sku}) IN (${sql.join(batch.map((sku) => sql`${sku}`), sql`, `)})`));
+    directRows.push(...exactSkuItems);
+  }
   const categoryById = categories;
   const parentIds = [...new Set(externalRows.map((row) => row.itemId).filter((id): id is string => !!id))];
   const bundleRows = await inBatches(parentIds, (batch) => db
@@ -709,13 +715,22 @@ async function resolveTargetProductSkus(db: Database, externalSkus: string[], ch
   for (const key of wanted) {
     if (ignored.has(key)) continue;
     const direct = directWms.get(key);
-    // WMS SKU 本身優先於外部 mapping；但 CYBERBIZ 目錄只是報表商品的
-    // fallback，若有人明確建立 mapping，仍應依 mapping 的 target item 解析。
+    const explicit = mapped.get(key);
+    // Mo+ 的原廠編號會先自動比對品項 SKU；明確 mapping 必須優先，讓人工修正能覆蓋自動結果。
+    if (normalizedChannel === "momo" && explicit) {
+      resolved.set(key, {
+        externalName: explicit.externalName || explicit.item.name,
+        itemId: explicit.item.id,
+        isBundle: isBundle(explicit.item),
+        components: componentsFor(explicit.item),
+      });
+      continue;
+    }
+    // 其他平台維持既有規則：WMS SKU 本身優先於外部 mapping；CYBERBIZ 目錄是最後 fallback。
     if (direct) {
       resolved.set(key, { externalName: direct.name, itemId: direct.id, isBundle: false, components: [targetComponent(direct, 1)] });
       continue;
     }
-    const explicit = mapped.get(key);
     if (explicit) {
       resolved.set(key, {
         externalName: explicit.externalName || explicit.item.name,

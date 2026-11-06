@@ -16,6 +16,14 @@ on:
         description: "平台執行識別碼"
         required: true
         type: string
+      scope_id:
+        description: "蝦皮通路 scope ID"
+        required: true
+        type: string
+      scope_name:
+        description: "蝦皮通路名稱"
+        required: true
+        type: string
       start:
         description: "報表開始日期（YYYY-MM-DD）"
         required: true
@@ -39,6 +47,8 @@ jobs:
     env:
       DRIVE_FOLDER_URL: ${{ inputs.drive_folder_url }}
       REQUEST_ID: ${{ inputs.request_id }}
+      SHOPEE_SCOPE_ID: ${{ inputs.scope_id }}
+      SHOPEE_SCOPE_NAME: ${{ inputs.scope_name }}
       REPORT_START: ${{ inputs.start }}
       REPORT_END: ${{ inputs.end }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
@@ -128,6 +138,8 @@ jobs:
             --input "$GITHUB_WORKSPACE/source.xlsx" \
             --password "$SHOPEE_REPORT_PASSWORD" \
             --drive-folder-url "$DRIVE_FOLDER_URL" \
+            --scope-id "$SHOPEE_SCOPE_ID" \
+            --scope-name "$SHOPEE_SCOPE_NAME" \
             --start "$REPORT_START" \
             --end "$REPORT_END" \
             --output "$GITHUB_WORKSPACE/tools/shopee-sales-report-export/staging/uploaded/$REPORT_FILENAME"

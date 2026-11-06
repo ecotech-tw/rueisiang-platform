@@ -60,6 +60,25 @@ test("bundle ingest 會傳月份 sales 與每日 payout，不再傳 coveredDates
   assert.equal(result.scopeId, "shopee:store:default");
 });
 
+test("蝦皮月報匯入可保留所選通路種類", async () => {
+  let payload;
+  await ingestReport({
+    apiUrl: "https://platform.example.test",
+    ingestToken: "token",
+    scopeId: "shopee:store:mall-b",
+    scopeName: "蝦皮二店",
+    scopeType: "channel",
+    kind: "sales",
+    rows: [],
+    fetcher: async (_url, init) => {
+      payload = JSON.parse(String(init.body));
+      return new Response(JSON.stringify({ result: { scopeId: "shopee:store:mall-b" } }), { status: 200 });
+    },
+  });
+  assert.equal(payload.scopeId, "shopee:store:mall-b");
+  assert.equal(payload.scopeType, "channel");
+});
+
 test("partial sales report 會明確標示部分完成", async () => {
   const run = {
     label: "2026-07",
