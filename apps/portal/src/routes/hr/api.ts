@@ -262,7 +262,7 @@ export interface PayrollJob {
 }
 export interface PayrollJobsResponse { jobs: PayrollJob[] }
 export interface PayrollEmployeeHistoryRecord { runId: string; runName: string; periodKey: string; versionNumber: number; payDate: string | null; employmentId: string; employeeNumber: string; employeeName: string; earningMinor: number; deductionMinor: number; netMinor: number; closedAt: string }
-export type PayrollRecordStatus = "unsettled" | "closed";
+export type PayrollRecordStatus = "unsettled" | "closed" | "withdrawn";
 export type PayrollRecordPersonKind = "employee" | "worker";
 export type PayrollRecordPayBasis = "monthly" | "daily" | "hourly" | "mixed";
 export interface PayrollRecord {
@@ -278,6 +278,7 @@ export interface PayrollRecord {
   periodKey: string;
   payDate: string | null;
   status: PayrollRecordStatus;
+  withdrawal: { reason: string; withdrawnBy: string; withdrawnAt: string } | null;
   earningMinor: number;
   deductionMinor: number;
   netMinor: number;

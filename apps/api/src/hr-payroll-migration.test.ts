@@ -12,6 +12,36 @@ function apply(sqlite: DatabaseSync, file: string) {
 }
 
 describe("HR 薪資與出勤設定 migration", () => {
+  it("0247 只允許撤回指定個人的已發放 claim，並保護個人撤回稽核紀錄", () => {
+    const sqlite = new DatabaseSync(":memory:");
+    try {
+      sqlite.exec("PRAGMA foreign_keys=ON");
+      for (const file of readdirSync(directory).filter((file) => file.endsWith(".sql") && file < "0246").sort()) apply(sqlite, file);
+      apply(sqlite, "0246_nebulous_manta.sql");
+      apply(sqlite, "0247_individual_payroll_withdrawal.sql");
+      sqlite.exec(`
+        INSERT INTO users(id,email,status) VALUES ('u','u@example.test','active');
+        INSERT INTO hr_employments(id,employee_user_id,employee_number,legal_name) VALUES ('employee','u','E1','員工');
+        INSERT INTO hr_employments(id,person_kind,employee_user_id,employee_number,legal_name) VALUES ('worker','worker',NULL,'W1','支援');
+        INSERT INTO hr_payroll_periods(id,period_key,attendance_start,attendance_end,status,created_by) VALUES ('p','2026-08','2026-08-01','2026-09-01','open','u');
+        INSERT INTO hr_payroll_runs(id,payroll_period_id,version_number,request_id,input_revision,engine_version,status,expected_count,completed_count,created_by) VALUES ('r','p',1,'req',1,'test','ready',2,2,'u');
+        INSERT INTO hr_payslips(id,payroll_run_id,employment_id,employee_number,employee_name,earning_minor,deduction_minor,net_minor) VALUES ('s','r','employee','E1','員工',100,0,100);
+        INSERT INTO hr_payroll_worker_results(id,payroll_run_id,worker_id,worker_name,pay_basis,scheduled_days,amount_minor) VALUES ('wr','r','worker','支援','daily',1,100);
+        INSERT INTO hr_payroll_closed_employees(period_key,employment_id,payroll_run_id) VALUES ('2026-08','employee','r');
+        INSERT INTO hr_payroll_closed_workers(period_key,worker_id,payroll_run_id) VALUES ('2026-08','worker','r');
+        UPDATE hr_payroll_runs SET status='closed' WHERE id='r';
+      `);
+      expect(() => sqlite.exec("DELETE FROM hr_payroll_closed_employees WHERE payroll_run_id='r'")).toThrow(/payroll_run_closed/);
+      expect(() => sqlite.exec("DELETE FROM hr_payroll_closed_workers WHERE payroll_run_id='r'")).toThrow(/payroll_run_closed/);
+      sqlite.exec(`INSERT INTO hr_payroll_record_withdrawals(payroll_run_id,person_kind,person_id,reason,withdrawn_by) VALUES ('r','employee','employee','撤回員工','u');`);
+      sqlite.exec("DELETE FROM hr_payroll_closed_employees WHERE payroll_run_id='r' AND employment_id='employee'");
+      expect(() => sqlite.exec("DELETE FROM hr_payroll_closed_workers WHERE payroll_run_id='r'")).toThrow(/payroll_run_closed/);
+      sqlite.exec(`INSERT INTO hr_payroll_record_withdrawals(payroll_run_id,person_kind,person_id,reason,withdrawn_by) VALUES ('r','worker','worker','撤回支援','u'); DELETE FROM hr_payroll_closed_workers WHERE payroll_run_id='r' AND worker_id='worker';`);
+      expect(() => sqlite.exec("UPDATE hr_payroll_record_withdrawals SET reason='改寫' WHERE payroll_run_id='r'")).toThrow(/payroll_record_withdrawal_immutable/);
+      expect(() => sqlite.exec("DELETE FROM hr_payroll_record_withdrawals WHERE payroll_run_id='r'")).toThrow(/payroll_record_withdrawal_immutable/);
+      expect(sqlite.prepare("PRAGMA foreign_key_check").all()).toEqual([]);
+    } finally { sqlite.close(); }
+  });
   it("不重建既有 HR 表，並為既有任職回填主要辦公位置", () => {
     const sqlite = new DatabaseSync(":memory:");
     try {

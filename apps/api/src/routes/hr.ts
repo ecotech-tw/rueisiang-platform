@@ -6,7 +6,7 @@ import {
   isHrAdministrator, requireHrSelfEmployment,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests, listHrPersonnel,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
-  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollSelfHistory, getHrPayrollSelfDetail, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollCandidateExclusions, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRun,
+  approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRecord, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollSelfHistory, getHrPayrollSelfDetail, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollCandidateExclusions, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRecord, withdrawHrPayrollRun,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
   listHrScheduleManagers, setHrScheduleManager, listHrManagedScheduleScopes, getHrManagedSchedule, saveHrManagedSchedule, setHrManagedScheduleLock, saveHrScheduleChanges,
@@ -1431,12 +1431,25 @@ export const hr = new Hono<AppEnv>()
     const periodKeyFilter = c.req.query("periodKey")?.trim() || "all";
     if (periodKeyFilter !== "all" && !/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKeyFilter)) throw new HTTPException(400, { message: "薪資月份不正確。" });
     const rawStatus = c.req.query("status") ?? "all";
-    if (rawStatus !== "all" && rawStatus !== "unsettled" && rawStatus !== "closed") throw new HTTPException(400, { message: "薪資狀態不正確。" });
+    if (rawStatus !== "all" && rawStatus !== "unsettled" && rawStatus !== "closed" && rawStatus !== "withdrawn") throw new HTTPException(400, { message: "薪資狀態不正確。" });
     const rawPersonKind = c.req.query("personKind") ?? "all";
     if (rawPersonKind !== "all" && rawPersonKind !== "employee" && rawPersonKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
     const rawPayBasis = c.req.query("payBasis") ?? "all";
     if (rawPayBasis !== "all" && rawPayBasis !== "monthly" && rawPayBasis !== "daily" && rawPayBasis !== "hourly" && rawPayBasis !== "mixed") throw new HTTPException(400, { message: "計薪方式不正確。" });
     return c.json(await listHrPayrollRecords(c.get("db"), { page, pageSize, search, periodKey: periodKeyFilter, status: rawStatus, personKind: rawPersonKind, payBasis: rawPayBasis }));
+  })
+  .post("/payroll/records/:runId/:personKind/:personId/withdraw", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const personKind = c.req.param("personKind");
+    if (personKind !== "employee" && personKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
+    const input = await body(c);
+    return c.json(await withdrawHrPayrollRecord(c.get("db"), { runId: c.req.param("runId"), personKind, personId: c.req.param("personId") }, text(input, "reason", "撤回原因", 1000), c.get("user")));
+  })
+  .delete("/payroll/records/:runId/:personKind/:personId", requirePermission("hr:payroll:calculate"), async (c) => {
+    if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();
+    const personKind = c.req.param("personKind");
+    if (personKind !== "employee" && personKind !== "worker") throw new HTTPException(400, { message: "人員類型不正確。" });
+    return c.json(await deleteHrPayrollRecord(c.get("db"), { runId: c.req.param("runId"), personKind, personId: c.req.param("personId") }, c.get("user")));
   })
   .post("/payroll/records/approve", requirePermission("hr:payroll:calculate"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw hrAdminMessage();

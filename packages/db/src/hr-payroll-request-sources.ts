@@ -13,19 +13,22 @@ export function payrollRequestSourceStatements(db: Database, runId: string, sour
   } catch {
     // 壞掉的快照無法索引；仍寫入 marker，避免重複解析。
   }
-  const rows: Array<{ id: string; payrollRunId: string; sourceKind: SourceKind; sourceId: string }> = [];
-  const add = (sourceKind: SourceKind, id: unknown) => {
-    if (typeof id === "string" && id) rows.push({ id: crypto.randomUUID(), payrollRunId: runId, sourceKind, sourceId: id });
-  };
+  const rows: Array<{ id: string; payrollRunId: string; sourceKind: SourceKind; sourceId: string; personKind: "employee" | "worker" | null; personId: string | null }> = [];
+  const add = (sourceKind: SourceKind, entry: Record<string, unknown>, id: unknown) => {
+    if (typeof id !== "string" || !id) return;
+    const personId = typeof entry.workerId === "string" ? entry.workerId : typeof entry.employmentId === "string" ? entry.employmentId : null;
+    const personKind = personId ? (sourceKind === "worker_overtime" || typeof entry.workerId === "string" ? "worker" : "employee") : null;
+    rows.push({ id: crypto.randomUUID(), payrollRunId: runId, sourceKind, sourceId: id, personKind, personId });
+  }
   for (const [kind, key] of SOURCE_KEYS) {
     const entries = snapshot[key];
     if (Array.isArray(entries)) for (const entry of entries) {
-      if (entry && typeof entry === "object" && !Array.isArray(entry)) add(kind, (entry as Record<string, unknown>).id);
+      if (entry && typeof entry === "object" && !Array.isArray(entry)) add(kind, entry as Record<string, unknown>, (entry as Record<string, unknown>).id);
     }
   }
   const clocks = snapshot.clocks;
   if (Array.isArray(clocks)) for (const clock of clocks) {
-    if (clock && typeof clock === "object" && !Array.isArray(clock)) add("clock_correction", (clock as Record<string, unknown>).correctionRequestId);
+    if (clock && typeof clock === "object" && !Array.isArray(clock)) add("clock_correction", clock as Record<string, unknown>, (clock as Record<string, unknown>).correctionRequestId);
   }
   const statements = [db.insert(hrPayrollRequestSourceRuns).values({ payrollRunId: runId })];
   for (let i = 0; i < rows.length; i += 16) statements.push(db.insert(hrPayrollRequestSources).values(rows.slice(i, i + 16)) as never);
@@ -48,5 +51,12 @@ export async function ensurePayrollRequestSourcesIndexed(db: Database) {
 export function payrollRequestSourceReference(sourceKind: SourceKind, sourceId: SQLWrapper | string): SQL {
   return sql`EXISTS (SELECT 1 FROM hr_payroll_request_sources AS payroll_source
     INNER JOIN hr_payroll_runs AS source_run ON source_run.id = payroll_source.payroll_run_id
-    WHERE payroll_source.source_kind = ${sourceKind} AND payroll_source.source_id = ${sourceId})`;
+    WHERE payroll_source.source_kind = ${sourceKind} AND payroll_source.source_id = ${sourceId}
+      AND (payroll_source.person_id IS NULL OR (
+        NOT EXISTS (SELECT 1 FROM hr_payroll_record_withdrawals AS withdrawn
+          WHERE withdrawn.payroll_run_id = payroll_source.payroll_run_id
+            AND withdrawn.person_kind = payroll_source.person_kind AND withdrawn.person_id = payroll_source.person_id)
+        AND (EXISTS (SELECT 1 FROM hr_payslips AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.employment_id=payroll_source.person_id)
+          OR EXISTS (SELECT 1 FROM hr_payroll_worker_results AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.worker_id=payroll_source.person_id))
+      )))`;
 }

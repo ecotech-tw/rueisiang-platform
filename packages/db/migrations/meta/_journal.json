@@ -1555,6 +1555,20 @@
       "when": 1793948895804,
       "tag": "0245_familiar_iron_monger",
       "breakpoints": true
+    },
+    {
+      "idx": 246,
+      "version": "6",
+      "when": 1793954404976,
+      "tag": "0246_nebulous_manta",
+      "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "6",
+      "when": 1793954404977,
+      "tag": "0247_individual_payroll_withdrawal",
+      "breakpoints": true
     }
   ]
 }
