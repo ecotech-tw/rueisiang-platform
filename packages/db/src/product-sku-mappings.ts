@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { isReportPlatform } from "./report-platforms.js";
 import { inJsonArray } from "./sql-lists.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { activityEvents } from "./schema/activity.js";
@@ -17,6 +18,12 @@ export function normalizeExternalSku(value: string): string {
 /** 通路目前用文字保存；先統一大小寫，未來新增通路不用先改資料庫 enum。 */
 export function normalizeProductSkuChannel(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function requireReportPlatform(value: string): string {
+  const platform = normalizeProductSkuChannel(value);
+  if (!isReportPlatform(platform)) throw new WmsError("invalid", "平台必須是 CYBERBIZ 或蝦皮。");
+  return platform;
 }
 
 /** 從 scope ID 前綴推導這個 scope 自己的通路；沒有前綴的資料當作未指定通路。 */
@@ -452,7 +459,7 @@ async function addTargetProductSkuMapping(
   db: Database,
   input: { channel?: string; externalName: string; externalSku: string; components: ProductBundleComponentInput[]; actor: Actor },
 ) {
-  const channel = normalizeProductSkuChannel(input.channel ?? "legacy");
+  const channel = requireReportPlatform(input.channel ?? "");
   const externalSku = normalizeExternalSku(input.externalSku);
   const externalName = input.externalName.trim();
   if (!channel) throw new WmsError("invalid", "通路不可為空。");
@@ -510,7 +517,7 @@ async function updateTargetProductSkuMapping(
 ) {
   const [mapping] = await db.select().from(reportExternalProducts).where(eq(reportExternalProducts.id, input.id)).limit(1);
   if (!mapping || mapping.resolution !== "mapped") throw new WmsError("not_found", "找不到這筆外部 SKU 對應。");
-  const channel = normalizeProductSkuChannel(input.channel ?? mapping.sourceType);
+  const channel = requireReportPlatform(input.channel ?? mapping.sourceType);
   const externalSku = normalizeExternalSku(input.externalSku);
   const externalName = input.externalName.trim();
   if (!channel) throw new WmsError("invalid", "通路不可為空。");
@@ -755,7 +762,7 @@ export async function addReportSkuIgnore(
   db: Database,
   input: { channel: string; externalSku: string; reason?: string; actor: Actor },
 ): Promise<ReportSkuIgnoreRow> {
-  const channel = normalizeProductSkuChannel(input.channel);
+  const channel = requireReportPlatform(input.channel);
   const externalSku = normalizeExternalSku(input.externalSku);
   const reason = (input.reason ?? "").trim();
   if (!channel) throw new WmsError("invalid", "通路不可為空。");

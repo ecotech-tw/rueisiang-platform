@@ -120,7 +120,7 @@ export function SkuMappingDialog({
     const normalizedName = externalName.trim();
     const normalizedSku = channel === "shopee" ? composeShopeeSku(shopeeProductId, shopeeVariantId) : externalSku.trim();
     if (!channel.trim() || !normalizedName || !normalizedSku) {
-      setValidationError(channel === "shopee" && !shopeeProductId.trim() ? "請填寫蝦皮商品 ID。" : "請完整填寫通路商品資料。");
+      setValidationError(channel === "shopee" && !shopeeProductId.trim() ? "請填寫蝦皮商品 ID。" : "請完整填寫平台商品資料。");
       return;
     }
     if (!components.length) {
@@ -150,7 +150,7 @@ export function SkuMappingDialog({
   return (
     <Dialog
       title={mapping ? "編輯 SKU 對應" : "新增 SKU 對應"}
-      titleMeta="通路商品先對應到品項列表；所有用料都直接對應到品項。"
+      titleMeta="平台商品先對應到品項列表；所有用料都直接對應到品項。"
       width={780}
       onClose={onClose}
       closeDisabled={pending}
@@ -159,7 +159,7 @@ export function SkuMappingDialog({
     >
       <div className="admin-form sku-mapping-form">
         <div className="field-grid">
-          <SelectField label="通路" required value={channel} onChange={(event) => changeChannel(event.target.value)} options={channelOptions} disabled={pending} />
+          <SelectField label="平台" required value={channel} onChange={(event) => changeChannel(event.target.value)} options={channelOptions} disabled={pending} />
           {channel === "shopee" ? (
             <>
               <TextField label="蝦皮商品 ID" required hint="報表的商品選項貨號前半段。" value={shopeeProductId} onChange={(event) => setShopeeProductId(event.target.value)} disabled={pending} />

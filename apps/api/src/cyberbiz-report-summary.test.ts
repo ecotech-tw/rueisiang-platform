@@ -324,7 +324,7 @@ describe("報表統計 API", () => {
   });
 
   // 通路管理是唯一的入口：列出每一個通路，不挑 source 也不挑 kind。
-  it("通路管理可以新增、改名、改種類與來源、停用與封存", async () => {
+  it("通路管理可以新增、改名、改種類與平台、停用與封存", async () => {
     const manager = await seedUser("manager-scope-management@ecotech.tw", "role-manager");
 
     await upsertReportScope(db(), { id: "shopee:store:default", scopeKind: "store", sourceType: "shopee", name: "蝦皮" });
@@ -348,10 +348,11 @@ describe("報表統計 API", () => {
       { name: "歷史通路" },
     );
     expect(created.status).toBe(201);
-    const createdBody = await created.json() as { scope: { id: string } };
+    const createdBody = await created.json() as { scope: { id: string; sourceType: string } };
     expect(createdBody.scope.id).toMatch(/^manual:store:/u);
+    expect(createdBody.scope.sourceType).toBe("cyberbiz");
 
-    // 種類、來源與外部店名都是可管理的欄位，不是從 ID 前綴推出來的。
+    // 新增 scope 預設屬於 CYBERBIZ；平台是識別鍵，建立後不可變更。
     const updated = await mutate(
       `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
       "PATCH",
@@ -364,9 +365,9 @@ describe("報表統計 API", () => {
       scope: { id: createdBody.scope.id, name: "蝦皮二館", active: true },
     });
 
-    // 來源、種類、外部店名與 Drive 只有管理者能改；合併成一頁不該順便放寬權限。
+    // 種類、外部店名與 Drive 只有管理者能改；合併成一頁不該順便放寬權限。
     // 外部店名決定 runner 去後台抓哪一家店的錢，所以跟 Drive 同一層。
-    for (const payload of [{ scopeKind: "channel" }, { externalName: "蝦皮二館賣場" }]) {
+    for (const payload of [{ scopeKind: "channel" }, { externalName: "CYBERBIZ 後台店名" }]) {
       const forbidden = await mutate(
         `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
         "PATCH",
@@ -383,14 +384,35 @@ describe("報表統計 API", () => {
       "PATCH",
       admin,
       "admin-scope-management@ecotech.tw",
-      { scopeKind: "channel", sourceType: "Shopee", externalName: "蝦皮二館賣場", driveFolderUrl: "https://drive.google.com/drive/folders/abc" },
+      { scopeKind: "channel", sourceType: "CYBERBIZ", externalName: "CYBERBIZ 後台店名", driveFolderUrl: "https://drive.google.com/drive/folders/abc" },
     );
     expect(configured.status).toBe(200);
     expect(await configured.json()).toMatchObject({
       scope: {
-        scopeKind: "channel", sourceType: "shopee", externalName: "蝦皮二館賣場",
+        scopeKind: "channel", sourceType: "cyberbiz", externalName: "CYBERBIZ 後台店名",
         driveFolderUrl: "https://drive.google.com/drive/folders/abc",
       },
+    });
+
+    const changedPlatform = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "PATCH",
+      admin,
+      "admin-scope-management@ecotech.tw",
+      { sourceType: "shopee" },
+    );
+    expect(changedPlatform.status).toBe(409);
+
+    const shopeeScope = await mutate(
+      "/api/tools/scopes",
+      "POST",
+      admin,
+      "admin-scope-management@ecotech.tw",
+      { name: "蝦皮新賣場", sourceType: "shopee" },
+    );
+    expect(shopeeScope.status).toBe(201);
+    expect(await shopeeScope.json()).toMatchObject({
+      scope: { id: expect.stringMatching(/^shopee:store:/u), sourceType: "shopee" },
     });
 
     const badKind = await mutate(
@@ -434,7 +456,7 @@ describe("報表統計 API", () => {
     const rows = (await afterArchive.json() as { scopes: Array<{ id: string; archivedAt: string | null }> }).scopes;
     expect(rows.find((scope) => scope.id === createdBody.scope.id)?.archivedAt).toEqual(expect.any(String));
     // 封存的通路仍然在資料庫裡，歷史查得到。
-    expect(rows).toHaveLength(5);
+    expect(rows).toHaveLength(6);
 
     // 重新啟用會一併解除封存，不然「停用」與「封存」會互相打架。
     const restored = await mutate(

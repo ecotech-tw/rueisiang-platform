@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { REPORT_PLATFORM_OPTIONS, reportPlatformLabel } from "@rueisiang/db/report-platforms";
 import { useArchiveScope, useSaveScope, useScopes, type ManagementScope } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useSession } from "../../auth/session.js";
@@ -32,26 +33,12 @@ const KIND_LABELS: Record<ManagementScope["scopeKind"], string> = {
   company: "彙總",
 };
 
-/**
- * 來源＝這個通路的資料由哪一支 driver 進來，所以是固定的清單而不是自由文字。
- *
- * 只有 cyberbiz 會被出金表與商品銷售報表的 runner 執行；shopee 是人匯出 xlsx
- * 再上傳；manual 完全靠人工補登。之後接新的 driver 就在這裡加一個。
- */
-const SOURCE_OPTIONS = [
-  { value: "cyberbiz", label: "CYBERBIZ" },
-  { value: "shopee", label: "蝦皮" },
-  { value: "manual", label: "其他" },
-] as const;
-
-const SOURCE_LABELS: Record<string, string> = {
-  cyberbiz: "CYBERBIZ",
-  shopee: "蝦皮",
-  manual: "其他",
-};
+function platformOf(sourceType: string): string {
+  return sourceType === "manual" ? "cyberbiz" : sourceType;
+}
 
 function sourceLabel(sourceType: string): string {
-  return SOURCE_LABELS[sourceType] ?? sourceType;
+  return reportPlatformLabel(platformOf(sourceType));
 }
 
 function ScopeDialog({
@@ -65,17 +52,16 @@ function ScopeDialog({
 }) {
   const [name, setName] = useState(scope?.name ?? "");
   const [externalName, setExternalName] = useState(scope?.externalName ?? "");
-  const [sourceType, setSourceType] = useState(scope?.sourceType ?? "manual");
+  const [sourceType, setSourceType] = useState(platformOf(scope?.sourceType ?? "cyberbiz"));
   const [scopeKind, setScopeKind] = useState<ManagementScope["scopeKind"]>(scope?.scopeKind ?? "store");
   const [driveFolderUrl, setDriveFolderUrl] = useState(scope?.driveFolderUrl ?? "");
   const [driveFolderName, setDriveFolderName] = useState(scope?.driveFolderName ?? "");
   const save = useSaveScope();
   const toast = useToast();
   const valid = name.trim() !== "";
-  // 舊資料可能有清單以外的來源；不能因為選單沒有就把它悄悄換掉。
-  const sourceOptions = SOURCE_OPTIONS.some((option) => option.value === sourceType)
-    ? SOURCE_OPTIONS.map((option) => ({ label: option.label, value: option.value }))
-    : [{ label: sourceType, value: sourceType }, ...SOURCE_OPTIONS.map((option) => ({ label: option.label, value: option.value }))];
+  const sourceOptions = REPORT_PLATFORM_OPTIONS.some((option) => option.value === sourceType)
+    ? REPORT_PLATFORM_OPTIONS.map((option) => ({ label: option.label, value: option.value }))
+    : [{ label: sourceLabel(sourceType), value: sourceType }, ...REPORT_PLATFORM_OPTIONS.map((option) => ({ label: option.label, value: option.value }))];
 
   return (
     <Dialog
@@ -89,11 +75,11 @@ function ScopeDialog({
           save.mutate({
             ...(scope ? { id: scope.id } : {}),
             name: name.trim(),
-            // 外部店名只有 CYBERBIZ 用得到；換了來源就把它清掉，不要留一個
+            // 外部店名只有 CYBERBIZ 用得到；換了平台就把它清掉，不要留一個
             // 沒有人會再讀、卻看起來還有效的值。
             // 沒有 config 權限的人送這幾個欄位會被 API 擋成 403，所以乾脆不送。
             ...(canConfigure ? {
-              sourceType,
+              ...(!scope ? { sourceType } : {}),
               scopeKind,
               driveFolderUrl,
               driveFolderName,
@@ -134,10 +120,12 @@ function ScopeDialog({
       ) : null}
       {canConfigure ? (
         <SelectField
-          label="來源"
+          label="平台"
           value={sourceType}
           onChange={(event) => setSourceType(event.target.value)}
           options={sourceOptions}
+          disabled={Boolean(scope)}
+          hint={scope ? "平台建立後不可變更，避免歷史報表與 SKU 對應改掛到其他平台。" : "SKU 對應會依此平台共用；人工補登也請選商品實際所屬的平台。"}
         />
       ) : null}
       {canConfigure && sourceType === "cyberbiz" ? (
@@ -259,7 +247,7 @@ export function Scopes() {
             label="搜尋"
             className={SEARCH_INPUT_WIDTH}
             type="search"
-            placeholder="搜尋通路名稱、外部店名或來源"
+            placeholder="搜尋通路名稱、外部店名或平台"
             value={search}
             onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           />
@@ -290,7 +278,7 @@ export function Scopes() {
               <tr>
                 <SortableHeader label="通路" field="name" active={sortField} direction={sortDirection} onSort={sort} />
                 <SortableHeader label="種類" field="kind" active={sortField} direction={sortDirection} onSort={sort} />
-                <SortableHeader label="來源" field="source" active={sortField} direction={sortDirection} onSort={sort} />
+                <SortableHeader label="平台" field="source" active={sortField} direction={sortDirection} onSort={sort} />
                 {canConfigure ? <th>Drive 資料夾</th> : null}
                 <th>還在營業</th>
                 <th />
@@ -314,7 +302,7 @@ export function Scopes() {
                       </div>
                     </td>
                     <td data-label="種類"><StatusBadge>{KIND_LABELS[scope.scopeKind]}</StatusBadge></td>
-                    <td data-label="來源"><StatusBadge>{sourceLabel(scope.sourceType)}</StatusBadge></td>
+                    <td data-label="平台"><StatusBadge>{sourceLabel(scope.sourceType)}</StatusBadge></td>
                     {canConfigure ? (
                       <td data-label="Drive 資料夾">
                         {scope.driveFolderUrl

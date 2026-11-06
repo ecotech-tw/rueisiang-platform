@@ -359,7 +359,7 @@ async function resolveImportScope(
     }
   }
   // 新增通路統一走管理頁相同的重名檢查，避免匯入路徑拆出第二個同名 scope。
-  return createReportManagementScope(db, { id: input.scopeId, name: input.scopeName });
+  return createReportManagementScope(db, { id: input.scopeId, name: input.scopeName, sourceType: "cyberbiz" });
 }
 
 function safeImportTotal(current: number, next: number, label: string): number {

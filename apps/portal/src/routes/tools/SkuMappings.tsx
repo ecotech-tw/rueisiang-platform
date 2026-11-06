@@ -111,11 +111,11 @@ export function SkuMappings() {
       <Panel className="mapping-pending-panel" title="待處理外部商品" description={unmappedProducts.length ? `最近匯入有 ${unmappedProducts.length} 筆外部商品尚未建立對應。` : "目前沒有待建立對應的外部商品。"}>
         {unmappedProducts.length ? (
           <DataTable>
-              <thead><tr><th>通路</th><th>外部商品</th><th>最近出現</th><th className="numeric">資料列</th><th /></tr></thead>
+              <thead><tr><th>平台</th><th>外部商品</th><th>最近出現</th><th className="numeric">資料列</th><th /></tr></thead>
               <tbody>
                 {unmappedProducts.map((product) => (
                   <tr key={`${product.channel}:${product.externalSku}`}>
-                    <td data-label="通路"><StatusBadge palette="amber">{productSkuChannelLabel(product.channel)}</StatusBadge></td>
+                    <td data-label="平台"><StatusBadge palette="amber">{productSkuChannelLabel(product.channel)}</StatusBadge></td>
                     <td data-label="外部商品"><span className="cell-strong">{product.externalName || "未提供名稱"}</span><small className="cell-sub"><code>{product.externalSku}</code></small></td>
                     <td data-label="最近出現" className="cell-sub">{formatTime(product.lastSeenAt)}</td>
                     <td data-label="資料列" className="numeric">{product.rowCount.toLocaleString("zh-TW")}</td>
@@ -140,10 +140,10 @@ export function SkuMappings() {
             <span className="cell-sub">{ignores.length ? `已標記 ${ignores.length} 筆` : "尚未標記"}</span>
           </summary>
           <div className="sku-ignore-body">
-            <p className="cell-sub">補寄、已下架這類永遠不該進統計的通路 SKU。標記之後匯入會照樣略過，但不再列進「未對應」的提醒。</p>
+            <p className="cell-sub">補寄、已下架這類永遠不該進統計的平台 SKU。標記之後匯入會照樣略過，但不再列進「未對應」的提醒。</p>
         <div className="flex flex-wrap items-end gap-2.5 max-[760px]:gap-2">
           <SelectField
-            label="通路"
+            label="平台"
             value={ignoreChannel}
             onChange={(event) => setIgnoreChannel(event.target.value)}
             options={PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))}
@@ -211,15 +211,15 @@ export function SkuMappings() {
             label="搜尋"
             className={SEARCH_INPUT_WIDTH}
             type="search"
-            placeholder="搜尋通路商品、外部 SKU 或品項 SKU"
+            placeholder="搜尋平台商品、外部 SKU 或品項 SKU"
             value={search}
             onChange={(event) => { setSearch(event.target.value); setPage(1); }}
           />
           <FilterSelect
-            label="通路"
+            label="平台"
             value={channelFilter}
             onChange={(event) => { setChannelFilter(event.target.value); setPage(1); }}
-            options={[{ value: "all", label: "全部通路" }, ...channels.map((value) => ({ value, label: productSkuChannelLabel(value) }))]}
+            options={[{ value: "all", label: "全部平台" }, ...channels.map((value) => ({ value, label: productSkuChannelLabel(value) }))]}
           />
           {search || channelFilter !== "all" ? (
             <Button variant="link" onClick={() => { setSearch(""); setChannelFilter("all"); setPage(1); }}>
@@ -234,8 +234,8 @@ export function SkuMappings() {
         <DataTable>
             <thead>
               <tr>
-                <th>通路</th>
-                <th>通路商品</th>
+                <th>平台</th>
+                <th>平台商品</th>
                 <th>外部 SKU</th>
                 <th>組合用料</th>
                 <th>建立時間</th>
@@ -245,8 +245,8 @@ export function SkuMappings() {
             <tbody>
               {pagedVisible.map((mapping) => (
                 <tr key={mapping.id}>
-                  <td data-label="通路"><StatusBadge palette="slate">{productSkuChannelLabel(mapping.channel)}</StatusBadge></td>
-                  <td data-label="通路商品">
+                  <td data-label="平台"><StatusBadge palette="slate">{productSkuChannelLabel(mapping.channel)}</StatusBadge></td>
+                  <td data-label="平台商品">
                     <div className="cell-strong">{mapping.externalName || "未設定通路商品名稱"}</div>
                   </td>
                   <td data-label="外部 SKU"><span className="cell-strong">{mapping.externalSku}</span></td>

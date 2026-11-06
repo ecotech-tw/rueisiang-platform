@@ -25,6 +25,15 @@ beforeEach(() => {
 });
 
 describe("報表外部商品管理", () => {
+  it("mapping 與忽略清單只接受通路管理共用的平台值", async () => {
+    await expect(addProductSkuMapping(db(), {
+      channel: "manual", externalName: "人工平台", externalSku: "MANUAL-001", components: [], actor: ACTOR,
+    })).rejects.toMatchObject({ kind: "invalid" });
+    await expect(addReportSkuIgnore(db(), {
+      channel: "manual", externalSku: "MANUAL-001", actor: ACTOR,
+    })).rejects.toMatchObject({ kind: "invalid" });
+  });
+
   it("可以對應、忽略與取消忽略外部商品", async () => {
     const itemId = "external-product-item";
     await db().insert(schema.items).values({ id: itemId, source: "custom", kind: "sellable", sku: "ITEM-001", name: "測試品項", active: 1 });
