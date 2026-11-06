@@ -47,7 +47,12 @@ export function useModalFocus(
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
-      if (previous?.isConnected) previous.focus({ preventScroll: true });
+      /*
+       * 只有真的關掉（DOM 已經拿掉）才把焦點還回去。dev 的 StrictMode 會先假卸載再掛一次，
+       * 那時候元素還在；照樣還回去的話，autoFocus 放進第一個欄位的焦點會被拉回外面的按鈕，
+       * 重掛時再落到第一顆可聚焦的「關閉」上。
+       */
+      if (!container.isConnected && previous?.isConnected) previous.focus({ preventScroll: true });
     };
   }, [enabled, ref]);
 }
