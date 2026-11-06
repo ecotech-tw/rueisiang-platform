@@ -5,7 +5,7 @@ import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input,
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable, TableSkin } from "./DataTable";
-import { FilterInput, FilterSelect, FilterToolbar, SEARCH_INPUT_WIDTH, SearchFilterInput } from "./index.js";
+import { FilterInput, FilterSelect, FilterToolbar, PageTabControl, SEARCH_INPUT_WIDTH, SearchFilterInput } from "./index.js";
 
 describe("shared HRIS UI contracts", () => {
   it("PageHeader 的下距與對齊依斷點分開取代，只改手機不會拿掉桌機的預設值", () => {
@@ -31,6 +31,27 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).not.toContain("opacity-0");
     expect(markup).not.toContain("backdrop-filter");
   });
+  it("同頁狀態切換沿用報表路由頁籤的槽、選取態、圖示與按鈕語意", () => {
+    const markup = renderToStaticMarkup(
+      <PageTabControl
+        label="SKU 對應狀態"
+        value="mapped"
+        onChange={() => {}}
+        options={[
+          { value: "pending", label: "待處理", icon: "clock" },
+          { value: "mapped", label: "已對應", icon: "check" },
+          { value: "ignored", label: "忽略", icon: "block" },
+        ]}
+      />,
+    );
+    expect(markup).toContain('role="group" aria-label="SKU 對應狀態"');
+    expect(markup).toContain('aria-pressed="true"');
+    expect(markup.match(/aria-pressed="false"/g)).toHaveLength(2);
+    expect(markup).toContain("rounded-full bg-soft-line p-[5px]");
+    expect(markup).toContain("bg-paper font-bold text-brand-dark");
+    expect(markup.match(/<svg\b/g)).toHaveLength(3);
+  });
+
   it("人員未選取時保留指定提示，不冒充第一個選項", () => {
     const markup = renderToStaticMarkup(<MemoryRouter initialEntries={["/hr/scheduling"]}><SelectField aria-label="人員" searchable value="" placeholder="請選擇人員" options={[{ value: "employee", label: "E1・小明" }]} /></MemoryRouter>);
     expect(markup).toContain('placeholder="請選擇人員"');
