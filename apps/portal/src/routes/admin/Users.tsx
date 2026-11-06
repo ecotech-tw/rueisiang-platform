@@ -16,6 +16,7 @@ import {
   type AdminUser,
   type Catalog,
 } from "./api.js";
+import { PermissionCount, PermissionGrid, PermissionGroup, PermissionHint, PermissionItem } from "./PermissionList.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -243,10 +244,10 @@ function UserEditor({
     >
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
           {isSelf ? (
-            <p className="muted perm-hint">
+            <PermissionHint>
               這是你自己的帳號。角色與權限不能自己調整——否則「能改權限」就等於「是管理者」，
               分層就沒有意義了。需要調整請由另一位管理者操作。
-            </p>
+            </PermissionHint>
           ) : null}
 
           <Field as="div" label="狀態">
@@ -284,39 +285,34 @@ function UserEditor({
             </div>
           </Field>
 
-          <fieldset className="perm-group">
-            <legend>
-              角色
-              <span className="perm-count">{held.size}/{catalog.roles.length}</span>
-            </legend>
-            <div className="perm-grid">
+          <PermissionGroup legend={<>角色<PermissionCount>{held.size}/{catalog.roles.length}</PermissionCount></>}>
+            <PermissionGrid>
               {catalog.roles.map((role) => (
-                <label className="perm-item" key={role.key} title={role.description || undefined}>
-                  <input
-                    type="checkbox"
-                    checked={held.has(role.key)}
-                    disabled={locked}
-                    onChange={(event) => {
-                      /*
-                       * 勾＝指派、取消＝收回。兩個端點本來就存在，這裡只是換一個操作方式。
-                       *
-                       * 點擊當下就把值抓成常數。onSuccess 是等 API 回來才跑的，那時候
-                       * 資料已經重抓、checkbox 也重繪了——在回呼裡讀 event.target.checked
-                       * 拿到的是新狀態，訊息會剛好講反。
-                       */
-                      const adding = event.target.checked;
-                      const done = {
-                        onSuccess: () => toast.show(`${adding ? "已指派" : "已收回"}「${role.name}」`),
-                      };
-                      if (adding) assign.mutate({ id: user.id, roleKey: role.key }, done);
-                      else revoke.mutate({ id: user.id, roleKey: role.key }, done);
-                    }}
-                  />
-                  <span>{role.name}</span>
-                </label>
+                <PermissionItem
+                  key={role.key}
+                  title={role.description || undefined}
+                  label={role.name}
+                  checked={held.has(role.key)}
+                  disabled={locked}
+                  onChange={(event) => {
+                    /*
+                     * 勾＝指派、取消＝收回。兩個端點本來就存在，這裡只是換一個操作方式。
+                     *
+                     * 點擊當下就把值抓成常數。onSuccess 是等 API 回來才跑的，那時候
+                     * 資料已經重抓、checkbox 也重繪了——在回呼裡讀 event.target.checked
+                     * 拿到的是新狀態，訊息會剛好講反。
+                     */
+                    const adding = event.target.checked;
+                    const done = {
+                      onSuccess: () => toast.show(`${adding ? "已指派" : "已收回"}「${role.name}」`),
+                    };
+                    if (adding) assign.mutate({ id: user.id, roleKey: role.key }, done);
+                    else revoke.mutate({ id: user.id, roleKey: role.key }, done);
+                  }}
+                />
               ))}
-            </div>
-          </fieldset>
+            </PermissionGrid>
+          </PermissionGroup>
 
           {/*
             * 額外授予：繞過角色、只給這一個人的權限。
@@ -324,50 +320,39 @@ function UserEditor({
             * 已經被角色涵蓋的項目畫成打勾但不可點——單獨再給一次不會有任何效果，
             * 讓人按得下去只會製造「我明明給了為什麼收不回來」的困惑。
             */}
-          <fieldset className="perm-group">
-            <legend>
-              額外授予的權限
-              <span className="perm-count">{direct.length}</span>
-            </legend>
-            <p className="muted perm-hint">
+          <PermissionGroup legend={<>額外授予的權限<PermissionCount>{direct.length}</PermissionCount></>}>
+            <PermissionHint>
               角色以外的例外。適合「這個月幫忙跑出金表」這種一個人的特例，
               不必為了一個人開一個新角色。只加不減，收不掉角色本來就有的權限。
-            </p>
-            <div className="perm-grid">
+            </PermissionHint>
+            <PermissionGrid>
               {Object.entries(catalog.permissions).map(([key, label]) => {
                 const permission = key as Permission;
                 const byRole = fromRoles.has(permission);
                 return (
-                  <label
-                    className="perm-item"
+                  <PermissionItem
                     key={key}
                     title={byRole ? `已由角色提供：${key}` : key}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={byRole || directSet.has(permission)}
-                      disabled={locked || byRole}
-                      onChange={(event) => {
-                        // 同上：回呼裡讀 event.target.checked 會拿到重繪後的新狀態。
-                        const adding = event.target.checked;
-                        const done = {
-                          onSuccess: () => toast.show(`${adding ? "已授予" : "已收回"}「${label}」`),
-                        };
-                        if (adding) grant.mutate({ id: user.id, permission }, done);
-                        else revokeDirect.mutate({ id: user.id, permission }, done);
-                      }}
-                    />
-                    <span>
-                      {label}
-                      {byRole ? <small>來自角色</small> : null}
-                    </span>
-                  </label>
+                    label={label}
+                    note={byRole ? "來自角色" : undefined}
+                    checked={byRole || directSet.has(permission)}
+                    disabled={locked || byRole}
+                    onChange={(event) => {
+                      // 同上：回呼裡讀 event.target.checked 會拿到重繪後的新狀態。
+                      const adding = event.target.checked;
+                      const done = {
+                        onSuccess: () => toast.show(`${adding ? "已授予" : "已收回"}「${label}」`),
+                      };
+                      if (adding) grant.mutate({ id: user.id, permission }, done);
+                      else revokeDirect.mutate({ id: user.id, permission }, done);
+                    }}
+                  />
                 );
               })}
-            </div>
-          </fieldset>
+            </PermissionGrid>
+          </PermissionGroup>
 
-          <Field as="div" label={<>這個人實際能做什麼<span className="perm-count">{effective.size}</span></>}>
+          <Field as="div" label={<>這個人實際能做什麼<PermissionCount>{effective.size}</PermissionCount></>}>
             <FieldHint>角色帶來的 ＋ 額外授予的，取聯集。</FieldHint>
             {effective.size === 0 ? (
               <p className="muted">沒有任何權限，登入後看不到任何頁面。</p>
