@@ -227,7 +227,6 @@ export function SkuMappings() {
 
         {tab === "ignored" ? (
           <>
-            <p className="cell-sub">補寄、已下架等不應納入報表的外部 SKU。標記後匯入仍會略過，也不再出現在待處理提醒。</p>
             {canWrite ? (
               <div className="flex flex-wrap items-end gap-2.5 border-b border-soft-line pb-4 max-[760px]:gap-2">
                 <SelectField label="平台" value={ignoreChannel} onChange={(event) => setIgnoreChannel(event.target.value)} options={PRODUCT_SKU_CHANNEL_OPTIONS.map((option) => ({ label: option.label, value: option.value }))} />
