@@ -26,6 +26,11 @@ function requireReportPlatform(value: string): string {
   return platform;
 }
 
+function requireExistingMappingPlatform(value: string, existingPlatform: string): string {
+  const platform = normalizeProductSkuChannel(value);
+  return platform === existingPlatform ? platform : requireReportPlatform(platform);
+}
+
 /** 從 scope ID 前綴推導這個 scope 自己的通路；沒有前綴的資料當作未指定通路。 */
 export function scopeChannelFromId(scopeId: string): string {
   const [prefix, scopePart] = scopeId.split(":", 2);
@@ -517,7 +522,7 @@ async function updateTargetProductSkuMapping(
 ) {
   const [mapping] = await db.select().from(reportExternalProducts).where(eq(reportExternalProducts.id, input.id)).limit(1);
   if (!mapping || mapping.resolution !== "mapped") throw new WmsError("not_found", "找不到這筆外部 SKU 對應。");
-  const channel = requireReportPlatform(input.channel ?? mapping.sourceType);
+  const channel = requireExistingMappingPlatform(input.channel ?? mapping.sourceType, mapping.sourceType);
   const externalSku = normalizeExternalSku(input.externalSku);
   const externalName = input.externalName.trim();
   if (!channel) throw new WmsError("invalid", "通路不可為空。");
