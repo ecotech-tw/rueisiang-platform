@@ -191,7 +191,7 @@ export function SkuMappings() {
                   ))}
                 </tbody>
               </DataTable>
-            ) : <p className="muted table-note">{query.isPending ? "載入中…" : query.error ? "待處理商品載入失敗。" : "目前沒有待建立對應的外部商品。已建立對應或標記忽略的商品不會顯示在這裡。"}</p>}
+            ) : <p className="muted table-note">{query.isPending ? "載入中…" : query.error ? "待處理商品載入失敗。" : unmappedProducts.length === 0 ? "目前沒有待建立對應的外部商品。已建立對應或標記忽略的商品不會顯示在這裡。" : "沒有符合條件的外部商品，請調整搜尋或篩選。"}</p>}
           </>
         ) : null}
 
