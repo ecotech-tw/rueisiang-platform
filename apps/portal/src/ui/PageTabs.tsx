@@ -9,6 +9,12 @@ interface PageTab {
   activePaths?: string[];
 }
 
+interface PageTabControlOption {
+  label: string;
+  value: string;
+  icon?: IconName;
+}
+
 /*
  * 底槽要有顏色：頁面底色是 canvas，沒有底槽的話這一排跟頁面上其他文字連結長得一樣，實測會被整個略過。
  * flex-none 與 self-start 都不能省——放在 fills 頁面這種 flex 直欄裡時，前者沒有會被下面的內容擠成
@@ -46,5 +52,38 @@ export function PageTabs({ tabs, label }: { tabs: PageTab[]; label: string }) {
         </NavLink>
       ))}
     </nav>
+  );
+}
+
+/** 與路由頁籤共用外觀，但用於同頁內切換資料狀態。 */
+export function PageTabControl({
+  options,
+  value,
+  onChange,
+  label,
+}: {
+  options: PageTabControlOption[];
+  value: string;
+  onChange: (value: string) => void;
+  label: string;
+}) {
+  return (
+    <div className={TRACK} role="group" aria-label={label}>
+      {options.map((option) => {
+        const selected = option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            className={`${TAB} ${selected ? TAB_ACTIVE : TAB_IDLE}`}
+            aria-pressed={selected}
+            onClick={() => onChange(option.value)}
+          >
+            {option.icon ? <Icon name={option.icon} className="size-5 flex-none" /> : null}
+            <span>{option.label}</span>
+          </button>
+        );
+      })}
+    </div>
   );
 }

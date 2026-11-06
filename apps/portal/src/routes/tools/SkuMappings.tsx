@@ -15,7 +15,7 @@ import {
   PageHeader,
   Panel,
   SEARCH_INPUT_WIDTH,
-  SegmentedControl,
+  PageTabControl,
   SelectField,
   StatusBadge,
   TextField,
@@ -136,16 +136,14 @@ export function SkuMappings() {
         ) : null}
       />
 
-      <SegmentedControl
-        className="max-w-full self-start"
-        skin="tabs"
-        aria-label="SKU 對應狀態"
+      <PageTabControl
+        label="SKU 對應狀態"
         value={tab}
         onChange={changeTab}
         options={[
-          { value: "pending", label: "待處理", badge: unmappedProducts.length },
-          { value: "mapped", label: "已對應", badge: mappings.length },
-          { value: "ignored", label: "忽略", badge: ignores.length },
+          { value: "pending", label: "待處理", icon: "clock" },
+          { value: "mapped", label: "已對應", icon: "check" },
+          { value: "ignored", label: "忽略", icon: "block" },
         ]}
       />
 
