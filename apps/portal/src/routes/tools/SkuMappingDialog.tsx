@@ -148,7 +148,7 @@ export function SkuMappingDialog({
   }
 
   return (
-    <Dialog
+    <Dialog manageFocus
       title={mapping ? "編輯 SKU 對應" : "新增 SKU 對應"}
       titleMeta="平台商品先對應到品項列表；所有用料都直接對應到品項。"
       width={780}

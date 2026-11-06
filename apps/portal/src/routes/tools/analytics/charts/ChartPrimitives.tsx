@@ -112,7 +112,7 @@ export function AnalyticsDataDialog({ title, description, children, disabled = f
         查看資料表
       </Button>
       {open ? (
-        <Dialog
+        <Dialog manageFocus
           title={title}
           titleMeta={description}
           width={760}

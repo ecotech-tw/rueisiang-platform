@@ -306,7 +306,7 @@ export function LineSettings() {
       </Panel>
 
       {toolsOpen ? (
-        <Dialog
+        <Dialog manageFocus
           title="設定小香在 LINE 能用的工具"
           width={760}
           bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
@@ -469,7 +469,7 @@ function GroupToolsDialog({
   const [keys, setKeys] = useState<string[]>(group.tools);
 
   return (
-    <Dialog
+    <Dialog manageFocus
       title={`${group.displayName || group.lineGroupId} 的工具`}
       width={760}
       bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"

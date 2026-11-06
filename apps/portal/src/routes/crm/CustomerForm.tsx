@@ -78,7 +78,7 @@ export function CustomerForm({ customer, onClose }: Props) {
   }
 
   return (
-    <Dialog
+    <Dialog manageFocus
       title={customer ? "編輯客戶" : "新增客人"}
       onClose={onClose}
       closeDisabled={pending}

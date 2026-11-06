@@ -576,7 +576,7 @@ export function Sandbox() {
     </div>
 
       {revisionsOpen ? (
-        <Dialog
+        <Dialog manageFocus
           title="Revision history"
           width={760}
           bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
@@ -604,7 +604,7 @@ export function Sandbox() {
       ) : null}
 
       {toolsOpen ? (
-        <Dialog
+        <Dialog manageFocus
           title="設定可調用的 tools"
           width={760}
           bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
