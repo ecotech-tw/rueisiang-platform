@@ -63,6 +63,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
 
   return (
     <Dialog
+      manageFocus
       title={zone ? "編輯倉位" : "新增倉位"}
       onClose={onClose}
       closeDisabled={pending}

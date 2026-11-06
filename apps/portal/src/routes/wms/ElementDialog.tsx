@@ -37,6 +37,7 @@ export function ElementDialog({
 
   return (
     <Dialog
+      manageFocus
       title={element ? "編輯標籤" : "新增標籤"}
       width={420}
       onClose={onClose}

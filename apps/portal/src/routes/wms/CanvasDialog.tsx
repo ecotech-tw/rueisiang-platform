@@ -34,6 +34,7 @@ export function CanvasDialog({
 
   return (
     <Dialog
+      manageFocus
       title="畫布大小"
       width={420}
       onClose={onClose}

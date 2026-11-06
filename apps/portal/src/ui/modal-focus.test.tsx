@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
-import { act, useRef } from "react";
+import { act, StrictMode, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useModalFocus } from "@rueisiang/ui";
 
 /*
  * useModalFocus 是倉位抽屜與 Dialog（manageFocus）共用的鍵盤行為。
- * 這裡守的是抽屜上疊對話框那種情況：只有最上層處理 Tab 與 Escape。
+ * 這裡守兩件事：抽屜上疊對話框時只有最上層處理 Tab 與 Escape；
+ * dev 的 StrictMode 假卸載不會把 autoFocus 放進欄位的焦點拉走。
  */
 
 function Layer({ name, onEscape }: { name: string; onEscape: () => void }) {
@@ -95,5 +96,25 @@ describe("useModalFocus", () => {
     expect(active()).toBe("drawer-first");
     press("Escape");
     expect(drawerEscape).toHaveBeenCalledTimes(1);
+  });
+
+  it("StrictMode 的假卸載不會把 autoFocus 的焦點拉走；真的關掉才還原", () => {
+    function Form() {
+      const ref = useRef<HTMLDivElement>(null);
+      useModalFocus(ref, { onEscape: () => {} });
+      return (
+        <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true">
+          <button type="button">close</button>
+          <input aria-label="name" autoFocus />
+        </div>
+      );
+    }
+    const show = (open: boolean) => act(() => root.render(<StrictMode><button type="button">opener</button>{open ? <Form /> : null}</StrictMode>));
+    show(false);
+    (host.querySelector("button") as HTMLButtonElement).focus();
+    show(true);
+    expect((document.activeElement as HTMLElement | null)?.getAttribute("aria-label")).toBe("name");
+    show(false);
+    expect(active()).toBe("opener");
   });
 });
