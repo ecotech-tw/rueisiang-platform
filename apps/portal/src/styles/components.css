@@ -1360,61 +1360,6 @@
 }
 
 /*
- * ── 權限勾選 ──────────────────────────────────────────────────────────────
- *
- * 22 個權限一列一個的話，對話框要捲兩倍以上才看得完，而右半邊整片空白。
- * 改成依模組分組的區塊 ＋ 兩欄排列：一眼看得到「這個角色碰得到哪幾個模組」，
- * 而不是一條沒有段落的清單。
- */
-.perm-group {
-  margin: 0;
-  padding: 10px 14px 12px;
-  border: 1px solid var(--color-soft-line);
-  border-radius: var(--radius-card);
-}
-.perm-group legend {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 6px;
-  font-size: 13px;
-  font-weight: 700;
-}
-/* 「3/9」讓人不用自己數就知道這一組勾了多少。 */
-.perm-count {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: var(--color-soft-line);
-  color: var(--color-muted);
-  font-size: 11px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-}
-.perm-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 2px 14px;
-}
-/* 整列可點，不是只有那顆 18px 的方塊。 */
-.perm-item {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  align-items: center;
-  gap: 10px;
-  padding: 6px 8px;
-  border-radius: var(--radius-field);
-  font-size: 13px;
-  cursor: pointer;
-}
-.perm-item:hover { background: --alpha(var(--color-brand) / 5%); }
-.perm-item input { width: 18px; height: 18px; margin: 0; cursor: pointer; }
-.perm-item:has(input:disabled) { cursor: default; }
-.perm-item:has(input:disabled):hover { background: transparent; }
-.perm-item:has(input:checked) { color: var(--color-brand-dark); font-weight: 500; }
-
-/* 權限清單本來就寬，對話框跟著放寬，兩欄才排得下。 */
-
-/*
  * ── 客戶列表的篩選 ────────────────────────────────────────────────────────
  *
  * 六個下拉全攤在工具列上會把搜尋框擠成一小格，而且大部分時候一個都沒動到。
@@ -1473,14 +1418,6 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
 }
-
-/* 危險動作靠左，跟右邊的「關閉／儲存」拉開距離——想關掉的人不該手滑按到刪除。 */
-
-/* 分組裡的說明文字。權限這種東西不解釋一下，人不會知道什麼時候該用。 */
-.perm-hint { margin: 2px 6px 10px; font-size: 12.5px; }
-/* 「來自角色」：標在項目後面，說明為什麼這個勾不能取消。 */
-.perm-item small { margin-left: 6px; color: var(--color-muted); font-size: 11px; font-weight: 400; }
-.perm-item:has(input:disabled) span { color: var(--color-muted); }
 
 /* 操作提示（shell/Toast.tsx）的進場。 */
 @keyframes toast-in {

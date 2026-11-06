@@ -10,6 +10,7 @@ import {
   useUpdateRole,
   type RoleInfo,
 } from "./api.js";
+import { PermissionCount, PermissionGrid, PermissionGroup, PermissionItem } from "./PermissionList.js";
 
 /**
  * 角色管理。
@@ -248,10 +249,11 @@ export function Roles() {
                 const checkedCount = all.filter((key) => editor.permissions.has(key)).length;
 
                 return (
-                  <fieldset className="perm-group" key={group.module}>
-                    <legend>
+                  <PermissionGroup
+                    key={group.module}
+                    legend={<>
                       {group.label}
-                      <span className="perm-count">{checkedCount}/{all.length}</span>
+                      <PermissionCount>{checkedCount}/{all.length}</PermissionCount>
                       {!editor.readOnly ? (
                         <Button
                           variant="link"
@@ -266,32 +268,31 @@ export function Roles() {
                           {checkedCount === all.length ? "全部取消" : "全選"}
                         </Button>
                       ) : null}
-                    </legend>
-
-                    <div className="perm-grid">
+                    </>}
+                  >
+                    <PermissionGrid>
                       {group.items.map((item) => (
                         /*
                          * 權限鍵值放 title 而不是印在標籤下面：它對管理者沒有意義，
                          * 但每一項多一行會讓 22 個權限變成一條要捲兩倍的長清單。
                          * 需要對照鍵值的人（通常是查 bug）滑上去就看得到。
                          */
-                        <label className="perm-item" key={item.key} title={item.key}>
-                          <input
-                            type="checkbox"
-                            checked={editor.permissions.has(item.key)}
-                            disabled={editor.readOnly}
-                            onChange={(event) => {
-                              const next = new Set(editor.permissions);
-                              if (event.target.checked) next.add(item.key);
-                              else next.delete(item.key);
-                              setEditor({ ...editor, permissions: next });
-                            }}
-                          />
-                          <span>{item.label}</span>
-                        </label>
+                        <PermissionItem
+                          key={item.key}
+                          title={item.key}
+                          label={item.label}
+                          checked={editor.permissions.has(item.key)}
+                          disabled={editor.readOnly}
+                          onChange={(event) => {
+                            const next = new Set(editor.permissions);
+                            if (event.target.checked) next.add(item.key);
+                            else next.delete(item.key);
+                            setEditor({ ...editor, permissions: next });
+                          }}
+                        />
                       ))}
-                    </div>
-                  </fieldset>
+                    </PermissionGrid>
+                  </PermissionGroup>
                 );
               })}
         </Dialog>
