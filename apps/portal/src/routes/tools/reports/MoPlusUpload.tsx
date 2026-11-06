@@ -57,7 +57,7 @@ export function MoPlusUpload() {
   }
 
   return (
-    <Panel title="Mo+ 商品銷售" description="上傳 Mo+ 對帳明細。系統讀取「訂單明細」工作表，以出貨確認日歸入月份，並依商品原廠編號自動比對平台 SKU。">
+    <Panel title="Mo+ 商品銷售" description="選擇通路與對帳明細，先解析預覽並確認資料，再匯入銷售報表。">
       {scopesQuery.error ? <Alert tone="danger">{scopesQuery.error.message}</Alert> : null}
       {!scopesQuery.isPending && !scopesQuery.error && !scopes.length ? (
         <Alert tone="warning">尚未建立啟用中的 Mo+ 通路。請先到通路管理新增「種類：通路、平台：Mo+」。</Alert>
@@ -65,14 +65,14 @@ export function MoPlusUpload() {
       <div className="admin-form row">
         <SelectField
           className="min-w-[180px] flex-[1_1_220px]"
-          label="Mo+ 通路"
+          label="通路"
           required
           value={selectedScopeId}
           onChange={(event) => setScopeId(event.target.value)}
           options={scopes.map((scope) => ({ label: scope.name, value: scope.id }))}
           disabled={pending || parsing || !scopes.length}
         />
-        <Field className="min-w-[280px] flex-[1.6_1_360px]" label="Mo+ 對帳明細（.xls 或 .xlsx）">
+        <Field className="min-w-[280px] flex-[1.6_1_360px]" label="報表檔案（.xls 或 .xlsx）" required>
           <Input
             ref={inputRef}
             className="w-full"
@@ -115,7 +115,7 @@ export function MoPlusUpload() {
             </div>
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
             {preview.skippedRowCount > 0 ? <p className="muted">略過 {preview.skippedRowCount} 列非商品或非已送達／退貨資料。</p> : null}
-            <DataTable>
+            <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
               <thead><tr><th>月份</th><th>商品原廠編號／商品編號</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
               <tbody>
                 {preview.rows.slice(0, 100).map((row) => (

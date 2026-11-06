@@ -26,7 +26,7 @@ export function UploadReports() {
 
   return (
     <Page layout="fills">
-      <PageHeader title="上傳報表" description="選擇來源後上傳檔案；各來源使用自己的 parser，解析與 SKU 對應結果會進入共用報表資料。" />
+      <PageHeader title="上傳報表" description="選擇來源與通路後，依提示預覽匯入或啟動背景整理；完成的資料會進入共用銷售報表。" />
       {!available.length ? <Alert tone="warning">你沒有任何上傳報表的執行權限。</Alert> : null}
       {available.length > 1 ? (
         <div className="max-w-sm">
