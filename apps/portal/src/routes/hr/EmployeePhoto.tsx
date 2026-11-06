@@ -27,14 +27,14 @@ export function EmployeePhoto({ employmentId, revision, name, photo, canWrite, d
     else if (input.current) input.current.value = "";
   };
   const src = file ? previewStatus === "valid" ? preview : "" : (photo && failedPhotoId !== photo.id ? `/api/hr/employees/${encodeURIComponent(employmentId)}/photo?v=${encodeURIComponent(photo.id)}` : "");
-  return <div className="hr-employee-photo-block">
-    <div className="hr-employee-photo-preview">{src ? <img src={src} alt={`${name}的大頭貼${file ? "預覽" : ""}`} onError={() => { if (file) photoFile.failPreview(); else if (photo) setFailedPhotoId(photo.id); }} /> : <Icon name="person" />}</div>
-    <div className="hr-employee-photo-content">
+  return <div className="flex items-center gap-6 max-[760px]:flex-col max-[760px]:items-start max-[760px]:gap-4">
+    <div className="grid size-28 flex-none place-items-center overflow-hidden rounded-[50%] bg-canvas text-muted [&>svg]:size-12">{src ? <img className="size-full rounded-[inherit] object-cover outline-1 -outline-offset-1 outline-[oklch(0_0_0/0.1)]" src={src} alt={`${name}的大頭貼${file ? "預覽" : ""}`} onError={() => { if (file) photoFile.failPreview(); else if (photo) setFailedPhotoId(photo.id); }} /> : <Icon name="person" />}</div>
+    <div className="grid min-w-0 gap-2">
       <p>{file ? previewStatus === "checking" ? "正在檢查照片…" : previewStatus === "invalid" ? "所選照片無法使用，請重新選擇。" : "預覽照片，儲存後才會更新員工檔案。" : photo ? failedPhotoId === photo.id ? "照片載入失敗，請重新整理或重新上傳。" : "員工檔案照片" : "尚未上傳大頭貼"}</p>
       <p className="muted">JPEG、PNG 或 WebP 靜態照片，最大 5 MB、800 萬像素、單邊 8192 px；照片僅供本人與全平台 HR 管理者查看。</p>
       {canWrite ? <>
         <input ref={input} type="file" accept={HR_EMPLOYEE_PHOTO_TYPES.join(",")} aria-label="選擇員工大頭貼" hidden disabled={disabled || pending} onChange={(event) => choose(event.target.files?.[0])} />
-        <div className="hr-employee-photo-actions">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="secondary" tone="info" icon="edit" disabled={disabled || pending} onClick={() => input.current?.click()}>{file ? "重選照片" : photo ? "更換大頭貼" : "上傳大頭貼"}</Button>
           {file ? <><Button variant="secondary" disabled={disabled || pending} onClick={cancel}>取消</Button><Button tone="info" icon="check" loading={upload.isPending} disabled={disabled || remove.isPending || !photoFile.canSave} onClick={() => {
             const formData = new FormData(); formData.set("file", file); formData.set("revision", String(expectedRevision));

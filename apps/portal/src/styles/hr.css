@@ -33,14 +33,6 @@
   content: "";
   pointer-events: none;
 }
-.hr-employee-number {
-  display: block;
-  max-width: 10rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .hr-system .row-actions { gap: 8px; }
 /*
  * 頁首並排的操作鍵。沒有這條時 .button-row 是 block，按鈕靠文字基線排：次要鍵與主要鍵
