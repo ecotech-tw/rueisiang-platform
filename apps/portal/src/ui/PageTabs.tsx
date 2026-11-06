@@ -9,16 +9,6 @@ interface PageTab {
   activePaths?: string[];
 }
 
-/**
- * 同一個功能底下平行子頁面的切換列。做成分段控制：一條內凹的底槽，選中的那一段
- * 浮起來變成一張白卡。
- *
- * **不在這裡讀權限。** 呼叫端自己先濾好再傳進來：哪個分頁要哪個權限是那一區的
- * 知識，塞進共用元件會讓它得認識每一個功能的權限鍵。
- *
- * 只剩一個分頁時照樣畫得出來——那一段仍然在說「你在這裡」，而且分頁數量會隨權限
- * 變動，為了少一段而讓版面忽有忽無反而更難讀。
- */
 /*
  * 底槽要有顏色：頁面底色是 canvas，沒有底槽的話這一排跟頁面上其他文字連結長得一樣，實測會被整個略過。
  * flex-none 與 self-start 都不能省——放在 fills 頁面這種 flex 直欄裡時，前者沒有會被下面的內容擠成
@@ -29,6 +19,16 @@ const TAB = "inline-flex items-center gap-2 rounded-full px-[18px] py-[9px] text
 const TAB_IDLE = "font-semibold text-muted hover:bg-brand/4 hover:text-brand-dark";
 const TAB_ACTIVE = "bg-paper font-bold text-brand-dark [box-shadow:0_1px_2px_--alpha(var(--color-ink)/8%),0_4px_10px_--alpha(var(--color-ink)/6%)]";
 
+/**
+ * 同一個功能底下平行子頁面的切換列。做成分段控制：一條內凹的底槽，選中的那一段
+ * 浮起來變成一張白卡。
+ *
+ * **不在這裡讀權限。** 呼叫端自己先濾好再傳進來：哪個分頁要哪個權限是那一區的
+ * 知識，塞進共用元件會讓它得認識每一個功能的權限鍵。
+ *
+ * 只剩一個分頁時照樣畫得出來——那一段仍然在說「你在這裡」，而且分頁數量會隨權限
+ * 變動，為了少一段而讓版面忽有忽無反而更難讀。
+ */
 export function PageTabs({ tabs, label }: { tabs: PageTab[]; label: string }) {
   const pathname = useLocation().pathname;
   if (!tabs.length) return null;
