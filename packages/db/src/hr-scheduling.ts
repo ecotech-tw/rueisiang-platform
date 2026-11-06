@@ -865,12 +865,21 @@ export async function voidHrWorkerCompensationVersion(db: Database, workerId: st
     .where(and(eq(hrWorkerCompensationVersions.workerId, workerId), isNull(hrWorkerCompensationVersions.voidedAt)))
     .orderBy(desc(hrWorkerCompensationVersions.validFrom), desc(hrWorkerCompensationVersions.versionNumber)).limit(1);
   if (latest?.id !== version.id) throw new HrError(409, "只能解除最新的支援人員敘薪版本；請先依序解除較新的版本。");
-  await writeHrMutation(db, sql`UPDATE hr_worker_compensation_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
-    WHERE id=${versionId} AND worker_id=${workerId} AND voided_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM hr_worker_compensation_versions AS newer
-        WHERE newer.worker_id=${workerId} AND newer.voided_at IS NULL
-          AND (newer.valid_from > ${version.validFrom} OR (newer.valid_from = ${version.validFrom} AND newer.version_number > ${version.versionNumber})))
-    RETURNING id`, versionId, actor, "worker_compensation_version_voided", "支援人員敘薪版本已被其他人變更，請重新整理。", {
+  await writeHrMutation(db, [
+    sql`UPDATE hr_worker_compensation_versions SET voided_at=CURRENT_TIMESTAMP, voided_by=${actor.id}
+      WHERE id=${versionId} AND worker_id=${workerId} AND voided_at IS NULL
+        AND NOT EXISTS (SELECT 1 FROM hr_worker_compensation_versions AS newer
+          WHERE newer.worker_id=${workerId} AND newer.voided_at IS NULL
+            AND (newer.valid_from > ${version.validFrom} OR (newer.valid_from = ${version.validFrom} AND newer.version_number > ${version.versionNumber})))
+      RETURNING id`,
+    sql`UPDATE hr_worker_compensation_versions SET valid_to=NULL
+      WHERE id=(SELECT previous.id FROM hr_worker_compensation_versions AS previous
+        WHERE previous.worker_id=${workerId} AND previous.voided_at IS NULL AND previous.valid_to=${version.validFrom}
+          AND (previous.valid_from < ${version.validFrom} OR (previous.valid_from = ${version.validFrom} AND previous.version_number < ${version.versionNumber}))
+        ORDER BY previous.valid_from DESC, previous.version_number DESC LIMIT 1)
+      RETURNING id`,
+  ], versionId, actor, "worker_compensation_version_voided", "支援人員敘薪版本已被其他人變更，請重新整理。", {
+    allowEmptyMutationIndexes: new Set([1]),
     activity: { entityLabel: "支援人員敘薪", summary: "支援人員最新敘薪已解除" },
   });
   return { id: versionId, status: "voided" as const };

@@ -388,7 +388,7 @@ export function WorkerCompensationEditor({ worker, onClose }: { worker: Schedule
     onConfirm={voidLatest}
   >
     <p>這會解除 <strong>{worker.displayName}</strong> 的第 {latestVersion.versionNumber} 版支援人員敘薪；資料不會刪除，既有月份的薪資快照也不會被改動。</p>
-    <p className="muted">只能依序解除最新版本；全部解除後可重新建立修正版。</p>
+    <p className="muted">只能依序解除最新版本；若前一版因本版生效而結束，撤回後會恢復前一版的有效期間。全部撤回後可重新建立修正版。</p>
     {voidCompensation.error ? <Alert tone="danger">{voidCompensation.error.message}</Alert> : null}
   </ConfirmDialog> : null}</>;
 }

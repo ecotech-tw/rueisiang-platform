@@ -1137,6 +1137,9 @@ describe("HR 薪資與櫃點獎金試算", () => {
 
     expect((await request(`${path}/${firstId}/void`, "POST", {})).status).toBe(409);
     expect((await request(`${path}/${secondId}/void`, "POST", {})).status).toBe(200);
+    const restoredWorkers = await request(`/hr/schedule-workers?search=${encodeURIComponent("支援敘薪解除測試")}`);
+    const restoredHistory = (await restoredWorkers.json() as { workers: Array<{ compensation: Array<{ id: string; validTo: string | null }> }> }).workers[0]?.compensation ?? [];
+    expect(restoredHistory.find((version) => version.id === firstId)?.validTo).toBeNull();
     expect((await request(`${path}/${secondId}/void`, "POST", {})).status).toBe(409);
     const replacement = await request(path, "POST", { validFrom: "2026-10-01", payBasis: "daily", baseAmountMinor: 700_000, note: "第二版修正" });
     expect(replacement.status, await replacement.clone().text()).toBe(201);
