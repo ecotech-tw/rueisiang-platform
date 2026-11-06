@@ -13,8 +13,9 @@ export function MoPlusUpload() {
   const toast = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
   const [scopeId, setScopeId] = useState("");
-  const [fileName, setFileName] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<ParsedSalesReport | null>(null);
+  const [parsing, setParsing] = useState(false);
   const [importResult, setImportResult] = useState<MoPlusImportResult | null>(null);
   const [error, setError] = useState("");
 
@@ -22,31 +23,34 @@ export function MoPlusUpload() {
   const selectedScopeId = scopes.some((scope) => scope.id === scopeId) ? scopeId : scopes[0]?.id ?? "";
   const pending = importReport.isPending;
 
-  async function selectFile(file: File | undefined) {
+  function selectFile(selected: File | undefined) {
+    setFile(selected ?? null);
     setPreview(null);
     setImportResult(null);
-    setError("");
-    if (!file) return;
-    setFileName(file.name);
-    if (file.size > MAX_FILE_BYTES) {
-      setError("檔案不能超過 25 MB。");
-      return;
-    }
-    try {
-      setPreview(await momoReportParser.parse(file));
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : "無法解析這份 Mo+ 對帳明細。");
-    }
+    setError(selected && selected.size > MAX_FILE_BYTES ? "檔案不能超過 25 MB。" : "");
   }
 
-  function submit() {
-    if (!preview || !selectedScopeId || pending) return;
-    importReport.mutate({ scopeId: selectedScopeId, sourceFileName: fileName, rows: preview.rows }, {
+  async function execute() {
+    if (pending || parsing || !selectedScopeId) return;
+    if (!preview) {
+      if (!file || file.size > MAX_FILE_BYTES) return;
+      setError("");
+      setParsing(true);
+      try {
+        setPreview(await momoReportParser.parse(file));
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : "無法解析這份 Mo+ 對帳明細。");
+      } finally {
+        setParsing(false);
+      }
+      return;
+    }
+    importReport.mutate({ scopeId: selectedScopeId, sourceFileName: file?.name ?? "", rows: preview.rows }, {
       onSuccess: (result) => {
-        toast.show(`Mo+ 對帳明細已匯入，所涉月份已重新彙整`);
+        toast.show("Mo+ 對帳明細已匯入，所涉月份已重新彙整");
         setImportResult(result);
         setPreview(null);
-        setFileName("");
+        setFile(null);
         if (inputRef.current) inputRef.current.value = "";
       },
     });
@@ -58,26 +62,40 @@ export function MoPlusUpload() {
       {!scopesQuery.isPending && !scopesQuery.error && !scopes.length ? (
         <Alert tone="warning">尚未建立啟用中的 Mo+ 通路。請先到通路管理新增「種類：通路、平台：Mo+」。</Alert>
       ) : null}
-      <div className="flex flex-col gap-4">
+      <div className="admin-form row">
         <SelectField
+          className="min-w-[180px] flex-[1_1_220px]"
           label="Mo+ 通路"
           required
           value={selectedScopeId}
           onChange={(event) => setScopeId(event.target.value)}
           options={scopes.map((scope) => ({ label: scope.name, value: scope.id }))}
-          disabled={pending || !scopes.length}
+          disabled={pending || parsing || !scopes.length}
         />
-        <Field label="Mo+ 對帳明細（.xls 或 .xlsx）">
+        <Field className="min-w-[280px] flex-[1.6_1_360px]" label="Mo+ 對帳明細（.xls 或 .xlsx）">
           <Input
             ref={inputRef}
             className="w-full"
             type="file"
             accept=".xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            onChange={(event) => void selectFile(event.target.files?.[0])}
-            disabled={pending}
+            onChange={(event) => selectFile(event.target.files?.[0])}
+            disabled={pending || parsing}
           />
         </Field>
-        {fileName ? <p className="muted -mt-2">{fileName}</p> : null}
+        <Button
+          className="shrink-0"
+          type="button"
+          size="lg"
+          icon={preview ? "download" : "analytics"}
+          loading={pending || parsing}
+          loadingLabel={pending ? "匯入中…" : "解析中…"}
+          disabled={!selectedScopeId || pending || parsing || (!preview && (!file || file.size > MAX_FILE_BYTES))}
+          onClick={() => void execute()}
+        >
+          {preview ? "確認匯入" : "解析並預覽"}
+        </Button>
+      </div>
+      <div className="flex flex-col gap-4 mt-4">
         {error ? <Alert tone="danger">{error}</Alert> : null}
         {importReport.error ? <Alert tone="danger">{importReport.error.message}</Alert> : null}
         {importResult?.skippedSkus.length ? (
@@ -114,7 +132,6 @@ export function MoPlusUpload() {
             </DataTable>
             {preview.rows.length > 100 ? <p className="muted">表格先顯示前 100 列，實際匯入 {preview.rows.length} 列。</p> : null}
             <p className="muted">找不到原廠編號對應的品項時，匯入完成後可到 <Link className="link" to="/items/sku-mappings">SKU 對應</Link> 手動建立；該商品會先列為待處理，不會被錯誤歸到其他 SKU。</p>
-            <Button size="lg" icon="download" loading={pending} loadingLabel="匯入中…" disabled={!selectedScopeId} onClick={submit}>確認匯入</Button>
           </>
         ) : null}
       </div>
