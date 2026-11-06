@@ -10,6 +10,7 @@ import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, Field, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { WAREHOUSE_CATEGORY_COLORS, type ProductCategory } from "../wms/api.js";
+import { ColorPicker } from "../wms/ColorPicker.js";
 
 interface ItemCategory extends ProductCategory {
   usageCount: number;
@@ -67,19 +68,6 @@ function nextColor(taken: ItemCategory[]): string {
   return WAREHOUSE_CATEGORY_COLORS.find((color) => !used.has(color)) ?? WAREHOUSE_CATEGORY_COLORS[taken.length % WAREHOUSE_CATEGORY_COLORS.length]!;
 }
 
-function ColorPicker({ value, onChange }: { value: string; onChange: (color: string) => void }) {
-  return (
-    <div className="color-picker" role="radiogroup" aria-label="分類顏色">
-      {WAREHOUSE_CATEGORY_COLORS.map((color) => (
-        <label key={color} className={`color-swatch tone-${color}${value === color ? " selected" : ""}`}>
-          <input type="radio" name="item-category-color" value={color} checked={value === color} onChange={() => onChange(color)} />
-          <span className="sr-only">{color}</span>
-        </label>
-      ))}
-    </div>
-  );
-}
-
 function CreateDialog({ categories, onClose }: { categories: ItemCategory[]; onClose: () => void }) {
   const [name, setName] = useState("");
   const [parentId, setParentId] = useState("");
@@ -90,7 +78,7 @@ function CreateDialog({ categories, onClose }: { categories: ItemCategory[]; onC
   return <Dialog title="新增品項分類" onClose={onClose} closeDisabled={create.isPending} formProps={{ onSubmit: (event) => { event.preventDefault(); if (trimmed) create.mutate({ name: trimmed, color, parentId }, { onSuccess: () => { toast.show(`已新增「${trimmed}」`); onClose(); } }); } }} actions={<><Button variant="secondary" type="button" onClick={onClose}>取消</Button><Button type="submit" loading={create.isPending} disabled={!trimmed}>新增分類</Button></>}>
     <TextField label="分類名稱" required autoFocus maxLength={40} placeholder="例如：香氛用品" value={name} onChange={(event) => setName(event.target.value)} />
     <SelectField label="上層分類" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "無", value: "" }, ...categories.filter((category) => category.depth === 0).map((category) => ({ label: category.name, value: category.id }))]} />
-    <Field as="div" label="顏色"><ColorPicker value={color} onChange={setColor} /></Field>
+    <Field as="div" label="顏色"><ColorPicker label="分類顏色" value={color} onChange={setColor} /></Field>
     {create.error ? <Alert tone="danger">{create.error.message}</Alert> : null}
   </Dialog>;
 }
@@ -130,7 +118,7 @@ function EditDialog({ category, categories, onClose }: { category: ItemCategory;
     >
       <TextField label="名稱" required autoFocus maxLength={40} value={name} onChange={(event) => setName(event.target.value)} />
       <SelectField label="上層分類" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "無", value: "" }, ...categories.filter((candidate) => candidate.depth === 0 && candidate.id !== category.id).map((candidate) => ({ label: candidate.name, value: candidate.id }))]} />
-      <Field as="div" label="顏色"><ColorPicker value={color} onChange={setColor} /></Field>
+      <Field as="div" label="顏色"><ColorPicker label="分類顏色" value={color} onChange={setColor} /></Field>
       {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
     </Dialog>
   );

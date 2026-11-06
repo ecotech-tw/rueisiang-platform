@@ -885,69 +885,6 @@
 .shelf-levels { display: grid; gap: 6px; }
 .shelf-level { display: flex; align-items: center; gap: 6px; }
 
-/*
- * ── 分類的色票 ──────────────────────────────────────────────────────────
- *
- * 底層是一組 radio：鍵盤的左右鍵本來就會在同一組之間移動，螢幕閱讀器也會念出
- * 「10 個裡的第 3 個」。真正的 input 藏起來（不是 display: none——那會讓它拿不到
- * 焦點），外面那個 label 才是看得到的圓點。
- */
-/*
- * 十顆色票永遠排成一行。折成兩行的話會看起來像兩組不同的色，而它們是一組。
- *
- * 用十欄的 grid 而不是 flex ＋ 固定尺寸：固定尺寸就要去算「幾 px 乘十再加間距
- * 塞不塞得下」，而那個寬度隨對話框、隨螢幕、隨字級變。試過 26px 與 28px，
- * 兩次都在某個寬度下折行。讓格線決定大小，色票跟著縮就不必算了。
- */
-.color-picker {
-  display: grid;
-  grid-template-columns: repeat(10, 1fr);
-  gap: 8px;
-  /* 寬的地方不要把它們拉成十顆巨大的圓——那不是重點所在。 */
-  max-width: 360px;
-}
-.color-swatch {
-  position: relative;
-  /* 大小交給格線，只鎖定它是正圓。 */
-  width: 100%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  cursor: pointer;
-  /* 未選中時只有一圈很淡的邊，讓淺色的色票在白底上也看得出邊界。 */
-  box-shadow: inset 0 0 0 1px --alpha(var(--color-ink) / 12%);
-}
-.color-swatch input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-/*
- * 選中的狀態：外面加一圈同色的環，中間留白。Material 的選中是「安靜地成立」，
- * 不是換一個更亮的顏色——換顏色的話，被選中的那一顆就不再是它代表的顏色了。
- */
-.color-swatch.selected {
-  box-shadow:
-    0 0 0 2px var(--color-paper) inset,
-    0 0 0 4px currentColor inset;
-}
-.color-swatch:has(input:focus-visible) {
-  outline: 2px solid var(--color-secondary);
-  outline-offset: 2px;
-}
-
-.color-swatch.tone-rose { background: var(--color-tone-rose); color: var(--color-tone-rose); }
-.color-swatch.tone-sky { background: var(--color-tone-sky); color: var(--color-tone-sky); }
-.color-swatch.tone-mint { background: var(--color-tone-mint); color: var(--color-tone-mint); }
-.color-swatch.tone-amber { background: var(--color-tone-amber); color: var(--color-tone-amber); }
-.color-swatch.tone-violet { background: var(--color-tone-violet); color: var(--color-tone-violet); }
-.color-swatch.tone-teal { background: var(--color-tone-teal); color: var(--color-tone-teal); }
-.color-swatch.tone-peach { background: var(--color-tone-peach); color: var(--color-tone-peach); }
-.color-swatch.tone-slate { background: var(--color-tone-slate); color: var(--color-tone-slate); }
-.color-swatch.tone-lime { background: var(--color-tone-lime); color: var(--color-tone-lime); }
-.color-swatch.tone-sand { background: var(--color-tone-sand); color: var(--color-tone-sand); }
-
 .category-drag-handle {
   display: inline-flex;
   width: 28px;

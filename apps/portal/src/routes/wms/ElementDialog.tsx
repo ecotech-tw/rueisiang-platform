@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, Dialog, Field, TextField } from "../../ui/index.js";
+import { ColorPicker } from "./ColorPicker.js";
 import {
-  WAREHOUSE_CATEGORY_COLORS,
   useCreateElement,
   useDeleteElement,
   useUpdateElement,
@@ -98,20 +98,7 @@ export function ElementDialog({
           />
 
           <Field as="div" label="顏色">
-            <div className="color-picker" role="radiogroup" aria-label="標籤顏色">
-              {WAREHOUSE_CATEGORY_COLORS.map((tone) => (
-                <label key={tone} className={`color-swatch tone-${tone}${color === tone ? " selected" : ""}`}>
-                  <input
-                    type="radio"
-                    name="element-color"
-                    value={tone}
-                    checked={color === tone}
-                    onChange={() => setColor(tone)}
-                  />
-                  <span className="sr-only">{tone}</span>
-                </label>
-              ))}
-            </div>
+            <ColorPicker label="標籤顏色" value={color} onChange={setColor} />
           </Field>
 
           {error ? <Alert tone="danger">{error.message}</Alert> : null}

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Alert, Button, Dialog, Field, Input, TextField } from "../../ui/index.js";
+import { ColorPicker } from "./ColorPicker.js";
 import {
-  WAREHOUSE_CATEGORY_COLORS,
   useCreateZone,
   useUpdateZone,
   type ShelfLevel,
@@ -111,23 +111,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
           />
 
           <Field as="div" label="顏色">
-            <div className="color-picker" role="radiogroup" aria-label="倉位顏色">
-              {WAREHOUSE_CATEGORY_COLORS.map((color) => (
-                <label
-                  key={color}
-                  className={`color-swatch tone-${color}${fields.color === color ? " selected" : ""}`}
-                >
-                  <input
-                    type="radio"
-                    name="zone-color"
-                    value={color}
-                    checked={fields.color === color}
-                    onChange={() => set({ color })}
-                  />
-                  <span className="sr-only">{color}</span>
-                </label>
-              ))}
-            </div>
+            <ColorPicker label="倉位顏色" value={fields.color} onChange={(color) => set({ color })} />
           </Field>
 
           {/*
