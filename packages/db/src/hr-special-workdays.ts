@@ -169,7 +169,8 @@ export function payrollSpecialWorkdaySourceStatements(db: Database, runId: strin
     const assignmentId = text(item.id);
     const ruleVersionId = text(item.ruleVersionId);
     if (!assignmentId && !ruleVersionId) return [];
-    return [{ id: crypto.randomUUID(), payrollRunId: runId, assignmentId, ruleId: text(item.ruleId), ruleVersionId, workDate: text(item.workDate) }];
+    const personId = text(item.workerId) ?? text(item.employmentId);
+    return [{ id: crypto.randomUUID(), payrollRunId: runId, assignmentId, ruleId: text(item.ruleId), ruleVersionId, workDate: text(item.workDate), personKind: personId ? (text(item.workerId) ? "worker" as const : "employee" as const) : null, personId }];
   });
   return [
     // 不加 ON CONFLICT：兩個請求同時補同一個批次時，後到的那個撞主鍵、整批回滾，索引列才不會寫兩份。
@@ -203,7 +204,14 @@ async function indexMissingPayrollSpecialWorkdaySources(db: Database) {
  * 薪資批次用過的套用與版本記在 hr_payroll_special_workday_sources（試算時照來源快照寫入）。
  * 那張表對批次沒有外鍵，批次已經不在的列一律不算數（理由見 schema 的說明）。
  */
-const LIVE_PAYROLL_SOURCE = sql`EXISTS (SELECT 1 FROM hr_payroll_runs AS source_run WHERE source_run.id = payroll_source.payroll_run_id)`;
+const LIVE_PAYROLL_SOURCE = sql`EXISTS (SELECT 1 FROM hr_payroll_runs AS source_run WHERE source_run.id = payroll_source.payroll_run_id)
+  AND (payroll_source.person_id IS NULL OR (
+    NOT EXISTS (SELECT 1 FROM hr_payroll_record_withdrawals AS withdrawn
+      WHERE withdrawn.payroll_run_id=payroll_source.payroll_run_id
+        AND withdrawn.person_kind=payroll_source.person_kind AND withdrawn.person_id=payroll_source.person_id)
+    AND (EXISTS (SELECT 1 FROM hr_payslips AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.employment_id=payroll_source.person_id)
+      OR EXISTS (SELECT 1 FROM hr_payroll_worker_results AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.worker_id=payroll_source.person_id))
+  ))`;
 
 /** 用等號去對有索引的欄位，一筆套用只查幾列，不會掃整張表。 */
 function specialWorkdayPayrollReference(assignmentId: AnyColumn | SQL | string) {

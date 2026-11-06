@@ -279,6 +279,13 @@ export async function listHrRequestCenterPage(db: Database, query: HrRequestCent
             WHEN 'clock_correction' THEN 'clock_correction'
             ELSE payroll_source.source_kind END
           AND (request_rows.kind <> 'overtime' OR payroll_source.source_kind IN ('overtime', 'worker_overtime'))
+          AND (payroll_source.person_id IS NULL OR (
+            NOT EXISTS (SELECT 1 FROM hr_payroll_record_withdrawals AS withdrawn
+              WHERE withdrawn.payroll_run_id=payroll_source.payroll_run_id
+                AND withdrawn.person_kind=payroll_source.person_kind AND withdrawn.person_id=payroll_source.person_id)
+            AND (EXISTS (SELECT 1 FROM hr_payslips AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.employment_id=payroll_source.person_id)
+              OR EXISTS (SELECT 1 FROM hr_payroll_worker_results AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.worker_id=payroll_source.person_id))
+          ))
       ) AS payroll_locked
     FROM request_rows
     WHERE ${requestCenterWhere(query)}

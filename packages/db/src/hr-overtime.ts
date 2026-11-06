@@ -582,7 +582,12 @@ export async function cancelHrOvertimeRequests(db: Database, ids: string[], acto
   await ensurePayrollRequestSourcesIndexed(db);
   const [referenced] = await db.all<{ id: string }>(sql`SELECT source_id AS id FROM hr_payroll_request_sources AS payroll_source
     INNER JOIN hr_payroll_runs AS source_run ON source_run.id = payroll_source.payroll_run_id
-    WHERE payroll_source.source_id IN (${jsonArrayValues(ids)}) AND payroll_source.source_kind IN ('overtime', 'worker_overtime') LIMIT 1`);
+    WHERE payroll_source.source_id IN (${jsonArrayValues(ids)}) AND payroll_source.source_kind IN ('overtime', 'worker_overtime')
+      AND (payroll_source.person_id IS NULL OR (
+        NOT EXISTS (SELECT 1 FROM hr_payroll_record_withdrawals AS withdrawn WHERE withdrawn.payroll_run_id=payroll_source.payroll_run_id AND withdrawn.person_kind=payroll_source.person_kind AND withdrawn.person_id=payroll_source.person_id)
+        AND (EXISTS (SELECT 1 FROM hr_payslips AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.employment_id=payroll_source.person_id)
+          OR EXISTS (SELECT 1 FROM hr_payroll_worker_results AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.worker_id=payroll_source.person_id))
+      )) LIMIT 1`);
   if (referenced) throw new HrError(409, "所選加班中有已納入薪資計算的申請，不能批次取消。 ");
 
   const employeeById = new Map(employeeRows.map(({ request, employeeUserId, employeeName }) => [request.id, { personKind: "employee" as const, employeeUserId, employeeName, ...request }]));
@@ -593,12 +598,12 @@ export async function cancelHrOvertimeRequests(db: Database, ids: string[], acto
   const deletions = [
     employeeIds.length ? sql`DELETE FROM hr_overtime_requests
       WHERE id IN (${jsonArrayValues(employeeIds)}) AND status='approved'
-        AND NOT EXISTS (SELECT 1 FROM hr_payroll_request_sources AS payroll_source INNER JOIN hr_payroll_runs AS source_run ON source_run.id=payroll_source.payroll_run_id WHERE payroll_source.source_kind='overtime' AND payroll_source.source_id IN (${jsonArrayValues(employeeIds)}))
+        AND NOT EXISTS (SELECT 1 FROM hr_payroll_request_sources AS payroll_source INNER JOIN hr_payroll_runs AS source_run ON source_run.id=payroll_source.payroll_run_id WHERE payroll_source.source_kind='overtime' AND payroll_source.source_id IN (${jsonArrayValues(employeeIds)}) AND (payroll_source.person_id IS NULL OR (NOT EXISTS (SELECT 1 FROM hr_payroll_record_withdrawals AS withdrawn WHERE withdrawn.payroll_run_id=payroll_source.payroll_run_id AND withdrawn.person_kind=payroll_source.person_kind AND withdrawn.person_id=payroll_source.person_id) AND EXISTS (SELECT 1 FROM hr_payslips AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.employment_id=payroll_source.person_id))))
         AND (SELECT count(*) FROM hr_overtime_requests WHERE id IN (${jsonArrayValues(employeeIds)}) AND status='approved')=${employeeIds.length}
       RETURNING id` : null,
     workerIds.length ? sql`DELETE FROM hr_worker_overtime_requests
       WHERE id IN (${jsonArrayValues(workerIds)}) AND status='approved'
-        AND NOT EXISTS (SELECT 1 FROM hr_payroll_request_sources AS payroll_source INNER JOIN hr_payroll_runs AS source_run ON source_run.id=payroll_source.payroll_run_id WHERE payroll_source.source_kind='worker_overtime' AND payroll_source.source_id IN (${jsonArrayValues(workerIds)}))
+        AND NOT EXISTS (SELECT 1 FROM hr_payroll_request_sources AS payroll_source INNER JOIN hr_payroll_runs AS source_run ON source_run.id=payroll_source.payroll_run_id WHERE payroll_source.source_kind='worker_overtime' AND payroll_source.source_id IN (${jsonArrayValues(workerIds)}) AND (payroll_source.person_id IS NULL OR (NOT EXISTS (SELECT 1 FROM hr_payroll_record_withdrawals AS withdrawn WHERE withdrawn.payroll_run_id=payroll_source.payroll_run_id AND withdrawn.person_kind=payroll_source.person_kind AND withdrawn.person_id=payroll_source.person_id) AND EXISTS (SELECT 1 FROM hr_payroll_worker_results AS record WHERE record.payroll_run_id=payroll_source.payroll_run_id AND record.worker_id=payroll_source.person_id))))
         AND (SELECT count(*) FROM hr_worker_overtime_requests WHERE id IN (${jsonArrayValues(workerIds)}) AND status='approved')=${workerIds.length}
       RETURNING id` : null,
   ].filter((statement): statement is NonNullable<typeof statement> => statement !== null);

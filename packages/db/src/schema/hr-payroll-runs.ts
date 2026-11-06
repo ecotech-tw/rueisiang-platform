@@ -117,8 +117,11 @@ export const hrPayrollSpecialWorkdaySources = sqliteTable("hr_payroll_special_wo
   ruleId: text("rule_id"),
   ruleVersionId: text("rule_version_id"),
   workDate: text("work_date"),
+  personKind: text("person_kind", { enum: ["employee", "worker"] as const }),
+  personId: text("person_id"),
 }, (table) => [
   index("idx_hr_payroll_special_workday_sources_run").on(table.payrollRunId),
+  index("idx_hr_payroll_special_workday_sources_person").on(table.personKind, table.personId),
   index("idx_hr_payroll_special_workday_sources_assignment").on(table.assignmentId),
   index("idx_hr_payroll_special_workday_sources_version").on(table.ruleVersionId),
   check("ck_hr_payroll_special_workday_sources_target", sql`${table.assignmentId} IS NOT NULL OR ${table.ruleVersionId} IS NOT NULL`),
@@ -142,8 +145,11 @@ export const hrPayrollRequestSources = sqliteTable("hr_payroll_request_sources",
   payrollRunId: text("payroll_run_id").notNull(),
   sourceKind: text("source_kind", { enum: ["leave", "overtime", "worker_overtime", "clock_correction"] as const }).notNull(),
   sourceId: text("source_id").notNull(),
+  personKind: text("person_kind", { enum: ["employee", "worker"] as const }),
+  personId: text("person_id"),
 }, (table) => [
   index("idx_hr_payroll_request_sources_source").on(table.sourceKind, table.sourceId),
+  index("idx_hr_payroll_request_sources_person").on(table.personKind, table.personId),
   index("idx_hr_payroll_request_sources_run").on(table.payrollRunId),
 ]);
 
@@ -152,6 +158,19 @@ export const hrPayrollRequestSourceRuns = sqliteTable("hr_payroll_request_source
 });
 
 /** 撤回原因是稽核紀錄；批次退回 ready 並釋放當期 claim，供重新覆核、試算或刪除。一般不可改寫 marker，刪除整批時由受控交易一併清除。 */
+export const hrPayrollRecordWithdrawals = sqliteTable("hr_payroll_record_withdrawals", {
+  payrollRunId: text("payroll_run_id").notNull().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
+  personKind: text("person_kind", { enum: ["employee", "worker"] as const }).notNull(),
+  personId: text("person_id").notNull(),
+  reason: text("reason").notNull(),
+  withdrawnBy: text("withdrawn_by").notNull().references(() => users.id, { onDelete: "restrict" }),
+  withdrawnAt: text("withdrawn_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.payrollRunId, table.personKind, table.personId] }),
+  index("idx_hr_payroll_record_withdrawals_person").on(table.personKind, table.personId),
+  check("ck_hr_payroll_record_withdrawals_reason", sql`length(trim(${table.reason})) BETWEEN 1 AND 1000`),
+]);
+
 export const hrPayrollWithdrawals = sqliteTable("hr_payroll_withdrawals", {
   payrollRunId: text("payroll_run_id").primaryKey().references(() => hrPayrollRuns.id, { onDelete: "restrict" }),
   reason: text("reason").notNull(),
