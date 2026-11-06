@@ -31,6 +31,7 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
 
   return (
     <Dialog
+      manageFocus
       title="盤點"
       onClose={onClose}
       closeDisabled={count.isPending}

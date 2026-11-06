@@ -76,7 +76,7 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
   }
 
   return (
-    <Dialog title="新增入庫" titleMeta="選擇既有品項建立倉儲庫存，不會在 WMS 重建品項主檔。" onClose={onClose} closeDisabled={pending} formProps={{ onSubmit: (event) => { event.preventDefault(); void submit(); } }} actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending} disabled={!selected || !categoryId}>新增入庫</Button></>}>
+    <Dialog manageFocus title="新增入庫" titleMeta="選擇既有品項建立倉儲庫存，不會在 WMS 重建品項主檔。" onClose={onClose} closeDisabled={pending} formProps={{ onSubmit: (event) => { event.preventDefault(); void submit(); } }} actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending} disabled={!selected || !categoryId}>新增入庫</Button></>}>
       <Field as="div" label="品項" required>
         <SearchCombobox
           items={available}

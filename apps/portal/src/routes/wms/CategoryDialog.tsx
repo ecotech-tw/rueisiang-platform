@@ -29,6 +29,7 @@ export function CategoryDialog({
 
   return (
     <Dialog
+      manageFocus
       title="編輯分類"
       width={420}
       onClose={onClose}

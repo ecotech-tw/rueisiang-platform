@@ -125,6 +125,7 @@ export function ItemForm({
 
   return (
     <Dialog
+      manageFocus
       title={item ? "編輯品項" : "新增自訂品項"}
       onClose={onClose}
       closeDisabled={pending}
