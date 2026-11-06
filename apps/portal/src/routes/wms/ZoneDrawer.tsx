@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, ButtonSkin } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, useModalFocus } from "../../ui/index.js";
 import {
   useCountItem,
   useDeleteZoneImage,
@@ -317,14 +317,13 @@ export function ZoneDrawer({
     window.setTimeout(onClose, 200);
   }, [closing, onClose]);
 
-  /** Esc 關掉。抽屜蓋住半個畫面，一定要有不用瞄準的關法。 */
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") requestClose();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [requestClose]);
+  /*
+   * 抽屜是 modal（蓋住半個畫面、背後不能操作），鍵盤行為要跟對話框一樣：打開時焦點移進來、
+   * Tab 不會跑到被蓋住的地圖上、Esc 關掉（一定要有不用瞄準的關法）、關掉後焦點回到剛才點的那一格。
+   * 「修改區塊」的對話框會疊在抽屜上面，那時候由上層的對話框接手。
+   */
+  const panelRef = useRef<HTMLElement>(null);
+  useModalFocus(panelRef, { onEscape: requestClose });
 
   const visible = level === "all" ? items : items.filter((item) => (item.shelfLevel ?? "") === level);
   const levelName = (id: string | null) =>
@@ -341,6 +340,8 @@ export function ZoneDrawer({
       {/* 抽屜在手機上是滿版的，不然商品那幾列擠不下。 */}
       <aside
         className={`flex w-[min(520px,100%)] flex-col bg-paper [box-shadow:var(--shadow-panel)] motion-reduce:animate-none max-[760px]:w-full ${closing ? DRAWER_EXIT.panel : DRAWER_ENTER.panel}`}
+        ref={panelRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="zone-drawer-title"

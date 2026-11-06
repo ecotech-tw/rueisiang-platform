@@ -27,6 +27,7 @@ export { Page, PageSpacing, type PageLayout, type PageSpacingName } from "./Page
 export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
 export { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";
+export { useModalFocus } from "./useModalFocus.js";
 export { OvertimeDayPicker, type OvertimePickerDay } from "./OvertimeDayPicker.js";
 export {
   OVERTIME_HOUR_PRESETS,
