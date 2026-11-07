@@ -16,6 +16,10 @@ import { HrPageSkeleton } from "./HrSkeleton.js";
  * 表頭沿用外層的圓角，但不要玻璃：單據上的表頭是實心的紙。
  */
 const PAYSLIP_TABLE = "table-fixed [&_th]:h-auto [&_td]:h-auto [&_th]:px-0 [&_td]:px-0 [&_th]:py-[9px] [&_td]:py-[9px] [&_th]:border-t-0 [&_td]:border-t-0 [&_th]:border-b [&_td]:border-b [&_th]:border-soft-line [&_td]:border-soft-line [&_th]:text-left [&_td]:text-left [&_th:first-child]:pl-0 [&_td:first-child]:pl-0 [&_th:last-child]:w-[180px] [&_td:last-child]:w-[180px] [&_th:last-child]:pr-0 [&_td:last-child]:pr-0 [&_th]:text-[12px] [&_th]:font-bold [&_.numeric]:text-right [[data-table-scroll]>&_thead_th]:bg-paper [[data-table-scroll]>&_thead_th]:shadow-none [[data-table-scroll]>&_thead_th]:[-webkit-backdrop-filter:none] [[data-table-scroll]>&_thead_th]:[backdrop-filter:none]";
+const PAYSLIP_META_TERM = "text-[11px] font-bold text-muted";
+const PAYSLIP_META_VALUE = "m-0 mt-[3px] wrap-anywhere";
+const PAYSLIP_TOTAL = "flex items-baseline justify-between gap-3";
+const ACTION_GROUP = "flex flex-wrap items-center gap-2 max-[760px]:w-full";
 
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
 const PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
@@ -176,7 +180,10 @@ function scheduleAllocationDetailsOf(value: PayrollLine | PayrollWorker | null |
   const raw = "explanation" in value ? value.explanation.scheduleAllocationDetails : value.scheduleAllocationDetails;
   return Array.isArray(raw) ? raw.filter(isScheduleAllocationDetail) : [];
 }
-const ATTENDANCE_STATUS_LABEL: Record<PayrollScheduleAllocationDetail["attendanceStatus"], string> = { scheduled: "待確認", present: "已出勤", absent: "未出勤" };
+const LINE_FOCUS = "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary";
+const LINE_DETAIL_TERM = "text-[11px] text-muted";
+const LINE_DETAIL_VALUE = "m-0 mt-0.5 text-[12px] text-ink wrap-anywhere";
+const ATTENDANCE_STATUS_LABEL:Record<PayrollScheduleAllocationDetail["attendanceStatus"], string> = { scheduled: "待確認", present: "已出勤", absent: "未出勤" };
 function allocationUnitLabel(detail: PayrollScheduleAllocationDetail): string {
   if (detail.unitNumerator <= 0) return "0 個本薪單位";
   return `${detail.unitNumerator}/${detail.unitDenominator} 個本薪單位`;
@@ -185,14 +192,14 @@ export function PayrollAllocationDetails({ details }: { details: PayrollSchedule
   if (!details.length) return null;
   const totalUnits = details.reduce((sum, detail) => sum + detail.allocatedUnits, 0);
   return <div className="hr-payroll-allocation-details">
-    <dl className="hr-payroll-line-details">
-      <div><dt>分配班別</dt><dd>{details.length} 班</dd></div>
-      <div><dt>單位規則</dt><dd>需求人力為上限，超額排班時均分</dd></div>
-      <div><dt>本次分得</dt><dd>{totalUnits.toLocaleString("zh-TW", { maximumFractionDigits: 3 })} 單位</dd></div>
+    <dl className="m-0 mt-[10px] grid grid-cols-3 gap-x-[14px] gap-y-2 max-[760px]:grid-cols-2 max-[620px]:grid-cols-[1fr]">
+      <div className="min-w-0"><dt className={LINE_DETAIL_TERM}>分配班別</dt><dd className={LINE_DETAIL_VALUE}>{details.length} 班</dd></div>
+      <div className="min-w-0"><dt className={LINE_DETAIL_TERM}>單位規則</dt><dd className={LINE_DETAIL_VALUE}>需求人力為上限，超額排班時均分</dd></div>
+      <div className="min-w-0"><dt className={LINE_DETAIL_TERM}>本次分得</dt><dd className={LINE_DETAIL_VALUE}>{totalUnits.toLocaleString("zh-TW", { maximumFractionDigits: 3 })} 單位</dd></div>
     </dl>
-    <details className="hr-payroll-line-steps">
-      <summary><span>查看每日分配</span><span>{details.length} 筆</span></summary>
-      <ol>{details.map((detail, index) => <li key={`${detail.date}:${detail.shiftGroupId ?? detail.shiftVersionId}:${index}`}><span>{detail.date}・{ATTENDANCE_STATUS_LABEL[detail.attendanceStatus]}・需求 {detail.requiredHeadcount} 人・有效 {detail.effectiveCount}/{detail.assignedCount} 人</span><strong>{allocationUnitLabel(detail)}</strong></li>)}</ol>
+    <details className="mt-[9px] border-t border-t-soft-line pt-2">
+      <summary className={`flex cursor-pointer list-none items-center justify-between gap-2 text-[12px] font-bold text-muted [&::-webkit-details-marker]:hidden ${ LINE_FOCUS }`}><span>查看每日分配</span><span>{details.length} 筆</span></summary>
+      <ol className="m-0 mt-[7px] grid gap-[5px] pl-5 text-[12px] text-muted">{details.map((detail, index) => <li key={`${detail.date}:${detail.shiftGroupId ?? detail.shiftVersionId}:${index}`} className="flex justify-between gap-3"><span className="wrap-anywhere">{detail.date}・{ATTENDANCE_STATUS_LABEL[detail.attendanceStatus]}・需求 {detail.requiredHeadcount} 人・有效 {detail.effectiveCount}/{detail.assignedCount} 人</span><strong className="flex-none text-ink tabular-nums">{allocationUnitLabel(detail)}</strong></li>)}</ol>
     </details>
   </div>;
 }
@@ -304,20 +311,21 @@ function payrollLinesOf(detail: PayrollRecordDetail): PayrollLine[] {
   return groupSpecialAllowanceLines([...baseLines, ...legacyLines]);
 }
 function PayrollLineList({ lines }: { lines: PayrollLine[] }) {
-  return <div className="hr-payroll-line-list">{lines.map((line) => {
+  return <div className="grid gap-[10px] pt-[14px]">{lines.map((line) => {
     const allocationDetails = scheduleAllocationDetailsOf(line);
-    return <details className={`hr-payroll-line hr-payroll-line-${line.direction}`} key={line.lineKey}>
-      <summary className="hr-payroll-line-summary"><span className="hr-payroll-line-title"><strong>{payrollLineLabel(line)}</strong><span className="hr-payroll-line-direction">{line.direction === "earning" ? "應發" : "扣款"}</span></span><strong className="hr-payroll-line-amount">{line.direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</strong></summary>
-      <div className="hr-payroll-line-content"><div className="hr-payroll-line-formula"><span>計算公式</span><p>{lineFormula(line)}</p></div><PayrollAllocationDetails details={allocationDetails} /></div>
+    const deduction = line.direction === "deduction";
+    return <details className="overflow-hidden rounded-[12px] border border-soft-line bg-canvas/74" key={line.lineKey}>
+      <summary className={`grid cursor-pointer list-none grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-[14px] py-[13px] hover:bg-brand/4 motion-reduce:transition-none [&::-webkit-details-marker]:hidden ${ LINE_FOCUS }`}><span className="flex min-w-0 flex-wrap items-center gap-2"><strong className="wrap-anywhere">{payrollLineLabel(line)}</strong><span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-bold ${ deduction ? "bg-warn-soft text-warn" : "bg-ok-soft text-ok" }`}>{deduction ? "扣款" : "應發"}</span></span><strong className={`flex-none whitespace-nowrap text-[15px] tabular-nums ${ deduction ? "text-warn" : "text-ink" }`}>{deduction ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</strong></summary>
+      <div className="border-t border-t-soft-line px-[14px] pb-[13px] max-[620px]:px-3"><div className="mt-[10px] grid gap-[3px] rounded-[9px] bg-brand/6 px-[10px] py-[9px]"><span className="text-[11px] font-extrabold tracking-[.03em] text-muted">計算公式</span><p className="m-0 text-[13px] leading-[1.6] text-ink wrap-anywhere">{lineFormula(line)}</p></div><PayrollAllocationDetails details={allocationDetails} /></div>
     </details>;
   })}</div>;
 }
 
 function PayrollPayslipTable({ title, lines, direction }: { title: string; lines: PayrollLine[]; direction: PayrollLine["direction"] }) {
   const filteredLines = lines.filter((line) => line.direction === direction);
-  return <section className="hr-payroll-payslip-section" aria-labelledby={`payroll-payslip-${direction}`}>
-    <h2 id={`payroll-payslip-${direction}`}>{title}</h2>
-    <DataTable className={PAYSLIP_TABLE} containerClassName="hr-payroll-payslip-table-scroll">
+  return <section className="mt-5 break-inside-avoid" aria-labelledby={`payroll-payslip-${direction}`}>
+    <h2 id={`payroll-payslip-${direction}`} className="m-0 mb-2 text-[15px]">{title}</h2>
+    <DataTable className={PAYSLIP_TABLE}>
       <thead><tr><th>薪資項目</th><th className="numeric">金額</th></tr></thead>
       <tbody>{filteredLines.length ? filteredLines.map((line) => <tr key={line.lineKey}><td>{payrollLineLabel(line)}</td><td className="numeric">{direction === "deduction" ? deductionMoney(line.amountMinor) : money(line.amountMinor)}</td></tr>) : <tr><td colSpan={2}>—</td></tr>}</tbody>
     </DataTable>
@@ -327,23 +335,23 @@ function PayrollPayslipTable({ title, lines, direction }: { title: string; lines
 function PayrollPayslip({ detail, elementRef }: { detail: PayrollRecordDetail; elementRef?: Ref<HTMLElement> }) {
   const lines = payrollLinesOf(detail);
   const titleId = "hr-payroll-payslip-preview-title";
-  return <section ref={elementRef} className="hr-payroll-payslip hr-payroll-payslip-preview" aria-labelledby={titleId}>
-    <header className="hr-payroll-payslip-head">
-      <div><p>員工薪資條</p><h1 id={titleId}>{detail.record.personName}</h1></div>
-      <strong>{periodLabel(detail.record.periodKey)}</strong>
+  return <section ref={elementRef} className="mx-auto my-9 block w-[min(794px,100%)] bg-paper px-12 py-[42px] [box-shadow:0_0_0_1px_color-mix(in_oklab,var(--color-ink)_6%,transparent),0_14px_36px_rgba(53,28,29,.12)]" aria-labelledby={titleId}>
+    <header className="flex items-start justify-between gap-5 border-b-2 border-b-ink pb-[18px]">
+      <div><p className="m-0 mb-1 text-[13px] font-bold tracking-[.08em] text-muted">員工薪資條</p><h1 id={titleId} className="m-0 text-[26px]">{detail.record.personName}</h1></div>
+      <strong className="whitespace-nowrap pt-5 text-[18px] tabular-nums">{periodLabel(detail.record.periodKey)}</strong>
     </header>
-    <dl className="hr-payroll-payslip-meta">
-      <div><dt>員工編號</dt><dd>{detail.record.personNumber ?? "—"}</dd></div>
-      <div><dt>人員類型</dt><dd>{PERSON_KIND_LABEL[detail.record.personKind]}</dd></div>
-      <div><dt>計薪方式</dt><dd>{payBasisOf(detail)}</dd></div>
-      <div><dt>發薪日</dt><dd>{detail.record.payDate ?? "—"}</dd></div>
+    <dl className="mx-0 mb-6 mt-[18px] grid grid-cols-4 gap-x-[18px] gap-y-3">
+      <div className="min-w-0"><dt className={PAYSLIP_META_TERM}>員工編號</dt><dd className={PAYSLIP_META_VALUE}>{detail.record.personNumber ?? "—"}</dd></div>
+      <div className="min-w-0"><dt className={PAYSLIP_META_TERM}>人員類型</dt><dd className={PAYSLIP_META_VALUE}>{PERSON_KIND_LABEL[detail.record.personKind]}</dd></div>
+      <div className="min-w-0"><dt className={PAYSLIP_META_TERM}>計薪方式</dt><dd className={PAYSLIP_META_VALUE}>{payBasisOf(detail)}</dd></div>
+      <div className="min-w-0"><dt className={PAYSLIP_META_TERM}>發薪日</dt><dd className={PAYSLIP_META_VALUE}>{detail.record.payDate ?? "—"}</dd></div>
     </dl>
     <PayrollPayslipTable title="應發項目" lines={lines} direction="earning" />
     <PayrollPayslipTable title="扣款項目" lines={lines} direction="deduction" />
-    <dl className="hr-payroll-payslip-totals">
-      <div><dt>應發合計</dt><dd>{money(detail.record.earningMinor)}</dd></div>
-      <div><dt>扣款合計</dt><dd>{detail.record.deductionMinor ? deductionMoney(detail.record.deductionMinor) : "—"}</dd></div>
-      <div><dt>實領合計</dt><dd>{money(detail.record.netMinor)}</dd></div>
+    <dl className="mx-0 mb-0 mt-7 grid grid-cols-3 gap-3 border-t-2 border-t-ink pt-[14px]">
+      <div className={PAYSLIP_TOTAL}><dt className="text-[12px] text-muted">應發合計</dt><dd className="m-0 text-[17px] tabular-nums">{money(detail.record.earningMinor)}</dd></div>
+      <div className={PAYSLIP_TOTAL}><dt className="text-[12px] text-muted">扣款合計</dt><dd className="m-0 text-[17px] tabular-nums">{detail.record.deductionMinor ? deductionMoney(detail.record.deductionMinor) : "—"}</dd></div>
+      <div className={PAYSLIP_TOTAL}><dt className="text-[12px] font-bold text-brand-dark">實領合計</dt><dd className="m-0 text-[17px] font-bold text-brand-dark tabular-nums">{money(detail.record.netMinor)}</dd></div>
     </dl>
   </section>;
 }
@@ -380,6 +388,7 @@ export function HrPayrollRecordDetail() {
   if (result.error || !detail) return <Alert tone="danger">{result.error?.message ?? "找不到這筆薪資發放紀錄。"}</Alert>;
   const detailLines = payrollLinesOf(detail);
   const workerAllocationDetails = scheduleAllocationDetailsOf(detail.worker);
+  const hasUnsettledActions = canCalculate && detail.record.status === "unsettled";
 
   function approveRecord() {
     approve.mutate({ path: "/payroll/records/approve", method: "POST", values: { records: [{ runId: detail!.record.runId, personKind: detail!.record.personKind, personId: detail!.record.personId }] } }, { onSuccess: () => { setApproveOpen(false); void result.refetch(); toast.show("已確定發放。", "success"); } });
@@ -412,13 +421,14 @@ export function HrPayrollRecordDetail() {
   }
 
   return <Page className="hr-payroll-page hr-payroll-detail-page">
-    <PageHeader title={detail.record.personName} description={`${periodLabel(detail.record.periodKey)}・${PERSON_KIND_LABEL[detail.record.personKind]}・${payBasisOf(detail)}`} actions={<div className="hr-payroll-detail-page-actions"><Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/hr/payroll-settlement")}>返回發放紀錄</Button></div>} />
+    <PageHeader title={detail.record.personName} description={`${periodLabel(detail.record.periodKey)}・${PERSON_KIND_LABEL[detail.record.personKind]}・${payBasisOf(detail)}`} actions={<div className="flex flex-wrap items-center justify-end gap-2 max-[760px]:justify-start"><Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/hr/payroll-settlement")}>返回發放紀錄</Button></div>} />
     <Panel className="hr-payroll-record-detail-panel" title="發放明細" description={`${detail.record.payDate ? `發薪日 ${detail.record.payDate}` : "未設定發薪日"}・試算版本 v${detail.record.versionNumber}`}>
-      <div className="hr-payroll-detail-head">
-        <div className="hr-payroll-detail-status"><span className="hr-payroll-detail-status-label">發放狀態</span><StatusBadge tone={detail.record.status === "closed" ? "success" : detail.record.status === "withdrawn" ? "danger" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : detail.record.status === "withdrawn" ? "已撤回" : "尚未結算"}</StatusBadge><small>{detail.record.personNumber ? `${detail.record.personNumber}・` : ""}{PERSON_KIND_LABEL[detail.record.personKind]}・建立於 {detail.record.createdAt}</small></div>
-        <div className="hr-payroll-detail-actions" role="group" aria-label="薪資發放操作">
-          {canCalculate && detail.record.status === "unsettled" ? <div className="hr-payroll-detail-action-group" role="group" aria-label="未結算操作"><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={() => { approve.reset(); setApproveOpen(true); }}>確定發放此筆</Button></div> : null}
-          <div className="hr-payroll-detail-action-group" role="group" aria-label="其他操作"><Button variant="secondary" icon="eye" tone="info" onClick={() => setPayslipPreviewOpen(true)}>預覽薪資條</Button>{canCalculate && detail.record.status === "unsettled" && detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除此筆試算</Button> : null}{canCalculate && detail.record.status === "closed" && !detail.record.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回此筆發放</Button> : null}</div>
+      <div className="flex items-center justify-between gap-[18px] border-b border-b-soft-line pb-[14px] max-[760px]:flex-col max-[760px]:items-start">
+        <div className="grid min-w-0 grid-cols-[auto_auto] items-center gap-x-2 gap-y-[5px]"><span className="col-span-full text-[12px] font-bold text-muted">發放狀態</span><StatusBadge tone={detail.record.status === "closed" ? "success" : detail.record.status === "withdrawn" ? "danger" : "warning"}>{detail.record.status === "closed" ? "已確定發放" : detail.record.status === "withdrawn" ? "已撤回" : "尚未結算"}</StatusBadge><small className="col-span-full text-[12px] text-muted">{detail.record.personNumber ? `${detail.record.personNumber}・` : ""}{PERSON_KIND_LABEL[detail.record.personKind]}・建立於 {detail.record.createdAt}</small></div>
+        <div className="flex flex-wrap items-center justify-end gap-2 max-[760px]:w-full max-[760px]:justify-start" role="group" aria-label="薪資發放操作">
+          {hasUnsettledActions ? <div className={ACTION_GROUP} role="group" aria-label="未結算操作"><Button icon="check" loading={approve.isPending} disabled={deleteRun.isPending || withdraw.isPending} onClick={() => { approve.reset(); setApproveOpen(true); }}>確定發放此筆</Button></div> : null}
+          {/* 兩組都在時用分隔線隔開；手機上兩組各佔一列，分隔線改成上緣。 */}
+          <div className={`${ ACTION_GROUP } ${ hasUnsettledActions ? "ms-1 border-s border-s-soft-line ps-3 max-[760px]:ms-0 max-[760px]:border-s-0 max-[760px]:border-t max-[760px]:border-t-soft-line max-[760px]:ps-0 max-[760px]:pt-2" : "" }`} role="group" aria-label="其他操作"><Button variant="secondary" icon="eye" tone="info" onClick={() => setPayslipPreviewOpen(true)}>預覽薪資條</Button>{canCalculate && detail.record.status === "unsettled" && detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除此筆試算</Button> : null}{canCalculate && detail.record.status === "closed" && !detail.record.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回此筆發放</Button> : null}</div>
         </div>
       </div>
       <div className="hr-payroll-overview" aria-label="薪資合計">
