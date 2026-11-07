@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { AppEnv } from "../env.js";
+import { shopeePreviewKey, type ShopeePreview } from "../shopee-sales/preview.js";
 
 function encoded(value: string): string {
   const bytes = new TextEncoder().encode(value);
@@ -40,6 +41,34 @@ export const shopeeSalesInternal = new Hono<AppEnv>()
         "Cache-Control": "no-store",
       },
     });
+  })
+  .post("/preview/:requestId", async (c) => {
+    const requestId = c.req.param("requestId");
+    const token = c.req.header("x-shopee-preview-token") ?? "";
+    if (!validPart(requestId) || !validPart(token) || !c.env.UPLOADS) return c.text("Not found", 404);
+
+    const key = shopeePreviewKey(requestId, token);
+    const current = await c.env.UPLOADS.get(key);
+    if (!current) return c.text("Not found", 404);
+    const metadata = current.customMetadata ?? {};
+    if (Number(metadata.expiresAt ?? 0) < Date.now()) {
+      await c.env.UPLOADS.delete(key);
+      return c.text("Expired", 410);
+    }
+    let preview: ShopeePreview;
+    try {
+      preview = await c.req.json<ShopeePreview>();
+    } catch {
+      return c.text("Invalid preview", 400);
+    }
+    if (!Array.isArray(preview.rows) || preview.rows.length > 100 || !Array.isArray(preview.reportMonths)) {
+      return c.text("Invalid preview", 400);
+    }
+    await c.env.UPLOADS.put(key, JSON.stringify({ preview }), {
+      httpMetadata: { contentType: "application/json" },
+      customMetadata: metadata,
+    });
+    return c.json({ ok: true });
   })
   .post("/cleanup/:requestId", async (c) => {
     const requestId = c.req.param("requestId");
