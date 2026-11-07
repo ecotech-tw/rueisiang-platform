@@ -78,6 +78,14 @@ const observedPayrollJobStatuses = new Map<string, PayrollJob["status"]>();
 function payrollJobTone(status: PayrollJob["status"]): "warning" | "danger" {
   return status === "failed" ? "danger" : "warning";
 }
+// 頁籤與面板是同一塊玻璃：外框、底色與陰影共用一份，右緣貼著視窗所以不畫右框。
+// 底色多疊一層 state layer，頁籤的 hover/active 只換那個變數，不必把整串漸層再寫一次。
+const PAYROLL_JOB_SURFACE = "border border-r-0 border-brand-dark/22 [background:linear-gradient(var(--hr-payroll-job-state-layer,transparent),var(--hr-payroll-job-state-layer,transparent)),linear-gradient(135deg,--alpha(var(--color-brand)/14%),--alpha(var(--color-paper)/96%)_72%)] [box-shadow:0_1px_0_--alpha(var(--color-paper)/72%)_inset,0_14px_36px_--alpha(var(--color-ink)/16%)] [-webkit-backdrop-filter:blur(16px)_saturate(150%)] [backdrop-filter:blur(16px)_saturate(150%)] pointer-events-auto";
+const PAYROLL_JOB_EASE = "duration-220 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none";
+const PAYROLL_JOB_CHEVRON_SHOWN = "opacity-100 [scale:1] [filter:blur(0)]";
+const PAYROLL_JOB_CHEVRON_HIDDEN = "opacity-0 [scale:.25] [filter:blur(4px)]";
+// 錯誤是後端例外的原文，最長兩千字；不截的話一張卡就把整個面板撐滿。
+const PAYROLL_JOB_ERROR = "line-clamp-3 [line-clamp:3] min-w-0 text-brand-dark [overflow-wrap:anywhere]";
 function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "personId">) {
   return `${record.runId}:${record.personKind}:${record.personId}`;
 }
@@ -281,41 +289,51 @@ function PayrollJobProgress({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; o
   useEffect(() => { setHost(document.querySelector(".hr-system")); }, []);
   if (!jobs.length || !host) return null;
   const failedCount = jobs.filter((job) => job.status === "failed").length;
-  return createPortal(<section className={`hr-payroll-job-progress${expanded ? "" : " is-collapsed"}${failedCount ? " has-failed" : ""}`} aria-label="薪資試算進度">
+  // 收合時只剩貼在視窗右緣的直式頁籤：它待在頁面右側的留白裡，不會蓋住表格右下角的「確定發放」。
+  // 外框涵蓋頁籤上下的空白，那一塊不該攔截點擊，所以整塊 pointer-events-none，只有頁籤與面板自己收得到。
+  // 用位移把面板推出視窗而不是收寬度：卡片內容不會在過場中重新排版，陰影也不必靠 overflow 裁。
+  return createPortal(<section className={`fixed top-[60%] right-0 z-24 flex items-center pointer-events-none [--hr-payroll-job-panel-width:min(420px,calc(100vw_-_72px))] transition-[translate] ${PAYROLL_JOB_EASE} ${expanded ? "[translate:0_-50%]" : "[translate:calc(var(--hr-payroll-job-panel-width)_-_1px)_-50%]"}`} aria-label="薪資試算進度">
+    {/* 頁籤疊在面板上面，並把自己右側的陰影裁掉：否則不是面板的陰影壓暗頁籤的字，就是頁籤的陰影畫到面板上。
+        900px 以下頁面右側的留白只剩 24px，頁籤跟著縮才不會壓到表格的捲軸。
+        頁籤貼齊視窗右緣，焦點外框往內畫才不會有一邊跑到畫面外。
+        hover 另外包一層 (hover: hover)：觸控裝置點過之後 :hover 會黏住，頁籤會一直停在染色狀態。 */}
     <button
       type="button"
-      className="hr-payroll-job-progress-toggle text-brand transition-[background-color,border-color,color,box-shadow] duration-120 ease-out motion-reduce:transition-none"
+      className={`${PAYROLL_JOB_SURFACE} relative z-1 [clip-path:inset(-48px_0_-64px_-48px)] flex flex-none flex-col items-center gap-2 box-border w-8 min-w-0 min-h-0 pt-[10px] pb-3 rounded-l-[12px] appearance-none [@media(hover:hover)]:hover:[--hr-payroll-job-state-layer:--alpha(var(--color-brand)/4%)] active:[--hr-payroll-job-state-layer:--alpha(var(--color-brand)/7%)] focus-visible:outline-2 focus-visible:outline-secondary focus-visible:-outline-offset-4 max-[900px]:w-6 text-brand transition-[background-color,border-color,color,box-shadow] duration-120 ease-out motion-reduce:transition-none`}
       aria-expanded={expanded}
       aria-controls="hr-payroll-job-list"
       aria-label={`${expanded ? "收合" : "展開"}薪資試算，${jobs.length} 筆${failedCount ? `，其中 ${failedCount} 筆失敗` : ""}`}
       onClick={() => setExpanded((current) => !current)}
     >
-      <span className={`hr-payroll-job-progress-chevron${expanded ? " is-expanded" : ""}`} aria-hidden="true">
-        <Icon name="chevronLeft" className="hr-payroll-job-progress-chevron-open" />
-        <Icon name="chevronRight" className="hr-payroll-job-progress-chevron-close" />
+      <span className="relative grid flex-none size-5 place-items-center text-muted" aria-hidden="true">
+        <Icon name="chevronLeft" className={`absolute inset-0 size-5 transition-[opacity,scale,filter] ${PAYROLL_JOB_EASE} ${expanded ? PAYROLL_JOB_CHEVRON_HIDDEN : PAYROLL_JOB_CHEVRON_SHOWN}`} />
+        <Icon name="chevronRight" className={`absolute inset-0 size-5 transition-[opacity,scale,filter] ${PAYROLL_JOB_EASE} ${expanded ? PAYROLL_JOB_CHEVRON_SHOWN : PAYROLL_JOB_CHEVRON_HIDDEN}`} />
       </span>
       {/* 收合時錯誤原因與「重新試算」都看不到，頁籤自己要說得出有失敗待處理，不能只靠顏色。 */}
-      <strong>{failedCount ? "試算失敗" : "薪資試算"}</strong>
-      <span className="hr-payroll-job-progress-count">{jobs.length}</span>
+      <strong className="text-ink text-[13px] font-normal tracking-[.08em] [writing-mode:vertical-rl]">{failedCount ? "試算失敗" : "薪資試算"}</strong>
+      <span className={`grid min-w-5 h-5 box-border px-1 place-items-center rounded-full text-[12px] tabular-nums font-medium ${failedCount ? "bg-brand-dark text-paper" : "bg-brand-soft text-brand-dark"}`}>{jobs.length}</span>
     </button>
-    <div className="hr-payroll-job-list" id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
+    {/* 面板以 60% 為中心，往下只剩 40% 的視窗高：上限照這一半算，底部才不會跑出畫面。
+        往左退一格疊住頁籤的右緣，兩塊才會連成一片而不是中間夾一條線。
+        收合只是把面板移到視窗外，36px 的陰影還是會滲回右緣；等它滑出去再整個藏掉。 */}
+    <div className={`${PAYROLL_JOB_SURFACE} text-ink grid flex-none content-start gap-2 box-border w-(--hr-payroll-job-panel-width) max-h-[min(560px,calc(80vh_-_48px))] -ml-px overflow-x-hidden overflow-y-auto overscroll-contain p-4 rounded-l-card [transition-property:visibility] duration-0 motion-reduce:transition-none ${expanded ? "" : "invisible delay-220"}`} id="hr-payroll-job-list" aria-hidden={!expanded} inert={!expanded}>
       {jobs.map((job) => {
         const hasProgress = job.progressPercent !== null;
         // 準備或派送階段就失敗的工作沒有人數可算，畫 indeterminate 進度條會像還在跑。
         const failedBeforeProgress = job.status === "failed" && !hasProgress;
-        return <article className={`hr-payroll-job-card hr-payroll-job-${job.status}`} key={job.jobId}>
-          <div className="hr-payroll-job-card-head">
-            <div><strong>{job.runName}</strong><small>{payrollPeriodLabel(job.periodKey)}・{PAYROLL_JOB_PHASE_LABEL[job.phase]}</small></div>
+        return <article className="grid gap-[10px] p-3 border border-soft-line rounded-[12px] bg-canvas" key={job.jobId}>
+          <div className="flex items-center justify-between gap-3 min-w-0 max-[760px]:items-start max-[760px]:flex-col">
+            <div className="grid gap-0.5 min-w-0"><strong className="truncate">{job.runName}</strong><small className="text-muted text-[12px]">{payrollPeriodLabel(job.periodKey)}・{PAYROLL_JOB_PHASE_LABEL[job.phase]}</small></div>
             <StatusBadge tone={payrollJobTone(job.status)}>{PAYROLL_JOB_STATUS_LABEL[job.status]}</StatusBadge>
           </div>
-          {failedBeforeProgress ? null : <div className={`hr-payroll-job-bar${hasProgress ? "" : " is-indeterminate"}`} role="progressbar" aria-label={`${job.runName}試算進度`} aria-valuemin={0} aria-valuemax={100} {...(hasProgress ? { "aria-valuenow": job.progressPercent! } : {})}>
-            <span style={hasProgress ? { width: `${job.progressPercent}%` } : undefined} />
+          {failedBeforeProgress ? null : <div className="h-[7px] overflow-hidden rounded-full bg-ink/10" role="progressbar" aria-label={`${job.runName}試算進度`} aria-valuemin={0} aria-valuemax={100} {...(hasProgress ? { "aria-valuenow": job.progressPercent! } : {})}>
+            <span className={`block h-full min-w-0 rounded-[inherit] transition-[width,background-color] ${PAYROLL_JOB_EASE} ${job.status === "failed" ? "bg-brand-dark" : "bg-brand"} ${hasProgress ? "" : "w-[32%] opacity-70"}`} style={hasProgress ? { width: `${job.progressPercent}%` } : undefined} />
           </div>}
-          <div className="hr-payroll-job-card-foot">
+          <div className="flex items-start justify-between gap-3 min-w-0 max-[760px]:flex-col text-muted text-[12px]">
             {job.status === "failed"
-              ? <span className="hr-payroll-job-error">{job.error ?? "試算沒有完成，請重新試算。"}</span>
+              ? <span className={PAYROLL_JOB_ERROR}>{job.error ?? "試算沒有完成，請重新試算。"}</span>
               : <span>{job.expectedCount > 0 ? `${job.completedCount.toLocaleString("zh-TW")} / ${job.expectedCount.toLocaleString("zh-TW")} 人` : "正在準備試算資料…"}</span>}
-            {job.status === "failed" ? (canRetry ? <Button className="max-[760px]:self-stretch max-[760px]:justify-center" variant="secondary" icon="sync" tone="info" onClick={() => onRetry(job)}>重新試算</Button> : null) : job.dispatchPending && job.error ? <span className="hr-payroll-job-error">Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : null}
+            {job.status === "failed" ? (canRetry ? <Button className="max-[760px]:self-stretch max-[760px]:justify-center" variant="secondary" icon="sync" tone="info" onClick={() => onRetry(job)}>重新試算</Button> : null) : job.dispatchPending && job.error ? <span className={PAYROLL_JOB_ERROR}>Queue 派送暫時失敗，系統會重試：{job.error}</span> : job.dispatchPending ? <span>等待 Queue 派送</span> : null}
           </div>
         </article>;
       })}
