@@ -11,11 +11,24 @@ export interface NormalizedSalesRow {
   salesAmount: number;
 }
 
+export interface SalesTotals {
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  salesAmount: number;
+}
+
+export interface MonthlySalesTotals extends SalesTotals {
+  reportMonth: string;
+}
+
 export interface ParsedSalesReport {
   sourceType: "momo";
   sourceSheet: string;
   rows: NormalizedSalesRow[];
   reportMonths: string[];
+  monthlyTotals: MonthlySalesTotals[];
+  salesTotals: SalesTotals;
   sourceRowCount: number;
   skippedRowCount: number;
   fallbackSkuCount: number;
@@ -152,13 +165,31 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
 
   if (!grouped.size) throw new Error("「訂單明細」沒有可匯入的已送達或退貨商品列。");
   const rows = [...grouped.values()].sort((left, right) => left.reportMonth.localeCompare(right.reportMonth) || left.sku.localeCompare(right.sku));
+  const monthlyTotals = new Map<string, SalesTotals>();
+  for (const row of rows) {
+    const totals = monthlyTotals.get(row.reportMonth) ?? { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 };
+    totals.grossQuantity += row.grossQuantity;
+    totals.returnQuantity += row.returnQuantity;
+    totals.netQuantity += row.netQuantity;
+    totals.salesAmount += row.salesAmount;
+    monthlyTotals.set(row.reportMonth, totals);
+  }
+  const monthlySummary = [...monthlyTotals.entries()].map(([reportMonth, totals]) => ({ reportMonth, ...totals }));
+  const salesTotals = monthlySummary.reduce((total, month) => ({
+    grossQuantity: total.grossQuantity + month.grossQuantity,
+    returnQuantity: total.returnQuantity + month.returnQuantity,
+    netQuantity: total.netQuantity + month.netQuantity,
+    salesAmount: total.salesAmount + month.salesAmount,
+  }), { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 });
   const warnings = [...skippedStatuses.entries()].map(([status, count]) => `略過 ${count} 列「${status}」訂單狀態。`);
   if (fallbackSkuCount) warnings.push(`${fallbackSkuCount} 列沒有商品原廠編號，將改用商品編號進行對應。`);
   return {
     sourceType: "momo",
     sourceSheet: sheetName,
     rows,
-    reportMonths: [...new Set(rows.map((row) => row.reportMonth))],
+    reportMonths: monthlySummary.map(({ reportMonth }) => reportMonth),
+    monthlyTotals: monthlySummary,
+    salesTotals,
     sourceRowCount,
     skippedRowCount,
     fallbackSkuCount,

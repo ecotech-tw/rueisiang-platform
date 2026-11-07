@@ -27,6 +27,11 @@ describe("Mo+ 對帳明細 parser", () => {
       sourceRowCount: 6,
       skippedRowCount: 3,
       fallbackSkuCount: 1,
+      salesTotals: { grossQuantity: 3, returnQuantity: 1, netQuantity: 2, salesAmount: 790 },
+      monthlyTotals: [
+        { reportMonth: "2026-09", grossQuantity: 2, returnQuantity: 1, netQuantity: 1, salesAmount: 490 },
+        { reportMonth: "2026-10", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 300 },
+      ],
       rows: [
         { reportMonth: "2026-09", sku: "ASO-1", grossQuantity: 2, returnQuantity: 1, netQuantity: 1, salesAmount: 490 },
         { reportMonth: "2026-10", sku: "TP-2", grossQuantity: 1, returnQuantity: 0, netQuantity: 1, salesAmount: 300 },

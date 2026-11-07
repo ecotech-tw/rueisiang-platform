@@ -7,6 +7,45 @@ import { momoReportParser, type ParsedSalesReport } from "./report-adapter.js";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
+function formatAmount(value: number): string {
+  return `NT$${value.toLocaleString("zh-TW")}`;
+}
+
+function SalesTotalsTable({ report }: { report: ParsedSalesReport }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="muted">來源檔商品銷售額（含未對應 SKU）</p>
+          <p className="mt-1 text-[24px] font-semibold tabular-nums">{formatAmount(report.salesTotals.salesAmount)}</p>
+        </div>
+        <p className="form-hint">以已送達與退貨商品計算；退貨金額為負數，不含運費及其他訂單狀態。</p>
+      </div>
+      <DataTable aria-label="Mo+ 每月商品銷售合計" className="[&_tbody_tr:last-child>td]:border-t-2 [&_tbody_tr:last-child>td]:border-line [&_tbody_tr:last-child]:font-semibold">
+        <thead><tr><th>月份</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">淨銷量</th><th className="numeric">商品銷售額</th></tr></thead>
+        <tbody>
+          {report.monthlyTotals.map((month) => (
+            <tr key={month.reportMonth}>
+              <td data-label="月份">{month.reportMonth}</td>
+              <td data-label="銷售數量" className="numeric">{month.grossQuantity.toLocaleString("zh-TW")}</td>
+              <td data-label="退貨數量" className="numeric">{month.returnQuantity.toLocaleString("zh-TW")}</td>
+              <td data-label="淨銷量" className="numeric">{month.netQuantity.toLocaleString("zh-TW")}</td>
+              <td data-label="商品銷售額" className="numeric">{formatAmount(month.salesAmount)}</td>
+            </tr>
+          ))}
+          <tr>
+            <td data-label="月份">合計</td>
+            <td data-label="銷售數量" className="numeric">{report.salesTotals.grossQuantity.toLocaleString("zh-TW")}</td>
+            <td data-label="退貨數量" className="numeric">{report.salesTotals.returnQuantity.toLocaleString("zh-TW")}</td>
+            <td data-label="淨銷量" className="numeric">{report.salesTotals.netQuantity.toLocaleString("zh-TW")}</td>
+            <td data-label="商品銷售額" className="numeric">{formatAmount(report.salesTotals.salesAmount)}</td>
+          </tr>
+        </tbody>
+      </DataTable>
+    </div>
+  );
+}
+
 export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
   const scopesQuery = useMoPlusReportScopes(true);
   const importReport = useImportMoPlusReport();
@@ -17,6 +56,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
   const [preview, setPreview] = useState<ParsedSalesReport | null>(null);
   const [parsing, setParsing] = useState(false);
   const [importResult, setImportResult] = useState<MoPlusImportResult | null>(null);
+  const [importedReport, setImportedReport] = useState<ParsedSalesReport | null>(null);
   const [error, setError] = useState("");
 
   const scopes = scopesQuery.data?.scopes ?? [];
@@ -27,6 +67,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
     setFile(selected ?? null);
     setPreview(null);
     setImportResult(null);
+    setImportedReport(null);
     setError(selected && selected.size > MAX_FILE_BYTES ? "檔案不能超過 25 MB。" : "");
   }
 
@@ -49,6 +90,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
       onSuccess: (result) => {
         toast.show("Mo+ 對帳明細已匯入，所涉月份已重新彙整");
         setImportResult(result);
+        setImportedReport(preview);
         setPreview(null);
         setFile(null);
         if (inputRef.current) inputRef.current.value = "";
@@ -69,7 +111,11 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
           label="通路"
           required
           value={selectedScopeId}
-          onChange={(event) => setScopeId(event.target.value)}
+          onChange={(event) => {
+            setScopeId(event.target.value);
+            setImportResult(null);
+            setImportedReport(null);
+          }}
           options={scopes.map((scope) => ({ label: scope.name, value: scope.id }))}
           placeholder="請選擇通路"
           disabled={pending || parsing || !scopes.length}
@@ -100,6 +146,17 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
       <div className="flex flex-col gap-4 mt-4">
         {error ? <Alert tone="danger">{error}</Alert> : null}
         {importReport.error ? <Alert tone="danger">{importReport.error.message}</Alert> : null}
+        {importResult && importedReport ? (
+          <>
+            <Alert tone="success">
+              <strong>Mo+ 對帳明細已匯入並完成月份重彙整。</strong>
+              <p className="mt-1">本次來源檔商品銷售額：{formatAmount(importedReport.salesTotals.salesAmount)}。</p>
+              <p className="mt-1">受影響月份（{importResult.reportMonths.join("、") || importedReport.reportMonths.join("、")}）重彙整後，已對應商品納入共用報表的銷售額：{formatAmount(importResult.salesTotals.salesAmount)}。</p>
+              <p className="mt-1">月報金額涵蓋所列月份的 Mo+ 明細，不只本次檔案；未對應 SKU 不計入月報金額。</p>
+            </Alert>
+            <SalesTotalsTable report={importedReport} />
+          </>
+        ) : null}
         {importResult?.skippedSkus.length ? (
           <Alert tone="warning">
             {importResult.skippedSkus.length} 個 SKU 尚未對應，因此未納入銷售報表：{importResult.skippedSkus.join("、")}。請到 <Link className="link" to="/items/sku-mappings">SKU 對應</Link> 完成設定後重新匯入。
@@ -115,6 +172,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
               </div>
               <span className="form-hint">確認匯入後才會更新資料庫</span>
             </div>
+            <SalesTotalsTable report={preview} />
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
             {preview.skippedRowCount > 0 ? <p className="muted">略過 {preview.skippedRowCount} 列非商品或非已送達／退貨資料。</p> : null}
             <DataTable containerClassName="max-h-[60vh] overflow-y-auto">

@@ -395,6 +395,7 @@ export interface MoPlusImportResult {
   rowCount: number;
   skippedSkus: string[];
   salesTotals: { grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number };
+  reportMonths: string[];
 }
 
 export interface MoPlusReportScope {

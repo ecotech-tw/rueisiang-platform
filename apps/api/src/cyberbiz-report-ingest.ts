@@ -504,6 +504,7 @@ export function createCyberbizReportIngestor(db: Database) {
         netQuantity: number;
         salesAmount: number;
       };
+      reportMonths?: string[];
     }> {
       const input = readInput(value);
       // 沿用既有 scope 看的是 scope 自己的通路，不是資料通路：manual 據點也放 CYBERBIZ
@@ -594,6 +595,7 @@ export function createCyberbizReportIngestor(db: Database) {
           rowCount: sales.rows.length,
           skippedSkus: sales.skippedSkus,
           salesTotals: salesTotals(sales.rows),
+          reportMonths: snapshot?.reportMonths ?? salesMonths,
         };
       }
       const rows = payoutRows(scopedInput);
