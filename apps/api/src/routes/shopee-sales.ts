@@ -106,7 +106,7 @@ export const shopeeSales = new Hono<AppEnv>()
       });
       await c.env.UPLOADS.put(previewKey, JSON.stringify({}), {
         httpMetadata: { contentType: "application/json" },
-        customMetadata: { fileHash, passwordHash, filename: file.name, start: range.start, end: range.end, expiresAt },
+        customMetadata: { fileHash, passwordHash, filename: file.name, scopeId: scope.id, start: range.start, end: range.end, expiresAt },
       });
       await github.dispatch({
         sourceUrl, driveFolderUrl, requestId, start: range.start, end: range.end,
@@ -169,6 +169,9 @@ export const shopeeSales = new Hono<AppEnv>()
       throw new HTTPException(410, { message: "預覽已逾期，請重新選擇報表檔案。" });
     }
     const metadata = previewObject.customMetadata ?? {};
+    if (metadata.scopeId !== scopeId) {
+      throw new HTTPException(409, { message: "確認匯入的通路與預覽不一致，請重新選擇通路並解析報表。" });
+    }
     const stored = JSON.parse(await new Response(previewObject.body).text()) as { preview?: unknown };
     if (!stored.preview) throw new HTTPException(409, { message: "報表預覽尚未完成，請稍候再試。" });
     const fileBytes = await file.arrayBuffer();

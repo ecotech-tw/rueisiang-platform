@@ -159,6 +159,11 @@ describe("蝦皮銷售報表", () => {
       id: scopeId, sourceType: "shopee", scopeKind: "channel", name: "蝦皮預覽",
       driveFolderUrl: "https://drive.google.com/drive/folders/preview-folder", driveFolderName: "蝦皮預覽",
     });
+    const otherScopeId = "shopee:store:other-preview";
+    await createReportManagementScope(db(), {
+      id: otherScopeId, sourceType: "shopee", scopeKind: "channel", name: "另一個蝦皮通路",
+      driveFolderUrl: "https://drive.google.com/drive/folders/other-preview-folder", driveFolderName: "另一個蝦皮通路",
+    });
     const manager = await seedUser("manager@ecotech.tw", "role-manager");
     const form = new FormData();
     form.append("file", new File(["xlsx"], "Order.completed.20250201_20250228.xlsx"));
@@ -197,6 +202,19 @@ describe("蝦皮銷售報表", () => {
     expect((await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/confirm", {
       method: "POST", body: wrongPasswordForm,
     })).status).toBe(409);
+    expect(calls).toHaveLength(1);
+
+    const wrongScopeForm = new FormData();
+    wrongScopeForm.append("file", new File(["xlsx"], "Order.completed.20250201_20250228.xlsx"));
+    wrongScopeForm.append("password", "042213");
+    wrongScopeForm.append("requestId", requestId);
+    wrongScopeForm.append("previewToken", previewToken);
+    wrongScopeForm.append("scopeId", otherScopeId);
+    const wrongScope = await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/confirm", {
+      method: "POST", body: wrongScopeForm,
+    });
+    expect(wrongScope.status).toBe(409);
+    expect(await wrongScope.json()).toMatchObject({ error: "確認匯入的通路與預覽不一致，請重新選擇通路並解析報表。" });
     expect(calls).toHaveLength(1);
 
     const sourceUrl = previewInputs.source_url!;

@@ -145,7 +145,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
             onChange={(event) => setScopeId(event.target.value)}
             options={scopes.map((scope) => ({ value: scope.id, label: scope.name }))}
             placeholder="請選擇通路"
-            disabled={busy || !scopes.length}
+            disabled={busy || Boolean(preview) || !scopes.length}
           />
           <Field className="min-w-[260px] flex-[1.6_1_280px]" label="報表檔案" required>
             <Input
