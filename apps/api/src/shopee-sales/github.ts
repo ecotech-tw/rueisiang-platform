@@ -3,7 +3,7 @@ import type { Env } from "../env.js";
 const GITHUB_API = "https://api.github.com";
 
 export interface ShopeeSalesGithub {
-  dispatch(input: { sourceUrl: string; driveFolderUrl: string; requestId: string; start: string; end: string; scopeId: string; scopeName: string }): Promise<void>;
+  dispatch(input: { sourceUrl: string; driveFolderUrl: string; requestId: string; start: string; end: string; scopeId: string; scopeName: string; preview?: { callbackUrl: string; token: string } }): Promise<void>;
   listRuns(requestId?: string): Promise<{ runs: WorkflowRun[]; steps: WorkflowStep[] }>;
 }
 
@@ -74,6 +74,9 @@ export function shopeeSalesGithub(env: Env): ShopeeSalesGithub | undefined {
             scope_name: input.scopeName,
             start: input.start,
             end: input.end,
+            preview_only: input.preview ? "true" : "false",
+            preview_url: input.preview?.callbackUrl ?? "",
+            preview_token: input.preview?.token ?? "",
           },
         }),
       });

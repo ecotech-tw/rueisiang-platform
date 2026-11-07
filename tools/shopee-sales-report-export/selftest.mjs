@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { processShopeeWorkbook } from "./driver.mjs";
+import { previewFromSummary, processShopeeWorkbook } from "./driver.mjs";
 import { appendAnalysisSheets, readWorkbook, transformShopeeWorkbook, writeZipEntries } from "./lib/xlsx.mjs";
 
 const temp = await fs.mkdtemp(path.join(os.tmpdir(), "shopee-sales-selftest-"));
@@ -40,6 +40,8 @@ try {
   const types = `<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/></Types>`;
   await writeZipEntries(source, new Map([["[Content_Types].xml", types], ["xl/workbook.xml", workbook], ["xl/_rels/workbook.xml.rels", rels], ["xl/worksheets/sheet1.xml", sheet]]));
   const result = await transformShopeeWorkbook(source, output, { sourceSheet: "orders" });
+  const preview = previewFromSummary(result);
+  if (preview.reportMonths.join(",") !== "2026-07" || preview.rowCount !== 3 || preview.rows[0]?.sku !== "P001_M001") throw new Error(`蝦皮預覽內容不正確：${JSON.stringify(preview)}`);
   if (result.totalPerformance !== 126 || result.totalQuantity !== 4 || result.totalSalesAmount !== 151 || result.uniqueOrders !== 2) throw new Error(`selftest 結果不正確：${JSON.stringify(result)}`);
   if (JSON.stringify(result.dailyPayoutRows) !== JSON.stringify([
     { businessDate: "2026-07-01", payoutAmount: 86 },
