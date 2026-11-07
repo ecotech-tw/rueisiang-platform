@@ -198,6 +198,9 @@ function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAd
   </Dialog>;
 }
 
+// 日型的色調容器跟月曆格子同一套：週末只要分得出來，國定假日才用品牌色。
+const CALENDAR_EDITOR_ROW_TONE: Record<HrDayType, string> = { weekday: "", weekend: "bg-ink/3", holiday: "bg-brand/7" };
+
 /**
  * 一個月的行事曆。只有被標成跟預設值不同的日子會存下來，其餘由星期幾推算。
  *
@@ -237,12 +240,13 @@ function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClo
     actions={canWrite ? <Button loading={save.isPending} disabled={!changed} onClick={() => { void submit(); }}>儲存</Button> : undefined}
   >
     <p className="muted field-note">週六日預設就是週末，不用特別標。災防停班只適用平日，不會刪除原排班，結算時會保留給薪紀錄。</p>
-    <div className="hr-calendar-editor">
-      {days.map((day) => <div className={`hr-calendar-editor-row day-${day.dayType}`} key={day.date}>
-        <span className="hr-calendar-editor-date">{Number(day.date.slice(8))}<small>{["日", "一", "二", "三", "四", "五", "六"][new Date(`${day.date}T00:00:00Z`).getUTCDay()]}</small></span>
+    {/* 一個月一次看完，所以是自己捲的一欄，不是整個對話框變得比螢幕長。 */}
+    <div className="mt-2 grid max-h-[52vh] gap-1 overflow-y-auto">
+      {days.map((day) => <div className={`grid grid-cols-[54px_132px_180px_230px_minmax(0,1fr)] items-center gap-2.5 rounded-xl px-1.5 py-[3px] max-[560px]:grid-cols-[44px_minmax(0,1fr)] max-[560px]:gap-[6px_8px] ${ CALENDAR_EDITOR_ROW_TONE[day.dayType] }`} key={day.date}>
+        <span className="flex items-baseline gap-[5px] text-[14px] text-ink tabular-nums">{Number(day.date.slice(8))}<small className="text-[12px] text-muted">{["日", "一", "二", "三", "四", "五", "六"][new Date(`${day.date}T00:00:00Z`).getUTCDay()]}</small></span>
         <SelectField className="min-w-0 max-[560px]:col-start-2" aria-label={`${day.date} 日期類型`} value={day.dayType} disabled={!canWrite || save.isPending} options={HR_DAY_TYPES.map((dayType) => ({ value: dayType, label: HR_DAY_TYPE_LABELS[dayType] }))} onChange={(event) => updateDayType(day, event.target.value as HrDayType)} />
-        {day.dayType === "weekday" ? <SelectField className="min-w-0 max-[560px]:col-start-2" aria-label={`${day.date} 災防標記`} value={day.specialKind} disabled={!canWrite || save.isPending} options={HR_CALENDAR_SPECIAL_KINDS.map((kind) => ({ value: kind, label: HR_CALENDAR_SPECIAL_KIND_LABELS[kind] }))} onChange={(event) => { const specialKind = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind, specialScopeIds: specialKind === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(specialKind === "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "災防停班" } : {}), ...(specialKind !== "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "" } : {}) }); }} /> : <span className="muted hr-calendar-special-empty">—</span>}
-        {day.dayType === "weekday" && day.specialKind === "typhoon_stop" ? <CalendarScopePicker scopeIds={day.specialScopeIds ?? []} scopes={scopes} disabled={!canWrite || save.isPending} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} /> : <span className="muted">—</span>}
+        {day.dayType === "weekday" ? <SelectField className="min-w-0 max-[560px]:col-start-2" aria-label={`${day.date} 災防標記`} value={day.specialKind} disabled={!canWrite || save.isPending} options={HR_CALENDAR_SPECIAL_KINDS.map((kind) => ({ value: kind, label: HR_CALENDAR_SPECIAL_KIND_LABELS[kind] }))} onChange={(event) => { const specialKind = event.target.value as HrCalendarSpecialKind; update(day.date, { specialKind, specialScopeIds: specialKind === "typhoon_stop" ? (day.specialScopeIds ?? []) : [], ...(specialKind === "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "災防停班" } : {}), ...(specialKind !== "typhoon_stop" && isDefaultHrCalendarSpecialName(day.name) ? { name: "" } : {}) }); }} /> : <span className="muted min-w-0 max-[560px]:col-start-2">—</span>}
+        {day.dayType === "weekday" && day.specialKind === "typhoon_stop" ? <CalendarScopePicker className="col-start-4 max-[560px]:col-start-2" scopeIds={day.specialScopeIds ?? []} scopes={scopes} disabled={!canWrite || save.isPending} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} /> : <span className="muted min-w-0 max-[560px]:col-start-2">—</span>}
         <TextField className="min-w-0 max-[560px]:col-start-2" aria-label={`${day.date} 名稱`} maxLength={100} placeholder="例如：中秋節、補班日" value={day.name} disabled={!canWrite || save.isPending} onChange={(event) => update(day.date, { name: event.target.value })} />
       </div>)}
     </div>
