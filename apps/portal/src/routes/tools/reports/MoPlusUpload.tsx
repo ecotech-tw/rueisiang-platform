@@ -111,7 +111,11 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
           label="通路"
           required
           value={selectedScopeId}
-          onChange={(event) => setScopeId(event.target.value)}
+          onChange={(event) => {
+            setScopeId(event.target.value);
+            setImportResult(null);
+            setImportedReport(null);
+          }}
           options={scopes.map((scope) => ({ label: scope.name, value: scope.id }))}
           placeholder="請選擇通路"
           disabled={pending || parsing || !scopes.length}
