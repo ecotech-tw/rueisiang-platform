@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
@@ -13,6 +13,23 @@ import {
 } from "./api.js";
 
 const STEPPER_BUTTON = "size-7 rounded-[50%] border-0 bg-transparent text-[15px] leading-none text-ink enabled:hover:bg-brand/7 disabled:text-muted";
+
+/** 商品細節的一格：標籤在上、值在下。 */
+function ItemField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <span className="grid min-w-0 gap-0.5">
+      <small className="text-[11px] text-muted">{label}</small>
+      <b className="overflow-hidden text-[13px] text-ellipsis">{children}</b>
+    </span>
+  );
+}
+
+/** 層架分頁的一顆。選中與否由 state 決定；選中那顆 hover 不疊色。 */
+function levelTabClass(active: boolean) {
+  return active
+    ? "rounded-full border-0 bg-paper px-3.5 py-[5px] text-[13px] font-bold text-ink"
+    : "rounded-full border-0 bg-transparent px-3.5 py-[5px] text-[13px] font-medium text-muted hover:bg-brand/5";
+}
 
 /**
  * 一項商品。
@@ -60,10 +77,11 @@ function ZoneItem({ item, levelName, placeLabel }: { item: InventoryItem; levelN
   }
 
   return (
-    <li className="zone-item">
-      <div className="zone-item-row">
-        <span className="zone-item-level" title={levelName}>{levelName}</span>
-        <div className="zone-item-main">
+    <li className="rounded-field border border-soft-line px-3 py-2.5">
+      <div className="flex items-center gap-2.5">
+        {/* 層架徽章。名字可能很長，限寬省略而不是把整列撐開。 */}
+        <span className="max-w-[62px] flex-none truncate rounded-[6px] bg-canvas px-2 py-[3px] text-[11px] text-muted" title={levelName}>{levelName}</span>
+        <div className="min-w-0 flex-1">
           <div className="cell-strong">{item.name}</div>
           <div className="cell-sub">
             {item.sku || "沒有 SKU"}・{item.category}
@@ -87,7 +105,7 @@ function ZoneItem({ item, levelName, placeLabel }: { item: InventoryItem; levelN
             </button>
           </div>
         ) : (
-          <span className={`zone-item-quantity${low ? " stock-low" : ""}`}>
+          <span className={`flex-none font-bold ${low ? "stock-low" : ""}`}>
             {shown.toLocaleString("zh-TW")} {item.unit}
           </span>
         )}
@@ -99,18 +117,24 @@ function ZoneItem({ item, levelName, placeLabel }: { item: InventoryItem; levelN
         *
         * 用原生的 <details>：開合本來就是它的工作，不需要一個 state、一個
         * onClick、一個條件渲染，而且鍵盤與螢幕閱讀器的行為都是免費的。
+        * 瀏覽器預設的三角形標記要自己收掉，展開的提示改用 ＋／−，跟這個系統其他地方的語彙一致。
+        * 展開之後把 ＋ 換成 −，不然「已經開著」跟「可以打開」看起來一樣。
         */}
-      <details className="zone-item-details">
-        <summary><span aria-hidden="true">＋</span> 查看備註與商品資訊</summary>
-        <div className="zone-item-grid">
-          <span><small>倉位 / 層架</small><b>{placeLabel}</b></span>
-          <span><small>SKU</small><b>{item.sku || "未設定"}</b></span>
-          <span><small>分類</small><b>{item.category}</b></span>
-          <span><small>安全庫存</small><b>{item.minStock.toLocaleString("zh-TW")} {item.unit}</b></span>
+      <details className="group mt-2">
+        <summary className="inline-flex cursor-pointer list-none items-center [&::-webkit-details-marker]:hidden gap-1 text-[12px] text-brand hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&::-webkit-details-marker]:hidden">
+          <span aria-hidden="true" className="group-open:invisible group-open:relative group-open:before:visible group-open:before:absolute group-open:before:inset-0 group-open:before:content-['−']">＋</span> 查看備註與商品資訊
+        </summary>
+        {/* 兩欄的欄位表：標籤在上、值在下，比左右對照省橫向空間。 */}
+        <div className="mt-2.5 grid grid-cols-[repeat(auto-fit,minmax(130px,1fr))] gap-x-3.5 gap-y-2.5 rounded-field bg-canvas px-3.5 py-3">
+          <ItemField label="倉位 / 層架">{placeLabel}</ItemField>
+          <ItemField label="SKU">{item.sku || "未設定"}</ItemField>
+          <ItemField label="分類">{item.category}</ItemField>
+          <ItemField label="安全庫存">{item.minStock.toLocaleString("zh-TW")} {item.unit}</ItemField>
         </div>
-        <div className={`zone-item-note${item.notes ? "" : " empty"}`}>
-          <small>備註</small>
-          <p>{item.notes || "目前沒有備註"}</p>
+        <div className="mt-2 px-0.5">
+          <small className="text-[11px] text-muted">備註</small>
+          {/* 沒有備註時整段淡下去——它是「這裡本來就沒東西」，不是要讀的內容。 */}
+          <p className={`mt-0.5 text-[13px] leading-normal ${item.notes ? "" : "text-muted"}`}>{item.notes || "目前沒有備註"}</p>
         </div>
       </details>
     </li>
@@ -156,14 +180,14 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
   }
 
   return (
-    <section className="zone-section">
-      <div className="zone-section-head">
-        <h3>區塊照片</h3>
+    <section className="grid gap-2.5">
+      <div className="flex items-baseline justify-between gap-2.5">
+        <h3 className="text-[14px] font-bold">區塊照片</h3>
         {/*
           * 沒有權限時明講，不要把按鈕悄悄藏起來——「這裡本來就沒有上傳功能」跟
           * 「我沒有權限」對使用者是兩件事，後者他知道該找誰。
           */}
-        {canWrite ? null : <span className="muted">需要地圖編輯權限才能上傳</span>}
+        {canWrite ? null : <span className="muted text-[12px]">需要地圖編輯權限才能上傳</span>}
       </div>
 
       {/*
@@ -238,14 +262,19 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
       ) : null}
 
       {images.data?.length ? (
-        <div className="zone-images">
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-2">
           {images.data.map((image) => (
-            <figure key={image.id}>
+            <figure key={image.id} className="relative">
               {/*
                 * 圖片走 /api 而不是 R2 的公開網址：倉庫內部的照片，拿到連結的人
                 * 不該就看得到。每次請求都會經過登入與權限檢查。
                 */}
-              <img src={`/api/wms/images/${image.id}`} alt={image.filename} loading="lazy" />
+              <img
+                src={`/api/wms/images/${image.id}`}
+                alt={image.filename}
+                loading="lazy"
+                className="block aspect-4/3 w-full rounded-field bg-canvas object-cover"
+              />
               {canWrite ? (
                 <ButtonSkin skin="paper">
                   <Button
@@ -394,23 +423,23 @@ export function ZoneDrawer({
           {zone.notes ? <p className="muted m-0 text-[13px]">{zone.notes}</p> : null}
 
           {canReadItems ? (
-            <section className="zone-section">
-              <div className="zone-section-head">
-                <h3>層架商品</h3>
-                <span className="muted">新增商品請到「商品庫存」</span>
+            <section className="grid gap-2.5">
+              <div className="flex items-baseline justify-between gap-2.5">
+                <h3 className="text-[14px] font-bold">層架商品</h3>
+                <span className="muted text-[12px]">新增商品請到「商品庫存」</span>
               </div>
 
               {/*
-                * 層架分頁。每一層一個，前面加「全部」。
+                * 層架分頁。每一層一個，前面加「全部」。放不下就換行，不要橫向捲——一排看得完才知道有幾層。
                 * 標籤上不顯示數量：層架名稱本來就可能很長（「板模 1」「上層 A」），
                 * 再加一個數字就得換行，一排分頁會變成兩排。
                 */}
-              <div className="level-tabs" role="tablist" aria-label="層架">
+              <div className="flex flex-wrap gap-1 rounded-full bg-canvas p-1" role="tablist" aria-label="層架">
                 <button
                   type="button"
                   role="tab"
                   aria-selected={level === "all"}
-                  className={level === "all" ? "active" : ""}
+                  className={levelTabClass(level === "all")}
                   onClick={() => setLevel("all")}
                 >
                   全部
@@ -421,7 +450,7 @@ export function ZoneDrawer({
                     type="button"
                     role="tab"
                     aria-selected={level === shelf.id}
-                    className={level === shelf.id ? "active" : ""}
+                    className={levelTabClass(level === shelf.id)}
                     onClick={() => setLevel(shelf.id)}
                   >
                     {shelf.name}
@@ -430,7 +459,7 @@ export function ZoneDrawer({
               </div>
 
               {visible.length ? (
-                <ul className="zone-items-list">
+                <ul className="grid gap-2">
                   {visible.map((item) => (
                     <ZoneItem
                       key={item.id}
