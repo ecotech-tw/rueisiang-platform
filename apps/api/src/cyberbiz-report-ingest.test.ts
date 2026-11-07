@@ -163,6 +163,32 @@ describe("target 報表月資料匯入", () => {
     expect(await db().select({ itemId: reportItemSalesMonthly.itemId }).from(reportItemSalesMonthly)).toEqual([{ itemId }]);
   });
 
+  it("Mo+ 可匯入跨月份的完整 statement detail 快照", async () => {
+    const scopeId = "momo:store:TW8r";
+    await upsertReportScope(db(), { id: scopeId, scopeKind: "channel", name: "Mo+", sourceType: "momo" });
+    const tuples: Array<[string, string, number, number]> = [
+      ["2026-09", "ALS50001", 7, 3311], ["2026-09", "ALS50002", 6, 2780], ["2026-09", "ASO100001", 15, 8677],
+      ["2026-09", "ASO20001", 2, 235], ["2026-09", "BGSS40002", 1, 171], ["2026-09", "TP00050570000030", 1, 1299],
+      ["2026-10", "ABX150001", 1, 1330], ["2026-10", "ABX150002", 1, 1454], ["2026-10", "ABX18001", 2, 538],
+      ["2026-10", "AHC03001", 1, 377], ["2026-10", "AHC40001", 2, 1710], ["2026-10", "ALS50001", 4, 1832],
+      ["2026-10", "ALS50002", 7, 3278], ["2026-10", "ALS50003", 3, 1415], ["2026-10", "ALS50004", 1, 480],
+      ["2026-10", "APF0001", 1, 758], ["2026-10", "APF0002", 1, 758], ["2026-10", "APF0003", 1, 759],
+      ["2026-10", "ASO100001", 11, 6270], ["2026-10", "ASO20001", 5, 596], ["2026-10", "ASO20002", 1, 320],
+      ["2026-10", "BGSS40001", 3, 523], ["2026-10", "TP00050570000024", 1, 760], ["2026-10", "TP00050570000030", 2, 2367],
+    ];
+    for (const sku of new Set(tuples.map(([, sku]) => sku))) await seedWmsItem(`momo:${sku}`, sku);
+
+    const response = await request({
+      kind: "sales", scopeType: "channel", scopeId, scopeName: "Mo+",
+      sourceFileName: "statement_detail_20261002727389.xls", requestId: "momo-upload:two-months",
+      rows: tuples.map(([reportMonth, sku, quantity, salesAmount]) => salesRow(sku, salesAmount, { reportMonth, grossQuantity: quantity, netQuantity: quantity })),
+    });
+
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(await db().select().from(reportItemSalesMonthly)).toHaveLength(24);
+    expect(await db().select().from(reportRuns).where(eq(reportRuns.requestId, "momo-upload:two-months"))).toHaveLength(1);
+  });
+
   it("Mo+ 多份結算明細會累加，同一份重傳只取代自己的快照", async () => {
     await upsertReportScope(db(), { id: "momo:channel:main", scopeKind: "channel", name: "Mo+ 主通路", sourceType: "momo" });
     const itemId = await seedWmsItem("momo-snapshot-item", "ASO-300", "對帳商品");
