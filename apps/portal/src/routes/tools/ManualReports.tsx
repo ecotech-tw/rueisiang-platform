@@ -214,7 +214,7 @@ function ManualReportDialog({
   }
 
   return (
-    <Dialog
+    <Dialog manageFocus
       title={`${state.row ? "編輯" : "新增"}${state.kind === "payout" ? "出金資料" : "商品銷售資料"}`}
       width={720}
       onClose={onClose}
@@ -478,7 +478,7 @@ function ImportRecordDialog({
   }
 
   return (
-    <Dialog
+    <Dialog manageFocus
       title={`編輯匯入資料（第 ${state.row.sourceRow} 列）`}
       width={720}
       onClose={onClose}
@@ -642,7 +642,7 @@ function StandardReportImportDialog({
 
   return (
     <>
-      <Dialog
+      <Dialog manageFocus
         title={`匯入${kind === "payout" ? "出金" : "商品銷售"}報表`}
         width={980}
         compact

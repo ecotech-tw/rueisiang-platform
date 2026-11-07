@@ -72,8 +72,8 @@ function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: Employe
     <td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td>{employment?.attendanceMode === "scheduled" ? "排班" : employment ? "一般辦公" : "—"}</td>
-    <td><div className="hr-location-assignment-list">{assignments.length ? assignments.map((assignment) => <span className="hr-location-assignment" key={assignment.id}><span>{assignment.locationName}</span></span>) : <span className="muted">尚未指派</span>}</div></td>
-    <td>{canWrite ? <div className="row-actions"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></div> : null}</td>
+    <td><div className="grid min-w-[220px] gap-[7px]">{assignments.length ? assignments.map((assignment) => <span className="flex flex-wrap items-center gap-1.5" key={assignment.id}><span className="min-w-0">{assignment.locationName}</span></span>) : <span className="muted">尚未指派</span>}</div></td>
+    <td>{canWrite ? <div className="row-actions items-start"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></div> : null}</td>
   </tr>;
 }
 
@@ -95,7 +95,7 @@ export function HrAttendanceScopeManagement() {
       <FilterToolbar><FilterInput label="搜尋員工" type="search" className={SEARCH_INPUT_WIDTH} placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => updateFilters({ search: event.target.value })} /></FilterToolbar>
       {employees.error || locations.error ? <Alert tone="danger">{employees.error?.message ?? locations.error?.message}</Alert> : null}
       {employees.isFetching || locations.isFetching ? <p className="form-hint">更新中…</p> : null}
-      <DataTable className="hr-location-assignment-table"><thead><tr><th>員工</th><th>目前任職</th><th>出勤方式</th><th>有效辦公位置</th><th>操作</th></tr></thead><tbody>
+      <DataTable><thead><tr><th>員工</th><th>目前任職</th><th>出勤方式</th><th>有效辦公位置</th><th>操作</th></tr></thead><tbody>
         {(employees.data?.employees ?? []).map((employee) => <EmployeeLocationRow key={employee.employmentId ?? employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
       </tbody></DataTable>
       {!employees.data?.employees.length ? <EmptyState className="mt-[18px]">沒有符合條件的員工。</EmptyState> : null}

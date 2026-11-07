@@ -134,7 +134,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
 
   return <UnsavedChangesContext.Provider value={{ isDirty, setDirty, confirmLeave, beginLeaving }}>
     {children}
-    {pending ? <DialogScope className={pending.scope}><Dialog
+    {pending ? <DialogScope className={pending.scope}><Dialog manageFocus
       title="還有未儲存的變更"
       onClose={() => answer(false)}
       closeLabel="留在這一頁"

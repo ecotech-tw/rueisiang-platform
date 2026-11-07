@@ -214,7 +214,7 @@ function UserEditor({
 
   return (
     <>
-      <Dialog
+      <Dialog manageFocus
       title={displayNameOf(user)}
       titleMeta={user.email}
       width={760}

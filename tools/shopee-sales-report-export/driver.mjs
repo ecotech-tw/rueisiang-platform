@@ -111,6 +111,23 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
   }
 }
 
+export function previewFromSummary(summary) {
+  const rows = monthlySalesIngestRows(summary.dailySalesRows);
+  return {
+    reportMonths: [...new Set(rows.map((row) => row.reportMonth))],
+    sourceRowCount: summary.sourceRows,
+    rowCount: rows.length,
+    rows: rows.slice(0, 100),
+    uniqueOrders: summary.uniqueOrders,
+    uniqueProducts: summary.uniqueProducts,
+    totalPerformance: summary.totalPerformance,
+    totalQuantity: summary.totalQuantity,
+    totalSalesAmount: summary.totalSalesAmount,
+    duplicateRowsExcluded: summary.duplicateRowsExcluded,
+    warnings: [],
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) { log(usage()); return; }
@@ -125,8 +142,13 @@ async function main() {
     sourceSheet: args.sourceSheet,
     start: args.start,
     end: args.end,
-    skipUpload: Boolean(args.skipUpload),
+    skipUpload: Boolean(args.skipUpload) || Boolean(args.previewOutput),
   });
+  if (args.previewOutput) {
+    await fs.writeFile(path.resolve(args.previewOutput), JSON.stringify(previewFromSummary(result.summary)), "utf8");
+    log(`已產出蝦皮報表預覽：${args.previewOutput}`);
+    return;
+  }
   log(`已產出：${result.outputPath}`);
   log(`業績合計：${result.summary.totalPerformance.toLocaleString("zh-TW")}`);
   log(`商品數量合計：${result.summary.totalQuantity.toLocaleString("zh-TW")}`);

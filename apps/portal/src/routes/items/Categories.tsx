@@ -75,7 +75,7 @@ function CreateDialog({ categories, onClose }: { categories: ItemCategory[]; onC
   const toast = useToast();
   const create = useCategoryMutation((input: { name: string; color: string; parentId: string }) => write("/api/items/categories", "POST", input));
   const trimmed = name.trim();
-  return <Dialog title="新增品項分類" onClose={onClose} closeDisabled={create.isPending} formProps={{ onSubmit: (event) => { event.preventDefault(); if (trimmed) create.mutate({ name: trimmed, color, parentId }, { onSuccess: () => { toast.show(`已新增「${trimmed}」`); onClose(); } }); } }} actions={<><Button variant="secondary" type="button" onClick={onClose}>取消</Button><Button type="submit" loading={create.isPending} disabled={!trimmed}>新增分類</Button></>}>
+  return <Dialog manageFocus title="新增品項分類" onClose={onClose} closeDisabled={create.isPending} formProps={{ onSubmit: (event) => { event.preventDefault(); if (trimmed) create.mutate({ name: trimmed, color, parentId }, { onSuccess: () => { toast.show(`已新增「${trimmed}」`); onClose(); } }); } }} actions={<><Button variant="secondary" type="button" onClick={onClose}>取消</Button><Button type="submit" loading={create.isPending} disabled={!trimmed}>新增分類</Button></>}>
     <TextField label="分類名稱" required autoFocus maxLength={40} placeholder="例如：香氛用品" value={name} onChange={(event) => setName(event.target.value)} />
     <SelectField label="上層分類" value={parentId} onChange={(event) => setParentId(event.target.value)} options={[{ label: "無", value: "" }, ...categories.filter((category) => category.depth === 0).map((category) => ({ label: category.name, value: category.id }))]} />
     <Field as="div" label="顏色"><ColorPicker label="分類顏色" value={color} onChange={setColor} /></Field>
@@ -103,7 +103,7 @@ function EditDialog({ category, categories, onClose }: { category: ItemCategory;
   const trimmed = name.trim();
 
   return (
-    <Dialog
+    <Dialog manageFocus
       title="編輯品項分類"
       width={420}
       onClose={onClose}

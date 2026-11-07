@@ -65,7 +65,7 @@ function ScopeDialog({
     : [{ label: sourceLabel(sourceType), value: sourceType }, ...REPORT_PLATFORM_OPTIONS.map((option) => ({ label: option.label, value: option.value }))];
 
   return (
-    <Dialog
+    <Dialog manageFocus
       title={scope ? "編輯通路" : "新增通路"}
       onClose={onClose}
       closeDisabled={save.isPending}
