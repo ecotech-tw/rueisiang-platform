@@ -185,6 +185,10 @@ describe("target 報表月資料匯入", () => {
     });
 
     expect(response.status, await response.clone().text()).toBe(200);
+    expect(await response.json()).toMatchObject({ result: {
+      reportMonths: ["2026-09", "2026-10"],
+      salesTotals: { salesAmount: 41998 },
+    } });
     expect(await db().select().from(reportItemSalesMonthly)).toHaveLength(24);
     expect(await db().select().from(reportRuns).where(eq(reportRuns.requestId, "momo-upload:two-months"))).toHaveLength(1);
   });
