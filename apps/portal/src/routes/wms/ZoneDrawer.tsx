@@ -121,7 +121,7 @@ function ZoneItem({ item, levelName, placeLabel }: { item: InventoryItem; levelN
         * 展開之後把 ＋ 換成 −，不然「已經開著」跟「可以打開」看起來一樣。
         */}
       <details className="group mt-2">
-        <summary className="inline-flex cursor-pointer list-none items-center gap-1 text-[12px] text-brand hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&::-webkit-details-marker]:hidden">
+        <summary className="inline-flex cursor-pointer list-none items-center [&::-webkit-details-marker]:hidden gap-1 text-[12px] text-brand hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&::-webkit-details-marker]:hidden">
           <span aria-hidden="true" className="group-open:invisible group-open:relative group-open:before:visible group-open:before:absolute group-open:before:inset-0 group-open:before:content-['−']">＋</span> 查看備註與商品資訊
         </summary>
         {/* 兩欄的欄位表：標籤在上、值在下，比左右對照省橫向空間。 */}
