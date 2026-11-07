@@ -369,7 +369,8 @@ async function replaceMomoSalesSnapshot(
     eq(momoReportSalesSnapshots.scopeId, scopeId),
     eq(momoReportSalesSnapshots.snapshotKey, snapshotKey),
   ))];
-  for (const chunk of chunks(snapshotValues, 50)) {
+  // D1 allows at most 100 bound variables per statement; each snapshot row binds 10 values.
+  for (const chunk of chunks(snapshotValues, 10)) {
     statements.push(db.insert(momoReportSalesSnapshots).values(chunk));
   }
   await db.batch(statements as [Statement, ...Statement[]]);

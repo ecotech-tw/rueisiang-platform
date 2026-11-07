@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { reportPlatformLabel } from "@rueisiang/db/report-platforms";
 import { useSession } from "../../../auth/session.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
@@ -24,17 +24,22 @@ export function UploadReports() {
   const [selected, setSelected] = useState(available[0]?.value ?? "");
   const sourceType = available.some((source) => source.value === selected) ? selected : available[0]?.value ?? "";
 
+  const sourceField: ReactNode = available.length > 1 ? (
+    <SelectField
+      className="min-w-[180px] flex-[1_1_190px]"
+      label="報表來源"
+      value={sourceType}
+      onChange={(event) => setSelected(event.target.value)}
+      options={available}
+    />
+  ) : null;
+
   return (
     <Page layout="fills">
-      <PageHeader title="上傳報表" description="選擇來源與通路後，依提示預覽匯入或啟動背景整理；完成的資料會進入共用銷售報表。" />
+      <PageHeader title="上傳報表" description="選擇來源、通路與報表檔案，依提示預覽並確認匯入；完成的資料會進入共用銷售報表。" />
       {!available.length ? <Alert tone="warning">你沒有任何上傳報表的執行權限。</Alert> : null}
-      {available.length > 1 ? (
-        <div className="max-w-sm">
-          <SelectField label="報表來源" value={sourceType} onChange={(event) => setSelected(event.target.value)} options={available} />
-        </div>
-      ) : null}
-      {sourceType === "momo" ? <MoPlusUpload /> : null}
-      {sourceType === "shopee" ? <ShopeeSales embedded /> : null}
+      {sourceType === "momo" ? <MoPlusUpload sourceField={sourceField} /> : null}
+      {sourceType === "shopee" ? <ShopeeSales embedded sourceField={sourceField} /> : null}
     </Page>
   );
 }

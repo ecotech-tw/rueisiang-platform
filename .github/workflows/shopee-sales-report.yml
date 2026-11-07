@@ -32,6 +32,19 @@ on:
         description: "報表結束日期（YYYY-MM-DD）"
         required: true
         type: string
+      preview_only:
+        description: "只解析並回傳預覽，不上傳或匯入"
+        required: false
+        default: false
+        type: boolean
+      preview_url:
+        description: "平台的預覽結果回傳網址"
+        required: false
+        type: string
+      preview_token:
+        description: "平台的一次性預覽驗證碼"
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -51,11 +64,9 @@ jobs:
       SHOPEE_SCOPE_NAME: ${{ inputs.scope_name }}
       REPORT_START: ${{ inputs.start }}
       REPORT_END: ${{ inputs.end }}
-      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-      GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-      PLATFORM_API_URL: ${{ vars.WORKER_URL || 'https://platform.rueisiang.com' }}
-      CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
+      PREVIEW_ONLY: ${{ inputs.preview_only }}
+      PREVIEW_URL: ${{ inputs.preview_url }}
+      PREVIEW_TOKEN: ${{ inputs.preview_token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -66,6 +77,7 @@ jobs:
           node-version: 22
 
       - name: 檢查完整月份的 D1 匯入設定
+        if: ${{ !inputs.preview_only }}
         env:
           REPORT_START: ${{ inputs.start }}
           REPORT_END: ${{ inputs.end }}
@@ -125,15 +137,43 @@ jobs:
             echo "EOF"
           } >> "$GITHUB_ENV"
 
-      - name: Process and upload report
+      - name: Generate preview
+        if: ${{ inputs.preview_only }}
         run: |
-          cat > tools/shopee-sales-report-export/.env <<EOF
-          GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID
-          GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET
-          GOOGLE_REFRESH_TOKEN=$GOOGLE_REFRESH_TOKEN
-          PLATFORM_API_URL=$PLATFORM_API_URL
-          CYBERBIZ_REPORT_INGEST_TOKEN=$CYBERBIZ_REPORT_INGEST_TOKEN
-          EOF
+          if [ -z "$PREVIEW_URL" ] || [ -z "$PREVIEW_TOKEN" ]; then
+            echo "缺少預覽回傳設定" >&2
+            exit 1
+          fi
+          echo "::add-mask::$PREVIEW_TOKEN"
+          node tools/shopee-sales-report-export/driver.mjs \
+            --input "$GITHUB_WORKSPACE/source.xlsx" \
+            --password "$SHOPEE_REPORT_PASSWORD" \
+            --start "$REPORT_START" \
+            --end "$REPORT_END" \
+            --output "$GITHUB_WORKSPACE/preview.xlsx" \
+            --preview-output "$GITHUB_WORKSPACE/preview.json"
+          curl --fail --silent --show-error --request POST \
+            --header "X-Shopee-Preview-Token: $PREVIEW_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data-binary "@$GITHUB_WORKSPACE/preview.json" \
+            "$PREVIEW_URL"
+
+      - name: Process and upload report
+        if: ${{ !inputs.preview_only }}
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          PLATFORM_API_URL: ${{ vars.WORKER_URL || 'https://platform.rueisiang.com' }}
+          CYBERBIZ_REPORT_INGEST_TOKEN: ${{ secrets.CYBERBIZ_REPORT_INGEST_TOKEN }}
+        run: |
+          printf '%s\n' \
+            "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" \
+            "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET" \
+            "GOOGLE_REFRESH_TOKEN=$GOOGLE_REFRESH_TOKEN" \
+            "PLATFORM_API_URL=$PLATFORM_API_URL" \
+            "CYBERBIZ_REPORT_INGEST_TOKEN=$CYBERBIZ_REPORT_INGEST_TOKEN" \
+            > tools/shopee-sales-report-export/.env
           node tools/shopee-sales-report-export/driver.mjs \
             --input "$GITHUB_WORKSPACE/source.xlsx" \
             --password "$SHOPEE_REPORT_PASSWORD" \
@@ -153,7 +193,7 @@ jobs:
           curl --fail --silent --show-error --request POST "$CLEANUP_URL" || true
 
       - name: Upload processing artifacts
-        if: always()
+        if: ${{ always() && !inputs.preview_only }}
         uses: actions/upload-artifact@v4
         with:
           name: shopee-sales-report-${{ env.REQUEST_ID }}

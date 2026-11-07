@@ -31,8 +31,8 @@ export function EmployeeSectionNav({ profile }: { profile: Profile }) {
     window.addEventListener("resize", update);
     return () => { document.removeEventListener("scroll", update, true); window.removeEventListener("resize", update); };
   }, [sectionIds]);
-  return <nav ref={nav} className="hr-employee-section-nav" aria-label="員工檔案區塊導覽">
-    {sections.map(({ id, label }) => <a key={id} href={`#${id}`} aria-current={active === id ? "location" : undefined} onClick={(event) => {
+  return <nav ref={nav} className="sticky top-0 z-8 flex w-fit min-w-0 max-w-full gap-1 overflow-x-auto rounded-full bg-paper p-2 shadow-panel max-[760px]:w-full" aria-label="員工檔案區塊導覽">
+    {sections.map(({ id, label }) => <a key={id} href={`#${id}`} aria-current={active === id ? "location" : undefined} className={`inline-flex min-h-9 flex-none items-center whitespace-nowrap rounded-full px-[14px] py-2 font-semibold transition-[background-color,color,scale] duration-120 ease-out active:scale-96 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary motion-reduce:transition-none motion-reduce:active:scale-100 ${active === id ? "bg-brand-soft text-brand-dark" : "text-muted hover:bg-brand/5 hover:text-brand-dark"}`} onClick={(event) => {
       const target = document.getElementById(id);
       if (!target) return;
       event.preventDefault();

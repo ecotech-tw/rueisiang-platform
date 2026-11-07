@@ -218,15 +218,58 @@ export function useShopeeSalesState() {
   });
 }
 
-export function useRunShopeeSales() {
-  const client = useQueryClient();
+export interface ShopeePreviewRow {
+  reportMonth: string;
+  sku: string;
+  productName: string;
+  grossQuantity: number;
+  returnQuantity: number;
+  netQuantity: number;
+  salesAmount: number;
+}
+
+export interface ShopeePreview {
+  reportMonths: string[];
+  sourceRowCount: number;
+  rowCount: number;
+  rows: ShopeePreviewRow[];
+  uniqueOrders: number;
+  uniqueProducts: number;
+  totalPerformance: number;
+  totalQuantity: number;
+  totalSalesAmount: number;
+  duplicateRowsExcluded: number;
+  warnings: string[];
+}
+
+export function usePreviewShopeeSales() {
   return useMutation({
     mutationFn: async (input: { file: File; password: string; scopeId: string }) => {
       const form = new FormData();
       form.append("file", input.file);
       form.append("password", input.password);
       form.append("scopeId", input.scopeId);
-      const response = await fetch("/api/tools/shopee-sales/upload", { method: "POST", credentials: "same-origin", body: form });
+      const response = await fetch("/api/tools/shopee-sales/preview", { method: "POST", credentials: "same-origin", body: form });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(body?.error ?? `操作失敗（${response.status}）`);
+      }
+      return (await response.json()) as { requestId: string; previewToken: string };
+    },
+  });
+}
+
+export function useConfirmShopeeSales() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { file: File; password: string; requestId: string; previewToken: string; scopeId: string }) => {
+      const form = new FormData();
+      form.append("file", input.file);
+      form.append("password", input.password);
+      form.append("requestId", input.requestId);
+      form.append("previewToken", input.previewToken);
+      form.append("scopeId", input.scopeId);
+      const response = await fetch("/api/tools/shopee-sales/confirm", { method: "POST", credentials: "same-origin", body: form });
       if (!response.ok) {
         const body = (await response.json().catch(() => null)) as { error?: string } | null;
         throw new Error(body?.error ?? `操作失敗（${response.status}）`);
@@ -234,6 +277,27 @@ export function useRunShopeeSales() {
       return (await response.json()) as { requestId: string };
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ["tools", "shopee-sales"] }),
+  });
+}
+
+export function useDiscardShopeePreview() {
+  return useMutation({
+    mutationFn: async (input: { requestId: string; token: string }) => {
+      const response = await fetch(`/api/tools/shopee-sales/preview/${encodeURIComponent(input.requestId)}?token=${encodeURIComponent(input.token)}`, {
+        method: "DELETE",
+        credentials: "same-origin",
+      });
+      if (!response.ok) throw new Error(`操作失敗（${response.status}）`);
+    },
+  });
+}
+
+export function useShopeePreview(requestId: string | null, token: string | null, enabled: boolean) {
+  return useQuery({
+    enabled: Boolean(requestId && token && enabled),
+    queryKey: ["tools", "shopee-sales", "preview", requestId, token],
+    queryFn: () => call<{ preview: ShopeePreview | null }>(`/api/tools/shopee-sales/preview/${encodeURIComponent(requestId!)}?token=${encodeURIComponent(token!)}`),
+    refetchInterval: (query) => query.state.data?.preview ? false : 3000,
   });
 }
 

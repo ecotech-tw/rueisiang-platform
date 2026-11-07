@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useToast } from "../../../shell/Toast.js";
 import { Alert, Button, DataTable, Field, Input, Panel, SelectField } from "../../../ui/index.js";
@@ -7,7 +7,7 @@ import { momoReportParser, type ParsedSalesReport } from "./report-adapter.js";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-export function MoPlusUpload() {
+export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
   const scopesQuery = useMoPlusReportScopes(true);
   const importReport = useImportMoPlusReport();
   const toast = useToast();
@@ -57,22 +57,24 @@ export function MoPlusUpload() {
   }
 
   return (
-    <Panel title="Mo+ 商品銷售" description="選擇通路與對帳明細，先解析預覽並確認資料，再匯入銷售報表。">
+    <Panel title="Mo+ 商品銷售" description="選擇通路與報表檔案，先解析預覽並確認資料，再匯入銷售報表。">
       {scopesQuery.error ? <Alert tone="danger">{scopesQuery.error.message}</Alert> : null}
       {!scopesQuery.isPending && !scopesQuery.error && !scopes.length ? (
         <Alert tone="warning">尚未建立啟用中的 Mo+ 通路。請先到通路管理新增「種類：通路、平台：Mo+」。</Alert>
       ) : null}
       <div className="admin-form row">
+        {sourceField}
         <SelectField
-          className="min-w-[180px] flex-[1_1_220px]"
+          className="min-w-[180px] flex-[1_1_190px]"
           label="通路"
           required
           value={selectedScopeId}
           onChange={(event) => setScopeId(event.target.value)}
           options={scopes.map((scope) => ({ label: scope.name, value: scope.id }))}
+          placeholder="請選擇通路"
           disabled={pending || parsing || !scopes.length}
         />
-        <Field className="min-w-[280px] flex-[1.6_1_360px]" label="報表檔案（.xls 或 .xlsx）" required>
+        <Field className="min-w-[260px] flex-[1.6_1_280px]" label="報表檔案" required>
           <Input
             ref={inputRef}
             className="w-full"

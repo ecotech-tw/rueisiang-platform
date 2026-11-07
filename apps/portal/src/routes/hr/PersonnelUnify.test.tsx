@@ -102,9 +102,7 @@ describe("統一人員名單與支援人員薪資／加班表單", () => {
     const markup = renderToStaticMarkup(<MemoryRouter><HrEmployees /></MemoryRouter>);
 
     expect(markup).not.toContain("LINE 綁定、帳號啟用與在職狀態分開");
-    expect(markup).toMatch(/<span class="[^"]*" tabindex="0"><span class="cell-strong hr-employee-number">/);
-    expect(markup).toContain("hr-employee-number");
-    expect(markup).toContain(employeeNumber);
+    expect(markup).toMatch(new RegExp(`<span class="[^"]*" tabindex="0"><span class="cell-strong [^"]*\\btruncate\\b[^"]*">${employeeNumber}</span>`));
   });
 
   it("支援人員敘薪列顯示目前時薪與更新操作", () => {

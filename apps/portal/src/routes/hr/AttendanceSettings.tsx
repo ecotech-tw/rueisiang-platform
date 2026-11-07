@@ -57,6 +57,16 @@ function savedPlace(location?: AttendanceLocationDetail): GoogleMapPlace | null 
   };
 }
 
+/*
+ * 開關狀態直接看 draft，不用 peer-checked：滑塊在軌道裡面，要從 input 的兄弟再往下找。
+ * input 疊在軌道上但沒有定位座標，點到軌道時靠外層的 <label>（Field）切換。
+ */
+const TOGGLE_MOTION = "duration-120 ease-out motion-reduce:transition-none";
+const SECTION = "grid gap-3";
+const SECTION_DIVIDED = "border-t border-t-soft-line pt-5";
+const SECTION_HEADING = "flex min-h-[22px] items-center";
+const SECTION_TITLE = "m-0 text-[15px] leading-[1.35] text-ink";
+
 function LocationDialog({ location, onClose }: { location?: AttendanceLocation; onClose: () => void }) {
   const detail = useHrQuery<{ location: AttendanceLocationDetail }>(location ? `/attendance-settings/locations/${location.id}` : "/attendance-settings/locations/new", Boolean(location), { keepPreviousData: false });
   const source = detail.data?.location;
@@ -124,9 +134,9 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
       formProps={{ onSubmit: submit }}
       actions={<Button type="submit" tone={editing ? "info" : "success"} loading={save.isPending}>儲存</Button>}
     >
-      <section className="hr-location-section">
-        <div className="hr-location-section-heading"><h3>基本資料</h3></div>
-        <div className="hr-location-form-grid">
+      <section className={SECTION}>
+        <div className={SECTION_HEADING}><h3 className={SECTION_TITLE}>基本資料</h3></div>
+        <div className="grid grid-cols-[minmax(0,.8fr)_minmax(0,1.2fr)] items-start gap-3.5 max-[760px]:grid-cols-[minmax(0,1fr)]">
           <SelectField className="min-w-0" label="營運據點" value={draft.scopeId ?? ""} options={[{ value: "", label: "請選擇營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => setDraft({ ...draft, scopeId: event.target.value || null })} />
           <TextField
             className="min-w-0"
@@ -138,9 +148,9 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
           />
         </div>
       </section>
-      <section className="hr-location-section">
-        <div className="hr-location-section-heading"><h3>位置座標</h3></div>
-        <div className="hr-location-map-search">
+      <section className={`${SECTION} ${SECTION_DIVIDED}`}>
+        <div className={SECTION_HEADING}><h3 className={SECTION_TITLE}>位置座標</h3></div>
+        <div className="flex min-w-0 items-end gap-2.5 max-[760px]:flex-col max-[760px]:items-stretch">
           <TextField
             className="min-w-0 flex-auto"
             label="Google Maps 搜尋地點"
@@ -159,10 +169,10 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
         {places.error ? <Alert tone="danger">{places.error.message}</Alert> : null}
         {searchQuery && places.data && !placeResults.length ? <p className="muted">找不到地點，請換個關鍵字。</p> : null}
         {placeResults.length ? (
-          <div className="hr-location-place-results" role="listbox" aria-label="Google Maps 搜尋結果">
+          <div className="grid max-h-60 flex-none gap-1.5 overflow-y-auto" role="listbox" aria-label="Google Maps 搜尋結果">
             <p className="form-hint">搜尋結果（{placeResults.length} 筆），請選取正確的辦公位置：</p>
             {placeResults.map((place) => (
-              <button type="button" role="option" className="hr-location-place-result" key={place.id} onClick={() => selectPlace(place)}>
+              <button type="button" role="option" className="grid min-h-14 w-full cursor-pointer gap-[3px] rounded-field border border-line bg-paper px-3 py-2.5 text-left text-ink transition-[background-color,border-color,scale] duration-120 ease-out hover:border-secondary hover:bg-brand/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary active:scale-[.99] motion-reduce:transition-none [&_small]:text-muted" key={place.id} onClick={() => selectPlace(place)}>
                 <strong>{place.name}</strong>
                 <small>{place.address}</small>
               </button>
@@ -171,32 +181,33 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
         ) : null}
         <Field label="已選辦公位置" required={draft.geolocationRequired}>
           {selectedPlace ? (
-            <div className="hr-location-selected-place">
+            <div className="grid gap-1 rounded-field border border-line bg-canvas px-3.5 py-3 text-ink [&_small]:text-muted">
               <strong>{selectedPlace.name}</strong>
               <small>{selectedPlace.address}</small>
             </div>
           ) : <p className="field-static">尚未選取辦公位置</p>}
         </Field>
-        {coordinateQuery ? <a className="hr-location-map-link" href={mapsSearch(coordinateQuery)} target="_blank" rel="noreferrer">在 Google Maps 檢視已選辦公位置</a> : null}
+        {coordinateQuery ? <a className="inline-flex min-h-10 items-center self-start rounded-full px-2.5 text-[13px] font-bold text-brand-dark hover:bg-brand/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary" href={mapsSearch(coordinateQuery)} target="_blank" rel="noreferrer">在 Google Maps 檢視已選辦公位置</a> : null}
       </section>
-      <section className="hr-location-section">
-        <div className="hr-location-section-heading"><h3>打卡規則</h3></div>
-        <div className="hr-location-rule-card">
+      <section className={`${SECTION} ${SECTION_DIVIDED}`}>
+        <div className={SECTION_HEADING}><h3 className={SECTION_TITLE}>打卡規則</h3></div>
+        <div className="grid gap-3.5 rounded-card border border-line bg-canvas p-3.5">
           <Field label="定位判斷" gap={8}>
-            <div className="hr-location-toggle">
+            <div className="inline-flex min-h-8 items-center gap-2.5">
               <input
                 type="checkbox"
                 role="switch"
+                className="peer absolute m-0 h-7 w-[42px] cursor-pointer opacity-0"
                 checked={draft.geolocationRequired}
                 aria-label="定位判斷"
                 onChange={(event) => setDraft({ ...draft, geolocationRequired: event.target.checked })}
               />
-              <span className="hr-location-toggle-track" aria-hidden="true"><span /></span>
-              <strong>{draft.geolocationRequired ? "啟用" : "關閉"}</strong>
+              <span className={`inline-flex h-[26px] w-[42px] items-center rounded-full p-[3px] transition-[background-color] ${TOGGLE_MOTION} peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-secondary ${draft.geolocationRequired ? "bg-brand" : "bg-line"}`} aria-hidden="true"><span className={`size-5 rounded-[50%] bg-paper [box-shadow:0_1px_3px_rgba(64,30,30,.25)] transition-[transform] ${TOGGLE_MOTION} ${draft.geolocationRequired ? "[transform:translateX(16px)]" : ""}`} /></span>
+              <strong className={`text-[13px] ${draft.geolocationRequired ? "text-brand-dark" : "text-muted"}`}>{draft.geolocationRequired ? "啟用" : "關閉"}</strong>
             </div>
           </Field>
           {draft.geolocationRequired ? (
-            <div className="hr-location-radius-field">
+            <div className="w-[min(100%,280px)] max-[760px]:w-full">
               <TextField
                 label="出勤判斷半徑（公尺）"
                 required
@@ -254,12 +265,12 @@ export function HrAttendanceSettings() {
           <FilterSelect label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => { setScopeId(event.target.value); setPage(1); }} />
         </FilterToolbar>
         {locations.isFetching ? <p className="form-hint">更新中…</p> : null}
-        <DataTable className="hr-location-table [&_td]:align-top">
+        <DataTable className="[&_td]:align-top">
             <thead><tr><SortableHeader label="辦公位置" field="name" active={sortField} direction={sortDirection} onSort={updateSort} /><SortableHeader label="營運據點" field="scope" active={sortField} direction={sortDirection} onSort={updateSort} /><th>定位判斷</th><SortableHeader label="半徑" field="radius" active={sortField} direction={sortDirection} onSort={updateSort} />{canWrite ? <th>操作</th> : null}</tr></thead>
             <tbody>
               {rows.map((office) => (
                 <tr key={office.id}>
-                  <td><strong>{office.name}</strong><small className="muted">{office.geolocationRequired ? (office.hasCoordinates ? "座標已設定" : "缺少座標") : "不使用定位座標"}</small></td>
+                  <td><strong>{office.name}</strong><small className="muted mt-1 block">{office.geolocationRequired ? (office.hasCoordinates ? "座標已設定" : "缺少座標") : "不使用定位座標"}</small></td>
                   <td>{office.scopeName ?? "尚未對應"}</td>
                   <td>{office.geolocationRequired ? "需要" : "不檢查"}</td>
                   <td>{office.geolocationRequired ? `${office.radiusMeters} 公尺` : "—"}</td>
