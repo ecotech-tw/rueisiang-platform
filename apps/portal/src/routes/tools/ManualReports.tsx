@@ -38,6 +38,18 @@ import {
   type StandardSalesImportRow,
 } from "./manual-report-import.js";
 
+// 報表管理頁的共用外觀：兩種報表的對話框、匯入預覽與列表共用同一組版面。
+const RECORD_FORM = "grid gap-4";
+const IMPORT_PREVIEW = "grid min-h-0 gap-3 pt-1";
+const IMPORT_PREVIEW_HEAD = "flex items-start justify-between gap-4 max-[620px]:grid max-[620px]:gap-1";
+// 橫向沿用 TABLE_SCROLL；這裡只補縱向捲動與高度上限。
+const IMPORT_TABLE_SCROLL = "w-full max-w-full min-w-0 max-h-[min(42vh,420px)] overflow-y-auto max-[620px]:max-h-[min(32dvh,280px)]";
+// 選取操作列浮在表格右下角，所以外框是 relative，捲動交給裡面那一層。
+const TABLE_REGION = "relative flex min-h-0 min-w-0 flex-1 overflow-hidden";
+const REGION_SCROLL = `${TABLE_SCROLL} min-h-0 flex-auto overflow-y-auto`;
+const RECORD_TABLE = "min-[621px]:[&_td]:whitespace-nowrap";
+const SELECTED_ROW = "[&>td]:bg-brand/8";
+
 type DialogState =
   | { kind: "payout"; row?: ManualPayoutRow }
   | { kind: "sales"; row?: ManualSalesRow };
@@ -232,7 +244,7 @@ function ManualReportDialog({
         </>
       }
     >
-      <div className="manual-report-form">
+      <div className={RECORD_FORM}>
         <SelectField
           label="據點"
           required
@@ -490,7 +502,7 @@ function ImportRecordDialog({
         </>
       }
     >
-      <div className="manual-report-form">
+      <div className={RECORD_FORM}>
         {state.kind === "payout" ? (
           <div className="field-grid">
             <TextField
@@ -657,7 +669,7 @@ function StandardReportImportDialog({
           </>
         }
       >
-        <div className="manual-report-import-form">
+        <div className="grid min-h-0 min-w-0 flex-auto gap-[18px] overflow-hidden max-[620px]:gap-3.5">
           <div className="field-grid">
             <SelectField
               label="據點"
@@ -673,8 +685,8 @@ function StandardReportImportDialog({
             {!scopeId ? <TextField label="新據點名稱" required value={scopeName} onChange={(event) => setScopeName(event.target.value)} disabled={pending} /> : <div />}
           </div>
 
-          <div className="manual-report-import-format-note">
-            <p>請使用指定欄位順序的 CSV 或 XLSX 檔案；匯入前可逐筆編輯所有欄位。</p>
+          <div className="flex items-center justify-between gap-3 rounded-xl bg-canvas px-4 py-3">
+            <p className="m-0">請使用指定欄位順序的 CSV 或 XLSX 檔案；匯入前可逐筆編輯所有欄位。</p>
             <Button
               variant="link"
               type="button"
@@ -687,10 +699,11 @@ function StandardReportImportDialog({
             >下載範例檔案</Button>
           </div>
 
-          <label className="manual-report-file-picker">
+          <label className="grid gap-[7px] rounded-2xl border border-dashed border-line bg-canvas p-3.5">
             <span className="field-label">標準格式檔案</span>
             <input
               ref={fileInputRef}
+              className="max-w-full"
               type="file"
               accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={(event) => void pickFile(event.target.files?.[0])}
@@ -701,15 +714,15 @@ function StandardReportImportDialog({
 
           {error ? <Alert tone="danger">{error}</Alert> : null}
           {preview?.kind === "payout" ? (
-            <section className="manual-report-import-preview">
-              <div className="manual-report-import-preview-head">
+            <section className={IMPORT_PREVIEW}>
+              <div className={IMPORT_PREVIEW_HEAD}>
                 <div>
-                  <h3>預覽</h3>
-                  <p className="muted">{preview.coverageStart} ~ {preview.coverageEnd}，共 {preview.rows.length} 列，合計 {formatCurrency(preview.total)}</p>
+                  <h3 className="m-0 text-[16px]">預覽</h3>
+                  <p className="muted mx-0 mt-1 mb-0">{preview.coverageStart} ~ {preview.coverageEnd}，共 {preview.rows.length} 列，合計 {formatCurrency(preview.total)}</p>
                 </div>
                 <span className="form-hint">確認後才會寫入</span>
               </div>
-              <DataTable containerClassName="manual-report-import-table-scroll">
+              <DataTable containerClassName={IMPORT_TABLE_SCROLL}>
                   <thead><tr><th>來源列</th><th>日期</th><th className="numeric">金額</th><th /></tr></thead>
                   <tbody>
                     {preview.rows.map((row) => (
@@ -726,15 +739,15 @@ function StandardReportImportDialog({
           ) : null}
 
           {preview?.kind === "sales" ? (
-            <section className="manual-report-import-preview">
-              <div className="manual-report-import-preview-head">
+            <section className={IMPORT_PREVIEW}>
+              <div className={IMPORT_PREVIEW_HEAD}>
                 <div>
-                  <h3>預覽</h3>
-                  <p className="muted">月份：{preview.reportMonths.join("、")}，共 {preview.rows.length} 列</p>
+                  <h3 className="m-0 text-[16px]">預覽</h3>
+                  <p className="muted mx-0 mt-1 mb-0">月份：{preview.reportMonths.join("、")}，共 {preview.rows.length} 列</p>
                 </div>
                 <span className="form-hint">確認後才會寫入</span>
               </div>
-              <DataTable className="manual-sales-table" containerClassName="manual-report-import-table-scroll">
+              <DataTable className="manual-sales-table" containerClassName={IMPORT_TABLE_SCROLL}>
                   <thead><tr><th>來源列</th><th>月份</th><th>SKU</th><th>商品名稱</th><th>類別</th><th className="numeric">銷售數量</th><th className="numeric">退回數量</th><th className="numeric">淨銷售數量</th><th className="numeric">售額總計</th><th /></tr></thead>
                   <tbody>
                     {preview.rows.map((row) => (
@@ -866,17 +879,17 @@ export function ManualReports() {
   }
 
   return (
-    <Page layout="fills" className="manual-report-page">
+    <Page layout="fills">
       <PageHeader title="報表管理" />
 
       <Panel
-        grows className="manual-report-panel"
+        grows
         headerClassName="items-center [&>div:last-child]:flex-[1_1_auto] [&>div:last-child]:min-w-0 max-[620px]:items-stretch max-[620px]:flex-col max-[620px]:gap-3 max-[620px]:[&>div:last-child]:w-full"
         title={kind === "payout" ? "每日出金紀錄" : "每月商品銷售紀錄"}
         description={kind === "payout" ? "依每日出金日期查看、篩選與修訂紀錄。" : "依報表月份查看、篩選與修訂商品銷售紀錄。"}
         actions={(
-          <div className="manual-report-toolbar">
-            <div className="manual-report-tabs" role="tablist" aria-label="報表類型">
+          <div className="flex items-center justify-end gap-4 max-[620px]:flex-col max-[620px]:items-stretch max-[620px]:gap-3">
+            <div className="flex w-fit gap-1 rounded-full border border-line bg-canvas p-1 max-[620px]:w-full" role="tablist" aria-label="報表類型">
               <Chip
                 className="min-w-32 justify-center max-[620px]:min-w-0 max-[620px]:flex-1"
                 selected={kind === "payout"}
@@ -898,11 +911,11 @@ export function ManualReports() {
                 每月商品銷售
               </Chip>
             </div>
-            <div className="manual-report-actions">
-              <Button variant="secondary" icon="attachment" disabled={busy} onClick={() => setImportDialog({ kind })}>匯入報表</Button>
+            <div className="flex flex-none items-center justify-end gap-2 max-[620px]:w-full">
+              <Button variant="secondary" icon="attachment" className="max-[620px]:flex-[1_1_0]" disabled={busy} onClick={() => setImportDialog({ kind })}>匯入報表</Button>
               <Button
                 icon="plus"
-                className="max-[620px]:justify-center"
+                className="whitespace-nowrap max-[620px]:flex-[1_1_0] max-[620px]:justify-center"
                 disabled={!scopes.length || busy}
                 onClick={() => setDialog({ kind })}
                 aria-label={`新增${kind === "payout" ? "出金" : "商品銷售"}資料`}
@@ -1172,7 +1185,7 @@ function ListFooter({
 }) {
   if (isFetching) return <p className="muted table-note">更新資料中…</p>;
   if (hasRows || total > 0) return null;
-  return <p className="manual-report-empty">{hasFilters ? "沒有符合篩選條件的紀錄。" : `目前沒有${emptyLabel}紀錄。`}</p>;
+  return <p className="m-0 px-4 pt-7 pb-3 text-center text-muted">{hasFilters ? "沒有符合篩選條件的紀錄。" : `目前沒有${emptyLabel}紀錄。`}</p>;
 }
 
 function TableSelectAllCheckbox({
@@ -1221,7 +1234,7 @@ function MobileTableSelectAll({
   ariaLabel: string;
 }) {
   return (
-    <div className="manual-report-mobile-select-all">
+    <div className="hidden max-[620px]:flex max-[620px]:border-b max-[620px]:border-b-soft-line max-[620px]:px-3.5 max-[620px]:py-2">
       <label className="table-select-all">
         <TableSelectAllCheckbox
           allSelected={allSelected}
@@ -1238,11 +1251,12 @@ function MobileTableSelectAll({
 
 function SelectionActions({ selectedCount, busy, onDelete }: { selectedCount: number; busy: boolean; onDelete: () => void }) {
   return (
-    <div className="manual-report-selection-actions">
-      <span className="manual-report-selection-count" aria-live="polite">已選取 {selectedCount} 筆</span>
+    <div className="absolute right-4 bottom-4 z-3 flex items-center justify-end gap-3 rounded-xl border border-line bg-paper py-2.5 pr-3 pl-4 [box-shadow:var(--shadow-panel)] max-[620px]:right-3.5 max-[620px]:bottom-3.5 max-[620px]:left-3.5 max-[620px]:py-2 max-[620px]:pr-2.5 max-[620px]:pl-3.5">
+      <span className="mr-auto" aria-live="polite">已選取 {selectedCount} 筆</span>
       <Button
         variant="danger"
         icon="trash"
+        className="flex-none max-[620px]:justify-center"
         disabled={busy}
         onClick={onDelete}
       >
@@ -1284,8 +1298,8 @@ function PayoutTable({
   const someSelected = selectedCount > 0 && !allSelected;
 
   return (
-    <div className="manual-report-table-region">
-      <div data-table-scroll="" className={TABLE_SCROLL}>
+    <div className={TABLE_REGION}>
+      <div data-table-scroll="" className={REGION_SCROLL}>
         <MobileTableSelectAll
           allSelected={allSelected}
           someSelected={someSelected}
@@ -1293,7 +1307,7 @@ function PayoutTable({
           onToggleAll={onToggleAll}
           ariaLabel={allSelected ? "取消全選本頁出金紀錄" : "全選本頁出金紀錄"}
         />
-        <DataTable className="manual-report-table" scroll={false}>
+        <DataTable className={RECORD_TABLE} scroll={false}>
           <thead>
             <tr>
               <th>
@@ -1314,7 +1328,7 @@ function PayoutTable({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className={selectedIds.has(row.id) ? "selected" : undefined}>
+              <tr key={row.id} className={selectedIds.has(row.id) ? SELECTED_ROW : undefined}>
                 <td data-label="選取">
                   <input
                     className="table-checkbox"
@@ -1329,7 +1343,7 @@ function PayoutTable({
                 <td data-label="日期" className="whitespace-nowrap">{row.businessDate}</td>
                 <td data-label="出金金額" className="numeric">{formatCurrency(row.payoutAmount)}</td>
                 <td data-label="最後更新">
-                  <span>{row.updatedByEmail}</span>
+                  <span className="block">{row.updatedByEmail}</span>
                   <small className="cell-sub">{formatTime(row.updatedAt)}</small>
                 </td>
                 <td data-label="操作">
@@ -1395,8 +1409,8 @@ function SalesTable({
   const someSelected = selectedCount > 0 && !allSelected;
 
   return (
-    <div className="manual-report-table-region">
-      <div data-table-scroll="" className={TABLE_SCROLL}>
+    <div className={TABLE_REGION}>
+      <div data-table-scroll="" className={REGION_SCROLL}>
         <MobileTableSelectAll
           allSelected={allSelected}
           someSelected={someSelected}
@@ -1404,7 +1418,7 @@ function SalesTable({
           onToggleAll={onToggleAll}
           ariaLabel={allSelected ? "取消全選本頁商品銷售紀錄" : "全選本頁商品銷售紀錄"}
         />
-        <DataTable className="manual-report-table manual-sales-table" scroll={false}>
+        <DataTable className={`${RECORD_TABLE} [&_td[data-label=SKU]]:min-w-[170px] manual-sales-table`} scroll={false}>
           <thead>
             <tr>
               <th>
@@ -1428,7 +1442,7 @@ function SalesTable({
           </thead>
           <tbody>
             {rows.map((row) => (
-              <tr key={row.id} className={selectedIds.has(row.id) ? "selected" : undefined}>
+              <tr key={row.id} className={selectedIds.has(row.id) ? SELECTED_ROW : undefined}>
                 <td data-label="選取">
                   <input
                     className="table-checkbox"
@@ -1442,19 +1456,19 @@ function SalesTable({
                 <td data-label="據點">{row.scopeName}</td>
                 <td data-label="月份" className="whitespace-nowrap">{row.reportMonth}</td>
                 <td data-label="SKU">
-                  <code>{row.sku}</code>
+                  <code className="mt-[3px] block text-[12px] text-ink tabular-nums max-[620px]:[overflow-wrap:anywhere]">{row.sku}</code>
                 </td>
                 <td data-label="商品">
-                  <span>{row.productName}</span>
+                  <span className="block">{row.productName}</span>
                   <small className="cell-sub">{row.category}</small>
                 </td>
                 <td data-label="數量" className="numeric">
-                  <span>{row.netQuantity.toLocaleString("zh-TW")}</span>
+                  <span className="block">{row.netQuantity.toLocaleString("zh-TW")}</span>
                   <small className="cell-sub">銷售 {row.grossQuantity.toLocaleString("zh-TW")} · 退貨 {row.returnQuantity.toLocaleString("zh-TW")}</small>
                 </td>
                 <td data-label="銷售金額" className="numeric">{formatCurrency(row.salesAmount)}</td>
                 <td data-label="最後更新">
-                  <span>{row.updatedByEmail}</span>
+                  <span className="block">{row.updatedByEmail}</span>
                   <small className="cell-sub">{formatTime(row.updatedAt)}</small>
                 </td>
                 <td data-label="操作">
