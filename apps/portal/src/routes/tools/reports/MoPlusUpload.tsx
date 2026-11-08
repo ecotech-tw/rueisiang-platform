@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useToast } from "../../../shell/Toast.js";
-import { Alert, Button, DataTable, Field, Input, Panel, SelectField } from "../../../ui/index.js";
+import { Alert, Button, DataTable, Field, Input, Panel, SegmentedControl, SelectField } from "../../../ui/index.js";
 import { useImportMoPlusReport, useMoPlusReportScopes, type MoPlusImportResult } from "../api.js";
 import { momoReportParser, type ParsedSalesReport } from "./report-adapter.js";
 
@@ -75,6 +75,77 @@ function SalesTotalsTable({ report }: { report: ParsedSalesReport }) {
   );
 }
 
+function SalesSkuTable({ report }: { report: ParsedSalesReport }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <details className="group overflow-hidden rounded-[12px] border border-soft-line bg-canvas/74">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-semibold text-ink transition-colors duration-120 ease-out hover:bg-brand/4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&::-webkit-details-marker]:hidden">
+          <span>商品 SKU 明細</span>
+          <span className="flex items-center gap-3 text-[13px] text-muted">
+            <span>{report.rows.length.toLocaleString("zh-TW")} 個商品／月份組合</span>
+            <span className="group-open:hidden">展開</span>
+            <span className="hidden group-open:inline">收合</span>
+          </span>
+        </summary>
+        <div className="border-t border-soft-line">
+          {report.rows.length ? (
+            <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
+              <thead><tr><th>月份</th><th>商品原廠編號／商品編號</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
+              <tbody>
+                {report.rows.slice(0, 100).map((row) => (
+                  <tr key={`${row.reportMonth}:${row.sku}`}>
+                    <td data-label="月份">{row.reportMonth}</td>
+                    <td data-label="SKU"><code>{row.sku}</code></td>
+                    <td data-label="商品名稱">{row.productName}</td>
+                    <td data-label="銷售數量" className="numeric">{row.grossQuantity.toLocaleString("zh-TW")}</td>
+                    <td data-label="退貨數量" className="numeric">{row.returnQuantity.toLocaleString("zh-TW")}</td>
+                    <td data-label="銷售金額" className="numeric">{row.salesAmount.toLocaleString("zh-TW")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </DataTable>
+          ) : <p className="muted p-4">本次檔案沒有符合銷售狀態的商品明細。</p>}
+          {report.rows.length > 100 ? <p className="muted p-3">表格先顯示前 100 列，實際匯入 {report.rows.length.toLocaleString("zh-TW")} 列。</p> : null}
+        </div>
+      </details>
+      <p className="muted">找不到原廠編號對應的品項時，匯入完成後可到 <Link className="link" to="/items/sku-mappings">SKU 對應</Link> 手動建立；該商品會先列為待處理，不會被錯誤歸到其他 SKU。</p>
+    </div>
+  );
+}
+
+function ReportBreakdown({ report, activeTab, onTabChange }: {
+  report: ParsedSalesReport;
+  activeTab: "payout" | "sales";
+  onTabChange: (tab: "payout" | "sales") => void;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col gap-4">
+      <SegmentedControl
+        aria-label="Mo+ 預覽資料類型"
+        skin="outlined"
+        size="lg"
+        className="max-w-[460px]"
+        value={activeTab}
+        onChange={(value) => onTabChange(value as "payout" | "sales")}
+        options={[
+          { value: "payout", label: "每日出金", icon: "payments", badge: `${report.payoutRows.length.toLocaleString("zh-TW")} 日` },
+          { value: "sales", label: "商品銷售", icon: "report", badge: `${report.rows.length.toLocaleString("zh-TW")} 組` },
+        ]}
+      />
+      {activeTab === "payout" ? (
+        <section aria-label="每日出金資料" className="min-w-0">
+          <PayoutTotalsTable report={report} />
+        </section>
+      ) : (
+        <section aria-label="商品銷售資料" className="min-w-0 flex flex-col gap-4">
+          <SalesTotalsTable report={report} />
+          <SalesSkuTable report={report} />
+        </section>
+      )}
+    </div>
+  );
+}
+
 export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
   const scopesQuery = useMoPlusReportScopes(true);
   const importReport = useImportMoPlusReport();
@@ -86,6 +157,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
   const [parsing, setParsing] = useState(false);
   const [importResult, setImportResult] = useState<MoPlusImportResult | null>(null);
   const [importedReport, setImportedReport] = useState<ParsedSalesReport | null>(null);
+  const [activeTab, setActiveTab] = useState<"payout" | "sales">("payout");
   const [error, setError] = useState("");
 
   const scopes = scopesQuery.data?.scopes ?? [];
@@ -97,6 +169,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
     setPreview(null);
     setImportResult(null);
     setImportedReport(null);
+    setActiveTab("payout");
     setError(selected && selected.size > MAX_FILE_BYTES ? "檔案不能超過 25 MB。" : "");
   }
 
@@ -108,6 +181,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
       setParsing(true);
       try {
         setPreview(await momoReportParser.parse(file));
+        setActiveTab("payout");
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : "無法解析這份 Mo+ 對帳明細。");
       } finally {
@@ -125,6 +199,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
         toast.show("Mo+ 對帳明細已匯入，所涉月份已重新彙整");
         setImportResult(result);
         setImportedReport(preview);
+        setActiveTab("payout");
         setPreview(null);
         setFile(null);
         if (inputRef.current) inputRef.current.value = "";
@@ -184,12 +259,11 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
           <>
             <Alert tone="success">
               <strong>Mo+ 對帳明細已匯入，銷售月報與每日出金已更新。</strong>
-              <p className="mt-1">本次來源檔商品銷售額：{formatAmount(importedReport.salesTotals.salesAmount)}；每日出金（{importResult.payoutRowCount} 個入帳日）：{formatAmount(importResult.payoutTotal)}。</p>
               <p className="mt-1">受影響月份（{importResult.reportMonths.join("、") || importedReport.reportMonths.join("、")}）重彙整後，已對應商品納入共用報表的銷售額：{formatAmount(importResult.salesTotals.salesAmount)}。</p>
               <p className="mt-1">月報金額涵蓋所列月份的 Mo+ 明細，不只本次檔案；未對應 SKU 不計入月報金額。</p>
             </Alert>
-            <PayoutTotalsTable report={importedReport} />
-            <SalesTotalsTable report={importedReport} />
+            {importedReport.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
+            <ReportBreakdown report={importedReport} activeTab={activeTab} onTabChange={setActiveTab} />
           </>
         ) : null}
         {importResult?.skippedSkus.length ? (
@@ -207,27 +281,9 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
               </div>
               <span className="form-hint">確認匯入後才會更新資料庫</span>
             </div>
-            <PayoutTotalsTable report={preview} />
-            <SalesTotalsTable report={preview} />
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
+            <ReportBreakdown report={preview} activeTab={activeTab} onTabChange={setActiveTab} />
             {preview.skippedRowCount > 0 ? <p className="muted">略過 {preview.skippedRowCount} 列非商品或非已送達／退貨資料。</p> : null}
-            <DataTable>
-              <thead><tr><th>月份</th><th>商品原廠編號／商品編號</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
-              <tbody>
-                {preview.rows.slice(0, 100).map((row) => (
-                  <tr key={`${row.reportMonth}:${row.sku}`}>
-                    <td data-label="月份">{row.reportMonth}</td>
-                    <td data-label="SKU"><code>{row.sku}</code></td>
-                    <td data-label="商品名稱">{row.productName}</td>
-                    <td data-label="銷售數量" className="numeric">{row.grossQuantity.toLocaleString("zh-TW")}</td>
-                    <td data-label="退貨數量" className="numeric">{row.returnQuantity.toLocaleString("zh-TW")}</td>
-                    <td data-label="銷售金額" className="numeric">{row.salesAmount.toLocaleString("zh-TW")}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </DataTable>
-            {preview.rows.length > 100 ? <p className="muted">表格先顯示前 100 列，實際匯入 {preview.rows.length} 列。</p> : null}
-            <p className="muted">找不到原廠編號對應的品項時，匯入完成後可到 <Link className="link" to="/items/sku-mappings">SKU 對應</Link> 手動建立；該商品會先列為待處理，不會被錯誤歸到其他 SKU。</p>
           </>
         ) : null}
       </div>
