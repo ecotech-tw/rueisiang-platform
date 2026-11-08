@@ -8,6 +8,7 @@ import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrEmployeeRoster, useHrQuery, useHrWrite, type BonusAssignment, type BonusPolicy, type NamedOption } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
+import { PickerEmpty, PickerList, PickerRow } from "./PickerList.js";
 
 interface PolicyResponse { policies: BonusPolicy[]; total: number; page: number; pageSize: number; hasMore: boolean }
 interface AssignmentResponse { assignments: BonusAssignment[] }
@@ -203,7 +204,7 @@ export function HrBonusManagement() {
     if (!rows.length) return <span className="muted">尚未指派</span>;
     const totalWeight = rows.reduce((sum, item) => sum + item.assignment.weightUnits, 0);
     const names = rows.slice(0, 2).map((item) => item.employeeName).join("、");
-    return <div className="hr-bonus-assignment-summary"><span>{rows.length} 位員工{totalWeight > rows.length ? ` · ${totalWeight} 份` : ""}</span><small>{names}{rows.length > 2 ? ` 等 ${rows.length} 位` : ""}</small></div>;
+    return <div className="inline-grid max-w-[220px] gap-0.5"><span className="whitespace-nowrap font-bold text-ink">{rows.length} 位員工{totalWeight > rows.length ? ` · ${totalWeight} 份` : ""}</span><small className="truncate text-[12px] text-muted">{names}{rows.length > 2 ? ` 等 ${rows.length} 位` : ""}</small></div>;
   }
 
   return <Page layout="fills">
@@ -215,7 +216,7 @@ export function HrBonusManagement() {
     <Alert tone="info">獎金的業績來源是<strong>出金表</strong>。某個月的出金還沒匯入，那幾天就會按 0 計算，薪資試算會逐項提醒。匯入請到 <Link to="/tools/reports">營運工具 → 報表執行</Link>。</Alert>
     {error ? <Alert tone="danger">{error}</Alert> : null}
 
-    <Panel grows className="hr-bonus-panel">
+    <Panel grows>
       {policies.error ? <Alert tone="danger">{policies.error.message}</Alert> : null}
       {assignments.error ? <Alert tone="danger">{assignments.error.message}</Alert> : null}
       <FilterToolbar>
@@ -231,20 +232,20 @@ export function HrBonusManagement() {
     </Panel>
 
     {policyModalOpen ? <Dialog width={860} title={editingPolicyVersionId ? "編輯獎金" : "新增獎金"} titleMeta={editingPolicyVersionId ? "調整後會套用到新的薪資計算" : "可在建立時直接套用員工"} onClose={closePolicyModal} closeRequestRef={policyCloseRef} closeDisabled={writePolicy.isPending} formProps={{ onSubmit: submitPolicy }} actions={<><Button variant="secondary" onClick={closePolicyModal} disabled={writePolicy.isPending || voidPolicyVersion.isPending}>取消</Button>{canVoidEditingPolicy ? <Button type="button" variant="danger" icon="history" disabled={writePolicy.isPending || voidPolicyVersion.isPending} onClick={() => setVoidConfirmation(true)}>解除最新版本</Button> : null}<Button type="submit" icon={editingPolicyVersionId ? "edit" : "plus"} tone={editingPolicyVersionId ? "info" : "success"} loading={writePolicy.isPending} disabled={voidPolicyVersion.isPending}>{editingPolicyVersionId ? "保存變更" : "建立獎金"}</Button></>}>
-      <div className="admin-form hr-bonus-form">
+      <div className="admin-form grid grid-cols-2 items-end gap-4">
         {employees.error ? <Alert tone="danger" className="col-span-full">{employees.error.message}</Alert> : null}
         {scopes.error ? <Alert tone="danger" className="col-span-full">{scopes.error.message}</Alert> : null}
         <TextField className="col-span-full min-w-0" label="獎金名稱" value={policyName} maxLength={100} required onChange={(event) => setPolicyName(event.target.value)} />
-        <Field as="div" label="適用通路／櫃點" className="col-span-full min-w-0"><FieldHint>{bonusKind === "individual_performance" ? "按新增後選擇通路；個人績效只計入本人值班櫃點的營收，合計後套用一次保底。" : "按新增後選擇通路；同一獎金可複選多個通路或櫃點，各櫃點業績分開計算並各自套用保底。"}</FieldHint><div className="hr-bonus-picker-list">{policyScopeIds.map((scopeId, index) => <div key={`${scopeId}-${index}`} className="hr-bonus-picker-row"><DropdownSelect value={scopeId} aria-label="選擇通路" options={scopeOptions.map((scope) => ({ ...scope, disabled: policyScopeIds.includes(scope.value) && scope.value !== scopeId }))} onChange={(event) => updateScope(index, event.target.value)} /><Button className="justify-self-end" type="button" variant="icon" icon="trash" aria-label="移除通路" title="移除通路" onClick={() => removeScope(index)} /></div>)}{policyScopeIds.length === 0 ? <p className="muted hr-bonus-picker-empty">尚未選擇通路。</p> : null}<Chip variant="action" tone="success" className="justify-self-start" type="button" icon="plus" onClick={addScope} disabled={policyScopeIds.length >= scopeOptions.length}>{policyScopeIds.length ? "新增通路" : "新增第一個通路"}</Chip></div></Field>
+        <Field as="div" label="適用通路／櫃點" className="col-span-full min-w-0"><FieldHint>{bonusKind === "individual_performance" ? "按新增後選擇通路；個人績效只計入本人值班櫃點的營收，合計後套用一次保底。" : "按新增後選擇通路；同一獎金可複選多個通路或櫃點，各櫃點業績分開計算並各自套用保底。"}</FieldHint><PickerList>{policyScopeIds.map((scopeId, index) => <PickerRow key={`${scopeId}-${index}`}><DropdownSelect value={scopeId} aria-label="選擇通路" options={scopeOptions.map((scope) => ({ ...scope, disabled: policyScopeIds.includes(scope.value) && scope.value !== scopeId }))} onChange={(event) => updateScope(index, event.target.value)} /><Button className="justify-self-end" type="button" variant="icon" icon="trash" aria-label="移除通路" title="移除通路" onClick={() => removeScope(index)} /></PickerRow>)}{policyScopeIds.length === 0 ? <PickerEmpty>尚未選擇通路。</PickerEmpty> : null}<Chip variant="action" tone="success" className="justify-self-start" type="button" icon="plus" onClick={addScope} disabled={policyScopeIds.length >= scopeOptions.length}>{policyScopeIds.length ? "新增通路" : "新增第一個通路"}</Chip></PickerList></Field>
         <SelectField className="min-w-0" label="績效歸屬" value={bonusKind} options={Object.entries(BONUS_KIND_LABEL).map(([value, label]) => ({ value, label }))} onChange={(event) => setBonusKind(event.target.value as BonusPolicy["bonusKind"])} />
         <SelectField className="min-w-0" label="業績期間" value={performancePeriod} options={Object.entries(PERIOD_LABEL).map(([value, label]) => ({ value, label }))} onChange={(event) => setPerformancePeriod(event.target.value as BonusPolicy["performancePeriod"])} />
         <TextField className="min-w-0" label="百分比（%）" type="number" min="0" max="100" step="0.01" value={ratePercent} required onChange={(event) => setRatePercent(event.target.value)} />
         <TextField className="min-w-0" label="保底金額（元）" type="number" min="0" step="1" value={guarantee} required onChange={(event) => setGuarantee(event.target.value)} />
         <>
-          <Field as="div" label={editingPolicyVersionId ? "套用員工與權重" : "建立時套用員工"} className="col-span-full min-w-0"><FieldHint>{bonusKind === "team_performance" ? "可複選員工，再調整每位員工的分配權重；保存時會按這份清單建立套用紀錄。" : "可複選員工；個人績效不使用分配權重。"}</FieldHint><div className="hr-bonus-picker-list"><DropdownSelect multiple searchable value={selectedEmployeeIds} aria-label="選擇套用員工" placeholder="搜尋姓名或員工編號" options={employeeOptions} onValueChange={updateEmployees} />{selectedEmployeeIds.some((employeeUserId) => !activeEmployeeIds.has(employeeUserId)) ? <p className="muted hr-bonus-picker-empty">清單中包含目前不在職的既有指派；請先移除後才能保存新版本。</p> : null}{bonusKind === "team_performance" ? selectedEmployeeIds.map((employeeUserId) => {
+          <Field as="div" label={editingPolicyVersionId ? "套用員工與權重" : "建立時套用員工"} className="col-span-full min-w-0"><FieldHint>{bonusKind === "team_performance" ? "可複選員工，再調整每位員工的分配權重；保存時會按這份清單建立套用紀錄。" : "可複選員工；個人績效不使用分配權重。"}</FieldHint><PickerList><DropdownSelect multiple searchable value={selectedEmployeeIds} aria-label="選擇套用員工" placeholder="搜尋姓名或員工編號" options={employeeOptions} onValueChange={updateEmployees} />{selectedEmployeeIds.some((employeeUserId) => !activeEmployeeIds.has(employeeUserId)) ? <PickerEmpty>清單中包含目前不在職的既有指派；請先移除後才能保存新版本。</PickerEmpty> : null}{bonusKind === "team_performance" ? selectedEmployeeIds.map((employeeUserId) => {
             const employee = employeeOptions.find((option) => option.value === employeeUserId);
-            return <div key={employeeUserId} className="hr-bonus-picker-row hr-bonus-employee-row"><span className="hr-bonus-selected-employee">{employee?.label ?? employeeUserId}</span><div className="hr-bonus-weight-field"><input className="hr-bonus-weight-input" type="number" min="1" max="1000" step="1" value={selectedEmployeeWeights[employeeUserId] ?? "1"} aria-label={`${employee?.label ?? "員工"} 權重`} onChange={(event) => updateEmployeeWeight(employeeUserId, event.target.value)} /><span aria-hidden="true">份</span></div></div>;
-          }) : null}{selectedEmployeeIds.length === 0 ? <p className="muted hr-bonus-picker-empty">尚未套用員工。</p> : null}</div></Field>
+            return <div key={employeeUserId} className="grid grid-cols-[minmax(0,1fr)_116px] items-center gap-2"><span className="min-w-0 truncate text-[13px] font-bold text-ink">{employee?.label ?? employeeUserId}</span><div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-1.5"><input className="min-h-(--size-field) w-full cursor-text rounded-field border border-line bg-paper px-[10px] py-[7px] text-right focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-secondary" type="number" min="1" max="1000" step="1" value={selectedEmployeeWeights[employeeUserId] ?? "1"} aria-label={`${employee?.label ?? "員工"} 權重`} onChange={(event) => updateEmployeeWeight(employeeUserId, event.target.value)} /><span className="text-[13px] font-bold text-muted" aria-hidden="true">份</span></div></div>;
+          }) : null}{selectedEmployeeIds.length === 0 ? <PickerEmpty>尚未套用員工。</PickerEmpty> : null}</PickerList></Field>
           <TextField className="min-w-0" label={editingPolicyVersionId ? "變更生效日" : "員工套用生效日"} type="date" value={assignmentValidFrom} required={editingPolicyVersionId !== null || selectedEmployeeIds.length > 0} disabled={!editingPolicyVersionId && selectedEmployeeIds.length === 0} onChange={(event) => setAssignmentValidFrom(event.target.value)} />
         </>
         {/*
@@ -252,7 +253,7 @@ export function HrBonusManagement() {
           * 那個限制是對的（同一天兩套規則沒有先後），但要在畫面上說出還有解除這條路。
           */}
         {editingPolicy && nextDate(editingPolicy.validFrom) > today
-          ? <p className="muted hr-bonus-edit-note">目前這一版從 {editingPolicy.validFrom} 起生效，新版本最早只能從 {nextDate(editingPolicy.validFrom)} 起算。{canVoidEditingPolicy ? "要改掉這一版本身，請改按「解除最新版本」。" : "這是第一版，整個獎金設錯請用列表上的刪除。"}</p>
+          ? <p className="muted col-span-full m-0 rounded-[10px] bg-brand-soft px-3 py-2.5">目前這一版從 {editingPolicy.validFrom} 起生效，新版本最早只能從 {nextDate(editingPolicy.validFrom)} 起算。{canVoidEditingPolicy ? "要改掉這一版本身，請改按「解除最新版本」。" : "這是第一版，整個獎金設錯請用列表上的刪除。"}</p>
           : null}
       </div>
     </Dialog> : null}

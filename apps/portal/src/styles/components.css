@@ -700,23 +700,6 @@
 .category-table th:last-child,
 .category-table td:last-child { width: 120px; }
 
-/* HR 薪資與獎金：兩個獨立計算上下文。 */
-.hr-bonus-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; gap: 16px; }
-.hr-bonus-edit-note { grid-column: 1 / -1; }
-.hr-bonus-form > button { flex: 0 0 auto; }
-.hr-bonus-assignment-summary { display: inline-grid; max-width: 220px; gap: 2px; }
-.hr-bonus-assignment-summary span { color: var(--color-ink); font-weight: 700; white-space: nowrap; }
-.hr-bonus-assignment-summary small { overflow: hidden; color: var(--color-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.hr-bonus-picker-list { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--color-line); border-radius: 12px; background: var(--color-paper); }
-.hr-bonus-picker-row { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
-.hr-bonus-employee-row { grid-template-columns: minmax(0, 1fr) 116px; }
-.hr-bonus-selected-employee { min-width: 0; overflow: hidden; color: var(--color-ink); font-size: 13px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.hr-bonus-picker-empty { margin: 0; padding: 6px 2px; }
-.hr-bonus-weight-field { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px; }
-.hr-bonus-weight-field span { color: var(--color-muted); font-size: 13px; font-weight: 700; }
-.hr-bonus-weight-input { width: 100%; min-height: var(--size-field); border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-canvas); padding: 0 10px; text-align: right; font-variant-numeric: tabular-nums; cursor: text; }
-.hr-bonus-weight-input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-bonus-edit-note { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--color-brand-soft); }
 /* 盤點按鈕比旁邊的圖示鈕高一點才對得齊，而且它有文字，要窄一點的內距。 */
 
 /* 表單裡的唯讀值。長得像輸入框的位置，但明確不是輸入框。 */
