@@ -24,9 +24,10 @@ describe("Button 的外觀契約", () => {
     expect(classes(<Button variant="secondary" active>篩選</Button>)).toEqual(expect.arrayContaining(["bg-brand-soft", "text-brand-dark"]));
   });
 
-  it("mobileIconOnly 把文字包起來，手機寬度才藏得掉", () => {
+  it("mobileIconOnly 把文字包起來，手機寬度只在畫面上藏掉、讀螢幕仍念得到", () => {
     const markup = renderToStaticMarkup(<Button icon="plus" mobileIconOnly aria-label="新增客人">新增客人</Button>);
-    expect(markup).toContain('<span class="max-[760px]:hidden">新增客人</span>');
+    // 不能用 hidden（display: none）：沒給 aria-label 的按鈕在手機上就沒有名字了。
+    expect(markup).toContain('<span class="max-[760px]:sr-only">新增客人</span>');
     expect(markup).toContain("max-[760px]:size-11");
   });
 
