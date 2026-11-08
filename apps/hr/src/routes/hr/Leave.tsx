@@ -5,31 +5,30 @@ import { Alert, Button, EmptyState, Page, PageHeader, Panel, StatusBadge } from 
 import { useHrQuery, type AnnualLeavePeriod, type AnnualLeaveResponse, type LeaveMonth, type LeaveMonthsResponse } from "./api.js";
 import { dateBefore, dateLabel, formatHours } from "./format.js";
 import { HrBackBar } from "./HrBackBar.js";
+import { PROFILE_CARD_TITLE, ProfileCardHeading, ProfileCardList, ProfileDataCard, ProfileInfoList } from "./ProfileCard.js";
 
 function AnnualLeaveCard({ period }: { period: AnnualLeavePeriod }) {
   const remaining = Math.max(0, period.balanceHalfHours);
   const lastDay = dateLabel(dateBefore(period.periodEnd));
-  return <article className="hr-profile-data-card">
-    <header className="hr-profile-data-card-head">
-      <div><strong>{lastDay} 到期</strong><small>使用期間 {dateLabel(period.periodStart)}～{lastDay}</small></div>
-      <StatusBadge tone={remaining > 0 ? "success" : "neutral"}>{remaining > 0 ? "可使用" : "已用完"}</StatusBadge>
-    </header>
+  return <ProfileDataCard head={<>
+    <ProfileCardHeading title={<>{lastDay} 到期</>} meta={<>使用期間 {dateLabel(period.periodStart)}～{lastDay}</>} />
+    <StatusBadge tone={remaining > 0 ? "success" : "neutral"}>{remaining > 0 ? "可使用" : "已用完"}</StatusBadge>
+  </>}>
     <div className="hr-payslip-totals">
       <div><span>給予</span><strong>{formatHours(period.grantedHalfHours * 30)}</strong></div>
       <div><span>已使用</span><strong>{formatHours(period.usedHalfHours * 30)}</strong></div>
       <div className="net"><span>剩餘</span><strong>{formatHours(remaining * 30)}</strong></div>
     </div>
-  </article>;
+  </ProfileDataCard>;
 }
 
 function MonthCard({ month }: { month: LeaveMonth }) {
-  return <article className="hr-profile-data-card">
-    <header className="hr-profile-data-card-head">
-      <strong>{Number(month.month.slice(5, 7))} 月</strong>
-      <strong className="tabular-nums">共 {formatHours(month.totalMinutes)}</strong>
-    </header>
-    <dl className="hr-profile-info-list">{month.leaveTypes.map((leaveType) => <div key={leaveType.id}><dt>{leaveType.name}</dt><dd className="tabular-nums">{formatHours(leaveType.minutes)}</dd></div>)}</dl>
-  </article>;
+  return <ProfileDataCard head={<>
+    <strong className={PROFILE_CARD_TITLE}>{Number(month.month.slice(5, 7))} 月</strong>
+    <strong className={`${PROFILE_CARD_TITLE} tabular-nums`}>共 {formatHours(month.totalMinutes)}</strong>
+  </>}>
+    <ProfileInfoList valueClassName="tabular-nums" rows={month.leaveTypes.map((leaveType) => ({ key: leaveType.id, label: leaveType.name, value: formatHours(leaveType.minutes) }))} />
+  </ProfileDataCard>;
 }
 
 export function HrLeaveSummary() {
@@ -53,7 +52,7 @@ export function HrLeaveSummary() {
     <Panel title="特休" description="每個週期的額度各自計算，到期後不會遞延到下一期。">
       {annual.isPending ? <p className="muted">載入特休額度…</p> : null}
       {annual.error ? <Alert tone="danger">{annual.error.message}</Alert> : null}
-      {periods.length ? <div className="hr-profile-card-list">{periods.map((period) => <AnnualLeaveCard key={period.entitlementId} period={period} />)}</div> : null}
+      {periods.length ? <ProfileCardList>{periods.map((period) => <AnnualLeaveCard key={period.entitlementId} period={period} />)}</ProfileCardList> : null}
       {!annual.isPending && !annual.error && !periods.length ? <EmptyState size="compact">目前沒有可用的特休額度。</EmptyState> : null}
     </Panel>
 
@@ -65,7 +64,7 @@ export function HrLeaveSummary() {
       </div> : null}
       {loadingMonths && !leave.error ? <p className="muted">載入請假紀錄…</p> : null}
       {leave.error ? <Alert tone="danger">{leave.error.message}</Alert> : null}
-      {months.length ? <div className="hr-profile-card-list">{months.map((month) => <MonthCard key={month.month} month={month} />)}</div> : null}
+      {months.length ? <ProfileCardList>{months.map((month) => <MonthCard key={month.month} month={month} />)}</ProfileCardList> : null}
       {!loadingMonths && !leave.error && !months.length ? <EmptyState size="compact">{year} 年沒有已核准的請假。</EmptyState> : null}
     </Panel>
   </Page>;

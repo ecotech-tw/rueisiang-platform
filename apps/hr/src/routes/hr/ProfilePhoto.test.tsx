@@ -52,7 +52,7 @@ describe("員工端大頭貼", () => {
     const file = new File([new Uint8Array([1, 2, 3])], "portrait.png", { type: "image/png" });
     await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [file] }); input.dispatchEvent(new Event("change", { bubbles: true })); });
     const save = [...container.querySelectorAll("button")].find((button) => button.textContent?.includes("儲存"))!;
-    expect(save.disabled).toBe(true); expect(container.querySelector(".hr-profile-avatar img")?.getAttribute("src")).toBe("blob:employee-photo");
+    expect(save.disabled).toBe(true); expect(container.querySelector("img")?.getAttribute("src")).toBe("blob:employee-photo");
     await act(async () => { resolveDecode(); await Promise.resolve(); });
     expect(save.disabled).toBe(false);
     await click(container, "儲存");
@@ -68,9 +68,9 @@ describe("員工端大頭貼", () => {
     const choose = async (file: File) => act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [file] }); input.dispatchEvent(new Event("change", { bubbles: true })); });
     await choose(new File([new Uint8Array([1, 2, 3])], "good.png", { type: "image/png" }));
     await vi.waitFor(() => expect([...container.querySelectorAll("button")].some((button) => button.textContent?.trim() === "儲存")).toBe(true));
-    expect(container.querySelector(".hr-profile-avatar img")?.getAttribute("src")).toBe("blob:employee-photo");
+    expect(container.querySelector("img")?.getAttribute("src")).toBe("blob:employee-photo");
     await choose(new File(["<svg/>"] , "bad.svg", { type: "image/svg+xml" }));
-    expect(container.querySelector(".hr-profile-avatar img")).toBeNull();
+    expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain("請選擇 5 MB 以內");
     expect([...container.querySelectorAll("button")].some((button) => button.textContent?.trim() === "儲存")).toBe(false);
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:employee-photo"); expect(fetchMock).not.toHaveBeenCalled();
@@ -85,9 +85,9 @@ describe("員工端大頭貼", () => {
     expect(openPicker).toHaveBeenCalled();
     const file = new File([new Uint8Array([1, 2, 3])], "portrait.png", { type: "image/png" });
     await act(async () => { Object.defineProperty(input, "files", { configurable: true, value: [file] }); input.dispatchEvent(new Event("change", { bubbles: true })); });
-    await vi.waitFor(() => expect(container.querySelector(".hr-profile-avatar img")?.getAttribute("src")).toBe("blob:employee-photo"));
+    await vi.waitFor(() => expect(container.querySelector("img")?.getAttribute("src")).toBe("blob:employee-photo"));
     await click(container, "取消");
-    expect(container.querySelector(".hr-profile-avatar img")?.getAttribute("src")).toContain("/hr/me/photo?v=photo-1");
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("/hr/me/photo?v=photo-1");
     expect(container.textContent).not.toContain("儲存"); expect(fetchMock).not.toHaveBeenCalled();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:employee-photo");
   });
