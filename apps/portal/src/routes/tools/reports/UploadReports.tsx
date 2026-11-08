@@ -11,14 +11,14 @@ export function UploadReports() {
   usePageTitle("上傳報表");
   const { permissions } = useSession();
   const sourcePermissions = {
-    shopee: "tools:shopee-sales:run",
-    momo: "tools:momo-sales:run",
+    shopee: ["tools:shopee-sales:run"],
+    momo: ["tools:momo-report:run"],
   } as const;
   const available = REPORT_SOURCE_ADAPTERS
     .filter((adapter) => adapter.inputMode === "upload")
     .filter((adapter) => {
       const permission = sourcePermissions[adapter.sourceType as keyof typeof sourcePermissions];
-      return permission ? permissions.has(permission) : false;
+      return permission ? permission.every((required) => permissions.has(required)) : false;
     })
     .map((adapter) => ({ value: adapter.sourceType, label: reportPlatformLabel(adapter.sourceType) }));
   const [selected, setSelected] = useState(available[0]?.value ?? "");

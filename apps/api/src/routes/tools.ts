@@ -185,14 +185,14 @@ export const tools = new Hono<AppEnv>()
   .route("/shop-report", shopReport)
   .route("/reports/runs", reportRuns)
 
-  .get("/reports/momo/scopes", requirePermission("tools:momo-sales:run"), async (c) => {
+  .get("/reports/momo/scopes", requirePermission("tools:momo-report:run"), async (c) => {
     const scopes = await listReportManagementScopes(c.get("db"));
     return c.json({ scopes: scopes
       .filter((scope) => scope.sourceType === "momo" && scope.scopeKind === "channel" && scope.active)
       .map(({ id, name }) => ({ id, name })) });
   })
 
-  .post("/reports/momo/import", requirePermission("tools:momo-sales:run"), async (c) => {
+  .post("/reports/momo/import", requirePermission("tools:momo-report:run"), async (c) => {
     const input = await body(c);
     const scopeId = requireString(input, "scopeId", "Mo+ 通路");
     if (!Array.isArray(input.salesRows) || input.salesRows.length > 10_000) {

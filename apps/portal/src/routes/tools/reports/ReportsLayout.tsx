@@ -17,7 +17,7 @@ const RUN_TABS: readonly ReportRunTab[] = [
   { label: "出金表", to: "/tools/reports/run/cyberbiz-payout", permissions: ["tools:payout:run"], icon: "payments", kinds: [{ kind: "cyberbiz-payout", permission: "tools:payout:run" }] },
   { label: "商品銷售", to: "/tools/reports/run/cyberbiz-sales", permissions: ["tools:cyberbiz-sales:run"], icon: "report", kinds: [{ kind: "cyberbiz-sales", permission: "tools:cyberbiz-sales:run" }] },
   { label: "官網對帳單", to: "/tools/reports/run/cyberbiz-shop", permissions: ["tools:shop-report:run"], icon: "globe", kinds: [{ kind: "cyberbiz-shop", permission: "tools:shop-report:run" }] },
-  { label: "上傳報表", to: "/tools/reports/run/upload", permissions: ["tools:shopee-sales:run", "tools:momo-sales:run"], icon: "attachment", kinds: [{ kind: "shopee", permission: "tools:shopee-sales:run" }, { kind: "momo-sales", permission: "tools:momo-sales:run" }] },
+  { label: "上傳報表", to: "/tools/reports/run/upload", permissions: ["tools:shopee-sales:run", "tools:momo-report:run"], icon: "attachment", kinds: [{ kind: "shopee", permission: "tools:shopee-sales:run" }, { kind: "momo-sales", permission: "tools:momo-report:run" }] },
 ];
 
 const LOG_TAB = { label: "執行紀錄", to: "/tools/reports/log", icon: "history" as IconName };

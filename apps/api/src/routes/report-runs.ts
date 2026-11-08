@@ -17,7 +17,7 @@ const KIND_PERMISSIONS: Record<ReportRunKind, Permission> = {
   "cyberbiz-sales": "tools:cyberbiz-sales:run",
   "cyberbiz-shop": "tools:shop-report:run",
   shopee: "tools:shopee-sales:run",
-  "momo-sales": "tools:momo-sales:run",
+  "momo-sales": "tools:momo-report:run",
 };
 
 function allowedKinds(user: Parameters<typeof can>[0]): ReportRunKind[] {

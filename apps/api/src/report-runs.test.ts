@@ -1,6 +1,6 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, listReportRuns, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
-import { reportRunScopes, reportRuns, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { reportRunScopes, reportRuns, rolePermissionGrants, roles, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1 } from "./local-d1/d1.js";
@@ -31,6 +31,15 @@ async function as(userId: string, email: string, path: string) {
     new Request(`https://platform.rueisiang.com${path}`, { headers: { Cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}` } }),
     env as never,
   );
+}
+
+async function postAs(userId: string, email: string, path: string, body: unknown) {
+  const token = await signSession(newSessionClaims({ id: userId, email, name: "測試", pictureUrl: "" }), SECRET);
+  return app.fetch(new Request(`https://platform.rueisiang.com${path}`, {
+    method: "POST",
+    headers: { Cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  }), env as never);
 }
 
 async function seedRun(input: {
@@ -117,6 +126,22 @@ describe("報表執行紀錄", () => {
 
     expect((await as(manager, "manager@ecotech.tw", "/api/tools/reports/runs")).status).toBe(200);
     expect((await as(staff, "staff@ecotech.tw", "/api/tools/reports/runs")).status).toBe(403);
+  });
+
+  it("只有舊 Mo+ 銷售權限的自訂角色不能匯入出金或查看 Mo+ 對帳執行紀錄", async () => {
+    const roleId = "role-momo-sales-only";
+    await db().insert(roles).values({ id: roleId, roleKey: "momo-sales-only", name: "Mo+ 銷售專用" });
+    await db().insert(rolePermissionGrants).values({ roleId, permission: "tools:momo-sales:run" });
+    const userId = await seedUser("momo-sales-only@example.com", roleId);
+
+    const imported = await postAs(userId, "momo-sales-only@example.com", "/api/tools/reports/momo/import", {
+      scopeId: "momo:channel:main",
+      sourceFileName: "statement_detail_202610000001.xls",
+      salesRows: [],
+      payoutRows: [{ businessDate: "2026-10-02", payoutAmount: 80 }],
+    });
+    expect(imported.status).toBe(403);
+    expect((await as(userId, "momo-sales-only@example.com", "/api/tools/reports/runs?kind=momo-sales")).status).toBe(403);
   });
 
   it("不認得的種類回 400，不要當成沒篩選整批倒出來", async () => {
