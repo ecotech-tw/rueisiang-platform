@@ -1583,6 +1583,20 @@
       "when": 1794000000001,
       "tag": "0249_momo_report_sales_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 250,
+      "version": "6",
+      "when": 1794114444407,
+      "tag": "0250_yellow_pyro",
+      "breakpoints": true
+    },
+    {
+      "idx": 251,
+      "version": "6",
+      "when": 1794155482114,
+      "tag": "0251_momo_report_run_permission",
+      "breakpoints": true
     }
   ]
 }

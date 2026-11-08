@@ -13,6 +13,7 @@ import {
   reportIngestIssues,
   reportItemSalesMonthly,
   reportRuns,
+  momoReportPayoutSnapshots,
   scopes,
   reportPayoutDaily,
   wmsItems,
@@ -145,6 +146,70 @@ describe("target 報表月資料匯入", () => {
     expect(sale?.itemId).not.toBe(autoMatchedItem);
     const [run] = await db().select().from(reportRuns).where(eq(reportRuns.requestId, "momo-upload:test-run"));
     expect(run).toMatchObject({ sourceType: "momo", actorEmail: "operator@example.com", startDate: "2026-09-01", endDate: "2026-09-30", status: "succeeded" });
+  });
+
+  it("Mo+ 對帳明細依入帳日匯入出金報表，重傳取代來源且同日加總其他來源", async () => {
+    const scopeId = "momo:channel:main";
+    await upsertReportScope(db(), { id: scopeId, scopeKind: "channel", name: "Mo+ 主通路", sourceType: "momo" });
+    const itemId = await seedWmsItem("momo-payout-item", "ASO-300", "Mo+ 測試商品");
+
+    const importFile = (sourceFileName: string, requestId: string, payoutRows: unknown[]) => request({
+      kind: "sales_and_payout",
+      scopeType: "channel",
+      scopeId,
+      scopeName: "Mo+ 主通路",
+      sourceFileName,
+      requestId,
+      salesRows: [salesRow("ASO-300", 100, { reportMonth: "2026-09" })],
+      payoutRows,
+    });
+
+    expect((await importFile("statement_detail_202610000001.xls", "momo-bundle:1", [
+      { businessDate: "2026-10-02", payoutAmount: 100 },
+      { businessDate: "2026-10-03", payoutAmount: 50 },
+    ])).status).toBe(200);
+    expect((await importFile("statement_detail_202610000002.xls", "momo-bundle:2", [
+      { businessDate: "2026-10-02", payoutAmount: 200 },
+    ])).status).toBe(200);
+    const corrected = await importFile("statement_detail_202610000001.xls", "momo-bundle:3", [
+      { businessDate: "2026-10-02", payoutAmount: 75 },
+    ]);
+    expect(corrected.status, await corrected.clone().text()).toBe(200);
+    expect(await db().select({ businessDate: reportPayoutDaily.businessDate, payoutAmount: reportPayoutDaily.payoutAmount })
+      .from(reportPayoutDaily).where(eq(reportPayoutDaily.scopeId, scopeId)))
+      .toEqual([{ businessDate: "2026-10-02", payoutAmount: 275 }]);
+    expect(await db().select({ snapshotKey: momoReportPayoutSnapshots.snapshotKey }).from(momoReportPayoutSnapshots))
+      .toHaveLength(2);
+    expect(await db().select({ salesAmount: reportItemSalesMonthly.salesAmount }).from(reportItemSalesMonthly)
+      .where(eq(reportItemSalesMonthly.itemId, itemId)))
+      .toEqual([{ salesAmount: 200 }]);
+    const report = await createCyberbizReportService(db()).queryPayout({
+      scopeType: "channel",
+      scopeId,
+      startDate: "2026-10-01",
+      endDate: "2026-10-31",
+      groupBy: ["day"],
+    });
+    expect(report.rows).toEqual([{ businessDate: "2026-10-02", payoutAmount: 275 }]);
+  });
+
+  it("Mo+ 對帳檔沒有可列入月報的商品時仍可匯入每日實際入帳金額", async () => {
+    const scopeId = "momo:channel:main";
+    await upsertReportScope(db(), { id: scopeId, scopeKind: "channel", name: "Mo+ 主通路", sourceType: "momo" });
+    const response = await request({
+      kind: "sales_and_payout",
+      scopeType: "channel",
+      scopeId,
+      scopeName: "Mo+ 主通路",
+      sourceFileName: "statement_detail_202610000003.xls",
+      salesRows: [],
+      payoutRows: [{ businessDate: "2026-10-02", payoutAmount: 80 }],
+    });
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(await db().select({ businessDate: reportPayoutDaily.businessDate, payoutAmount: reportPayoutDaily.payoutAmount })
+      .from(reportPayoutDaily).where(eq(reportPayoutDaily.scopeId, scopeId)))
+      .toEqual([{ businessDate: "2026-10-02", payoutAmount: 80 }]);
+    expect(await db().select().from(reportItemSalesMonthly)).toHaveLength(0);
   });
 
   it("Mo+ 商品原廠編號可直接對應全平台品項 SKU", async () => {

@@ -85,6 +85,9 @@ const SHOP_REPORT_PERMISSION_MIGRATION = fileURLToPath(
 const MOMO_REPORT_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0248_momo_report_permission.sql", import.meta.url),
 );
+const MOMO_REPORT_RUN_PERMISSION_MIGRATION = fileURLToPath(
+  new URL("../../../packages/db/migrations/0251_momo_report_run_permission.sql", import.meta.url),
+);
 const HR_ADMIN_PERMISSION_MIGRATION = fileURLToPath(
   new URL("../../../packages/db/migrations/0132_restore_hr_admin_permissions.sql", import.meta.url),
 );
@@ -208,10 +211,12 @@ describe("bootstrap 管理員權限 migration", () => {
       d1.sqlite.exec(statement);
       d1.sqlite.exec(statement);
     }
-    for (const statement of readHistoricalMigration(MOMO_REPORT_PERMISSION_MIGRATION)
-      .split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean)) {
-      d1.sqlite.exec(statement);
-      d1.sqlite.exec(statement);
+    for (const migration of [MOMO_REPORT_PERMISSION_MIGRATION, MOMO_REPORT_RUN_PERMISSION_MIGRATION]) {
+      for (const statement of readHistoricalMigration(migration)
+        .split("--> statement-breakpoint").map((part) => part.trim()).filter(Boolean)) {
+        d1.sqlite.exec(statement);
+        d1.sqlite.exec(statement);
+      }
     }
 
     // HR 與多媒體權限由角色同步入口加入，不回頭改寫歷史 migration。

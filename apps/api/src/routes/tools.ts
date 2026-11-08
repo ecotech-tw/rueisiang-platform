@@ -185,18 +185,24 @@ export const tools = new Hono<AppEnv>()
   .route("/shop-report", shopReport)
   .route("/reports/runs", reportRuns)
 
-  .get("/reports/momo/scopes", requirePermission("tools:momo-sales:run"), async (c) => {
+  .get("/reports/momo/scopes", requirePermission("tools:momo-report:run"), async (c) => {
     const scopes = await listReportManagementScopes(c.get("db"));
     return c.json({ scopes: scopes
       .filter((scope) => scope.sourceType === "momo" && scope.scopeKind === "channel" && scope.active)
       .map(({ id, name }) => ({ id, name })) });
   })
 
-  .post("/reports/momo/import", requirePermission("tools:momo-sales:run"), async (c) => {
+  .post("/reports/momo/import", requirePermission("tools:momo-report:run"), async (c) => {
     const input = await body(c);
     const scopeId = requireString(input, "scopeId", "Mo+ 通路");
-    if (!Array.isArray(input.rows) || !input.rows.length || input.rows.length > 10_000) {
-      throw new HTTPException(400, { message: "商品列數必須介於 1 至 10,000 列。" });
+    if (!Array.isArray(input.salesRows) || input.salesRows.length > 10_000) {
+      throw new HTTPException(400, { message: "商品列數不得超過 10,000 列。" });
+    }
+    if (!Array.isArray(input.payoutRows) || input.payoutRows.length > 10_000) {
+      throw new HTTPException(400, { message: "每日出金列數不得超過 10,000 列。" });
+    }
+    if (!input.salesRows.length && !input.payoutRows.length) {
+      throw new HTTPException(400, { message: "檔案中沒有可匯入的商品銷售或每日出金資料。" });
     }
     const scope = await findReportScope(c.get("db"), { scopeKind: "channel", id: scopeId });
     if (!scope || scope.sourceType !== "momo" || !scope.active) {
@@ -205,11 +211,12 @@ export const tools = new Hono<AppEnv>()
     const user = c.get("user");
     try {
       const result = await createCyberbizReportIngestor(c.get("db")).ingest({
-        kind: "sales",
+        kind: "sales_and_payout",
         scopeType: "channel",
         scopeId: scope.id,
         scopeName: scope.name,
-        rows: input.rows,
+        salesRows: input.salesRows,
+        payoutRows: input.payoutRows,
         sourceFileName: requireString(input, "sourceFileName", "Mo+ 對帳明細檔名"),
         requestId: `momo-upload:${crypto.randomUUID()}`,
         actorEmail: user.email,

@@ -393,6 +393,8 @@ export function useReportRuns(kind?: ReportRunKind) {
 export interface MoPlusImportResult {
   scopeId: string;
   rowCount: number;
+  payoutRowCount: number;
+  payoutTotal: number;
   skippedSkus: string[];
   salesTotals: { grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number };
   reportMonths: string[];
@@ -414,7 +416,12 @@ export function useMoPlusReportScopes(enabled: boolean) {
 export function useImportMoPlusReport() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: (input: { scopeId: string; sourceFileName: string; rows: Array<{ reportMonth: string; sku: string; productName: string; grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number }> }) =>
+    mutationFn: (input: {
+      scopeId: string;
+      sourceFileName: string;
+      salesRows: Array<{ reportMonth: string; sku: string; productName: string; grossQuantity: number; returnQuantity: number; netQuantity: number; salesAmount: number }>;
+      payoutRows: Array<{ businessDate: string; payoutAmount: number }>;
+    }) =>
       call<MoPlusImportResult>("/api/tools/reports/momo/import", {
         method: "POST",
         body: JSON.stringify(input),
