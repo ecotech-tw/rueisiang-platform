@@ -22,10 +22,17 @@ export interface MonthlySalesTotals extends SalesTotals {
   reportMonth: string;
 }
 
+export interface DailyPayoutRow {
+  businessDate: string;
+  payoutAmount: number;
+}
+
 export interface ParsedSalesReport {
   sourceType: "momo";
   sourceSheet: string;
   rows: NormalizedSalesRow[];
+  payoutRows: DailyPayoutRow[];
+  payoutTotal: number;
   reportMonths: string[];
   monthlyTotals: MonthlySalesTotals[];
   salesTotals: SalesTotals;
@@ -49,7 +56,7 @@ function normalizeHeader(value: unknown): string {
   return cellText(value).replace(/[\s\r\n]/gu, "");
 }
 
-function monthFromDate(value: unknown): string {
+function dateFromValue(value: unknown): string {
   const text = cellText(value);
   const match = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/.exec(text);
   if (!match) return "";
@@ -58,8 +65,12 @@ function monthFromDate(value: unknown): string {
   const day = Number(match[3]);
   const date = new Date(Date.UTC(year, month - 1, day));
   return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
-    ? `${match[1]}-${String(month).padStart(2, "0")}`
+    ? `${match[1]}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`
     : "";
+}
+
+function monthFromDate(value: unknown): string {
+  return dateFromValue(value).slice(0, 7);
 }
 
 function numberValue(value: unknown): number | null {
@@ -91,13 +102,17 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
       && headers.includes("商品原廠編號")
       && headers.includes("商品編號")
       && headers.includes("商品名稱")
-      && headers.includes("數量");
+      && headers.includes("數量")
+      && headers.includes("入帳日")
+      && headers.includes("實際入帳金額");
   });
-  if (headerRowIndex < 0) throw new Error("「訂單明細」找不到必要欄位（訂單確認日、商品編號、商品原廠編號、商品名稱或數量）。");
+  if (headerRowIndex < 0) throw new Error("「訂單明細」缺少必要欄位（訂單確認日、商品欄位、入帳日或實際入帳金額）。");
 
   const headers = (matrix[headerRowIndex] ?? []).map(normalizeHeader);
   const columns = {
     orderDate: headerIndex(headers, ["訂單確認日（出貨日）", "訂單確認日(出貨日)"]),
+    businessDate: headerIndex(headers, ["入帳日"]),
+    payoutAmount: headerIndex(headers, ["實際入帳金額"]),
     quantity: headerIndex(headers, ["數量"]),
     unitPrice: headerIndex(headers, ["單筆售價"]),
     discount: headerIndex(headers, ["總折扣金額"]),
@@ -111,6 +126,7 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
   }
 
   const grouped = new Map<string, NormalizedSalesRow>();
+  const payoutByDate = new Map<string, number>();
   const skippedStatuses = new Map<string, number>();
   let sourceRowCount = 0;
   let skippedRowCount = 0;
@@ -121,6 +137,16 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
     if (!row.some((value) => cellText(value))) continue;
     const sourceRow = rowIndex + 1;
     sourceRowCount += 1;
+    const businessDateText = cellText(row[columns.businessDate]);
+    const payoutAmountText = cellText(row[columns.payoutAmount]);
+    if (businessDateText || payoutAmountText) {
+      const businessDate = dateFromValue(businessDateText);
+      const payoutAmount = numberValue(payoutAmountText);
+      if (!businessDate || payoutAmount === null) throw new Error(`「訂單明細」第 ${sourceRow} 列的入帳日或實際入帳金額格式錯誤。`);
+      const nextAmount = (payoutByDate.get(businessDate) ?? 0) + payoutAmount;
+      if (!Number.isSafeInteger(nextAmount)) throw new Error(`「訂單明細」第 ${sourceRow} 列的每日出金金額超出安全範圍。`);
+      payoutByDate.set(businessDate, nextAmount);
+    }
     const productName = cellText(row[columns.productName]);
     const manufacturerCode = cellText(row[columns.manufacturerCode]);
     const productCode = cellText(row[columns.productCode]);
@@ -163,8 +189,12 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
     });
   }
 
-  if (!grouped.size) throw new Error("「訂單明細」沒有可匯入的已送達或退貨商品列。");
+  if (!grouped.size && !payoutByDate.size) throw new Error("「訂單明細」沒有可匯入的銷售或出金資料列。");
   const rows = [...grouped.values()].sort((left, right) => left.reportMonth.localeCompare(right.reportMonth) || left.sku.localeCompare(right.sku));
+  const payoutRows = [...payoutByDate.entries()].sort(([left], [right]) => left.localeCompare(right))
+    .map(([businessDate, payoutAmount]) => ({ businessDate, payoutAmount }));
+  const payoutTotal = payoutRows.reduce((total, row) => total + row.payoutAmount, 0);
+  if (!Number.isSafeInteger(payoutTotal)) throw new Error("Mo+ 對帳明細的出金總額超出安全範圍。");
   const monthlyTotals = new Map<string, SalesTotals>();
   for (const row of rows) {
     const totals = monthlyTotals.get(row.reportMonth) ?? { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 };
@@ -187,6 +217,8 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
     sourceType: "momo",
     sourceSheet: sheetName,
     rows,
+    payoutRows,
+    payoutTotal,
     reportMonths: monthlySummary.map(({ reportMonth }) => reportMonth),
     monthlyTotals: monthlySummary,
     salesTotals,

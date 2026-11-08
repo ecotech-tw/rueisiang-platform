@@ -162,6 +162,22 @@ export const momoReportSalesSnapshots = sqliteTable("momo_report_sales_snapshots
   index("idx_momo_sales_snapshots_content").on(table.scopeId, table.contentHash),
 ]);
 
+/** 每份 Mo+ 對帳檔的每日入帳快照，重傳取代原來源後再合併同日其他來源。 */
+export const momoReportPayoutSnapshots = sqliteTable("momo_report_payout_snapshots", {
+  scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),
+  snapshotKey: text("snapshot_key").notNull(),
+  contentHash: text("content_hash").notNull(),
+  businessDate: text("business_date").notNull(),
+  payoutAmount: integer("payout_amount").notNull().default(0),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.scopeId, table.snapshotKey, table.businessDate] }),
+  index("idx_momo_payout_snapshots_scope_date").on(table.scopeId, table.businessDate),
+  index("idx_momo_payout_snapshots_key").on(table.scopeId, table.snapshotKey),
+  check("ck_momo_payout_snapshot_date", sql`length(${table.businessDate}) = 10`),
+]);
+
 /** 商品銷售月報；分類不存 snapshot，本輪先用 item_id join 目前分類。 */
 export const reportItemSalesMonthly = sqliteTable("report_item_sales_monthly", {
   scopeId: text("scope_id").notNull().references(() => scopes.id, { onDelete: "restrict" }),

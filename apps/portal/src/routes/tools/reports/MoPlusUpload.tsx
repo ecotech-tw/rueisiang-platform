@@ -11,6 +11,35 @@ function formatAmount(value: number): string {
   return `NT$${value.toLocaleString("zh-TW")}`;
 }
 
+function PayoutTotalsTable({ report }: { report: ParsedSalesReport }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <div>
+        <p className="muted">本次來源檔每日出金（依入帳日）</p>
+        <p className="mt-1 text-[24px] font-semibold tabular-nums">{formatAmount(report.payoutTotal)}</p>
+      </div>
+      {report.payoutRows.length ? (
+        <DataTable aria-label="Mo+ 每日出金明細">
+          <thead><tr><th>入帳日</th><th className="numeric">實際入帳金額</th></tr></thead>
+          <tbody>
+            {report.payoutRows.map((row) => (
+              <tr key={row.businessDate}>
+                <td data-label="入帳日">{row.businessDate}</td>
+                <td data-label="實際入帳金額" className="numeric">{formatAmount(row.payoutAmount)}</td>
+              </tr>
+            ))}
+            <tr className="font-semibold">
+              <td data-label="入帳日">合計</td>
+              <td data-label="實際入帳金額" className="numeric">{formatAmount(report.payoutTotal)}</td>
+            </tr>
+          </tbody>
+        </DataTable>
+      ) : <p className="muted">本次檔案沒有已入帳資料。</p>}
+      <p className="form-hint">出金日期使用檔案中的「入帳日」，金額使用「實際入帳金額」；不以商品出貨日或商品銷售額推算。</p>
+    </div>
+  );
+}
+
 function SalesTotalsTable({ report }: { report: ParsedSalesReport }) {
   return (
     <div className="flex flex-col gap-3">
@@ -86,7 +115,12 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
       }
       return;
     }
-    importReport.mutate({ scopeId: selectedScopeId, sourceFileName: file?.name ?? "", rows: preview.rows }, {
+    importReport.mutate({
+      scopeId: selectedScopeId,
+      sourceFileName: file?.name ?? "",
+      salesRows: preview.rows,
+      payoutRows: preview.payoutRows,
+    }, {
       onSuccess: (result) => {
         toast.show("Mo+ 對帳明細已匯入，所涉月份已重新彙整");
         setImportResult(result);
@@ -99,7 +133,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
   }
 
   return (
-    <Panel title="Mo+ 商品銷售" description="選擇通路與報表檔案，先解析預覽並確認資料，再匯入銷售報表。">
+    <Panel grows title="Mo+ 對帳報表" description="匯入商品銷售月報與依入帳日彙總的每日出金。">
       {scopesQuery.error ? <Alert tone="danger">{scopesQuery.error.message}</Alert> : null}
       {!scopesQuery.isPending && !scopesQuery.error && !scopes.length ? (
         <Alert tone="warning">尚未建立啟用中的 Mo+ 通路。請先到通路管理新增「種類：通路、平台：Mo+」。</Alert>
@@ -143,17 +177,18 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
           {preview ? "確認匯入" : "解析並預覽"}
         </Button>
       </div>
-      <div className="flex flex-col gap-4 mt-4">
+      <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
         {error ? <Alert tone="danger">{error}</Alert> : null}
         {importReport.error ? <Alert tone="danger">{importReport.error.message}</Alert> : null}
         {importResult && importedReport ? (
           <>
             <Alert tone="success">
-              <strong>Mo+ 對帳明細已匯入並完成月份重彙整。</strong>
-              <p className="mt-1">本次來源檔商品銷售額：{formatAmount(importedReport.salesTotals.salesAmount)}。</p>
+              <strong>Mo+ 對帳明細已匯入，銷售月報與每日出金已更新。</strong>
+              <p className="mt-1">本次來源檔商品銷售額：{formatAmount(importedReport.salesTotals.salesAmount)}；每日出金（{importResult.payoutRowCount} 個入帳日）：{formatAmount(importResult.payoutTotal)}。</p>
               <p className="mt-1">受影響月份（{importResult.reportMonths.join("、") || importedReport.reportMonths.join("、")}）重彙整後，已對應商品納入共用報表的銷售額：{formatAmount(importResult.salesTotals.salesAmount)}。</p>
               <p className="mt-1">月報金額涵蓋所列月份的 Mo+ 明細，不只本次檔案；未對應 SKU 不計入月報金額。</p>
             </Alert>
+            <PayoutTotalsTable report={importedReport} />
             <SalesTotalsTable report={importedReport} />
           </>
         ) : null}
@@ -172,10 +207,11 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
               </div>
               <span className="form-hint">確認匯入後才會更新資料庫</span>
             </div>
+            <PayoutTotalsTable report={preview} />
             <SalesTotalsTable report={preview} />
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
             {preview.skippedRowCount > 0 ? <p className="muted">略過 {preview.skippedRowCount} 列非商品或非已送達／退貨資料。</p> : null}
-            <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
+            <DataTable>
               <thead><tr><th>月份</th><th>商品原廠編號／商品編號</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
               <tbody>
                 {preview.rows.slice(0, 100).map((row) => (

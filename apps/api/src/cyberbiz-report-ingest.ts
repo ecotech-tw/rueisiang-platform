@@ -15,7 +15,7 @@ import {
   type ReportScopeKind,
 } from "@rueisiang/db";
 import { items as itemMasters } from "@rueisiang/db/schema";
-import { momoReportSalesSnapshots, reportExternalProducts, reportIngestIssues, reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
+import { momoReportPayoutSnapshots, momoReportSalesSnapshots, reportExternalProducts, reportIngestIssues, reportPayoutDaily, reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
 
 export type CyberbizReportIngestKind = "sales" | "payout" | "sales_and_payout";
 
@@ -101,9 +101,10 @@ function readInput(value: unknown): CyberbizReportIngestInput {
   if ((value.kind === "sales" || value.kind === "sales_and_payout") && value.reportMonth !== undefined) {
     month(value.reportMonth);
   }
-  if ((value.kind === "sales" || value.kind === "sales_and_payout")
-    && value.reportMonth === undefined
-    && (value.kind === "sales_and_payout" || (value.rows as unknown[]).length === 0)) {
+  if (value.kind === "sales" && value.reportMonth === undefined && (value.rows as unknown[]).length === 0) {
+    throw new CyberbizReportIngestError(422, "invalid_ingest");
+  }
+  if (value.kind === "sales_and_payout" && (value.salesRows as unknown[]).length === 0 && (value.payoutRows as unknown[]).length === 0) {
     throw new CyberbizReportIngestError(422, "invalid_ingest");
   }
   const salesWriteMode = value.salesWriteMode === undefined ? "replace" : value.salesWriteMode;
@@ -116,7 +117,7 @@ function readInput(value: unknown): CyberbizReportIngestInput {
   }
   if (value.coveredDates !== undefined) throw new CyberbizReportIngestError(422, "invalid_ingest");
   const sourceFileName = typeof value.sourceFileName === "string" ? value.sourceFileName.trim() : "";
-  if (String(value.scopeId).startsWith("momo:") && value.kind === "sales" && !sourceFileName) {
+  if (String(value.scopeId).startsWith("momo:") && (value.kind === "sales" || value.kind === "sales_and_payout") && !sourceFileName) {
     throw new CyberbizReportIngestError(422, "invalid_ingest", "Mo+ 匯入需要來源檔名以確保重傳可冪等處理。");
   }
   return {
@@ -333,7 +334,7 @@ async function replaceMomoSalesSnapshot(
   sourceFileName: string,
   rows: readonly ParsedSalesRow[],
 ): Promise<{ rows: ParsedSalesRow[]; reportMonths: string[] }> {
-  if (!sourceFileName.trim() || !rows.length) throw new CyberbizReportIngestError(422, "invalid_ingest", "Mo+ 對帳明細缺少檔名或有效商品列。");
+  if (!sourceFileName.trim()) throw new CyberbizReportIngestError(422, "invalid_ingest", "Mo+ 對帳明細缺少檔名。");
   const encoder = new TextEncoder();
   const canonicalRows = [...rows].sort((a, b) => `${a.reportMonth}:${a.externalSku}`.localeCompare(`${b.reportMonth}:${b.externalSku}`));
   const contentDigest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify(canonicalRows)));
@@ -374,6 +375,7 @@ async function replaceMomoSalesSnapshot(
     statements.push(db.insert(momoReportSalesSnapshots).values(chunk));
   }
   await db.batch(statements as [Statement, ...Statement[]]);
+  if (!months.length) return { rows: [], reportMonths: months };
 
   const totals = await db.select({
     reportMonth: momoReportSalesSnapshots.reportMonth,
@@ -448,6 +450,77 @@ function payoutRows(input: CyberbizReportIngestInput) {
   return [...rows.values()];
 }
 
+async function replaceMomoPayoutSnapshot(
+  db: Database,
+  scopeId: string,
+  sourceFileName: string,
+  rows: ReturnType<typeof payoutRows>,
+  runId: string,
+): Promise<void> {
+  const trimmedFileName = sourceFileName.trim();
+  if (!trimmedFileName) throw new CyberbizReportIngestError(422, "invalid_ingest", "Mo+ 匯入需要來源檔名以確保重傳可冪等處理。");
+  const canonicalRows = [...rows].map(({ businessDate, payoutAmount }) => ({ businessDate, payoutAmount }))
+    .sort((left, right) => left.businessDate.localeCompare(right.businessDate));
+  const encoder = new TextEncoder();
+  const contentDigest = await crypto.subtle.digest("SHA-256", encoder.encode(JSON.stringify(canonicalRows)));
+  const contentHash = [...new Uint8Array(contentDigest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const statementId = /statement_detail_(\d+)/iu.exec(trimmedFileName)?.[1];
+  const sourceNameDigest = await crypto.subtle.digest("SHA-256", encoder.encode(trimmedFileName.toLocaleLowerCase()));
+  const fileKey = [...new Uint8Array(sourceNameDigest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  const snapshotKey = statementId ? `statement:${statementId}` : `file:${fileKey}`;
+  const previousDates = await db.selectDistinct({ businessDate: momoReportPayoutSnapshots.businessDate })
+    .from(momoReportPayoutSnapshots)
+    .where(and(eq(momoReportPayoutSnapshots.scopeId, scopeId), eq(momoReportPayoutSnapshots.snapshotKey, snapshotKey)));
+  const affectedDates = [...new Set([...previousDates.map((row) => row.businessDate), ...canonicalRows.map((row) => row.businessDate)])].sort();
+  if (!affectedDates.length) return;
+
+  const totals = new Map<string, number>();
+  for (const dates of chunks(affectedDates, 50)) {
+    const otherSnapshots = await db.select({
+      businessDate: momoReportPayoutSnapshots.businessDate,
+      payoutAmount: momoReportPayoutSnapshots.payoutAmount,
+    }).from(momoReportPayoutSnapshots).where(and(
+      eq(momoReportPayoutSnapshots.scopeId, scopeId),
+      sql`${momoReportPayoutSnapshots.snapshotKey} <> ${snapshotKey}`,
+      inArray(momoReportPayoutSnapshots.businessDate, dates),
+    ));
+    for (const row of otherSnapshots) {
+      totals.set(row.businessDate, total((totals.get(row.businessDate) ?? 0) + row.payoutAmount));
+    }
+  }
+  for (const row of canonicalRows) {
+    totals.set(row.businessDate, total((totals.get(row.businessDate) ?? 0) + row.payoutAmount));
+  }
+
+  type Statement = Parameters<Database["batch"]>[0][number];
+  const statements: Statement[] = [db.delete(momoReportPayoutSnapshots).where(and(
+    eq(momoReportPayoutSnapshots.scopeId, scopeId),
+    eq(momoReportPayoutSnapshots.snapshotKey, snapshotKey),
+  ))];
+  const snapshotValues = canonicalRows.map((row) => ({ scopeId, snapshotKey, contentHash, ...row }));
+  for (const chunk of chunks(snapshotValues, 10)) {
+    statements.push(db.insert(momoReportPayoutSnapshots).values(chunk));
+  }
+  for (const dates of chunks(affectedDates, 50)) {
+    statements.push(db.delete(reportPayoutDaily).where(and(
+      eq(reportPayoutDaily.scopeId, scopeId),
+      eq(reportPayoutDaily.recordOrigin, "imported"),
+      inArray(reportPayoutDaily.businessDate, dates),
+    )));
+  }
+  const dailyRows = [...totals.entries()].map(([businessDate, payoutAmount]) => ({
+    scopeId,
+    businessDate,
+    recordOrigin: "imported" as const,
+    reportRunId: runId,
+    payoutAmount,
+  }));
+  for (const chunk of chunks(dailyRows, 10)) {
+    if (chunk.length) statements.push(db.insert(reportPayoutDaily).values(chunk));
+  }
+  await db.batch(statements as [Statement, ...Statement[]]);
+}
+
 async function recordMappedProducts(db: Database, sourceType: string, products: readonly { externalKey: string; externalName: string; systemSku: string }[]): Promise<void> {
   const values = [];
   for (const product of products) {
@@ -495,6 +568,7 @@ export function createCyberbizReportIngestor(db: Database) {
       rowCount: number;
       salesRowCount?: number;
       payoutRowCount?: number;
+      payoutTotal?: number;
       /** 對不到對應而被略過的外部 SKU；補好對應重跑同一個月就會補回來。 */
       skippedSkus?: string[];
       /** 實際完成 SKU mapping 後寫入報表的銷售合計。 */
@@ -542,22 +616,37 @@ export function createCyberbizReportIngestor(db: Database) {
       const payoutDates = (input.payoutRows ?? input.rows ?? []).flatMap((row) => record(row) && typeof row.businessDate === "string" ? [row.businessDate] : []);
       const salesRows = input.kind === "sales_and_payout" ? input.salesRows ?? [] : input.rows ?? [];
       const salesMonths = [...new Set(salesRows.flatMap((row) => record(row) && typeof (row.reportMonth ?? input.reportMonth) === "string" ? [String(row.reportMonth ?? input.reportMonth)] : []))].sort();
-      const monthStart = salesMonths[0] ?? input.reportMonth;
-      const monthEnd = salesMonths.at(-1) ?? input.reportMonth;
-      const startDate = monthStart ? `${monthStart}-01` : (payoutDates.sort()[0] ?? new Date().toISOString().slice(0, 10));
-      const endDate = monthEnd ? new Date(Date.UTC(Number(monthEnd.slice(0, 4)), Number(monthEnd.slice(5, 7)), 0)).toISOString().slice(0, 10) : (payoutDates.sort().at(-1) ?? startDate);
+      const salesStartDates = salesMonths.map((reportMonth) => `${reportMonth}-01`);
+      const salesEndDates = salesMonths.map((reportMonth) => new Date(Date.UTC(Number(reportMonth.slice(0, 4)), Number(reportMonth.slice(5, 7)), 0)).toISOString().slice(0, 10));
+      const startDate = [...salesStartDates, ...payoutDates].sort()[0] ?? new Date().toISOString().slice(0, 10);
+      const endDate = [...salesEndDates, ...payoutDates].sort().at(-1) ?? startDate;
+      const startMonth = startDate.slice(0, 7);
+      const periodKind = startDate === `${startMonth}-01`
+        && endDate === new Date(Date.UTC(Number(startMonth.slice(0, 4)), Number(startMonth.slice(5, 7)), 0)).toISOString().slice(0, 10)
+        ? "month" as const
+        : "custom" as const;
       if (runId) await db.batch([
-        db.insert(reportRuns).values({ id: runId, requestId, sourceType: dataChannel, importsSales: input.kind !== "payout" ? 1 : 0, importsPayout: input.kind !== "sales" ? 1 : 0, periodKind: monthStart && monthStart === monthEnd ? "month" : "custom", startDate, endDate, status: "running", actorEmail: input.actorEmail ?? "" }),
+        db.insert(reportRuns).values({ id: runId, requestId, sourceType: dataChannel, importsSales: input.kind !== "payout" ? 1 : 0, importsPayout: input.kind !== "sales" ? 1 : 0, periodKind, startDate, endDate, status: "running", actorEmail: input.actorEmail ?? "" }),
         db.insert(reportRunScopes).values({ reportRunId: runId, scopeId: scope.id }),
       ]);
       try {
         if (input.kind === "sales_and_payout") {
-        const salesInput = { ...scopedInput, rows: input.salesRows ?? [] };
-        // 先驗證 sales 的資料格式，再寫入 payout；只有 mapping 不存在時才保留「先存 payout」的行為。
-        const parsedSales = parseSalesRows(salesInput);
+        const sourceSalesInput = { ...scopedInput, rows: input.salesRows ?? [] };
+        // 先驗證商品列，再分別重建兩種來源快照；商品 mapping 不存在也不能遺失出金資料。
+        const sourceSalesRows = parseSalesRows(sourceSalesInput);
         const payout = payoutRows({ ...scopedInput, rows: input.payoutRows ?? [] });
-        // payout 與商品 mapping 無關，先保存，避免新商品未 mapping 時連結帳金額也一起遺失。
-        await insertReportPayoutDaily(db, payout, runId ?? undefined);
+        const salesSnapshot = dataChannel === "momo"
+          ? await replaceMomoSalesSnapshot(db, scope.id, input.sourceFileName ?? "", sourceSalesRows)
+          : null;
+        const salesInput = salesSnapshot
+          ? { ...sourceSalesInput, rows: salesSnapshot.rows, snapshotReportMonths: salesSnapshot.reportMonths }
+          : sourceSalesInput;
+        const parsedSales = salesSnapshot ? parseSalesRows(salesInput) : sourceSalesRows;
+        if (dataChannel === "momo" && runId) {
+          await replaceMomoPayoutSnapshot(db, scope.id, input.sourceFileName ?? "", payout, runId);
+        } else {
+          await insertReportPayoutDaily(db, payout, runId ?? undefined);
+        }
         const sales = await normalizeSalesRows(db, salesInput, dataChannel, parsedSales);
         await recordUnmappedIssues(db, runId, sales.skippedSkus);
         await recordMappedProducts(db, dataChannel, sales.mappedProducts);
@@ -570,8 +659,10 @@ export function createCyberbizReportIngestor(db: Database) {
           rowCount: sales.rows.length + payout.length,
           salesRowCount: sales.rows.length,
           payoutRowCount: payout.length,
+          payoutTotal: total(payout.reduce((sum, row) => sum + row.payoutAmount, 0)),
           skippedSkus: sales.skippedSkus,
           salesTotals: salesTotals(sales.rows),
+          reportMonths: salesSnapshot?.reportMonths ?? salesMonths,
         };
       }
       if (input.kind === "sales") {
