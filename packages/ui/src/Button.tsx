@@ -33,7 +33,10 @@ interface ButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "cla
   loadingLabel?: ReactNode;
   /** secondary 的開啟／選取狀態（篩選面板開著、編輯模式中）。只管外觀，aria 由呼叫端給。 */
   active?: boolean;
-  /** 手機寬度時收成只有圖示的 44px 圓鈕，給頁首的新增鈕。要同時給 icon 與 aria-label。 */
+  /**
+   * 手機寬度時收成只有圖示的 44px 圓鈕，給頁首的新增鈕。要同時給 icon。
+   * 文字在手機上只是看不見（sr-only），讀螢幕仍然念得到，所以不必另外給 aria-label。
+   */
   mobileIconOnly?: boolean;
   /** 停用按下縮放；適合會被連續操作或需要保持穩定的控制項。 */
   static?: boolean;
@@ -182,7 +185,7 @@ export function Button({
       aria-busy={loading || undefined}
     >
       {icon ? <Icon name={icon} /> : null}
-      {mobileIconOnly ? <span className="max-[760px]:hidden">{label}</span> : label}
+      {mobileIconOnly ? <span className="max-[760px]:sr-only">{label}</span> : label}
     </button>
   );
 }
