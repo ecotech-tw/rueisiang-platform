@@ -1375,13 +1375,7 @@
 }
 
 /* HR 月曆排班 */
-/* 只有日期格那一塊捲；月份、快速排班、星期列放在捲動區外，不需要 sticky。 */
-.hr-calendar-panel { gap: 12px; }
-[data-page=fills] > [data-grows] > .hr-calendar-head,
-[data-page=fills] > [data-grows] > .hr-quick-bar,
-[data-page=fills] > [data-grows] > .hr-calendar.weekdays { flex: none; }
-.hr-calendar-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
-.hr-calendar-scroll { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: auto; overscroll-behavior: contain; margin: 0 -22px -20px; padding: 0 22px 20px; }
+[data-page=fills] > [data-grows] > .hr-quick-bar { flex: none; }
 .hr-schedule-month { display: flex; align-items: center; gap: 2px; }
 .hr-schedule-month > strong { min-width: 112px; text-align: center; font-variant-numeric: tabular-nums; }
 .hr-schedule-status { display: flex; align-items: center; align-self: center; gap: 8px; margin: 0 0 0 auto; color: var(--color-muted); font-size: 13px; }
@@ -1393,32 +1387,15 @@
 .hr-schedule-rest-summary span.warning { color: var(--color-danger, #b3261e); }
 .hr-schedule-rest-summary .muted { color: var(--color-muted); }
 @media (max-width: 600px) { .hr-schedule-rest-summary { display: grid; gap: 6px; } }
-.hr-calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; min-height: 0; }
-.hr-calendar.weekdays { padding-bottom: 8px; border-bottom: 1px solid var(--color-soft-line); color: var(--color-muted); font-size: 12px; text-align: center; }
-.hr-calendar:not(.weekdays) { flex: 1 0 auto; padding-top: 4px; }
-.hr-calendar-cell { min-height: 104px; padding: 7px; border: 1px solid var(--color-line); border-radius: 10px; background: var(--color-canvas); overflow: hidden; }
-.hr-calendar-cell.empty { border-color: transparent; background: transparent; }
 /*
- * 日型用 Material 的色調容器：淡底、深字，不是高彩度填滿。週末只要跟平日分得出來就好，
- * 國定假日才該搶到視線——同一個月裡週末有八九天，假日通常只有一兩天。
+ * 日期鍵這一塊跟快速排班的 .hr-quick-day 共用選擇器（.hr-calendar-date button、
+ * .hr-calendar-cell.today …），要等 .hr-quick-* 一起搬才拆得開。
  */
-.hr-calendar-cell.day-weekend { background: --alpha(var(--color-ink) / 3%); }
-.hr-calendar-cell.day-holiday { border-color: var(--color-brand-soft); background: --alpha(var(--color-brand) / 7%); }
-.hr-calendar-date-row { position: relative; display: flex; align-items: center; gap: 4px; min-width: 0; padding-right: 24px; }
 .hr-calendar-date { flex: none; justify-content: flex-start; }
 .hr-calendar-date .hr-calendar-add-button { position: absolute; top: 0; right: 0; }
-.hr-calendar-date-row .hr-calendar-holiday { flex: 1 1 0; min-width: 0; margin-top: 0; }
-.hr-calendar-holiday { display: block; overflow: hidden; margin-top: 6px; padding: 3px 6px; border-radius: 8px; background: --alpha(var(--color-brand) / 12%); color: var(--color-brand-dark); font-size: 11px; font-weight: 700; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
-.hr-calendar-holiday.hr-calendar-typhoon { background: var(--color-warn-soft); color: var(--color-warn); }
 .hr-calendar-date { display: flex; justify-content: space-between; align-items: center; color: var(--color-ink); }
-.hr-calendar-date button, .hr-calendar-entry button { border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
+.hr-calendar-date button { border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
 .hr-calendar-date button { font-size: 18px; line-height: 1; }
-.hr-calendar-entries { display: grid; gap: 4px; margin-top: 5px; }
-.hr-calendar-entry { position: relative; display: grid; gap: 1px; padding: 4px 20px 4px 6px; border-left: 3px solid var(--color-secondary); border-radius: 5px; background: var(--color-paper); font-size: 11px; }
-.hr-calendar-entry.worker { border-left-color: var(--color-brand); }
-.hr-calendar-entry span, .hr-calendar-entry small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.hr-calendar-entry small { color: var(--color-muted); font-size: 10px; }
-.hr-calendar-entry button { position: absolute; top: 2px; right: 3px; padding: 0 3px; font-size: 14px; }
 .hr-calendar-date strong,
 .hr-calendar-date .hr-quick-day { display: inline-grid; min-width: 28px; height: 28px; place-items: center; border-radius: 999px; }
 .hr-calendar-cell.today .hr-calendar-date strong,
@@ -1436,14 +1413,8 @@
 .hr-quick-bar-rest.warning { background: var(--color-warn-soft); color: var(--color-warn); }
 @media (max-width: 800px) {
   .hr-quick-bar-count { margin-left: 0; }
-  .hr-calendar-cell { min-height: 88px; padding: 5px; }
-  .hr-calendar-date-row { display: contents; }
   .hr-calendar-date { position: relative; width: 100%; justify-content: space-between; }
   .hr-calendar-date .hr-calendar-add-button { right: 0; }
-  .hr-calendar-date-row .hr-calendar-holiday { flex: initial; margin-top: 6px; }
-  .hr-calendar-entry { padding-right: 4px; }
-  .hr-calendar-entry button { display: none; }
-  .hr-calendar-entry small { display: none; }
 }
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */

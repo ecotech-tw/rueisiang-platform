@@ -182,46 +182,6 @@
   font-size: 17px;
   letter-spacing: .02em;
 }
-.hr-system .hr-calendar.weekdays { gap: 8px; border-bottom-color: --alpha(var(--color-ink) / 8%); }
-.hr-system .hr-calendar.weekdays strong {
-  min-height: 26px;
-  color: var(--color-muted);
-  font-size: 13px;
-  font-weight: 900;
-  letter-spacing: .08em;
-}
-.hr-system .hr-calendar:not(.weekdays) { gap: 8px; }
-.hr-system .hr-calendar-cell {
-  position: relative;
-  isolation: isolate;
-  /*
-   * 基底的 overflow: hidden 會把第二筆之後的排班切掉。同一天早班加晚班正是快速排班
-   * 要處理的情況，所以讓格子隨內容長高；圓角由 ::before 的 inset 負責，不靠裁切。
-   */
-  overflow: visible;
-  min-height: 104px;
-  padding: 10px;
-  border: 1px solid transparent;
-  border-radius: 18px;
-  background: --alpha(var(--color-paper) / 34%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 64%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 22%) inset,
-    0 10px 24px --alpha(var(--color-ink) / 6%);
-  -webkit-backdrop-filter: blur(6px) saturate(145%);
-  backdrop-filter: blur(6px) saturate(145%);
-}
-.hr-system .hr-calendar-cell::before {
-  position: absolute;
-  inset: 1px;
-  z-index: -1;
-  border-radius: inherit;
-  background: radial-gradient(circle at 22% 0%, --alpha(var(--color-paper) / 22%), transparent 36%), linear-gradient(135deg, --alpha(var(--color-paper) / 12%), transparent 62%);
-  content: "";
-  pointer-events: none;
-}
-.hr-system .hr-calendar-cell.empty { box-shadow: none; background: transparent; }
-.hr-system .hr-calendar-cell.empty::before { content: none; }
 .hr-system .hr-calendar-date strong {
   display: inline-grid;
   min-width: 30px;
@@ -261,27 +221,6 @@
   color: var(--color-ok);
 }
 .hr-system .hr-calendar-date button:active { scale: .96; }
-.hr-system .hr-calendar-entries { gap: 6px; margin-top: 8px; }
-.hr-system .hr-calendar-entry {
-  overflow: hidden;
-  padding: 7px 28px 7px 9px;
-  border-left: 0;
-  border-radius: 12px;
-  background: --alpha(var(--color-secondary) / 14%);
-  box-shadow: 0 1px 0 --alpha(var(--color-paper) / 44%) inset;
-}
-.hr-system .hr-calendar-entry.worker { background: --alpha(var(--color-brand) / 13%); }
-.hr-system .hr-calendar-entry.absent { opacity: .62; }
-.hr-system .hr-calendar-entry span { color: var(--color-ink); font-weight: 800; }
-.hr-system .hr-calendar-entry small { color: var(--color-muted); }
-.hr-system .hr-calendar-attendance-readonly { display: block; margin-top: 3px; font-size: 11px; }
-.hr-system .hr-calendar-entry button {
-  top: 5px;
-  right: 5px;
-  border-radius: 999px;
-  color: var(--color-muted);
-}
-.hr-system .hr-calendar-entry button:hover { background: --alpha(var(--color-brand) / 12%); color: var(--color-brand-dark); }
 .hr-overview-card:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-overview-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .hr-overview-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; background: var(--color-brand-soft); color: var(--color-brand-dark); }
@@ -432,35 +371,6 @@
 }
 .hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="true"] { color: var(--color-brand-dark); }
 .hr-system .hr-calendar-date button.hr-quick-day:disabled { opacity: .45; }
-/*
- * 快速排班進行中：整格可點，所以整格也要有 hover 的 state layer，不是只有日期鍵會亮。
- */
-.hr-system .hr-calendar.quick .hr-calendar-cell:not(.empty) {
-  cursor: pointer;
-  transition-property: background-color, border-color;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.hr-system .hr-calendar.quick .hr-calendar-cell:not(.empty):hover { background: --alpha(var(--color-brand) / 11%); }
-/* 選中的整格要一眼掃得到，否則一整月看下來只能一格一格找那個小勾。 */
-.hr-system .hr-calendar-cell.picked {
-  border-color: --alpha(var(--color-brand) / 45%);
-  background: --alpha(var(--color-brand) / 10%);
-}
-.hr-system .hr-calendar.quick .hr-calendar-cell.picked:hover { background: --alpha(var(--color-brand) / 16%); }
-/*
- * 正在編排的那個人用品牌色調容器站出來，左側再加一條實心色帶；其他人的班退成中性底。
- * 沒有這個區別的話，一格裡兩三筆排班長得一樣，看不出哪一筆是這次點出來的。
- */
-.hr-system .hr-calendar-entry.current {
-  background: var(--color-brand-soft);
-  box-shadow: inset 3px 0 0 var(--color-brand), 0 1px 0 --alpha(var(--color-paper) / 44%);
-}
-.hr-system .hr-calendar-entry.current span { color: var(--color-brand-dark); }
-.hr-system .hr-calendar.quick .hr-calendar-entry:not(.current) {
-  background: --alpha(var(--color-ink) / 6%);
-  opacity: .72;
-}
 
 /* 申請中心是跨出勤／薪資的獨立工作區；申請紀錄與審核集中在同一張表。 */
 .hr-request-form { display: grid; gap: 16px; }
