@@ -229,27 +229,62 @@ function ClockMapBackground() {
   return staticMapFailed ? null : <StaticClockMap cacheKey={locationSignature} onError={() => setStaticMapFailed(true)} />;
 }
 
-function CalendarGrid({ data, selectedDate, onSelect, slideClass = "" }: { data: ClockCalendar; selectedDate: string | null; onSelect: (date: string) => void; slideClass?: string }) {
+type MonthSlide = "next" | "prev" | "";
+
+const MONTH_SLIDE_CLASS: Record<MonthSlide, string> = {
+  next: "animate-[hr-calendar-slide-next_.24s_cubic-bezier(.05,.7,.1,1)] motion-reduce:animate-none",
+  prev: "animate-[hr-calendar-slide-prev_.24s_cubic-bezier(.05,.7,.1,1)] motion-reduce:animate-none",
+  "": "",
+};
+
+const CALENDAR_COLUMNS = "grid grid-cols-7 gap-1.5 max-[760px]:gap-[3px]";
+const MUTED_DAY_STATUSES = new Set<ClockCalendarDay["status"]>(["rest", "future", "leave", "not-employed"]);
+const LEGEND_ITEM = "inline-flex items-center gap-[5px]";
+const LEGEND_DOT = "size-[7px] rounded-full";
+
+// 狀態色蓋過選中色：選中只換框線與光暈，已完成、缺卡與淡化的日子仍維持各自的字色；只有沒有狀態色的進行中日才換成選中的色調容器。
+function calendarDayClass(day: ClockCalendarDay, today: boolean, selected: boolean) {
+  const typhoon = day.specialKind === "typhoon_stop" && !selected;
+  const muted = MUTED_DAY_STATUSES.has(day.status);
+  const border = today && selected ? "border-brand" : day.status === "missing" ? "border-transparent" : today ? "border-secondary" : selected ? "border-brand" : "border-transparent";
+  const tone = typhoon ? "bg-secondary/10 text-ink"
+    : day.status === "present" ? "text-ok hover:bg-brand/7"
+    : day.status === "missing" ? "text-ink hover:bg-brand/7"
+    : muted ? "text-muted opacity-52 hover:bg-brand/7"
+    : selected ? "bg-brand-soft text-brand-dark hover:bg-brand/7"
+    : "text-ink hover:bg-brand/7";
+  return `relative grid min-h-0 content-center justify-items-center gap-[3px] rounded-[12px] border px-0.5 py-1 tabular-nums focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary max-[760px]:rounded-[9px] ${border} ${tone} ${selected ? "[box-shadow:0_0_0_2px_--alpha(var(--color-brand)/18%)]" : ""}`;
+}
+
+function CalendarGrid({ data, selectedDate, onSelect, slide = "" }: { data: ClockCalendar; selectedDate: string | null; onSelect: (date: string) => void; slide?: MonthSlide }) {
   const firstWeekday = new Date(Date.UTC(data.year, data.month - 1, 1)).getUTCDay();
   const cells: (ClockCalendarDay | string)[] = [...Array.from({ length: firstWeekday }, (_, index) => `empty-${index}`), ...data.days];
-  return <div className={`hr-clock-calendar-main ${slideClass}`.trim()}>
-    <div className="hr-clock-calendar-weekdays" aria-hidden="true">{["日", "一", "二", "三", "四", "五", "六"].map((weekday) => <span key={weekday}>{weekday}</span>)}</div>
-    <div className="hr-clock-calendar-grid" aria-label={`${data.year} 年 ${data.month} 月出勤日曆`}>
-      {cells.map((day) => typeof day === "string" ? <span className="hr-clock-calendar-empty" key={day} /> : <button
+  // 日曆格的高度跟著視窗高度縮放，手機矮螢幕再固定成一個能放下下方明細的高度。
+  return <div className={`grid min-h-0 grid-rows-[auto_clamp(260px,42vh,320px)_auto] max-[760px]:grid-rows-[auto_clamp(216px,40vh,276px)_auto] max-[760px]:[@media(max-height:720px)]:grid-rows-[auto_228px_auto] ${MONTH_SLIDE_CLASS[slide]}`}>
+    <div className={`${CALENDAR_COLUMNS} pt-2.5 pb-1 text-center text-[12px] font-bold text-muted max-[760px]:pt-[7px]`} aria-hidden="true">{["日", "一", "二", "三", "四", "五", "六"].map((weekday) => <span key={weekday}>{weekday}</span>)}</div>
+    <div className={`${CALENDAR_COLUMNS} h-full min-h-0 grid-rows-6`} aria-label={`${data.year} 年 ${data.month} 月出勤日曆`}>
+      {cells.map((day) => typeof day === "string" ? <span className="min-h-[52px]" key={day} /> : <button
         key={day.date}
         type="button"
-        className={`hr-clock-calendar-day ${day.status}${day.date === data.today ? " today" : ""}${day.date === selectedDate ? " selected" : ""}${day.anomaly ? " has-anomaly" : ""}${day.specialKind === "typhoon_stop" ? " typhoon-stop" : ""}`}
+        className={calendarDayClass(day, day.date === data.today, day.date === selectedDate)}
         onClick={() => onSelect(day.date)}
         aria-pressed={day.date === selectedDate}
         aria-label={`${day.date}，${calendarStatusLabel(day.status)}${day.workedMinutes ? `，實際 ${formatWorkedMinutes(day.workedMinutes)}` : ""}${day.specialKind === "typhoon_stop" ? "，災防停班" : ""}${day.anomaly ? "，有出勤異常" : day.eventCount ? `，已有 ${day.eventCount} 筆打卡` : "，沒有打卡紀錄"}`}
       >
-        <strong>{Number(day.date.slice(-2))}</strong>
-        {day.anomaly ? <i aria-hidden="true" /> : null}
+        <strong className={`text-[14px] ${day.date === data.today ? "font-extrabold" : "font-bold"}`}>{Number(day.date.slice(-2))}</strong>
+        {day.anomaly ? <i className="size-[5px] rounded-full bg-brand" aria-hidden="true" /> : null}
       </button>)}
     </div>
-    <div className="hr-clock-calendar-legend"><span><i className="present" />已完成</span><span><i className="anomaly" />需確認</span><span><i className="today" />今天</span></div>
+    <div className="flex flex-wrap gap-x-3.5 gap-y-2 pt-2 text-[11px] text-muted max-[760px]:gap-x-2.5 max-[760px]:gap-y-1.5 max-[760px]:pt-1.5">
+      <span className={LEGEND_ITEM}><i className={`${LEGEND_DOT} bg-ok`} />已完成</span>
+      <span className={LEGEND_ITEM}><i className={`${LEGEND_DOT} bg-brand`} />需確認</span>
+      <span className={LEGEND_ITEM}><i className={`${LEGEND_DOT} border border-secondary`} />今天</span>
+    </div>
   </div>;
 }
+
+const CALENDAR_EMPTY_DETAIL = "m-0 text-[12px] text-muted";
+const CALENDAR_ANOMALY_NOTE = "min-w-0 overflow-hidden text-[11px] text-ellipsis whitespace-nowrap text-muted max-[760px]:col-start-2";
 
 function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendarDay; onCorrection: (date: string, kind: "clock_in" | "clock_out") => void; onLeave: (date: string) => void }) {
   const { user } = useSession();
@@ -257,14 +292,14 @@ function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendar
   const correctionKind = day.events.at(-1)?.eventKind === "clock_in" ? "clock_out" : "clock_in";
   const dayLabel = `${Number(day.date.slice(5, 7))} 月 ${Number(day.date.slice(-2))} 日`;
   const anomalyTitle = day.anomaly === "missing" ? "尚未完成打卡" : day.anomaly === "short-duration" ? "出勤時數異常" : day.anomaly === "late-arrival" ? "上班打卡較晚" : day.anomaly === "early-leave" ? "下班打卡較早" : day.anomaly === "unscheduled" ? "非排班日打卡" : "打卡紀錄順序異常";
-  return <section className={`hr-clock-calendar-details${day.anomaly ? " has-anomaly" : ""}`} aria-live="polite">
-    <div className="hr-clock-calendar-details-head"><strong>{dayLabel}</strong><span>{["日", "一", "二", "三", "四", "五", "六"][day.weekday]}曜日</span></div>
-    {day.specialKind === "typhoon_stop" ? <p className="hr-clock-calendar-special">災防停班：原排班保留，適用範圍內未打卡不列為缺勤。</p> : null}
-    {day.expectedStartAt || day.expectedEndAt || day.workedMinutes > 0 ? <div className="hr-clock-calendar-day-metrics"><span>預期 {day.expectedStartAt ? formatTaipeiTime(day.expectedStartAt) : "—"}～{day.expectedEndAt ? formatTaipeiTime(day.expectedEndAt) : "—"}</span><strong>實際 {formatWorkedMinutes(day.workedMinutes)}</strong></div> : null}
-    {day.status === "leave" ? <p className="hr-clock-calendar-empty-detail">已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="hr-clock-calendar-events">
-      {day.events.map((event) => <li key={event.id}><span>{event.eventKind === "clock_in" ? "上班" : "下班"}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}
-    </ul> : day.anomaly ? null : <p className="hr-clock-calendar-empty-detail">{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "目前不是活動員工。" : "這天尚未有打卡紀錄。"}</p>}
-    {day.anomaly ? <div className="hr-clock-calendar-anomaly"><strong>{anomalyTitle}</strong><span>{day.anomalyMessage ?? "請確認當日出勤紀錄。"}</span>{canApply ? <div className="hr-clock-calendar-actions"><Button size="lg" tone="success" className="max-[760px]:flex-1" onClick={() => onCorrection(day.date, correctionKind)}>申請忘刷</Button><Button size="lg" variant="secondary" tone="success" className="max-[760px]:flex-1" onClick={() => onLeave(day.date)}>請假申請</Button></div> : <span>如需更正紀錄，請聯絡管理者。</span>}</div> : null}
+  return <section className="grid min-h-0 gap-2 overflow-hidden rounded-[12px] border-t border-t-soft-line bg-canvas px-3 py-2.5 max-[760px]:gap-1.5 max-[760px]:px-2.5 max-[760px]:py-2" aria-live="polite">
+    <div className="flex items-baseline justify-between gap-2"><strong className="text-[14px]">{dayLabel}</strong><span className="text-[12px] text-muted">{["日", "一", "二", "三", "四", "五", "六"][day.weekday]}曜日</span></div>
+    {day.specialKind === "typhoon_stop" ? <p className="m-0 rounded-[8px] bg-secondary/12 px-2 py-1.5 text-[12px] text-ink">災防停班：原排班保留，適用範圍內未打卡不列為缺勤。</p> : null}
+    {day.expectedStartAt || day.expectedEndAt || day.workedMinutes > 0 ? <div className="flex items-baseline justify-between gap-2 rounded-[8px] bg-paper px-[9px] py-[7px] text-[11px] text-muted"><span>預期 {day.expectedStartAt ? formatTaipeiTime(day.expectedStartAt) : "—"}～{day.expectedEndAt ? formatTaipeiTime(day.expectedEndAt) : "—"}</span><strong className="text-[12px] text-ink tabular-nums">實際 {formatWorkedMinutes(day.workedMinutes)}</strong></div> : null}
+    {day.status === "leave" ? <p className={CALENDAR_EMPTY_DETAIL}>已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="m-0 grid list-none grid-cols-2 gap-1.5 p-0 max-[760px]:gap-1">
+      {day.events.map((event) => <li key={event.id} className="grid min-w-0 grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-1 rounded-[8px] bg-paper px-2 py-1.5 max-[760px]:px-1.5 max-[760px]:py-[5px]"><span className="text-[11px] text-muted">{event.eventKind === "clock_in" ? "上班" : "下班"}</span><strong className="text-[12px] tabular-nums">{formatTaipei(event.occurredAt)}</strong><small className="col-span-full overflow-hidden text-[10px] text-ellipsis whitespace-nowrap text-muted">{event.locationName ?? "未指定辦公位置"}</small></li>)}
+    </ul> : day.anomaly ? null : <p className={CALENDAR_EMPTY_DETAIL}>{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "目前不是活動員工。" : "這天尚未有打卡紀錄。"}</p>}
+    {day.anomaly ? <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 before:size-1.5 before:rounded-full before:bg-brand before:content-[''] max-[760px]:grid-cols-[auto_minmax(0,1fr)]"><strong className="text-[12px] text-brand-dark">{anomalyTitle}</strong><span className={CALENDAR_ANOMALY_NOTE}>{day.anomalyMessage ?? "請確認當日出勤紀錄。"}</span>{canApply ? <div className="flex gap-1.5 max-[760px]:col-span-full max-[760px]:justify-stretch"><Button size="lg" tone="success" className="max-[760px]:flex-1" onClick={() => onCorrection(day.date, correctionKind)}>申請忘刷</Button><Button size="lg" variant="secondary" tone="success" className="max-[760px]:flex-1" onClick={() => onLeave(day.date)}>請假申請</Button></div> : <span className={CALENDAR_ANOMALY_NOTE}>如需更正紀錄，請聯絡管理者。</span>}</div> : null}
   </section>;
 }
 
@@ -450,7 +485,7 @@ export function HrClockCalendar() {
   const [closing, setClosing] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState(currentMonth);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [monthSlide, setMonthSlide] = useState("");
+  const [monthSlide, setMonthSlide] = useState<MonthSlide>("");
   const touchStartX = useRef<number | null>(null);
   const calendar = useHrQuery<ClockCalendar>(`/me/attendance-calendar?year=${calendarMonth.year}&month=${calendarMonth.month}`);
   const selectedDay = calendar.data?.days.find((day) => day.date === selectedDate) ?? null;
@@ -462,7 +497,7 @@ export function HrClockCalendar() {
   }, [calendar.data]);
 
   function changeMonth(offset: number) {
-    setMonthSlide(offset > 0 ? "slide-next" : "slide-prev");
+    setMonthSlide(offset > 0 ? "next" : "prev");
     setCalendarMonth((current) => shiftMonth(current.year, current.month, offset));
     window.setTimeout(() => setMonthSlide(""), 260);
   }
@@ -490,14 +525,14 @@ export function HrClockCalendar() {
     <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
     <PageHeader title="出勤日曆" description="左右滑動切換月份，點擊日期查看打卡紀錄。" className="max-[760px]:mb-0 max-[760px]:[&_h1]:text-[18px] max-[760px]:[&_p]:hidden" />
     {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
-    <section data-panel="" className={`${PANEL_SURFACE} [&>:last-child]:mb-0 hr-clock-calendar hr-clock-calendar-open`} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
-      <div className="hr-clock-calendar-toolbar">
+    <section data-panel="" className={`${PANEL_SURFACE} [&>:last-child]:mb-0 mx-auto grid min-h-0 w-full max-w-[760px] touch-pan-y grid-rows-[auto_auto_auto] content-start overflow-hidden max-[760px]:px-3 max-[760px]:py-2.5`} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
+      <div className="flex items-center justify-between border-y border-y-soft-line py-2.5 max-[760px]:pt-1 max-[760px]:pb-2">
         <Button variant="icon" icon="chevronLeft" aria-label="上一個月" onClick={() => changeMonth(-1)} />
-        <strong>{monthLabel(calendarMonth.year, calendarMonth.month)}</strong>
+        <strong className="text-[16px]">{monthLabel(calendarMonth.year, calendarMonth.month)}</strong>
         <Button variant="icon" icon="chevronRight" aria-label="下一個月" onClick={() => changeMonth(1)} />
       </div>
       {calendar.isPending ? <p className="muted">載入日曆…</p> : calendar.data ? <>
-        <CalendarGrid key={`${calendarMonth.year}-${calendarMonth.month}`} data={calendar.data} selectedDate={selectedDate} onSelect={setSelectedDate} slideClass={monthSlide} />
+        <CalendarGrid key={`${calendarMonth.year}-${calendarMonth.month}`} data={calendar.data} selectedDate={selectedDate} onSelect={setSelectedDate} slide={monthSlide} />
         {selectedDay ? <CalendarDayDetails day={selectedDay} onCorrection={openCorrection} onLeave={openLeave} /> : null}
       </> : null}
     </section>
