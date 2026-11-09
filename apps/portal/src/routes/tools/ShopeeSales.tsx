@@ -182,7 +182,6 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
           </Button>
           {trackingRunning ? <span className="form-hint">{tracking?.mode === "preview" ? "正在解密並解析報表…" : "背景整理中…"}可以關閉這一頁</span> : null}
         </form>
-        {file ? <p className="muted table-note">已選擇：{file.name}</p> : null}
         {fileTooLarge ? <Alert tone="danger">檔案不能超過 25 MB。</Alert> : null}
         {preview && (!file || !password) ? <p className="form-hint mt-3">請重新選擇預覽時的原始檔案並輸入相同密碼，才能確認匯入。</p> : null}
         {previewRun.error ? <Alert tone="danger">{previewRun.error.message}</Alert> : null}
@@ -209,22 +208,34 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
               </div>
             </div>
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
-            <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
-              <thead><tr><th>月份</th><th>商品 SKU</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
-              <tbody>
-                {preview.rows.map((row) => (
-                  <tr key={`${row.reportMonth}:${row.sku}`}>
-                    <td data-label="月份">{row.reportMonth}</td>
-                    <td data-label="SKU"><code>{row.sku}</code></td>
-                    <td data-label="商品名稱">{row.productName}</td>
-                    <td data-label="銷售數量" className="numeric">{number(row.grossQuantity)}</td>
-                    <td data-label="退貨數量" className="numeric">{number(row.returnQuantity)}</td>
-                    <td data-label="銷售金額" className="numeric">{number(row.salesAmount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </DataTable>
-            {preview.rowCount > preview.rows.length ? <p className="muted">表格先顯示前 {number(preview.rows.length)} 列，確認匯入時會處理全部 {number(preview.rowCount)} 列。</p> : null}
+            <details className="group rounded-[12px] border border-soft-line bg-canvas/74">
+              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-[11px] px-4 py-3 font-semibold text-ink [transition-property:background-color] duration-120 ease-out hover:bg-brand/4 group-open:rounded-b-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&::-webkit-details-marker]:hidden">
+                <span>商品明細</span>
+                <span className="flex items-center gap-3 text-[13px] text-muted">
+                  <span>{number(preview.rowCount)} 個商品／月份組合</span>
+                  <span className="group-open:hidden">展開</span>
+                  <span className="hidden group-open:inline">收合</span>
+                </span>
+              </summary>
+              <div className="overflow-hidden rounded-b-[11px] border-t border-soft-line">
+                <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
+                  <thead><tr><th>月份</th><th>商品 SKU</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
+                  <tbody>
+                    {preview.rows.map((row) => (
+                      <tr key={`${row.reportMonth}:${row.sku}`}>
+                        <td data-label="月份">{row.reportMonth}</td>
+                        <td data-label="SKU"><code>{row.sku}</code></td>
+                        <td data-label="商品名稱">{row.productName}</td>
+                        <td data-label="銷售數量" className="numeric">{number(row.grossQuantity)}</td>
+                        <td data-label="退貨數量" className="numeric">{number(row.returnQuantity)}</td>
+                        <td data-label="銷售金額" className="numeric">{number(row.salesAmount)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </DataTable>
+                {preview.rowCount > preview.rows.length ? <p className="muted p-3">表格先顯示前 {number(preview.rows.length)} 列，確認匯入時會處理全部 {number(preview.rowCount)} 列。</p> : null}
+              </div>
+            </details>
           </div>
         ) : null}
         {previewFailed ? <Button className="mt-3" type="button" variant="secondary" disabled={busy} onClick={forgetPreview}>重新選擇報表</Button> : null}

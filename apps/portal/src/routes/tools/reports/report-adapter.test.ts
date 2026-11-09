@@ -60,6 +60,26 @@ describe("Mo+ 對帳明細 parser", () => {
     expect(parsed.payoutRows).toEqual([{ businessDate: "2026-10-02", payoutAmount: 80 }]);
   });
 
+  it("沒有入帳日的非零金額不推測日期，略過出金並在預覽警告", () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["訂單號碼"]]), "訂單彙總");
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ["NO", "訂單確認日（出貨日）", "入帳日", "單筆售價", "數量", "總折扣金額", "商品編號", "商品名稱", "商品原廠編號", "訂單狀態", "實際入帳金額"],
+      [1, "2026/10/01", "2026/10/02", 100, 1, 0, "TP-1", "測試商品", "ASO-1", "已送達", 80],
+      [2, "2026/10/03", "", 100, 1, 0, "TP-2", "回收商品", "ASO-2", "回收確認", -47],
+      [3, "2026/10/04", "", 100, 1, 0, "TP-3", "待處理商品", "ASO-3", "處理中", 0],
+      [4, "", "", "", "", "", "", "", "", "取消訂單通知", -2],
+    ]), "訂單明細");
+    const buffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" }) as ArrayBuffer;
+    const parsed = parseMomoWorkbook(buffer);
+
+    expect(parsed.payoutRows).toEqual([{ businessDate: "2026-10-02", payoutAmount: 80 }]);
+    expect(parsed.payoutTotal).toBe(80);
+    expect(parsed.warnings).toContain("2 列有實際入帳金額但沒有「入帳日」（合計 NT$-49），無法歸入每日出金，已略過。");
+    expect(parsed.warnings).toContain("略過 1 列「回收確認」訂單狀態。");
+    expect(parsed.warnings).toContain("略過 1 列「取消訂單通知」訂單狀態。");
+  });
+
   it("缺少每日出金欄位時拒絕匯入", () => {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([["訂單號碼"]]), "訂單彙總");

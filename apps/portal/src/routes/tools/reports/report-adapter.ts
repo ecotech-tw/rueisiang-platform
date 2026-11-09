@@ -128,6 +128,8 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
   const grouped = new Map<string, NormalizedSalesRow>();
   const payoutByDate = new Map<string, number>();
   const skippedStatuses = new Map<string, number>();
+  let unassignedPayoutRowCount = 0;
+  let unassignedPayoutTotal = 0;
   let sourceRowCount = 0;
   let skippedRowCount = 0;
   let fallbackSkuCount = 0;
@@ -140,12 +142,22 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
     const businessDateText = cellText(row[columns.businessDate]);
     const payoutAmountText = cellText(row[columns.payoutAmount]);
     if (businessDateText || payoutAmountText) {
-      const businessDate = dateFromValue(businessDateText);
       const payoutAmount = numberValue(payoutAmountText);
-      if (!businessDate || payoutAmount === null) throw new Error(`「訂單明細」第 ${sourceRow} 列的入帳日或實際入帳金額格式錯誤。`);
-      const nextAmount = (payoutByDate.get(businessDate) ?? 0) + payoutAmount;
-      if (!Number.isSafeInteger(nextAmount)) throw new Error(`「訂單明細」第 ${sourceRow} 列的每日出金金額超出安全範圍。`);
-      payoutByDate.set(businessDate, nextAmount);
+      if (payoutAmount === null) throw new Error(`「訂單明細」第 ${sourceRow} 列的入帳日或實際入帳金額格式錯誤。`);
+      if (!businessDateText) {
+        // Mo+ 的回收／取消列可能有負的實際入帳金額，卻沒有入帳日；不拿出貨日代替結算日。
+        if (payoutAmount !== 0) {
+          unassignedPayoutRowCount += 1;
+          unassignedPayoutTotal += payoutAmount;
+          if (!Number.isSafeInteger(unassignedPayoutTotal)) throw new Error(`「訂單明細」第 ${sourceRow} 列的未歸日出金金額超出安全範圍。`);
+        }
+      } else {
+        const businessDate = dateFromValue(businessDateText);
+        if (!businessDate) throw new Error(`「訂單明細」第 ${sourceRow} 列的入帳日或實際入帳金額格式錯誤。`);
+        const nextAmount = (payoutByDate.get(businessDate) ?? 0) + payoutAmount;
+        if (!Number.isSafeInteger(nextAmount)) throw new Error(`「訂單明細」第 ${sourceRow} 列的每日出金金額超出安全範圍。`);
+        payoutByDate.set(businessDate, nextAmount);
+      }
     }
     const productName = cellText(row[columns.productName]);
     const manufacturerCode = cellText(row[columns.manufacturerCode]);
@@ -155,21 +167,21 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
       skippedRowCount += 1;
       continue;
     }
+    const status = cellText(row[columns.status]);
+    const isReturn = ["已退貨", "退貨完成", "退貨已完成"].includes(status);
+    if (status !== "已送達" && !isReturn) {
+      skippedRowCount += 1;
+      skippedStatuses.set(status || "未填訂單狀態", (skippedStatuses.get(status || "未填訂單狀態") ?? 0) + 1);
+      continue;
+    }
     const sku = manufacturerCode || productCode;
     const reportMonth = monthFromDate(row[columns.orderDate]);
     const quantity = numberValue(row[columns.quantity]);
     const unitPrice = numberValue(row[columns.unitPrice]);
     const discountText = cellText(row[columns.discount]);
     const discount = discountText ? numberValue(discountText) : 0;
-    const status = cellText(row[columns.status]);
     if (!sku || !productName || !reportMonth || quantity === null || quantity <= 0 || unitPrice === null || discount === null) {
       throw new Error(`「訂單明細」第 ${sourceRow} 列有缺少或格式錯誤的商品資料。`);
-    }
-    const isReturn = ["已退貨", "退貨完成", "退貨已完成"].includes(status);
-    if (status !== "已送達" && !isReturn) {
-      skippedRowCount += 1;
-      skippedStatuses.set(status || "未填訂單狀態", (skippedStatuses.get(status || "未填訂單狀態") ?? 0) + 1);
-      continue;
     }
     if (!manufacturerCode) fallbackSkuCount += 1;
 
@@ -212,6 +224,9 @@ function parseRows(workbook: WorkBook): ParsedSalesReport {
     salesAmount: total.salesAmount + month.salesAmount,
   }), { grossQuantity: 0, returnQuantity: 0, netQuantity: 0, salesAmount: 0 });
   const warnings = [...skippedStatuses.entries()].map(([status, count]) => `略過 ${count} 列「${status}」訂單狀態。`);
+  if (unassignedPayoutRowCount) {
+    warnings.push(`${unassignedPayoutRowCount} 列有實際入帳金額但沒有「入帳日」（合計 NT$${unassignedPayoutTotal.toLocaleString("zh-TW")}），無法歸入每日出金，已略過。`);
+  }
   if (fallbackSkuCount) warnings.push(`${fallbackSkuCount} 列沒有商品原廠編號，將改用商品編號進行對應。`);
   return {
     sourceType: "momo",

@@ -36,7 +36,7 @@ export function UploadReports() {
 
   return (
     <Page layout="fills">
-      <PageHeader title="上傳報表" description="選擇來源、通路與報表檔案，依提示預覽並確認匯入；完成的資料會進入共用銷售報表。" />
+      <PageHeader title="上傳報表" />
       {!available.length ? <Alert tone="warning">你沒有任何上傳報表的執行權限。</Alert> : null}
       {sourceType === "momo" ? <MoPlusUpload sourceField={sourceField} /> : null}
       {sourceType === "shopee" ? <ShopeeSales embedded sourceField={sourceField} /> : null}
