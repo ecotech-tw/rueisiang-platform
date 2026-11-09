@@ -69,6 +69,12 @@ function periodOptions(latestSalesPeriod?: string | null): Array<{ value: string
   return options;
 }
 
+const FILTER_FIELD = "grid gap-[5px]";
+const FILTER_FIELD_WIDTH = "min-w-[164px] max-[760px]:min-w-0";
+const FILTER_DATE_WIDTH = "min-w-[150px] max-[760px]:min-w-0 max-[760px]:col-span-1";
+const FILTER_LABEL = "text-[12px] font-bold text-muted";
+const FILTER_INPUT = "min-h-10 min-w-0 rounded-field border border-line bg-paper px-2.5 py-2 text-ink [font:inherit] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-secondary";
+
 function updateParams(
   current: URLSearchParams,
   changes: Record<string, string | null>,
@@ -185,14 +191,14 @@ export function Analytics() {
         description="比較商品銷量、通路與出金表現；先看整體，再下鑽到單一店別、通路或商品。"
       />
 
-      <Panel className="analytics-filters px-[18px] pt-[15px] pb-4 max-[760px]:px-3.5 max-[760px]:pt-[13px] max-[760px]:pb-3.5" aria-label="報表篩選條件">
-        <div className="analytics-filter-heading">
-          <span className="analytics-filter-icon"><Icon name="calendar" /></span>
-          <div>
-            <strong>分析範圍</strong>
-            <p>選擇店別／通路與期間；切換分析類型時會保留這裡的條件。</p>
+      <Panel className="mb-3 grid flex-none gap-4 max-[760px]:gap-3 px-[18px] pt-[15px] pb-4 max-[760px]:px-3.5 max-[760px]:pt-[13px] max-[760px]:pb-3.5" aria-label="報表篩選條件">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="grid size-[38px] flex-none place-items-center rounded-[12px] bg-brand-soft text-brand-dark"><Icon name="calendar" className="size-[21px]" /></span>
+          <div className="min-w-[220px] flex-[1_1_260px] max-[760px]:min-w-0">
+            <strong className="block text-[14px]">分析範圍</strong>
+            <p className="mt-[3px] mb-0 text-[12px] text-muted">選擇店別／通路與期間；切換分析類型時會保留這裡的條件。</p>
           </div>
-          <div className="analytics-tabs" role="tablist" aria-label="統計類型">
+          <div className="analytics-tabs max-[760px]:ml-0 max-[760px]:w-full" role="tablist" aria-label="統計類型">
             <button
               type="button"
               role="tab"
@@ -213,9 +219,9 @@ export function Analytics() {
             </button>
           </div>
         </div>
-        <div className="analytics-filter-fields">
-          <label className="analytics-filter-field">
-            <span>店別／通路</span>
+        <div className="flex flex-wrap items-end gap-x-3 gap-y-2.5 max-[760px]:grid max-[760px]:grid-cols-[1fr_1fr]">
+          <label className={`${FILTER_FIELD} ${FILTER_FIELD_WIDTH}`}>
+            <span className={FILTER_LABEL}>店別／通路</span>
             <DropdownSelect
               options={scopeOptions}
               value={selectedScope}
@@ -224,8 +230,8 @@ export function Analytics() {
               aria-label="店別／通路"
             />
           </label>
-          <label className="analytics-filter-field">
-            <span>期間</span>
+          <label className={`${FILTER_FIELD} ${FILTER_FIELD_WIDTH}`}>
+            <span className={FILTER_LABEL}>期間</span>
             <DropdownSelect
               options={periodSelectOptions}
               value={custom ? "custom" : period}
@@ -239,10 +245,11 @@ export function Analytics() {
             />
           </label>
           {tab === "sales" ? (
-            <div className="analytics-filter-field analytics-product-field">
-              <span>商品分析</span>
+            <div className={`${FILTER_FIELD} analytics-product-field`}>
+              <span className={FILTER_LABEL}>商品分析</span>
               <div className="analytics-product-control">
                 <input
+                  className={FILTER_INPUT}
                   value={productDraft}
                   placeholder="商品名稱或 SKU"
                   aria-label="商品名稱或 SKU"
@@ -260,17 +267,19 @@ export function Analytics() {
           ) : null}
           {custom ? (
             <>
-              <label className="analytics-filter-field analytics-filter-date">
-                <span>起日</span>
+              <label className={`${FILTER_FIELD} ${FILTER_DATE_WIDTH}`}>
+                <span className={FILTER_LABEL}>起日</span>
                 <input
+                  className={FILTER_INPUT}
                   type="date"
                   value={startDate}
                   onChange={(event) => setFilter({ period: null, startDate: event.target.value || null })}
                 />
               </label>
-              <label className="analytics-filter-field analytics-filter-date">
-                <span>迄日</span>
+              <label className={`${FILTER_FIELD} ${FILTER_DATE_WIDTH}`}>
+                <span className={FILTER_LABEL}>迄日</span>
                 <input
+                  className={FILTER_INPUT}
                   type="date"
                   value={endDate}
                   onChange={(event) => setFilter({ period: null, endDate: event.target.value || null })}

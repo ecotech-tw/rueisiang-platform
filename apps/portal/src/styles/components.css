@@ -1152,17 +1152,6 @@
    ─────────────────────────────────────────────────────────────────────── */
 .analytics-page { gap: 0; }
 
-.analytics-filters {
-  flex: none;
-  display: grid;
-  gap: 16px;
-  margin-bottom: 12px;
-}
-.analytics-filter-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
-.analytics-filter-heading > div:nth-child(2) { flex: 1 1 260px; min-width: 220px; }
-.analytics-filter-heading strong { display: block; font-size: 14px; }
-.analytics-filter-heading p { margin: 3px 0 0; color: var(--color-muted); font-size: 12px; }
-.analytics-filter-icon,
 .analytics-empty-icon {
   display: grid;
   place-items: center;
@@ -1173,25 +1162,7 @@
   background: var(--color-brand-soft);
   color: var(--color-brand-dark);
 }
-.analytics-filter-icon svg,
 .analytics-empty-icon svg { width: 21px; height: 21px; }
-.analytics-filter-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 10px 12px; }
-.analytics-filter-field { display: grid; gap: 5px; min-width: 164px; }
-.analytics-filter-field > span { color: var(--color-muted); font-size: 12px; font-weight: 700; }
-.analytics-filter-field select,
-.analytics-filter-field input {
-  min-height: 40px;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-field);
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font: inherit;
-}
-.analytics-filter-field select:focus-visible,
-.analytics-filter-field input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 1px; }
-.analytics-filter-date { min-width: 150px; }
 .analytics-product-field { min-width: 280px; flex: 1 1 280px; }
 .analytics-product-control { display: flex; align-items: stretch; gap: 8px; }
 .analytics-product-control input { flex: 1 1 auto; width: 0; }
@@ -1348,14 +1319,7 @@
 }
 
 @media (max-width: 760px) {
-  .analytics-filters { gap: 12px; }
-  .analytics-filter-heading > div:nth-child(2) { min-width: 0; }
-  .analytics-filter-heading .analytics-tabs { width: 100%; margin-left: 0; }
   .analytics-tab { flex: 1; }
-  .analytics-filter-fields { display: grid; grid-template-columns: 1fr 1fr; }
-  .analytics-filter-field,
-  .analytics-filter-date { min-width: 0; }
-  .analytics-filter-date { grid-column: span 1; }
   .analytics-product-field { grid-column: span 2; min-width: 0; }
   .analytics-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .analytics-kpi-grid.annual { grid-template-columns: repeat(2, minmax(0, 1fr)); }
