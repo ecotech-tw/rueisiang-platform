@@ -208,8 +208,8 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
               </div>
             </div>
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
-            <details className="group overflow-hidden rounded-[12px] border border-soft-line bg-canvas/74">
-              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-semibold text-ink transition-colors duration-120 ease-out hover:bg-brand/4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&::-webkit-details-marker]:hidden">
+            <details className="group rounded-[12px] border border-soft-line bg-canvas/74">
+              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-[11px] px-4 py-3 font-semibold text-ink [transition-property:background-color] duration-120 ease-out hover:bg-brand/4 group-open:rounded-b-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&::-webkit-details-marker]:hidden">
                 <span>商品明細</span>
                 <span className="flex items-center gap-3 text-[13px] text-muted">
                   <span>{number(preview.rowCount)} 個商品／月份組合</span>
@@ -217,7 +217,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
                   <span className="hidden group-open:inline">收合</span>
                 </span>
               </summary>
-              <div className="border-t border-soft-line">
+              <div className="overflow-hidden rounded-b-[11px] border-t border-soft-line">
                 <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
                   <thead><tr><th>月份</th><th>商品 SKU</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
                   <tbody>
