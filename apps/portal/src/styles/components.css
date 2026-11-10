@@ -1316,23 +1316,11 @@
 .hr-payroll-record-table td { vertical-align: middle; }
 .hr-payroll-record-table td.numeric,
 .hr-payroll-record-table th.numeric { white-space: nowrap; }
-.hr-payroll-record-person { display: grid; gap: 2px; min-width: 0; }
-.hr-payroll-record-person strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hr-payroll-record-table .cell-sub { display: block; margin-top: 2px; }
 .hr-payroll-records-panel [data-table-scroll].is-refreshing { opacity: .62; transition: opacity 160ms ease-out; }
 .hr-payroll-warning-list { margin: 7px 0 0; padding-left: 20px; }
 .hr-payroll-employee-picker-section { display: grid; gap: 10px; }
-.hr-payroll-picker-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.hr-payroll-picker-heading > div { display: grid; gap: 2px; min-width: 0; }
-.hr-payroll-picker-heading strong { font-size: 14px; }
-.hr-payroll-picker-heading small { color: var(--color-muted); font-size: 12px; }
-.hr-payroll-picker-count { color: var(--color-brand-dark); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; }
-.hr-payroll-picker-count { flex: none; padding: 5px 10px; border-radius: 999px; background: var(--color-brand-soft); }
 .hr-payroll-employee-picker { display: grid; gap: 2px; max-height: min(38vh, 360px); overflow-y: auto; padding: 5px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-canvas); }
-.hr-payroll-picker-group { display: grid; gap: 2px; }
-.hr-payroll-picker-group + .hr-payroll-picker-group { margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--color-soft-line); }
-.hr-payroll-picker-group-title { padding: 6px 10px 3px; color: var(--color-muted); font-size: 12px; font-weight: 700; }
-.hr-payroll-picker-empty { margin: 0; padding: 12px 14px; border-radius: var(--radius-field); background: var(--color-canvas); }
 .special-workday-target-section { display: grid; gap: 10px; }
 /*
  * 載入中的提示佔的是下拉的位置，給它同樣的外框與高度（輸入框 + chip 區上下留白 + 外框），換成下拉時版面才不會跳。
@@ -1377,8 +1365,6 @@
   .hr-payroll-record-table .hr-payroll-select-cell > .table-checkbox { display: block; margin-inline: auto; }
 }
 .hr-payroll-select-cell input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-payroll-record-detail-panel { display: grid; gap: 16px; }
-.hr-payroll-record-items { display: grid; gap: 12px; }
 .hr-payroll-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--color-soft-line); }
 .hr-payroll-section-head > div { display: grid; gap: 4px; min-width: 0; }
 .hr-payroll-section-head h3 { margin: 0; font-size: 15px; }
