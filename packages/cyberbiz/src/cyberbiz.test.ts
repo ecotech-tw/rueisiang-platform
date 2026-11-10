@@ -40,6 +40,15 @@ describe("傳輸層", () => {
     const headers = calls[0]?.init.headers as Record<string, string>;
     expect(headers.Authorization).toBe("Bearer test-token");
     expect(headers.Accept).toBe("application/json");
+    expect(headers["x-cyberbiz-relay-token"]).toBeUndefined();
+  });
+
+  it("有設定 relay 時才帶專用 relay token", async () => {
+    const calls = stubFetch({ body: { ok: true } });
+    await cyberbizRequest({ ...config, relayToken: "relay-secret" }, "/v1/customers");
+
+    const headers = calls[0]?.init.headers as Record<string, string>;
+    expect(headers["x-cyberbiz-relay-token"]).toBe("relay-secret");
   });
 
   it("沒有 token 就直接拒絕，不要送出一個註定失敗的請求", async () => {

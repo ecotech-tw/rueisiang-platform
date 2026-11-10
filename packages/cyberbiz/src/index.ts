@@ -1,9 +1,11 @@
 export {
   CyberbizApiError,
   DEFAULT_BASE_URL,
+  cyberbizConfigFromEnv,
   cyberbizRequest,
   readErrorMessage,
   type CyberbizConfig,
+  type CyberbizEnvironment,
   type RequestOptions,
 } from "./http.js";
 

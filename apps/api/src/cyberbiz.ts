@@ -1,6 +1,7 @@
 import {
   createCustomerClient,
   createInventoryClient,
+  cyberbizConfigFromEnv,
   type CyberbizCustomerClient,
   type CyberbizInventoryClient,
 } from "@rueisiang/cyberbiz";
@@ -15,17 +16,11 @@ import type { Env } from "./env.js";
  */
 export function cyberbizClient(env: Env): CyberbizCustomerClient | undefined {
   if (!env.CYBERBIZ_API_TOKEN) return undefined;
-  return createCustomerClient({
-    apiToken: env.CYBERBIZ_API_TOKEN,
-    baseUrl: env.CYBERBIZ_API_BASE_URL,
-  });
+  return createCustomerClient(cyberbizConfigFromEnv(env));
 }
 
 /** 商品庫存的 client。跟會員那支同一個 token，只是打官網的不同區塊。 */
 export function cyberbizInventoryClient(env: Env): CyberbizInventoryClient | undefined {
   if (!env.CYBERBIZ_API_TOKEN) return undefined;
-  return createInventoryClient({
-    apiToken: env.CYBERBIZ_API_TOKEN,
-    baseUrl: env.CYBERBIZ_API_BASE_URL,
-  });
+  return createInventoryClient(cyberbizConfigFromEnv(env));
 }
