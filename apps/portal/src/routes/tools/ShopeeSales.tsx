@@ -37,8 +37,12 @@ function ShopeePayoutPreview({ preview }: { preview: ShopeePreview }) {
         <>
           <ReportSummary items={[
             { label: "每日出金合計", value: amount(total) },
+            { label: "不重複訂單", value: `${number(preview.uniqueOrders)} 筆` },
             { label: "出金日期", value: `${number(rows.length)} 日` },
           ]} />
+          {preview.totalPerformance !== total ? (
+            <Alert tone="warning">業績合計 {amount(preview.totalPerformance)} 與可依日期列出的每日出金 {amount(total)} 不同，請核對來源報表的日期欄位。</Alert>
+          ) : null}
           {rows.length ? (
             <DataTable aria-label="蝦皮每日出金明細">
               <thead><tr><th>出金日期</th><th className="numeric">出金金額</th></tr></thead>
