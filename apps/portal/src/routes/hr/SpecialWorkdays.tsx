@@ -6,7 +6,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { useHrEmployeeRoster, useHrQuery, useHrWrite, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
-import { PEOPLE_PICKER_EMPTY, PEOPLE_PICKER_EMPTY_SURFACE, PeoplePickerHeading } from "./PayrollSettlement.js";
+import { PeoplePickerEmpty, PeoplePickerHeading } from "./PickerList.js";
 
 interface AllowanceDraft { itemName: string; amount: string }
 interface AssignmentTarget { key: string; kind: "employee" | "worker"; employmentId?: string; workerId?: string; displayName: string; secondary: string }
@@ -315,7 +315,7 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
     <SelectField label="規則" value={ruleId} options={ruleOptions} disabled={save.isPending} onChange={(event) => setRuleId(event.target.value)} hint={selectedVersion ? `目前設定 v${selectedVersion.versionNumber}；重新試算會使用當時的目前設定` : undefined} />
     <div className="special-workday-target-section">
       <PeoplePickerHeading title="套用人員" description="可一次複選正式員工與啟用中的支援人員；以下選擇會套用到區間內每一天。" count={<>已選 {selectedTargets.length} 人</>}><Button variant="link" onClick={() => setSelectedTargetKeys(targets.map((target) => target.key))} disabled={allTargetsSelected || !targets.length || employees.isPending || workers.isPending || Boolean(employees.error) || Boolean(workers.error) || save.isPending}>全選</Button></PeoplePickerHeading>
-      {employees.isPending || workers.isPending ? <p className={`${ PEOPLE_PICKER_EMPTY_SURFACE } special-workday-target-loading`}>正在載入人員名單…</p> : targets.length ? <DropdownSelect
+      {employees.isPending || workers.isPending ? <PeoplePickerEmpty rounded={false} className="special-workday-target-loading">正在載入人員名單…</PeoplePickerEmpty> : targets.length ? <DropdownSelect
         multiple
         searchable
         value={selectedTargetKeys}
@@ -324,7 +324,7 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
         aria-label="選擇套用人員"
         disabled={save.isPending}
         onValueChange={setSelectedTargetKeys}
-      /> : <p className={PEOPLE_PICKER_EMPTY}>目前沒有可套用的人員。</p>}
+      /> : <PeoplePickerEmpty>目前沒有可套用的人員。</PeoplePickerEmpty>}
     </div>
     <div className="form-grid two"><TextField label="開始日期" type="date" required value={startDate} disabled={save.isPending} onChange={(event) => setStartDate(event.target.value)} /><TextField label="結束日期（含）" type="date" min={startDate} required value={endDate} disabled={save.isPending} onChange={(event) => setEndDate(event.target.value)} /></div>
     <AllowanceQuantities version={selectedVersion} quantities={allowanceQuantities} disabled={save.isPending} onChange={(allowanceId, value) => setAllowanceQuantities((current) => ({ ...current, [allowanceId]: value }))} />

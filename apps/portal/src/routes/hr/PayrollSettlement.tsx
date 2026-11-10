@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
@@ -10,6 +10,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TableBulkActionMenu, TextField, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
+import { PeoplePickerEmpty, PeoplePickerHeading } from "./PickerList.js";
 
 interface PayrollRecordsResponse {
   records: PayrollRecord[];
@@ -87,17 +88,6 @@ const PAYROLL_JOB_CHEVRON_HIDDEN = "opacity-0 [scale:.25] [filter:blur(4px)]";
 // 錯誤是後端例外的原文，最長兩千字；不截的話一張卡就把整個面板撐滿。
 const PAYROLL_JOB_ERROR = "line-clamp-3 [line-clamp:3] min-w-0 text-brand-dark [overflow-wrap:anywhere]";
 const PICKER_GROUP_TITLE = "px-2.5 pt-1.5 pb-[3px] text-[12px] font-bold text-muted";
-// 不含圓角：特殊上班日的「載入中」由 .special-workday-target-loading 畫成輸入框的圓角。
-export const PEOPLE_PICKER_EMPTY_SURFACE = "muted m-0 bg-canvas px-3.5 py-3";
-export const PEOPLE_PICKER_EMPTY = `${ PEOPLE_PICKER_EMPTY_SURFACE } rounded-field`;
-
-/** 試算人員與特殊上班日套用人員共用的選人標題列：左邊標題與說明，右邊放全選與已選人數。 */
-export function PeoplePickerHeading({ title, description, count, children }: { title: string; description: string; count: ReactNode; children: ReactNode }) {
-  return <div className="flex items-center justify-between gap-3">
-    <div className="grid min-w-0 gap-0.5"><strong className="text-[14px]">{title}</strong><small className="text-[12px] text-muted">{description}</small></div>
-    <span className="flex flex-none items-center gap-2">{children}<span className="flex-none rounded-full bg-brand-soft px-2.5 py-[5px] text-[12px] font-bold text-brand-dark tabular-nums">{count}</span></span>
-  </div>;
-}
 function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "personId">) {
   return `${record.runId}:${record.personKind}:${record.personId}`;
 }
@@ -255,7 +245,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
       <div className="hr-payroll-employee-picker" role="group" aria-label="選擇員工與支援人員">
         <div className="grid gap-0.5">
           <strong className={PICKER_GROUP_TITLE}>正式員工</strong>
-          {!periodKey ? <p className={PEOPLE_PICKER_EMPTY}>選擇計算月份後會列出尚未試算的正式員工。</p> : employeesPending || candidateExclusions.isPending ? <p className={PEOPLE_PICKER_EMPTY}>正在載入符合資格的員工…</p> : employeesError || candidateExclusions.error ? <p className={PEOPLE_PICKER_EMPTY}>本月薪資試算名單載入失敗。</p> : availableEmployees.length ? <DropdownSelect
+          {!periodKey ? <PeoplePickerEmpty>選擇計算月份後會列出尚未試算的正式員工。</PeoplePickerEmpty> : employeesPending || candidateExclusions.isPending ? <PeoplePickerEmpty>正在載入符合資格的員工…</PeoplePickerEmpty> : employeesError || candidateExclusions.error ? <PeoplePickerEmpty>本月薪資試算名單載入失敗。</PeoplePickerEmpty> : availableEmployees.length ? <DropdownSelect
             multiple
             searchable
             // 全體模式只收合視覺上的 chip，清單仍保留所有人，才能搜尋並取消單一人員。
@@ -269,11 +259,11 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             // 載入失敗也算沒載完：重試成功之前名單一樣是空的。
             disabled={calculatePayroll.isPending || supportWorkers.isLoading || Boolean(supportWorkers.error) || candidateExclusions.isLoading || Boolean(candidateExclusions.error)}
             onValueChange={updateEmployeeSelection}
-          /> : <p className={PEOPLE_PICKER_EMPTY}>{employeesInPeriod.length ? "符合本月份日期條件的正式員工皆已有試算結果或正在試算。" : employees.length ? "本月份沒有符合在職日期條件的正式員工。" : "目前沒有符合資格的正式員工。"}</p>}
+          /> : <PeoplePickerEmpty>{employeesInPeriod.length ? "符合本月份日期條件的正式員工皆已有試算結果或正在試算。" : employees.length ? "本月份沒有符合在職日期條件的正式員工。" : "目前沒有符合資格的正式員工。"}</PeoplePickerEmpty>}
         </div>
         <div className="mt-1.5 grid gap-0.5 border-t border-t-soft-line pt-1.5">
           <strong className={PICKER_GROUP_TITLE}>支援人員</strong>
-          {!periodKey ? <p className={PEOPLE_PICKER_EMPTY}>選擇計算月份後會列出該月可試算的支援人員。</p> : supportWorkers.isPending || candidateExclusions.isPending ? <p className={PEOPLE_PICKER_EMPTY}>正在載入本月已發布排班…</p> : supportWorkers.error || candidateExclusions.error ? <p className={PEOPLE_PICKER_EMPTY}>本月支援人員試算名單載入失敗。</p> : workerOptions.length ? <DropdownSelect
+          {!periodKey ? <PeoplePickerEmpty>選擇計算月份後會列出該月可試算的支援人員。</PeoplePickerEmpty> : supportWorkers.isPending || candidateExclusions.isPending ? <PeoplePickerEmpty>正在載入本月已發布排班…</PeoplePickerEmpty> : supportWorkers.error || candidateExclusions.error ? <PeoplePickerEmpty>本月支援人員試算名單載入失敗。</PeoplePickerEmpty> : workerOptions.length ? <DropdownSelect
             multiple
             searchable
             compactSelected={selectionMode === "all"}
@@ -283,7 +273,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             aria-label="選擇支援人員"
             disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || candidateExclusions.isLoading || Boolean(candidateExclusions.error)}
             onValueChange={updateWorkerSelection}
-          /> : <p className={PEOPLE_PICKER_EMPTY}>{rawWorkerOptions.length ? "本月份支援人員皆已有試算結果或正在試算。" : "本月份沒有已發布排班的支援人員。"}</p>}
+          /> : <PeoplePickerEmpty>{rawWorkerOptions.length ? "本月份支援人員皆已有試算結果或正在試算。" : "本月份沒有已發布排班的支援人員。"}</PeoplePickerEmpty>}
         </div>
       </div>
       {selectionLimitError ? <Alert tone="warning">{selectionLimitError}</Alert> : null}
