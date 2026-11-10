@@ -254,12 +254,22 @@ function payrollWorkerWorkDayBasisLabel(day: PayrollWorkerWorkDay): string {
   return day.payBasis === "monthly" ? "月薪計算" : "當日敘薪方式未保存";
 }
 
+const WORKER_NOTE = "m-0 text-[12px] leading-[1.6] text-muted";
+const WORK_SUMMARY = "grid gap-1.5 border-t border-t-soft-line pt-2";
+const WORK_SUMMARY_HEAD = "flex items-center justify-between gap-[10px]";
+const WORK_SUMMARY_LIST = "m-0 grid list-none gap-[5px] p-0";
+const WORK_SUMMARY_NOTE = "m-0 text-[11px] leading-[1.6] text-muted";
+
+function PayrollWorkerWorkDayList({ days, label }: { days: PayrollWorkerWorkDay[]; label: (day: PayrollWorkerWorkDay) => string }) {
+  return <ul className={WORK_SUMMARY_LIST}>{days.map((day) => <li key={day.date} className="flex justify-between gap-3 text-[12px] text-muted"><span className="flex-none wrap-anywhere">{day.date}</span><strong className="min-w-0 flex-auto text-right text-ink tabular-nums wrap-anywhere">{label(day)}</strong></li>)}</ul>;
+}
+
 function PayrollWorkerWorkSummaryDisclosure({ title, count, countDetail, emptyMessage, children }: { title: string; count: number; countDetail?: string; emptyMessage: string; children: ReactNode }) {
   const countLabel = countDetail ? `${count} 天・${countDetail}` : `${count} 天`;
-  const heading = <><strong>{title}</strong><span className="hr-payroll-worker-work-summary-count">{countLabel}</span></>;
-  if (!count) return <><div className="hr-payroll-worker-work-summary-head">{heading}</div><p>{emptyMessage}</p></>;
-  return <details className="hr-payroll-worker-work-summary-details">
-    <summary className="hr-payroll-worker-work-summary-head hr-payroll-worker-work-summary-trigger">{heading}<span className="hr-payroll-disclosure-marker" aria-hidden="true"><Icon name="chevronDown" /></span></summary>
+  const heading = <><strong className="text-[13px]">{title}</strong><span className="text-[12px] font-bold text-brand-dark tabular-nums">{countLabel}</span></>;
+  if (!count) return <><div className={WORK_SUMMARY_HEAD}>{heading}</div><p className={WORK_SUMMARY_NOTE}>{emptyMessage}</p></>;
+  return <details className="group grid gap-1.5">
+    <summary className={`${ WORK_SUMMARY_HEAD } cursor-pointer list-none hover:bg-brand/4 [&::-webkit-details-marker]:hidden ${ LINE_FOCUS }`}>{heading}<span className="grid size-8 flex-none place-items-center rounded-[50%] text-muted [transition-property:background-color,color] duration-150 ease-out motion-reduce:transition-none" aria-hidden="true"><Icon name="chevronDown" className="size-5 [transition-property:transform] duration-220 ease-out group-open:[transform:rotate(180deg)] motion-reduce:transition-none" /></span></summary>
     {children}
   </details>;
 }
@@ -269,16 +279,16 @@ export function PayrollWorkerWorkSummary({ worker, details }: { worker: PayrollW
   if (worker.payBasis === "daily") {
     const payableDays = workDays.filter((day) => day.allocatedUnits > 0);
     const allocatedUnits = payableDays.reduce((sum, day) => sum + day.allocatedUnits, 0);
-    return <section className="hr-payroll-worker-work-summary" aria-label="日薪計薪日期">
+    return <section className={WORK_SUMMARY} aria-label="日薪計薪日期">
       <PayrollWorkerWorkSummaryDisclosure title="日薪計薪日期" count={payableDays.length} countDetail={`${allocatedUnits.toLocaleString("zh-TW", { maximumFractionDigits: 2 })} 單位`} emptyMessage={details.length ? "本期沒有可計薪日期。" : "此筆歷史快照未保存逐日排班資料。"}>
-        <ul>{payableDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{payrollWorkerWorkDayBasisLabel(day)}</strong></li>)}</ul>
+        <PayrollWorkerWorkDayList days={payableDays} label={payrollWorkerWorkDayBasisLabel} />
       </PayrollWorkerWorkSummaryDisclosure>
     </section>;
   }
   if (worker.payBasis === "mixed") {
-    return <section className="hr-payroll-worker-work-summary" aria-label="逐日計薪方式">
+    return <section className={WORK_SUMMARY} aria-label="逐日計薪方式">
       <PayrollWorkerWorkSummaryDisclosure title="逐日計薪方式" count={workDays.length} emptyMessage="此筆歷史快照未保存逐日計薪資料。">
-        <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{payrollWorkerWorkDayBasisLabel(day)}</strong></li>)}</ul>
+        <PayrollWorkerWorkDayList days={workDays} label={payrollWorkerWorkDayBasisLabel} />
       </PayrollWorkerWorkSummaryDisclosure>
     </section>;
   }
@@ -286,12 +296,15 @@ export function PayrollWorkerWorkSummary({ worker, details }: { worker: PayrollW
   const hasHours = workDays.length > 0 && workDays.every((day) => day.scheduledHours !== null && day.payableHours !== null);
   const scheduledHours = hasHours ? workDays.reduce((sum, day) => sum + day.scheduledHours!, 0) : 0;
   const payableHours = hasHours ? workDays.reduce((sum, day) => sum + day.payableHours!, 0) : 0;
-  return <section className="hr-payroll-worker-work-summary" aria-label="時薪逐日工時">
+  return <section className={WORK_SUMMARY} aria-label="時薪逐日工時">
     <PayrollWorkerWorkSummaryDisclosure title="時薪逐日工時" count={workDays.length} emptyMessage="此筆歷史快照未保存逐日工時明細。">
-      <ul>{workDays.map((day) => <li key={day.date}><span>{day.date}</span><strong>{day.scheduledHours === null || day.payableHours === null ? "工時未保存" : `排班 ${payrollHours(day.scheduledHours)}${day.overlapDeductedHours > 0 ? `・重疊扣除 ${payrollHours(day.overlapDeductedHours)}` : ""}・計薪 ${payrollHours(day.payableHours)}`}</strong></li>)}</ul>
-      {hasHours ? <p>合計排班 {payrollHours(scheduledHours)}・重疊扣除 {payrollHours(workDays.reduce((sum, day) => sum + day.overlapDeductedHours, 0))}・計薪 {payrollHours(payableHours)}。依此次薪資試算保存的排班單位計算；歷史批次保留當時分配結果。</p> : <p>此筆歷史試算未保存逐日工時，無法回溯工時數。</p>}
+      <PayrollWorkerWorkDayList days={workDays} label={(day) => day.scheduledHours === null || day.payableHours === null ? "工時未保存" : `排班 ${payrollHours(day.scheduledHours)}${day.overlapDeductedHours > 0 ? `・重疊扣除 ${payrollHours(day.overlapDeductedHours)}` : ""}・計薪 ${payrollHours(day.payableHours)}`} />
+      {hasHours ? <p className={WORK_SUMMARY_NOTE}>合計排班 {payrollHours(scheduledHours)}・重疊扣除 {payrollHours(workDays.reduce((sum, day) => sum + day.overlapDeductedHours, 0))}・計薪 {payrollHours(payableHours)}。依此次薪資試算保存的排班單位計算；歷史批次保留當時分配結果。</p> : <p className={WORK_SUMMARY_NOTE}>此筆歷史試算未保存逐日工時，無法回溯工時數。</p>}
     </PayrollWorkerWorkSummaryDisclosure>
   </section>;
+}
+function PayrollOverviewItem({ label, value, net = false }: { label: string; value: string; net?: boolean }) {
+  return <div className={`grid min-w-0 gap-1 rounded-[12px] px-[13px] py-[11px] [box-shadow:inset_0_1px_0_color-mix(in_oklab,var(--color-paper)_64%,transparent),inset_0_0_0_1px_color-mix(in_oklab,var(--color-ink)_5%,transparent)] ${ net ? "bg-brand-soft" : "bg-paper/52" }`}><span className="text-[11px] font-bold text-muted">{label}</span><strong className={`truncate text-[16px] ${ net ? "text-brand-dark" : "text-ink" }`}>{value}</strong></div>;
 }
 function payBasisOf(detail: PayrollRecordDetail) {
   return detail.record.payBasis ? PAY_BASIS_LABEL[detail.record.payBasis] ?? detail.record.payBasis : "—";
@@ -420,7 +433,7 @@ export function HrPayrollRecordDetail() {
     }
   }
 
-  return <Page className="hr-payroll-page hr-payroll-detail-page">
+  return <Page className="hr-payroll-page">
     <PageHeader title={detail.record.personName} description={`${periodLabel(detail.record.periodKey)}・${PERSON_KIND_LABEL[detail.record.personKind]}・${payBasisOf(detail)}`} actions={<div className="flex flex-wrap items-center justify-end gap-2 max-[760px]:justify-start"><Button variant="secondary" icon="chevronLeft" onClick={() => navigate("/hr/payroll-settlement")}>返回發放紀錄</Button></div>} />
     <Panel className="hr-payroll-record-detail-panel" title="發放明細" description={`${detail.record.payDate ? `發薪日 ${detail.record.payDate}` : "未設定發薪日"}・試算版本 v${detail.record.versionNumber}`}>
       <div className="flex items-center justify-between gap-[18px] border-b border-b-soft-line pb-[14px] max-[760px]:flex-col max-[760px]:items-start">
@@ -431,15 +444,15 @@ export function HrPayrollRecordDetail() {
           <div className={`${ ACTION_GROUP } ${ hasUnsettledActions ? "ms-1 border-s border-s-soft-line ps-3 max-[760px]:ms-0 max-[760px]:border-s-0 max-[760px]:border-t max-[760px]:border-t-soft-line max-[760px]:ps-0 max-[760px]:pt-2" : "" }`} role="group" aria-label="其他操作"><Button variant="secondary" icon="eye" tone="info" onClick={() => setPayslipPreviewOpen(true)}>預覽薪資條</Button>{canCalculate && detail.record.status === "unsettled" && detail.run.canDelete ? <Button variant="danger" icon="trash" disabled={approve.isPending || withdraw.isPending} onClick={() => { deleteRun.reset(); setDeleteRunOpen(true); }}>刪除此筆試算</Button> : null}{canCalculate && detail.record.status === "closed" && !detail.record.withdrawal ? <Button variant="danger" icon="history" disabled={approve.isPending || deleteRun.isPending || withdraw.isPending} onClick={() => { withdraw.reset(); setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawOpen(true); }}>撤回此筆發放</Button> : null}</div>
         </div>
       </div>
-      <div className="hr-payroll-overview" aria-label="薪資合計">
-        <div><span>應發</span><strong>{money(detail.record.earningMinor)}</strong></div>
-        <div><span>扣款</span><strong>{detail.record.deductionMinor ? deductionMoney(detail.record.deductionMinor) : "—"}</strong></div>
-        <div className="hr-payroll-overview-net"><span>實領</span><strong>{money(detail.record.netMinor)}</strong></div>
+      <div className="grid grid-cols-4 gap-2 max-[760px]:grid-cols-2" aria-label="薪資合計">
+        <PayrollOverviewItem label="應發" value={money(detail.record.earningMinor)} />
+        <PayrollOverviewItem label="扣款" value={detail.record.deductionMinor ? deductionMoney(detail.record.deductionMinor) : "—"} />
+        <PayrollOverviewItem label="實領" value={money(detail.record.netMinor)} net />
       </div>
       {detail.record.status === "withdrawn" ? <Alert tone="warning"><strong>此筆發放已撤回，歷史薪資快照保留供稽核。</strong><p>撤回原因：{detail.record.withdrawal?.reason}（{detail.record.withdrawal?.withdrawnAt}）</p><p>此人員可重新加入本月試算；其他人員的發放狀態不受影響。</p></Alert> : detail.record.status === "closed" ? <Alert tone="info">這筆紀錄已確定發放，以下明細是不可改寫的歷史快照。{detail.run.withdrawal ? <p>原試算批次曾撤回；批次撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p> : null}</Alert> : detail.run.withdrawal ? <Alert tone="warning"><strong>原始薪資批次曾整批撤回。</strong>此筆仍可重新確認發放或個別刪除。<p>撤回原因：{detail.run.withdrawal.reason}（{detail.run.withdrawal.withdrawnAt}）</p></Alert> : <Alert tone="warning">請確認試算公式與薪資加扣項後，再確定發放。薪資加扣項會以試算時保存的明細快照呈現；若資料有變更，請刪除此筆後重新試算。</Alert>}
       {detail.run.warnings.length ? <Alert tone="warning"><strong>試算提醒</strong><ul className="hr-payroll-warning-list">{detail.run.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></Alert> : null}
 
-      {detail.employee ? <PayrollLineList lines={detailLines} /> : <div className="hr-payroll-worker-result"><div className="hr-payroll-worker-result-head"><div><strong>{detail.worker?.workerName}</strong><small>排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong>{money(detail.worker?.amountMinor ?? 0)}</strong></div><p>依已發布排班、有效敘薪與核准付薪加班計算；原始試算結果保留在這筆發放紀錄中。</p>{detail.worker?.overtimeMinor ? <p className="muted">其中核准付薪加班：{money(detail.worker.overtimeMinor)}（{((detail.worker.overtimeSeconds ?? 0) / 3600).toFixed(1)} 小時）</p> : null}{detail.worker ? <PayrollWorkerWorkSummary worker={detail.worker} details={workerAllocationDetails} /> : null}<PayrollAllocationDetails details={workerAllocationDetails} /><PayrollLineList lines={detailLines} /></div>}
+      {detail.employee ? <PayrollLineList lines={detailLines} /> : <div className="grid gap-2 rounded-[12px] border border-line bg-paper/42 px-[14px] py-[13px]"><div className="flex items-start justify-between gap-3"><div className="grid gap-0.5"><strong>{detail.worker?.workerName}</strong><small className="text-[12px] text-muted">排班支援・{detail.worker ? PAY_BASIS_LABEL[detail.worker.payBasis] ?? detail.worker.payBasis : ""}</small></div><strong className="whitespace-nowrap text-brand-dark tabular-nums">{money(detail.worker?.amountMinor ?? 0)}</strong></div><p className={WORKER_NOTE}>依已發布排班、有效敘薪與核准付薪加班計算；原始試算結果保留在這筆發放紀錄中。</p>{detail.worker?.overtimeMinor ? <p className={`muted ${ WORKER_NOTE }`}>其中核准付薪加班：{money(detail.worker.overtimeMinor)}（{((detail.worker.overtimeSeconds ?? 0) / 3600).toFixed(1)} 小時）</p> : null}{detail.worker ? <PayrollWorkerWorkSummary worker={detail.worker} details={workerAllocationDetails} /> : null}<PayrollAllocationDetails details={workerAllocationDetails} /><PayrollLineList lines={detailLines} /></div>}
 
       <section className="hr-payroll-record-items" aria-labelledby="payroll-items-title">
         <div className="hr-payroll-section-head"><div><h3 id="payroll-items-title">薪資加扣項</h3><p>附加在這筆紀錄的補發與扣款。{canCalculate && detail.record.status === "unsettled" ? <>新增與管理請至 <Link to="/hr/payroll-adjustments">薪資加扣項</Link>。</> : ""}</p></div></div>
