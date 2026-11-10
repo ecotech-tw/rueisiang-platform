@@ -42,6 +42,7 @@ try {
   const result = await transformShopeeWorkbook(source, output, { sourceSheet: "orders" });
   const preview = previewFromSummary(result);
   if (preview.reportMonths.join(",") !== "2026-07" || preview.rowCount !== 3 || preview.rows[0]?.sku !== "P001_M001") throw new Error(`蝦皮預覽內容不正確：${JSON.stringify(preview)}`);
+  if (JSON.stringify(preview.dailyPayoutRows) !== JSON.stringify(result.dailyPayoutRows)) throw new Error(`蝦皮預覽每日出金不正確：${JSON.stringify(preview.dailyPayoutRows)}`);
   if (result.totalPerformance !== 126 || result.totalQuantity !== 4 || result.totalSalesAmount !== 151 || result.uniqueOrders !== 2) throw new Error(`selftest 結果不正確：${JSON.stringify(result)}`);
   if (JSON.stringify(result.dailyPayoutRows) !== JSON.stringify([
     { businessDate: "2026-07-01", payoutAmount: 86 },

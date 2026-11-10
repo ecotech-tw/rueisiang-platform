@@ -179,7 +179,7 @@ describe("蝦皮銷售報表", () => {
     expect(await listShopeeSalesRuns(db())).toEqual([]);
 
     const preview = {
-      reportMonths: ["2025-02"], sourceRowCount: 3, rowCount: 1,
+      reportMonths: ["2025-02"], dailyPayoutRows: [{ businessDate: "2025-02-14", payoutAmount: 280 }], sourceRowCount: 3, rowCount: 1,
       rows: [{ reportMonth: "2025-02", sku: "SKU-1", productName: "商品一", grossQuantity: 3, returnQuantity: 0, netQuantity: 3, salesAmount: 300 }],
       uniqueOrders: 2, uniqueProducts: 1, totalPerformance: 280, totalQuantity: 3, totalSalesAmount: 300,
       duplicateRowsExcluded: 1, warnings: [],
