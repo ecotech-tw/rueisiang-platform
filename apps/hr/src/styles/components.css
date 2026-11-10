@@ -131,38 +131,6 @@
 .hr-notification-title strong { min-width: 0; font-size: 14px; }
 .hr-notification-copy > span:not(.hr-notification-title) { color: var(--color-muted); overflow-wrap: anywhere; white-space: pre-line; }
 .hr-notification-copy small { color: var(--color-muted); font-size: 11px; }
-.hr-payroll-history-page { width: 100%; max-width: 760px; margin-inline: auto; }
-.hr-payroll-history-content { display: grid; gap: 12px; min-height: 0; }
-.hr-payroll-history-list { display: grid; gap: 10px; }
-.hr-payroll-history-card { display: grid; gap: 14px; width: 100%; padding: 16px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; transition-property: border-color, background-color; transition-duration: 150ms; }
-.hr-payroll-history-card:hover { border-color: var(--color-brand); background: --alpha(var(--color-brand) / 5%); }
-.hr-payroll-history-card:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-payroll-history-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-.hr-payroll-history-card-head > div { display: grid; gap: 3px; }
-.hr-payroll-history-card-head strong { font-size: 16px; }
-.hr-payroll-history-card-head span,
-.hr-payroll-history-card-foot { color: var(--color-muted); font-size: 12px; }
-.hr-payroll-history-card-total { display: grid; gap: 4px; padding: 12px; border-radius: 11px; background: var(--color-canvas); }
-.hr-payroll-history-card-total span,
-.hr-payslip-totals span { color: var(--color-muted); font-size: 12px; font-weight: 700; }
-.hr-payroll-history-card-total strong { font-size: 23px; font-variant-numeric: tabular-nums; }
-.hr-payroll-history-card-foot { display: flex; flex-wrap: wrap; gap: 4px 12px; }
-.hr-payslip-head > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
-.hr-payslip-head h1 { flex: none; margin: 0; white-space: nowrap; }
-.hr-payslip-head p { min-width: 0; overflow: hidden; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
-.hr-payslip-panel { display: grid; gap: 18px; }
-.hr-payslip-employee { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-weight: 700; }
-.hr-payslip-totals { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
-.hr-payslip-totals > div { display: grid; gap: 5px; min-width: 0; padding: 12px; border-radius: 12px; background: var(--color-canvas); }
-.hr-payslip-totals strong { overflow: hidden; font-size: 14px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
-.hr-payslip-totals .net { background: var(--color-brand-soft); }
-.hr-payslip-totals .net strong { color: var(--color-brand-dark); font-size: 16px; }
-.hr-payslip-lines { display: grid; gap: 16px; }
-.hr-payslip-lines section { display: grid; gap: 8px; }
-.hr-payslip-lines h2 { margin: 0; font-size: 15px; }
-.hr-payslip-lines ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.hr-payslip-lines li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--color-soft-line); font-size: 13px; }
-.hr-payslip-lines li strong { flex: none; font-variant-numeric: tabular-nums; }
 
 
 
@@ -199,8 +167,7 @@
 @media (max-width: 760px) {
   /* viewport-fit=cover 之後頁面會畫進 Home 橫條那一塊，底部固定元件與替它們留的空間都要從同一個值往上算。 */
   :root { --hr-safe-bottom: max(12px, env(safe-area-inset-bottom)); }
-  .hr-form-page,
-  .hr-payslip-page { padding-top: 0; }
+  .hr-form-page { padding-top: 0; }
   .hr-module-self { gap: 14px; padding-bottom: calc(var(--hr-safe-bottom) + 72px); }
   .hr-module-self:has(.hr-form-page) { padding-bottom: 16px; }
   .hr-module-self:has(.hr-form-page) .hr-personal-bottom-nav { display: none; }
@@ -226,12 +193,7 @@
   .hr-personal-bottom-link.center.active .hr-personal-nav-icon { background: var(--color-brand-dark); }
   .hr-personal-bottom-link.center.active { color: var(--color-brand-dark); }
   .hr-form-field-row { grid-template-columns: 1fr; gap: 14px; }
-  .hr-notifications-page,
-  .hr-payroll-history-page { max-width: none; }
-  .hr-payslip-totals { gap: 6px; }
-  .hr-payslip-totals > div { padding: 10px 8px; }
-  .hr-payslip-totals strong { font-size: 12px; }
-  .hr-payslip-totals .net strong { font-size: 14px; }
+  .hr-notifications-page { max-width: none; }
   .hr-forms-index-head { align-items: center; flex-direction: row; gap: 12px; }
   .hr-forms-index-head > :first-child { flex: 1; width: auto; min-width: 0; }
   .hr-forms-index-head > :last-child { width: auto; }

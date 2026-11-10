@@ -6,6 +6,7 @@ import { useHrQuery, type AnnualLeavePeriod, type AnnualLeaveResponse, type Leav
 import { dateBefore, dateLabel, formatHours } from "./format.js";
 import { HrBackBar } from "./HrBackBar.js";
 import { PeriodToolbar } from "./PeriodToolbar.js";
+import { SummaryTotals } from "./SummaryTotals.js";
 import { PROFILE_CARD_TITLE, ProfileCardHeading, ProfileCardList, ProfileDataCard, ProfileInfoList } from "./ProfileCard.js";
 
 function AnnualLeaveCard({ period }: { period: AnnualLeavePeriod }) {
@@ -15,11 +16,11 @@ function AnnualLeaveCard({ period }: { period: AnnualLeavePeriod }) {
     <ProfileCardHeading title={<>{lastDay} 到期</>} meta={<>使用期間 {dateLabel(period.periodStart)}～{lastDay}</>} />
     <StatusBadge tone={remaining > 0 ? "success" : "neutral"}>{remaining > 0 ? "可使用" : "已用完"}</StatusBadge>
   </>}>
-    <div className="hr-payslip-totals">
-      <div><span>給予</span><strong>{formatHours(period.grantedHalfHours * 30)}</strong></div>
-      <div><span>已使用</span><strong>{formatHours(period.usedHalfHours * 30)}</strong></div>
-      <div className="net"><span>剩餘</span><strong>{formatHours(remaining * 30)}</strong></div>
-    </div>
+    <SummaryTotals items={[
+      { label: "給予", value: formatHours(period.grantedHalfHours * 30) },
+      { label: "已使用", value: formatHours(period.usedHalfHours * 30) },
+      { label: "剩餘", value: formatHours(remaining * 30), emphasis: true },
+    ]} />
   </ProfileDataCard>;
 }
 
@@ -46,7 +47,7 @@ export function HrLeaveSummary() {
   const months = loadingMonths ? [] : leave.data?.months ?? [];
   const selectYear = (next: number) => setSelectedYear(next === range?.currentYear ? null : next);
 
-  return <Page className="hr-payroll-history-page hr-payslip-page [&>[data-page-head]]:mt-2">
+  return <Page data-back-bar-page="" className="w-full max-w-[760px] mx-auto max-[760px]:max-w-none [&>[data-page-head]]:mt-2">
     <HrBackBar label="返回個人中心" onBack={() => navigate("/profile")} />
     <PageHeader title="我的假勤" description="可用特休與已核准的請假時數。" />
 
