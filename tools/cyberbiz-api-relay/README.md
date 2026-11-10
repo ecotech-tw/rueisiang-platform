@@ -27,9 +27,9 @@ Cloudflare Tunnel 新增專用 hostname，例如 `cyberbiz-relay.rueisiang.com`�
 
 Tunnel hostname 可連線且 CYBERBIZ 已完成白名單後，設定：
 
-- Worker variable `CYBERBIZ_API_RELAY_URL=https://cyberbiz-relay.rueisiang.com`
-- Worker secret `CYBERBIZ_API_RELAY_TOKEN`：與 NAS `.env` 的 `CYBERBIZ_RELAY_TOKEN` 相同
-- Worker secret `CYBERBIZ_API_TOKEN`：CYBERBIZ 最新核發的 App Store API token
+- 非機密的 `CYBERBIZ_API_RELAY_URL=https://cyberbiz-relay.rueisiang.com` 加到 `apps/api/wrangler.toml`，只在 Tunnel 與 NAS relay 已可用後啟用。
+- Worker secret `CYBERBIZ_API_RELAY_TOKEN`：與 NAS `.env` 的 `CYBERBIZ_RELAY_TOKEN` 相同。
+- Worker secret `CYBERBIZ_API_TOKEN`：CYBERBIZ 最新核發的 App Store API token。
 
 `CYBERBIZ_API_RELAY_URL` 與 `CYBERBIZ_API_RELAY_TOKEN` 必須成對設定；只設一個會拒絕建立 CYBERBIZ client，不會悄悄切回直連。CYBERBIZ webhook 仍直接送到平台 Worker，不經此 relay；只有平台向 CYBERBIZ 發出的 API request 會改走 NAS。
 
