@@ -261,8 +261,7 @@ function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClo
 const CALENDAR_CELL = "relative isolate min-h-[104px] rounded-[18px] border p-[10px] [-webkit-backdrop-filter:blur(6px)_saturate(145%)] [backdrop-filter:blur(6px)_saturate(145%)]";
 const CALENDAR_DAY = "[box-shadow:0_1px_0_--alpha(var(--color-paper)/64%)_inset,0_0_0_1px_--alpha(var(--color-paper)/22%)_inset,0_10px_24px_--alpha(var(--color-ink)/6%)] before:pointer-events-none before:absolute before:inset-px before:-z-1 before:rounded-[inherit] before:content-[''] before:[background:radial-gradient(circle_at_22%_0%,--alpha(var(--color-paper)/22%),transparent_36%),linear-gradient(135deg,--alpha(var(--color-paper)/12%),transparent_62%)]";
 const CALENDAR_ENTRY_TEXT = "overflow-hidden text-ellipsis whitespace-nowrap";
-// 800px 斷點要跟 components.css 留著的日期鍵 @media (max-width: 800px) 同步；max-[800px] 是 < 800px，寬度剛好 800 時日期列會一半換版、一半沒換。
-const HOLIDAY_LABEL = "mt-0 block min-w-0 flex-[1_1_0] overflow-hidden rounded-[8px] px-[6px] py-[3px] text-[11px] leading-[1.35] font-bold text-ellipsis whitespace-nowrap [@media(max-width:800px)]:mt-[6px] [@media(max-width:800px)]:flex-initial";
+const HOLIDAY_LABEL = "mt-0 block min-w-0 flex-[1_1_0] overflow-hidden rounded-[8px] px-[6px] py-[3px] text-[11px] leading-[1.35] font-bold text-ellipsis whitespace-nowrap max-[800px]:mt-[6px] max-[800px]:flex-initial";
 
 /*
  * 快速排班進行中整格可點，所以整格也要有 hover 的 state layer；選中的整格要一眼掃得到，
@@ -277,6 +276,26 @@ function calendarDayClass(quick: boolean, picked: boolean) {
  * 正在編排的那個人用品牌色調容器站出來，左側再加一條實心色帶；快速排班時其他人的班退成
  * 中性底。沒有這個區別的話，一格裡兩三筆排班長得一樣，看不出哪一筆是這次點出來的。
  */
+/*
+ * 日期數字與日期鍵同一個尺寸，今天都是實心膠囊；今天的日期鍵就算被選中也維持反白，
+ * 不然深色字會落在品牌色底上。
+ */
+const CALENDAR_DATE_NUMBER = "inline-grid h-[30px] min-w-[30px] place-items-center rounded-full text-[15px] font-black";
+function calendarDateTone(today: boolean, picked: boolean) {
+  if (today) return "bg-brand text-canvas";
+  return picked ? "text-brand-dark" : "text-ink";
+}
+
+/*
+ * 快速排班。選一次人＋班別，再點日期加入或取消。
+ *
+ * 整格就是那顆按鈕，所以日期鍵長得跟平常的日期一模一樣——沒有底色、沒有圖示。
+ * 它存在只為了鍵盤：格子本身不能做成 <button>，日期鍵才是鍵盤操作的入口；排班卡片
+ * 本身也能和整格一樣用滑鼠切換，只有點擊叉叉時才執行移除。
+ * 選中與否看格子的底色與框線，不靠這裡再標一次。
+ */
+const QUICK_CHIP = "inline-flex items-center gap-1 rounded-full px-[11px] py-1 text-[12px] font-semibold tabular-nums";
+
 function calendarEntryClass(entry: ScheduleEntry, quick: boolean, current: boolean) {
   const absent = entry.attendanceStatus === "absent" ? "opacity-62" : "";
   if (current) return `bg-brand-soft ${absent} [box-shadow:inset_3px_0_0_var(--color-brand),0_1px_0_--alpha(var(--color-paper)/44%)]`;
@@ -488,8 +507,8 @@ export function HrScheduling() {
         {/* 不掛 role="status"：快速排班每點一天就會改「新增 N 筆」，做成 live region 等於整月被念一遍。 */}
         <p className="hr-schedule-status"><StatusBadge tone={status.tone}>{status.label}</StatusBadge><span>{status.detail}</span></p>
       </div>
-      {quick ? <div className="hr-quick-bar">
-        <strong>快速排班</strong>
+      {quick ? <div className="flex flex-none flex-wrap items-center gap-x-[10px] gap-y-2 rounded-[14px] bg-brand/7 py-2 pr-2 pl-4 [box-shadow:0_1px_0_--alpha(var(--color-paper)/58%)_inset,0_0_0_1px_--alpha(var(--color-paper)/18%)_inset]">
+        <strong className="text-[15px] tracking-[.02em] text-brand-dark">快速排班</strong>
         <SelectField className="min-w-[132px] max-w-60 flex-[1_1_150px]" aria-label="人員" value={quickPersonValue ?? ""} placeholder="請選擇人員" searchable options={quickPeople} onChange={(event) => setQuick((current) => current ? { ...current, personValue: event.target.value } : current)} />
         {/*
           * 選班別而不是選某一組時間：點到哪一天就依星期挑選時間；摘要以共用時間代表，
@@ -502,10 +521,10 @@ export function HrScheduling() {
               const extras = versions.filter((shift) => shift.dayType !== "weekday").map((shift) => HR_SHIFT_DAY_LABELS[shift.dayType]);
               return [{ value: weekday.templateId, label: `${shiftLabel(weekday)}${extras.length ? ` 另設${extras.join("、")}` : ""}` }];
             })} onChange={(event) => { if (event.target.value) setQuick((current) => current ? { ...current, shiftTemplateId: event.target.value } : current); }} />
-          : <span className="hr-quick-bar-empty">這個據點還沒有班別，<GuardedNavLink to="/hr/scheduling/shifts">前往班別管理</GuardedNavLink></span>}
-        <span className="hr-quick-bar-hint">{quickShift && !quickPeople.length ? "此班別沒有可排人員" : !quick.personId ? "請先選擇排班人員" : "點日期或排班內容排入或取消；叉叉可移除"}</span>
-        <span className="hr-quick-bar-count">已選 <b>{quickDays}</b> 天</span>
-        {quickRest ? <span className={`hr-quick-bar-rest ${quickRest.matches ? "ok" : "warning"}`}>休 {quickRest.restDays}／約定 {quickRest.employee.monthlyRestDays} 天</span> : null}
+          : <span className="text-[13px] text-warn [&_a]:text-inherit [&_a]:underline [&_a]:underline-offset-2">這個據點還沒有班別，<GuardedNavLink to="/hr/scheduling/shifts">前往班別管理</GuardedNavLink></span>}
+        <span className="text-[13px] text-muted">{quickShift && !quickPeople.length ? "此班別沒有可排人員" : !quick.personId ? "請先選擇排班人員" : "點日期或排班內容排入或取消；叉叉可移除"}</span>
+        <span className={`${ QUICK_CHIP } ml-auto bg-paper/62 text-brand-dark max-[800px]:ml-0`}>已選 <b>{quickDays}</b> 天</span>
+        {quickRest ? <span className={`${ QUICK_CHIP } ${ quickRest.matches ? "bg-ok-soft text-ok" : "bg-warn-soft text-warn" }`}>休 {quickRest.restDays}／約定 {quickRest.employee.monthlyRestDays} 天</span> : null}
         <Button variant="secondary" onClick={() => setQuick(null)}>結束</Button>
       </div> : null}
       <div className="grid min-h-0 flex-none grid-cols-7 gap-2 border-b border-b-ink/8 pb-2 text-center text-[12px] text-muted">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <strong className="min-h-[26px] text-[13px] font-black tracking-[.08em] text-muted" key={day}>{day}</strong>)}</div>
@@ -516,8 +535,7 @@ export function HrScheduling() {
           const calendarDay = dayTypeByDate.get(day);
           const typhoonForScope = calendarDay?.specialKind === "typhoon_stop" && (!calendarDay.specialScopeIds?.length || scopeId === "all" || calendarDay.specialScopeIds.includes(scopeId));
           return <div
-          /* hr-calendar-cell 與 today 只剩日期鍵（含 .hr-quick-day）的選擇器在用，見 components.css。 */
-          className={`hr-calendar-cell ${day === today ? "today" : ""} ${CALENDAR_CELL} ${CALENDAR_DAY} ${calendarDayClass(Boolean(quick), quickPicked(day))}`}
+          className={`${CALENDAR_CELL} ${CALENDAR_DAY} ${calendarDayClass(Boolean(quick), quickPicked(day))}`}
           key={day}
           /*
            * 整格可點，但格子本身不是 <button>：日期鍵保留給鍵盤，避免做出巢狀按鈕。
@@ -530,10 +548,10 @@ export function HrScheduling() {
             * 假日名稱是文字，不是只用底色：顏色一旦成為唯一的訊號，色弱的人就看不出
             * 這天跟旁邊差在哪裡，而「今天是不是國定假日」正是排班時最需要看清楚的事。
             */}
-          <div className="relative flex min-w-0 items-center gap-1 pr-6 [@media(max-width:800px)]:contents">
-            <div className="hr-calendar-date" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
-              ? <button type="button" className="hr-quick-day" aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
-              : <><strong>{index + 1}</strong>{canEdit ? <button type="button" className="hr-calendar-add-button" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
+          <div className="relative flex min-w-0 items-center gap-1 pr-6 max-[800px]:contents">
+            <div className="flex flex-none items-center justify-between text-ink max-[800px]:relative max-[800px]:w-full" {...(day === today ? { "aria-current": "date" as const } : {})}>{quick
+              ? <button type="button" className={`${ CALENDAR_DATE_NUMBER } ${ calendarDateTone(day === today, quickPicked(day)) } w-[30px] cursor-pointer leading-none transition-[color] duration-150 ease-out active:[scale:.96] disabled:opacity-45`} aria-pressed={quickPicked(day)} disabled={!canEdit || !quick.shiftTemplateId || !quick.personId} onClick={() => toggleQuickDay(day)}>{index + 1}</button>
+              : <><strong className={`${ CALENDAR_DATE_NUMBER } ${ calendarDateTone(day === today, false) }`}>{index + 1}</strong>{canEdit ? <button type="button" className="absolute top-0 right-0 inline-grid size-[30px] cursor-pointer place-items-center rounded-full bg-ok-soft text-[18px] leading-none text-ok transition-[background-color,color,scale] duration-150 ease-out hover:bg-ok/20 active:[scale:.96]" aria-label={`${day} 新增排班`} onClick={() => setAddingDay(day)}>＋</button> : null}</>}</div>
             {typhoonForScope ? <span className={`${HOLIDAY_LABEL} bg-warn-soft text-warn`}>災防停班</span> : null}
             {calendarDay?.name && !(typhoonForScope && isDefaultHrCalendarSpecialName(calendarDay.name)) ? <span className={`${HOLIDAY_LABEL} bg-brand/12 text-brand-dark`}>{calendarDay.name}</span> : null}
           </div>
@@ -543,9 +561,9 @@ export function HrScheduling() {
             const isCurrent = Boolean(quick && !entry.archivedAt && samePick(entry, quick, templateOf));
             return <div className={`relative grid gap-px overflow-hidden rounded-[12px] py-[7px] pr-7 pl-[9px] text-[11px] ${calendarEntryClass(entry, Boolean(quick), isCurrent)}`} key={entry.id}>
               <span className={`${CALENDAR_ENTRY_TEXT} font-extrabold ${isCurrent ? "text-brand-dark" : "text-ink"}`}>{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</span>
-              <small className={`${CALENDAR_ENTRY_TEXT} text-[10px] text-muted [@media(max-width:800px)]:hidden`}>{entry.shiftName} · {entry.scopeName} · 人力 {group?.assigned ?? 1}/{entry.requiredHeadcount}</small>
+              <small className={`${CALENDAR_ENTRY_TEXT} text-[10px] text-muted max-[800px]:hidden`}>{entry.shiftName} · {entry.scopeName} · 人力 {group?.assigned ?? 1}/{entry.requiredHeadcount}</small>
               {entry.attendanceStatus !== "scheduled" ? <small className={`${CALENDAR_ENTRY_TEXT} mt-[3px] block text-[11px] text-muted`}>{statusLabel}</small> : null}
-              {canEdit && !entry.archivedAt ? <button type="button" className="absolute top-[5px] right-[5px] cursor-pointer rounded-full bg-transparent px-[3px] py-0 text-[14px] text-muted hover:bg-brand/12 hover:text-brand-dark [@media(max-width:800px)]:hidden" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}
+              {canEdit && !entry.archivedAt ? <button type="button" className="absolute top-[5px] right-[5px] cursor-pointer rounded-full bg-transparent px-[3px] py-0 text-[14px] text-muted hover:bg-brand/12 hover:text-brand-dark max-[800px]:hidden" aria-label={`移除 ${entry.personName}`} onClick={() => setDraftEntries((current) => current.filter((candidate) => candidate.id !== entry.id))}>×</button> : null}
             </div>;
           })}</div>
         </div>;

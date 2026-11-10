@@ -182,45 +182,6 @@
   font-size: 17px;
   letter-spacing: .02em;
 }
-.hr-system .hr-calendar-date strong {
-  display: inline-grid;
-  min-width: 30px;
-  height: 30px;
-  place-items: center;
-  border-radius: 999px;
-  color: var(--color-ink);
-  font-size: 15px;
-  font-weight: 900;
-}
-/* aria-pressed 那條特異度更高，不一起寫死的話今天被選中時會變成深色字落在品牌色底上。 */
-.hr-system .hr-calendar-cell.today .hr-calendar-date strong,
-.hr-system .hr-calendar-cell.today .hr-calendar-date button.hr-quick-day,
-.hr-system .hr-calendar-cell.today .hr-calendar-date button.hr-quick-day[aria-pressed="true"] {
-  background: var(--color-brand);
-  color: var(--color-canvas);
-}
-.hr-system .hr-calendar-date button {
-  display: inline-grid;
-  width: 30px;
-  height: 30px;
-  place-items: center;
-  border-radius: 999px;
-  background: --alpha(var(--color-paper) / 36%);
-  color: var(--color-muted);
-  transition-property: background-color, color, scale;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.hr-system .hr-calendar-date button:hover { background: --alpha(var(--color-brand) / 14%); color: var(--color-brand-dark); }
-.hr-system .hr-calendar-date button.hr-calendar-add-button {
-  background: var(--color-ok-soft);
-  color: var(--color-ok);
-}
-.hr-system .hr-calendar-date button.hr-calendar-add-button:hover {
-  background: --alpha(var(--color-ok) / 20%);
-  color: var(--color-ok);
-}
-.hr-system .hr-calendar-date button:active { scale: .96; }
 .hr-overview-card:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-overview-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .hr-overview-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; background: var(--color-brand-soft); color: var(--color-brand-dark); }
@@ -334,43 +295,6 @@
   .hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container:last-child { margin-left: 0; }
   .hr-skeleton-calendar { grid-template-columns: repeat(7, minmax(76px, 1fr)); }
 }
-
-/*
- * 快速排班。選一次人＋班別，再點日期加入或取消。
- *
- * 整格就是那顆按鈕，所以日期鍵長得跟平常的日期一模一樣——沒有底色、沒有圖示。
- * 它存在只為了鍵盤：格子本身不能做成 <button>，日期鍵才是鍵盤操作的入口；排班卡片
- * 本身也能和整格一樣用滑鼠切換，只有點擊叉叉時才執行移除。
- * 選中與否看格子的底色與框線，不靠這裡再標一次。
- */
-.hr-system .hr-quick-bar {
-  border-radius: 14px;
-  background: --alpha(var(--color-brand) / 7%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 58%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 18%) inset;
-}
-.hr-system .hr-quick-bar > strong { font-size: 15px; letter-spacing: .02em; }
-.hr-system .hr-quick-bar-count,
-.hr-system .hr-quick-bar-rest { background: --alpha(var(--color-paper) / 62%); }
-.hr-system .hr-quick-bar-rest.ok { background: var(--color-ok-soft); }
-.hr-system .hr-quick-bar-rest.warning { background: var(--color-warn-soft); }
-.hr-system .hr-calendar-date button.hr-quick-day {
-  display: inline-grid;
-  min-width: 30px;
-  height: 30px;
-  place-items: center;
-  border-radius: 999px;
-  background: none;
-  color: var(--color-ink);
-  font-size: 15px;
-  font-weight: 900;
-  transition-property: color;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.hr-system .hr-calendar-date button.hr-quick-day[aria-pressed="true"] { color: var(--color-brand-dark); }
-.hr-system .hr-calendar-date button.hr-quick-day:disabled { opacity: .45; }
 
 /* 申請中心是跨出勤／薪資的獨立工作區；申請紀錄與審核集中在同一張表。 */
 .hr-request-form { display: grid; gap: 16px; }
