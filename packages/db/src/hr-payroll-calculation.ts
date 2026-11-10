@@ -3362,10 +3362,9 @@ export async function getHrPayrollRecordDetail(db: Database, input: HrPayrollRec
 
 export async function deleteHrPayrollRecord(db: Database, reference: HrPayrollRecordReference, actor: HrActor) {
   const target = await findPayrollRecordRun(db, reference);
-  const withdrawn = await db.select({ personId: hrPayrollRecordWithdrawals.personId }).from(hrPayrollRecordWithdrawals).where(and(
+  const withdrawn = await db.select({ personId: hrPayrollRecordWithdrawals.personId, reason: hrPayrollRecordWithdrawals.reason }).from(hrPayrollRecordWithdrawals).where(and(
     eq(hrPayrollRecordWithdrawals.payrollRunId, reference.runId), eq(hrPayrollRecordWithdrawals.personKind, reference.personKind), eq(hrPayrollRecordWithdrawals.personId, reference.personId),
   )).limit(1);
-  if (withdrawn.length) throw new HrError(409, "已撤回的發放紀錄需保留稽核歷史，不能刪除。 ");
   if (await payrollRecordIsClosed(db, reference, target.periodKey)) throw new HrError(409, "已確定發放的薪資紀錄不可刪除，請撤回後以新版本試算。 ");
 
   const itemsIdentity = reference.personKind === "employee" ? "employment_id" : "worker_id";
@@ -3385,7 +3384,7 @@ export async function deleteHrPayrollRecord(db: Database, reference: HrPayrollRe
   mutations.push(resultDelete);
   const deleteIndex = mutations.length - 1;
   if (reference.personKind === "employee") optional(sql`DELETE FROM hr_payroll_run_employees WHERE payroll_run_id=${reference.runId} AND employment_id=${reference.personId} RETURNING payroll_run_id`);
-  optional(sql`UPDATE hr_payroll_runs SET expected_count=max(0, expected_count-1), completed_count=max(0, completed_count-1), updated_at=CURRENT_TIMESTAMP WHERE id=${reference.runId} RETURNING id`);
+  optional(sql`UPDATE hr_payroll_runs SET expected_count=max(0, expected_count-1), completed_count=max(0, completed_count-1), updated_at=CURRENT_TIMESTAMP WHERE id=${reference.runId} AND status<>'closed' RETURNING id`);
   optional(sql`DELETE FROM hr_payroll_request_sources WHERE payroll_run_id=${reference.runId} AND person_kind=${reference.personKind} AND person_id=${reference.personId} RETURNING id`);
   optional(sql`DELETE FROM hr_payroll_special_workday_sources WHERE payroll_run_id=${reference.runId} AND person_kind=${reference.personKind} AND person_id=${reference.personId} RETURNING id`);
   const withdrawalGuardIndex = mutations.length;
@@ -3403,6 +3402,7 @@ export async function deleteHrPayrollRecord(db: Database, reference: HrPayrollRe
   optional(sql`DELETE FROM hr_payroll_special_workday_sources WHERE payroll_run_id=${reference.runId} AND NOT EXISTS (SELECT 1 FROM hr_payslips WHERE payroll_run_id=${reference.runId}) AND NOT EXISTS (SELECT 1 FROM hr_payroll_worker_results WHERE payroll_run_id=${reference.runId}) RETURNING id`);
   const emptyRunIndex = mutations.length;
   mutations.push(sql`DELETE FROM hr_payroll_runs WHERE id=${reference.runId}
+    AND NOT EXISTS (SELECT 1 FROM hr_payroll_record_withdrawals WHERE payroll_run_id=${reference.runId})
     AND NOT EXISTS (SELECT 1 FROM hr_payslips WHERE payroll_run_id=${reference.runId})
     AND NOT EXISTS (SELECT 1 FROM hr_payroll_worker_results WHERE payroll_run_id=${reference.runId})
     AND NOT EXISTS (SELECT 1 FROM hr_payroll_closed_employees WHERE payroll_run_id=${reference.runId})
@@ -3410,7 +3410,7 @@ export async function deleteHrPayrollRecord(db: Database, reference: HrPayrollRe
   allowEmptyMutationIndexes.add(emptyRunIndex);
   await writeHrMutation(db, mutations, `${reference.runId}:${reference.personKind}:${reference.personId}`, actor, "payroll_record_deleted", "薪資發放紀錄已確定發放或資料已變更，請重新整理。", {
     allowEmptyMutationIndexes: new Set([...allowEmptyMutationIndexes].filter((index) => index !== deleteIndex)),
-    activity: { entityLabel: reference.personId, summary: "單筆薪資試算已刪除", payload: { runId: reference.runId, periodKey: target.periodKey, personKind: reference.personKind, personId: reference.personId } },
+    activity: { entityLabel: reference.personId, summary: "單筆薪資試算已刪除", payload: { runId: reference.runId, periodKey: target.periodKey, personKind: reference.personKind, personId: reference.personId, withdrawalReason: withdrawn[0]?.reason ?? null } },
   });
   return { ...reference, deleted: true as const };
 }

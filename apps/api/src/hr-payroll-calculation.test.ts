@@ -207,6 +207,7 @@ describe("HR 薪資與櫃點獎金試算", () => {
     expect((await lin.json() as { record: { status: string; withdrawal: { reason: string } } }).record).toMatchObject({ status: "withdrawn", withdrawal: { reason: "僅此員工資料需重新核算" } });
     const wang = await request(`/hr/payroll/records/${runId}/employee/dev-employment-wang`);
     expect((await wang.json() as { record: { status: string } }).record.status).toBe("closed");
+    expect((await request(`/hr/payroll/records/${runId}/employee/dev-employment-wang`, "DELETE")).status).toBe(409);
     const exclusions = await request("/hr/payroll/candidate-exclusions?periodKey=2026-08");
     expect((await exclusions.json() as { employeeUserIds: string[] }).employeeUserIds).toEqual(["dev-wang@ecotech.tw"]);
     const recalculated = await request("/hr/payroll/calculate", "POST", {
@@ -216,6 +217,13 @@ describe("HR 薪資與櫃點獎金試算", () => {
     const recalculatedRunId = (await recalculated.json() as { run: { runId: string } }).run.runId;
     expect((await (await request(`/hr/payroll/records/${recalculatedRunId}/employee/dev-employment-lin`)).json() as { record: { versionNumber: number } }).record.versionNumber).toBe(2);
     expect((await request(`/hr/payroll/records/${runId}/employee/dev-employment-lin/withdraw`, "POST", { reason: "重複撤回" })).status).toBe(409);
+    const deleted = await request(`/hr/payroll/records/${runId}/employee/dev-employment-lin`, "DELETE");
+    expect(deleted.status, await deleted.clone().text()).toBe(200);
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_record_withdrawals WHERE payroll_run_id=? AND person_id='dev-employment-lin'").get(runId)).toEqual({ count: 1 });
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_runs WHERE id=?").get(runId)).toEqual({ count: 1 });
+    expect(d1.sqlite.prepare("SELECT count(*) AS count FROM hr_payroll_closed_employees WHERE payroll_run_id=? AND employment_id='dev-employment-wang'").get(runId)).toEqual({ count: 1 });
+    const deletionActivity = d1.sqlite.prepare("SELECT payload_json FROM activity_events WHERE entity_id=? AND event_type='payroll_record_deleted'").get(`${runId}:employee:dev-employment-lin`) as { payload_json: string };
+    expect(JSON.parse(deletionActivity.payload_json)).toMatchObject({ withdrawalReason: "僅此員工資料需重新核算" });
   });
 
   it("已結帳或撤回後又有人確定發放的批次不能刪除，撤回 marker 保留", async () => {
