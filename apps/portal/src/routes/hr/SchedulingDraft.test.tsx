@@ -31,7 +31,7 @@ async function renderPage(getFailures = 0, mutationStatus = 200, initial = data(
   const container = document.createElement("div"); document.body.append(container); const root = createRoot(container);
   const click = async (label: string) => { await act(async () => { [...container.querySelectorAll("button")].find((button) => button.textContent === label)!.click(); await new Promise((resolve) => setTimeout(resolve, 10)); }); };
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrScheduling /></QueryClientProvider></MemoryRouter>));
-  const dateButton = (day = "7") => [...container.querySelectorAll<HTMLButtonElement>(".hr-quick-day")].find((button) => button.textContent === day)!;
+  const dateButton = (day = "7") => [...container.querySelectorAll<HTMLButtonElement>("button[aria-pressed]")].find((button) => button.textContent === day)!;
   if (quickMode) { await click("快速排班"); await act(async () => dateButton().click()); }
   return { client, writes, click, dateButton, cleanup: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); } };
 }

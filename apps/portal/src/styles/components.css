@@ -1339,7 +1339,6 @@
 }
 
 /* HR 月曆排班 */
-[data-page=fills] > [data-grows] > .hr-quick-bar { flex: none; }
 .hr-schedule-month { display: flex; align-items: center; gap: 2px; }
 .hr-schedule-month > strong { min-width: 112px; text-align: center; font-variant-numeric: tabular-nums; }
 .hr-schedule-status { display: flex; align-items: center; align-self: center; gap: 8px; margin: 0 0 0 auto; color: var(--color-muted); font-size: 13px; }
@@ -1351,35 +1350,7 @@
 .hr-schedule-rest-summary span.warning { color: var(--color-danger, #b3261e); }
 .hr-schedule-rest-summary .muted { color: var(--color-muted); }
 @media (max-width: 600px) { .hr-schedule-rest-summary { display: grid; gap: 6px; } }
-/*
- * 日期鍵這一塊跟快速排班的 .hr-quick-day 共用選擇器（.hr-calendar-date button、
- * .hr-calendar-cell.today …），要等 .hr-quick-* 一起搬才拆得開。
- */
-.hr-calendar-date { flex: none; justify-content: flex-start; }
-.hr-calendar-date .hr-calendar-add-button { position: absolute; top: 0; right: 0; }
-.hr-calendar-date { display: flex; justify-content: space-between; align-items: center; color: var(--color-ink); }
-.hr-calendar-date button { border: 0; background: transparent; color: var(--color-muted); cursor: pointer; }
-.hr-calendar-date button { font-size: 18px; line-height: 1; }
-.hr-calendar-date strong,
-.hr-calendar-date .hr-quick-day { display: inline-grid; min-width: 28px; height: 28px; place-items: center; border-radius: 999px; }
-.hr-calendar-cell.today .hr-calendar-date strong,
-.hr-calendar-cell.today .hr-calendar-date .hr-quick-day { background: var(--color-brand); color: var(--color-canvas); }
 .field-note { margin: 0 0 4px; font-size: 12px; }
-.hr-quick-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 8px 8px 16px; border-radius: 12px; background: --alpha(var(--color-brand) / 7%); }
-.hr-quick-bar > strong { color: var(--color-brand-dark); }
-.hr-quick-bar-empty { color: var(--color-warn); font-size: 13px; }
-.hr-quick-bar-empty a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
-.hr-quick-bar-hint { color: var(--color-muted); font-size: 13px; }
-.hr-quick-bar-count,
-.hr-quick-bar-rest { display: inline-flex; align-items: center; gap: 4px; padding: 4px 11px; border-radius: 999px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.hr-quick-bar-count { margin-left: auto; }
-.hr-quick-bar-rest.ok { background: var(--color-ok-soft); color: var(--color-ok); }
-.hr-quick-bar-rest.warning { background: var(--color-warn-soft); color: var(--color-warn); }
-@media (max-width: 800px) {
-  .hr-quick-bar-count { margin-left: 0; }
-  .hr-calendar-date { position: relative; width: 100%; justify-content: space-between; }
-  .hr-calendar-date .hr-calendar-add-button { right: 0; }
-}
 
 /* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
 .hr-payroll-records-panel { display: grid; gap: 14px; }
