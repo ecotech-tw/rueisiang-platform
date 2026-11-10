@@ -70,7 +70,11 @@ export interface Env {
 
   /** CYBERBIZ App Store API 的 token。沒設定時碰到同步相關的功能才會失敗。 */
   CYBERBIZ_API_TOKEN?: string;
-  /** 只有測試環境或自架才需要覆寫，預設打正式的 app-store-api。 */
+  /** NAS relay 完成部署後設定；缺省時直接呼叫官方 API。 */
+  CYBERBIZ_API_RELAY_URL?: string;
+  /** 與 NAS relay 共用的獨立 secret；必須與 CYBERBIZ_API_RELAY_URL 成對設定。 */
+  CYBERBIZ_API_RELAY_TOKEN?: string;
+  /** 測試環境才需要覆寫官方 API host；relay 設定完成時以 relay URL 優先。 */
   CYBERBIZ_API_BASE_URL?: string;
   /** 驗證 CYBERBIZ webhook 用。沒設定時那條路由一律回 401。 */
   CYBERBIZ_WEBHOOK_SECRET?: string;

@@ -1,0 +1,14 @@
+{
+  "name": "@rueisiang/cyberbiz-api-relay",
+  "private": true,
+  "type": "module",
+  "description": "由公司 NAS 以固定出口 IP 轉送平台的 CYBERBIZ App Store API 請求",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "check": "node --check src/server.mjs",
+    "test": "node --test test/server.test.mjs",
+    "start": "node src/server.mjs"
+  }
+}

@@ -132,7 +132,8 @@ SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 #   NAS_STORAGE_TOKEN            NAS storage gateway 的獨立 shared secret；必須搭配 NAS_STORAGE_URL
 #   LINE_CHANNEL_SECRET         LINE webhook 簽章驗證
 #   LINE_CHANNEL_ACCESS_TOKEN   LINE Messaging API Reply／Push 用 token
-#   CYBERBIZ_API_TOKEN         客戶同步
+#   CYBERBIZ_API_TOKEN         客戶與商品 API token
+#   CYBERBIZ_API_RELAY_TOKEN   Worker 與 NAS relay 共用的獨立 secret；需搭配 Worker variable CYBERBIZ_API_RELAY_URL
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
 #   GITHUB_TOKEN               出金表、商品銷售與蝦皮報表共用的 fine-grained PAT；需涵蓋各自 repo 的
 #                              Actions 讀寫

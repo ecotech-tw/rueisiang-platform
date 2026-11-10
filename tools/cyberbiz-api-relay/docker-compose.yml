@@ -1,0 +1,18 @@
+services:
+  cyberbiz-api-relay:
+    build:
+      context: .
+    container_name: rueisiang-platform-cyberbiz-api-relay
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CYBERBIZ_RELAY_TOKEN: ${CYBERBIZ_RELAY_TOKEN:?請設定 CYBERBIZ_RELAY_TOKEN}
+      LISTEN_HOST: 0.0.0.0
+      LISTEN_PORT: 8788
+      RELAY_TIMEOUT_MS: 30000
+    ports:
+      - "8791:8788"

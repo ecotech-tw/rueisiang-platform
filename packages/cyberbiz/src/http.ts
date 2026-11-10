@@ -11,9 +11,11 @@
  */
 
 export interface CyberbizConfig {
-  /** 預設 https://app-store-api.cyberbiz.io，自架或測試環境才需要覆寫。 */
+  /** 預設 https://app-store-api.cyberbiz.io；設定 relay 時改為 NAS relay origin。 */
   baseUrl?: string;
   apiToken: string;
+  /** 僅送到設定的 NAS relay，不會轉送給 CYBERBIZ 上游。 */
+  relayToken?: string;
 }
 
 export const DEFAULT_BASE_URL = "https://app-store-api.cyberbiz.io";
@@ -102,6 +104,7 @@ export async function cyberbizRequest(
         headers: {
           Accept: "application/json",
           Authorization: `Bearer ${config.apiToken}`,
+          ...(config.relayToken ? { "x-cyberbiz-relay-token": config.relayToken } : {}),
           ...(options.body ? { "Content-Type": "application/json" } : {}),
         },
         body: options.body ? JSON.stringify(options.body) : undefined,

@@ -52,7 +52,7 @@ const DEV_SECRET = "local-development-only";
  * 讀 apps/api/.dev.vars——沿用 wrangler 的慣例，格式就是一行一個 KEY=value。
  *
  * 這個檔在 .gitignore 裡，用來放不能進版控又只有本機需要的東西，
- * 目前是 CYBERBIZ_API_TOKEN、GOOGLE_MAPS_API_KEY、Gemini／Codex credential 與可選的 LINE_CHANNEL_ACCESS_TOKEN。
+ * 目前是 CYBERBIZ_API_TOKEN、可選的 CYBERBIZ_API_RELAY_URL／CYBERBIZ_API_RELAY_TOKEN、GOOGLE_MAPS_API_KEY、Gemini／Codex credential 與可選的 LINE_CHANNEL_ACCESS_TOKEN。
  * 沒有這個檔也能跑，只是碰到 CYBERBIZ、Google Maps、AI Sandbox 或 LINE 回覆的功能會失敗。
  */
 function loadDevVars(): Record<string, string> {
