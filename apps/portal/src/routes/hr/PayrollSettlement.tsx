@@ -10,6 +10,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TableBulkActionMenu, TextField, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
+import { PeoplePickerEmpty, PeoplePickerHeading } from "./PickerList.js";
 
 interface PayrollRecordsResponse {
   records: PayrollRecord[];
@@ -86,6 +87,7 @@ const PAYROLL_JOB_CHEVRON_SHOWN = "opacity-100 [scale:1] [filter:blur(0)]";
 const PAYROLL_JOB_CHEVRON_HIDDEN = "opacity-0 [scale:.25] [filter:blur(4px)]";
 // 錯誤是後端例外的原文，最長兩千字；不截的話一張卡就把整個面板撐滿。
 const PAYROLL_JOB_ERROR = "line-clamp-3 [line-clamp:3] min-w-0 text-brand-dark [overflow-wrap:anywhere]";
+const PICKER_GROUP_TITLE = "px-2.5 pt-1.5 pb-[3px] text-[12px] font-bold text-muted";
 function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "personId">) {
   return `${record.runId}:${record.personKind}:${record.personId}`;
 }
@@ -239,11 +241,11 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
       <TextField type="date" label="發薪日（選填）" value={payDate} onChange={(event) => setPayDate(event.target.value)} />
     </div>
     <div className="hr-payroll-employee-picker-section">
-      <div className="hr-payroll-picker-heading"><div><strong>試算人員</strong><small>每位人員會在發放紀錄建立一筆資料；預設納入全部符合資格的人員。當月已有試算結果或正在試算的人員（不論是否已發放）會自動排除。</small></div><span className="flex flex-none items-center gap-2"><Button variant="link" onClick={selectAllPeople} disabled={selectionMode === "all" || peopleCount === 0 || calculatePayroll.isPending}>全選</Button><span className="hr-payroll-picker-count">{selectionMode === "all" ? `全體 ${selectedCount} 人` : `已選 ${selectedCount} 人`}</span></span></div>
+      <PeoplePickerHeading title="試算人員" description="每位人員會在發放紀錄建立一筆資料；預設納入全部符合資格的人員。當月已有試算結果或正在試算的人員（不論是否已發放）會自動排除。" count={selectionMode === "all" ? `全體 ${selectedCount} 人` : `已選 ${selectedCount} 人`}><Button variant="link" onClick={selectAllPeople} disabled={selectionMode === "all" || peopleCount === 0 || calculatePayroll.isPending}>全選</Button></PeoplePickerHeading>
       <div className="hr-payroll-employee-picker" role="group" aria-label="選擇員工與支援人員">
-        <div className="hr-payroll-picker-group">
-          <strong className="hr-payroll-picker-group-title">正式員工</strong>
-          {!periodKey ? <p className="muted hr-payroll-picker-empty">選擇計算月份後會列出尚未試算的正式員工。</p> : employeesPending || candidateExclusions.isPending ? <p className="muted hr-payroll-picker-empty">正在載入符合資格的員工…</p> : employeesError || candidateExclusions.error ? <p className="muted hr-payroll-picker-empty">本月薪資試算名單載入失敗。</p> : availableEmployees.length ? <DropdownSelect
+        <div className="grid gap-0.5">
+          <strong className={PICKER_GROUP_TITLE}>正式員工</strong>
+          {!periodKey ? <PeoplePickerEmpty>選擇計算月份後會列出尚未試算的正式員工。</PeoplePickerEmpty> : employeesPending || candidateExclusions.isPending ? <PeoplePickerEmpty>正在載入符合資格的員工…</PeoplePickerEmpty> : employeesError || candidateExclusions.error ? <PeoplePickerEmpty>本月薪資試算名單載入失敗。</PeoplePickerEmpty> : availableEmployees.length ? <DropdownSelect
             multiple
             searchable
             // 全體模式只收合視覺上的 chip，清單仍保留所有人，才能搜尋並取消單一人員。
@@ -257,11 +259,11 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             // 載入失敗也算沒載完：重試成功之前名單一樣是空的。
             disabled={calculatePayroll.isPending || supportWorkers.isLoading || Boolean(supportWorkers.error) || candidateExclusions.isLoading || Boolean(candidateExclusions.error)}
             onValueChange={updateEmployeeSelection}
-          /> : <p className="muted hr-payroll-picker-empty">{employeesInPeriod.length ? "符合本月份日期條件的正式員工皆已有試算結果或正在試算。" : employees.length ? "本月份沒有符合在職日期條件的正式員工。" : "目前沒有符合資格的正式員工。"}</p>}
+          /> : <PeoplePickerEmpty>{employeesInPeriod.length ? "符合本月份日期條件的正式員工皆已有試算結果或正在試算。" : employees.length ? "本月份沒有符合在職日期條件的正式員工。" : "目前沒有符合資格的正式員工。"}</PeoplePickerEmpty>}
         </div>
-        <div className="hr-payroll-picker-group">
-          <strong className="hr-payroll-picker-group-title">支援人員</strong>
-          {!periodKey ? <p className="muted hr-payroll-picker-empty">選擇計算月份後會列出該月可試算的支援人員。</p> : supportWorkers.isPending || candidateExclusions.isPending ? <p className="muted hr-payroll-picker-empty">正在載入本月已發布排班…</p> : supportWorkers.error || candidateExclusions.error ? <p className="muted hr-payroll-picker-empty">本月支援人員試算名單載入失敗。</p> : workerOptions.length ? <DropdownSelect
+        <div className="mt-1.5 grid gap-0.5 border-t border-t-soft-line pt-1.5">
+          <strong className={PICKER_GROUP_TITLE}>支援人員</strong>
+          {!periodKey ? <PeoplePickerEmpty>選擇計算月份後會列出該月可試算的支援人員。</PeoplePickerEmpty> : supportWorkers.isPending || candidateExclusions.isPending ? <PeoplePickerEmpty>正在載入本月已發布排班…</PeoplePickerEmpty> : supportWorkers.error || candidateExclusions.error ? <PeoplePickerEmpty>本月支援人員試算名單載入失敗。</PeoplePickerEmpty> : workerOptions.length ? <DropdownSelect
             multiple
             searchable
             compactSelected={selectionMode === "all"}
@@ -271,7 +273,7 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
             aria-label="選擇支援人員"
             disabled={calculatePayroll.isPending || employeesPending || Boolean(employeesError) || candidateExclusions.isLoading || Boolean(candidateExclusions.error)}
             onValueChange={updateWorkerSelection}
-          /> : <p className="muted hr-payroll-picker-empty">{rawWorkerOptions.length ? "本月份支援人員皆已有試算結果或正在試算。" : "本月份沒有已發布排班的支援人員。"}</p>}
+          /> : <PeoplePickerEmpty>{rawWorkerOptions.length ? "本月份支援人員皆已有試算結果或正在試算。" : "本月份沒有已發布排班的支援人員。"}</PeoplePickerEmpty>}
         </div>
       </div>
       {selectionLimitError ? <Alert tone="warning">{selectionLimitError}</Alert> : null}
@@ -472,7 +474,7 @@ export function HrPayrollSettlement() {
             <tbody>{payrollRows.map((record) => <tr key={referenceKey(record)} className={bulk.selectedKeys.includes(referenceKey(record)) ? "selected" : undefined}>
               {bulk.actionId ? <td data-label="選取" className="hr-payroll-select-cell">{bulk.isRowEligible(record) ? <input className="table-checkbox" type="checkbox" checked={bulk.selectedKeys.includes(referenceKey(record))} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleRow(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td> : null}
               <td data-label="薪資月份"><strong>{payrollPeriodLabel(record.periodKey)}</strong><small className="cell-sub">{record.payDate ? `發薪日 ${record.payDate}` : "未設定發薪日"}</small></td>
-              <td data-label="人員"><div className="hr-payroll-record-person"><strong>{record.personName}</strong><small className="cell-sub">{record.personNumber ? `${record.personNumber}・` : ""}{PAYROLL_PERSON_KIND_LABEL[record.personKind]}</small></div></td>
+              <td data-label="人員"><div className="grid min-w-0 gap-0.5"><strong className="truncate">{record.personName}</strong><small className="cell-sub">{record.personNumber ? `${record.personNumber}・` : ""}{PAYROLL_PERSON_KIND_LABEL[record.personKind]}</small></div></td>
               <td data-label="計薪方式">{record.payBasis ? PAY_BASIS_LABEL[record.payBasis] ?? record.payBasis : "—"}</td>
               <td data-label="應發" className="numeric">{money(record.earningMinor)}</td>
               <td data-label="扣款" className="numeric">{record.deductionMinor ? deductionMoney(record.deductionMinor) : "—"}</td>
