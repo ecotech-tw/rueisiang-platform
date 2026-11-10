@@ -1358,6 +1358,7 @@
 .hr-payroll-table-region { position: relative; min-width: 0; }
 [data-page=fills] > [data-grows] > .hr-payroll-table-region {
   display: flex;
+  flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;

@@ -55,7 +55,7 @@ const HEIGHT_CLASS = {
 
 // 左右內距四種組合各寫一組，避免同一個斷點上有兩個 px-* 互相蓋。
 function paddingClass(skin: SegmentedControlSkin, dense: boolean): string {
-  if (skin === "outlined") return "px-3";
+  if (skin === "outlined") return dense ? "px-2 max-[760px]:px-1.5" : "px-3";
   if (skin === "tabs") return dense ? "px-3.5 max-[760px]:px-1 max-[620px]:whitespace-nowrap" : "px-3.5 max-[760px]:px-2";
   return dense ? "px-3.5 max-[620px]:px-1 max-[620px]:whitespace-nowrap" : "px-3.5";
 }

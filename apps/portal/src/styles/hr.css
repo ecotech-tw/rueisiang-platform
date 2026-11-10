@@ -303,7 +303,7 @@
 /* 只是表單把按鈕 portal 進 footer 用的掛點，版面交給 Dialog 的 footer。 */
 .hr-request-dialog-actions { display: contents; }
 .hr-request-dialog .hr-request-form { padding-top: 2px; }
-.hr-request-history-panel > .hr-request-table-region { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.hr-request-history-panel > .hr-request-table-region { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .hr-request-table-region > [data-table-scroll] { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .hr-request-mobile-select-all { display: none; }
 .hr-request-table-region { position: relative; min-width: 0; }
@@ -323,6 +323,7 @@
 
 @media (max-width: 760px) {
   .hr-request-mobile-select-all { display: flex; align-items: center; margin: 0 0 8px; }
+  .hr-request-table-selection-inactive tbody tr > td[data-label="類型"] { padding-left: 0 !important; }
 }
 
 @media (max-width: 620px) {
