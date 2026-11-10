@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Icon } from "../../shell/icons.js";
+import { ToolList, ToolNote, ToolOption } from "./ToolOption.js";
 import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, Page, PageHeader, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
@@ -34,24 +34,37 @@ function formatToolArgs(args: Record<string, unknown>): string {
   }
 }
 
+/*
+ * 訊息內的區塊。思考過程與工具調用是可展開的 details，失敗前的工具調用（在訊息外）也用同一組。
+ */
+const MESSAGE = "max-w-[88%] self-start rounded-[11px] border px-[11px] py-[9px] max-[760px]:max-w-[96%]";
+const MESSAGE_USER = `${MESSAGE} justify-self-end bg-brand-soft [border-color:color-mix(in_srgb,var(--color-secondary)_35%,var(--color-line))]`;
+const MESSAGE_MODEL = `${MESSAGE} justify-self-start border-line bg-paper`;
+const MESSAGE_META = "mb-1.5 flex items-center justify-between gap-4 text-[12px]";
+const MESSAGE_META_TIME = "font-normal text-muted";
+const MESSAGE_DISCLOSURE = "mt-2 border-t border-t-soft-line pt-[7px]";
+const MESSAGE_SUMMARY = "cursor-pointer text-[12px] text-muted";
+// 不寫 [font:inherit]：簡寫屬性排在 text-*／leading-* 後面，會把行高與字級蓋回去。
+const TEXT_PRE = "m-0 whitespace-pre-wrap [overflow-wrap:anywhere] [font-family:inherit]";
+
 function ToolCallList({ calls }: { calls: SandboxToolCall[] }) {
   return (
-    <div className="assistant-tool-call-list">
+    <div className="mt-[7px] grid gap-[5px]">
       {calls.map((call, index) => (
-        <div className="assistant-tool-call" key={`${call.toolKey}-${index}`}>
-          <div className="assistant-tool-call-meta">
+        <div className="rounded-[7px] bg-canvas px-2 py-[7px]" key={`${call.toolKey}-${index}`}>
+          <div className="flex items-center justify-between gap-2 text-[12px]">
             <strong>{call.toolKey}</strong>
-            <small className={call.status === "success" ? "assistant-tool-call-success" : "assistant-tool-call-failure"}>
+            <small className={`text-[11px] ${call.status === "success" ? "text-ok" : "text-brand-dark"}`}>
               {call.status === "success" ? "成功" : "失敗"} · {call.durationMs} ms
             </small>
           </div>
           {call.args ? (
-            <details className="assistant-tool-call-args">
-              <summary>調用參數</summary>
-              <pre>{formatToolArgs(call.args)}</pre>
+            <details className="mt-1.5">
+              <summary className="cursor-pointer text-[11px] text-muted">調用參數</summary>
+              <pre className="m-0 mt-[5px] max-h-[180px] overflow-auto rounded-[6px] bg-paper p-[7px] whitespace-pre-wrap [overflow-wrap:anywhere] [font:11px/1.45_ui-monospace,SFMono-Regular,Consolas,monospace]">{formatToolArgs(call.args)}</pre>
             </details>
           ) : null}
-          {call.errorMessage ? <small className="assistant-tool-call-error">{call.errorMessage}</small> : null}
+          {call.errorMessage ? <small className="mt-[3px] block text-[11px] text-brand-dark">{call.errorMessage}</small> : null}
         </div>
       ))}
     </div>
@@ -330,7 +343,7 @@ export function Sandbox() {
                 <ButtonSkin skin="paper">
                   <Button variant="secondary" icon="widgets" className="flex-none" onClick={() => setToolsOpen(true)}>
                     設定 tools
-                    <span className="assistant-tool-count">{activeToolKeys.length}</span>
+                    <span className="min-w-[18px] rounded-[999px] bg-brand-soft px-[5px] py-px text-center text-[11px] text-brand-dark">{activeToolKeys.length}</span>
                   </Button>
                 </ButtonSkin>
               </div>
@@ -420,31 +433,32 @@ export function Sandbox() {
         <div ref={conversationRef} className="assistant-conversation" aria-live="polite">
           {currentSession ? (
             currentSession.messages.length ? currentSession.messages.map((message) => (
-              <div className={`assistant-message ${message.role === "user" ? "assistant-message-user" : "assistant-message-model"}`} key={message.id}>
-                <div className="assistant-message-meta">
+              <div className={message.role === "user" ? MESSAGE_USER : MESSAGE_MODEL} key={message.id}>
+                <div className={MESSAGE_META}>
                   <strong>{message.role === "user" ? "你" : "小香"}</strong>
-                    <small>
+                    <small className={MESSAGE_META_TIME}>
                       {formatDate(message.createdAt)}
                       {message.model ? ` · ${data.models.find((item) => item.id === message.model)?.label ?? message.model}` : ""}
                     </small>
                 </div>
-                <pre>{message.text}</pre>
+                <pre className={`${TEXT_PRE} leading-[1.55]`}>{message.text}</pre>
                 {message.role === "model" && message.thoughts ? (
-                  <details className="assistant-message-thoughts">
-                    <summary>thinking / reasoning</summary>
-                    <pre>{message.thoughts}</pre>
+                  <details className={MESSAGE_DISCLOSURE}>
+                    <summary className={MESSAGE_SUMMARY}>thinking / reasoning</summary>
+                    <pre className={`${TEXT_PRE} mt-[7px] max-h-[180px] overflow-auto rounded-[7px] bg-canvas p-2 text-[12px] leading-[1.5]`}>{message.thoughts}</pre>
                   </details>
                 ) : null}
                 {message.role === "model" && message.toolCalls.length ? (
-                  <details className="assistant-message-tools">
-                    <summary>工具調用（{message.toolCalls.length}）</summary>
+                  <details className={MESSAGE_DISCLOSURE}>
+                    <summary className={MESSAGE_SUMMARY}>工具調用（{message.toolCalls.length}）</summary>
                     <ToolCallList calls={message.toolCalls} />
                   </details>
                 ) : null}
                 {message.attachments?.length ? (
-                  <div className="assistant-message-attachments">
+                  <div className="mt-2 flex flex-wrap gap-[7px]">
                     {message.attachments.map((attachment) => (
                       <img
+                        className="h-24 w-[132px] rounded-[8px] border border-line bg-canvas object-cover"
                         key={attachment.key}
                         src={`/api/assistant/sandbox/attachments?key=${encodeURIComponent(attachment.key)}`}
                         alt={attachment.filename}
@@ -454,16 +468,16 @@ export function Sandbox() {
                   </div>
                 ) : null}
                 {message.role === "model" ? (
-                  <small className="assistant-message-duration">本次總耗時 · {message.durationMs.toLocaleString()} ms</small>
+                  <small className="mt-2 block text-right text-[11px] text-muted">本次總耗時 · {message.durationMs.toLocaleString()} ms</small>
                 ) : null}
               </div>
             )) : <EmptyState className="mt-[18px]">這個 session 還沒有訊息。</EmptyState>
           ) : <EmptyState className="mt-[18px]">請按「清除對話」建立一個新的 session。</EmptyState>}
           {run.isPending && pendingSessionId === sessionId ? (
-            <div className="assistant-message assistant-message-model assistant-message-pending" role="status" aria-label="小香正在回覆">
-              <div className="assistant-message-meta">
+            <div className={`${MESSAGE_MODEL} min-w-[120px]`} role="status" aria-label="小香正在回覆">
+              <div className={MESSAGE_META}>
                 <strong>小香</strong>
-                <small>回覆中…</small>
+                <small className={MESSAGE_META_TIME}>回覆中…</small>
               </div>
               <span className="assistant-typing" aria-hidden="true">
                 <span />
@@ -488,8 +502,8 @@ export function Sandbox() {
         ) : null}
         {failedRun?.toolCalls.length ? (
           <div className="assistant-failed-run">
-            <details className="assistant-message-tools">
-              <summary>本次失敗前的工具調用（{failedRun.toolCalls.length}）</summary>
+            <details className={MESSAGE_DISCLOSURE}>
+              <summary className={MESSAGE_SUMMARY}>本次失敗前的工具調用（{failedRun.toolCalls.length}）</summary>
               <ToolCallList calls={failedRun.toolCalls} />
             </details>
           </div>
@@ -579,7 +593,7 @@ export function Sandbox() {
         <Dialog manageFocus
           title="Revision history"
           width={760}
-          bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
+          bodyLayout="grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
           onClose={() => setRevisionsOpen(false)}
           actions={<Button variant="secondary" type="button" onClick={() => setRevisionsOpen(false)}>關閉</Button>}
         >
@@ -607,7 +621,7 @@ export function Sandbox() {
         <Dialog manageFocus
           title="設定可調用的 tools"
           width={760}
-          bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
+          bodyLayout="grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
           onClose={() => setToolsOpen(false)}
           actions={<Button type="button" onClick={() => setToolsOpen(false)}>完成</Button>}
         >
@@ -615,27 +629,21 @@ export function Sandbox() {
                 勾選後會在下一次 Sandbox 執行時送給模型；「開發中」工具只可在 Sandbox 使用。
                 {hrToolKeys.size ? "HR 工具要先在「模擬員工本人」選一位員工、平台設好 LINE Login 綁定才會生效。" : ""}
               </p>
-              <div className="assistant-tool-list">
+              <ToolList>
                 {data.tools.map((tool) => (
-                  <label className="assistant-tool" key={tool.key}>
-                    <span className="assistant-tool-control">
-                      <input
-                        type="checkbox"
-                        checked={toolKeys.includes(tool.key)}
-                        disabled={tool.status === "disabled" || (hrToolKeys.has(tool.key) && !hrToolsUsable)}
-                        onChange={() => toggleTool(tool.key)}
-                      />
-                      <Icon name="widgets" />
-                    </span>
-                    <span>
-                      <strong>{tool.label}</strong>
-                      <small>{tool.description}</small>
-                      {tool.requiredPermissions.length ? <small>需要權限：{tool.requiredPermissions.join("、")}</small> : null}
-                    </span>
-                    <StatusBadge tone={TOOL_STATUS_TONE[tool.status]}>{statusLabel(tool.status)}</StatusBadge>
-                  </label>
+                  <ToolOption
+                    key={tool.key}
+                    label={tool.label}
+                    checked={toolKeys.includes(tool.key)}
+                    disabled={tool.status === "disabled" || (hrToolKeys.has(tool.key) && !hrToolsUsable)}
+                    onChange={() => toggleTool(tool.key)}
+                    trailing={<StatusBadge tone={TOOL_STATUS_TONE[tool.status]}>{statusLabel(tool.status)}</StatusBadge>}
+                  >
+                    <ToolNote>{tool.description}</ToolNote>
+                    {tool.requiredPermissions.length ? <ToolNote>需要權限：{tool.requiredPermissions.join("、")}</ToolNote> : null}
+                  </ToolOption>
                 ))}
-              </div>
+              </ToolList>
         </Dialog>
       ) : null}
 

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Icon } from "../../shell/icons.js";
 import { Switch } from "../../shell/Switch.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
@@ -15,6 +14,7 @@ import {
   type AssistantLineSourceType,
   type AssistantTool,
 } from "./api.js";
+import { ToolList, ToolNote, ToolOption } from "./ToolOption.js";
 
 /**
  * 工具在 LINE 上實際能不能用，是三層的交集：全域狀態 ∩ channel 白名單 ∩ 對話白名單。
@@ -309,7 +309,7 @@ export function LineSettings() {
         <Dialog manageFocus
           title="設定小香在 LINE 能用的工具"
           width={760}
-          bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
+          bodyLayout="grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
           onClose={() => setToolsOpen(false)}
           actions={
             <>
@@ -334,30 +334,24 @@ export function LineSettings() {
           }
         >
               <p className="muted">只列出支援 LINE 的工具。這裡沒開的，任何對話都拿不到。</p>
-              <div className="assistant-tool-list">
+              <ToolList>
                 {lineTools.map((tool) => {
                   const blocked = blockedReason(tool);
                   return (
-                    <label className="assistant-tool" key={tool.key}>
-                      <span className="assistant-tool-control">
-                        <input
-                          type="checkbox"
-                          checked={channelToolKeys.includes(tool.key)}
-                          onChange={() => setChannelToolKeys((keys) => keys.includes(tool.key)
-                            ? keys.filter((key) => key !== tool.key)
-                            : [...keys, tool.key])}
-                        />
-                        <Icon name="widgets" />
-                      </span>
-                      <span>
-                        <strong>{tool.label}</strong>
-                        <small>{tool.description}</small>
-                      </span>
-                      {blocked ? <StatusBadge tone="warning">{blocked}</StatusBadge> : null}
-                    </label>
+                    <ToolOption
+                      key={tool.key}
+                      label={tool.label}
+                      checked={channelToolKeys.includes(tool.key)}
+                      onChange={() => setChannelToolKeys((keys) => keys.includes(tool.key)
+                        ? keys.filter((key) => key !== tool.key)
+                        : [...keys, tool.key])}
+                      trailing={blocked ? <StatusBadge tone="warning">{blocked}</StatusBadge> : null}
+                    >
+                      <ToolNote>{tool.description}</ToolNote>
+                    </ToolOption>
                   );
                 })}
-              </div>
+              </ToolList>
         </Dialog>
       ) : null}
 
@@ -472,7 +466,7 @@ function GroupToolsDialog({
     <Dialog manageFocus
       title={`${group.displayName || group.lineGroupId} 的工具`}
       width={760}
-      bodyLayout="assistant-modal-body grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
+      bodyLayout="grid max-h-[calc(100vh-190px)] gap-4 px-6 pb-2"
       onClose={onClose}
       actions={
         <>
@@ -490,45 +484,39 @@ function GroupToolsDialog({
         </>
       }
     >
-          <div className="assistant-tool-mode">
+          <div className="mb-[18px] grid gap-3">
             <label className="assistant-inline-toggle">
               <input type="radio" name="toolMode" checked={mode === "inherit"} onChange={() => setMode("inherit")} />
               <span>
-                <strong>繼承</strong>
-                <small>用 channel 給的全部（目前 {tools.length} 個）。channel 之後增減，這個對話會跟著變。</small>
+                <strong className="block">繼承</strong>
+                <small className="mt-[3px] block text-[12px] text-muted">用 channel 給的全部（目前 {tools.length} 個）。channel 之後增減，這個對話會跟著變。</small>
               </span>
             </label>
             <label className="assistant-inline-toggle">
               <input type="radio" name="toolMode" checked={mode === "custom"} onChange={() => setMode("custom")} />
               <span>
-                <strong>自訂</strong>
-                <small>只給下面勾選的。channel 收回某個工具時，這裡也會跟著消失。</small>
+                <strong className="block">自訂</strong>
+                <small className="mt-[3px] block text-[12px] text-muted">只給下面勾選的。channel 收回某個工具時，這裡也會跟著消失。</small>
               </span>
             </label>
           </div>
 
           {mode === "custom" ? (
             tools.length ? (
-              <div className="assistant-tool-list">
+              <ToolList>
                 {tools.map((tool) => (
-                  <label className="assistant-tool" key={tool.key}>
-                    <span className="assistant-tool-control">
-                      <input
-                        type="checkbox"
-                        checked={keys.includes(tool.key)}
-                        onChange={() => setKeys((current) => current.includes(tool.key)
-                          ? current.filter((key) => key !== tool.key)
-                          : [...current, tool.key])}
-                      />
-                      <Icon name="widgets" />
-                    </span>
-                    <span>
-                      <strong>{tool.label}</strong>
-                      <small>{tool.description}</small>
-                    </span>
-                  </label>
+                  <ToolOption
+                    key={tool.key}
+                    label={tool.label}
+                    checked={keys.includes(tool.key)}
+                    onChange={() => setKeys((current) => current.includes(tool.key)
+                      ? current.filter((key) => key !== tool.key)
+                      : [...current, tool.key])}
+                  >
+                    <ToolNote>{tool.description}</ToolNote>
+                  </ToolOption>
                 ))}
-              </div>
+              </ToolList>
             ) : <EmptyState className="mt-[18px]">channel 還沒授權任何工具，這裡沒有東西可以挑。</EmptyState>
           ) : null}
           {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
