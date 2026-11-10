@@ -18,7 +18,40 @@ export interface CyberbizConfig {
   relayToken?: string;
 }
 
+export interface CyberbizEnvironment {
+  CYBERBIZ_API_TOKEN?: string;
+  CYBERBIZ_API_BASE_URL?: string;
+  CYBERBIZ_API_RELAY_URL?: string;
+  CYBERBIZ_API_RELAY_TOKEN?: string;
+}
+
 export const DEFAULT_BASE_URL = "https://app-store-api.cyberbiz.io";
+
+/** 將 Worker/tool 環境變數解析成共用 client 設定，避免不同呼叫路徑繞過 relay。 */
+export function cyberbizConfigFromEnv(env: CyberbizEnvironment): CyberbizConfig {
+  const relayUrl = env.CYBERBIZ_API_RELAY_URL?.trim();
+  const relayToken = env.CYBERBIZ_API_RELAY_TOKEN?.trim();
+  if (Boolean(relayUrl) !== Boolean(relayToken)) {
+    throw new Error("CYBERBIZ_API_RELAY_URL 與 CYBERBIZ_API_RELAY_TOKEN 必須同時設定。");
+  }
+
+  if (relayUrl) {
+    const url = new URL(relayUrl);
+    const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    const trustedHost = localHost || url.hostname.endsWith(".rueisiang.com");
+    if (!trustedHost || (url.protocol !== "https:" && !localHost)
+      || url.pathname !== "/" || url.username || url.password || url.search || url.hash) {
+      throw new Error("CYBERBIZ_API_RELAY_URL 必須是受信任的 HTTPS origin。");
+    }
+  }
+
+  return {
+    apiToken: env.CYBERBIZ_API_TOKEN ?? "",
+    ...(relayUrl
+      ? { baseUrl: relayUrl, relayToken }
+      : { baseUrl: env.CYBERBIZ_API_BASE_URL }),
+  };
+}
 
 /** CYBERBIZ 回非 2xx 時丟這個，呼叫端可以據此決定要不要重試。 */
 export class CyberbizApiError extends Error {

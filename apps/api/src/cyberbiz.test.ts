@@ -1,3 +1,4 @@
+import { toolsForSurface } from "@rueisiang/tools";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cyberbizClient, cyberbizInventoryClient } from "./cyberbiz.js";
 
@@ -46,5 +47,32 @@ describe("CYBERBIZ NAS relay 設定", () => {
       CYBERBIZ_API_RELAY_URL: "http://relay.example.test",
       CYBERBIZ_API_RELAY_TOKEN: relayToken,
     } as never)).toThrow("CYBERBIZ_API_RELAY_URL 必須是受信任的 HTTPS origin。");
+  });
+
+  it("CRM 訂單工具也必須經 relay 查詢，不能繞過固定出口直連", async () => {
+    let requestUrl = "";
+    let requestHeaders: Headers | undefined;
+    vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      requestUrl = String(input);
+      requestHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({
+        order: { id: 99, order_number: "R-00099", customer: { id: 7 } },
+      }), { status: 200 });
+    });
+
+    const tool = toolsForSurface("sandbox").find((entry) => entry.key === "crm_get_orders");
+    expect(tool).toBeDefined();
+    await tool!.execute({ orderId: "99" }, {
+      surface: "sandbox",
+      env: {
+        CYBERBIZ_API_TOKEN: apiToken,
+        CYBERBIZ_API_RELAY_URL: "https://cyberbiz-relay.rueisiang.com",
+        CYBERBIZ_API_RELAY_TOKEN: relayToken,
+      },
+    });
+
+    expect(requestUrl).toBe("https://cyberbiz-relay.rueisiang.com/v1/orders/99");
+    expect(requestHeaders?.get("authorization")).toBe(`Bearer ${apiToken}`);
+    expect(requestHeaders?.get("x-cyberbiz-relay-token")).toBe(relayToken);
   });
 });

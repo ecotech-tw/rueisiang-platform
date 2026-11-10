@@ -7,6 +7,8 @@ import {
 import {
   CyberbizApiError,
   createOrderClient,
+  cyberbizConfigFromEnv,
+  type CyberbizEnvironment,
   type CyberbizOrder,
   type CyberbizOrderListFilters,
 } from "@rueisiang/cyberbiz";
@@ -616,10 +618,7 @@ const crmSearchCustomersTool: PlatformToolDefinition = {
   },
 };
 
-type CyberbizToolEnv = {
-  CYBERBIZ_API_TOKEN?: string;
-  CYBERBIZ_API_BASE_URL?: string;
-};
+type CyberbizToolEnv = CyberbizEnvironment;
 
 type CustomerOrderSubject = {
   crmCustomerId: string | null;
@@ -860,7 +859,7 @@ async function lookupCustomerOrders(
   maxLimit = 50,
 ): Promise<CustomerOrderLookup> {
   const env = cyberbizToolEnv(context);
-  const client = createOrderClient({ apiToken: env.CYBERBIZ_API_TOKEN!, baseUrl: env.CYBERBIZ_API_BASE_URL });
+  const client = createOrderClient(cyberbizConfigFromEnv(env));
   const requestedLimit = Math.min(maxLimit, boundedNumber(input, "limit", defaultLimit, maxLimit));
   const { sortBy, sortDirection } = customerOrderSort(input);
   const rawOrderIds = inputStringList(input, "orderIds", "orderId");
