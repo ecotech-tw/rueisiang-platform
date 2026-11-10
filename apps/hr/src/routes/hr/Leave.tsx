@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, EmptyState, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, EmptyState, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type AnnualLeavePeriod, type AnnualLeaveResponse, type LeaveMonth, type LeaveMonthsResponse } from "./api.js";
 import { dateBefore, dateLabel, formatHours } from "./format.js";
 import { HrBackBar } from "./HrBackBar.js";
+import { PeriodToolbar } from "./PeriodToolbar.js";
 import { PROFILE_CARD_TITLE, ProfileCardHeading, ProfileCardList, ProfileDataCard, ProfileInfoList } from "./ProfileCard.js";
 
 function AnnualLeaveCard({ period }: { period: AnnualLeavePeriod }) {
@@ -57,11 +58,12 @@ export function HrLeaveSummary() {
     </Panel>
 
     <Panel title="請假紀錄" description="只計入已核准的請假申請；審核中的申請請到表單申請查看。">
-      {year !== null && range ? <div className="hr-clock-history-toolbar mb-3">
-        <Button variant="icon" icon="chevronLeft" aria-label="上一年" disabled={year <= range.firstYear} onClick={() => selectYear(year - 1)} />
-        <strong>{year} 年</strong>
-        <Button variant="icon" icon="chevronRight" aria-label="下一年" disabled={year >= range.lastYear} onClick={() => selectYear(year + 1)} />
-      </div> : null}
+      {year !== null && range ? <PeriodToolbar
+        className="mb-3"
+        label={`${year} 年`}
+        previous={{ label: "上一年", disabled: year <= range.firstYear, onClick: () => selectYear(year - 1) }}
+        next={{ label: "下一年", disabled: year >= range.lastYear, onClick: () => selectYear(year + 1) }}
+      /> : null}
       {loadingMonths && !leave.error ? <p className="muted">載入請假紀錄…</p> : null}
       {leave.error ? <Alert tone="danger">{leave.error.message}</Alert> : null}
       {months.length ? <ProfileCardList>{months.map((month) => <MonthCard key={month.month} month={month} />)}</ProfileCardList> : null}

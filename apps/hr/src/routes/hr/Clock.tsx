@@ -7,6 +7,7 @@ import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, Page, PageHeader, PANEL_SURFACE } from "../../ui/index.js";
 import { API_BASE_URL } from "../../config.js";
+import { PeriodToolbar } from "./PeriodToolbar.js";
 import { useHrQuery, useHrWrite, type ClockCalendar, type ClockCalendarDay, type ClockLocationCheck, type ClockMapLocation, type ClockStatus } from "./api.js";
 
 const MAP_STYLE_URL = import.meta.env.VITE_MAPLIBRE_STYLE_URL?.trim() || "https://tiles.openfreemap.org/styles/positron";
@@ -545,11 +546,11 @@ export function HrClockCalendar() {
 
 function ClockHistoryDay({ day }: { day: ClockCalendarDay }) {
   const dayLabel = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", month: "numeric", day: "numeric", weekday: "short" }).format(new Date(`${day.date}T00:00:00Z`));
-  return <article className={`hr-clock-history-day${day.anomaly ? " has-anomaly" : ""}`}>
-    <div className="hr-clock-history-day-head"><div><strong>{dayLabel}</strong><span>{calendarStatusLabel(day.status)}</span></div><strong>{day.workedMinutes ? formatWorkedMinutes(day.workedMinutes) : "—"}</strong></div>
-    {day.expectedStartAt || day.expectedEndAt ? <p className="hr-clock-history-schedule">預期 {formatTaipeiTime(day.expectedStartAt)}～{formatTaipeiTime(day.expectedEndAt)}</p> : null}
-    {day.events.length ? <ol className="hr-clock-history-events">{day.events.map((event, index) => <li key={event.id}><span>{eventLabel(index, day.events.length)}</span><strong>{formatTaipei(event.occurredAt)}</strong><small>{event.locationName ?? "未指定辦公位置"}</small></li>)}</ol> : day.anomaly ? null : <p className="hr-clock-history-empty">{day.anomalyMessage ?? (day.status === "missing" ? "這天尚未有打卡紀錄。" : "沒有打卡事件。")}</p>}
-    {day.anomaly ? <p className="hr-clock-history-anomaly">{day.anomalyMessage ?? (day.status === "missing" ? "這天尚未有打卡紀錄。" : "請確認出勤紀錄。")}</p> : null}
+  return <article className={`grid gap-2 rounded-[14px] border p-[13px] max-[760px]:p-[11px] ${day.anomaly ? "border-brand/42 bg-brand-soft/42" : "border-line bg-paper"}`}>
+    <div className="flex items-baseline justify-between gap-3"><div className="flex min-w-0 items-baseline gap-2"><strong className="text-[15px] tabular-nums">{dayLabel}</strong><span className="text-[12px] text-muted">{calendarStatusLabel(day.status)}</span></div><strong className="text-[15px] tabular-nums">{day.workedMinutes ? formatWorkedMinutes(day.workedMinutes) : "—"}</strong></div>
+    {day.expectedStartAt || day.expectedEndAt ? <p className="text-[12px] text-muted">預期 {formatTaipeiTime(day.expectedStartAt)}～{formatTaipeiTime(day.expectedEndAt)}</p> : null}
+    {day.events.length ? <ol className="grid gap-1.5">{day.events.map((event, index) => <li key={event.id} className="grid grid-cols-[46px_minmax(0,1fr)] gap-x-2 gap-y-0.5 rounded-[9px] bg-canvas px-[9px] py-[7px]"><span className="row-[span_2] self-center text-[11px] text-muted">{eventLabel(index, day.events.length)}</span><strong className="text-[12px] tabular-nums">{formatTaipei(event.occurredAt)}</strong><small className="overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-muted">{event.locationName ?? "未指定辦公位置"}</small></li>)}</ol> : day.anomaly ? null : <p className="text-[12px] text-muted">{day.anomalyMessage ?? (day.status === "missing" ? "這天尚未有打卡紀錄。" : "沒有打卡事件。")}</p>}
+    {day.anomaly ? <p className="text-[12px] font-bold text-brand-dark">{day.anomalyMessage ?? (day.status === "missing" ? "這天尚未有打卡紀錄。" : "請確認出勤紀錄。")}</p> : null}
   </article>;
 }
 
@@ -574,17 +575,24 @@ export function HrClockLogs() {
   return <Page className={`hr-clock-page hr-clock-subpage [&>*+*]:mt-0 ${closing ? "closing" : ""}`}>
     <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
     <PageHeader title="打卡紀錄" description="按月份查看實際工時、預期班別與出勤異常。" className="max-[760px]:mb-0 max-[760px]:[&_h1]:text-[18px] max-[760px]:[&_p]:hidden" />
-    <section className="hr-clock-logs">
+    {/* 沒有外框：手機上那一圈 padding 很貴。上半部是 auto 列、只有清單那一列吃剩下的高度，
+        所以內容再少也不會被拉高。 */}
+    <section className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3">
       {/* 月份與統計放在捲動區外面，而且載入中也照樣畫（數字先用「—」）：
           這樣換月份時上半部的高度不會跳，往下捲時它也一直留在上方。 */}
-      <div className="hr-clock-logs-head">
-        <div className="hr-clock-history-toolbar"><Button variant="icon" icon="chevronLeft" aria-label="上個月" onClick={() => changeMonth(-1)} /><strong>{monthLabel(calendarMonth.year, calendarMonth.month)}</strong><Button variant="icon" icon="chevronRight" aria-label="下個月" onClick={() => changeMonth(1)} /></div>
-        <div className="hr-clock-history-summary"><div><span>實際工時</span><strong>{summaryReady ? formatWorkedMinutes(totalWorkedMinutes) : "—"}</strong></div><div><span>有打卡日</span><strong>{summaryReady ? `${recordedCount} 天` : "—"}</strong></div><div><span>待確認</span><strong>{summaryReady ? `${anomalyCount} 天` : "—"}</strong></div></div>
+      <div className="grid gap-3">
+        <PeriodToolbar label={monthLabel(calendarMonth.year, calendarMonth.month)} previous={{ label: "上個月", onClick: () => changeMonth(-1) }} next={{ label: "下個月", onClick: () => changeMonth(1) }} />
+        <div className="grid grid-cols-3 gap-2 max-[760px]:gap-1.5">{[
+          ["實際工時", formatWorkedMinutes(totalWorkedMinutes)],
+          ["有打卡日", `${recordedCount} 天`],
+          ["待確認", `${anomalyCount} 天`],
+        ].map(([label, value]) => <div key={label} className="grid min-w-0 gap-1 rounded-[12px] border border-line bg-paper px-3 py-[11px] max-[760px]:px-2 max-[760px]:py-[9px]"><span className="text-[11px] font-bold text-muted">{label}</span><strong className="overflow-hidden text-ellipsis whitespace-nowrap text-[15px] text-ink tabular-nums max-[760px]:text-[13px]">{summaryReady ? value : "—"}</strong></div>)}</div>
       </div>
       {/* 清單裡沒有任何可聚焦的東西，不給 tabIndex 的話 Safari 的鍵盤使用者捲不到下面。 */}
-      <div className="hr-clock-logs-scroll" role="region" aria-label="每日打卡紀錄" tabIndex={0}>
+      {/* 焦點外框往內收：這一塊貼著 .hr-clock-subpage 的 overflow: hidden，往外畫會被裁掉。 */}
+      <div className="min-h-0 overflow-y-auto overscroll-contain [&>*+*]:mt-2.5 focus-visible:rounded-[14px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary" role="region" aria-label="每日打卡紀錄" tabIndex={0}>
         {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
-        {calendar.isPending ? <p className="muted">載入月度紀錄…</p> : calendar.data ? days.length ? <div className="hr-clock-history-days">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <div className="hr-form-empty-state"><strong>本月沒有需要顯示的紀錄</strong><p className="muted">有打卡或出勤異常的日期會列在這裡。</p></div> : null}
+        {calendar.isPending ? <p className="muted">載入月度紀錄…</p> : calendar.data ? days.length ? <div className="grid gap-2.5">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <div className="hr-form-empty-state"><strong>本月沒有需要顯示的紀錄</strong><p className="muted">有打卡或出勤異常的日期會列在這裡。</p></div> : null}
       </div>
     </section>
   </Page>;
