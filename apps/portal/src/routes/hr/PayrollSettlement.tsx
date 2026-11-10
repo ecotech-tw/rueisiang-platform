@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TableBulkActionMenu, TextField, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -89,6 +89,12 @@ const PAYROLL_JOB_ERROR = "line-clamp-3 [line-clamp:3] min-w-0 text-brand-dark [
 function referenceKey(record: Pick<PayrollRecord, "runId" | "personKind" | "personId">) {
   return `${record.runId}:${record.personKind}:${record.personId}`;
 }
+
+const PAYROLL_BULK_ACTIONS: TableBulkAction<PayrollRecord>[] = [
+  { id: "approve", label: "確定發放", isEligible: (record) => record.status === "unsettled" },
+  { id: "withdraw", label: "撤回已發放", isEligible: (record) => record.status === "closed" && !record.withdrawal },
+  { id: "delete", label: "刪除試算", isEligible: (record) => record.status === "unsettled" || record.status === "withdrawn" && Boolean(record.withdrawal) },
+];
 
 export function payrollEmployeesInPeriod<T extends Pick<HrFormalEmployee, "serviceStartOn">>(employees: readonly T[], periodKey: string): T[] {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKey)) return [];
@@ -351,7 +357,6 @@ export function HrPayrollSettlement() {
   const currentMonth = taipeiMonth();
   const [recordFilters, setRecordFilters] = useState<PayrollRecordFilters>({ page: 1, pageSize: 25, search: "", periodKey: "", status: "all", personKind: "all", payBasis: "all" });
   const [showCalculationDialog, setShowCalculationDialog] = useState(false);
-  const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [approveOpen, setApproveOpen] = useState(false);
   const [deleteTargets, setDeleteTargets] = useState<PayrollRecord[]>([]);
   const [withdrawTargets, setWithdrawTargets] = useState<PayrollRecord[]>([]);
@@ -366,21 +371,16 @@ export function HrPayrollSettlement() {
   const deletePayrollRecord = useHrWrite<{ deleted: true }>({ invalidate: false });
   const withdrawPayrollRecord = useHrWrite<{ withdrawn: true }>({ invalidate: false });
   const retryPayroll = useHrWrite<{ job: PayrollJob }>();
-
-  const visibleActionableKeys = useMemo(() => (records.data?.records ?? []).filter((record) => record.status !== "withdrawn" || Boolean(record.withdrawal)).map(referenceKey), [records.data?.records]);
-  const selectedRecords = useMemo(() => (records.data?.records ?? []).filter((record) => selectedKeys.includes(referenceKey(record)) && record.status === "unsettled"), [records.data?.records, selectedKeys]);
-  const selectedWithdrawableRecords = useMemo(() => (records.data?.records ?? []).filter((record) => selectedKeys.includes(referenceKey(record)) && record.status === "closed" && !record.withdrawal), [records.data?.records, selectedKeys]);
-  const selectedDeletableRecords = useMemo(() => (records.data?.records ?? []).filter((record) => selectedKeys.includes(referenceKey(record)) && (record.status === "unsettled" || record.status === "withdrawn")), [records.data?.records, selectedKeys]);
-  const selectedActionableRecords = useMemo(() => (records.data?.records ?? []).filter((record) => selectedKeys.includes(referenceKey(record)) && (record.status !== "withdrawn" || Boolean(record.withdrawal))), [records.data?.records, selectedKeys]);
-  const selectedVisibleCount = visibleActionableKeys.filter((key) => selectedKeys.includes(key)).length;
-  const allVisibleSelected = visibleActionableKeys.length > 0 && selectedVisibleCount === visibleActionableKeys.length;
+  const payrollRows = records.data?.records ?? [];
+  const bulk = useTableBulkSelection(payrollRows, referenceKey, PAYROLL_BULK_ACTIONS);
+  const selectedRecords = bulk.actionId === "approve" ? bulk.selectedRows : [];
+  const selectedWithdrawableRecords = bulk.actionId === "withdraw" ? bulk.selectedRows : [];
+  const selectedDeletableRecords = bulk.actionId === "delete" ? bulk.selectedRows : [];
+  const payrollBulkActionOptions = PAYROLL_BULK_ACTIONS.map((action) => ({ id: action.id, label: action.label, eligibleCount: payrollRows.filter(action.isEligible).length }));
+  const allVisibleSelected = bulk.allEligibleSelected;
   const selectAllRef = useRef<HTMLInputElement>(null);
   const mobileSelectAllRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    const validKeys = new Set((records.data?.records ?? []).filter((record) => record.status !== "withdrawn" || Boolean(record.withdrawal)).map(referenceKey));
-    setSelectedKeys((current) => current.filter((key) => validKeys.has(key)));
-  }, [records.data?.records]);
   useEffect(() => {
     const jobs = payrollJobs.data?.jobs ?? [];
     setPollPayrollJobs(jobs.some(isPayrollJobActive));
@@ -398,28 +398,21 @@ export function HrPayrollSettlement() {
     }
   }, [canCalculate, payrollJobs.data?.jobs, records, toast]);
   useEffect(() => {
-    const indeterminate = selectedVisibleCount > 0 && !allVisibleSelected;
+    const indeterminate = bulk.someEligibleSelected && !allVisibleSelected;
     if (selectAllRef.current) selectAllRef.current.indeterminate = indeterminate;
     if (mobileSelectAllRef.current) mobileSelectAllRef.current.indeterminate = indeterminate;
-  }, [allVisibleSelected, selectedVisibleCount]);
+  }, [allVisibleSelected, bulk.someEligibleSelected]);
 
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (records.isPending) return <HrPageSkeleton variant="table" />;
 
   function updateRecordFilters(patch: Partial<PayrollRecordFilters>) {
     setRecordFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
-    setSelectedKeys([]);
-  }
-  function toggleRecord(record: PayrollRecord, checked: boolean) {
-    const key = referenceKey(record);
-    setSelectedKeys((current) => checked ? [...new Set([...current, key])] : current.filter((item) => item !== key));
-  }
-  function toggleVisibleRecords(checked: boolean) {
-    setSelectedKeys((current) => checked ? [...new Set([...current, ...visibleActionableKeys])] : current.filter((key) => !visibleActionableKeys.includes(key)));
+    bulk.cancel();
   }
   async function deleteSelectedRecords() {
     await Promise.all(deleteTargets.map((record) => deletePayrollRecord.mutateAsync({ path: `/payroll/records/${encodeURIComponent(record.runId)}/${record.personKind}/${encodeURIComponent(record.personId)}`, method: "DELETE", values: {} })));
-    setSelectedKeys([]);
+    bulk.cancel();
     setDeleteTargets([]);
     void records.refetch();
     toast.show(`已刪除 ${deleteTargets.length} 筆薪資紀錄。`, "success");
@@ -429,7 +422,7 @@ export function HrPayrollSettlement() {
     if (!reason) { setWithdrawValidationError("請填寫撤回原因。"); return; }
     setWithdrawValidationError(null);
     await Promise.all(withdrawTargets.map((record) => withdrawPayrollRecord.mutateAsync({ path: `/payroll/records/${encodeURIComponent(record.runId)}/${record.personKind}/${encodeURIComponent(record.personId)}/withdraw`, method: "POST", values: { reason } })));
-    setSelectedKeys([]);
+    bulk.cancel();
     setWithdrawTargets([]);
     setWithdrawReason("");
     void records.refetch();
@@ -441,7 +434,7 @@ export function HrPayrollSettlement() {
   function approveSelected() {
     if (!selectedRecords.length) return;
     approvePayroll.mutate({ path: "/payroll/records/approve", method: "POST", values: { records: selectedRecords.map(({ runId, personKind, personId }) => ({ runId, personKind, personId })) } }, {
-      onSuccess: () => { setSelectedKeys([]); setApproveOpen(false); void records.refetch(); },
+      onSuccess: () => { bulk.cancel(); setApproveOpen(false); void records.refetch(); },
     });
   }
   function retryJob(job: PayrollJob) {
@@ -452,7 +445,7 @@ export function HrPayrollSettlement() {
   const payrollJobList = visiblePayrollJobs(payrollJobs.data?.jobs ?? []);
 
   return <Page layout="fills" className="hr-payroll-page">
-    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各自管理試算版本與發放狀態；可刪除未發放的單筆結果、撤回個人發放，並選取多筆一次確定發放。" actions={canCalculate ? <Button tone="success" mobileIconOnly icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
+    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各自管理試算版本與發放狀態；可刪除未發放的單筆結果、撤回個人發放，並選取多筆一次處理。" actions={canCalculate ? <Button tone="success" mobileIconOnly icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     {payrollJobs.error ? <Alert tone="danger">薪資試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
     <PayrollJobProgress jobs={payrollJobList} onRetry={retryJob} canRetry={canCalculate} />
@@ -467,16 +460,17 @@ export function HrPayrollSettlement() {
       </FilterToolbar>
       {records.error ? <Alert tone="danger">薪資紀錄載入失敗：{records.error.message}</Alert> : null}
       <div className="hr-payroll-table-region">
-        <div className="hr-payroll-mobile-select-all">
+        {canCalculate ? <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={payrollBulkActionOptions} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div> : null}
+        {bulk.actionId && bulk.eligibleKeys.length ? <div className="hr-payroll-mobile-select-all">
           <label className="table-select-all">
-            <input ref={mobileSelectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={!canCalculate || !visibleActionableKeys.length || approvePayroll.isPending} onChange={(event) => toggleVisibleRecords(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁可操作紀錄" : "全選本頁可操作紀錄"} />
-            <span>{allVisibleSelected ? "取消全選本頁" : "全選本頁"}</span>
+            <input ref={mobileSelectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"} />
+            <span>{allVisibleSelected ? "取消全選本頁" : "全選本頁符合條件"}</span>
           </label>
-        </div>
+        </div> : null}
         <DataTable className="hr-payroll-record-table [&_.hr-payroll-select-cell]:text-center" containerClassName={records.isPlaceholderData ? "is-refreshing" : ""}>
-            <thead><tr><th className="hr-payroll-select-cell"><input ref={selectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={!canCalculate || !visibleActionableKeys.length || approvePayroll.isPending} onChange={(event) => toggleVisibleRecords(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁可操作紀錄" : "全選本頁可操作紀錄"} /></th><th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th>操作</th></tr></thead>
-            <tbody>{(records.data?.records ?? []).map((record) => <tr key={referenceKey(record)} className={selectedKeys.includes(referenceKey(record)) ? "selected" : undefined}>
-              <td data-label="選取" className="hr-payroll-select-cell">{record.status !== "withdrawn" || Boolean(record.withdrawal) ? <input className="table-checkbox" type="checkbox" checked={selectedKeys.includes(referenceKey(record))} disabled={!canCalculate || approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => toggleRecord(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td>
+            <thead><tr>{bulk.actionId ? <th className="hr-payroll-select-cell">{bulk.eligibleKeys.length ? <input ref={selectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"} /> : null}</th> : null}<th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span>{canCalculate ? <TableBulkActionMenu actionId={bulk.actionId} actions={payrollBulkActionOptions} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /> : null}</div></th></tr></thead>
+            <tbody>{payrollRows.map((record) => <tr key={referenceKey(record)} className={bulk.selectedKeys.includes(referenceKey(record)) ? "selected" : undefined}>
+              {bulk.actionId ? <td data-label="選取" className="hr-payroll-select-cell">{bulk.isRowEligible(record) ? <input className="table-checkbox" type="checkbox" checked={bulk.selectedKeys.includes(referenceKey(record))} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleRow(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td> : null}
               <td data-label="薪資月份"><strong>{payrollPeriodLabel(record.periodKey)}</strong><small className="cell-sub">{record.payDate ? `發薪日 ${record.payDate}` : "未設定發薪日"}</small></td>
               <td data-label="人員"><div className="hr-payroll-record-person"><strong>{record.personName}</strong><small className="cell-sub">{record.personNumber ? `${record.personNumber}・` : ""}{PAYROLL_PERSON_KIND_LABEL[record.personKind]}</small></div></td>
               <td data-label="計薪方式">{record.payBasis ? PAY_BASIS_LABEL[record.payBasis] ?? record.payBasis : "—"}</td>
@@ -487,7 +481,11 @@ export function HrPayrollSettlement() {
               <td data-label="操作"><div className="flex flex-wrap items-center gap-2"><Button variant="secondary" icon="eye" tone="info" onClick={() => openRecord(record)}>查看明細</Button>{canCalculate && (record.status === "unsettled" || record.status === "withdrawn" && record.withdrawal) ? <Button variant="danger" icon="trash" disabled={deletePayrollRecord.isPending} onClick={() => setDeleteTargets([record])}>刪除試算</Button> : null}{canCalculate && record.status === "closed" && !record.withdrawal ? <Button variant="danger" icon="history" disabled={withdrawPayrollRecord.isPending} onClick={() => { setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawTargets([record]); }}>撤回</Button> : null}</div></td>
             </tr>)}</tbody>
         </DataTable>
-        {selectedActionableRecords.length ? <SelectionActionBar count={selectedActionableRecords.length} countLabel="筆">{canCalculate ? <>{selectedRecords.length ? <Button icon="check" loading={approvePayroll.isPending} onClick={() => setApproveOpen(true)}>確定發放</Button> : null}{selectedDeletableRecords.length ? <Button variant="danger" icon="trash" onClick={() => setDeleteTargets(selectedDeletableRecords)}>刪除試算</Button> : null}{selectedWithdrawableRecords.length ? <Button variant="danger" icon="history" onClick={() => { setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawTargets(selectedWithdrawableRecords); }}>撤回已發放</Button> : null}</> : null}</SelectionActionBar> : null}
+        {bulk.selectedRows.length ? <SelectionActionBar count={bulk.selectedRows.length} countLabel={bulk.actionId === "approve" ? "筆待發放紀錄" : bulk.actionId === "withdraw" ? "筆已發放紀錄" : "筆薪資紀錄"} className="!pl-5 !pr-5 max-[760px]:!pl-4 max-[760px]:!pr-4">
+          {bulk.actionId === "approve" ? <Button icon="check" loading={approvePayroll.isPending} onClick={() => setApproveOpen(true)}>確定發放</Button> : null}
+          {bulk.actionId === "delete" ? <Button variant="danger" icon="trash" onClick={() => setDeleteTargets(selectedDeletableRecords)}>刪除試算</Button> : null}
+          {bulk.actionId === "withdraw" ? <Button variant="danger" icon="history" onClick={() => { setWithdrawReason(""); setWithdrawValidationError(null); setWithdrawTargets(selectedWithdrawableRecords); }}>撤回已發放</Button> : null}
+        </SelectionActionBar> : null}
       </div>
       {records.data && !records.data.records.length ? <EmptyState className="mt-[18px]">目前沒有符合條件的薪資發放紀錄。</EmptyState> : null}
       {records.data && records.data.total > 0 ? <Pager className="mt-4 shrink-0" page={records.data.page} pageSize={records.data.pageSize} pageSizes={PAYROLL_RECORD_PAGE_SIZES} totalPages={Math.max(1, Math.ceil(records.data.total / records.data.pageSize))} totalLabel={`共 ${records.data.total.toLocaleString("zh-TW")} 筆`} onPage={(page) => updateRecordFilters({ page })} onPageSize={(pageSize) => updateRecordFilters({ pageSize })} /> : null}
@@ -500,7 +498,7 @@ export function HrPayrollSettlement() {
       initialPeriodKey={recordFilters.periodKey || currentMonth}
       initialPayDate=""
       onClose={() => setShowCalculationDialog(false)}
-      onSuccess={({ job, run }) => { if (job) { observedPayrollJobStatuses.set(job.jobId, job.status); toast.show(job.status === "failed" ? `${job.runName}薪資試算啟動失敗，請重新試算。` : `${job.runName}已加入薪資試算，完成後會通知你。`, job.status === "failed" ? "danger" : "info"); } else if (run) toast.show("薪資試算完成，可以開始覆核。", "success"); setRecordFilters((current) => ({ ...current, periodKey: job?.periodKey ?? run?.periodKey ?? current.periodKey, page: 1 })); setSelectedKeys([]); setPollPayrollJobs(true); void payrollJobs.refetch(); }}
+      onSuccess={({ job, run }) => { if (job) { observedPayrollJobStatuses.set(job.jobId, job.status); toast.show(job.status === "failed" ? `${job.runName}薪資試算啟動失敗，請重新試算。` : `${job.runName}已加入薪資試算，完成後會通知你。`, job.status === "failed" ? "danger" : "info"); } else if (run) toast.show("薪資試算完成，可以開始覆核。", "success"); setRecordFilters((current) => ({ ...current, periodKey: job?.periodKey ?? run?.periodKey ?? current.periodKey, page: 1 })); bulk.cancel(); setPollPayrollJobs(true); void payrollJobs.refetch(); }}
     /> : null}
     {deleteTargets.length ? <ConfirmDialog title={`刪除 ${deleteTargets.length} 筆薪資試算？`} confirmLabel="刪除試算" pending={deletePayrollRecord.isPending} onCancel={() => { if (!deletePayrollRecord.isPending) setDeleteTargets([]); }} onConfirm={() => { void deleteSelectedRecords().catch(() => { void records.refetch(); }); }}>
       <p>選取的薪資紀錄（包含未結算試算或已撤回紀錄）、明細與加扣項會一併刪除，之後可以重新加入試算；撤回稽核紀錄會保留。</p>

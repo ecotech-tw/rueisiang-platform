@@ -21,6 +21,7 @@ export { FilterInput, FilterSelect, SEARCH_INPUT_WIDTH, type FilterInputProps, t
 export { FilterToolbar } from "./FilterToolbar.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
 export { SelectionActionBar, type SelectionActionBarProps } from "./SelectionActionBar.js";
+export { TableBulkActionMenu, type TableBulkActionOption } from "./TableBulkActionControls.js";
 export { Pager, type PagerProps } from "./Pager.js";
 export { SortableHeader, type SortableHeaderProps } from "./SortableHeader.js";
 export { Page, PageSpacing, type PageLayout, type PageSpacingName } from "./Page.js";
@@ -46,6 +47,7 @@ export {
 } from "./overtime-entry.js";
 export { useImageFilePreview, type ImageFileError } from "./useImageFilePreview.js";
 export { useOvertimeBatchSelection } from "./useOvertimeBatchSelection.js";
+export { useTableBulkSelection, type TableBulkAction } from "./useTableBulkSelection.js";
 export { REVIEW_SNAPSHOT_NOTICE, reviewSnapshotState, type ReviewSnapshotState } from "./review-snapshot.js";
 export { DialogContext, type DialogCloseRef, type DialogCloseRequest, type DialogContextValue } from "./dialog-context.js";
 export { Icon, type IconName } from "./icons.js";
