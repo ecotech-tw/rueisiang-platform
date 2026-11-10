@@ -61,7 +61,7 @@ export const shopeeSalesInternal = new Hono<AppEnv>()
     } catch {
       return c.text("Invalid preview", 400);
     }
-    if (!Array.isArray(preview.rows) || preview.rows.length > 100 || !Array.isArray(preview.reportMonths)) {
+    if (!Array.isArray(preview.rows) || preview.rows.length > 100 || !Array.isArray(preview.reportMonths) || !Array.isArray(preview.dailyPayoutRows)) {
       return c.text("Invalid preview", 400);
     }
     await c.env.UPLOADS.put(key, JSON.stringify({ preview }), {

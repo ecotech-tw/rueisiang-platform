@@ -115,6 +115,7 @@ export function previewFromSummary(summary) {
   const rows = monthlySalesIngestRows(summary.dailySalesRows);
   return {
     reportMonths: [...new Set(rows.map((row) => row.reportMonth))],
+    dailyPayoutRows: summary.dailyPayoutRows,
     sourceRowCount: summary.sourceRows,
     rowCount: rows.length,
     rows: rows.slice(0, 100),

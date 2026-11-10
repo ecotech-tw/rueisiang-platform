@@ -10,6 +10,7 @@ export interface ShopeePreviewRow {
 
 export interface ShopeePreview {
   reportMonths: string[];
+  dailyPayoutRows: { businessDate: string; payoutAmount: number }[];
   sourceRowCount: number;
   rowCount: number;
   rows: ShopeePreviewRow[];

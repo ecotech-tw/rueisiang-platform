@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useToast } from "../../../shell/Toast.js";
-import { Alert, Button, DataTable, Field, Input, Panel, SegmentedControl, SelectField } from "../../../ui/index.js";
+import { Alert, Button, DataTable, Field, Input, Panel, ReportSummary, SegmentedControl, SelectField } from "../../../ui/index.js";
 import { useImportMoPlusReport, useMoPlusReportScopes, type MoPlusImportResult } from "../api.js";
 import { momoReportParser, type ParsedSalesReport } from "./report-adapter.js";
 
@@ -14,10 +14,10 @@ function formatAmount(value: number): string {
 function PayoutTotalsTable({ report }: { report: ParsedSalesReport }) {
   return (
     <div className="flex flex-col gap-3">
-      <div>
-        <p className="muted">本次來源檔每日出金（依入帳日）</p>
-        <p className="mt-1 text-[24px] font-semibold tabular-nums">{formatAmount(report.payoutTotal)}</p>
-      </div>
+      <ReportSummary items={[
+        { label: "每日出金合計", value: formatAmount(report.payoutTotal) },
+        { label: "入帳日數", value: `${report.payoutRows.length.toLocaleString("zh-TW")} 日` },
+      ]} />
       {report.payoutRows.length ? (
         <DataTable aria-label="Mo+ 每日出金明細">
           <thead><tr><th>入帳日</th><th className="numeric">實際入帳金額</th></tr></thead>
@@ -40,37 +40,14 @@ function PayoutTotalsTable({ report }: { report: ParsedSalesReport }) {
   );
 }
 
-function SalesTotalsTable({ report }: { report: ParsedSalesReport }) {
+function SalesSummary({ report }: { report: ParsedSalesReport }) {
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="muted">來源檔商品銷售額（含未對應 SKU）</p>
-          <p className="mt-1 text-[24px] font-semibold tabular-nums">{formatAmount(report.salesTotals.salesAmount)}</p>
-        </div>
-        <p className="form-hint">以已送達與退貨商品計算；退貨金額為負數，不含運費及其他訂單狀態。</p>
-      </div>
-      <DataTable aria-label="Mo+ 每月商品銷售合計" className="[&_tbody_tr:last-child>td]:border-t-2 [&_tbody_tr:last-child>td]:border-line [&_tbody_tr:last-child]:font-semibold">
-        <thead><tr><th>月份</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">淨銷量</th><th className="numeric">商品銷售額</th></tr></thead>
-        <tbody>
-          {report.monthlyTotals.map((month) => (
-            <tr key={month.reportMonth}>
-              <td data-label="月份">{month.reportMonth}</td>
-              <td data-label="銷售數量" className="numeric">{month.grossQuantity.toLocaleString("zh-TW")}</td>
-              <td data-label="退貨數量" className="numeric">{month.returnQuantity.toLocaleString("zh-TW")}</td>
-              <td data-label="淨銷量" className="numeric">{month.netQuantity.toLocaleString("zh-TW")}</td>
-              <td data-label="商品銷售額" className="numeric">{formatAmount(month.salesAmount)}</td>
-            </tr>
-          ))}
-          <tr>
-            <td data-label="月份">合計</td>
-            <td data-label="銷售數量" className="numeric">{report.salesTotals.grossQuantity.toLocaleString("zh-TW")}</td>
-            <td data-label="退貨數量" className="numeric">{report.salesTotals.returnQuantity.toLocaleString("zh-TW")}</td>
-            <td data-label="淨銷量" className="numeric">{report.salesTotals.netQuantity.toLocaleString("zh-TW")}</td>
-            <td data-label="商品銷售額" className="numeric">{formatAmount(report.salesTotals.salesAmount)}</td>
-          </tr>
-        </tbody>
-      </DataTable>
+    <div className="flex flex-col gap-2">
+      <ReportSummary items={[
+        { label: "來源檔商品銷售額（含未對應 SKU）", value: formatAmount(report.salesTotals.salesAmount) },
+        { label: "商品／月份組合", value: `${report.rows.length.toLocaleString("zh-TW")} 組` },
+      ]} />
+      <p className="form-hint">以已送達與退貨商品計算；退貨金額為負數，不含運費及其他訂單狀態。</p>
     </div>
   );
 }
@@ -99,7 +76,7 @@ function SalesSkuTable({ report }: { report: ParsedSalesReport }) {
                     <td data-label="商品名稱">{row.productName}</td>
                     <td data-label="銷售數量" className="numeric">{row.grossQuantity.toLocaleString("zh-TW")}</td>
                     <td data-label="退貨數量" className="numeric">{row.returnQuantity.toLocaleString("zh-TW")}</td>
-                    <td data-label="銷售金額" className="numeric">{row.salesAmount.toLocaleString("zh-TW")}</td>
+                    <td data-label="銷售金額" className="numeric">{formatAmount(row.salesAmount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -138,7 +115,7 @@ function ReportBreakdown({ report, activeTab, onTabChange }: {
         </section>
       ) : (
         <section aria-label="商品銷售資料" className="min-w-0 flex flex-col gap-4">
-          <SalesTotalsTable report={report} />
+          <SalesSummary report={report} />
           <SalesSkuTable report={report} />
         </section>
       )}

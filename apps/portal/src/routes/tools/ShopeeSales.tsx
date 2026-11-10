@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Field, Input, Page, PageHeader, Panel, SelectField, TextField, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, Field, Input, Page, PageHeader, Panel, ReportSummary, SegmentedControl, SelectField, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import {
   useConfirmShopeeSales,
   useDiscardShopeePreview,
@@ -9,6 +9,7 @@ import {
   useShopeePreview,
   useShopeeSalesState,
   useShopeeSalesStatus,
+  type ShopeePreview,
 } from "./api.js";
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
@@ -21,6 +22,88 @@ interface ShopeeTracking {
 
 function number(value: number): string {
   return value.toLocaleString("zh-TW");
+}
+
+function amount(value: number): string {
+  return `NT$${number(value)}`;
+}
+
+function ShopeePayoutPreview({ preview }: { preview: ShopeePreview }) {
+  const rows = [...(preview.dailyPayoutRows ?? [])].sort((left, right) => left.businessDate.localeCompare(right.businessDate));
+  const total = rows.reduce((sum, row) => sum + row.payoutAmount, 0);
+  return (
+    <div className="flex flex-col gap-3">
+      {preview.dailyPayoutRows ? (
+        <>
+          <ReportSummary items={[
+            { label: "每日出金合計", value: amount(total) },
+            { label: "不重複訂單", value: `${number(preview.uniqueOrders)} 筆` },
+            { label: "出金日期", value: `${number(rows.length)} 日` },
+          ]} />
+          {preview.totalPerformance !== total ? (
+            <Alert tone="warning">業績合計 {amount(preview.totalPerformance)} 與可依日期列出的每日出金 {amount(total)} 不同，請核對來源報表的日期欄位。</Alert>
+          ) : null}
+          {rows.length ? (
+            <DataTable aria-label="蝦皮每日出金明細">
+              <thead><tr><th>出金日期</th><th className="numeric">出金金額</th></tr></thead>
+              <tbody>
+                {rows.map((row) => (
+                  <tr key={row.businessDate}>
+                    <td data-label="出金日期">{row.businessDate}</td>
+                    <td data-label="出金金額" className="numeric">{amount(row.payoutAmount)}</td>
+                  </tr>
+                ))}
+                <tr className="font-semibold">
+                  <td data-label="出金日期">合計</td>
+                  <td data-label="出金金額" className="numeric">{amount(total)}</td>
+                </tr>
+              </tbody>
+            </DataTable>
+          ) : <p className="muted">本次報表沒有每日出金資料。</p>}
+        </>
+      ) : <Alert tone="warning">這份預覽尚未包含每日出金明細，請重新解析報表。</Alert>}
+    </div>
+  );
+}
+
+function ShopeeSalesPreview({ preview }: { preview: ShopeePreview }) {
+  return (
+    <div className="flex flex-col gap-4">
+      <ReportSummary items={[
+        { label: "商品／選項組合", value: number(preview.uniqueProducts) },
+        { label: "商品銷售數量", value: number(preview.totalQuantity) },
+        { label: "商品銷售金額", value: amount(preview.totalSalesAmount) },
+      ]} />
+      <details className="group rounded-[12px] border border-soft-line bg-canvas/74">
+        <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-[11px] px-4 py-3 font-semibold text-ink [transition-property:background-color] duration-120 ease-out hover:bg-brand/4 group-open:rounded-b-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&::-webkit-details-marker]:hidden">
+          <span>商品明細</span>
+          <span className="flex items-center gap-3 text-[13px] text-muted">
+            <span>{number(preview.rowCount)} 個商品／月份組合</span>
+            <span className="group-open:hidden">展開</span>
+            <span className="hidden group-open:inline">收合</span>
+          </span>
+        </summary>
+        <div className="overflow-hidden rounded-b-[11px] border-t border-soft-line">
+          <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
+            <thead><tr><th>月份</th><th>商品 SKU</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
+            <tbody>
+              {preview.rows.map((row) => (
+                <tr key={`${row.reportMonth}:${row.sku}`}>
+                  <td data-label="月份">{row.reportMonth}</td>
+                  <td data-label="SKU"><code>{row.sku}</code></td>
+                  <td data-label="商品名稱">{row.productName}</td>
+                  <td data-label="銷售數量" className="numeric">{number(row.grossQuantity)}</td>
+                  <td data-label="退貨數量" className="numeric">{number(row.returnQuantity)}</td>
+                  <td data-label="銷售金額" className="numeric">{amount(row.salesAmount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </DataTable>
+          {preview.rowCount > preview.rows.length ? <p className="muted p-3">表格先顯示前 {number(preview.rows.length)} 列，確認匯入時會處理全部 {number(preview.rowCount)} 列。</p> : null}
+        </div>
+      </details>
+    </div>
+  );
 }
 
 function savedTracking(): ShopeeTracking | null {
@@ -49,6 +132,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
   const [file, setFile] = useState<File | null>(null);
   const [scopeId, setScopeId] = useState("");
   const [password, setPassword] = useState("");
+  const [activeTab, setActiveTab] = useState<"payout" | "sales">("payout");
   const [tracking, setTracking] = useState<ShopeeTracking | null>(savedTracking);
   useEffect(() => {
     try {
@@ -93,6 +177,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
     setTracking(null);
     setFile(null);
     setPassword("");
+    setActiveTab("payout");
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -121,7 +206,10 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
       void discardPreview.mutateAsync({ requestId: tracking.requestId, token: tracking.previewToken }).catch(() => undefined);
     }
     previewRun.mutate({ file, password, scopeId: selectedScopeId }, {
-      onSuccess: (result) => setTracking({ ...result, mode: "preview" }),
+      onSuccess: (result) => {
+        setTracking({ ...result, mode: "preview" });
+        setActiveTab("payout");
+      },
     });
   }
 
@@ -198,9 +286,6 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
                 <p className="muted mt-1">
                   期間：{preview.reportMonths.join("、") || "無"}；{number(preview.sourceRowCount)} 列來源資料整理為 {number(preview.rowCount)} 個商品／月份組合。
                 </p>
-                <p className="muted mt-1">
-                  不重複訂單 {number(preview.uniqueOrders)} 筆；業績 {number(preview.totalPerformance)}；商品數量 {number(preview.totalQuantity)}；商品銷售金額 {number(preview.totalSalesAmount)}。
-                </p>
               </div>
               <div className="flex items-center gap-3">
                 <span className="form-hint">確認匯入後才會更新資料庫</span>
@@ -208,34 +293,19 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
               </div>
             </div>
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
-            <details className="group rounded-[12px] border border-soft-line bg-canvas/74">
-              <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 rounded-[11px] px-4 py-3 font-semibold text-ink [transition-property:background-color] duration-120 ease-out hover:bg-brand/4 group-open:rounded-b-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&::-webkit-details-marker]:hidden">
-                <span>商品明細</span>
-                <span className="flex items-center gap-3 text-[13px] text-muted">
-                  <span>{number(preview.rowCount)} 個商品／月份組合</span>
-                  <span className="group-open:hidden">展開</span>
-                  <span className="hidden group-open:inline">收合</span>
-                </span>
-              </summary>
-              <div className="overflow-hidden rounded-b-[11px] border-t border-soft-line">
-                <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
-                  <thead><tr><th>月份</th><th>商品 SKU</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
-                  <tbody>
-                    {preview.rows.map((row) => (
-                      <tr key={`${row.reportMonth}:${row.sku}`}>
-                        <td data-label="月份">{row.reportMonth}</td>
-                        <td data-label="SKU"><code>{row.sku}</code></td>
-                        <td data-label="商品名稱">{row.productName}</td>
-                        <td data-label="銷售數量" className="numeric">{number(row.grossQuantity)}</td>
-                        <td data-label="退貨數量" className="numeric">{number(row.returnQuantity)}</td>
-                        <td data-label="銷售金額" className="numeric">{number(row.salesAmount)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </DataTable>
-                {preview.rowCount > preview.rows.length ? <p className="muted p-3">表格先顯示前 {number(preview.rows.length)} 列，確認匯入時會處理全部 {number(preview.rowCount)} 列。</p> : null}
-              </div>
-            </details>
+            <SegmentedControl
+              aria-label="蝦皮預覽資料類型"
+              skin="outlined"
+              size="lg"
+              className="max-w-[460px]"
+              value={activeTab}
+              onChange={(value) => setActiveTab(value as "payout" | "sales")}
+              options={[
+                { value: "payout", label: "每日出金", icon: "payments", badge: `${number(preview.dailyPayoutRows?.length ?? 0)} 日` },
+                { value: "sales", label: "商品銷售", icon: "report", badge: `${number(preview.rowCount)} 組` },
+              ]}
+            />
+            {activeTab === "payout" ? <ShopeePayoutPreview preview={preview} /> : <ShopeeSalesPreview preview={preview} />}
           </div>
         ) : null}
         {previewFailed ? <Button className="mt-3" type="button" variant="secondary" disabled={busy} onClick={forgetPreview}>重新選擇報表</Button> : null}
