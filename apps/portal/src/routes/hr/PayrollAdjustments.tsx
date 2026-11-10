@@ -180,8 +180,8 @@ export function HrPayrollAdjustments() {
         <FilterInput label="生效薪資月份" type="month" value={effectivePeriodKey} onChange={(event) => setEffectivePeriodKey(event.target.value)} />
       </FilterToolbar>
       {adjustments.error ? <Alert tone="danger">薪資加扣項載入失敗：{adjustments.error.message}</Alert> : null}
-      <div className="relative flex min-h-0 min-w-0 flex-auto overflow-hidden [&>[data-table-scroll]]:min-h-0 [&>[data-table-scroll]]:flex-auto [&>[data-table-scroll]]:overflow-auto">
-        <DataTable className="min-w-[900px] max-[760px]:min-w-0 [&_td[data-label=原因]]:max-w-[280px] [&_td[data-label=原因]]:whitespace-normal max-[760px]:[&_td[data-label=原因]]:max-w-none">
+      <div className="relative flex min-h-0 min-w-0 flex-auto overflow-hidden">
+        <DataTable containerClassName="min-h-0 flex-auto overflow-auto" className="min-w-[900px] max-[760px]:min-w-0 [&_td[data-label=原因]]:max-w-[280px] [&_td[data-label=原因]]:whitespace-normal max-[760px]:[&_td[data-label=原因]]:max-w-none">
             <thead><tr><th>生效月份</th><th>人員</th><th>加扣項目</th><th className="numeric">加扣金額</th><th>原因</th><th>操作</th></tr></thead>
             <tbody>{(adjustments.data?.adjustments ?? []).map((adjustment) => <tr key={adjustment.id}>
               <td data-label="生效月份"><strong>{periodLabel(adjustment.effectivePeriodKey)}</strong></td>
