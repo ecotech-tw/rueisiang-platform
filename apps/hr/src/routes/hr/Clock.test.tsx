@@ -40,7 +40,7 @@ async function renderPage(calendarView = false, worker = false) {
   await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter>{calendarView ? <HrClockCalendar /> : <HrClockLogs />}</MemoryRouter></QueryClientProvider>));
   return {
     container,
-    summary: () => [...container.querySelectorAll(".hr-clock-history-summary strong")].map((node) => node.textContent),
+    summary: () => ["實際工時", "有打卡日", "待確認"].map((label) => [...container.querySelectorAll("span")].find((node) => node.textContent === label)?.nextElementSibling?.textContent),
     nextMonth: async () => { await act(async () => (container.querySelector('[aria-label="下個月"]') as HTMLButtonElement).click()); },
     finishLoading: async () => { await act(async () => { releaseNovember(); await new Promise((resolve) => setTimeout(resolve, 10)); }); },
     cleanup: async () => { await act(async () => root.unmount()); client.clear(); container.remove(); },
@@ -61,7 +61,7 @@ describe("HR 前台打卡紀錄", () => {
     try {
       expect(page.summary()).toEqual(["0 小時", "0 天", "2 天"]);
       await page.nextMonth();
-      expect(page.container.querySelector(".hr-clock-history-toolbar strong")?.textContent).toBe("2026年11月");
+      expect(page.container.querySelector('[aria-label="下個月"]')?.previousElementSibling?.textContent).toBe("2026年11月");
       expect(page.summary()).toEqual(["—", "—", "—"]);
       expect(page.container.textContent).toContain("載入月度紀錄…");
       await page.finishLoading();
@@ -73,9 +73,9 @@ describe("HR 前台打卡紀錄", () => {
   it("缺卡日的異常說明只出現一次；後端沒給說明時仍說明這天沒有打卡", async () => {
     const page = await renderPage();
     try {
-      const [withMessage, withoutMessage] = [...page.container.querySelectorAll(".hr-clock-history-day")];
+      const [withMessage, withoutMessage] = [...page.container.querySelectorAll("article")];
       expect(withMessage!.textContent!.split("這天是預期出勤日，請確認是否忘記打卡。")).toHaveLength(2);
-      expect(withoutMessage!.querySelector(".hr-clock-history-anomaly")?.textContent).toBe("這天尚未有打卡紀錄。");
+      expect(withoutMessage!.lastElementChild?.textContent).toBe("這天尚未有打卡紀錄。");
     } finally { await page.cleanup(); }
   });
 });
