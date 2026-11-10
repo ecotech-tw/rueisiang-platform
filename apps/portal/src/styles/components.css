@@ -1320,54 +1320,7 @@
 .hr-payroll-record-person strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hr-payroll-record-table .cell-sub { display: block; margin-top: 2px; }
 .hr-payroll-records-panel [data-table-scroll].is-refreshing { opacity: .62; transition: opacity 160ms ease-out; }
-.hr-payroll-detail-page details[open] > summary .hr-payroll-disclosure-marker svg { transform: rotate(180deg); }
-.hr-payroll-overview { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.hr-payroll-overview > div { display: grid; gap: 4px; min-width: 0; padding: 11px 13px; border-radius: 12px; background: --alpha(var(--color-paper) / 52%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 64%) inset, 0 0 0 1px --alpha(var(--color-ink) / 5%) inset; }
-.hr-payroll-overview span { color: var(--color-muted); font-size: 11px; font-weight: 700; }
-.hr-payroll-overview strong { overflow: hidden; color: var(--color-ink); font-size: 16px; text-overflow: ellipsis; white-space: nowrap; }
-.hr-payroll-overview-net { background: var(--color-brand-soft) !important; }
-.hr-payroll-overview-net strong { color: var(--color-brand-dark); }
-/* 原生 details 保留鍵盤與讀屏語意；內容層用 grid 0fr → 1fr，開合與收合都能順著實際高度過渡。 */
-.hr-payroll-disclosure-marker {
-  display: grid;
-  flex: none;
-  width: 32px;
-  height: 32px;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--color-muted);
-  transition-property: background-color, color;
-  transition-duration: 150ms;
-  transition-timing-function: ease-out;
-}
-.hr-payroll-disclosure-marker svg {
-  width: 20px;
-  height: 20px;
-  transition-property: transform;
-  transition-duration: 220ms;
-  transition-timing-function: ease-out;
-}
 .hr-payroll-warning-list { margin: 7px 0 0; padding-left: 20px; }
-.hr-payroll-worker-result { display: grid; gap: 8px; padding: 13px 14px; border: 1px solid var(--color-line); border-radius: 12px; background: --alpha(var(--color-paper) / 42%); }
-.hr-payroll-worker-result-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.hr-payroll-worker-result-head > div { display: grid; gap: 2px; }
-.hr-payroll-worker-result-head small { color: var(--color-muted); font-size: 12px; }
-.hr-payroll-worker-result-head > strong { color: var(--color-brand-dark); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.hr-payroll-worker-result p { margin: 0; color: var(--color-muted); font-size: 12px; line-height: 1.6; }
-.hr-payroll-worker-work-summary { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--color-soft-line); }
-.hr-payroll-worker-work-summary-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.hr-payroll-worker-work-summary-head strong { font-size: 13px; }
-.hr-payroll-worker-work-summary-count { color: var(--color-brand-dark); font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 700; }
-.hr-payroll-worker-work-summary-details { display: grid; gap: 6px; }
-.hr-payroll-worker-work-summary-trigger { cursor: pointer; list-style: none; }
-.hr-payroll-worker-work-summary-trigger::-webkit-details-marker { display: none; }
-.hr-payroll-worker-work-summary-trigger:hover { background: --alpha(var(--color-brand) / 4%); }
-.hr-payroll-worker-work-summary-trigger:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: -2px; }
-.hr-payroll-worker-work-summary ul { display: grid; gap: 5px; margin: 0; padding: 0; list-style: none; }
-.hr-payroll-worker-work-summary li { display: flex; justify-content: space-between; gap: 12px; color: var(--color-muted); font-size: 12px; }
-.hr-payroll-worker-work-summary li span { flex: none; overflow-wrap: anywhere; }
-.hr-payroll-worker-work-summary li strong { flex: 1 1 auto; min-width: 0; color: var(--color-ink); font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
-.hr-payroll-worker-work-summary p { margin: 0; color: var(--color-muted); font-size: 11px; line-height: 1.6; }
 .hr-payroll-employee-picker-section { display: grid; gap: 10px; }
 .hr-payroll-picker-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .hr-payroll-picker-heading > div { display: grid; gap: 2px; min-width: 0; }
@@ -1435,14 +1388,11 @@
   .hr-payroll-mobile-select-all { flex: none; }
   .hr-payroll-record-table { min-width: 0; }
   .hr-payroll-mobile-select-all { display: flex; padding: 8px 14px; border-bottom: 1px solid var(--color-soft-line); }
-  .hr-payroll-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .hr-overview-card,
-  .hr-overview-action span,
-  .hr-payroll-disclosure-marker,
-  .hr-payroll-disclosure-marker svg { transition-property: none; }
+  .hr-overview-action span { transition-property: none; }
   .hr-overview-card:hover { transform: none; }
   .hr-overview-card:hover .hr-overview-action span { transform: none; }
 }
