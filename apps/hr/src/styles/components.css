@@ -1,6 +1,5 @@
 
 .hr-module { display: grid; gap: 20px; }
-.hr-module-self > [data-page]:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation: hr-page-swipe-in .24s cubic-bezier(.05, .7, .1, 1); }
 @keyframes hr-page-swipe-in {
   from { opacity: 0; transform: translateX(24px); }
   to { opacity: 1; transform: none; }
@@ -8,11 +7,6 @@
 @keyframes hr-page-swipe-in-back {
   from { opacity: 0; transform: translateX(-24px); }
   to { opacity: 1; transform: none; }
-}
-.hr-module-self[data-page-direction="back"] > [data-page]:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation-name: hr-page-swipe-in-back; }
-@media (prefers-reduced-motion: reduce) {
-  .hr-module-self > [data-page]:not(.hr-clock-full-page):not(.hr-clock-subpage),
-  .hr-module-self[data-page-direction="back"] > [data-page]:not(.hr-clock-full-page):not(.hr-clock-subpage) { animation: none; }
 }
 .hr-module-header {
   display: flex;
@@ -37,20 +31,11 @@
 .hr-personal-bottom-link.active { color: var(--color-brand-dark); }
 .hr-personal-nav-icon { position: relative; }
 .hr-personal-nav-badge { position: absolute; top: -6px; right: -10px; min-width: 16px; padding: 1px 4px; border-radius: 999px; background: var(--color-brand); color: var(--color-paper); font-size: 9px; font-weight: 800; line-height: 14px; text-align: center; }
-.hr-clock-page { width: 100%; max-width: 760px; margin-right: auto; margin-left: auto; }
-.hr-clock-map-stage { position: relative; overflow: hidden; border-radius: 24px; background: var(--color-canvas); }
-.hr-clock-map-stage::after { position: absolute; inset: 0; z-index: 0; background: linear-gradient(180deg, --alpha(var(--color-paper) / 8%), --alpha(var(--color-paper) / 34%)); content: ""; pointer-events: none; }
-.hr-clock-map-background,
-.hr-clock-interactive-map { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; }
-.hr-clock-map-background { object-fit: cover; opacity: .82; filter: saturate(.72); pointer-events: none; transform-origin: center; }
-.hr-clock-static-map { position: absolute; inset: 0; z-index: 0; overflow: hidden; cursor: grab; touch-action: none; }
-.hr-clock-static-map:active { cursor: grabbing; }
+/* maplibre 自己產生的 DOM，元件拿不到這些節點，只能從容器往下選。 */
 .hr-clock-interactive-map .maplibregl-marker { z-index: 1; }
 .hr-clock-interactive-map .maplibregl-ctrl-bottom-left,
 .hr-clock-interactive-map .maplibregl-ctrl-bottom-right { display: none; }
 .hr-clock-interactive-map .maplibregl-ctrl-attrib { background: --alpha(var(--color-paper) / 72%); color: var(--color-muted); font-size: 10px; }
-.hr-clock-subpage { position: fixed; inset: 0; z-index: 10; display: grid; grid-template-rows: auto auto minmax(0, 1fr); gap: 12px; width: auto; max-width: none; padding: 22px clamp(18px, 4vw, 48px) 96px; overflow: hidden; background: linear-gradient(180deg, var(--color-canvas), var(--color-paper)); animation: hr-subpage-up .24s cubic-bezier(.05, .7, .1, 1); }
-.hr-clock-subpage.closing { animation: hr-subpage-down .22s cubic-bezier(.3, 0, .8, .15) forwards; }
 @keyframes hr-subpage-up {
   from { opacity: 0; transform: translateY(42px); }
   to { opacity: 1; transform: none; }
@@ -59,60 +44,10 @@
   from { opacity: 1; transform: none; }
   to { opacity: 0; transform: translateY(42px); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .hr-clock-subpage,
-  .hr-clock-subpage.closing { animation: none; }
-}
 @keyframes hr-calendar-slide-next { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
 @keyframes hr-calendar-slide-prev { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
-.hr-clock-back-link { display: inline-flex; align-items: center; gap: 5px; width: max-content; padding: 0; border: 0; background: transparent; color: var(--color-brand-dark); font: inherit; font-size: 13px; font-weight: 700; text-decoration: none; }
-.hr-clock-back-link svg { width: 24px; height: 24px; flex: none; }
-.hr-clock-deep-links { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.hr-clock-deep-links a { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 14px; border: 1px solid var(--color-line); border-radius: 16px; background: var(--color-paper); color: var(--color-ink); text-decoration: none; transition: border-color .15s ease, transform .15s ease; }
-.hr-clock-deep-links a:hover { border-color: var(--color-brand); transform: translateY(-1px); }
-.hr-clock-deep-links a > span:nth-child(2) { display: grid; gap: 3px; min-width: 0; }
-.hr-clock-deep-links strong { font-size: 14px; }
-.hr-clock-deep-links small { overflow: hidden; color: var(--color-muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
-.hr-clock-deep-links a > svg { width: 17px; color: var(--color-muted); }
 
  
-.hr-module:has(.hr-clock-full-page) { position: relative; display: block; min-height: 100%; }
-.hr-clock-full-page { position: fixed; inset: 0; z-index: 0; width: auto; max-width: none; margin: 0; overflow: hidden; }
-.hr-clock-full-page .hr-clock-map-stage { position: absolute; inset: 0; min-height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; padding: 72px 8px 86px; border-radius: 0; }
-.hr-clock-full-page .hr-clock-map-stage::after { background: linear-gradient(180deg, --alpha(var(--color-brand) / 16%), --alpha(var(--color-brand) / 26%) 46%, --alpha(var(--color-paper) / 92%) 72%); }
-.hr-clock-personal-nav { position: fixed; top: 24px; right: 36px; z-index: 5; padding: 4px; border: 1px solid --alpha(var(--color-ink) / 10%); border-radius: 999px; background: --alpha(var(--color-paper) / 84%); box-shadow: 0 8px 24px --alpha(var(--color-ink) / 10%); backdrop-filter: blur(14px); }
-.hr-clock-personal-nav a { padding: 8px 13px; }
-.hr-clock-hero { position: relative; z-index: 3; align-self: center; display: grid; justify-items: center; gap: 8px; color: var(--color-paper); text-align: center; text-shadow: 0 2px 3px --alpha(var(--color-ink) / 48%), 0 7px 18px --alpha(var(--color-ink) / 38%); }
-.hr-clock-hero-person { width: 74px; height: 74px; filter: drop-shadow(0 6px 18px --alpha(var(--color-ink) / 20%)); }
-.hr-clock-full-page .hr-clock-now { margin: 8px 0 0; color: var(--color-paper); font-size: clamp(40px, 7vw, 64px); font-weight: 800; line-height: 1; letter-spacing: .02em; }
-.hr-clock-date { margin: 0; color: var(--color-paper); font-size: 18px; font-weight: 800; text-shadow: 0 2px 3px --alpha(var(--color-ink) / 50%), 0 6px 16px --alpha(var(--color-ink) / 40%); }
-.hr-clock-action-panel { position: relative; z-index: 3; display: grid; justify-self: stretch; gap: 12px; width: auto; margin: 0 8px; padding: 64px 18px 18px; border-radius: 34px 34px 24px 24px; background: var(--color-paper); box-shadow: 0 -10px 42px --alpha(var(--color-ink) / 16%); }
-.hr-clock-action-panel::before { position: absolute; top: 10px; left: calc(50% - 24px); width: 48px; height: 4px; border-radius: 999px; background: var(--color-line); content: ""; }
-.hr-clock-full-page .hr-clock-main-action { position: absolute; top: -42px; left: calc(50% - 44px); display: grid; width: 88px; height: 88px; min-height: 0; place-items: center; padding: 0; border: 7px solid var(--color-paper); border-radius: 999px; background: var(--color-brand); box-shadow: 0 12px 28px --alpha(var(--color-brand) / 34%); color: var(--color-paper); }
-.hr-clock-full-page .hr-clock-main-action svg { width: 38px; height: 38px; }
-.hr-clock-full-page .hr-clock-main-action:hover:not(:disabled) { background: var(--color-brand-dark); }
-.hr-clock-full-page .hr-clock-main-action:disabled { background: var(--color-line); color: var(--color-muted); opacity: 1; }
-.hr-clock-action-loading { font-size: 30px; font-weight: 800; line-height: 1; }
-.hr-clock-office-card { display: grid; grid-template-columns: 54px minmax(0, 1fr); align-items: center; gap: 12px; padding: 14px 16px; border-radius: 20px; background: var(--color-canvas); }
-.hr-clock-office-pin { display: grid; width: 54px; height: 54px; place-items: center; border-radius: 999px; background: var(--color-brand-soft); color: var(--color-brand-dark); }
-.hr-clock-office-pin.verified { background: var(--color-ok-soft); color: var(--color-ok); }
-.hr-clock-office-pin.outside { background: var(--color-brand-soft); color: var(--color-brand); }
-.hr-clock-office-pin svg { width: 26px; height: 26px; }
-.hr-clock-office-card div { display: grid; gap: 2px; min-width: 0; }
-.hr-clock-office-card span { color: var(--color-muted); font-size: 12px; font-weight: 800; }
-.hr-clock-office-card strong { overflow: hidden; font-size: 20px; text-overflow: ellipsis; white-space: nowrap; }
-.hr-clock-office-card small { overflow: hidden; color: var(--color-muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.hr-clock-full-page .hr-clock-deep-links { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; width: 100%; }
-.hr-clock-full-page .hr-clock-deep-links a { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 8px 12px; border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-paper); color: var(--color-ink); font-size: 13px; font-weight: 800; }
-.hr-clock-full-page .hr-clock-deep-links a:hover { border-color: var(--color-secondary); background: --alpha(var(--color-brand) / 6%); color: var(--color-brand-dark); transform: none; }
-.hr-clock-full-page .hr-clock-deep-links a > svg { width: 19px; height: 19px; color: var(--color-brand-dark); }
-.hr-clock-full-page .hr-clock-deep-links a span,
-.hr-clock-full-page .hr-clock-deep-links a > span:nth-child(2) { display: inline; }
-.hr-clock-last-event { margin: -2px 0 0; color: var(--color-muted); font-size: 12px; text-align: center; font-variant-numeric: tabular-nums; }
-.hr-clock-full-page .hr-clock-feedback-corner { position: absolute; top: 88px; left: clamp(16px, 5vw, 72px); z-index: 4; display: grid; gap: 8px; max-width: min(400px, calc(100vw - 32px)); }
-.hr-clock-now { margin: 0; color: var(--color-muted); font-size: 32px; font-variant-numeric: tabular-nums; letter-spacing: .03em; }
-.hr-clock-main-action { width: 100%; min-height: 58px; font-size: 18px; }
-.hr-clock-blocked { margin: 0; color: var(--color-muted); font-size: 14px; }
 .hr-forms-page,
 .hr-form-page { width: 100%; max-width: 760px; margin-right: auto; margin-left: auto; }
 .hr-form-request-list { display: grid; gap: 12px; }
@@ -290,26 +225,6 @@
   .hr-personal-bottom-link.center .hr-personal-nav-icon svg { width: 29px; height: 29px; }
   .hr-personal-bottom-link.center.active .hr-personal-nav-icon { background: var(--color-brand-dark); }
   .hr-personal-bottom-link.center.active { color: var(--color-brand-dark); }
-  .hr-clock-map-stage { border-radius: 18px; }
-  .hr-clock-now { font-size: 28px; }
-  .hr-clock-deep-links { grid-template-columns: 1fr; }
-  .hr-clock-subpage { gap: 8px; padding: 14px 12px calc(var(--hr-safe-bottom) + 76px); }
-  .hr-clock-personal-nav { display: none; }
-  .hr-clock-full-page .hr-clock-map-stage { display: block; padding: 0; }
-  .hr-clock-hero { position: absolute; top: 24px; right: 14px; left: 14px; gap: 3px; }
-  .hr-clock-hero-person { width: 38px; height: 38px; }
-  .hr-clock-full-page .hr-clock-now { margin-top: 3px; font-size: clamp(34px, 11.5vw, 46px); }
-  .hr-clock-date { font-size: 14px; }
-  .hr-clock-action-panel { position: absolute; right: 16px; bottom: calc(var(--hr-safe-bottom) + 82px); left: 16px; width: auto; max-height: none; margin: 0; padding: 54px 16px 14px; overflow: visible; border-radius: 30px; }
-  .hr-clock-action-panel::-webkit-scrollbar { display: none; }
-  .hr-clock-full-page .hr-clock-main-action { top: -36px; left: calc(50% - 38px); width: 76px; height: 76px; border-width: 6px; }
-  .hr-clock-full-page .hr-clock-main-action svg { width: 32px; height: 32px; }
-  .hr-clock-office-card { grid-template-columns: 48px minmax(0, 1fr); padding: 12px 14px; }
-  .hr-clock-office-pin { width: 48px; height: 48px; }
-  .hr-clock-office-card strong { font-size: 18px; }
-  .hr-clock-full-page .hr-clock-deep-links { width: 100%; }
-  .hr-clock-full-page .hr-clock-deep-links a { min-height: 36px; font-size: 12px; }
-  .hr-clock-full-page .hr-clock-feedback-corner { top: 12px; left: 16px; max-width: calc(100vw - 32px); }
   .hr-form-field-row { grid-template-columns: 1fr; gap: 14px; }
   .hr-notifications-page,
   .hr-payroll-history-page { max-width: none; }
