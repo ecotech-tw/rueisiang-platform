@@ -30,7 +30,9 @@ describe("薪資加扣項操作欄", () => {
     const markup = renderToStaticMarkup(createElement(HrPayrollAdjustments));
     const cells = [...markup.matchAll(/<td data-label="操作">([\s\S]*?)<\/td>/g)].map((match) => match[1]!);
     expect(cells).toHaveLength(2);
-    for (const cell of cells) expect(cell).toContain('class="hr-payroll-adjustment-actions"');
+    const containers = cells.map((cell) => /^<div class="([^"]+)">/.exec(cell)?.[1]);
+    expect(containers[0]).toBe("flex flex-wrap items-center justify-start gap-2");
+    expect(containers[1]).toBe(containers[0]);
     expect(cells[0]).toContain("編輯");
     expect(cells[0]).toContain("刪除");
     expect(cells[0]).not.toContain('class="button-row"');

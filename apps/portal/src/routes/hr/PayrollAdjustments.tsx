@@ -114,15 +114,15 @@ function PayrollAdjustmentDialog({
     formProps={{ onSubmit: submit }}
     actions={<><Button variant="secondary" onClick={onClose} disabled={save.isPending}>取消</Button><Button type="submit" icon="check" tone={adjustment ? "info" : "success"} loading={save.isPending} disabled={employeesPending || !personnelOptions.length}>{adjustment ? "保存加扣項" : "建立加扣項"}</Button></>}
   >
-    <p className="form-hint hr-payroll-adjustment-dialog-note">這筆加扣項會在生效月份試算時自動帶入，可用於一次性獎金、補發或扣款。</p>
+    <p className="form-hint m-0">這筆加扣項會在生效月份試算時自動帶入，可用於一次性獎金、補發或扣款。</p>
     <div className="form-grid two">
       <SelectField label="人員" value={employmentId} required searchable options={[{ value: "", label: employeesPending ? "正在載入人員…" : "請選擇人員" }, ...personnelOptions.map((person) => ({ value: person.employmentId, label: payrollAdjustmentPersonnelLabel(person) }))]} onChange={(event) => setEmploymentId(event.target.value)} />
       <TextField label="生效薪資月份" type="month" value={effectivePeriodKey} required onChange={(event) => setEffectivePeriodKey(event.target.value)} />
     </div>
-    <div className="hr-payroll-adjustment-items">
-      <div className="hr-payroll-adjustment-items-head"><div><strong>薪資加扣項</strong><small>正數為補發／加給，負數為扣款。</small></div><Chip variant="action" tone="success" type="button" icon="plus" onClick={addItem}>新增項目</Chip></div>
-      <div className="hr-payroll-adjustment-item-list">
-        {items.map((item) => <div className="hr-payroll-adjustment-item-row" key={item.key}>
+    <div className="grid gap-2.5">
+      <div className="flex items-center justify-between gap-3"><div className="grid min-w-0 gap-0.5"><strong>薪資加扣項</strong><small className="text-[12px] text-muted">正數為補發／加給，負數為扣款。</small></div><Chip variant="action" tone="success" type="button" icon="plus" onClick={addItem}>新增項目</Chip></div>
+      <div className="grid gap-2.5">
+        {items.map((item) => <div className="grid grid-cols-[132px_minmax(0,1fr)_132px_40px] items-end gap-2.5 rounded-[12px] border border-soft-line bg-canvas p-2.5 max-[760px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]" key={item.key}>
           <SelectField label="類型" value={item.direction} options={[{ value: "earning", label: "補發／加給" }, { value: "deduction", label: "扣款" }]} onChange={(event) => updateItem(item.key, { direction: event.target.value as AdjustmentItemDraft["direction"] })} />
           <TextField className="max-[760px]:col-span-full" label="項目名稱" value={item.itemName} required placeholder="例如：一次性獎金" onChange={(event) => updateItem(item.key, { itemName: event.target.value })} />
           <TextField label="金額（元）" type="number" min="1" step="1" value={item.amount} required onChange={(event) => updateItem(item.key, { amount: event.target.value })} />
@@ -172,24 +172,24 @@ export function HrPayrollAdjustments() {
     });
   }
 
-  return <Page layout="fills" className="hr-payroll-page hr-payroll-adjustments-page">
+  return <Page layout="fills" className="hr-payroll-page">
     <PageHeader title="薪資加扣項" description="登記指定薪資月份的補發與扣款，於試算時自動帶入。" actions={canCalculate ? <Button icon="plus" tone="success" mobileIconOnly onClick={openCreate}>新增薪資加扣項</Button> : null} />
     {!canCalculate ? <Alert tone="info">目前只有薪資檢視權限；新增、編輯與刪除需要「執行薪資試算」權限。</Alert> : null}
-    <Panel grows className="hr-payroll-adjustments-panel">
+    <Panel grows className="gap-[14px]">
       <FilterToolbar>
         <FilterInput label="生效薪資月份" type="month" value={effectivePeriodKey} onChange={(event) => setEffectivePeriodKey(event.target.value)} />
       </FilterToolbar>
       {adjustments.error ? <Alert tone="danger">薪資加扣項載入失敗：{adjustments.error.message}</Alert> : null}
-      <div className="hr-payroll-adjustments-table-region">
-        <DataTable className="hr-payroll-adjustment-table">
+      <div className="relative flex min-h-0 min-w-0 flex-auto overflow-hidden [&>[data-table-scroll]]:min-h-0 [&>[data-table-scroll]]:flex-auto [&>[data-table-scroll]]:overflow-auto">
+        <DataTable className="min-w-[900px] max-[760px]:min-w-0 [&_td[data-label=原因]]:max-w-[280px] [&_td[data-label=原因]]:whitespace-normal max-[760px]:[&_td[data-label=原因]]:max-w-none">
             <thead><tr><th>生效月份</th><th>人員</th><th>加扣項目</th><th className="numeric">加扣金額</th><th>原因</th><th>操作</th></tr></thead>
             <tbody>{(adjustments.data?.adjustments ?? []).map((adjustment) => <tr key={adjustment.id}>
               <td data-label="生效月份"><strong>{periodLabel(adjustment.effectivePeriodKey)}</strong></td>
-              <td data-label="人員"><div className="hr-payroll-adjustment-person"><strong>{adjustment.employeeName}</strong><small className="cell-sub">{adjustment.employeeNumber ?? adjustment.employmentId}</small></div></td>
-              <td data-label="加扣項目"><div className="hr-payroll-adjustment-item-summary">{adjustment.items.map((item) => <span key={item.id}><strong>{item.itemName}</strong><small>{item.amountMinor < 0 ? "扣款" : "補發／加給"}</small></span>)}</div></td>
+              <td data-label="人員"><div className="flex items-baseline gap-2"><strong>{adjustment.employeeName}</strong><small className="cell-sub whitespace-nowrap">{adjustment.employeeNumber ?? adjustment.employmentId}</small></div></td>
+              <td data-label="加扣項目"><div className="grid min-w-[150px] gap-[3px]">{adjustment.items.map((item) => <span key={item.id} className="flex items-baseline gap-2"><strong>{item.itemName}</strong><small className="text-[12px] whitespace-nowrap text-muted">{item.amountMinor < 0 ? "扣款" : "補發／加給"}</small></span>)}</div></td>
               <td data-label="加扣金額" className="numeric"><strong>{signedMoney(totalMinor(adjustment))}</strong></td>
-              <td data-label="原因" className="hr-payroll-adjustment-reason">{adjustment.reason}</td>
-              <td data-label="操作"><div className="hr-payroll-adjustment-actions">{!canCalculate || !adjustment.canEdit ? <Tooltip label={canCalculate ? "已發放或月份結帳，不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"} className="muted"><span role="img" aria-label={canCalculate ? "不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"} className="inline-flex size-6 shrink-0 items-center"><Icon name="block" className="size-6 shrink-0" /></span></Tooltip> : <><Button variant="secondary" icon="edit" tone="info" onClick={() => openEdit(adjustment)}>編輯</Button><Button variant="danger" icon="trash" onClick={() => { remove.reset(); setDeleting(adjustment); }}>刪除</Button></>}</div></td>
+              <td data-label="原因">{adjustment.reason}</td>
+              <td data-label="操作"><div className="flex flex-wrap items-center justify-start gap-2">{!canCalculate || !adjustment.canEdit ? <Tooltip label={canCalculate ? "已發放或月份結帳，不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"} className="muted"><span role="img" aria-label={canCalculate ? "不能編輯或刪除" : "需要薪資試算權限才能編輯或刪除"} className="inline-flex size-6 shrink-0 items-center"><Icon name="block" className="size-6 shrink-0" /></span></Tooltip> : <><Button variant="secondary" icon="edit" tone="info" onClick={() => openEdit(adjustment)}>編輯</Button><Button variant="danger" icon="trash" onClick={() => { remove.reset(); setDeleting(adjustment); }}>刪除</Button></>}</div></td>
             </tr>)}</tbody>
         </DataTable>
       </div>

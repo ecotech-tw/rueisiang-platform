@@ -1423,34 +1423,6 @@
   .hr-payroll-record-table .hr-payroll-select-cell > .table-checkbox { display: block; margin-inline: auto; }
 }
 .hr-payroll-select-cell input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-payroll-adjustments-panel { display: grid; gap: 14px; }
-.hr-payroll-adjustments-table-region { position: relative; min-width: 0; }
-[data-page=fills] > [data-grows] > .hr-payroll-adjustments-table-region {
-  display: flex;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-}
-[data-page=fills] > [data-grows] > .hr-payroll-adjustments-table-region > [data-table-scroll] {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-}
-.hr-payroll-adjustment-table { min-width: 900px; }
-.hr-payroll-adjustment-person { display: flex; align-items: baseline; gap: 8px; }
-.hr-payroll-adjustment-person > small { white-space: nowrap; }
-.hr-payroll-adjustment-actions { display: flex; align-items: center; justify-content: flex-start; flex-wrap: wrap; gap: 8px; }
-.hr-payroll-adjustment-table td[data-label="原因"] { max-width: 280px; white-space: normal; }
-.hr-payroll-adjustment-item-summary { display: grid; gap: 3px; min-width: 150px; }
-.hr-payroll-adjustment-item-summary > span { display: flex; align-items: baseline; gap: 8px; }
-.hr-payroll-adjustment-item-summary small { color: var(--color-muted); font-size: 12px; white-space: nowrap; }
-.hr-payroll-adjustment-dialog-note { margin: 0; }
-.hr-payroll-adjustment-items { display: grid; gap: 10px; }
-.hr-payroll-adjustment-items-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.hr-payroll-adjustment-items-head > div { display: grid; gap: 2px; min-width: 0; }
-.hr-payroll-adjustment-items-head small { color: var(--color-muted); font-size: 12px; }
-.hr-payroll-adjustment-item-list { display: grid; gap: 10px; }
-.hr-payroll-adjustment-item-row { display: grid; grid-template-columns: 132px minmax(0, 1fr) 132px 40px; align-items: end; gap: 10px; padding: 10px; border: 1px solid var(--color-soft-line); border-radius: 12px; background: var(--color-canvas); }
 .hr-payroll-record-detail-panel { display: grid; gap: 16px; }
 .hr-payroll-record-items { display: grid; gap: 12px; }
 .hr-payroll-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--color-soft-line); }
@@ -1462,9 +1434,6 @@
   .hr-payroll-table-region { flex-direction: column; }
   .hr-payroll-mobile-select-all { flex: none; }
   .hr-payroll-record-table { min-width: 0; }
-  .hr-payroll-adjustment-table { min-width: 0; }
-  .hr-payroll-adjustment-table td[data-label="原因"] { max-width: none; }
-  .hr-payroll-adjustment-item-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .hr-payroll-mobile-select-all { display: flex; padding: 8px 14px; border-bottom: 1px solid var(--color-soft-line); }
   .hr-payroll-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
