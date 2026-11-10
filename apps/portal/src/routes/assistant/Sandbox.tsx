@@ -36,7 +36,6 @@ function formatToolArgs(args: Record<string, unknown>): string {
 
 /*
  * 訊息內的區塊。思考過程與工具調用是可展開的 details，失敗前的工具調用（在訊息外）也用同一組。
- * #287d55 是舊樣式寫死的成功色（theme 沒有 --color-success），先照留。
  */
 const MESSAGE = "max-w-[88%] self-start rounded-[11px] border px-[11px] py-[9px] max-[760px]:max-w-[96%]";
 const MESSAGE_USER = `${MESSAGE} justify-self-end bg-brand-soft [border-color:color-mix(in_srgb,var(--color-secondary)_35%,var(--color-line))]`;
@@ -55,7 +54,7 @@ function ToolCallList({ calls }: { calls: SandboxToolCall[] }) {
         <div className="rounded-[7px] bg-canvas px-2 py-[7px]" key={`${call.toolKey}-${index}`}>
           <div className="flex items-center justify-between gap-2 text-[12px]">
             <strong>{call.toolKey}</strong>
-            <small className={`text-[11px] ${call.status === "success" ? "text-[#287d55]" : "text-brand-dark"}`}>
+            <small className={`text-[11px] ${call.status === "success" ? "text-ok" : "text-brand-dark"}`}>
               {call.status === "success" ? "成功" : "失敗"} · {call.durationMs} ms
             </small>
           </div>
