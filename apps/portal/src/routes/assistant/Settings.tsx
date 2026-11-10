@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Icon } from "../../shell/icons.js";
 import { Alert, Button, Field, FieldHint, FilterSelect, Page, PageHeader, Panel, Textarea } from "../../ui/index.js";
 import { useSaveAssistantToolStatus, useSavePiCodexCredential, useSandboxConfig, type AssistantTool } from "./api.js";
+import { ToolList, ToolNote, ToolStatusRow } from "./ToolOption.js";
 
 function statusLabel(status: AssistantTool["status"]): string {
   if (status === "enabled") return "已啟用";
@@ -78,30 +78,31 @@ export function AssistantSettings() {
 
       <Panel title="Tools" description="已啟用才可在線上 channel 使用；開發中只能在 Sandbox 測試；已停用不會提供給模型。">
 
-        <div className="assistant-tool-list">
+        <ToolList>
           {data.tools.map((tool) => (
-            <div className="assistant-tool" key={tool.key}>
-              <Icon name="widgets" />
-                <span>
-                  <strong>{tool.label}</strong>
-                  <small>{tool.description}</small>
-                  <small>{tool.key}</small>
-                  <small>可用於：{tool.surfaces.join("、")}{tool.requiredPermissions.length ? ` · 需要：${tool.requiredPermissions.join("、")}` : ""}</small>
-                </span>
-              <FilterSelect
-                label={`${tool.label} 狀態`}
-                className="min-w-[104px]"
-                value={tool.status}
-                disabled={saveTool.isPending}
-                onChange={(event) => saveTool.mutate({ key: tool.key, status: event.target.value as AssistantTool["status"] })}
-                options={(["enabled", "development", "disabled"] as const).map((status) => ({
-                  value: status,
-                  label: statusLabel(status),
-                }))}
-              />
-            </div>
+            <ToolStatusRow
+              key={tool.key}
+              label={tool.label}
+              control={
+                <FilterSelect
+                  label={`${tool.label} 狀態`}
+                  className="min-w-[104px]"
+                  value={tool.status}
+                  disabled={saveTool.isPending}
+                  onChange={(event) => saveTool.mutate({ key: tool.key, status: event.target.value as AssistantTool["status"] })}
+                  options={(["enabled", "development", "disabled"] as const).map((status) => ({
+                    value: status,
+                    label: statusLabel(status),
+                  }))}
+                />
+              }
+            >
+              <ToolNote>{tool.description}</ToolNote>
+              <ToolNote>{tool.key}</ToolNote>
+              <ToolNote>可用於：{tool.surfaces.join("、")}{tool.requiredPermissions.length ? ` · 需要：${tool.requiredPermissions.join("、")}` : ""}</ToolNote>
+            </ToolStatusRow>
           ))}
-        </div>
+        </ToolList>
 
         {saveTool.error ? <Alert tone="danger">{saveTool.error.message}</Alert> : null}
         {saveTool.isSuccess ? <p className="form-hint">工具狀態已儲存，Sandbox 與後續 channel 會立即讀取新設定。</p> : null}
