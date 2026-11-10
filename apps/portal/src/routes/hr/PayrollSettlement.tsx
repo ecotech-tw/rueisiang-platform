@@ -367,7 +367,7 @@ export function HrPayrollSettlement() {
   const withdrawPayrollRecord = useHrWrite<{ withdrawn: true }>({ invalidate: false });
   const retryPayroll = useHrWrite<{ job: PayrollJob }>();
 
-  const visibleActionableKeys = useMemo(() => (records.data?.records ?? []).filter((record) => record.status !== "withdrawn" || !record.withdrawal).map(referenceKey), [records.data?.records]);
+  const visibleActionableKeys = useMemo(() => (records.data?.records ?? []).filter((record) => record.status !== "withdrawn" || Boolean(record.withdrawal)).map(referenceKey), [records.data?.records]);
   const selectedRecords = useMemo(() => (records.data?.records ?? []).filter((record) => selectedKeys.includes(referenceKey(record)) && record.status === "unsettled"), [records.data?.records, selectedKeys]);
   const selectedWithdrawableRecords = useMemo(() => (records.data?.records ?? []).filter((record) => selectedKeys.includes(referenceKey(record)) && record.status === "closed" && !record.withdrawal), [records.data?.records, selectedKeys]);
   const selectedDeletableRecords = useMemo(() => (records.data?.records ?? []).filter((record) => selectedKeys.includes(referenceKey(record)) && (record.status === "unsettled" || record.status === "withdrawn")), [records.data?.records, selectedKeys]);
@@ -378,7 +378,7 @@ export function HrPayrollSettlement() {
   const mobileSelectAllRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const validKeys = new Set((records.data?.records ?? []).filter((record) => record.status !== "withdrawn" || !record.withdrawal).map(referenceKey));
+    const validKeys = new Set((records.data?.records ?? []).filter((record) => record.status !== "withdrawn" || Boolean(record.withdrawal)).map(referenceKey));
     setSelectedKeys((current) => current.filter((key) => validKeys.has(key)));
   }, [records.data?.records]);
   useEffect(() => {
@@ -476,7 +476,7 @@ export function HrPayrollSettlement() {
         <DataTable className="hr-payroll-record-table [&_.hr-payroll-select-cell]:text-center" containerClassName={records.isPlaceholderData ? "is-refreshing" : ""}>
             <thead><tr><th className="hr-payroll-select-cell"><input ref={selectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={!canCalculate || !visibleActionableKeys.length || approvePayroll.isPending} onChange={(event) => toggleVisibleRecords(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁可操作紀錄" : "全選本頁可操作紀錄"} /></th><th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th>操作</th></tr></thead>
             <tbody>{(records.data?.records ?? []).map((record) => <tr key={referenceKey(record)} className={selectedKeys.includes(referenceKey(record)) ? "selected" : undefined}>
-              <td data-label="選取" className="hr-payroll-select-cell">{record.status !== "withdrawn" || !record.withdrawal ? <input className="table-checkbox" type="checkbox" checked={selectedKeys.includes(referenceKey(record))} disabled={!canCalculate || approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => toggleRecord(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td>
+              <td data-label="選取" className="hr-payroll-select-cell">{record.status !== "withdrawn" || Boolean(record.withdrawal) ? <input className="table-checkbox" type="checkbox" checked={selectedKeys.includes(referenceKey(record))} disabled={!canCalculate || approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => toggleRecord(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td>
               <td data-label="薪資月份"><strong>{payrollPeriodLabel(record.periodKey)}</strong><small className="cell-sub">{record.payDate ? `發薪日 ${record.payDate}` : "未設定發薪日"}</small></td>
               <td data-label="人員"><div className="hr-payroll-record-person"><strong>{record.personName}</strong><small className="cell-sub">{record.personNumber ? `${record.personNumber}・` : ""}{PAYROLL_PERSON_KIND_LABEL[record.personKind]}</small></div></td>
               <td data-label="計薪方式">{record.payBasis ? PAY_BASIS_LABEL[record.payBasis] ?? record.payBasis : "—"}</td>
