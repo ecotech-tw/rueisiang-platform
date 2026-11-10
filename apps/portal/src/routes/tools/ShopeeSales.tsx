@@ -84,7 +84,7 @@ function ShopeeSalesPreview({ preview }: { preview: ShopeePreview }) {
           </span>
         </summary>
         <div className="overflow-hidden rounded-b-[11px] border-t border-soft-line">
-          <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
+          <DataTable>
             <thead><tr><th>月份</th><th>商品 SKU</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
             <tbody>
               {preview.rows.map((row) => (
@@ -293,18 +293,20 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
               </div>
             </div>
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
-            <SegmentedControl
-              aria-label="蝦皮預覽資料類型"
-              skin="outlined"
-              size="lg"
-              className="max-w-[460px]"
-              value={activeTab}
-              onChange={(value) => setActiveTab(value as "payout" | "sales")}
-              options={[
-                { value: "payout", label: "每日出金", icon: "payments", badge: `${number(preview.dailyPayoutRows?.length ?? 0)} 日` },
-                { value: "sales", label: "商品銷售", icon: "report", badge: `${number(preview.rowCount)} 組` },
-              ]}
-            />
+            <div className="sticky top-0 z-10 -mx-[22px] w-[calc(100%+44px)] bg-paper/95 px-[22px] py-2 backdrop-blur-sm">
+              <SegmentedControl
+                aria-label="蝦皮預覽資料類型"
+                skin="outlined"
+                size="lg"
+                className="max-w-[460px]"
+                value={activeTab}
+                onChange={(value) => setActiveTab(value as "payout" | "sales")}
+                options={[
+                  { value: "payout", label: "每日出金", icon: "payments", badge: `${number(preview.dailyPayoutRows?.length ?? 0)} 日` },
+                  { value: "sales", label: "商品銷售", icon: "report", badge: `${number(preview.rowCount)} 組` },
+                ]}
+              />
+            </div>
             {activeTab === "payout" ? <ShopeePayoutPreview preview={preview} /> : <ShopeeSalesPreview preview={preview} />}
           </div>
         ) : null}

@@ -66,7 +66,7 @@ function SalesSkuTable({ report }: { report: ParsedSalesReport }) {
         </summary>
         <div className="overflow-hidden rounded-b-[11px] border-t border-soft-line">
           {report.rows.length ? (
-            <DataTable containerClassName="max-h-[60vh] overflow-y-auto">
+            <DataTable>
               <thead><tr><th>月份</th><th>商品原廠編號／商品編號</th><th>商品名稱</th><th className="numeric">銷售數量</th><th className="numeric">退貨數量</th><th className="numeric">銷售金額</th></tr></thead>
               <tbody>
                 {report.rows.slice(0, 100).map((row) => (
@@ -97,18 +97,20 @@ function ReportBreakdown({ report, activeTab, onTabChange }: {
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <SegmentedControl
-        aria-label="Mo+ 預覽資料類型"
-        skin="outlined"
-        size="lg"
-        className="max-w-[460px]"
-        value={activeTab}
-        onChange={(value) => onTabChange(value as "payout" | "sales")}
-        options={[
-          { value: "payout", label: "每日出金", icon: "payments", badge: `${report.payoutRows.length.toLocaleString("zh-TW")} 日` },
-          { value: "sales", label: "商品銷售", icon: "report", badge: `${report.rows.length.toLocaleString("zh-TW")} 組` },
-        ]}
-      />
+      <div className="sticky top-0 z-10 -mx-[22px] w-[calc(100%+44px)] bg-paper/95 px-[22px] py-2 backdrop-blur-sm">
+        <SegmentedControl
+          aria-label="Mo+ 預覽資料類型"
+          skin="outlined"
+          size="lg"
+          className="max-w-[460px]"
+          value={activeTab}
+          onChange={(value) => onTabChange(value as "payout" | "sales")}
+          options={[
+            { value: "payout", label: "每日出金", icon: "payments", badge: `${report.payoutRows.length.toLocaleString("zh-TW")} 日` },
+            { value: "sales", label: "商品銷售", icon: "report", badge: `${report.rows.length.toLocaleString("zh-TW")} 組` },
+          ]}
+        />
+      </div>
       {activeTab === "payout" ? (
         <section aria-label="每日出金資料" className="min-w-0">
           <PayoutTotalsTable report={report} />
@@ -185,7 +187,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
   }
 
   return (
-    <Panel grows title="Mo+ 對帳報表" description="匯入商品銷售月報與依入帳日彙總的每日出金。">
+    <Panel title="Mo+ 對帳報表" description="匯入商品銷售月報與依入帳日彙總的每日出金。">
       {scopesQuery.error ? <Alert tone="danger">{scopesQuery.error.message}</Alert> : null}
       {!scopesQuery.isPending && !scopesQuery.error && !scopes.length ? (
         <Alert tone="warning">尚未建立啟用中的 Mo+ 通路。請先到通路管理新增「種類：通路、平台：Mo+」。</Alert>
@@ -229,7 +231,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
           {preview ? "確認匯入" : "解析並預覽"}
         </Button>
       </div>
-      <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
+      <div className="mt-4 flex min-w-0 flex-col gap-4">
         {error ? <Alert tone="danger">{error}</Alert> : null}
         {importReport.error ? <Alert tone="danger">{importReport.error.message}</Alert> : null}
         {importResult && importedReport ? (
