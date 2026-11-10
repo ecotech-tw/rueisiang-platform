@@ -134,7 +134,7 @@ function StaticClockMap({ cacheKey, onError }: { cacheKey: string; onError: () =
   }
 
   return <div
-    className="hr-clock-static-map"
+    className="absolute inset-0 z-0 cursor-grab touch-none overflow-hidden active:cursor-grabbing"
     onPointerDown={startDrag}
     onPointerMove={moveDrag}
     onPointerUp={endDrag}
@@ -143,7 +143,7 @@ function StaticClockMap({ cacheKey, onError }: { cacheKey: string; onError: () =
     aria-label="辦公位置地圖，可拖曳與縮放"
   >
     <img
-      className="hr-clock-map-background"
+      className="pointer-events-none absolute inset-0 z-0 size-full origin-center object-cover opacity-82 [filter:saturate(.72)]"
       crossOrigin="use-credentials"
       src={`${API_BASE_URL}/hr/me/attendance-map?v=${encodeURIComponent(cacheKey)}`}
       alt=""
@@ -215,7 +215,7 @@ function MapLibreClockMap({ locations, onError }: { locations: ClockMapLocation[
     };
   }, [locations]);
 
-  return <div ref={mapElement} className="hr-clock-interactive-map" aria-label="辦公位置地圖" />;
+  return <div ref={mapElement} className="hr-clock-interactive-map absolute inset-0 z-0 size-full" aria-label="辦公位置地圖" />;
 }
 
 function ClockMapBackground() {
@@ -308,20 +308,32 @@ function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendar
   </section>;
 }
 
+const OFFICE_PIN_TONE = {
+  verified: "bg-ok-soft text-ok",
+  outside: "bg-brand-soft text-brand",
+  // 圖示沿用舊 CSS 疊出來的結果：卡片的 span 字色規則權重比較高，未定位時的圖示是 muted，不是 brand-dark。
+  pending: "bg-brand-soft text-muted",
+} as const;
+
 function ClockOfficeCard({ status, check }: { status?: ClockStatus; check?: ClockLocationCheck }) {
   const officeName = check?.locationName ?? status?.locationName ?? status?.locationNames?.[0] ?? "尚未設定辦公位置";
   const detail = check?.withinRadius
     ? `已定位・距離約 ${check.distanceMeters ?? 0} 公尺`
     : check?.message ?? (status?.locationNames?.length ? `可打卡位置：${status.locationNames.join("、")}` : "等待定位結果");
-  return <section className="hr-clock-office-card" aria-label="定位到的辦公室">
-    <span className={`hr-clock-office-pin${check?.withinRadius === false ? " outside" : check?.withinRadius ? " verified" : ""}`}><Icon name="storefront" /></span>
-    <div>
-      <span>定位辦公室</span>
-      <strong>{officeName}</strong>
-      <small>{detail}</small>
+  const pinTone = OFFICE_PIN_TONE[check?.withinRadius === false ? "outside" : check?.withinRadius ? "verified" : "pending"];
+  return <section className="grid grid-cols-[54px_minmax(0,1fr)] items-center gap-3 rounded-[20px] bg-canvas px-4 py-3.5 max-[760px]:grid-cols-[48px_minmax(0,1fr)] max-[760px]:px-3.5 max-[760px]:py-3" aria-label="定位到的辦公室">
+    <span className={`grid size-[54px] place-items-center rounded-full text-[12px] font-extrabold max-[760px]:size-12 ${pinTone}`}><Icon name="storefront" className="size-[26px]" /></span>
+    <div className="grid min-w-0 gap-0.5">
+      <span className="text-[12px] font-extrabold text-muted">定位辦公室</span>
+      <strong className="overflow-hidden text-[20px] text-ellipsis whitespace-nowrap max-[760px]:text-[18px]">{officeName}</strong>
+      <small className="overflow-hidden text-[12px] text-ellipsis whitespace-nowrap text-muted">{detail}</small>
     </div>
   </section>;
 }
+
+const HERO_TEXT_SHADOW = "[text-shadow:0_2px_3px_--alpha(var(--color-ink)/48%),0_7px_18px_--alpha(var(--color-ink)/38%)]";
+const DEEP_LINK = "inline-flex min-h-[42px] items-center justify-center gap-[7px] rounded-full border border-line bg-paper px-3 py-2 text-[13px] font-extrabold text-ink no-underline transition-[border-color,transform] duration-150 ease-[ease] hover:border-secondary hover:bg-brand/6 hover:text-brand-dark max-[760px]:min-h-9 max-[760px]:text-[12px]";
+const DEEP_LINK_ICON = "size-[19px] text-brand-dark";
 
 export function HrClock() {
   usePageTitle("打卡日曆");
@@ -444,32 +456,34 @@ export function HrClock() {
   const actionLabel = status?.nextEventKind === "clock_out" ? "下班" : "上班";
   const clockDisabled = demoLocationFailed || !status?.canClock || query.isPending || Boolean(query.error) || (status?.geolocationRequired === true && locationCheck.data?.withinRadius !== true) || locationCheck.isPending;
   const lastEvent = status?.events[0];
-  return <Page className="hr-clock-page hr-clock-full-page">
-    <section className="hr-clock-map-stage">
+  const lastEventClass = "-mt-0.5 text-center text-[12px] text-muted tabular-nums";
+  // data-clock-page 讓外層（HrShell 的內距、HrLayout 的換頁滑動）認得出打卡的滿版頁與子頁。
+  return <Page data-clock-page="full" className="fixed inset-0 z-0 overflow-hidden">
+    <section className="absolute inset-0 grid min-h-full grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-canvas px-2 pt-[72px] pb-[86px] after:pointer-events-none after:absolute after:inset-0 after:z-0 after:[background:linear-gradient(180deg,--alpha(var(--color-brand)/16%),--alpha(var(--color-brand)/26%)_46%,--alpha(var(--color-paper)/92%)_72%)] after:content-[''] max-[760px]:block max-[760px]:p-0">
       <ClockMapBackground />
-      <div className="hr-clock-hero" aria-label="今日打卡狀態">
-        <Icon name="person" className="hr-clock-hero-person" />
-        <p className="hr-clock-now">{formatNowTaipei(now)}</p>
-        <p className="hr-clock-date">{formatDateTaipei(now)}</p>
+      <div className={`relative z-3 grid gap-2 self-center justify-items-center text-center text-paper ${HERO_TEXT_SHADOW} max-[760px]:absolute max-[760px]:top-6 max-[760px]:right-3.5 max-[760px]:left-3.5 max-[760px]:gap-[3px]`} aria-label="今日打卡狀態">
+        <Icon name="person" className="size-[74px] [filter:drop-shadow(0_6px_18px_--alpha(var(--color-ink)/20%))] max-[760px]:size-[38px]" />
+        <p className="mt-2 text-[length:clamp(40px,7vw,64px)] leading-none font-extrabold tracking-[.02em] text-paper tabular-nums max-[760px]:mt-[3px] max-[760px]:text-[length:clamp(34px,11.5vw,46px)]">{formatNowTaipei(now)}</p>
+        <p className="text-[18px] font-extrabold text-paper [text-shadow:0_2px_3px_--alpha(var(--color-ink)/50%),0_6px_16px_--alpha(var(--color-ink)/40%)] max-[760px]:text-[14px]">{formatDateTaipei(now)}</p>
       </div>
-      <div className="hr-clock-action-panel">
-        <button className="hr-clock-main-action" type="button" disabled={clockDisabled} aria-label="打卡" aria-busy={clock.isPending || locating || undefined} onClick={() => setConfirmOpen(true)}>
-          {clock.isPending || locating ? <span className="hr-clock-action-loading">…</span> : <Icon name="clock" />}
+      <div className="relative z-3 mx-2 grid gap-3 justify-self-stretch rounded-[34px_34px_24px_24px] bg-paper px-[18px] pt-16 pb-[18px] [box-shadow:0_-10px_42px_--alpha(var(--color-ink)/16%)] before:absolute before:top-2.5 before:left-[calc(50%-24px)] before:h-1 before:w-12 before:rounded-full before:bg-line before:content-[''] max-[760px]:absolute max-[760px]:right-4 max-[760px]:bottom-[calc(var(--hr-safe-bottom)+82px)] max-[760px]:left-4 max-[760px]:m-0 max-[760px]:overflow-visible max-[760px]:rounded-[30px] max-[760px]:px-4 max-[760px]:pt-[54px] max-[760px]:pb-3.5">
+        <button className="absolute top-[-42px] left-[calc(50%-44px)] grid size-[88px] place-items-center rounded-full border-[7px] border-paper bg-brand text-[18px] text-paper [box-shadow:0_12px_28px_--alpha(var(--color-brand)/34%)] not-disabled:hover:bg-brand-dark disabled:bg-line disabled:text-muted max-[760px]:top-[-36px] max-[760px]:left-[calc(50%-38px)] max-[760px]:size-[76px] max-[760px]:border-[6px]" type="button" disabled={clockDisabled} aria-label="打卡" aria-busy={clock.isPending || locating || undefined} onClick={() => setConfirmOpen(true)}>
+          {clock.isPending || locating ? <span className="text-[30px] leading-none font-extrabold">…</span> : <Icon name="clock" className="size-[38px] max-[760px]:size-8" />}
         </button>
         <ClockOfficeCard status={status} check={visibleLocationCheck} />
-        <nav className="hr-clock-deep-links" aria-label="打卡詳細資料">
-          <NavLink to="/clock/calendar" aria-label="出勤日曆"><Icon name="calendar" /><span>出勤日曆</span></NavLink>
-          <NavLink to="/clock/logs" aria-label="打卡紀錄"><Icon name="history" /><span>打卡紀錄</span></NavLink>
+        <nav className="grid w-full grid-cols-[1fr_1fr] gap-2" aria-label="打卡詳細資料">
+          <NavLink to="/clock/calendar" aria-label="出勤日曆" className={DEEP_LINK}><Icon name="calendar" className={DEEP_LINK_ICON} /><span>出勤日曆</span></NavLink>
+          <NavLink to="/clock/logs" aria-label="打卡紀錄" className={DEEP_LINK}><Icon name="history" className={DEEP_LINK_ICON} /><span>打卡紀錄</span></NavLink>
         </nav>
-        {lastEvent ? <p className="hr-clock-last-event">最近一次：{lastEvent.eventKind === "clock_out" ? "下班" : "上班"}・{formatTaipei(lastEvent.occurredAt)}</p> : <p className="hr-clock-last-event">今天尚未打卡。</p>}
+        {lastEvent ? <p className={lastEventClass}>最近一次：{lastEvent.eventKind === "clock_out" ? "下班" : "上班"}・{formatTaipei(lastEvent.occurredAt)}</p> : <p className={lastEventClass}>今天尚未打卡。</p>}
         {(demoLocationFailed || status?.geolocationRequired) && (visibleLocationError || outsideOffice) ? <Button tone="info" size="lg" className="max-[760px]:w-full" variant="secondary" disabled={!status?.canClock || locating} onClick={() => { void verifyLocation(); }}>重新定位</Button> : null}
         {user?.hrSelfServiceKind === "worker" ? <Button variant="link" onClick={() => { void signOut().catch((error: unknown) => setUnlinkError(error instanceof Error ? error.message : "登出失敗，請稍後再試。")); }}>登出</Button> : null}
         {lineLiffAuthenticated ? <Button variant="link" disabled={unlink.isPending} onClick={() => setUnlinkConfirmOpen(true)}>解除 LINE 綁定</Button> : null}
       </div>
-      {successMessage || status?.message || query.error || visibleLocationError || clock.error || unlinkError ? <div className="hr-clock-feedback-corner">
+      {successMessage || status?.message || query.error || visibleLocationError || clock.error || unlinkError ? <div className="absolute top-[88px] left-[clamp(16px,5vw,72px)] z-4 grid max-w-[min(400px,calc(100vw-32px))] gap-2 max-[760px]:top-3 max-[760px]:left-4 max-[760px]:max-w-[calc(100vw-32px)]">
         {successMessage ? <Alert size="compact" tone="success">{successMessage}</Alert> : null}
         {unlinkError ? <Alert size="compact" tone="danger">{unlinkError}</Alert> : null}
-        {status?.message ? <p className="hr-clock-blocked">{status.message}</p> : null}
+        {status?.message ? <p className="text-[14px] text-muted">{status.message}</p> : null}
         {query.error ? <Alert size="compact" tone="danger">{query.error.message}</Alert> : null}
         {visibleLocationError ? <Alert size="compact" tone="danger">{visibleLocationError}</Alert> : null}
         {clock.error ? <Alert size="compact" tone="danger">{clock.error.message}</Alert> : null}
@@ -483,6 +497,16 @@ export function HrClock() {
     </Dialog> : null}
   </Page>;
 }
+
+/*
+ * 打卡子頁從下方滑上來、關閉時滑回去，蓋在打卡首頁上面。退場動畫跑完才換頁（closeSubpage 的 220ms），
+ * 所以 closing 要 forwards 停在最後一格，不然換頁前會閃回原位。
+ */
+function subpageClass(closing: boolean) {
+  return `fixed inset-0 z-10 mx-auto grid grid-rows-[auto_auto_minmax(0,1fr)] gap-3 overflow-hidden px-[clamp(18px,4vw,48px)] pt-[22px] pb-24 [background:linear-gradient(180deg,var(--color-canvas),var(--color-paper))] max-[760px]:gap-2 max-[760px]:px-3 max-[760px]:pt-3.5 max-[760px]:pb-[calc(var(--hr-safe-bottom)+76px)] motion-reduce:animate-none [&>*+*]:mt-0 ${closing ? "animate-[hr-subpage-down_.22s_cubic-bezier(.3,0,.8,.15)_forwards]" : "animate-[hr-subpage-up_.24s_cubic-bezier(.05,.7,.1,1)]"}`;
+}
+
+const SUBPAGE_BACK_LINK = "inline-flex w-max items-center gap-[5px] text-[13px] font-bold text-brand-dark no-underline";
 
 export function HrClockCalendar() {
   usePageTitle("出勤日曆");
@@ -526,8 +550,8 @@ export function HrClockCalendar() {
     setClosing(true);
     window.setTimeout(() => navigate("/clock"), 220);
   }
-  return <Page className={`hr-clock-page hr-clock-subpage [&>*+*]:mt-0 ${closing ? "closing" : ""}`}>
-    <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
+  return <Page data-clock-page="subpage" className={subpageClass(closing)}>
+    <button className={SUBPAGE_BACK_LINK} type="button" onClick={closeSubpage}><Icon name="chevronLeft" className="size-6 flex-none" />返回打卡</button>
     <PageHeader title="出勤日曆" description="左右滑動切換月份，點擊日期查看打卡紀錄。" className="max-[760px]:mb-0 max-[760px]:[&_h1]:text-[18px] max-[760px]:[&_p]:hidden" />
     {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
     <section data-panel="" className={`${PANEL_SURFACE} [&>:last-child]:mb-0 mx-auto grid min-h-0 w-full max-w-[760px] touch-pan-y grid-rows-[auto_auto_auto] content-start overflow-hidden max-[760px]:px-3 max-[760px]:py-2.5`} onTouchStart={handleTouchStart} onTouchEnd={handleTouchEnd}>
@@ -572,8 +596,8 @@ export function HrClockLogs() {
   function changeMonth(offset: number) {
     setCalendarMonth((current) => shiftMonth(current.year, current.month, offset));
   }
-  return <Page className={`hr-clock-page hr-clock-subpage [&>*+*]:mt-0 ${closing ? "closing" : ""}`}>
-    <button className="hr-clock-back-link" type="button" onClick={closeSubpage}><Icon name="chevronLeft" />返回打卡</button>
+  return <Page data-clock-page="subpage" className={subpageClass(closing)}>
+    <button className={SUBPAGE_BACK_LINK} type="button" onClick={closeSubpage}><Icon name="chevronLeft" className="size-6 flex-none" />返回打卡</button>
     <PageHeader title="打卡紀錄" description="按月份查看實際工時、預期班別與出勤異常。" className="max-[760px]:mb-0 max-[760px]:[&_h1]:text-[18px] max-[760px]:[&_p]:hidden" />
     {/* 沒有外框：手機上那一圈 padding 很貴。上半部是 auto 列、只有清單那一列吃剩下的高度，
         所以內容再少也不會被拉高。 */}
@@ -589,7 +613,7 @@ export function HrClockLogs() {
         ].map(([label, value]) => <div key={label} className="grid min-w-0 gap-1 rounded-[12px] border border-line bg-paper px-3 py-[11px] max-[760px]:px-2 max-[760px]:py-[9px]"><span className="text-[11px] font-bold text-muted">{label}</span><strong className="overflow-hidden text-ellipsis whitespace-nowrap text-[15px] text-ink tabular-nums max-[760px]:text-[13px]">{summaryReady ? value : "—"}</strong></div>)}</div>
       </div>
       {/* 清單裡沒有任何可聚焦的東西，不給 tabIndex 的話 Safari 的鍵盤使用者捲不到下面。 */}
-      {/* 焦點外框往內收：這一塊貼著 .hr-clock-subpage 的 overflow: hidden，往外畫會被裁掉。 */}
+      {/* 焦點外框往內收：這一塊貼著子頁的 overflow: hidden，往外畫會被裁掉。 */}
       <div className="min-h-0 overflow-y-auto overscroll-contain [&>*+*]:mt-2.5 focus-visible:rounded-[14px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary" role="region" aria-label="每日打卡紀錄" tabIndex={0}>
         {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
         {calendar.isPending ? <p className="muted">載入月度紀錄…</p> : calendar.data ? days.length ? <div className="grid gap-2.5">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <div className="hr-form-empty-state"><strong>本月沒有需要顯示的紀錄</strong><p className="muted">有打卡或出勤異常的日期會列在這裡。</p></div> : null}

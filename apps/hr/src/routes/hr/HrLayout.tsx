@@ -41,8 +41,14 @@ function PersonalNav({ className }: { className: string }) {
   </nav>;
 }
 
- 
+
 const personalSections = personalLinks.map((link) => link.to);
+
+// 打卡首頁與子頁有自己的進出動畫（子頁從下方滑上來），不跟著左右換頁滑動。
+const PAGE_SWIPE: Record<SlideDirection, string> = {
+  forward: "motion-safe:[&>[data-page]:not([data-clock-page])]:animate-[hr-page-swipe-in_.24s_cubic-bezier(.05,.7,.1,1)]",
+  back: "motion-safe:[&>[data-page]:not([data-clock-page])]:animate-[hr-page-swipe-in-back_.24s_cubic-bezier(.05,.7,.1,1)]",
+};
 
 export function HrLayout() {
   const pathname = useLocation().pathname.toLowerCase();
@@ -54,8 +60,8 @@ export function HrLayout() {
   const isClockHome = pathname === "/clock";
   const current = pathname === "/work" ? "工作" : pathname.startsWith("/scheduling") ? "據點排班" : pathname.startsWith("/forms") ? "表單申請" : pathname.startsWith("/payroll") ? "薪資袋" : pathname.startsWith("/notifications") ? "通知" : pathname.startsWith("/profile") ? "個人中心" : "打卡";
 
-  return <DialogScope className="hr-module-self"><div className={`hr-module hr-module-self${pathname.startsWith("/scheduling") ? " max-[760px]:pb-[calc(var(--hr-safe-bottom)+52px)]" : ""}`} data-page-direction={direction}>
-    {isClockHome ? <PersonalNav className="hr-personal-nav hr-clock-personal-nav" /> : <header className="hr-module-header">
+  return <DialogScope className="hr-module-self"><div className={`hr-module hr-module-self has-[[data-clock-page=full]]:relative has-[[data-clock-page=full]]:block has-[[data-clock-page=full]]:min-h-full ${PAGE_SWIPE[direction]}${pathname.startsWith("/scheduling") ? " max-[760px]:pb-[calc(var(--hr-safe-bottom)+52px)]" : ""}`}>
+    {isClockHome ? <PersonalNav className="hr-personal-nav fixed top-6 right-9 z-5 rounded-full border border-ink/10 bg-paper/84 p-1 [box-shadow:0_8px_24px_--alpha(var(--color-ink)/10%)] [backdrop-filter:blur(14px)] [&_a]:px-[13px] max-[760px]:hidden" /> : <header className="hr-module-header">
       <div className="hr-module-title"><span className="hr-module-current">{current}</span></div>
       <PersonalNav className="hr-personal-nav hr-personal-top-nav" />
     </header>}
