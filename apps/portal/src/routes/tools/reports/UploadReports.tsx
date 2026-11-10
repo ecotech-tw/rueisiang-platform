@@ -35,7 +35,7 @@ export function UploadReports() {
   ) : null;
 
   return (
-    <Page>
+    <Page layout="fills">
       <PageHeader title="上傳報表" />
       {!available.length ? <Alert tone="warning">你沒有任何上傳報表的執行權限。</Alert> : null}
       {sourceType === "momo" ? <MoPlusUpload sourceField={sourceField} /> : null}
