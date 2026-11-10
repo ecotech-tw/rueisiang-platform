@@ -1597,6 +1597,13 @@
       "when": 1794155482114,
       "tag": "0251_momo_report_run_permission",
       "breakpoints": true
+    },
+    {
+      "idx": 252,
+      "version": "6",
+      "when": 1794155482115,
+      "tag": "0252_allow_withdrawn_record_delete",
+      "breakpoints": true
     }
   ]
 }
