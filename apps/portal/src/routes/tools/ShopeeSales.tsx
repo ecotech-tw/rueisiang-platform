@@ -220,10 +220,11 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
       {!scopes.length ? <Alert tone="warning">尚未建立啟用中的蝦皮通路。請先到通路管理新增「種類：通路、平台：蝦皮」。</Alert> : null}
       {selectedScope && !selectedScope.driveFolderUrl ? <Alert tone="danger">「{selectedScope.name}」尚未設定 Google Drive 資料夾，請由有權限的人前往通路管理設定。</Alert> : null}
       <Panel
+        grows={embedded}
         title={embedded ? "蝦皮商品銷售" : undefined}
         description="選擇通路與報表檔案，先解析預覽並確認資料，再匯入銷售報表。"
       >
-        <form className="admin-form row" onSubmit={(event) => { event.preventDefault(); execute(); }}>
+        <form className="admin-form row flex-none" onSubmit={(event) => { event.preventDefault(); execute(); }}>
           {sourceField}
           <SelectField
             className="min-w-[180px] flex-[1_1_190px]"
@@ -270,48 +271,50 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
           </Button>
           {trackingRunning ? <span className="form-hint">{tracking?.mode === "preview" ? "正在解密並解析報表…" : "背景整理中…"}可以關閉這一頁</span> : null}
         </form>
-        {fileTooLarge ? <Alert tone="danger">檔案不能超過 25 MB。</Alert> : null}
-        {preview && (!file || !password) ? <p className="form-hint mt-3">請重新選擇預覽時的原始檔案並輸入相同密碼，才能確認匯入。</p> : null}
-        {previewRun.error ? <Alert tone="danger">{previewRun.error.message}</Alert> : null}
-        {confirmRun.error ? <Alert tone="danger">{confirmRun.error.message}</Alert> : null}
-        {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
-        {previewQuery.error ? <Alert tone="danger">{previewQuery.error.message}</Alert> : null}
-        {previewFailed ? <Alert tone="danger">蝦皮報表解析失敗，請確認檔案與密碼後重新選擇檔案。</Alert> : null}
-        {discardPreview.error ? <Alert tone="danger">{discardPreview.error.message}</Alert> : null}
-        {preview ? (
-          <div className="flex flex-col gap-4 mt-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <strong>匯入預覽</strong>
-                <p className="muted mt-1">
-                  期間：{preview.reportMonths.join("、") || "無"}；{number(preview.sourceRowCount)} 列來源資料整理為 {number(preview.rowCount)} 個商品／月份組合。
-                </p>
+        <div className={`mt-4 flex min-w-0 flex-col gap-3 ${embedded ? "min-h-0 flex-1 overflow-y-auto" : ""}`}>
+          {fileTooLarge ? <Alert tone="danger">檔案不能超過 25 MB。</Alert> : null}
+          {preview && (!file || !password) ? <p className="form-hint">請重新選擇預覽時的原始檔案並輸入相同密碼，才能確認匯入。</p> : null}
+          {previewRun.error ? <Alert tone="danger">{previewRun.error.message}</Alert> : null}
+          {confirmRun.error ? <Alert tone="danger">{confirmRun.error.message}</Alert> : null}
+          {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
+          {previewQuery.error ? <Alert tone="danger">{previewQuery.error.message}</Alert> : null}
+          {previewFailed ? <Alert tone="danger">蝦皮報表解析失敗，請確認檔案與密碼後重新選擇檔案。</Alert> : null}
+          {discardPreview.error ? <Alert tone="danger">{discardPreview.error.message}</Alert> : null}
+          {preview ? (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <strong>匯入預覽</strong>
+                  <p className="muted mt-1">
+                    期間：{preview.reportMonths.join("、") || "無"}；{number(preview.sourceRowCount)} 列來源資料整理為 {number(preview.rowCount)} 個商品／月份組合。
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className="form-hint">確認匯入後才會更新資料庫</span>
+                  <Button type="button" variant="secondary" disabled={busy} onClick={forgetPreview}>重新選擇</Button>
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="form-hint">確認匯入後才會更新資料庫</span>
-                <Button type="button" variant="secondary" disabled={busy} onClick={forgetPreview}>重新選擇</Button>
+              {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
+              <div className="sticky top-0 z-10 w-full bg-paper/95 py-2 backdrop-blur-sm">
+                <SegmentedControl
+                  aria-label="蝦皮預覽資料類型"
+                  skin="outlined"
+                  size="lg"
+                  className="max-w-[460px]"
+                  value={activeTab}
+                  onChange={(value) => setActiveTab(value as "payout" | "sales")}
+                  options={[
+                    { value: "payout", label: "每日出金", icon: "payments", badge: `${number(preview.dailyPayoutRows?.length ?? 0)} 日` },
+                    { value: "sales", label: "商品銷售", icon: "report", badge: `${number(preview.rowCount)} 組` },
+                  ]}
+                />
               </div>
+              {activeTab === "payout" ? <ShopeePayoutPreview preview={preview} /> : <ShopeeSalesPreview preview={preview} />}
             </div>
-            {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
-            <div className="sticky top-0 z-10 -mx-[22px] w-[calc(100%+44px)] bg-paper/95 px-[22px] py-2 backdrop-blur-sm">
-              <SegmentedControl
-                aria-label="蝦皮預覽資料類型"
-                skin="outlined"
-                size="lg"
-                className="max-w-[460px]"
-                value={activeTab}
-                onChange={(value) => setActiveTab(value as "payout" | "sales")}
-                options={[
-                  { value: "payout", label: "每日出金", icon: "payments", badge: `${number(preview.dailyPayoutRows?.length ?? 0)} 日` },
-                  { value: "sales", label: "商品銷售", icon: "report", badge: `${number(preview.rowCount)} 組` },
-                ]}
-              />
-            </div>
-            {activeTab === "payout" ? <ShopeePayoutPreview preview={preview} /> : <ShopeeSalesPreview preview={preview} />}
-          </div>
-        ) : null}
-        {previewFailed ? <Button className="mt-3" type="button" variant="secondary" disabled={busy} onClick={forgetPreview}>重新選擇報表</Button> : null}
-        {selectedScope?.driveFolderUrl ? <p className="muted table-note">上傳位置：<a className="link-external" href={selectedScope.driveFolderUrl} target="_blank" rel="noopener noreferrer">{selectedScope.driveFolderName || "Google Drive 資料夾"}<Icon name="external" /></a></p> : null}
+          ) : null}
+          {previewFailed ? <Button type="button" variant="secondary" disabled={busy} onClick={forgetPreview}>重新選擇報表</Button> : null}
+          {selectedScope?.driveFolderUrl ? <p className="muted table-note">上傳位置：<a className="link-external" href={selectedScope.driveFolderUrl} target="_blank" rel="noopener noreferrer">{selectedScope.driveFolderName || "Google Drive 資料夾"}<Icon name="external" /></a></p> : null}
+        </div>
       </Panel>
       {(tracking || state.data.latestRequestId) ? (
         <WorkflowRunPanel

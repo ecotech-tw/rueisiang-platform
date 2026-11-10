@@ -97,7 +97,7 @@ function ReportBreakdown({ report, activeTab, onTabChange }: {
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-4">
-      <div className="sticky top-0 z-10 -mx-[22px] w-[calc(100%+44px)] bg-paper/95 px-[22px] py-2 backdrop-blur-sm">
+      <div className="sticky top-0 z-10 w-full bg-paper/95 py-2 backdrop-blur-sm">
         <SegmentedControl
           aria-label="Mo+ 預覽資料類型"
           skin="outlined"
@@ -187,12 +187,12 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
   }
 
   return (
-    <Panel title="Mo+ 對帳報表" description="匯入商品銷售月報與依入帳日彙總的每日出金。">
+    <Panel grows title="Mo+ 對帳報表" description="匯入商品銷售月報與依入帳日彙總的每日出金。">
       {scopesQuery.error ? <Alert tone="danger">{scopesQuery.error.message}</Alert> : null}
       {!scopesQuery.isPending && !scopesQuery.error && !scopes.length ? (
         <Alert tone="warning">尚未建立啟用中的 Mo+ 通路。請先到通路管理新增「種類：通路、平台：Mo+」。</Alert>
       ) : null}
-      <div className="admin-form row">
+      <div className="admin-form row flex-none">
         {sourceField}
         <SelectField
           className="min-w-[180px] flex-[1_1_190px]"
@@ -231,7 +231,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
           {preview ? "確認匯入" : "解析並預覽"}
         </Button>
       </div>
-      <div className="mt-4 flex min-w-0 flex-col gap-4">
+      <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
         {error ? <Alert tone="danger">{error}</Alert> : null}
         {importReport.error ? <Alert tone="danger">{importReport.error.message}</Alert> : null}
         {importResult && importedReport ? (
