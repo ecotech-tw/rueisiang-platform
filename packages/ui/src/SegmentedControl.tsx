@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { defaultUnless } from "./class-defaults.js";
 import { Icon, type IconName } from "./icons.js";
 
 type SegmentedControlSkin = "glass" | "tabs" | "outlined";
@@ -64,7 +65,7 @@ function paddingClass(skin: SegmentedControlSkin, dense: boolean): string {
 export function SegmentedControl({ options, value, onChange, "aria-label": ariaLabel, disabled = false, skin = "glass", iconOnly = false, size = "md", dense = false, className = "" }: SegmentedControlProps) {
   return (
     <div
-      className={`inline-flex ${skin === "outlined" ? "w-auto gap-0 rounded-full border border-line bg-paper" : "w-full gap-1 rounded-[999px] p-[5px] [-webkit-backdrop-filter:blur(8px)_saturate(155%)] [backdrop-filter:blur(8px)_saturate(155%)]"} ${TRACK_CLASS[skin]} ${className}`.trim()}
+      className={`inline-flex ${defaultUnless(className, "w-", skin === "outlined" ? "w-auto" : "w-full")} ${skin === "outlined" ? "gap-0 rounded-full border border-line bg-paper" : "gap-1 rounded-[999px] p-[5px] [-webkit-backdrop-filter:blur(8px)_saturate(155%)] [backdrop-filter:blur(8px)_saturate(155%)]"} ${TRACK_CLASS[skin]} ${className}`.trim()}
       role="group"
       aria-label={ariaLabel}
     >
