@@ -67,8 +67,9 @@ it("初始只顯示共用時間，逐列選擇唯一的星期或國定假日覆�
   try {
     await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><HrShifts /></QueryClientProvider></MemoryRouter>));
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="編輯 門市 的班別與排班負責人"]')!.click());
-    expect(document.querySelectorAll(".shift-day-row-default")).toHaveLength(1);
-    expect(document.querySelectorAll(".shift-day-row-override")).toHaveLength(0);
+    // 只有共用時間一列，還沒有任何星期／國定假日覆蓋列。
+    expect(document.querySelectorAll('input[aria-label$="開始時間"]')).toHaveLength(1);
+    expect(document.querySelectorAll('[aria-label$="覆蓋日別"]')).toHaveLength(0);
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "新增星期／國定假日覆蓋")!.click());
     await choose("週五", "早班第1列覆蓋日別");
     await act(async () => [...document.querySelectorAll<HTMLButtonElement>("button")].find((button) => button.textContent === "新增星期／國定假日覆蓋")!.click());
