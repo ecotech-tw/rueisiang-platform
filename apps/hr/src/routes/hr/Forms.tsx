@@ -18,6 +18,14 @@ import { HrBackBar } from "./HrBackBar.js";
  */
 const MOBILE_CARD = "max-[760px]:px-3.5 max-[760px]:py-4 max-[760px]:rounded-[18px] max-[760px]:[box-shadow:0_8px_24px_color-mix(in_oklab,var(--color-ink)_7%,transparent)]";
 const FORM_PANEL = `${MOBILE_CARD} max-[760px]:pb-[116px]`;
+const FORM_FIELDS = "grid gap-4 max-[760px]:gap-3.5";
+// 手機上開始／結束這類成對欄位疊成一欄，datetime-local 才放得下。
+const FORM_FIELD_ROW = "grid grid-cols-[1fr_1fr] gap-3 max-[760px]:grid-cols-[1fr] max-[760px]:gap-3.5";
+const SUMMARY_CARD_TONE = {
+  neutral: { card: "border-soft-line bg-canvas", value: "text-ink" },
+  // 額度卡用品牌色調跟試算卡區分：試算是「這次要請多少」，額度是「還剩多少」。
+  credit: { card: "border-brand/20 bg-brand-soft", value: "text-brand-dark" },
+} as const;
 // 手機上標題與說明疊成兩行，字也收小。
 const FORM_SECTION_HEAD = `${PANEL_HEAD} max-[760px]:grid max-[760px]:gap-1 max-[760px]:mb-3.5 max-[760px]:[&>div]:min-w-0 max-[760px]:[&_h2]:text-[17px] max-[760px]:[&_h2]:leading-[1.35]`;
 const FORM_SECTION_DESCRIPTION = `${PANEL_DESCRIPTION} max-[760px]:text-[12.5px] max-[760px]:leading-[1.55]`;
@@ -121,9 +129,24 @@ function matchesRequest(searchText: string, status: string, search: string, stat
     && (!normalizedSearch || searchText.toLocaleLowerCase("zh-TW").includes(normalizedSearch));
 }
 
-// data-form-page 讓外層（HrLayout 的底部導覽、送出列的固定定位）認得出表單填寫頁。
+// data-form-page 讓外層（HrLayout 的底部導覽）認得出表單填寫頁。
 function FormPage({ children }: { children: ReactNode }) {
   return <Page data-form-page="" className="w-full max-w-[760px] mx-auto min-h-[calc(100dvh-48px)] max-[760px]:max-w-none [&>[data-page-head]]:mt-2">{children}</Page>;
+}
+
+/*
+ * 送出列只放在表單填寫頁的面板裡。手機上固定在畫面底部讓拇指按得到，FORM_PANEL 的 116px 下內距就是替它留的；
+ * 下內距用 --hr-safe-bottom，跟底部導覽一樣避開 Home 橫條。
+ */
+function FormActions({ children }: { children: ReactNode }) {
+  return <div className="flex justify-end gap-2 pt-[18px] max-[760px]:fixed max-[760px]:inset-x-0 max-[760px]:bottom-0 max-[760px]:z-20 max-[760px]:m-0 max-[760px]:grid max-[760px]:w-full max-[760px]:grid-cols-2 max-[760px]:border-t max-[760px]:border-t-soft-line max-[760px]:bg-paper/96 max-[760px]:px-3.5 max-[760px]:pt-3 max-[760px]:pb-(--hr-safe-bottom) max-[760px]:[box-shadow:0_-8px_20px_--alpha(var(--color-ink)/10%)] max-[760px]:[-webkit-backdrop-filter:blur(12px)_saturate(140%)] max-[760px]:[backdrop-filter:blur(12px)_saturate(140%)]">{children}</div>;
+}
+
+function SummaryCard({ tone = "neutral", label, value, note }: { tone?: keyof typeof SUMMARY_CARD_TONE; label: ReactNode; value: ReactNode; note?: ReactNode }) {
+  return <div className={`grid gap-[5px] rounded-[14px] border px-4 py-3.5 max-[760px]:rounded-[13px] max-[760px]:px-[13px] max-[760px]:py-3 ${SUMMARY_CARD_TONE[tone].card}`} aria-live="polite">
+    <div className="flex items-baseline justify-between gap-3"><span className="text-[12px] font-bold text-muted">{label}</span><strong className={`text-[18px] tabular-nums max-[760px]:text-right max-[760px]:text-[17px] ${SUMMARY_CARD_TONE[tone].value}`}>{value}</strong></div>
+    {note ? <small className="text-[12px] text-muted">{note}</small> : null}
+  </div>;
 }
 
 function FormPageHeader({ title, description, returnTo = "/forms" }: { title: string; description: string; returnTo?: string }) {
@@ -327,9 +350,9 @@ function OvertimeBatchApproveDialog({ batchId, items, settled, onClose }: { batc
       ? <Alert tone="info">這一批已經沒有待審的申請了，可能已被處理或取消。</Alert>
       : <p>會一次核准下面 {items.length} 筆、共 {formatHours(totalMinutes)}。要駁回其中幾筆的話，請先回清單逐筆審核那幾筆。</p>}
     {/* 原因與結算方式申請人可以逐筆改；只列日期時數的話，審核者會核准到沒看過的內容。 */}
-    <ul className="hr-overtime-batch-days">{items.map((item) => <li key={item.request.id}>
-      <div><span>{taipeiDay(item.request.requestedStart)}</span><span>{taipeiTimeRange(item.request.requestedStart, item.request.requestedEnd)}</span></div>
-      <small>{item.request.settlementKind === "pay" ? "付薪" : "補休"}・{item.request.reason || "未填寫原因"}</small>
+    <ul className="mx-0 my-3 grid max-h-[40vh] list-none gap-1.5 overflow-y-auto p-0 text-[13px] tabular-nums">{items.map((item) => <li key={item.request.id} className="grid gap-0.5 rounded-[10px] bg-canvas px-3 py-2">
+      <div className="flex justify-between gap-3"><span>{taipeiDay(item.request.requestedStart)}</span><span className="text-muted">{taipeiTimeRange(item.request.requestedStart, item.request.requestedEnd)}</span></div>
+      <small className="text-[12px] text-muted wrap-anywhere">{item.request.settlementKind === "pay" ? "付薪" : "補休"}・{item.request.reason || "未填寫原因"}</small>
     </li>)}</ul>
     <Field label="審核意見（選填）" hint="會附在給申請人的通知裡。"><Textarea maxLength={1000} rows={3} value={comment} disabled={approve.isPending || alreadyHandled} onChange={(event) => setComment(event.target.value)} /></Field>
     {approve.error && !alreadyHandled ? <Alert tone="danger">{approve.error.message}</Alert> : null}
@@ -580,7 +603,7 @@ export function HrForms() {
     </Panel> : null}
     {!recordsFiltered && activeTab === "overtime" && reviewOvertime.length ? <Panel tone="attention" className={MOBILE_CARD}>
       <div data-panel-head="" className={FORM_SECTION_HEAD}><div><h2>待我審核</h2><p className={FORM_SECTION_DESCRIPTION}>加班申請由指定主管或 HR 管理者處理。</p></div></div>
-      {overtimeBatches.length ? <div className={`${REQUEST_LIST} hr-overtime-batch-list`}>{overtimeBatches.map((batch) => <RequestCard tone="batch" key={batch.batchId}>
+      {overtimeBatches.length ? <div className={`${REQUEST_LIST} mb-3`}>{overtimeBatches.map((batch) => <RequestCard tone="batch" key={batch.batchId}>
         <div className={REQUEST_SUMMARY}><RequestTitle badge={<StatusBadge tone="info">申請中</StatusBadge>}>{batch.items[0]?.employeeName ?? batch.items[0]?.employeeUserId}・同一批 {batch.items.length} 筆</RequestTitle><p className="muted">{batch.items.map((item) => taipeiDay(item.request.requestedStart)).join("、")}</p></div>
         <div className={REQUEST_ACTIONS}><Button size="lg" tone="success" onClick={() => setApprovingBatch(batch)}>整批核准</Button></div>
       </RequestCard>)}</div> : null}
@@ -654,30 +677,27 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
   }
 
   return <>
-    <div className="hr-form-fields">
-      <div className="hr-form-field-row">
+    <div className={FORM_FIELDS}>
+      <div className={FORM_FIELD_ROW}>
         <TextField label="月份" type="month" required value={month} disabled={save.isPending} onChange={(event) => { setMonth(event.target.value); reset(); }} />
         <TextField label="每天加班時數（小時）" type="number" inputMode="decimal" min={0.5} max={24} step={0.5} required value={hours} disabled={save.isPending} error={hours.trim() && !minutesValid ? "時數要以 0.5 小時為單位，最多 24 小時。" : undefined} onChange={(event) => setHours(event.target.value)} />
       </div>
       <SegmentedControl skin="tabs" dense aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={save.isPending} onChange={setHours} />
-      <p className="muted hr-overtime-note">先選時數，再點日期；換個時數可以繼續點別天，再點一次同樣時數就取消。有排班的日期從下班時間起算。</p>
+      <p className="muted m-0 text-[13px] leading-[1.55]">先選時數，再點日期；換個時數可以繼續點別天，再點一次同樣時數就取消。有排班的日期從下班時間起算。</p>
       {dayQuery.error ? <Alert tone="danger">{dayQuery.error.message}</Alert>
         : !range ? <p className="muted">請先選擇月份。</p>
         : dayQuery.isPending ? <p className="muted">載入班表…</p>
         : <OvertimeDayPicker days={days} assigned={assigned} disabled={save.isPending || !minutesValid} onToggle={toggleDay} />}
       {takenDates.length ? <Alert tone="info">{takenDates.join("、")} 已經有加班申請，已從這次的選擇移除。</Alert> : null}
       {unscheduledDates.length ? <TextField label="未排班日開始時間（台北）" type="time" step={1800} required value={unscheduledStartTime} disabled={save.isPending} hint="所有已選的未排班日期都從這個時間開始。" error={missingUnscheduledStart ? "選了未排班的日期，要先填開始時間才能送出。" : undefined} onChange={(event) => setUnscheduledStartTime(event.target.value)} /> : null}
-      <div className="hr-leave-duration-card" aria-live="polite">
-        <div><span>{summary.days ? `已選 ${summary.days} 天` : "還沒選任何一天"}</span><strong>{hoursText(summary.totalMinutes)} 小時</strong></div>
-        {summary.days ? <small>{summary.breakdown}；每一天會是一筆申請。</small> : null}
-      </div>
+      <SummaryCard label={summary.days ? `已選 ${summary.days} 天` : "還沒選任何一天"} value={<>{hoursText(summary.totalMinutes)} 小時</>} note={summary.days ? `${summary.breakdown}；每一天會是一筆申請。` : null} />
       <Field label="加班原因（選填）" hint="所有選到的日期共用同一個原因。"><Textarea maxLength={1000} rows={3} value={reason} disabled={save.isPending} onChange={(event) => onReasonChange(event.target.value)} /></Field>
     </div>
     {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
-    <div className="hr-form-actions">
+    <FormActions>
       <Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={save.isPending}>取消</Button>
       <Button size="lg" tone="success" loading={save.isPending} onClick={submit} disabled={!canSubmit}>{summary.days ? `送出 ${summary.days} 筆加班申請` : "送出加班申請"}</Button>
-    </div>
+    </FormActions>
     {confirmingUnscheduled ? <ConfirmDialog title="確認未排班日加班" confirmLabel="確認送出申請" cancelLabel="返回修改" tone="primary" pending={save.isPending} onConfirm={send} onCancel={() => setConfirmingUnscheduled(false)}>
       <p>以下日期沒有排班，會從 {unscheduledStartTime} 開始計算；有排班的日期仍從下班時間起算。</p>
       <ul className="hr-overtime-unscheduled-dates">{unscheduledDates.map((day) => <li key={day}>{day}</li>)}</ul>
@@ -785,7 +805,7 @@ export function HrOvertimeForm() {
     save.mutate({ path: editing ? `/me/overtime/${requestId}` : "/me/overtime", method: editing ? "PATCH" : "POST", values: { requestedStart: start, requestedEnd: end, settlementKind, reason, ...(editing ? { revision: loadedRevision?.revision } : {}) } }, { onSuccess: () => { if (!editing) sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }, onError: (cause) => setError(cause.message) });
   }
 
-  return <FormPage><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : mode === "multiple" ? "先選時數再點日期，每一天會建立一筆申請；選好的日期離開頁面後不會保留。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel className={FORM_PANEL}>{editing || copying ? null : <SegmentedControl skin="tabs" className="mb-4" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending || batchPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} onPendingChange={setBatchPending} onDone={() => { sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }} /> : <><div className="hr-form-fields"><div className="hr-form-field-row"><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => changeStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} /></div><TextField label="加班時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (requestedMinutes > 0 ? hoursText(requestedMinutes) : "")} disabled={disabled} onChange={(event) => changeHours(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint="填時數會自動換算結束時間。" error={hoursError} /><Field label="加班原因（選填）"><Textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{existingRequest?.request.settlementKind === "compensatory" ? <Alert tone="info">{editing ? "這筆申請的結算方式是補休，更新後仍是補休、不計加班費。要改成付薪請取消後重新申請。" : "原申請的結算方式是補休；重新送出會改為付薪。需要補休請洽 HR。"}</Alert> : null}{error ? <Alert tone="danger">{error}</Alert> : null}<div className="hr-form-actions"><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></div></>}</Panel></FormPage>;
+  return <FormPage><FormPageHeader title={editing ? "編輯加班申請" : copying ? "重新申請加班" : "加班申請"} description={editing ? "只能修改待審核的加班申請；已核准的申請請先取消後重新申請。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : mode === "multiple" ? "先選時數再點日期，每一天會建立一筆申請；選好的日期離開頁面後不會保留。" : "填寫台北時間的申請時段；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=overtime" /><Panel className={FORM_PANEL}>{editing || copying ? null : <SegmentedControl skin="tabs" className="mb-4" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={save.isPending || batchPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />}{mode === "multiple" ? <OvertimeBatchFields reason={reason} onReasonChange={setReason} onPendingChange={setBatchPending} onDone={() => { sessionStorage.removeItem("hr:overtime-draft"); navigate("/forms?tab=overtime", { replace: true }); }} /> : <><div className={FORM_FIELDS}><div className={FORM_FIELD_ROW}><TextField label="開始（台北時間）" type="datetime-local" required value={start} disabled={disabled} onChange={(event) => changeStart(event.target.value)} /><TextField label="結束（台北時間）" type="datetime-local" required value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} /></div><TextField label="加班時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (requestedMinutes > 0 ? hoursText(requestedMinutes) : "")} disabled={disabled} onChange={(event) => changeHours(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint="填時數會自動換算結束時間。" error={hoursError} /><Field label="加班原因（選填）"><Textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} /></Field></div>{existingRequest?.request.settlementKind === "compensatory" ? <Alert tone="info">{editing ? "這筆申請的結算方式是補休，更新後仍是補休、不計加班費。要改成付薪請取消後重新申請。" : "原申請的結算方式是補休；重新送出會改為付薪。需要補休請洽 HR。"}</Alert> : null}{error ? <Alert tone="danger">{error}</Alert> : null}<FormActions><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=overtime")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={disabled}>{editing ? "更新加班申請" : copying ? "重新送出加班申請" : "送出加班申請"}</Button></FormActions></>}</Panel></FormPage>;
 }
 
 function previousDate(value: string) {
@@ -973,25 +993,16 @@ export function HrLeaveForm() {
   return <FormPage>
     <FormPageHeader title={editing ? "編輯請假申請" : copying ? "重新申請請假" : "請假申請"} description={editing ? "只能修改審核中的請假申請；已核准或駁回的申請請重新建立。" : copying ? "已帶入原申請內容；送出會建立新申請並保留原駁回紀錄。" : selectedType?.leaveKind === "grant" && !selectedType.scheduleCheckRequired ? "此額度假別依申請時數計算，不檢查班表；離開頁面前會暫存未送出的內容。" : "系統依工作日、班表與休息時間計算請假時數；離開頁面前會暫存未送出的內容。"} returnTo="/forms?tab=leave" />
     <Panel className={FORM_PANEL}>
-      <div className="hr-form-fields">
+      <div className={FORM_FIELDS}>
         <SelectField label="假別" required value={leaveTypeId || NO_LEAVE_TYPE} options={leaveTypeOptions} disabled={leaveTypes.isPending || disabled} onChange={(event) => setLeaveTypeId(event.target.value === NO_LEAVE_TYPE ? "" : event.target.value)} hint={selectedType?.leaveKind === "annual" ? "特休額度以 0.5 小時為單位，且每個週期獨立計算。" : selectedType?.leaveKind === "grant" ? "此假別以 1 小時為單位；額度依最早到期批次扣除，使用期限含最後一天。" : "此假別的給薪與額度依公司制度及審核結果處理。"} />
-        <div className="hr-form-field-row">
+        <div className={FORM_FIELD_ROW}>
           <TextField label="開始（台北時間）" type="datetime-local" step="1800" required value={start} disabled={disabled} onChange={(event) => { const value = event.target.value; setStart(value); if (end && end <= value) setEnd(""); }} />
           <TextField label="結束（台北時間）" type="datetime-local" step="1800" required min={start} value={end} disabled={disabled} onChange={(event) => { setEnd(event.target.value); setHoursDraft(null); }} />
         </div>
         <TextField label="請假時數（小時）" type="text" inputMode="decimal" value={hoursDraft ?? (calculated && durationValid ? hoursText(calculated.durationMinutes) : "")} disabled={disabled} onChange={(event) => setHoursDraft(event.target.value)} onBlur={() => { if (!hoursDraft?.trim()) setHoursDraft(null); }} hint={hoursPending ? "換算結束時間中…" : selectedType?.leaveKind === "grant" && !selectedType.scheduleCheckRequired ? "此假別不檢查班表，填寫整數小時會依時數推算結束時間。" : "填時數會依班表與休息時間換算結束時間。"} error={hoursInvalid ? selectedType?.leaveKind === "grant" ? "額度發放假別請假時數必須是 1 小時的整數倍，最多 744 小時。" : "請假時數必須是 0.5 小時的倍數，最多 744 小時。" : hoursPending ? undefined : leaveEnd.error?.message} />
-        <div className="hr-leave-duration-card" aria-live="polite">
-          <div><span>系統計算時數</span><strong>{duration.isPending ? "計算中…" : calculated && durationValid ? formatHours(calculated.durationMinutes) : "尚未完成計算"}</strong></div>
-          {calculated ? <small>{calculated.startsOn}～{dateBefore(calculated.endsOn)}，{selectedType?.leaveKind === "grant" && !selectedType.scheduleCheckRequired ? "依申請時數計算（不檢查班表）" : "依實際工作日與休息時間計算"}</small> : null}
-        </div>
-        {selectedType?.leaveKind === "annual" ? <div className="hr-leave-credit-card" aria-live="polite">
-          <div><span>可用特休額度</span><strong>{credit && credit.balanceHalfHours > 0 ? formatHours(credit.balanceHalfHours * 30) : "此時段沒有可用額度"}</strong></div>
-          {credit && credit.balanceHalfHours > 0 ? <small>額度週期：{credit.periodStart}～{dateBefore(credit.periodEnd)}；送出後核准才會扣除。</small> : <small>請調整日期至可用額度週期內，或聯絡管理者確認額度。</small>}
-        </div> : null}
-        {selectedType?.leaveKind === "grant" ? <div className="hr-leave-credit-card" aria-live="polite">
-          <div><span>可用額度</span><strong>{availableGrantMinutes > 0 ? formatHours(availableGrantMinutes) : "此時段沒有可用額度"}</strong></div>
-          {grantCredits.length ? <small>適用批次期限：{grantCredits.map((item) => `${item.issuedOn}～${item.expiresOn}`).join("、")}；核准時依最早到期順序扣除。</small> : <small>請調整日期至已發放且未過期的額度期間，或聯絡 HR 發放額度。</small>}
-        </div> : null}
+        <SummaryCard label="系統計算時數" value={duration.isPending ? "計算中…" : calculated && durationValid ? formatHours(calculated.durationMinutes) : "尚未完成計算"} note={calculated ? <>{calculated.startsOn}～{dateBefore(calculated.endsOn)}，{selectedType?.leaveKind === "grant" && !selectedType.scheduleCheckRequired ? "依申請時數計算（不檢查班表）" : "依實際工作日與休息時間計算"}</> : null} />
+        {selectedType?.leaveKind === "annual" ? <SummaryCard tone="credit" label="可用特休額度" value={credit && credit.balanceHalfHours > 0 ? formatHours(credit.balanceHalfHours * 30) : "此時段沒有可用額度"} note={credit && credit.balanceHalfHours > 0 ? `額度週期：${credit.periodStart}～${dateBefore(credit.periodEnd)}；送出後核准才會扣除。` : "請調整日期至可用額度週期內，或聯絡管理者確認額度。"} /> : null}
+        {selectedType?.leaveKind === "grant" ? <SummaryCard tone="credit" label="可用額度" value={availableGrantMinutes > 0 ? formatHours(availableGrantMinutes) : "此時段沒有可用額度"} note={grantCredits.length ? `適用批次期限：${grantCredits.map((item) => `${item.issuedOn}～${item.expiresOn}`).join("、")}；核准時依最早到期順序扣除。` : "請調整日期至已發放且未過期的額度期間，或聯絡 HR 發放額度。"} /> : null}
         <Field label="請假原因（選填）"><Textarea maxLength={1000} rows={5} value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} placeholder="請說明請假原因（選填）" /></Field>
       </div>
       {leaveTypes.error ? <Alert tone="danger">{leaveTypes.error.message}</Alert> : null}
@@ -999,7 +1010,7 @@ export function HrLeaveForm() {
       {selectedType?.leaveKind === "annual" && calculated && !hasEnoughCredit ? <Alert tone="warning">所選時段超過可用特休額度，請縮短時數或調整到其他額度週期。</Alert> : null}
       {selectedType?.leaveKind === "grant" && calculated && !hasEnoughCredit ? <Alert tone="warning">所選時段的額度不足或效期不符，請縮短時數、調整日期或聯絡 HR。</Alert> : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      <div className="hr-form-actions"><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=leave")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={!canSubmit}>{editing ? "更新請假申請" : copying ? "重新送出請假申請" : "送出請假申請"}</Button></div>
+      <FormActions><Button size="lg" variant="secondary" onClick={() => navigate("/forms?tab=leave")} disabled={disabled}>取消</Button><Button size="lg" tone={editing || copying ? "info" : "success"} loading={save.isPending} onClick={submit} disabled={!canSubmit}>{editing ? "更新請假申請" : copying ? "重新送出請假申請" : "送出請假申請"}</Button></FormActions>
     </Panel>
   </FormPage>;
 }
@@ -1087,8 +1098,8 @@ export function HrClockCorrectionForm() {
   return <FormPage>
     <FormPageHeader title="補打卡申請單" description="補登實際應出勤時間，送出後由指定審核者確認。" returnTo={returnTo} />
     <Panel className={FORM_PANEL}>
-      <div className="hr-form-fields">
-        <div className="hr-form-field-row">
+      <div className={FORM_FIELDS}>
+        <div className={FORM_FIELD_ROW}>
           <TextField label="補打卡日期" required type="date" max={initial.date} value={correctionDate} disabled={saving} onChange={(event) => setCorrectionDate(event.target.value)} />
           <TextField label="補打卡時間（台北時間）" required type="time" value={requestedTime} disabled={saving} onChange={(event) => setRequestedTime(event.target.value)} />
         </div>
@@ -1100,10 +1111,10 @@ export function HrClockCorrectionForm() {
       </div>
       {approvers.error ? <Alert tone="danger">{approvers.error.message}</Alert> : null}
       {localError ? <Alert tone="danger">{localError}</Alert> : null}
-      <div className="hr-form-actions">
+      <FormActions>
         <Button size="lg" variant="secondary" disabled={saving} onClick={() => navigate(returnTo)}>取消</Button>
         <Button size="lg" tone="success" loading={saving} loadingLabel="送出中…" disabled={!approverUserId} onClick={() => { void submit(); }}>送出補打卡申請</Button>
-      </div>
+      </FormActions>
     </Panel>
   </FormPage>;
 }

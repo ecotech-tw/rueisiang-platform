@@ -24,16 +24,6 @@
 @keyframes hr-calendar-slide-prev { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
 
  
-.hr-overtime-batch-list { margin-bottom: 12px; }
-.hr-overtime-batch-days { display: grid; gap: 6px; max-height: 40vh; margin: 12px 0; padding: 0; overflow-y: auto; list-style: none; font-size: 13px; font-variant-numeric: tabular-nums; }
-.hr-overtime-batch-days li { display: grid; gap: 2px; padding: 8px 12px; border-radius: 10px; background: var(--color-canvas); }
-.hr-overtime-batch-days li > div { display: flex; justify-content: space-between; gap: 12px; }
-.hr-overtime-batch-days li > div span:last-child { color: var(--color-muted); }
-.hr-overtime-batch-days li small { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
-.hr-form-fields { display: grid; gap: 16px; }
-.hr-form-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.hr-overtime-note { margin: 0; font-size: 13px; line-height: 1.55; }
-.hr-form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 18px; }
 @keyframes hr-form-tab-enter {
   from { opacity: 0; transform: translateX(16px); }
   to { opacity: 1; transform: translateX(0); }
@@ -42,18 +32,6 @@
   from { opacity: 0; transform: translateX(-16px); }
   to { opacity: 1; transform: translateX(0); }
 }
-.hr-leave-duration-card,
-.hr-leave-credit-card { display: grid; gap: 5px; padding: 14px 16px; border: 1px solid var(--color-soft-line); border-radius: 14px; background: var(--color-canvas); }
-.hr-leave-duration-card > div,
-.hr-leave-credit-card > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
-.hr-leave-duration-card span,
-.hr-leave-credit-card span { color: var(--color-muted); font-size: 12px; font-weight: 700; }
-.hr-leave-duration-card strong,
-.hr-leave-credit-card strong { color: var(--color-ink); font-size: 18px; font-variant-numeric: tabular-nums; }
-.hr-leave-duration-card small,
-.hr-leave-credit-card small { color: var(--color-muted); font-size: 12px; }
-.hr-leave-credit-card { border-color: --alpha(var(--color-brand) / 20%); background: var(--color-brand-soft); }
-.hr-leave-credit-card strong { color: var(--color-brand-dark); }
 
 
 
@@ -70,26 +48,4 @@
 
 @media (max-width: 760px) {
   [data-panel] + [data-panel] { margin-top: 14px; }
-  .hr-form-field-row { grid-template-columns: 1fr; gap: 14px; }
-  .hr-form-fields { gap: 14px; }
-  .hr-leave-duration-card,
-  .hr-leave-credit-card { padding: 12px 13px; border-radius: 13px; }
-  .hr-leave-duration-card strong,
-  .hr-leave-credit-card strong { font-size: 17px; text-align: right; }
-  [data-form-page] > [data-panel] > .hr-form-actions {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 20;
-    width: 100%;
-    margin: 0;
-    padding: 12px 14px var(--hr-safe-bottom);
-    border-top: 1px solid var(--color-soft-line);
-    background: --alpha(var(--color-paper) / 96%);
-    box-shadow: 0 -8px 20px --alpha(var(--color-ink) / 10%);
-    -webkit-backdrop-filter: blur(12px) saturate(140%);
-    backdrop-filter: blur(12px) saturate(140%);
-  }
-  .hr-form-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 0; }
 }
