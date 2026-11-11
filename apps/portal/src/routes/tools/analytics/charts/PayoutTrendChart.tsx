@@ -11,6 +11,8 @@ import {
 } from "recharts";
 import { DataTable, Panel } from "../../../../ui/index.js";
 import {
+  ANALYTICS_CHART,
+  ANALYTICS_CHART_PANEL,
   ANALYTICS_TABLE,
   AnalyticsDataDialog,
   AnalyticsLegend,
@@ -61,9 +63,9 @@ export function PayoutTrendChart({ current, lastYear, granularity, valueFormatte
         </AnalyticsDataDialog>
       )}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-trend-panel"
+      className={ANALYTICS_CHART_PANEL}
     >
-      <div className="analytics-chart" role="img" aria-label="出金趨勢圖">
+      <div className={ANALYTICS_CHART} role="img" aria-label="出金趨勢圖">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
             <CartesianGrid stroke="var(--color-soft-line)" vertical={false} />

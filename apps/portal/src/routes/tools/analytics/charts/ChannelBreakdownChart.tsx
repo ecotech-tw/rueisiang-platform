@@ -9,7 +9,7 @@ import {
   YAxis,
 } from "recharts";
 import { DataTable, Panel } from "../../../../ui/index.js";
-import { ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
+import { ANALYTICS_CHART, ANALYTICS_CHART_EMPTY, ANALYTICS_CHART_PANEL, ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
 import type { SalesBreakdown } from "../api.js";
 
 /** 銷量與銷售額是同一份 breakdown 的兩種讀法，圖表本身完全一樣，只有取值與文案不同。 */
@@ -115,11 +115,11 @@ export function ChannelBreakdownChart({
         </AnalyticsDataDialog>
       ) : null}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-channel-panel"
+      className={ANALYTICS_CHART_PANEL}
     >
       {data.length ? (
         <div
-          className="analytics-chart analytics-channel-chart"
+          className={ANALYTICS_CHART}
           role="img"
           aria-label={isAmount ? "通路商品銷售額比較圖" : "通路商品淨銷量比較圖"}
           style={{ height: Math.max(260, data.length * 40 + 24) }}
@@ -136,7 +136,7 @@ export function ChannelBreakdownChart({
             </BarChart>
           </ResponsiveContainer>
         </div>
-      ) : <p className="analytics-chart-empty">本期沒有通路資料。</p>}
+      ) : <p className={ANALYTICS_CHART_EMPTY}>本期沒有通路資料。</p>}
     </Panel>
   );
 }

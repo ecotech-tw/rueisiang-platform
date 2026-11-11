@@ -8,7 +8,7 @@ import {
   Tooltip,
 } from "recharts";
 import { Button, DataTable, Panel } from "../../../../ui/index.js";
-import { ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsLegend, AnalyticsTooltip, type ChartLegendEntry } from "./ChartPrimitives.js";
+import { ANALYTICS_CHART, ANALYTICS_CHART_EMPTY, ANALYTICS_CHART_PANEL, ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsLegend, AnalyticsTooltip, type ChartLegendEntry } from "./ChartPrimitives.js";
 import type { SalesCategoryBreakdown } from "../api.js";
 
 const TONES = ["rose", "sky", "mint", "amber", "violet", "teal", "peach", "slate", "lime", "sand"] as const;
@@ -115,12 +115,12 @@ function CategoryPie({
   }
 
   return (
-    <div className="analytics-category-chart-card">
-      <div className="analytics-category-chart-heading">
-        <h3>{activeParent ? `${title}・${activeParent}` : title}</h3>
+    <div className="grid min-w-0 gap-2">
+      <div className="flex items-center justify-between gap-2.5">
+        <h3 className="m-0 text-[12px] font-extrabold text-muted">{activeParent ? `${title}・${activeParent}` : title}</h3>
         {activeParent ? <Button variant="link" onClick={() => onSelectParent(null)}>返回母分類</Button> : null}
       </div>
-      <div className="analytics-chart analytics-category-chart" role="img" aria-label={ariaLabel}>
+      <div className={ANALYTICS_CHART} role="img" aria-label={ariaLabel}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -196,10 +196,10 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
         </AnalyticsDataDialog>
       ) : null}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-category-panel"
+      className={ANALYTICS_CHART_PANEL}
     >
       {parentRows.length ? (
-        <div className="analytics-category-chart-duo">
+        <div className="grid gap-3.5">
           <CategoryPie
             title="分類銷量"
             ariaLabel="商品分類淨銷量佔比圖"
@@ -225,7 +225,7 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
             onSelectParent={setAmountParent}
           />
         </div>
-      ) : <p className="analytics-chart-empty">本期沒有分類資料。</p>}
+      ) : <p className={ANALYTICS_CHART_EMPTY}>本期沒有分類資料。</p>}
     </Panel>
   );
 }

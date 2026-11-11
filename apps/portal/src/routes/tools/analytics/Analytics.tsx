@@ -73,6 +73,9 @@ const FILTER_FIELD = "grid gap-[5px]";
 const FILTER_FIELD_WIDTH = "min-w-[164px] max-[760px]:min-w-0";
 const FILTER_DATE_WIDTH = "min-w-[150px] max-[760px]:min-w-0 max-[760px]:col-span-1";
 const FILTER_LABEL = "text-[12px] font-bold text-muted";
+const TAB_BUTTON = "min-h-9 min-w-[100px] rounded-full border-0 px-4 text-[13px] font-bold focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-secondary max-[760px]:flex-1";
+const TAB_ACTIVE = "bg-brand-soft text-brand-dark";
+const TAB_IDLE = "bg-transparent text-muted hover:bg-brand/5 hover:text-brand-dark";
 const FILTER_INPUT = "min-h-10 min-w-0 rounded-field border border-line bg-paper px-2.5 py-2 text-ink [font:inherit] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-secondary";
 
 function updateParams(
@@ -184,7 +187,7 @@ export function Analytics() {
   }
 
   return (
-    <Page className="analytics-page">
+    <Page>
       <PageHeader
         className="flex-none mb-4 max-[760px]:mb-3 [&_h1]:tracking-[-0.02em]"
         title="營運統計"
@@ -198,12 +201,12 @@ export function Analytics() {
             <strong className="block text-[14px]">分析範圍</strong>
             <p className="mt-[3px] mb-0 text-[12px] text-muted">選擇店別／通路與期間；切換分析類型時會保留這裡的條件。</p>
           </div>
-          <div className="analytics-tabs max-[760px]:ml-0 max-[760px]:w-full" role="tablist" aria-label="統計類型">
+          <div className="ml-auto flex w-fit flex-none gap-1 rounded-full border border-line bg-paper p-1 max-[760px]:ml-0 max-[760px]:w-full" role="tablist" aria-label="統計類型">
             <button
               type="button"
               role="tab"
               aria-selected={tab === "payout"}
-              className={tab === "payout" ? "analytics-tab active" : "analytics-tab"}
+              className={`${TAB_BUTTON} ${tab === "payout" ? TAB_ACTIVE : TAB_IDLE}`}
               onClick={() => setFilter({ tab: "payout" })}
             >
               出金
@@ -212,7 +215,7 @@ export function Analytics() {
               type="button"
               role="tab"
               aria-selected={tab === "sales"}
-              className={tab === "sales" ? "analytics-tab active" : "analytics-tab"}
+              className={`${TAB_BUTTON} ${tab === "sales" ? TAB_ACTIVE : TAB_IDLE}`}
               onClick={() => setFilter({ tab: "sales" })}
             >
               商品銷售
@@ -245,11 +248,11 @@ export function Analytics() {
             />
           </label>
           {tab === "sales" ? (
-            <div className={`${FILTER_FIELD} analytics-product-field`}>
+            <div className={`${FILTER_FIELD} min-w-[280px] flex-[1_1_280px] max-[760px]:col-span-2 max-[760px]:min-w-0`}>
               <span className={FILTER_LABEL}>商品分析</span>
-              <div className="analytics-product-control">
+              <div className="flex items-stretch gap-2">
                 <input
-                  className={FILTER_INPUT}
+                  className={`${FILTER_INPUT} w-0 flex-auto`}
                   value={productDraft}
                   placeholder="商品名稱或 SKU"
                   aria-label="商品名稱或 SKU"
@@ -292,7 +295,7 @@ export function Analytics() {
         {scopes.error ? <Alert tone="danger">{scopes.error.message}</Alert> : null}
       </Panel>
 
-      <div className="analytics-body" role="tabpanel">
+      <div className="min-h-0 flex-none overflow-visible pr-0.5 pb-3" role="tabpanel">
         {tab === "payout" ? (
           <PayoutTab query={query} scopeLabel={scopeLabel} enabled={ready} />
         ) : salesPeriodPending ? (

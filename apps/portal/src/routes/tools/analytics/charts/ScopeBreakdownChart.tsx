@@ -8,7 +8,7 @@ import {
   YAxis,
 } from "recharts";
 import { DataTable, Panel } from "../../../../ui/index.js";
-import { ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
+import { ANALYTICS_CHART, ANALYTICS_CHART_PANEL, ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
 import type { PayoutBreakdown } from "../api.js";
 
 interface ScopeBreakdownChartProps {
@@ -51,14 +51,14 @@ export function ScopeBreakdownChart({ breakdown, valueFormatter }: ScopeBreakdow
         </AnalyticsDataDialog>
       ) : null}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-scope-panel"
+      className={ANALYTICS_CHART_PANEL}
     >
       {/*
         * 高度跟著筆數長。固定高度時 recharts 會把塞不下的類別標籤整個丟掉，
         * 看起來像有幾條長條沒有名字。
         */}
       <div
-        className="analytics-chart analytics-scope-chart"
+        className={ANALYTICS_CHART}
         role="img"
         aria-label="通路出金比較圖"
         style={{ height: Math.max(260, data.length * 40 + 24) }}

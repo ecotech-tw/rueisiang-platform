@@ -1,6 +1,12 @@
-import { Icon } from "../../../shell/icons.js";
-import { Alert, ButtonLink, Panel } from "../../../ui/index.js";
-import { AnalyticsKpiHint, AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
+import { Alert, ButtonLink } from "../../../ui/index.js";
+import {
+  ANALYTICS_CHART_GRID,
+  AnalyticsEmptyPanel,
+  AnalyticsKpi,
+  AnalyticsKpiGrid,
+  AnalyticsRefreshing,
+  AnalyticsResultHeading,
+} from "./charts/ChartPrimitives.js";
 import { PayoutTrendChart } from "./charts/PayoutTrendChart.js";
 import { ScopeBreakdownChart } from "./charts/ScopeBreakdownChart.js";
 import { ReportApiError, usePayoutSummary, type AnalyticsQuery } from "./api.js";
@@ -47,63 +53,37 @@ export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
   if (!summary) return <Alert tone="danger">報表沒有回傳資料。</Alert>;
   if (summary.status === "NO_DATA_FOR_RANGE") {
     return (
-      <Panel className="analytics-empty-panel p-[30px] max-[760px]:px-5 max-[760px]:py-6">
-        <span className="analytics-empty-icon"><Icon name="report" /></span>
-        <h2>{scopeLabel}在這段期間沒有出金資料</h2>
-        <p>{summary.message ?? "這段期間沒有已匯入的出金資料。"}</p>
+      <AnalyticsEmptyPanel icon="report" title={`${scopeLabel}在這段期間沒有出金資料`} message={summary.message ?? "這段期間沒有已匯入的出金資料。"}>
         <ButtonLink icon="payments" href="/tools/payout" className="mt-1">前往執行出金表</ButtonLink>
-      </Panel>
+      </AnalyticsEmptyPanel>
     );
   }
 
   const asOf = summary.complete || !summary.asOfDate ? null : `截至 ${formatDate(summary.asOfDate)}`;
   const isAnnual = /^\d{4}$/u.test(summary.period);
   return (
-    <div className="analytics-results">
-      <div className="analytics-result-heading">
-        <div>
-          <p className="analytics-eyebrow">出金脈動</p>
-          <h2>{scopeLabel}</h2>
-        </div>
-        <div className="analytics-result-meta">
-          {asOf ? <span className="analytics-as-of">{asOf}</span> : null}
-          <span>僅計入啟用中的店別</span>
-        </div>
-      </div>
+    <div className="grid gap-3.5">
+      <AnalyticsResultHeading eyebrow="出金脈動" title={scopeLabel} asOf={asOf} />
 
-      <div className={isAnnual ? "analytics-kpi-grid annual" : "analytics-kpi-grid"}>
-        <article className="analytics-kpi analytics-kpi-primary">
-          <span>本期出金</span>
-          <AnalyticsKpiValue>{formatCurrency(summary.current.total)}</AnalyticsKpiValue>
-          <small>{summary.current.start} ～ {summary.current.end}</small>
-        </article>
+      <AnalyticsKpiGrid tab="payout" annual={isAnnual}>
+        <AnalyticsKpi primary label="本期出金" value={formatCurrency(summary.current.total)}>
+          {summary.current.start} ～ {summary.current.end}
+        </AnalyticsKpi>
         {!isAnnual ? (
-          <article className="analytics-kpi">
-            <span>MoM</span>
-            <AnalyticsKpiValue>{formatPercent(summary.growth.mom)}</AnalyticsKpiValue>
-            <AnalyticsKpiHint>{growthHint("上期", summary.growth.mom, summary.previous)}</AnalyticsKpiHint>
-          </article>
+          <AnalyticsKpi label="MoM" value={formatPercent(summary.growth.mom)} hint={growthHint("上期", summary.growth.mom, summary.previous)} />
         ) : null}
-        <article className="analytics-kpi">
-          <span>YoY</span>
-          <AnalyticsKpiValue>{formatPercent(summary.growth.yoy)}</AnalyticsKpiValue>
-          <AnalyticsKpiHint>{growthHint("去年同期", summary.growth.yoy, summary.lastYear)}</AnalyticsKpiHint>
-        </article>
-        <article className="analytics-kpi">
-          <span>日均出金</span>
-          <AnalyticsKpiValue>{summary.dailyAverage === null ? "—" : formatCurrency(summary.dailyAverage)}</AnalyticsKpiValue>
-          <small>{summary.dataDays ? `以 ${summary.dataDays} 天有資料日計算` : "沒有可計算的資料日"}</small>
-        </article>
-        <article className="analytics-kpi">
-          <span>最高單日</span>
-          <AnalyticsKpiValue>{summary.highestDay ? formatCurrency(summary.highestDay.value) : "—"}</AnalyticsKpiValue>
-          <small>{summary.highestDay ? formatDate(summary.highestDay.date) : "沒有可顯示的日期"}</small>
-        </article>
-      </div>
+        <AnalyticsKpi label="YoY" value={formatPercent(summary.growth.yoy)} hint={growthHint("去年同期", summary.growth.yoy, summary.lastYear)} />
+        <AnalyticsKpi label="日均出金" value={summary.dailyAverage === null ? "—" : formatCurrency(summary.dailyAverage)}>
+          {summary.dataDays ? `以 ${summary.dataDays} 天有資料日計算` : "沒有可計算的資料日"}
+        </AnalyticsKpi>
+        <AnalyticsKpi label="最高單日" value={summary.highestDay ? formatCurrency(summary.highestDay.value) : "—"}>
+          {summary.highestDay ? formatDate(summary.highestDay.date) : "沒有可顯示的日期"}
+        </AnalyticsKpi>
+      </AnalyticsKpiGrid>
 
-      {result.isFetching ? <p className="analytics-refreshing" role="status">正在更新統計…</p> : null}
+      {result.isFetching ? <AnalyticsRefreshing /> : null}
 
-      <div className="analytics-chart-grid">
+      <div className={ANALYTICS_CHART_GRID}>
         <PayoutTrendChart
           current={summary.current}
           lastYear={summary.lastYear}
