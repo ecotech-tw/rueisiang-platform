@@ -1282,11 +1282,3 @@
 .hr-payroll-section-head > div { display: grid; gap: 4px; min-width: 0; }
 .hr-payroll-section-head h3 { margin: 0; font-size: 15px; }
 .hr-payroll-section-head p { margin: 0; color: var(--color-muted); font-size: 13px; }
-
-@media (prefers-reduced-motion: reduce) {
-  .hr-overview-card,
-  .hr-overview-action span { transition-property: none; }
-  .hr-overview-card:hover { transform: none; }
-  .hr-overview-card:hover .hr-overview-action span { transform: none; }
-}
-

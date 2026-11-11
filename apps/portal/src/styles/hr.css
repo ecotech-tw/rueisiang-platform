@@ -4,35 +4,6 @@
   60% { opacity: .9; filter: blur(4px); }
   100% { opacity: 1; translate: 0 0; filter: blur(0); }
 }
-/* HRIS 概覽卡跟玻璃面板（Panel 的 glass）是同一塊玻璃，數值共用 theme 裡的 token。 */
-.hr-overview-card {
-  position: relative;
-  isolation: isolate;
-  overflow: hidden;
-  border: 1px solid transparent;
-  background: --alpha(var(--color-paper) / 24%);
-  box-shadow: var(--shadow-glass-panel);
-  -webkit-backdrop-filter: blur(7px) saturate(150%) contrast(102%);
-  backdrop-filter: blur(7px) saturate(150%) contrast(102%);
-}
-.hr-overview-card::before {
-  position: absolute;
-  inset: 1px;
-  z-index: -1;
-  border-radius: inherit;
-  background: var(--glass-panel-sheen);
-  content: "";
-  pointer-events: none;
-}
-.hr-overview-card::after {
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  box-shadow: var(--shadow-glass-panel-glow);
-  content: "";
-  pointer-events: none;
-}
 .hr-system .row-actions { gap: 8px; }
 /*
  * 頁首並排的操作鍵。沒有這條時 .button-row 是 block，按鈕靠文字基線排：次要鍵與主要鍵
@@ -71,11 +42,6 @@
 @keyframes hr-chunk-in { from { opacity: 0; translate: 0 -12px; filter: blur(4px); } }
 @keyframes hr-chunk-out { to { opacity: 0; translate: 0 -12px; filter: blur(4px); } }
 
-/* HRIS 概覽卡片 */
-.hr-overview-page { gap: 22px; }
-.hr-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.hr-overview-card { display: grid; gap: 13px; min-height: 190px; padding: 18px; border-radius: 18px; color: var(--color-ink); text-decoration: none; transition-property: background-color, box-shadow, transform; transition-duration: 150ms; transition-timing-function: ease-out; }
-.hr-overview-card:hover { background-color: --alpha(var(--color-paper) / 42%); box-shadow: 0 1px 0 --alpha(var(--color-paper) / 62%) inset, 0 18px 42px --alpha(var(--color-ink) / 11%); transform: translateY(-2px); }
 .hr-system .hr-schedule-month > strong {
   display: inline-grid;
   min-height: 36px;
@@ -85,18 +51,6 @@
   font-size: 17px;
   letter-spacing: .02em;
 }
-.hr-overview-card:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-overview-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.hr-overview-icon { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 12px; background: var(--color-brand-soft); color: var(--color-brand-dark); }
-.hr-overview-icon-warning { background: var(--color-warn-soft); color: var(--color-warn); }
-.hr-overview-icon-success { background: var(--color-ok-soft); color: var(--color-ok); }
-.hr-overview-icon-info { background: var(--color-info-soft); color: var(--color-info); }
-.hr-overview-icon svg { width: 19px; height: 19px; }
-.hr-overview-value { font-size: clamp(22px, 2vw, 30px); letter-spacing: -.02em; }
-.hr-overview-card p { min-height: 42px; margin: 0; color: var(--color-muted); font-size: 12px; line-height: 1.65; }
-.hr-overview-action { align-self: end; color: var(--color-brand-dark); font-size: 13px; font-weight: 800; }
-.hr-overview-action span { display: inline-block; margin-left: 3px; transition-property: transform; transition-duration: 150ms; transition-timing-function: ease-out; }
-.hr-overview-card:hover .hr-overview-action span { transform: translateX(3px); }
 
 .hr-system .hr-insurance-scheme-card {
   display: grid;
@@ -123,11 +77,4 @@
 .hr-system .hr-insurance-estimate-row small { font-size: 11px; font-weight: 500; }
 .hr-system .hr-insurance-estimate-total { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; padding: 10px 0 2px; color: var(--color-brand-dark); font-size: 13px; font-weight: 700; }
 .hr-system .hr-insurance-estimate-total strong { font-size: 17px; }
-
-@media (max-width: 1100px) { .hr-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 620px) {
-  .hr-overview-grid { grid-template-columns: 1fr; }
-  .hr-overview-card { min-height: 0; }
-  .hr-overview-card p { min-height: 0; }
-}
 
