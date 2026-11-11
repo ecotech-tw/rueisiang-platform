@@ -1,9 +1,11 @@
 import { useState } from "react";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, Dialog, Field, FieldHint, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateCatalogItem,
   useLinkCyberbiz,
+  useRepairCyberbizLink,
   useUpdateItem,
   type InventoryItem,
   type ProductCategory,
@@ -56,6 +58,7 @@ export function ItemForm({
   const initialCategory = categories.find((category) => category.name === (item?.category ?? (categories.length === 1 ? categories[0]?.name : "")));
 
   const [selectedCategoryId, setSelectedCategoryId] = useState(initialCategory?.id ?? "");
+  const [confirmCyberbizRepair, setConfirmCyberbizRepair] = useState(false);
   const [fields, setFields] = useState({
     sku: item?.sku ?? "",
     name: item?.name ?? "",
@@ -72,8 +75,9 @@ export function ItemForm({
   const createCatalog = useCreateCatalogItem();
   const update = useUpdateItem();
   const link = useLinkCyberbiz();
+  const repairLink = useRepairCyberbizLink();
   const toast = useToast();
-  const pending = createCatalog.isPending || update.isPending || link.isPending;
+  const pending = createCatalog.isPending || update.isPending || link.isPending || repairLink.isPending;
   const error = createCatalog.error ?? update.error ?? link.error;
 
   /** 選了倉位才有層可選，而且只能選那個倉位自己的層。 */
@@ -124,6 +128,7 @@ export function ItemForm({
   }
 
   return (
+    <>
     <Dialog
       manageFocus
       title={item ? "編輯品項" : "新增自訂品項"}
@@ -280,7 +285,17 @@ export function ItemForm({
                       {item.cyberbiz.syncedAt ? `・目錄同步 ${formatTime(item.cyberbiz.syncedAt)}` : ""}
                     </div>
                   </div>
-                  <div className="cell-sub">商品身分與官網鏡像共用，若要停止庫存同步請移出 WMS。</div>
+                  <div className="flex flex-col items-end gap-2">
+                    <div className="cell-sub">商品身分與官網鏡像共用，若要停止庫存同步請移出 WMS。</div>
+                    <Button
+                      className="flex-none"
+                      variant="secondary"
+                      disabled={pending}
+                      onClick={() => setConfirmCyberbizRepair(true)}
+                    >
+                      檢查並修復連結
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="link-panel">
@@ -322,5 +337,36 @@ export function ItemForm({
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
     </Dialog>
+    {confirmCyberbizRepair && item?.cyberbiz ? (
+      <ConfirmDialog
+        title="檢查並修復 CYBERBIZ 連結？"
+        confirmLabel="檢查並修復"
+        tone="primary"
+        pending={repairLink.isPending}
+        onCancel={() => setConfirmCyberbizRepair(false)}
+        onConfirm={() => repairLink.mutate(
+          {
+            id: item.id,
+            productId: item.cyberbiz!.cyberbizProductId,
+            variantId: item.cyberbiz!.cyberbizVariantId,
+          },
+          {
+            onSuccess: (result) => {
+              const newVariantId = result.newVariantId ?? result.oldVariantId;
+              toast.show(result.changed
+                ? `連結已修復：${result.oldVariantId} → ${newVariantId}；官網庫存 ${result.remote.quantity}，尚未同步到 WMS`
+                : `SKU ${result.sku} 已連到目前款式 ${result.oldVariantId}`);
+              setConfirmCyberbizRepair(false);
+              onClose();
+            },
+          },
+        )}
+      >
+        <p>系統會重新載入 CYBERBIZ 公司倉目錄，只有 SKU 唯一且新款式未連到其他品項時才會修復。</p>
+        <p>這只會更新連結，不會修改庫存或推送數量；完成後請先核對官網庫存，再決定是否同步。</p>
+        {repairLink.error ? <Alert tone="danger">{repairLink.error.message}</Alert> : null}
+      </ConfirmDialog>
+    ) : null}
+    </>
   );
 }

@@ -66,6 +66,7 @@ const SOURCE_LABEL: Record<string, string> = {
 /** 欄位名是給程式看的，畫面上要講人話。 */
 const FIELD_LABEL: Record<string, string> = {
   quantity: "數量",
+  cyberbiz_variant_id: "CYBERBIZ 款式",
   position: "位置",
   size: "大小",
   placement: "存放位置",

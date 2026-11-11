@@ -1,4 +1,4 @@
-import type { CyberbizInventoryClient } from "@rueisiang/cyberbiz";
+import type { CyberbizInventoryClient, CyberbizInventoryItem } from "@rueisiang/cyberbiz";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
@@ -286,6 +286,103 @@ export async function applySyncPlan(
     }
   }
   return { updated, unchanged, failed };
+}
+
+export async function repairCyberbizItemLink(
+  db: Database,
+  input: {
+    inventoryItemId: string;
+    expectedProductId: string;
+    expectedVariantId: string;
+    products: ReadonlyArray<CyberbizInventoryItem>;
+    actor: { id: string; email: string };
+  },
+) {
+  const [current] = await db.select({
+    itemId: itemMasters.id,
+    sku: itemMasters.sku,
+    name: itemMasters.name,
+    productId: cyberbizProducts.cyberbizProductId,
+    variantId: cyberbizProducts.cyberbizVariantId,
+  })
+    .from(wmsItems)
+    .innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId))
+    .innerJoin(cyberbizProducts, eq(cyberbizProducts.itemId, wmsItems.itemId))
+    .where(eq(wmsItems.itemId, input.inventoryItemId))
+    .limit(1);
+  if (!current) throw new WmsError("not_found", "找不到已連結 CYBERBIZ 的倉儲品項。");
+  if (current.productId !== input.expectedProductId || current.variantId !== input.expectedVariantId) {
+    throw new WmsError("conflict", "CYBERBIZ 連結已被其他操作更新，請重新檢查。");
+  }
+  const matches = input.products.filter((product) =>
+    product.posShopId === "" && normalizedSku(product.sku) === normalizedSku(current.sku),
+  );
+  if (!matches.length) throw new WmsError("not_found", `官網目前找不到公司倉 SKU「${current.sku}」，連結未變更。`);
+  if (matches.length > 1) {
+    throw new WmsError("conflict", `官網有 ${matches.length} 個款式使用 SKU「${current.sku}」，為避免連錯，連結未變更。`);
+  }
+  const remote = matches[0]!;
+  if (current.productId === remote.productId && current.variantId === remote.variantId) {
+    return { changed: false, oldProductId: current.productId, oldVariantId: current.variantId, sku: current.sku, remote };
+  }
+
+  const [owner] = await db.select({ itemId: cyberbizProducts.itemId })
+    .from(cyberbizProducts)
+    .where(and(
+      eq(cyberbizProducts.cyberbizProductId, remote.productId),
+      eq(cyberbizProducts.cyberbizVariantId, remote.variantId),
+      ne(cyberbizProducts.itemId, current.itemId),
+    ))
+    .limit(1);
+  if (owner) throw new WmsError("conflict", "這個 CYBERBIZ 款式已連結其他品項，不能移轉連結。");
+
+  const updated = await db.update(cyberbizProducts).set({
+    cyberbizProductId: remote.productId,
+    cyberbizVariantId: remote.variantId,
+    productName: remote.productName,
+    variantName: remote.variantName,
+    published: remote.published ? 1 : 0,
+    cyberbizUpdatedAt: remote.updatedAt,
+    syncStatus: "synced",
+    syncedAt: new Date().toISOString(),
+  }).where(and(
+    eq(cyberbizProducts.itemId, current.itemId),
+    eq(cyberbizProducts.cyberbizProductId, input.expectedProductId),
+    eq(cyberbizProducts.cyberbizVariantId, input.expectedVariantId),
+  ));
+  if ((updated.meta?.changes ?? 0) === 0) {
+    throw new WmsError("conflict", "CYBERBIZ 連結已被其他操作更新，請重新檢查。");
+  }
+
+  await db.insert(activityEvents).values(activityRow({
+    entityType: "item",
+    entityId: current.itemId,
+    entityLabel: `${current.sku} ${current.name}`,
+    eventType: "cyberbiz_relinked",
+    summary: "修復 CYBERBIZ 款式連結",
+    field: "cyberbiz_variant_id",
+    oldValue: `${current.productId}/${current.variantId}`,
+    newValue: `${remote.productId}/${remote.variantId}`,
+    payload: {
+      sku: current.sku,
+      productName: remote.productName,
+      variantName: remote.variantName,
+      quantity: remote.quantity,
+      safetyQuantity: remote.safetyQuantity,
+    },
+    source: "cyberbiz_sync",
+    actor: input.actor,
+  }));
+
+  return {
+    changed: true,
+    oldProductId: current.productId,
+    oldVariantId: current.variantId,
+    newProductId: remote.productId,
+    newVariantId: remote.variantId,
+    sku: current.sku,
+    remote,
+  };
 }
 
 export async function linkItemToCyberbiz(

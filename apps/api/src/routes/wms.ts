@@ -26,6 +26,7 @@ import {
   loadWarehouse,
   recordCyberbizSyncFailed,
   recordCyberbizSyncSucceeded,
+  repairCyberbizItemLink,
   releaseCyberbizSyncLock,
   recordMediaObject,
   updateWarehouseCategory,
@@ -268,6 +269,30 @@ export const wms = new Hono<AppEnv>()
         pageSize: [25, 50, 100].includes(size) ? size : 25,
       }),
     );
+  })
+
+  /** 以唯一 SKU 找到現行款式，修復已連結但外部 ID 過期的關係；不改庫存。 */
+  .post("/items/:id/cyberbiz-link/repair", requirePermission("wms:inventory:write"), async (c) => {
+    const client = cyberbizInventoryClient(c.env);
+    if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN。" });
+
+    const input = await body(c);
+    const expectedProductId = requireString(input, "productId", "目前商品 ID");
+    const expectedVariantId = requireString(input, "variantId", "目前款式 ID");
+    const inventoryItemId = c.req.param("id");
+    const catalog = await loadCatalog(client, cacheClient(c.env), true);
+    if (catalog.truncated) {
+      throw new HTTPException(409, { message: "官網商品目錄未完整載入，無法安全確認 SKU 唯一性；請稍後再試或聯絡管理者。" });
+    }
+    const user = c.get("user");
+    const result = await repairCyberbizItemLink(c.get("db"), {
+      inventoryItemId,
+      expectedProductId,
+      expectedVariantId,
+      products: catalog.items,
+      actor: { id: user.id, email: user.email },
+    });
+    return c.json(result);
   })
 
   /** 用 SKU 在官網找到對應的款式並建立連結。 */

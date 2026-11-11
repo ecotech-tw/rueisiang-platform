@@ -398,6 +398,28 @@ export function useLinkCyberbiz() {
   );
 }
 
+export interface CyberbizLinkRepairResult {
+  changed: boolean;
+  oldProductId: string;
+  oldVariantId: string;
+  newProductId?: string;
+  newVariantId?: string;
+  sku: string;
+  remote: {
+    productName: string;
+    variantName: string;
+    quantity: number;
+    safetyQuantity: number;
+  };
+}
+
+/** 只重新綁定外部身分，不會把官網庫存寫進 WMS。 */
+export function useRepairCyberbizLink() {
+  return useWarehouseMutation(({ id, productId, variantId }: { id: string; productId: string; variantId: string }) =>
+    write<CyberbizLinkRepairResult>(`/api/wms/items/${id}/cyberbiz-link/repair`, "POST", { productId, variantId }),
+  );
+}
+
 export interface CyberbizSyncResult {
   updated: number;
   unchanged: number;
