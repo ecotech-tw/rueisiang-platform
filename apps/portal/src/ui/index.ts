@@ -15,7 +15,7 @@ export { ReportSummary } from "./ReportSummary.js";
 export { SegmentedControl } from "./SegmentedControl.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
 export { SelectionActionBar, type SelectionActionBarProps, useModalFocus } from "@rueisiang/ui";
-export { TableBulkActionMenu, type TableBulkActionOption } from "./TableBulkActionControls.js";
+export { TABLE_SELECT_COLUMN, TableBulkActionMenu, TableMobileSelectAll, type TableBulkActionOption } from "./TableBulkActionControls.js";
 export { useTableBulkSelection, type TableBulkAction } from "@rueisiang/ui";
 export { Tag, TagList } from "./Tag.js";
 export { Tooltip } from "./Tooltip.js";

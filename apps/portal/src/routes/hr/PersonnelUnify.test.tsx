@@ -156,7 +156,7 @@ describe("統一人員名單與支援人員薪資／加班表單", () => {
       onPendingChange={() => {}}
     /></MemoryRouter>);
 
-    expect(markup).toContain('class="hr-request-form"');
+    expect(markup).toContain('<form id="hr-request-create-form"');
     expect(markup).toContain('aria-label="申請對象"');
     expect(markup).toContain("支援人員");
     expect(markup).toContain('aria-label="一次申請幾天"');

@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TableBulkActionMenu, TextField, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableMobileSelectAll, TextField, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { PeoplePickerEmpty, PeoplePickerHeading } from "./PickerList.js";
@@ -40,12 +40,6 @@ const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確
 const PAYROLL_PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
 const PAYROLL_RECORD_TABLE = "min-w-[960px] max-[760px]:min-w-0 [&_.numeric]:whitespace-nowrap [&_.cell-sub]:block [&_.cell-sub]:mt-0.5 [&_tr.selected_td]:bg-brand/8";
-/*
- * 批次模式才有勾選欄，而且一定是第一欄，所以用首欄選擇器套在表格上，不必替格子另取 class。
- * 桌機 th 的預設首欄 padding 會讓全選框的內容中心比資料列偏左，所以固定同一個 64px 的內容盒。
- * 手機的首欄是卡片標題（右邊讓出 84px 給操作鈕），勾選欄兩側改回 10px。
- */
-const PAYROLL_SELECT_COLUMN = "[&_tr>:first-child]:text-center min-[761px]:[&_tr>:first-child]:w-16 min-[761px]:[&_tr>:first-child]:min-w-16 min-[761px]:[&_tr>:first-child]:p-0 min-[761px]:[&_tr>:first-child>.table-checkbox]:block min-[761px]:[&_tr>:first-child>.table-checkbox]:mx-auto max-[760px]:[&_tr>:first-child]:px-2.5 [&_tr>:first-child_input:focus-visible]:outline-2 [&_tr>:first-child_input:focus-visible]:outline-offset-2 [&_tr>:first-child_input:focus-visible]:outline-secondary";
 
 function taipeiMonth() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -470,13 +464,8 @@ export function HrPayrollSettlement() {
       {records.error ? <Alert tone="danger">薪資紀錄載入失敗：{records.error.message}</Alert> : null}
       <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
         {canCalculate ? <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={payrollBulkActionOptions} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div> : null}
-        {bulk.actionId && bulk.eligibleKeys.length ? <div className="hidden max-[760px]:flex max-[760px]:flex-none max-[760px]:border-b max-[760px]:border-b-soft-line max-[760px]:px-3.5 max-[760px]:py-2">
-          <label className="table-select-all">
-            <input ref={mobileSelectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"} />
-            <span>{allVisibleSelected ? "取消全選本頁" : "全選本頁符合條件"}</span>
-          </label>
-        </div> : null}
-        <DataTable className={`${PAYROLL_RECORD_TABLE} ${bulk.actionId ? PAYROLL_SELECT_COLUMN : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${records.isPlaceholderData ? "is-refreshing opacity-62 [transition:opacity_160ms_ease-out]" : ""}`}>
+        {bulk.actionId && bulk.eligibleKeys.length ? <TableMobileSelectAll variant="divided" inputRef={mobileSelectAllRef} checked={allVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"}>{allVisibleSelected ? "取消全選本頁" : "全選本頁符合條件"}</TableMobileSelectAll> : null}
+        <DataTable className={`${PAYROLL_RECORD_TABLE} ${bulk.actionId ? TABLE_SELECT_COLUMN.inline : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${records.isPlaceholderData ? "is-refreshing opacity-62 [transition:opacity_160ms_ease-out]" : ""}`}>
             <thead><tr>{bulk.actionId ? <th>{bulk.eligibleKeys.length ? <input ref={selectAllRef} className="table-checkbox" type="checkbox" checked={allVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"} /> : null}</th> : null}<th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span>{canCalculate ? <TableBulkActionMenu actionId={bulk.actionId} actions={payrollBulkActionOptions} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /> : null}</div></th></tr></thead>
             <tbody>{payrollRows.map((record) => <tr key={referenceKey(record)} className={bulk.selectedKeys.includes(referenceKey(record)) ? "selected" : undefined}>
               {bulk.actionId ? <td data-label="選取">{bulk.isRowEligible(record) ? <input className="table-checkbox" type="checkbox" checked={bulk.selectedKeys.includes(referenceKey(record))} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleRow(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td> : null}

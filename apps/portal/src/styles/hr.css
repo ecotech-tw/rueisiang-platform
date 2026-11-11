@@ -296,40 +296,6 @@
   .hr-skeleton-calendar { grid-template-columns: repeat(7, minmax(76px, 1fr)); }
 }
 
-/* 申請中心是跨出勤／薪資的獨立工作區；申請紀錄與審核集中在同一張表。 */
-.hr-request-form { display: grid; gap: 16px; }
-.hr-request-form textarea { min-height: 96px; resize: vertical; }
-.hr-request-kind-picker { display: grid; gap: 8px; }
-/* 只是表單把按鈕 portal 進 footer 用的掛點，版面交給 Dialog 的 footer。 */
-.hr-request-dialog-actions { display: contents; }
-.hr-request-dialog .hr-request-form { padding-top: 2px; }
-.hr-request-history-panel > .hr-request-table-region { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.hr-request-table-region > [data-table-scroll] { flex: 1 1 auto; min-height: 0; overflow: auto; }
-.hr-request-mobile-select-all { display: none; }
-.hr-request-table-region { position: relative; min-width: 0; }
-.hr-request-table tr.selected td { background: --alpha(var(--color-brand) / 7%); }
-.hr-request-table .hr-request-select-cell { width: 48px; }
-.hr-request-row-select { display: inline-grid; width: 40px; height: 40px; place-items: center; cursor: pointer; }
-.hr-request-select-cell input:focus-visible,
-.hr-request-mobile-select-all input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-
-@media (min-width: 761px) {
-  .hr-request-table { min-width: 1168px; }
-  .hr-request-table .hr-request-select-cell { min-width: 48px; padding: 0 !important; }
-  .hr-request-table th,
-  .hr-request-table td { white-space: nowrap; }
-  .hr-request-table .hr-request-cell-truncate { display: block; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-}
-
-@media (max-width: 760px) {
-  .hr-request-mobile-select-all { display: flex; align-items: center; margin: 0 0 8px; }
-  .hr-request-table-selection-inactive tbody tr > td[data-label="類型"] { padding-left: 0 !important; }
-}
-
-@media (max-width: 620px) {
-  .hr-request-dialog-actions > * { flex: 1; }
-}
-
 /* 假別是出勤主檔；保留足夠留白讓狀態與操作在窄螢幕仍可辨識。 */
 .hr-leave-types-page td:first-child { min-width: 180px; }
 .hr-leave-types-page td:nth-child(2) { white-space: nowrap; font-variant-numeric: tabular-nums; }
