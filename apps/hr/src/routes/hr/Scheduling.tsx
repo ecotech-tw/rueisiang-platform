@@ -7,6 +7,7 @@ import type { DialogCloseRef } from "../../ui/dialog-context.js";
 import { useHrQuery, useHrWrite } from "./api.js";
 import { HrBackBar } from "./HrBackBar.js";
 import { SchedulePersonRow } from "./SchedulePersonRow.js";
+import { useScheduleMonthTransition } from "./useScheduleMonthTransition.js";
 
 type ExitRequestRef = { current: (() => Promise<boolean>) | null };
 const noPersonOptionValue = "__no_person__";
@@ -85,7 +86,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
   const saving = useRef(false);
   const [settling, setSettling] = useState(false);
   const isMobile = useMobileScheduleView();
-  const [monthEntered, setMonthEntered] = useState(monthDirection === 0);
+  const monthTransition = useScheduleMonthTransition(data.periodKey, monthDirection);
   const [message, setMessage] = useState<string | null>(null);
   const [savedNeedsReload, setSavedNeedsReload] = useState(false);
   const [reloadRequired, setReloadRequired] = useState(false);
@@ -96,12 +97,6 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
   const pending = save.isPending || settling;
   const disabled = pending || savedNeedsReload || reloadRequired || Boolean(data.version?.locked) || stale;
   useEffect(() => { onChangeState((dirty || (quick && changes.refreshIds.length > 0)) && !savedNeedsReload, pending); }, [dirty, quick, changes.refreshIds.length, savedNeedsReload, pending, onChangeState]);
-  useEffect(() => {
-    if (monthDirection === 0) { setMonthEntered(true); return; }
-    setMonthEntered(false);
-    const frame = requestAnimationFrame(() => setMonthEntered(true));
-    return () => cancelAnimationFrame(frame);
-  }, [data.periodKey, monthDirection]);
   // 背景重抓不能吃掉草稿；保留舊 revision，讓 API 拒絕覆蓋他人的變更。
   useEffect(() => {
     if (!dirty && !pending && !savedNeedsReload) { setBaseline(data); setDraft(data.entries); }
@@ -202,7 +197,7 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
   </>;
   return <>
     {!isMobile ? <Panel>{fields}{availability}</Panel> : null}
-    <Panel density={isMobile || quick ? "compact" : "default"} className={`min-w-0 transition-[opacity,translate] duration-150 ease-out motion-reduce:transition-none ${monthEntered ? "translate-x-0 opacity-100" : `${monthDirection > 0 ? "translate-x-2" : "-translate-x-2"} opacity-0`}`}>
+    <Panel density={isMobile || quick ? "compact" : "default"} className={`min-w-0 ${monthTransition}`}>
       <div className="grid gap-1" aria-label={quick ? "快速排班日期" : "據點月曆"}>
         <div className="grid grid-cols-7 text-center text-xs text-muted" aria-hidden="true">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <span key={day}>{day}</span>)}</div>
         <div className={`grid grid-cols-7 ${isMobile ? "gap-0.5" : "gap-1"}`}>
