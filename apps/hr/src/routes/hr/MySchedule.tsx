@@ -5,6 +5,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Dialog, EmptyState, Page, Panel, SegmentedControl, SelectField } from "../../ui/index.js";
 import { useHrQuery } from "./api.js";
 import { HrBackBar } from "./HrBackBar.js";
+import { SchedulePersonRow } from "./SchedulePersonRow.js";
 
 type PersonalSchedule = {
   periodKey: string;
@@ -29,6 +30,10 @@ function shiftMonth(periodKey: string, amount: number) {
 
 function timeOnly(value: string) {
   return value.slice(11, 16);
+}
+
+function dayTypeLabel(dayType: PersonalSchedule["calendar"][number]["dayType"]) {
+  return dayType === "holiday" ? "國定假日" : dayType === "weekend" ? "週末" : "平日";
 }
 
 const VIEW_OPTIONS = [
@@ -111,17 +116,19 @@ export function HrMySchedule() {
         </ul></Panel> : <EmptyState>{data.attendanceMode === "general" ? "本月尚無本人排班；未列排班不代表休假，請依一般出勤規則出勤。" : "這個月尚無本人排班。"}</EmptyState>}
       </section>}
     </div> : null}
-    {selectedCalendarDay ? <Dialog title={`${selectedCalendarDay.date} 值班人員`} titleMeta={selectedCalendarDay.name || undefined} onClose={() => setSelectedDate(null)} actions={<Button size="lg" onClick={() => setSelectedDate(null)}>關閉</Button>}>
+    {selectedCalendarDay ? <Dialog title={`${selectedCalendarDay.date} 值班人員`} titleMeta={selectedCalendarDay.name || dayTypeLabel(selectedCalendarDay.dayType)} bodyLayout="grid gap-2 px-6 pb-2" onClose={() => setSelectedDate(null)} actions={<Button size="lg" onClick={() => setSelectedDate(null)}>關閉</Button>}>
       {selectedEntries.length ? <div className="grid divide-y divide-soft-line">
-        {selectedEntries.map((entry, index) => <div key={`${entry.scopeId}-${entry.personName}-${entry.shiftName}-${index}`} className={`grid gap-1 py-3 first:pt-0 last:pb-0 ${entry.isMine ? "rounded-field bg-brand-soft px-3" : ""}`}>
-          <strong className="text-sm">{entry.personName}{entry.isMine ? "（本人）" : ""}</strong>
-          <span className="text-xs text-muted">{entry.scopeName}・{entry.shiftName}・{timeOnly(entry.startsAt)}–{timeOnly(entry.endsAt)}</span>
-        </div>)}
-      </div> : <EmptyState>當天沒有排班。</EmptyState>}
-      <div className="mt-3 grid gap-1 border-t border-soft-line pt-3 text-xs text-muted">
+        {selectedEntries.map((entry, index) => <SchedulePersonRow key={`${entry.scopeId}-${entry.personName}-${entry.shiftName}-${index}`}
+          title={entry.personName}
+          details={`${entry.scopeName}・${entry.shiftName}・${timeOnly(entry.startsAt)}–${timeOnly(entry.endsAt)}`}
+          highlighted={entry.isMine}
+          trailing={entry.isMine ? <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[11px] font-semibold text-brand-dark">本人</span> : undefined}
+        />)}
+      </div> : <EmptyState className="mt-[18px]">當天沒有排班。</EmptyState>}
+      {selectedEntries.length ? <div className="grid gap-1 border-t border-soft-line pt-3 text-xs text-muted">
         <strong className="font-medium text-ink">排班負責人</strong>
         {[...new Set(selectedEntries.map((entry) => entry.scopeId))].map((id) => <span key={id}>{selectedEntries.find((entry) => entry.scopeId === id)?.scopeName}：{managerByScope.get(id) ?? "未指定"}</span>)}
-      </div>
+      </div> : null}
     </Dialog> : null}
   </Page>;
 }

@@ -6,6 +6,7 @@ import { Alert, Button, Dialog, EmptyState, Page, Panel, SelectField, Tooltip } 
 import type { DialogCloseRef } from "../../ui/dialog-context.js";
 import { useHrQuery, useHrWrite } from "./api.js";
 import { HrBackBar } from "./HrBackBar.js";
+import { SchedulePersonRow } from "./SchedulePersonRow.js";
 
 type ExitRequestRef = { current: (() => Promise<boolean>) | null };
 const noPersonOptionValue = "__no_person__";
@@ -246,10 +247,11 @@ function ScheduleEditor({ data, quick, monthDirection, onQuickChange, exitReques
       <Button variant="secondary" size="lg" disabled={pending} onClick={() => void closeDetails()}>返回月曆</Button>
       <Button size="lg" disabled={disabled || !shifts.length} onClick={enterQuick}>快速排班</Button>
     </>}>
-      {focusedEntries.length ? <div className="grid divide-y divide-soft-line">{focusedEntries.map((entry) => <div className="flex min-w-0 items-center justify-between gap-2 py-2" key={entry.id}>
-        <div className="grid min-w-0 gap-0.5"><strong className="break-words">{entry.employeeNumber ? `${entry.employeeNumber}・` : ""}{entry.personName}{entry.archivedAt ? "（已封存）" : ""}</strong><small className="text-muted">{entry.shiftName}{entry.personKind === "worker" ? "・支援" : ""}・{attendanceStatusLabel(entry.attendanceStatus)}</small></div>
-        {!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <Button variant="icon" icon="trash" aria-label={`移除 ${detailsDate} ${entry.personName} ${entry.shiftName}`} disabled={disabled} className="shrink-0" onClick={() => setDraft((current) => current.filter((other) => other.id !== entry.id))} /> : <span className="shrink-0 text-xs text-muted">{entry.archivedAt ? "已封存" : attendanceStatusLabel(entry.attendanceStatus)}</span>}
-      </div>)}</div> : <EmptyState className="mt-[18px]">這一天尚無排班。</EmptyState>}
+      {focusedEntries.length ? <div className="grid divide-y divide-soft-line">{focusedEntries.map((entry) => <SchedulePersonRow key={entry.id}
+        title={`${entry.employeeNumber ? `${entry.employeeNumber}・` : ""}${entry.personName}${entry.archivedAt ? "（已封存）" : ""}`}
+        details={`${entry.shiftName}${entry.personKind === "worker" ? "・支援" : ""}・${attendanceStatusLabel(entry.attendanceStatus)}`}
+        trailing={!entry.archivedAt && entry.attendanceStatus === "scheduled" ? <Button variant="icon" icon="trash" aria-label={`移除 ${detailsDate} ${entry.personName} ${entry.shiftName}`} disabled={disabled} onClick={() => setDraft((current) => current.filter((other) => other.id !== entry.id))} /> : <span className="text-xs text-muted">{entry.archivedAt ? "已封存" : attendanceStatusLabel(entry.attendanceStatus)}</span>}
+      />)}</div> : <EmptyState className="mt-[18px]">這一天尚無排班。</EmptyState>}
       {alerts}
     </Dialog> : null}
   </>;

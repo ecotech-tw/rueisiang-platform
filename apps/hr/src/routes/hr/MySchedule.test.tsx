@@ -60,7 +60,8 @@ it("顯示跨據點本人班表摘要與日期值班明細，且只有唯讀操�
     expect(weekendButton?.className).toContain("bg-canvas");
     expect(weekendButton?.className).toContain("text-brand-dark");
     await act(async () => dateButton?.click());
-    expect(document.body.textContent).toContain("本人（本人）");
+    expect(document.body.textContent).toContain("平日");
+    expect(document.body.textContent).toContain("本人");
     expect(document.body.textContent).toContain("同事");
     expect([...container.querySelectorAll("button")].some((button) => /儲存|鎖定|編輯/.test(button.textContent ?? button.getAttribute("aria-label") ?? ""))).toBe(false);
     await act(async () => root.unmount());
