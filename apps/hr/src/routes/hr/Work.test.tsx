@@ -34,10 +34,11 @@ async function waitForQuery(callback: () => void) {
 }
 
 describe("HR 工作分類", () => {
-  it("沒有負責的排班據點時不顯示排班入口，仍保留表單申請", async () => {
+  it("沒有負責的排班據點時只隱藏管理入口，仍顯示我的排班與表單申請", async () => {
     const page = await render(Response.json({ scopes: [] }));
     try {
       await waitForQuery(() => expect(page.container.querySelector('a[href="/scheduling"]')).toBeNull());
+      expect(page.container.querySelector('a[href="/my-schedule"]')?.textContent).toContain("我的排班");
       expect(page.container.querySelector('a[href="/forms"]')?.textContent).toContain("表單申請");
     } finally { await page.cleanup(); }
   });
@@ -45,7 +46,8 @@ describe("HR 工作分類", () => {
   it("有負責的排班據點時顯示排班入口", async () => {
     const page = await render(Response.json({ scopes: [{ id: "store", name: "門市" }] }));
     try {
-      await waitForQuery(() => expect(page.container.querySelector('a[href="/scheduling"]')?.textContent).toContain("排班"));
+      await waitForQuery(() => expect(page.container.querySelector('a[href="/scheduling"]')?.textContent).toContain("排班管理"));
+      expect(page.container.querySelector('a[href="/my-schedule"]')?.textContent).toContain("我的排班");
       expect(page.container.querySelector('a[href="/forms"]')).not.toBeNull();
     } finally { await page.cleanup(); }
   });
