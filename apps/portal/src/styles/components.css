@@ -1309,15 +1309,6 @@
 @media (max-width: 600px) { .hr-schedule-rest-summary { display: grid; gap: 6px; } }
 .field-note { margin: 0 0 4px; font-size: 12px; }
 
-/* 薪資發放紀錄與單筆明細共用相同的表格、快照與加扣項密度。 */
-.hr-payroll-records-panel { display: grid; gap: 14px; }
-.hr-payroll-record-table { min-width: 960px; }
-.hr-payroll-record-table th,
-.hr-payroll-record-table td { vertical-align: middle; }
-.hr-payroll-record-table td.numeric,
-.hr-payroll-record-table th.numeric { white-space: nowrap; }
-.hr-payroll-record-table .cell-sub { display: block; margin-top: 2px; }
-.hr-payroll-records-panel [data-table-scroll].is-refreshing { opacity: .62; transition: opacity 160ms ease-out; }
 .hr-payroll-warning-list { margin: 7px 0 0; padding-left: 20px; }
 .hr-payroll-employee-picker-section { display: grid; gap: 10px; }
 .hr-payroll-employee-picker { display: grid; gap: 2px; max-height: min(38vh, 360px); overflow-y: auto; padding: 5px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-canvas); }
@@ -1343,39 +1334,10 @@
   .special-workday-allowance-row > .special-workday-allowance-unit::before { content: "補貼單價"; }
 }
 
-.hr-payroll-table-region { position: relative; min-width: 0; }
-[data-page=fills] > [data-grows] > .hr-payroll-table-region {
-  display: flex;
-  flex-direction: column;
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-}
-[data-page=fills] > [data-grows] > .hr-payroll-table-region > [data-table-scroll] {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: auto;
-}
-.hr-payroll-mobile-select-all { display: none; }
-.hr-payroll-record-table tr.selected td { background: --alpha(var(--color-brand) / 8%); }
-.hr-payroll-select-cell { width: 44px; padding-inline: 10px !important; }
-@media (min-width: 761px) {
-  /* th 的預設首欄 padding 會讓全選框的內容中心比資料列偏左；固定同一個內容盒。 */
-  .hr-payroll-record-table .hr-payroll-select-cell { width: 64px; min-width: 64px; padding: 0 !important; }
-  .hr-payroll-record-table .hr-payroll-select-cell > .table-checkbox { display: block; margin-inline: auto; }
-}
-.hr-payroll-select-cell input:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
 .hr-payroll-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--color-soft-line); }
 .hr-payroll-section-head > div { display: grid; gap: 4px; min-width: 0; }
 .hr-payroll-section-head h3 { margin: 0; font-size: 15px; }
 .hr-payroll-section-head p { margin: 0; color: var(--color-muted); font-size: 13px; }
-
-@media (max-width: 760px) {
-  .hr-payroll-table-region { flex-direction: column; }
-  .hr-payroll-mobile-select-all { flex: none; }
-  .hr-payroll-record-table { min-width: 0; }
-  .hr-payroll-mobile-select-all { display: flex; padding: 8px 14px; border-bottom: 1px solid var(--color-soft-line); }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .hr-overview-card,
