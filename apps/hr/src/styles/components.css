@@ -125,7 +125,7 @@
   /* viewport-fit=cover 之後頁面會畫進 Home 橫條那一塊，底部固定元件與替它們留的空間都要從同一個值往上算。 */
   :root { --hr-safe-bottom: max(12px, env(safe-area-inset-bottom)); }
   .hr-module-self { gap: 14px; padding-bottom: calc(var(--hr-safe-bottom) + 72px); }
-  .hr-module:has(>[data-page="fills"]) { grid-template-rows: minmax(0, 1fr); }
+  .hr-module:has(>[data-page="fills"]) { grid-template-rows: minmax(0, 1fr); padding-bottom: calc(var(--hr-safe-bottom) + 50px); }
   .hr-module-self:has([data-form-page]) { padding-bottom: 16px; }
   .hr-module-self:has([data-form-page]) .hr-personal-bottom-nav { display: none; }
   .hr-module-header { display: none; }

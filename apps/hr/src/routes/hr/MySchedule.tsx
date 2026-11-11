@@ -109,7 +109,7 @@ export function HrMySchedule() {
           <span className="text-xs text-muted">本月 {ownEntries.length} 班{data.attendanceMode === "scheduled" && data.monthlyRestDays !== null ? `・約定月休 ${data.monthlyRestDays} 天` : ""}</span>
         </div>
         {ownEntries.length ? <Panel density="compact" className="flex min-h-0 flex-1 flex-col overflow-hidden"><ul className="m-0 grid min-h-0 flex-1 list-none divide-y divide-soft-line overflow-y-auto overscroll-contain p-0">
-          {ownEntries.map((entry, index) => <li key={`${entry.workDate}-${entry.scopeId}-${entry.shiftName}-${index}`} className="grid min-h-11 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 py-2.5 first:pt-0 last:pb-0">
+          {ownEntries.map((entry, index) => <li key={`${entry.workDate}-${entry.scopeId}-${entry.shiftName}-${index}`} className="grid min-h-11 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 py-1.5 first:pt-0 last:pb-0">
             <time dateTime={entry.workDate} className="grid min-h-8 min-w-[54px] place-items-center rounded-field bg-brand-soft px-2 text-sm font-semibold tabular-nums text-brand-dark">{Number(entry.workDate.slice(5, 7))}/{Number(entry.workDate.slice(8))}</time>
             <span className="min-w-0 break-words text-sm font-medium">{scheduleDetails(entry)}</span>
           </li>)}
