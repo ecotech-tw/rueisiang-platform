@@ -21,11 +21,16 @@ export function PeoplePickerHeading({ title, description, count, children }: { t
   </div>;
 }
 
-/**
- * 選人區塊的空狀態與載入中。
- * 特殊上班日的「載入中」要畫成輸入框的樣子，圓角由 .special-workday-target-loading 給，
- * 所以那裡傳 rounded={false} 與那個 class；搬 .special-workday* 時改成 prop。
+/*
+ * field：載入中的提示佔的是下拉的位置，給它同樣的外框與高度（輸入框 + chip 區上下留白 + 外框），換成下拉時版面才不會跳。
+ * 「沒有可套用的人員」這種不會再變的狀態用 plain——畫成輸入框會讓人以為可以點。
  */
-export function PeoplePickerEmpty({ children, rounded = true, className = "" }: { children: ReactNode; rounded?: boolean; className?: string }) {
-  return <p className={`muted m-0 bg-canvas px-3.5 py-3 ${ rounded ? "rounded-field" : "" } ${ className }`.trim()}>{children}</p>;
+const PEOPLE_PICKER_EMPTY_VARIANT = {
+  plain: "rounded-field",
+  field: "flex min-h-[calc(var(--size-field)+8px)] items-center rounded-[10px] border border-line",
+} as const;
+
+/** 選人區塊的空狀態與載入中。 */
+export function PeoplePickerEmpty({ children, variant = "plain" }: { children: ReactNode; variant?: keyof typeof PEOPLE_PICKER_EMPTY_VARIANT }) {
+  return <p className={`muted m-0 bg-canvas px-3.5 py-3 ${ PEOPLE_PICKER_EMPTY_VARIANT[variant] }`}>{children}</p>;
 }

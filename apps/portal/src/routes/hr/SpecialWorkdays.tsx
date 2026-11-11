@@ -138,11 +138,21 @@ function useSpecialWorkdayTargets() {
   return { employees, workers, targets, targetOptions };
 }
 
+const ALLOWANCE_GRID = "grid grid-cols-[minmax(0,1fr)_130px_100px] items-center gap-2.5";
+
 function AllowanceQuantities({ version, quantities, disabled, onChange }: { version?: SpecialWorkdayRuleVersion; quantities: Record<string, string>; disabled: boolean; onChange: (allowanceId: string, value: string) => void }) {
-  return <div className="special-workday-allowance-quantities">
+  return <div className="grid min-w-0 gap-2.5">
     <div className="salary-items-label">補貼數量（每人／每天）</div>
-    <p className="form-hint">同一個規則的每個補貼可以分別設定數量；套用或編輯時都可依需要調整。</p>
-    {version?.allowances.length ? <><div className="special-workday-allowance-head"><span>項目</span><span>補貼單價</span><span>數量</span></div>{version.allowances.map((allowance) => <div className="special-workday-allowance-row" key={allowance.id}><span className="salary-item-name">{allowance.itemName}</span><span className="special-workday-allowance-unit">{money(allowance.unitAmountMinor)}</span><TextField className="min-w-0" label="數量" stackedLabel="viewport" aria-label={`${allowance.itemName}補貼數量`} type="number" min="0" step="1" value={quantities[allowance.id] ?? "0"} disabled={disabled} onChange={(event) => onChange(allowance.id, event.target.value)} /></div>)}</> : <p className="muted special-workday-allowance-empty">此規則目前沒有補貼項目，本次只套用特殊日薪資。</p>}
+    <p className="form-hint -mt-[3px] mb-0.5">同一個規則的每個補貼可以分別設定數量；套用或編輯時都可依需要調整。</p>
+    {version?.allowances.length ? <>
+      <div className={`${ ALLOWANCE_GRID } text-[12px] font-semibold text-muted max-[640px]:hidden`}><span>項目</span><span>補貼單價</span><span>數量</span></div>
+      {version.allowances.map((allowance, index) => <div className={`${ ALLOWANCE_GRID } max-[640px]:grid-cols-[minmax(0,1fr)_44px] max-[640px]:items-start max-[640px]:gap-2 ${ index ? "border-t border-t-soft-line pt-2.5" : "" }`} key={allowance.id}>
+        <span className="salary-item-name max-[640px]:col-span-full">{allowance.itemName}</span>
+        {/* 手機收掉欄位標題，單價前面自己補一行標籤；數量欄的標籤由 TextField 的 stackedLabel 補。 */}
+        <span className="text-[13px] text-muted tabular-nums max-[640px]:before:mb-1.5 max-[640px]:before:block max-[640px]:before:text-[12px] max-[640px]:before:font-semibold max-[640px]:before:text-muted max-[640px]:before:content-['補貼單價']">{money(allowance.unitAmountMinor)}</span>
+        <TextField className="min-w-0" label="數量" stackedLabel="viewport" aria-label={`${allowance.itemName}補貼數量`} type="number" min="0" step="1" value={quantities[allowance.id] ?? "0"} disabled={disabled} onChange={(event) => onChange(allowance.id, event.target.value)} />
+      </div>)}
+    </> : <p className="muted m-0 rounded-field bg-canvas px-3.5 py-3">此規則目前沒有補貼項目，本次只套用特殊日薪資。</p>}
   </div>;
 }
 
@@ -313,9 +323,9 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
   return <Dialog width={820} bodyLayout="grid gap-[18px] px-6 pb-2" title="套用特殊上班日" titleMeta={selectedTargets.length && dateRange.length ? `${selectedTargets.length} 位人員・${dateRange.length} 天` : undefined} onClose={onClose} closeRequestRef={closeRequestRef} closeDisabled={save.isPending} formProps={{ onSubmit: submit }} actions={<><Button variant="secondary" onClick={onClose} disabled={save.isPending}>取消</Button><Button type="submit" loading={save.isPending} disabled={!ruleId || !selectedTargets.length || Boolean(dateError) || tooManyAssignments}>套用日期</Button></>}>
     {!ruleOptions.length ? <Alert tone="warning">目前沒有可套用的有效規則，請先建立或啟用規則。</Alert> : null}
     <SelectField label="規則" value={ruleId} options={ruleOptions} disabled={save.isPending} onChange={(event) => setRuleId(event.target.value)} hint={selectedVersion ? `目前設定 v${selectedVersion.versionNumber}；重新試算會使用當時的目前設定` : undefined} />
-    <div className="special-workday-target-section">
+    <div className="grid gap-2.5">
       <PeoplePickerHeading title="套用人員" description="可一次複選正式員工與啟用中的支援人員；以下選擇會套用到區間內每一天。" count={<>已選 {selectedTargets.length} 人</>}><Button variant="link" onClick={() => setSelectedTargetKeys(targets.map((target) => target.key))} disabled={allTargetsSelected || !targets.length || employees.isPending || workers.isPending || Boolean(employees.error) || Boolean(workers.error) || save.isPending}>全選</Button></PeoplePickerHeading>
-      {employees.isPending || workers.isPending ? <PeoplePickerEmpty rounded={false} className="special-workday-target-loading">正在載入人員名單…</PeoplePickerEmpty> : targets.length ? <DropdownSelect
+      {employees.isPending || workers.isPending ? <PeoplePickerEmpty variant="field">正在載入人員名單…</PeoplePickerEmpty> : targets.length ? <DropdownSelect
         multiple
         searchable
         value={selectedTargetKeys}
