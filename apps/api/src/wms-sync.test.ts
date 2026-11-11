@@ -239,11 +239,17 @@ describe("target WMS CYBERBIZ 連結", () => {
     await targetDb.insert(cyberbizProductCatalog).values({
       itemId: "repair-item", cyberbizProductId: "product-1", cyberbizVariantId: "old-variant",
     });
+    const oldLink = (await listCompanyLinks(targetDb))[0]!;
+    const stalePlan = buildSyncPlan([oldLink], [{
+      productId: "product-1", variantId: "old-variant", sku: "ALST06005", quantity: 999, safetyQuantity: 1,
+    }]);
 
     const result = await repairCyberbizItemLink(targetDb, {
       inventoryItemId: "repair-item",
       expectedProductId: "product-1",
       expectedVariantId: "old-variant",
+      expectedNewProductId: "product-2",
+      expectedNewVariantId: "new-variant",
       products: [{
         productId: "product-2", productName: "液體皂旅行罐", variantId: "new-variant",
         variantName: "賦活草本", sku: "ALST06005", quantity: 3204, safetyQuantity: 720,
@@ -260,6 +266,10 @@ describe("target WMS CYBERBIZ 連結", () => {
     }]);
     expect(await targetDb.select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_relinked")))
       .toMatchObject([{ oldValue: "product-1/old-variant", newValue: "product-2/new-variant", actorEmail: actor.email }]);
+
+    expect(await applySyncPlan(targetDb, stalePlan, actor)).toMatchObject({ updated: 0, unchanged: 1, failed: 0 });
+    expect(await targetDb.select({ quantity: wmsItems.quantity }).from(wmsItems).where(eq(wmsItems.itemId, "repair-item")))
+      .toEqual([{ quantity: 3204 }]);
   });
 
   it("新外部身分已屬於其他品項時拒絕修復", async () => {
@@ -281,6 +291,8 @@ describe("target WMS CYBERBIZ 連結", () => {
       inventoryItemId: "repair-item",
       expectedProductId: "product-1",
       expectedVariantId: "old-variant",
+      expectedNewProductId: "product-2",
+      expectedNewVariantId: "new-variant",
       products: [{
         productId: "product-2", productName: "商品", variantId: "new-variant",
         variantName: "款式", sku: "ALST06005", quantity: 1, safetyQuantity: 0,

@@ -369,10 +369,24 @@ describe("WMS target-only API", () => {
       }],
     }), { status: 200, headers: { "Content-Type": "application/json" } }));
 
-    const response = await as(userId, "admin@ecotech.tw", "/api/wms/items/item-1/cyberbiz-link/repair", {
+    const runtimeEnv = { ...env(), CYBERBIZ_API_TOKEN: "test-token", CYBERBIZ_API_BASE_URL: "https://cyberbiz.test" };
+    const preview = await as(userId, "admin@ecotech.tw", "/api/wms/items/item-1/cyberbiz-link/repair/preview", {
       method: "POST",
       body: JSON.stringify({ productId: "product-1", variantId: "old-variant" }),
-    }, { ...env(), CYBERBIZ_API_TOKEN: "test-token", CYBERBIZ_API_BASE_URL: "https://cyberbiz.test" });
+    }, runtimeEnv);
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      changed: true,
+      oldVariantId: "old-variant",
+      newVariantId: "new-variant",
+      wmsQuantity: 10,
+      remote: { quantity: 3204, safetyQuantity: 720 },
+    });
+
+    const response = await as(userId, "admin@ecotech.tw", "/api/wms/items/item-1/cyberbiz-link/repair", {
+      method: "POST",
+      body: JSON.stringify({ productId: "product-1", variantId: "old-variant", newProductId: "product-2", newVariantId: "new-variant" }),
+    }, runtimeEnv);
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
@@ -404,7 +418,7 @@ describe("WMS target-only API", () => {
 
     const response = await as(userId, "admin@ecotech.tw", "/api/wms/items/item-1/cyberbiz-link/repair", {
       method: "POST",
-      body: JSON.stringify({ productId: "product-1", variantId: "old-variant" }),
+      body: JSON.stringify({ productId: "product-1", variantId: "old-variant", newProductId: "product-2", newVariantId: "new-variant-1" }),
     }, { ...env(), CYBERBIZ_API_TOKEN: "test-token", CYBERBIZ_API_BASE_URL: "https://cyberbiz.test" });
 
     expect(response.status).toBe(409);

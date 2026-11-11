@@ -501,6 +501,7 @@ export {
   buildSyncPlan,
   claimCyberbizSyncLock,
   linkItemToCyberbiz,
+  previewCyberbizItemLinkRepair,
   repairCyberbizItemLink,
   listCompanyLinks,
   recordCyberbizSyncFailed,

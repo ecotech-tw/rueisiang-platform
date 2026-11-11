@@ -153,11 +153,18 @@ async function setCyberbizProductSyncStatus(
   db: Database,
   itemId: string,
   status: "synced" | "failed",
+  expectedLink?: Pick<LinkedItem, "cyberbizProductId" | "cyberbizVariantId">,
 ): Promise<void> {
   await db.update(cyberbizProducts).set({
     syncStatus: status,
     ...(status === "synced" ? { syncedAt: sql`CURRENT_TIMESTAMP` } : {}),
-  }).where(eq(cyberbizProducts.itemId, itemId));
+  }).where(and(
+    eq(cyberbizProducts.itemId, itemId),
+    ...(expectedLink ? [
+      eq(cyberbizProducts.cyberbizProductId, expectedLink.cyberbizProductId),
+      eq(cyberbizProducts.cyberbizVariantId, expectedLink.cyberbizVariantId),
+    ] : []),
+  ));
 }
 
 function updateLinkedItem(
@@ -168,6 +175,12 @@ function updateLinkedItem(
   const snapshot = and(
     eq(wmsItems.quantity, link.quantity),
     eq(wmsItems.minStock, link.minStock),
+    sql`EXISTS (
+      SELECT 1 FROM cyberbiz_products
+      WHERE cyberbiz_products.item_id = ${wmsItems.itemId}
+        AND cyberbiz_products.cyberbiz_product_id = ${link.cyberbizProductId}
+        AND cyberbiz_products.cyberbiz_variant_id = ${link.cyberbizVariantId}
+    )`,
     ...(link.updatedAt ? [eq(wmsItems.updatedAt, link.updatedAt)] : []),
   );
   return db.update(wmsItems)
@@ -185,8 +198,20 @@ export async function applySyncPlan(
   let failed = 0;
   for (const entry of plan) {
     const label = entry.link.itemSku ? `${entry.link.itemSku} ${entry.link.itemName}` : entry.link.itemName;
+    const [currentLink] = await db.select({ itemId: cyberbizProducts.itemId })
+      .from(cyberbizProducts)
+      .where(and(
+        eq(cyberbizProducts.itemId, entry.link.inventoryItemId),
+        eq(cyberbizProducts.cyberbizProductId, entry.link.cyberbizProductId),
+        eq(cyberbizProducts.cyberbizVariantId, entry.link.cyberbizVariantId),
+      ))
+      .limit(1);
+    if (!currentLink) {
+      unchanged += 1;
+      continue;
+    }
     if (entry.status === "failed" || !entry.remote) {
-      await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "failed");
+      await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "failed", entry.link);
       failed += 1;
       await db.insert(activityEvents).values(activityRow({
         entityType: "item",
@@ -203,7 +228,7 @@ export async function applySyncPlan(
     }
 
     if (!entry.quantityChanged && !entry.minStockChanged) {
-      await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "synced");
+      await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "synced", entry.link);
       unchanged += 1;
       // 即使數字沒有變，也要留下最後一次成功同步時間；這是 target model
       // 唯一不複製另一份 sync timestamp 的做法。
@@ -226,7 +251,7 @@ export async function applySyncPlan(
     // 另外先取得同一把 lease，讓盤點 route 不會在 CAS 後立刻把官網推送覆蓋掉。
     const lockToken = await claimCyberbizSyncLock(db, entry.link.inventoryItemId);
     if (!lockToken) {
-      await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "failed");
+      await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "failed", entry.link);
       const error = "WMS 商品正在同步中，這筆 CYBERBIZ 數量稍後重試";
       failed += 1;
       await db.insert(activityEvents).values(activityRow({
@@ -250,7 +275,7 @@ export async function applySyncPlan(
         updatedAt: sql`CURRENT_TIMESTAMP`,
       });
       if ((result.meta?.changes ?? 0) === 0) {
-        await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "failed");
+        await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "failed", entry.link);
         const error = "WMS 數量在同步期間已被其他操作修改，拒絕覆蓋較新的資料";
         failed += 1;
         await db.insert(activityEvents).values(activityRow({
@@ -267,7 +292,7 @@ export async function applySyncPlan(
         continue;
       }
 
-      await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "synced");
+      await setCyberbizProductSyncStatus(db, entry.link.inventoryItemId, "synced", entry.link);
       updated += 1;
       await db.insert(activityEvents).values(activityRow({
         entityType: "item",
@@ -288,20 +313,32 @@ export async function applySyncPlan(
   return { updated, unchanged, failed };
 }
 
-export async function repairCyberbizItemLink(
+interface CyberbizLinkRepairCandidate {
+  itemId: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  minStock: number;
+  productId: string;
+  variantId: string;
+  remote: CyberbizInventoryItem;
+}
+
+async function resolveCyberbizLinkRepair(
   db: Database,
   input: {
     inventoryItemId: string;
     expectedProductId: string;
     expectedVariantId: string;
     products: ReadonlyArray<CyberbizInventoryItem>;
-    actor: { id: string; email: string };
   },
-) {
+): Promise<CyberbizLinkRepairCandidate> {
   const [current] = await db.select({
     itemId: itemMasters.id,
     sku: itemMasters.sku,
     name: itemMasters.name,
+    quantity: wmsItems.quantity,
+    minStock: wmsItems.minStock,
     productId: cyberbizProducts.cyberbizProductId,
     variantId: cyberbizProducts.cyberbizVariantId,
   })
@@ -322,67 +359,120 @@ export async function repairCyberbizItemLink(
     throw new WmsError("conflict", `官網有 ${matches.length} 個款式使用 SKU「${current.sku}」，為避免連錯，連結未變更。`);
   }
   const remote = matches[0]!;
-  if (current.productId === remote.productId && current.variantId === remote.variantId) {
-    return { changed: false, oldProductId: current.productId, oldVariantId: current.variantId, sku: current.sku, remote };
+  if (current.productId !== remote.productId || current.variantId !== remote.variantId) {
+    const [owner] = await db.select({ itemId: cyberbizProducts.itemId })
+      .from(cyberbizProducts)
+      .where(and(
+        eq(cyberbizProducts.cyberbizProductId, remote.productId),
+        eq(cyberbizProducts.cyberbizVariantId, remote.variantId),
+        ne(cyberbizProducts.itemId, current.itemId),
+      ))
+      .limit(1);
+    if (owner) throw new WmsError("conflict", "這個 CYBERBIZ 款式已連結其他品項，不能移轉連結。");
   }
+  return { ...current, remote };
+}
 
-  const [owner] = await db.select({ itemId: cyberbizProducts.itemId })
-    .from(cyberbizProducts)
-    .where(and(
-      eq(cyberbizProducts.cyberbizProductId, remote.productId),
-      eq(cyberbizProducts.cyberbizVariantId, remote.variantId),
-      ne(cyberbizProducts.itemId, current.itemId),
-    ))
-    .limit(1);
-  if (owner) throw new WmsError("conflict", "這個 CYBERBIZ 款式已連結其他品項，不能移轉連結。");
-
-  const updated = await db.update(cyberbizProducts).set({
-    cyberbizProductId: remote.productId,
-    cyberbizVariantId: remote.variantId,
-    productName: remote.productName,
-    variantName: remote.variantName,
-    published: remote.published ? 1 : 0,
-    cyberbizUpdatedAt: remote.updatedAt,
-    syncStatus: "synced",
-    syncedAt: new Date().toISOString(),
-  }).where(and(
-    eq(cyberbizProducts.itemId, current.itemId),
-    eq(cyberbizProducts.cyberbizProductId, input.expectedProductId),
-    eq(cyberbizProducts.cyberbizVariantId, input.expectedVariantId),
-  ));
-  if ((updated.meta?.changes ?? 0) === 0) {
-    throw new WmsError("conflict", "CYBERBIZ 連結已被其他操作更新，請重新檢查。");
-  }
-
-  await db.insert(activityEvents).values(activityRow({
-    entityType: "item",
-    entityId: current.itemId,
-    entityLabel: `${current.sku} ${current.name}`,
-    eventType: "cyberbiz_relinked",
-    summary: "修復 CYBERBIZ 款式連結",
-    field: "cyberbiz_variant_id",
-    oldValue: `${current.productId}/${current.variantId}`,
-    newValue: `${remote.productId}/${remote.variantId}`,
-    payload: {
-      sku: current.sku,
-      productName: remote.productName,
-      variantName: remote.variantName,
-      quantity: remote.quantity,
-      safetyQuantity: remote.safetyQuantity,
-    },
-    source: "cyberbiz_sync",
-    actor: input.actor,
-  }));
-
+export async function previewCyberbizItemLinkRepair(
+  db: Database,
+  input: Parameters<typeof resolveCyberbizLinkRepair>[1],
+) {
+  const candidate = await resolveCyberbizLinkRepair(db, input);
   return {
-    changed: true,
-    oldProductId: current.productId,
-    oldVariantId: current.variantId,
-    newProductId: remote.productId,
-    newVariantId: remote.variantId,
-    sku: current.sku,
-    remote,
+    changed: candidate.productId !== candidate.remote.productId || candidate.variantId !== candidate.remote.variantId,
+    oldProductId: candidate.productId,
+    oldVariantId: candidate.variantId,
+    newProductId: candidate.remote.productId,
+    newVariantId: candidate.remote.variantId,
+    sku: candidate.sku,
+    wmsQuantity: candidate.quantity,
+    wmsSafetyQuantity: candidate.minStock,
+    remote: candidate.remote,
   };
+}
+
+export async function repairCyberbizItemLink(
+  db: Database,
+  input: Parameters<typeof resolveCyberbizLinkRepair>[1] & {
+    expectedNewProductId: string;
+    expectedNewVariantId: string;
+    actor: { id: string; email: string };
+  },
+) {
+  const lockToken = await claimCyberbizSyncLock(db, input.inventoryItemId);
+  if (!lockToken) throw new WmsError("conflict", "商品正在同步中，請稍後重新檢查連結。");
+
+  try {
+    const candidate = await resolveCyberbizLinkRepair(db, input);
+    const { remote } = candidate;
+    if (input.expectedNewProductId !== remote.productId || input.expectedNewVariantId !== remote.variantId) {
+      throw new WmsError("conflict", "官網款式已在檢查後變更，請重新檢查再確認。");
+    }
+    if (candidate.productId === remote.productId && candidate.variantId === remote.variantId) {
+      return {
+        changed: false,
+        oldProductId: candidate.productId,
+        oldVariantId: candidate.variantId,
+        newProductId: remote.productId,
+        newVariantId: remote.variantId,
+        sku: candidate.sku,
+        wmsQuantity: candidate.quantity,
+        wmsSafetyQuantity: candidate.minStock,
+        remote,
+      };
+    }
+
+    const activity = activityRow({
+      entityType: "item",
+      entityId: candidate.itemId,
+      entityLabel: `${candidate.sku} ${candidate.name}`,
+      eventType: "cyberbiz_relinked",
+      summary: "修復 CYBERBIZ 款式連結",
+      field: "cyberbiz_variant_id",
+      oldValue: `${candidate.productId}/${candidate.variantId}`,
+      newValue: `${remote.productId}/${remote.variantId}`,
+      payload: {
+        sku: candidate.sku,
+        productName: remote.productName,
+        variantName: remote.variantName,
+        quantity: remote.quantity,
+        safetyQuantity: remote.safetyQuantity,
+      },
+      source: "cyberbiz_sync",
+      actor: input.actor,
+    });
+    await db.batch([
+      db.update(cyberbizProducts).set({
+        cyberbizProductId: remote.productId,
+        cyberbizVariantId: remote.variantId,
+        productName: remote.productName,
+        variantName: remote.variantName,
+        published: remote.published ? 1 : 0,
+        cyberbizUpdatedAt: remote.updatedAt,
+        syncStatus: "synced",
+        syncedAt: new Date().toISOString(),
+      }).where(and(
+        eq(cyberbizProducts.itemId, candidate.itemId),
+        eq(cyberbizProducts.cyberbizProductId, input.expectedProductId),
+        eq(cyberbizProducts.cyberbizVariantId, input.expectedVariantId),
+      )),
+      db.insert(activityEvents).values(activity),
+    ] as never);
+
+    return {
+      changed: true,
+      oldProductId: candidate.productId,
+      oldVariantId: candidate.variantId,
+      newProductId: remote.productId,
+      newVariantId: remote.variantId,
+      sku: candidate.sku,
+      wmsQuantity: candidate.quantity,
+      wmsSafetyQuantity: candidate.minStock,
+      remote,
+    };
+  } finally {
+    await releaseCyberbizSyncLock(db, input.inventoryItemId, lockToken);
+  }
 }
 
 export async function linkItemToCyberbiz(

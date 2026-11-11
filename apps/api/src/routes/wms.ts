@@ -26,6 +26,7 @@ import {
   loadWarehouse,
   recordCyberbizSyncFailed,
   recordCyberbizSyncSucceeded,
+  previewCyberbizItemLinkRepair,
   repairCyberbizItemLink,
   releaseCyberbizSyncLock,
   recordMediaObject,
@@ -271,24 +272,41 @@ export const wms = new Hono<AppEnv>()
     );
   })
 
-  /** 以唯一 SKU 找到現行款式，修復已連結但外部 ID 過期的關係；不改庫存。 */
+  /** 先預覽唯一 SKU 對應的現行款式與庫存，供使用者確認後再修復。 */
+  .post("/items/:id/cyberbiz-link/repair/preview", requirePermission("wms:inventory:write"), async (c) => {
+    const client = cyberbizInventoryClient(c.env);
+    if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN。" });
+
+    const input = await body(c);
+    const catalog = await loadCatalog(client, cacheClient(c.env), true);
+    if (catalog.truncated) {
+      throw new HTTPException(409, { message: "官網商品目錄未完整載入，無法安全確認 SKU 唯一性；請稍後再試或聯絡管理者。" });
+    }
+    return c.json(await previewCyberbizItemLinkRepair(c.get("db"), {
+      inventoryItemId: c.req.param("id"),
+      expectedProductId: requireString(input, "productId", "目前商品 ID"),
+      expectedVariantId: requireString(input, "variantId", "目前款式 ID"),
+      products: catalog.items,
+    }));
+  })
+
+  /** 重新驗證預覽中的目標身分後更新連結；不改庫存。 */
   .post("/items/:id/cyberbiz-link/repair", requirePermission("wms:inventory:write"), async (c) => {
     const client = cyberbizInventoryClient(c.env);
     if (!client) throw new HTTPException(409, { message: "尚未設定 CYBERBIZ_API_TOKEN。" });
 
     const input = await body(c);
-    const expectedProductId = requireString(input, "productId", "目前商品 ID");
-    const expectedVariantId = requireString(input, "variantId", "目前款式 ID");
-    const inventoryItemId = c.req.param("id");
     const catalog = await loadCatalog(client, cacheClient(c.env), true);
     if (catalog.truncated) {
       throw new HTTPException(409, { message: "官網商品目錄未完整載入，無法安全確認 SKU 唯一性；請稍後再試或聯絡管理者。" });
     }
     const user = c.get("user");
     const result = await repairCyberbizItemLink(c.get("db"), {
-      inventoryItemId,
-      expectedProductId,
-      expectedVariantId,
+      inventoryItemId: c.req.param("id"),
+      expectedProductId: requireString(input, "productId", "目前商品 ID"),
+      expectedVariantId: requireString(input, "variantId", "目前款式 ID"),
+      expectedNewProductId: requireString(input, "newProductId", "預覽商品 ID"),
+      expectedNewVariantId: requireString(input, "newVariantId", "預覽款式 ID"),
       products: catalog.items,
       actor: { id: user.id, email: user.email },
     });

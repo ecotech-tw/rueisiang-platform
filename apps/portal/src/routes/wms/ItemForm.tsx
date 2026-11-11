@@ -5,8 +5,10 @@ import { Alert, Button, Dialog, Field, FieldHint, SearchCombobox, SelectField, T
 import {
   useCreateCatalogItem,
   useLinkCyberbiz,
+  usePreviewCyberbizLinkRepair,
   useRepairCyberbizLink,
   useUpdateItem,
+  type CyberbizLinkRepairPreview,
   type InventoryItem,
   type ProductCategory,
   type Zone,
@@ -59,6 +61,7 @@ export function ItemForm({
 
   const [selectedCategoryId, setSelectedCategoryId] = useState(initialCategory?.id ?? "");
   const [confirmCyberbizRepair, setConfirmCyberbizRepair] = useState(false);
+  const [repairPreview, setRepairPreview] = useState<CyberbizLinkRepairPreview | null>(null);
   const [fields, setFields] = useState({
     sku: item?.sku ?? "",
     name: item?.name ?? "",
@@ -75,9 +78,10 @@ export function ItemForm({
   const createCatalog = useCreateCatalogItem();
   const update = useUpdateItem();
   const link = useLinkCyberbiz();
+  const previewLinkRepair = usePreviewCyberbizLinkRepair();
   const repairLink = useRepairCyberbizLink();
   const toast = useToast();
-  const pending = createCatalog.isPending || update.isPending || link.isPending || repairLink.isPending;
+  const pending = createCatalog.isPending || update.isPending || link.isPending || previewLinkRepair.isPending || repairLink.isPending;
   const error = createCatalog.error ?? update.error ?? link.error;
 
   /** 選了倉位才有層可選，而且只能選那個倉位自己的層。 */
@@ -291,7 +295,12 @@ export function ItemForm({
                       className="flex-none"
                       variant="secondary"
                       disabled={pending}
-                      onClick={() => setConfirmCyberbizRepair(true)}
+                      onClick={() => {
+                        setRepairPreview(null);
+                        previewLinkRepair.reset();
+                        repairLink.reset();
+                        setConfirmCyberbizRepair(true);
+                      }}
                     >
                       檢查並修復連結
                     </Button>
@@ -339,31 +348,59 @@ export function ItemForm({
     </Dialog>
     {confirmCyberbizRepair && item?.cyberbiz ? (
       <ConfirmDialog
-        title="檢查並修復 CYBERBIZ 連結？"
-        confirmLabel="檢查並修復"
+        title={repairPreview ? "確認 CYBERBIZ 連結修復" : "檢查 CYBERBIZ 連結"}
+        confirmLabel={repairPreview ? (repairPreview.changed ? "確認修復連結" : "完成") : "檢查款式"}
         tone="primary"
-        pending={repairLink.isPending}
-        onCancel={() => setConfirmCyberbizRepair(false)}
-        onConfirm={() => repairLink.mutate(
-          {
-            id: item.id,
-            productId: item.cyberbiz!.cyberbizProductId,
-            variantId: item.cyberbiz!.cyberbizVariantId,
-          },
-          {
-            onSuccess: (result) => {
-              const newVariantId = result.newVariantId ?? result.oldVariantId;
-              toast.show(result.changed
-                ? `連結已修復：${result.oldVariantId} → ${newVariantId}；官網庫存 ${result.remote.quantity}，尚未同步到 WMS`
-                : `SKU ${result.sku} 已連到目前款式 ${result.oldVariantId}`);
-              setConfirmCyberbizRepair(false);
-              onClose();
+        pending={previewLinkRepair.isPending || repairLink.isPending}
+        onCancel={() => {
+          setConfirmCyberbizRepair(false);
+          setRepairPreview(null);
+        }}
+        onConfirm={() => {
+          if (!repairPreview) {
+            previewLinkRepair.mutate(
+              { id: item.id, productId: item.cyberbiz!.cyberbizProductId, variantId: item.cyberbiz!.cyberbizVariantId },
+              { onSuccess: setRepairPreview },
+            );
+            return;
+          }
+          if (!repairPreview.changed) {
+            setConfirmCyberbizRepair(false);
+            return;
+          }
+          repairLink.mutate(
+            {
+              id: item.id,
+              productId: repairPreview.oldProductId,
+              variantId: repairPreview.oldVariantId,
+              newProductId: repairPreview.newProductId,
+              newVariantId: repairPreview.newVariantId,
             },
-          },
-        )}
+            {
+              onSuccess: (result) => {
+                toast.show(`連結已修復：${result.oldVariantId} → ${result.newVariantId}；官網庫存 ${result.remote.quantity}，尚未同步到 WMS`);
+                setConfirmCyberbizRepair(false);
+                setRepairPreview(null);
+                onClose();
+              },
+            },
+          );
+        }}
       >
-        <p>系統會重新載入 CYBERBIZ 公司倉目錄，只有 SKU 唯一且新款式未連到其他品項時才會修復。</p>
-        <p>這只會更新連結，不會修改庫存或推送數量；完成後請先核對官網庫存，再決定是否同步。</p>
+        {repairPreview ? (
+          <>
+            <p>SKU {repairPreview.sku}・{repairPreview.remote.productName}／{repairPreview.remote.variantName}</p>
+            <p>款式 ID：{repairPreview.oldProductId}/{repairPreview.oldVariantId} → {repairPreview.newProductId}/{repairPreview.newVariantId}</p>
+            <p>庫存：WMS {repairPreview.wmsQuantity} → 官網 {repairPreview.remote.quantity}；安全庫存：WMS {repairPreview.wmsSafetyQuantity} → 官網 {repairPreview.remote.safetyQuantity}</p>
+            <p>確認前請核對款式與數量。修復只更新連結，不會修改庫存或推送數量。</p>
+          </>
+        ) : (
+          <>
+            <p>系統會重新載入 CYBERBIZ 公司倉目錄，只有 SKU 唯一且新款式未連到其他品項時才會提供修復預覽。</p>
+            <p>檢查階段不會修改連結或庫存。</p>
+          </>
+        )}
+        {previewLinkRepair.error ? <Alert tone="danger">{previewLinkRepair.error.message}</Alert> : null}
         {repairLink.error ? <Alert tone="danger">{repairLink.error.message}</Alert> : null}
       </ConfirmDialog>
     ) : null}
