@@ -56,7 +56,6 @@ function IssueGrantDialog({ leaveTypes, employees, onClose }: { leaveTypes: HrLe
   }
 
   return <Dialog
-    className="hr-leave-grant-dialog"
     title="發放假別額度"
     onClose={onClose}
     closeRequestRef={closeRequestRef}
@@ -64,10 +63,10 @@ function IssueGrantDialog({ leaveTypes, employees, onClose }: { leaveTypes: HrLe
     formProps={{ onSubmit: submit }}
     actions={<><Button type="button" variant="secondary" onClick={onClose}>取消</Button><Button type="submit" tone="success" loading={save.isPending}>確認發放</Button></>}
   >
-    <div className="hr-leave-grant-fields">
+    <div className="grid gap-[18px] max-[620px]:gap-4">
       <SelectField gap={8} label="假別" required value={leaveTypeId} options={leaveTypes.map((type) => ({ value: type.id, label: type.name }))} onValueChange={setLeaveTypeId} hint="只列出額度規則設為「HR 逐批發放」的啟用假別。" />
       <SelectField gap={8} label="發放對象" required multiple searchable value={employmentIds} options={employeeOptions} onValueChange={(values: string[]) => setEmploymentIds(values)} hint={`已選 ${employmentIds.length} 位員工；單批上限 100 人。`} />
-      <div className="hr-leave-grant-date-row">
+      <div className="grid grid-cols-2 gap-4 max-[620px]:grid-cols-[1fr] max-[620px]:gap-3.5">
         <TextField label="發放日期" type="date" required value={issuedOn} onChange={(event) => setIssuedOn(event.target.value)} />
         <TextField label="使用期限（含當日）" type="date" required min={issuedOn} value={expiresOn} onChange={(event) => setExpiresOn(event.target.value)} />
       </div>
@@ -107,7 +106,7 @@ export function HrLeaveGrants() {
   if (!canRead) return <Alert tone="danger">額度發放僅限全平台 HR 管理者查看。</Alert>;
   if (grants.isPending || employees.isPending || leaveTypes.isPending) return <HrPageSkeleton variant="table" />;
 
-  return <Page layout="fills" className="hr-leave-grants-page">
+  return <Page layout="fills">
     <PageHeader
       title="額度發放"
       description="依假別、有效期間與員工建立可追溯的額度批次；員工申請時會先使用最早到期的額度。"

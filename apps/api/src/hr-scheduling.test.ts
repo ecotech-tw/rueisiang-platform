@@ -1,6 +1,6 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, newSessionClaims, serializeDeviceToken, signSession } from "@rueisiang/auth";
 import { createDatabase, createDeviceSession, getHrSchedule, syncSystemRoles } from "@rueisiang/db";
-import { hrEmployments, hrScheduleManagers, hrScheduleVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
+import { hrEmployments, hrEmployeeScopes, hrScheduleManagers, hrScheduleVersions, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -48,6 +48,25 @@ async function setMembers(allowedPersonIds: string[] | null | undefined, revisio
   const shift = current.shifts.find((shift) => shift.versionId === shiftId)!;
   return request(`/shift-templates/${shift.templateId}`, "PATCH", { scopeId: "store-a", name: "早班", revision: revision ?? shift.revision, allowedPersonIds, times: [{ dayType: "weekday", startTime: "09:00", endTime: "18:00" }] });
 }
+
+describe("本人唯讀排班", () => {
+  it("只回傳本人有效據點的值班名單，並拒絕查詢未所屬據點", async () => {
+    await db.insert(hrEmployeeScopes).values({ id: "scheduler-store", employmentId: "employment-scheduler", scopeId: "store-a", validFrom: "2026-01-01", validTo: null });
+    const own = { personKind: "employee", employmentId: "employment-scheduler", scopeId: "store-a", shiftVersionId: shiftId, workDate: "2026-02-06" };
+    expect((await changes({ entries: [own, entry("worker-1")] })).status).toBe(200);
+
+    const response = await request("/me/my-schedules?periodKey=2026-02&scopeId=all", "GET", undefined, "scheduler");
+    expect(response.status).toBe(200);
+    const data = await response.json() as { attendanceMode: string; monthlyRestDays: number | null; scopes: Array<{ id: string }>; entries: Array<{ personName: string; isMine: boolean }>; scheduleManagers: unknown[] };
+    expect(data.attendanceMode).toBe("general");
+    expect(data.monthlyRestDays).toBeNull();
+    expect(data.scopes.map((scope) => scope.id)).toEqual(["store-a"]);
+    expect(data.entries.map(({ personName, isMine }) => ({ personName, isMine }))).toEqual([{ personName: "scheduler", isMine: true }, { personName: "worker-1", isMine: false }]);
+    expect(data.scheduleManagers).toEqual([{ scopeId: "store-a", name: null }]);
+    expect((await request("/me/my-schedules?periodKey=2026-02&scopeId=store-b", "GET", undefined, "scheduler")).status).toBe(403);
+    expect((await request("/me/my-schedules?periodKey=2026-02&scopeId=store-a", "GET", undefined, "other")).status).toBe(403);
+  });
+});
 
 describe("班別星期時間", () => {
   it("未設定星期沿用共用時間，指定週五則依日期套用，即使行事曆標為國定假日", async () => {

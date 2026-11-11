@@ -4,6 +4,7 @@ import { Alert, Button, DataTable, EmptyState, TextField } from "../../ui/index.
 import { useHrWrite, type InsuranceBracket, type InsuranceRateTableRecord } from "./api.js";
 
 const SCHEME_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
+const RATE_INPUT = "numeric min-h-10 w-full min-w-0 rounded-[10px] border border-line bg-paper px-2.5 py-2 text-ink [font:inherit] transition-[background-color,border-color,box-shadow] duration-150 ease-out hover:bg-canvas focus-visible:border-secondary focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-secondary max-[760px]:min-h-[38px]";
 
 interface BracketDraft extends InsuranceBracket {
   key: string;
@@ -94,31 +95,31 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
   };
 
   return <>
-    <form className="hr-rate-editor-form" onSubmit={submit}>
-      <div className="hr-rate-editor-intro"><strong>{isExistingDraft ? "編輯待審閱版本" : table ? "從目前啟用版本建立人工版本" : "建立人工版本"}</strong><span className="muted">{year} 年・{SCHEME_LABEL[scheme]}；人工資料會保留來源與覆核備註。</span></div>
-      <div className="hr-rate-editor">
-        <DataTable containerClassName="hr-rate-editor-scroll" className="hr-rate-editor-table min-w-[820px] border-separate border-spacing-0 max-[760px]:min-w-0 [&_th]:h-11 [&_th]:py-1.5 [&_th]:text-[12px] min-[761px]:[&_td]:py-2 [[data-table-scroll]>&_thead_th:first-child]:rounded-tl-[14px] [[data-table-scroll]>&_thead_th:last-child]:rounded-tr-[14px]">
-            <thead><tr><th>級距</th><th>薪資下限（元）</th><th>薪資上限（元）</th><th>投保金額（元）</th><th>員工負擔／月<br /><span className="muted">健保以 0 位眷屬</span></th><th>操作</th></tr></thead>
+    <form className="grid gap-[18px] pb-4" onSubmit={submit}>
+      <div className="flex flex-wrap items-baseline gap-2.5 px-0.5"><strong className="text-[14px] text-ink">{isExistingDraft ? "編輯待審閱版本" : table ? "從目前啟用版本建立人工版本" : "建立人工版本"}</strong><span className="muted text-[12px]">{year} 年・{SCHEME_LABEL[scheme]}；人工資料會保留來源與覆核備註。</span></div>
+      <div className="grid min-w-0 gap-4">
+        <DataTable containerClassName="isolate max-h-[380px] overflow-y-auto rounded-2xl border border-ink/10 bg-paper/30 [box-shadow:0_1px_0_--alpha(var(--color-paper)/70%)_inset,0_0_0_1px_--alpha(var(--color-paper)/18%)_inset,0_12px_24px_--alpha(var(--color-ink)/8%)] [scrollbar-gutter:stable]" className="min-w-[820px] border-separate border-spacing-0 max-[760px]:min-w-0 [&_th]:h-11 [&_th]:py-1.5 [&_th]:text-[12px] min-[761px]:[&_td]:py-2 [[data-table-scroll]>&_thead_th:first-child]:rounded-tl-[14px] [[data-table-scroll]>&_thead_th:last-child]:rounded-tr-[14px]">
+            <thead><tr><th>級距</th><th>薪資下限（元）</th><th>薪資上限（元）</th><th>投保金額（元）</th><th>員工負擔／月<br /><span className="muted text-[10px] font-medium">健保以 0 位眷屬</span></th><th>操作</th></tr></thead>
             <tbody>
               {brackets.map((bracket, index) => <tr key={bracket.key}>
-                <td data-label="級距"><output className="hr-rate-level" aria-label={`第 ${index + 1} 筆級距序號`}>{index + 1}</output></td>
-                <td data-label="薪資下限（元）"><input className="hr-rate-input numeric" type="number" min="0" step="1" value={bracket.lowerSalary} aria-label={`第 ${index + 1} 筆薪資下限`} onChange={(event) => updateBracket(bracket.key, { lowerSalary: Number(event.target.value) })} /></td>
-                <td data-label="薪資上限（元）"><input className="hr-rate-input numeric" type="number" min="0" step="1" value={bracket.upperSalary ?? ""} placeholder="無上限" aria-label={`第 ${index + 1} 筆薪資上限，留空表示無上限`} onChange={(event) => updateBracket(bracket.key, { upperSalary: event.target.value.trim() ? Number(event.target.value) : null })} /></td>
-                <td data-label="投保金額（元）"><input className="hr-rate-input numeric" type="number" min="1" step="1" value={bracket.insuredAmount} aria-label={`第 ${index + 1} 筆投保金額`} onChange={(event) => updateBracket(bracket.key, { insuredAmount: Number(event.target.value) })} /></td>
-                <td data-label="員工負擔／月"><output className="hr-rate-employee-amount numeric" aria-label={`第 ${index + 1} 筆級距員工每月負擔`}>{employeeAmountLabel(bracket.employeeAmountMinor)}</output></td>
+                <td data-label="級距"><output className="grid min-h-10 w-full place-items-center rounded-[10px] border border-soft-line bg-paper/54 px-2.5 py-2 font-extrabold text-muted tabular-nums max-[760px]:min-h-[38px]" aria-label={`第 ${index + 1} 筆級距序號`}>{index + 1}</output></td>
+                <td data-label="薪資下限（元）"><input className={RATE_INPUT} type="number" min="0" step="1" value={bracket.lowerSalary} aria-label={`第 ${index + 1} 筆薪資下限`} onChange={(event) => updateBracket(bracket.key, { lowerSalary: Number(event.target.value) })} /></td>
+                <td data-label="薪資上限（元）"><input className={RATE_INPUT} type="number" min="0" step="1" value={bracket.upperSalary ?? ""} placeholder="無上限" aria-label={`第 ${index + 1} 筆薪資上限，留空表示無上限`} onChange={(event) => updateBracket(bracket.key, { upperSalary: event.target.value.trim() ? Number(event.target.value) : null })} /></td>
+                <td data-label="投保金額（元）"><input className={RATE_INPUT} type="number" min="1" step="1" value={bracket.insuredAmount} aria-label={`第 ${index + 1} 筆投保金額`} onChange={(event) => updateBracket(bracket.key, { insuredAmount: Number(event.target.value) })} /></td>
+                <td data-label="員工負擔／月"><output className="numeric grid min-h-10 items-center justify-items-end px-2.5 py-2 font-bold whitespace-nowrap text-brand-dark tabular-nums" aria-label={`第 ${index + 1} 筆級距員工每月負擔`}>{employeeAmountLabel(bracket.employeeAmountMinor)}</output></td>
                 <td data-label="操作"><Button type="button" variant="icon" icon="trash" title={`刪除第 ${index + 1} 筆級距`} aria-label={`刪除第 ${index + 1} 筆級距`} onClick={() => removeBracket(bracket.key)} /></td>
               </tr>)}
             </tbody>
         </DataTable>
         {!brackets.length ? <EmptyState className="mt-[18px]">尚無級距，請新增一筆。</EmptyState> : null}
-        <div className="hr-rate-editor-foot"><Button type="button" icon="plus" tone="success" mobileIconOnly onClick={addBracket}>新增級距</Button><span className="muted">薪資下限填 0 代表「以下」級距；員工負擔由該年度費率計算，健保欄先以 0 位眷屬呈現。</span></div>
+        <div className="flex flex-wrap items-center gap-4 px-0.5"><Button type="button" icon="plus" tone="success" mobileIconOnly onClick={addBracket}>新增級距</Button><span className="muted">薪資下限填 0 代表「以下」級距；員工負擔由該年度費率計算，健保欄先以 0 位眷屬呈現。</span></div>
       </div>
-      <div className="field-grid">
+      <div className="field-grid gap-5">
         <TextField label="資料來源網址或公告名稱（可留空）" value={sourceUrl} maxLength={500} onChange={(event) => setSourceUrl(event.target.value)} />
         <TextField label="人工維護備註" required value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint="請填官方公告、文件名稱或主管覆核依據。" />
       </div>
       {message || save.error || remove.error ? <Alert tone="danger">{message || save.error?.message || remove.error?.message}</Alert> : null}
-      <div className="hr-rate-editor-actions">
+      <div className="flex flex-wrap justify-end gap-3 pt-1">
         {isExistingDraft ? <Button type="button" variant="danger" icon="trash" onClick={() => setConfirmDelete(true)} disabled={save.isPending || remove.isPending}>刪除草稿</Button> : null}
         <Button type="submit" tone={isExistingDraft ? "info" : "success"} loading={save.isPending}>儲存</Button>
       </div>
