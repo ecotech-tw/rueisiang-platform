@@ -78,33 +78,6 @@
 .hr-leave-credit-card small { color: var(--color-muted); font-size: 12px; }
 .hr-leave-credit-card { border-color: --alpha(var(--color-brand) / 20%); background: var(--color-brand-soft); }
 .hr-leave-credit-card strong { color: var(--color-brand-dark); }
-.hr-notifications-page { width: 100%; max-width: 760px; margin-inline: auto; }
-.hr-notification-panel { min-height: 0; }
-.hr-notification-list { display: grid; gap: 8px; }
-.hr-notification-item { display: grid; grid-template-columns: 38px minmax(0, 1fr); align-items: start; gap: 10px; width: 100%; padding: 12px; border: 1px solid var(--color-line); border-radius: 13px; background: var(--color-paper); color: var(--color-ink); text-align: left; cursor: pointer; }
-.hr-notification-item:hover { border-color: var(--color-brand); background: --alpha(var(--color-brand) / 5%); }
-.hr-notification-item.unread { border-color: --alpha(var(--color-brand) / 35%); background: var(--color-brand-soft); }
-.hr-notification-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 12px; background: var(--color-canvas); color: var(--color-brand-dark); }
-.hr-notification-icon svg { width: 20px; height: 20px; }
-.hr-notification-copy { display: grid; gap: 4px; min-width: 0; font-size: 13px; line-height: 1.5; }
-.hr-notification-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.hr-notification-title strong { min-width: 0; font-size: 14px; }
-.hr-notification-copy > span:not(.hr-notification-title) { color: var(--color-muted); overflow-wrap: anywhere; white-space: pre-line; }
-.hr-notification-copy small { color: var(--color-muted); font-size: 11px; }
-
-
-
-.empty-card {
-  display: grid;
-  justify-items: start;
-  gap: 7px;
-  padding: 20px;
-  border: 1px dashed var(--color-line);
-  border-radius: 14px;
-  background: var(--color-canvas);
-}
-.empty-card svg { width: 24px; height: 24px; color: var(--color-brand); }
-.empty-card strong { font-size: 15px; }
 
 
 
@@ -145,7 +118,6 @@
   .hr-personal-bottom-link.center.active .hr-personal-nav-icon { background: var(--color-brand-dark); }
   .hr-personal-bottom-link.center.active { color: var(--color-brand-dark); }
   .hr-form-field-row { grid-template-columns: 1fr; gap: 14px; }
-  .hr-notifications-page { max-width: none; }
   .hr-form-fields { gap: 14px; }
   .hr-leave-duration-card,
   .hr-leave-credit-card { padding: 12px 13px; border-radius: 13px; }
