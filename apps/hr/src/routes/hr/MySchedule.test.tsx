@@ -44,6 +44,8 @@ it("顯示跨據點本人班表摘要與日期值班明細，且只有唯讀操�
     expect(summaryButton).toBeDefined();
     await act(async () => summaryButton?.click());
     expect(container.textContent).toContain("本月 2 班・約定月休 10 天");
+    expect(container.textContent).not.toContain("點選日期查看當日值班人員");
+    expect(container.querySelector("ul")?.className).toContain("overflow-y-auto");
     expect(container.textContent).toContain("台北店・早班");
     expect(container.textContent).toContain("桃園店・晚班");
     expect(container.textContent).toContain("全部據點");
