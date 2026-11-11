@@ -47,11 +47,8 @@ function RedirectIfSignedIn({ children }: { children: React.ReactNode }) {
 }
 
 function HrShell() {
-  const pathname = useLocation().pathname.toLowerCase();
-  const hasBackBar = pathname === "/scheduling" || pathname === "/forms" || pathname.startsWith("/forms/");
-  // 有返回列的頁面在手機上把上內距讓給返回列；薪資明細與我的假勤在 Page 上標 data-back-bar-page。打卡頁與打卡子頁是滿版的，連內距都不要。
-  const mobileTop = hasBackBar ? "max-[760px]:pt-0" : "max-[760px]:pt-4";
-  return <PageSpacing spacing="compact-mobile"><div data-shell="" className="hr-app-shell block h-screen min-h-screen overflow-hidden max-[760px]:h-dvh max-[760px]:min-h-dvh max-[760px]:pr-[env(safe-area-inset-right)] max-[760px]:pl-[env(safe-area-inset-left)]"><main className={`h-full min-h-0 w-full min-w-0 overflow-y-auto px-9 py-8 max-[900px]:px-4 max-[900px]:py-5 max-[760px]:px-3.5 max-[760px]:pb-7 ${mobileTop} max-[760px]:has-[.hr-forms-index-page]:pt-0 max-[760px]:has-[.hr-form-page]:pt-0 max-[760px]:has-[[data-back-bar-page]]:pt-0 has-[[data-clock-page]]:overflow-hidden has-[[data-clock-page]]:p-0`}><Outlet /></main></div></PageSpacing>;
+  // 有返回列的頁面在手機上把上內距讓給返回列：認 HrBackBar 自己帶的 data-back-bar，不必另外列網址或在頁面上標記。打卡頁與打卡子頁是滿版的，連內距都不要。
+  return <PageSpacing spacing="compact-mobile"><div data-shell="" className="hr-app-shell block h-screen min-h-screen overflow-hidden max-[760px]:h-dvh max-[760px]:min-h-dvh max-[760px]:pr-[env(safe-area-inset-right)] max-[760px]:pl-[env(safe-area-inset-left)]"><main className="h-full min-h-0 w-full min-w-0 overflow-y-auto px-9 py-8 max-[900px]:px-4 max-[900px]:py-5 max-[760px]:px-3.5 max-[760px]:pt-4 max-[760px]:pb-7 max-[760px]:has-[[data-back-bar]]:pt-0 has-[[data-clock-page]]:overflow-hidden has-[[data-clock-page]]:p-0"><Outlet /></main></div></PageSpacing>;
 }
 
 export function App() {
