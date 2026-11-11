@@ -28,10 +28,14 @@ it.each([
       <Route path="/forms/new" element={<p>補打卡表單</p>} />
     </Routes></MemoryRouter></QueryClientProvider>));
     expect(container.querySelector('[aria-label="返回導覽"]')!.classList.contains("h-12")).toBe(true);
-    expect(container.querySelector(".hr-form-sticky-controls")!.classList.contains("top-12")).toBe(true);
-    expect(container.querySelector(".hr-form-add-inline .hr-form-add-button-inline")).not.toBeNull();
-    expect(document.body.querySelector(".hr-form-add-portal .hr-form-add-button-floating")).not.toBeNull();
-    expect(document.body.querySelector(".hr-form-add-portal")!.parentElement).toBe(document.body);
+    // 分頁與篩選一起釘在返回列（h-12）下面，捲動清單時不會被它蓋住。
+    expect(container.querySelector('[aria-label="申請列表篩選"]')!.parentElement!.classList.contains("top-12")).toBe(true);
+    // 新增鈕有兩顆：桌機在標題列，手機浮在底部導覽上方；浮動那顆要 portal 到 body，才不會被捲動容器裁掉。
+    const addButtons = [...document.body.querySelectorAll('button[aria-label="新增申請"]')];
+    expect(addButtons).toHaveLength(2);
+    expect(addButtons.filter((item) => container.contains(item))).toHaveLength(1);
+    const floating = addButtons.find((item) => !container.contains(item))!;
+    expect([...document.body.children].some((child) => child !== container && child.contains(floating))).toBe(true);
     const button = [...container.querySelectorAll<HTMLButtonElement>("button")].find((item) => item.textContent === label || item.getAttribute("aria-label") === label)!;
     expect(button).toBeDefined();
     await act(async () => button.click());

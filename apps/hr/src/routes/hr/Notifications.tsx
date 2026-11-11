@@ -1,7 +1,7 @@
 import { useNavigate } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, EmptyRecords, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrNotification, type HrNotificationsResponse } from "./api.js";
 import { notificationTarget } from "./notification-link.js";
 
@@ -35,7 +35,7 @@ export function HrNotifications() {
       {query.isPending ? <p className="muted">載入通知…</p> : query.data?.notifications.length ? <div className="hr-notification-list">{query.data.notifications.map((notification) => <button type="button" className={`hr-notification-item${notification.readAt ? " read" : " unread"}`} key={notification.id} onClick={() => open(notification)}>
         <span className="hr-notification-icon"><Icon name="notifications" /></span>
         <span className="hr-notification-copy"><span className="hr-notification-title"><strong>{notification.title}</strong>{notification.readAt ? <StatusBadge tone="neutral">已讀</StatusBadge> : <StatusBadge tone={notificationTone(notification)}>未讀</StatusBadge>}</span><span>{notification.body}</span><small>{formatTaipei(notification.createdAt)}</small></span>
-      </button>)}</div> : <div className="hr-form-empty-state"><strong>目前沒有通知</strong><p className="muted">新的申請處理結果會顯示在這裡。</p></div>}
+      </button>)}</div> : <EmptyRecords title="目前沒有通知" hint="新的申請處理結果會顯示在這裡。" />}
     </Panel>
   </Page>;
 }

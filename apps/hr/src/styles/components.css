@@ -48,46 +48,16 @@
 @keyframes hr-calendar-slide-prev { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
 
  
-.hr-form-request-list { display: grid; gap: 12px; }
-.hr-form-request-card { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-paper); }
-.hr-form-request-card.review { background: var(--color-canvas); }
-/* 整批核准的入口排在逐筆卡片上面，用成功色的細框跟單筆區分；逐筆卡片還在下面，要駁回個別幾筆走那裡。 */
 .hr-overtime-batch-list { margin-bottom: 12px; }
-.hr-form-request-card.review.batch { box-shadow: 0 0 0 1px --alpha(var(--color-ok) / 28%) inset; background: var(--color-ok-soft); }
-.hr-form-request-card.review.batch p { margin: 0; font-size: 13px; line-height: 1.55; font-variant-numeric: tabular-nums; }
 .hr-overtime-batch-days { display: grid; gap: 6px; max-height: 40vh; margin: 12px 0; padding: 0; overflow-y: auto; list-style: none; font-size: 13px; font-variant-numeric: tabular-nums; }
 .hr-overtime-batch-days li { display: grid; gap: 2px; padding: 8px 12px; border-radius: 10px; background: var(--color-canvas); }
 .hr-overtime-batch-days li > div { display: flex; justify-content: space-between; gap: 12px; }
 .hr-overtime-batch-days li > div span:last-child { color: var(--color-muted); }
 .hr-overtime-batch-days li small { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
-.hr-form-request-summary { display: grid; gap: 10px; min-width: 0; }
-.hr-form-request-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.hr-form-request-title strong { font-size: 16px; }
-.hr-form-request-summary dl { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 5px 12px; margin: 0; font-size: 13px; }
-.hr-form-request-summary dt { color: var(--color-muted); }
-.hr-form-request-summary dd { min-width: 0; margin: 0; overflow-wrap: anywhere; }
 .hr-form-fields { display: grid; gap: 16px; }
 .hr-form-field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .hr-overtime-note { margin: 0; font-size: 13px; line-height: 1.55; }
-.hr-form-actions,
-.hr-form-review-actions,
-.hr-form-request-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 18px; }
-.hr-form-review-actions,
-.hr-form-request-actions { justify-content: flex-start; padding-top: 0; }
-.hr-form-add-button { display: grid; width: 40px; height: 40px; flex: none; place-items: center; border: 0; border-radius: 50%; background: var(--color-brand); color: var(--color-paper); box-shadow: 0 5px 14px --alpha(var(--color-brand) / 24%); transition: background-color 120ms ease-out, scale 120ms ease-out; }
-.hr-form-add-button:hover:not(:disabled) { background: var(--color-brand-dark); color: var(--color-paper); }
-.hr-form-add-button:active:not(:disabled) { scale: .96; }
-.hr-form-add-button:focus-visible { outline: 2px solid var(--color-secondary); outline-offset: 2px; }
-.hr-form-add-button svg { width: 20px; height: 20px; }
-.hr-form-add-portal { display: none; }
-@media (prefers-reduced-motion: reduce) {
-  .hr-form-add-button { transition: none; }
-  .hr-form-add-button:active:not(:disabled) { scale: 1; }
-}
-.hr-form-sticky-controls { position: sticky; top: 0; z-index: 10; margin: 0 -2px; padding: 8px 2px; background: --alpha(var(--color-canvas) / 92%); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
-.hr-form-tabs-shell { margin: 0; padding: 0; background: transparent; }
-.hr-form-filters { display: grid; grid-template-columns: minmax(0, 1fr) 170px; align-items: end; gap: 12px; padding: 14px 0 2px; }
-.hr-form-sticky-controls > .hr-form-filters { padding-top: 8px; }
+.hr-form-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 18px; }
 @keyframes hr-form-tab-enter {
   from { opacity: 0; transform: translateX(16px); }
   to { opacity: 1; transform: translateX(0); }
@@ -96,12 +66,6 @@
   from { opacity: 0; transform: translateX(-16px); }
   to { opacity: 1; transform: translateX(0); }
 }
-.hr-form-tab-transition { animation: hr-form-tab-enter .24s cubic-bezier(.05, .7, .1, 1); }
-.hr-form-tab-transition.back { animation-name: hr-form-tab-enter-back; }
-.hr-form-empty-state { display: grid; justify-items: center; gap: 5px; padding: 34px 16px 24px; border: 1px dashed var(--color-line); border-radius: 14px; color: var(--color-ink); text-align: center; }
-.hr-form-empty-state p { margin: 0; font-size: 13px; }
-.hr-form-load-sentinel,
-.hr-form-list-end { padding: 18px 0 2px; color: var(--color-muted); font-size: 12px; text-align: center; }
 .hr-leave-duration-card,
 .hr-leave-credit-card { display: grid; gap: 5px; padding: 14px 16px; border: 1px solid var(--color-soft-line); border-radius: 14px; background: var(--color-canvas); }
 .hr-leave-duration-card > div,
@@ -155,11 +119,6 @@
 
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .hr-form-tab-transition,
-  .hr-form-tab-transition.back { animation: none; }
-}
-
 @media (max-width: 760px) {
   /* viewport-fit=cover 之後頁面會畫進 Home 橫條那一塊，底部固定元件與替它們留的空間都要從同一個值往上算。 */
   :root { --hr-safe-bottom: max(12px, env(safe-area-inset-bottom)); }
@@ -187,18 +146,6 @@
   .hr-personal-bottom-link.center.active { color: var(--color-brand-dark); }
   .hr-form-field-row { grid-template-columns: 1fr; gap: 14px; }
   .hr-notifications-page { max-width: none; }
-  .hr-form-add-inline { display: none; }
-  .hr-form-add-portal { position: fixed; inset: 0; z-index: 21; display: block; pointer-events: none; }
-  .hr-form-add-button-floating { width: 52px; height: 52px; border-radius: 50%; }
-  .hr-form-sticky-controls { margin-inline: -14px; padding: 8px 14px; }
-  .hr-form-filters { grid-template-columns: minmax(0, 1fr) 128px; gap: 8px; padding-top: 8px; }
-  .hr-form-request-list { gap: 10px; }
-  .hr-form-request-card { gap: 11px; padding: 13px; border-radius: 14px; }
-  .hr-form-request-title { align-items: flex-start; gap: 8px; }
-  .hr-form-request-title strong { min-width: 0; font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
-  .hr-form-request-card > p { margin: 0; font-size: 13px; line-height: 1.55; overflow-wrap: anywhere; }
-  .hr-form-request-actions,
-  .hr-form-review-actions { display: grid; grid-template-columns: 1fr; gap: 8px; }
   .hr-form-fields { gap: 14px; }
   .hr-leave-duration-card,
   .hr-leave-credit-card { padding: 12px 13px; border-radius: 13px; }
@@ -220,5 +167,4 @@
     backdrop-filter: blur(12px) saturate(140%);
   }
   .hr-form-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; padding-top: 0; }
-  .hr-form-request-summary dl { grid-template-columns: 60px minmax(0, 1fr); gap: 5px 10px; font-size: 12.5px; }
 }
