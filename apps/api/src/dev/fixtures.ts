@@ -40,6 +40,7 @@ import {
   hrPayrollPeriods,
   hrPayrollRuns,
   hrScheduleEntries,
+  hrScheduleManagers,
   hrScheduleVersions,
   hrScopeShiftAssignments,
   hrShiftTemplates,
@@ -294,10 +295,21 @@ async function seedDevPayrollScenario(
   await db.insert(hrShiftVersions).values({ id: "dev-shift-booth-day-v1", shiftTemplateId: "dev-shift-booth-day", versionNumber: 1, startSecond: 2 * 3600, endSecond: 10 * 3600, endDayOffset: 0, standardMinutes: 480, breakMinutes: 0, payFactorPpm: 1_000_000, createdBy: ids.linUserId }).onConflictDoNothing();
   await db.insert(hrScopeShiftAssignments).values({ scopeId: ximenScopeId, shiftTemplateId: "dev-shift-booth-day", isDefault: 1, createdBy: ids.linUserId }).onConflictDoNothing();
   await db.insert(hrScheduleVersions).values({ id: "dev-schedule-2026-08-v1", periodStart: "2026-08-01", periodEnd: "2026-09-01", versionNumber: 1, status: "published", submittedBy: ids.supervisorUserId, approvedBy: ids.linUserId, decisionReason: "開發示範班表" }).onConflictDoNothing();
+  await db.insert(hrScheduleManagers).values({ scopeId: ximenScopeId, userId: ids.supervisorUserId, updatedBy: ids.supervisorUserId }).onConflictDoNothing();
+  await db.insert(hrEmployeeScopes).values([
+    { id: "dev-employee-scope-chen-ximen", employmentId: "dev-employment-chen", scopeId: ximenScopeId, validFrom: "2026-01-01", validTo: null },
+    { id: "dev-employee-scope-lin-ximen", employmentId: linEmploymentId, scopeId: ximenScopeId, validFrom: "2026-01-01", validTo: null },
+  ]).onConflictDoNothing();
   const scheduledDays = [1, 3, 5, 8, 10, 12, 15, 17, 19, 22, 24, 26, 29, 31];
   for (const day of scheduledDays) {
     const date = `${month}-${String(day).padStart(2, "0")}`;
     await db.insert(hrScheduleEntries).values({ id: `dev-schedule-entry-wang-${day}`, scheduleVersionId: "dev-schedule-2026-08-v1", employmentId: boothEmploymentId, scopeId: ximenScopeId, shiftVersionId: "dev-shift-booth-day-v1", workDate: date, startsAt: `${date} 02:00:00`, endsAt: `${date} 10:00:00`, standardMinutes: 480, breakMinutes: 0, createdBy: ids.supervisorUserId }).onConflictDoNothing();
+  }
+  for (const [employmentId, days] of [["dev-employment-chen", [2, 6, 9, 13, 16, 20, 23]], [linEmploymentId, [27, 30]]] as const) {
+    for (const day of days) {
+      const date = `${month}-${String(day).padStart(2, "0")}`;
+      await db.insert(hrScheduleEntries).values({ id: `dev-schedule-entry-${employmentId}-${day}`, scheduleVersionId: "dev-schedule-2026-08-v1", employmentId, scopeId: ximenScopeId, shiftVersionId: "dev-shift-booth-day-v1", workDate: date, startsAt: `${date} 02:00:00`, endsAt: `${date} 10:00:00`, standardMinutes: 480, breakMinutes: 0, createdBy: ids.supervisorUserId }).onConflictDoNothing();
+    }
   }
 
   // 分開確保三層資料，讓先前 seed 中途失敗後重啟也能補齊 policy／version／member。
