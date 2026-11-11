@@ -20,7 +20,7 @@ describe("HR 手機導覽", () => {
       await act(async () => root.render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/clock/logs"]}><Routes>
         <Route element={<HrLayout />}><Route path="*" element={<p>本人功能</p>} /></Route>
       </Routes></MemoryRouter></QueryClientProvider>));
-      const nav = container.querySelector<HTMLElement>(".hr-personal-bottom-nav")!;
+      const nav = container.querySelector<HTMLElement>("nav[data-nav=bottom]")!;
       expect([...nav.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual(["/payroll", "/clock"]);
       expect(nav.querySelector('a[href="/clock"]')?.getAttribute("aria-current")).toBe("page");
       expect(nav.style.gridTemplateColumns).toBe("repeat(2, minmax(0, 1fr))");
@@ -45,18 +45,18 @@ describe("HR 手機導覽", () => {
       </Routes></MemoryRouter></QueryClientProvider>));
       await vi.waitFor(async () => {
         await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
-        const nav = container.querySelector(".hr-personal-bottom-nav");
+        const nav = container.querySelector("nav[data-nav=bottom]");
         expect([...nav!.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual(["/work", "/payroll", "/clock", "/notifications", "/profile"]);
         expect(nav?.textContent).toContain("工作");
         expect(nav?.textContent).toContain("薪資袋");
         expect(nav?.textContent).toContain("個人中心");
-        expect(nav?.querySelectorAll(".center")).toHaveLength(1);
-        expect(nav?.querySelectorAll("a")[2]?.classList.contains("center")).toBe(true);
+        expect(nav?.querySelectorAll("a[data-center]")).toHaveLength(1);
+        expect(nav?.querySelectorAll("a")[2]?.hasAttribute("data-center")).toBe(true);
         expect(nav?.querySelector('a[href="/work"]')?.getAttribute("aria-label")).toBe("工作");
         const activePath = path.toLowerCase() === "/clock" ? "/clock" : path.toLowerCase() === "/payroll" ? "/payroll" : "/work";
         expect(nav?.querySelector(`a[href="${activePath}"]`)?.getAttribute("aria-current")).toBe("page");
         expect(nav?.querySelectorAll('a[aria-current="page"]')).toHaveLength(1);
-        expect(nav?.querySelector(".hr-personal-nav-badge")?.textContent).toBe("3");
+        expect(nav?.querySelector("a[href=\"/notifications\"] small")?.textContent).toBe("3");
       });
       expect(fetch.mock.calls).toHaveLength(1);
     } finally {

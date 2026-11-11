@@ -144,8 +144,7 @@ export function Dialog({
    * 那個祖先就會變成 fixed 的定位基準，對話框會被關進頁面容器裡（HRIS 的玻璃效果與
    * 頁面轉場都會造成這件事）。掛到 body 底下就不受版面結構影響。
    *
-   * 站台的語意色與玻璃效果是寫在範圍 class 底下的（管理介面 .hr-system、員工 HR 站
-   * .hr-module-self），移出去之後會全部失效——核准會落回品牌紅，跟旁邊的駁回分不出來。
+   * 站台的語意色與玻璃效果是寫在範圍 class 底下的（管理介面的 .hr-system），移出去之後會全部失效——核准會落回品牌紅，跟旁邊的駁回分不出來。
    * 所以用一層 contents 的殼把範圍補回來，範圍由站台透過 DialogScope 提供。
    * 不能直接加在遮罩上——.hr-system 自己帶著 grid-template-rows 與 align-content: stretch，
    * 會把遮罩的垂直置中蓋掉。
