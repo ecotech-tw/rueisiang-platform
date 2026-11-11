@@ -21,8 +21,10 @@ it("顯示跨據點本人班表摘要與日期值班明細，且只有唯讀操�
   const calendar = Array.from({ length: daysInMonth }, (_, index) => {
     const day = index + 1;
     const date = dateFor(day);
-    return { date, dayType: "weekday" as const, name: "" };
+    const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+    return { date, dayType: weekday === 0 || weekday === 6 ? "weekend" as const : "weekday" as const, name: "" };
   });
+  const weekendDate = calendar.find((day) => day.dayType === "weekend")!.date;
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({
     periodKey,
     attendanceMode: "scheduled",
@@ -52,6 +54,11 @@ it("顯示跨據點本人班表摘要與日期值班明細，且只有唯讀操�
     const calendarButton = [...container.querySelectorAll("button")].find((button) => button.getAttribute("aria-label") === "月曆檢視");
     await act(async () => calendarButton?.click());
     const dateButton = [...container.querySelectorAll("button")].find((button) => button.getAttribute("aria-label")?.startsWith(dateFor(5)));
+    expect(dateButton?.className).toContain("bg-brand-soft");
+    expect(dateButton?.parentElement?.className).toContain("border-t");
+    const weekendButton = [...container.querySelectorAll("button")].find((button) => button.getAttribute("aria-label")?.startsWith(weekendDate));
+    expect(weekendButton?.className).toContain("bg-canvas");
+    expect(weekendButton?.className).toContain("text-brand-dark");
     await act(async () => dateButton?.click());
     expect(document.body.textContent).toContain("本人（本人）");
     expect(document.body.textContent).toContain("同事");

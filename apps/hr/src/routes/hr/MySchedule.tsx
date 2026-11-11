@@ -88,10 +88,13 @@ export function HrMySchedule() {
             const dateEntries = entries.filter((entry) => entry.workDate === day.date);
             const mine = dateEntries.filter((entry) => entry.isMine);
             const aria = `${day.date}，${mine.length ? `本人 ${mine.map((entry) => `${entry.scopeName} ${entry.shiftName} ${timeOnly(entry.startsAt)}`).join("、")}` : "本人未排班"}，當日共 ${dateEntries.length} 人次，點擊查看值班人員`;
-            return <button key={day.date} type="button" aria-label={aria} aria-pressed={selectedDate === day.date} onClick={() => setSelectedDate(day.date)} className={`relative grid min-h-12 min-w-0 place-items-center rounded-field border border-transparent p-1 text-xs transition-[background-color,border-color,scale] duration-150 ease-out hover:bg-brand/7 focus-visible:outline-2 focus-visible:outline-secondary active:scale-[.96] motion-reduce:transition-none motion-reduce:active:scale-100 ${mine.length ? "bg-brand-soft font-bold text-brand-dark" : dateEntries.length ? "bg-canvas text-ink" : "text-ink"} ${selectedDate === day.date ? "border-brand-dark" : ""}`}>
-              <span className="tabular-nums">{Number(day.date.slice(8))}</span>
-              {dateEntries.length ? <span aria-hidden="true" className={`absolute bottom-0.5 right-0.5 grid min-h-4 min-w-4 place-items-center rounded-full px-1 text-[9px] leading-none tabular-nums ${mine.length ? "bg-brand-dark text-paper" : "bg-soft-line text-muted"}`}>{dateEntries.length}</span> : null}
-            </button>;
+            const background = mine.length ? "bg-brand-soft ring-1 ring-inset ring-brand-dark" : dateEntries.length ? "bg-tone-peach/15" : day.dayType !== "weekday" ? "bg-canvas" : "";
+            return <div key={day.date} className="relative min-w-0 border-t border-soft-line">
+              <button type="button" aria-label={aria} aria-pressed={selectedDate === day.date} onClick={() => setSelectedDate(day.date)} className={`relative grid min-h-11 w-full min-w-0 place-items-center rounded-field border-0 text-sm font-semibold tabular-nums transition-[background-color,color,scale] duration-150 ease-out enabled:hover:bg-brand/7 enabled:active:scale-[.96] focus-visible:z-10 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary motion-reduce:transition-none motion-reduce:enabled:active:scale-100 ${background} ${day.dayType === "weekday" ? "text-ink" : "text-brand-dark"} ${selectedDate === day.date ? "ring-1 ring-inset ring-brand-dark" : ""}`}>
+                {Number(day.date.slice(8))}
+                {dateEntries.length ? <span aria-hidden="true" className="absolute bottom-0 right-0 rounded-full bg-brand-soft px-1 text-[9px] font-semibold leading-3 text-brand-dark">{dateEntries.length}</span> : null}
+              </button>
+            </div>;
           })}
         </div>
       </Panel> : <section aria-labelledby="my-schedule-list-title" className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-2">
