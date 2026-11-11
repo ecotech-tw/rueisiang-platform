@@ -1,12 +1,13 @@
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import { type Database } from "./client.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, type HrActor } from "./hr-people.js";
 import { calendarSpecialAppliesToScope, defaultDayType } from "./hr-calendar.js";
-import { getHrSchedule, getHrScheduleScopeLock, saveHrScheduleChanges, setHrScheduleScopeLock, type HrScheduleChangesInput } from "./hr-scheduling.js";
+import { getHrSchedule, getHrScheduleScopeLock, monthPeriodFromKey, saveHrScheduleChanges, setHrScheduleScopeLock, type HrScheduleChangesInput } from "./hr-scheduling.js";
 import { users } from "./schema/auth.js";
-import { hrEmployments } from "./schema/hr-people.js";
+import { hrEmployments, hrEmployeeScopes, hrWorkerAccountLinks } from "./schema/hr-people.js";
+import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrScheduleManagers } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
 import { canSchedulePerson } from "./schedule-draft.js";
@@ -66,6 +67,62 @@ export async function getHrManagedSchedule(db: Database, userId: string, periodK
     }
     return { ...day, specialScopeIds: day.specialScopeIds.filter((id) => id === scopeId) };
   }) };
+}
+
+export async function getHrSelfSchedule(db: Database, userId: string, periodKey: string, requestedScopeId?: string) {
+  const period = monthPeriodFromKey(periodKey);
+  const employee = (await db.select({ id: hrEmployments.id }).from(hrEmployments)
+    .where(and(eq(hrEmployments.personKind, "employee"), eq(hrEmployments.employeeUserId, userId), isNull(hrEmployments.archivedAt))).limit(1))[0];
+  const worker = employee ? undefined : (await db.select({ id: hrEmployments.id }).from(hrWorkerAccountLinks)
+    .innerJoin(hrEmployments, eq(hrEmployments.id, hrWorkerAccountLinks.workerId))
+    .where(and(eq(hrWorkerAccountLinks.userId, userId), eq(hrEmployments.personKind, "worker"), isNull(hrEmployments.archivedAt))).limit(1))[0];
+  const personId = employee?.id ?? worker?.id;
+  if (!personId) throw new HrError(403, "目前帳號沒有可查看的本人排班資料。 ");
+
+  const [assignedScopes, data] = await Promise.all([
+    employee ? db.select({ id: scopes.id, name: scopes.name }).from(hrEmployeeScopes)
+      .innerJoin(scopes, eq(scopes.id, hrEmployeeScopes.scopeId))
+      .where(and(eq(hrEmployeeScopes.employmentId, personId), sql`${hrEmployeeScopes.validFrom} < ${period.end} AND (${hrEmployeeScopes.validTo} IS NULL OR ${hrEmployeeScopes.validTo} > ${period.start})`, eq(scopes.active, 1), eq(scopes.scopeKind, "store")))
+      : Promise.resolve([]),
+    getHrSchedule(db, periodKey),
+  ]);
+  const personKind = employee ? "employee" : "worker";
+  const attendanceSettings = employee ? (await db.select({ attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmploymentAttendanceSettings).where(eq(hrEmploymentAttendanceSettings.employmentId, personId)).limit(1))[0] : undefined;
+  const ownEntries = data.entries.filter((entry) => entry.personKind === personKind && (personKind === "employee" ? entry.employmentId === personId : entry.workerId === personId));
+  const allowedScopeIds = new Set([...assignedScopes.map((scope) => scope.id), ...ownEntries.map((entry) => entry.scopeId)]);
+  if (requestedScopeId && requestedScopeId !== "all" && !allowedScopeIds.has(requestedScopeId)) throw new HrError(403, "只能查看本人所屬據點的排班。 ");
+  const visibleScopeIds = requestedScopeId && requestedScopeId !== "all" ? new Set([requestedScopeId]) : allowedScopeIds;
+  const visibleScopes = data.scopes.filter((scope) => visibleScopeIds.has(scope.id));
+  const visibleEntries = data.entries.filter((entry) => visibleScopeIds.has(entry.scopeId));
+  const managerRows = visibleScopes.length ? await db.select({ scopeId: hrScheduleManagers.scopeId, name: hrEmployeeName })
+    .from(hrScheduleManagers).innerJoin(users, eq(users.id, hrScheduleManagers.userId))
+    .innerJoin(hrEmployments, eq(hrEmployments.employeeUserId, users.id))
+    .where(and(inArray(hrScheduleManagers.scopeId, visibleScopes.map((scope) => scope.id)), eq(users.status, "active"), isNull(hrEmployments.archivedAt))) : [];
+  const managerByScope = new Map(managerRows.map((manager) => [manager.scopeId, manager.name]));
+
+  return {
+    periodKey,
+    attendanceMode: attendanceSettings?.attendanceMode ?? (worker ? "scheduled" : "general"),
+    monthlyRestDays: attendanceSettings?.monthlyRestDays ?? null,
+    scopes: visibleScopes,
+    calendar: data.calendar.map((day) => {
+      const applies = day.specialKind === "none" || !day.specialScopeIds.length || day.specialScopeIds.some((id) => visibleScopeIds.has(id));
+      if (!applies) return { ...day, name: "", specialKind: "none" as const, specialScopeIds: [], overridden: day.dayType !== defaultDayType(day.date) };
+      return { ...day, specialScopeIds: day.specialScopeIds.filter((id) => visibleScopeIds.has(id)) };
+    }),
+    scheduleManagers: visibleScopes.map((scope) => ({ scopeId: scope.id, name: managerByScope.get(scope.id) ?? null })),
+    entries: visibleEntries.map((entry) => ({
+      workDate: entry.workDate,
+      scopeId: entry.scopeId,
+      scopeName: entry.scopeName,
+      personKind: entry.personKind,
+      personName: entry.personName,
+      shiftName: entry.shiftName,
+      startsAt: entry.startsAt,
+      endsAt: entry.endsAt,
+      isMine: entry.personKind === personKind && (personKind === "employee" ? entry.employmentId === personId : entry.workerId === personId),
+    })),
+  };
 }
 
 export async function saveHrManagedSchedule(db: Database, scopeId: string, input: HrScheduleChangesInput, actor: HrActor) {

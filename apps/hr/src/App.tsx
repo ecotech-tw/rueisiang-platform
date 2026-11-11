@@ -11,6 +11,7 @@ import { HrLeaveSummary } from "./routes/hr/Leave.js";
 import { HrNotifications } from "./routes/hr/Notifications.js";
 import { HrPayrollHistory, HrPayslipDetail } from "./routes/hr/Payroll.js";
 import { HrScheduling } from "./routes/hr/Scheduling.js";
+import { HrMySchedule } from "./routes/hr/MySchedule.js";
 import { HrWork } from "./routes/hr/Work.js";
 import { HrLayout } from "./routes/hr/HrLayout.js";
 
@@ -28,7 +29,7 @@ function RequireSession({ children }: { children: React.ReactNode }) {
   if (checkLineLink && lineLink.isPending) return <div className="boot">確認 LINE 綁定狀態…</div>;
   if (checkLineLink && lineLink.error) return <div className="boot" role="alert"><p>{lineLink.error instanceof Error ? lineLink.error.message : "讀取 LINE 綁定狀態失敗。"}</p><button type="button" onClick={() => void lineLink.refetch()}>重新嘗試</button></div>;
   if (checkLineLink) return <LiffAccountLinkPage replaceExisting={Boolean(lineLink.data?.replaceRequired)} intentExpired={!lineLink.data?.pending} />;
-  if (user.hrSelfServiceKind === "worker" && !/^\/(?:clock(?:\/(?:calendar|logs))?|payroll(?:\/[^/]+\/[^/]+)?)?$/.test(location.pathname)) {
+  if (user.hrSelfServiceKind === "worker" && !/^\/(?:clock(?:\/(?:calendar|logs))?|payroll(?:\/[^/]+\/[^/]+)?|my-schedule)$/.test(location.pathname)) {
     return <Navigate to="/clock" replace />;
   }
   return <>{children}</>;
@@ -69,6 +70,7 @@ export function App() {
         <Route path="forms/overtime" element={<HrOvertimeForm />} />
         <Route path="forms/leave" element={<HrLeaveForm />} />
         <Route path="scheduling" element={<HrScheduling />} />
+        <Route path="my-schedule" element={<HrMySchedule />} />
         <Route path="profile" element={<HrProfile />} />
         <Route path="profile/leave" element={<HrLeaveSummary />} />
       </Route>
