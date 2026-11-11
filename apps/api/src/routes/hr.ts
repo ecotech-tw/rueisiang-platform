@@ -9,7 +9,7 @@ import {
   approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRecord, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollSelfHistory, getHrPayrollSelfDetail, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollCandidateExclusions, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRecord, withdrawHrPayrollRun,
   submitHrFormRequest, updateHrAttendanceLocation, updateHrEmployee,
   updateHrEmployeeSupervisor, updateHrEmploymentAttendanceMode, updateHrEmploymentServicePeriod, updateHrFormRequest, updateHrAttendanceScope,
-  listHrScheduleManagers, setHrScheduleManager, listHrManagedScheduleScopes, getHrManagedSchedule, saveHrManagedSchedule, setHrManagedScheduleLock, saveHrScheduleChanges,
+  listHrScheduleManagers, setHrScheduleManager, listHrManagedScheduleScopes, getHrManagedSchedule, getHrSelfSchedule, saveHrManagedSchedule, setHrManagedScheduleLock, saveHrScheduleChanges,
   createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, voidHrWorkerCompensationVersion, getHrSchedule, HR_SCHEDULE_ATTENDANCE_STATUSES, HR_SCHEDULE_WORKER_PAGE_SIZES, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, updateHrScheduleWorker, type HrWorkerPayBasis, type HrScheduleAttendanceStatus,
   isHrCalendarSpecialKind, isHrDayType, isHrShiftDayKey, importHrCalendarYear, listHrCalendarMonth, listHrCalendarYear, monthPeriodFromKey, saveHrCalendarMonth, saveHrCalendarYear, type HrCalendarDayInput, type HrShiftTime,
   assignHrSpecialWorkdays, createHrSpecialWorkdayRule, createHrSpecialWorkdayRuleVersion, deleteHrSpecialWorkdayAssignment, deleteHrSpecialWorkdayRule, listHrSpecialWorkdayAssignments, listHrSpecialWorkdayRules, resolveHrSpecialWorkdayRuleId, setHrSpecialWorkdayRuleActive, updateHrSpecialWorkdayAssignment, voidHrSpecialWorkdayRuleVersion,
@@ -600,7 +600,7 @@ export const hr = new Hono<AppEnv>()
     const path = c.req.path.replace(/^\/api\/hr/, "");
     const logout = path === "/me/device" && c.req.method === "DELETE";
     if (worker.archivedAt !== null && !logout) throw new HTTPException(403, { message: "支援人員已停用，無法使用本人功能。" });
-    const allowed = c.req.method === "GET" && /^\/me\/(session|clock-events|attendance-calendar|attendance-map(?:\/locations)?|payroll-history(?:\/[^/]+\/[^/]+)?)$/.test(path)
+    const allowed = c.req.method === "GET" && /^\/me\/(session|clock-events|attendance-calendar|attendance-map(?:\/locations)?|payroll-history(?:\/[^/]+\/[^/]+)?|my-schedules)$/.test(path)
       || c.req.method === "POST" && ["/me/device", "/me/clock-events", "/me/attendance-location/check"].includes(path)
       || c.req.method === "DELETE" && ["/me/device", "/me/liff-link"].includes(path);
     if (!allowed) throw new HTTPException(403, { message: "支援人員目前僅開放打卡與已發放薪資袋。" });
@@ -732,6 +732,7 @@ export const hr = new Hono<AppEnv>()
     return c.json(await getHrOverview(c.get("db")));
   })
   .get("/me/schedule-scopes", async (c) => c.json({ scopes: await listHrManagedScheduleScopes(c.get("db"), c.get("user").id) }))
+  .get("/me/my-schedules", async (c) => c.json(await getHrSelfSchedule(c.get("db"), c.get("user").id, c.req.query("periodKey") ?? "", c.req.query("scopeId"))))
   .get("/me/schedules", async (c) => {
     const key = c.req.query("periodKey") ?? "";
     const scopeId = c.req.query("scopeId") ?? "";
