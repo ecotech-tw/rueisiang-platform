@@ -9,6 +9,10 @@ import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.j
 
 const WEEKDAY_LABELS = ["日", "一", "二", "三", "四", "五", "六"] as const;
 const YEAR_COUNT_NUMBER = "text-[15px] text-ink tabular-nums";
+/** 行事曆換年份與排班月曆換月份共用同一條切換列：左右箭頭夾一個置中的年月。 */
+export const PERIOD_SWITCHER = "flex items-center gap-0.5";
+export const PERIOD_SWITCHER_LABEL = "inline-grid min-h-9 min-w-[112px] place-items-center text-center text-[17px] tracking-[.02em] text-ink tabular-nums";
+export const SCHEDULE_STATUS = "flex items-center self-center gap-2 text-[13px] text-muted";
 
 function weekdayOf(date: string) { return WEEKDAY_LABELS[new Date(`${date}T00:00:00Z`).getUTCDay()] ?? ""; }
 function isWeekendDate(date: string) {
@@ -222,10 +226,10 @@ export function HrCalendar() {
     <Panel grows>
       {/* 年份切換與統計放同一條，跟排班月曆的月份切換用同一組元件。 */}
       <div className="flex flex-wrap items-center gap-[10px_16px] border-b border-soft-line pb-3">
-        <div className="hr-schedule-month">
+        <div className={PERIOD_SWITCHER}>
           {/* 換年份跟換月份一樣要先問：草稿會被新資料洗掉，而切換鈕就在清單正上方。 */}
           <Button variant="icon" icon="chevronLeft" aria-label="上一年" onClick={() => void switchYear(-1)} />
-          <strong>{year} 年</strong>
+          <strong className={PERIOD_SWITCHER_LABEL}>{year} 年</strong>
           <Button variant="icon" icon="chevronRight" aria-label="下一年" onClick={() => void switchYear(1)} />
         </div>
         {/*
@@ -234,7 +238,7 @@ export function HrCalendar() {
           * 但不會把上一年的 16 天講成這一年的。
           */}
         <p className="m-0 ms-auto text-[13px] text-muted">國定假日 <strong className={YEAR_COUNT_NUMBER}>{loading ? "—" : holidays}</strong> 天 · 補班日 <strong className={YEAR_COUNT_NUMBER}>{loading ? "—" : makeups}</strong> 天 · 災防停班 <strong className={YEAR_COUNT_NUMBER}>{loading ? "—" : typhoonStops}</strong> 天</p>
-        {changed ? <p className="hr-schedule-status m-0"><StatusBadge tone="warning">尚未儲存</StatusBadge><span>按「儲存」才會生效。</span></p> : null}
+        {changed ? <p className={`m-0 ${ SCHEDULE_STATUS }`}><StatusBadge tone="warning">尚未儲存</StatusBadge><span>按「儲存」才會生效。</span></p> : null}
       </div>
       {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
       <DataTable containerClassName={loading ? "is-refreshing" : ""}><thead><tr>

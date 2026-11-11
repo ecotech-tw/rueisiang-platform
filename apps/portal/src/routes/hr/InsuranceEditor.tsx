@@ -8,6 +8,9 @@ const INSURANCE_LABEL: Record<"labor" | "health", string> = { labor: "勞保", h
 const SCHEMES = ["labor", "health"] as const;
 const ESTIMATE_DEBOUNCE_MS = 180;
 const AUTO_BRACKET = "__auto__";
+const ESTIMATE_NOTE = "muted text-[11px]";
+const ESTIMATE_ROW = "flex items-center justify-between gap-4 border-b border-b-ink/7 py-2";
+const ESTIMATE_AMOUNT = "text-[16px] tracking-[-.01em] text-brand-dark";
 
 type InsuranceScheme = typeof SCHEMES[number];
 
@@ -213,21 +216,21 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
             ...(activeTable?.brackets ?? []).map((bracket) => ({ value: String(bracket.level), label: `第 ${bracket.level} 級／${amountLabel(bracket.insuredAmount)}${bracketEmployeeAmountLabel(bracket.employeeAmountMinor, scheme)}` })),
           ];
           const displayedSelection = selection === AUTO_BRACKET ? String(selectedBracket?.level ?? "") : selection;
-          return <section className="hr-insurance-scheme-card" key={scheme}>
+          return <section className="grid gap-3 self-stretch rounded-[18px] bg-paper/26 p-[14px] [box-shadow:0_1px_0_--alpha(var(--color-paper)/58%)_inset,0_0_0_1px_--alpha(var(--color-paper)/18%)_inset,0_10px_24px_--alpha(var(--color-ink)/6%)] [-webkit-backdrop-filter:blur(7px)_saturate(150%)] [backdrop-filter:blur(7px)_saturate(150%)]" key={scheme}>
             <SelectField label={`${INSURANCE_LABEL[scheme]}級距`} value={displayedSelection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} />
           </section>;
         })}
       </div>
       <TextField label="健保眷屬人數（0～3）" type="number" min="0" max="3" step="1" value={dependents} onChange={(event) => setDependents(event.target.value)} />
-      <div className="hr-insurance-estimate hr-insurance-estimate-summary" aria-live="polite">
-        <div className="hr-insurance-estimate-title">員工每月扣款試算</div>
-        {calculationPending ? <span className="muted">試算中…</span> : calculationError ? <span className="muted">暫時無法取得試算</span> : calculated ? <>
-          <div className="hr-insurance-estimate-breakdown">
-            <div className="hr-insurance-estimate-row"><span>勞保<small className="muted">{estimateRateLabel(laborEstimate, false, 0)}</small></span>{laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(laborEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
-            <div className="hr-insurance-estimate-row"><span>健保<small className="muted">{estimateRateLabel(healthEstimate, true, dependentCount)}</small></span>{healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined ? <strong>{premiumLabel(healthEstimate.employeeAmountMinor)}</strong> : <span className="muted">尚未設定有效規則</span>}</div>
+      <div className="grid gap-0.5 rounded-[10px] bg-paper/46 px-3 py-[10px] [box-shadow:0_1px_0_--alpha(var(--color-paper)/64%)_inset,0_0_0_1px_--alpha(var(--color-ink)/6%)_inset]" aria-live="polite">
+        <div className="text-[11px] font-extrabold tracking-[.02em] text-muted">員工每月扣款試算</div>
+        {calculationPending ? <span className={ESTIMATE_NOTE}>試算中…</span> : calculationError ? <span className={ESTIMATE_NOTE}>暫時無法取得試算</span> : calculated ? <>
+          <div className="mt-1 grid gap-2">
+            <div className={ESTIMATE_ROW}><span className="grid gap-0.5">勞保<small className="muted text-[11px] font-medium">{estimateRateLabel(laborEstimate, false, 0)}</small></span>{laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined ? <strong className={ESTIMATE_AMOUNT}>{premiumLabel(laborEstimate.employeeAmountMinor)}</strong> : <span className={`grid gap-0.5 ${ ESTIMATE_NOTE }`}>尚未設定有效規則</span>}</div>
+            <div className={ESTIMATE_ROW}><span className="grid gap-0.5">健保<small className="muted text-[11px] font-medium">{estimateRateLabel(healthEstimate, true, dependentCount)}</small></span>{healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined ? <strong className={ESTIMATE_AMOUNT}>{premiumLabel(healthEstimate.employeeAmountMinor)}</strong> : <span className={`grid gap-0.5 ${ ESTIMATE_NOTE }`}>尚未設定有效規則</span>}</div>
           </div>
-          {totalPremium !== undefined ? <div className="hr-insurance-estimate-total"><span>合計</span><strong>{premiumLabel(totalPremium)}</strong></div> : null}
-        </> : Number.isSafeInteger(dependentCount) && dependentCount >= 0 && dependentCount <= 3 ? <span className="muted">選擇級距後即可計算</span> : <span className="muted">請輸入有效的眷屬人數</span>}
+          {totalPremium !== undefined ? <div className="mt-1 flex items-center justify-between gap-3 pt-[10px] pb-0.5 text-[13px] font-bold text-brand-dark"><span>合計</span><strong className="text-[17px] tracking-[-.01em] text-brand-dark">{premiumLabel(totalPremium)}</strong></div> : null}
+        </> : Number.isSafeInteger(dependentCount) && dependentCount >= 0 && dependentCount <= 3 ? <span className={ESTIMATE_NOTE}>選擇級距後即可計算</span> : <span className={ESTIMATE_NOTE}>請輸入有效的眷屬人數</span>}
       </div>
     </> : <Alert tone="info">退保會同時建立勞保與健保退保版本，生效日之後不再列入薪資扣款計算。</Alert>}
     <TextField label="備註" required={SCHEMES.some(usesManualSource) && status === "enrolled"} value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint={SCHEMES.some(usesManualSource) && status === "enrolled" ? "人工來源必須留下覆核備註。" : undefined} />
