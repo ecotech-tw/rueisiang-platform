@@ -71,103 +71,6 @@
 @keyframes hr-chunk-in { from { opacity: 0; translate: 0 -12px; filter: blur(4px); } }
 @keyframes hr-chunk-out { to { opacity: 0; translate: 0 -12px; filter: blur(4px); } }
 
-/* HRIS Skeleton：保留實際頁面的密度與層級，避免載入時只剩一行文字。 */
-.hr-skeleton-page {
-  display: flex;
-  width: 100%;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 20px;
-  min-width: 0;
-  min-height: 100%;
-}
-.hr-skeleton-page-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-}
-.hr-skeleton-page-head > div,
-.hr-skeleton-panel-head { display: grid; gap: 10px; min-width: 0; }
-.hr-skeleton-block-container {
-  display: block;
-  width: 100%;
-  max-width: 100%;
-  line-height: 1;
-}
-.hr-skeleton-block.react-loading-skeleton { display: block; width: 100%; height: 14px; border-radius: 999px; }
-.hr-skeleton-block-container.is-title { width: min(240px, 46vw); }
-.hr-skeleton-block-container.is-title .hr-skeleton-block { height: 32px; border-radius: 10px; }
-.hr-skeleton-block-container.is-description { width: min(560px, 70vw); }
-.hr-skeleton-block-container.is-description .hr-skeleton-block { height: 15px; }
-.hr-skeleton-block-container.is-action { width: 112px; }
-.hr-skeleton-block-container.is-action .hr-skeleton-block { height: 42px; border-radius: 999px; }
-.hr-skeleton-block-container.is-panel-title { width: 170px; }
-.hr-skeleton-block-container.is-panel-title .hr-skeleton-block { height: 21px; border-radius: 8px; }
-.hr-skeleton-block-container.is-panel-description { width: min(420px, 68vw); }
-.hr-skeleton-block-container.is-panel-description .hr-skeleton-block { height: 14px; }
-.hr-skeleton-block-container.is-short { width: 76px; }
-.hr-skeleton-block-container.is-long { width: min(180px, 80%); }
-.hr-skeleton-panel {
-  display: grid;
-  width: 100%;
-  min-width: 0;
-  gap: 18px;
-  padding: 20px;
-  border: 1px solid transparent;
-  border-radius: 18px;
-  background: --alpha(var(--color-paper) / 28%);
-  box-shadow:
-    0 1px 0 --alpha(var(--color-paper) / 62%) inset,
-    0 0 0 1px --alpha(var(--color-paper) / 20%) inset,
-    0 16px 38px --alpha(var(--color-ink) / 8%);
-  -webkit-backdrop-filter: blur(7px) saturate(150%);
-  backdrop-filter: blur(7px) saturate(150%);
-}
-.hr-skeleton-toolbar { display: flex; flex-wrap: wrap; gap: 10px; padding-bottom: 16px; border-bottom: 1px solid --alpha(var(--color-line) / 70%); }
-.hr-skeleton-toolbar > .hr-skeleton-block-container { width: 170px; }
-.hr-skeleton-toolbar > .hr-skeleton-block-container .hr-skeleton-block { height: 42px; border-radius: 12px; }
-.hr-skeleton-toolbar > .hr-skeleton-block-container.is-short { width: 96px; }
-.hr-skeleton-table { display: grid; width: 100%; min-width: 0; gap: 0; overflow-x: auto; }
-.hr-skeleton-table-line { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: center; gap: 16px; min-width: 620px; min-height: 52px; padding: 0 4px; border-bottom: 1px solid --alpha(var(--color-line) / 65%); }
-.hr-skeleton-table-line.is-header { min-height: 56px; }
-.hr-skeleton-table-line > .hr-skeleton-block-container { width: 72%; }
-.hr-skeleton-table-line > .hr-skeleton-block-container.is-long { width: 90%; }
-.hr-skeleton-table-line > .hr-skeleton-block-container.is-short { width: 48%; }
-.hr-skeleton-dashboard { min-width: 0; }
-.hr-skeleton-dashboard-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
-.hr-skeleton-dashboard-grid .hr-skeleton-panel { min-height: 190px; align-content: start; }
-.hr-skeleton-block-container.is-icon { width: 36px; }
-.hr-skeleton-block-container.is-icon .hr-skeleton-block { height: 36px; border-radius: 12px; }
-.hr-skeleton-block-container.is-value { width: 110px; margin-top: 16px; }
-.hr-skeleton-block-container.is-value .hr-skeleton-block { height: 30px; border-radius: 8px; }
-.hr-skeleton-block-container.is-card-description { width: 86%; margin-top: 10px; }
-.hr-skeleton-block-container.is-card-action { width: 120px; margin-top: auto; }
-.hr-skeleton-toolbar.is-calendar { align-items: center; }
-.hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container.is-nav { width: 40px; }
-.hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container.is-nav .hr-skeleton-block { height: 40px; border-radius: 999px; }
-.hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container.is-month { width: 112px; }
-.hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container.is-month .hr-skeleton-block { height: 24px; border-radius: 8px; }
-.hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container:last-child { margin-left: auto; }
-.hr-skeleton-calendar { display: grid; width: 100%; min-width: 0; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; overflow-x: auto; }
-.hr-skeleton-calendar .hr-skeleton-panel { min-height: 104px; gap: 12px; padding: 10px; border-radius: 18px; box-shadow: 0 1px 0 --alpha(var(--color-paper) / 54%) inset; }
-.hr-skeleton-block-container.is-calendar-date { width: 30px; }
-.hr-skeleton-block-container.is-calendar-date .hr-skeleton-block { height: 30px; border-radius: 999px; }
-.hr-skeleton-block-container.is-calendar-entry { width: 100%; }
-.hr-skeleton-block-container.is-calendar-entry .hr-skeleton-block { height: 30px; border-radius: 10px; }
-.hr-skeleton-block-container.is-calendar-entry.is-short { width: 72%; }
-.hr-skeleton-block-container.is-detail-title { width: 220px; }
-.hr-skeleton-block-container.is-detail-title .hr-skeleton-block { height: 24px; border-radius: 8px; }
-.hr-skeleton-detail-row { display: grid; grid-template-columns: minmax(100px, 22%) minmax(0, 1fr); align-items: center; gap: 18px; min-height: 48px; border-bottom: 1px solid --alpha(var(--color-line) / 65%); }
-.hr-skeleton-detail-row .hr-skeleton-block-container { width: 70%; }
-.hr-skeleton-detail-row .hr-skeleton-block-container.is-detail-label { width: 80%; }
-.hr-system .hr-skeleton-table-row .hr-skeleton-block-container { width: 72%; }
-.hr-system .hr-skeleton-table-row td:first-child .hr-skeleton-block-container { width: 90%; }
-.hr-system .hr-skeleton-table-row td:last-child .hr-skeleton-block-container { width: 48%; }
-@media (prefers-reduced-motion: reduce) {
-  .hr-skeleton-block { --pseudo-element-display: none; }
-}
-
 /* HRIS 概覽卡片 */
 .hr-overview-page { gap: 22px; }
 .hr-overview-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
@@ -286,14 +189,9 @@
 
 @media (max-width: 1100px) { .hr-overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) {
-  .hr-overview-grid,
-  .hr-skeleton-dashboard-grid { grid-template-columns: 1fr; }
+  .hr-overview-grid { grid-template-columns: 1fr; }
   .hr-overview-card { min-height: 0; }
   .hr-overview-card p { min-height: 0; }
-  .hr-skeleton-page-head { align-items: stretch; flex-direction: column; }
-  .hr-skeleton-block-container.is-action { width: 112px; }
-  .hr-skeleton-toolbar.is-calendar > .hr-skeleton-block-container:last-child { margin-left: 0; }
-  .hr-skeleton-calendar { grid-template-columns: repeat(7, minmax(76px, 1fr)); }
 }
 
 /* 假別是出勤主檔；保留足夠留白讓狀態與操作在窄螢幕仍可辨識。 */
