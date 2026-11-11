@@ -26,23 +26,23 @@ export function InsuranceRateManagementDialog({ year, onClose }: { year: number;
 
   return <>
     <Dialog title="級距管理" titleMeta={`${year} 年・勞保級距與健保級距`} onClose={onClose} closeDisabled={getRates.isPending || activateRate.isPending || editorBusy} width={760}>
-      <div className="hr-rate-management-intro"><strong>管理年度勞保級距與健保級距</strong><p>可在這裡取得官方級距，或直接建立人工版本。人工版本必須留下來源或覆核備註；啟用後的版本與歷史版本不可直接修改。</p></div>
-      <div className="hr-rate-management-toolbar">
+      <div className="grid gap-2 px-1"><strong className="text-[14px] text-ink">管理年度勞保級距與健保級距</strong><p className="m-0 text-[12px] leading-[1.7] text-muted">可在這裡取得官方級距，或直接建立人工版本。人工版本必須留下來源或覆核備註；啟用後的版本與歷史版本不可直接修改。</p></div>
+      <div className="flex items-center justify-between gap-4 py-1 max-[760px]:flex-col">
         <SegmentedControl
-          className="hr-rate-scheme-tabs"
+          className="max-w-[360px] flex-[1_1_260px]"
           aria-label="級距種類"
           value={scheme}
           options={SCHEMES.map((item) => ({ value: item, label: <>{SCHEME_LABEL[item]}{tables.some((table) => table.scheme === item && table.status === "draft") ? "・待審閱" : ""}</> }))}
           onChange={(value) => { if (value === "labor" || value === "health") setScheme(value); }}
         />
-        <div className="row-actions">
+        <div className="row-actions justify-end gap-2.5 max-[760px]:*:flex-1">
           <Button icon="sync" loading={getRates.isPending} loadingLabel="取得中…" onClick={() => getRates.mutate({ path: "/insurance-rates/sync", method: "POST", values: { year } }, { onSuccess: refresh })}>取得級距</Button>
           {draft ? <Button variant="secondary" tone="info" loading={activateRate.isPending} onClick={() => activateRate.mutate({ path: `/insurance-rates/${draft.id}/activate`, method: "POST", values: { contentHash: draft.contentHash } }, { onSuccess: refresh })}>啟用{SCHEME_LABEL[scheme]}草稿</Button> : null}
         </div>
       </div>
       {rates.error || getRates.error || activateRate.error ? <Alert tone="danger">{rates.error?.message ?? getRates.error?.message ?? activateRate.error?.message}</Alert> : null}
-      <div className="hr-rate-management-context"><StatusBadge tone={editingTable?.status === "draft" ? "warning" : editingTable?.status === "active" ? "success" : "neutral"}>{statusLabel(editingTable)}</StatusBadge><span>{editingTable ? `${SCHEME_LABEL[scheme]}目前有 ${editingTable.brackets.length} 筆級距` : `尚無${SCHEME_LABEL[scheme]}級距`}</span>{editingTable?.sourceKind === "manual" ? <StatusBadge tone="warning">人工維護</StatusBadge> : editingTable ? <StatusBadge tone="success">官方資料</StatusBadge> : null}</div>
-      {rates.isPending ? <div className="hr-rate-management-loading" role="status">正在載入級距…</div> : <InsuranceRateTableEditor key={`${scheme}-${editingTable?.id ?? "new"}-${editingTable?.contentHash ?? ""}`} scheme={scheme} year={year} table={editingTable} onSaved={refresh} onDeleted={refresh} onBusy={setEditorBusy} />}
+      <div className="flex min-h-[30px] flex-wrap items-center gap-2.5 px-0.5 py-1 text-[12px] text-muted"><StatusBadge tone={editingTable?.status === "draft" ? "warning" : editingTable?.status === "active" ? "success" : "neutral"}>{statusLabel(editingTable)}</StatusBadge><span>{editingTable ? `${SCHEME_LABEL[scheme]}目前有 ${editingTable.brackets.length} 筆級距` : `尚無${SCHEME_LABEL[scheme]}級距`}</span>{editingTable?.sourceKind === "manual" ? <StatusBadge tone="warning">人工維護</StatusBadge> : editingTable ? <StatusBadge tone="success">官方資料</StatusBadge> : null}</div>
+      {rates.isPending ? <div className="grid min-h-[260px] place-items-center text-muted" role="status">正在載入級距…</div> : <InsuranceRateTableEditor key={`${scheme}-${editingTable?.id ?? "new"}-${editingTable?.contentHash ?? ""}`} scheme={scheme} year={year} table={editingTable} onSaved={refresh} onDeleted={refresh} onBusy={setEditorBusy} />}
     </Dialog>
   </>;
 }
