@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TableBulkActionMenu, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableMobileSelectAll, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
@@ -58,10 +58,10 @@ const REQUEST_BULK_ACTIONS: TableBulkAction<RequestRow>[] = [
 ];
 
 /*
- * 手機卡片：可批次取消的列在左上角放勾選框，所以標題改用「類型」那一格，左邊讓出勾選框、
- * 右邊讓出操作鈕。
+ * 桌機欄位不換行、內容與原因截斷到 280px，完整文字在 Tooltip。
+ * 手機卡片的標題是「類型」那一格；批次模式時它排在勾選格後面，左右讓位由 TABLE_SELECT_COLUMN.corner 處理。
  */
-const REQUEST_TABLE = "hr-request-table [&_.hr-request-select-cell]:text-center max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:absolute max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:top-2 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:left-2 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:block max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:w-10 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:min-w-10 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:p-0 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:border-0 max-[760px]:[&_tbody_tr>td.hr-request-select-cell]:m-0 max-[760px]:[&_tbody_tr>td[data-label=類型]]:order-1 max-[760px]:[&_tbody_tr>td[data-label=類型]]:block max-[760px]:[&_tbody_tr>td[data-label=類型]]:w-full max-[760px]:[&_tbody_tr>td[data-label=類型]]:pt-0 max-[760px]:[&_tbody_tr>td[data-label=類型]]:pr-[84px] max-[760px]:[&_tbody_tr>td[data-label=類型]]:pb-2 max-[760px]:[&_tbody_tr>td[data-label=類型]]:pl-12 max-[760px]:[&_tbody_tr>td[data-label=類型]]:mb-1.5 max-[760px]:[&_tbody_tr>td[data-label=類型]]:border-b max-[760px]:[&_tbody_tr>td[data-label=類型]]:border-soft-line max-[760px]:[&_tbody_tr>td[data-label=類型]]:font-semibold max-[760px]:[&_tbody_tr>td[data-label=類型]]:before:hidden";
+const REQUEST_TABLE = "min-[761px]:min-w-[1168px] min-[761px]:[&_th]:whitespace-nowrap min-[761px]:[&_td]:whitespace-nowrap [&_tr.selected_td]:bg-brand/7 max-[760px]:[&_tbody_tr>td[data-label=類型]]:font-semibold";
 
 type RequestStatusFilter = "all" | RequestStatus;
 interface RequestFilters {
@@ -315,14 +315,14 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
       onError: () => onPendingChange(false),
     });
   }
-  return <form id={REQUEST_FORM_ID} className="hr-request-form" onSubmit={submit}>
+  return <form id={REQUEST_FORM_ID} className="grid gap-4 pt-0.5" onSubmit={submit}>
     <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} searchable disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
     <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length || write.isPending} onChange={(event) => setLeaveTypeId(event.target.value)} />
     <div className="form-grid two"><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} disabled={write.isPending} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} disabled={write.isPending} onChange={(event) => setEndsAt(event.target.value)} /></div>
     <p className="muted field-note">{durationDescription}{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</p>
     <Field label="請假原因"><Textarea rows={4} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
-    {actionsSlot ? createPortal(<><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" tone="success" mobileIconOnly loading={write.isPending} disabled={!employees.length || !leaveTypes.length || leaveDuration.isPending || !durationValid}>建立請假申請</Button></>, actionsSlot) : null}
+    {actionsSlot ? createPortal(<><Button variant="secondary" type="button" className="max-[620px]:flex-1" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" tone="success" mobileIconOnly loading={write.isPending} disabled={!employees.length || !leaveTypes.length || leaveDuration.isPending || !durationValid}>建立請假申請</Button></>, actionsSlot) : null}
   </form>;
 }
 
@@ -415,7 +415,7 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
   const hoursField = <TextField label={mode === "single" ? "加班時數（小時）" : "每天加班時數（小時）"} type="number" inputMode="decimal" min={0.5} max={24} step={0.5} required value={hours} disabled={write.isPending} error={hours.trim() && !minutesValid ? OVERTIME_UNIT_ERROR : undefined} onChange={(event) => setHours(event.target.value)} />;
   const presets = <SegmentedControl dense aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={write.isPending} onChange={setHours} />;
 
-  return <form id={REQUEST_FORM_ID} className="hr-request-form" onSubmit={submit}>
+  return <form id={REQUEST_FORM_ID} className="grid gap-4 pt-0.5" onSubmit={submit}>
     <SegmentedControl size="lg" aria-label="申請對象" value={targetKind} options={[{ value: "employee", label: "正式員工" }, { value: "worker", label: "支援人員" }]} disabled={write.isPending} onChange={(value) => { const next = value === "worker" ? "worker" : "employee"; setTargetKind(next); setEmployeeUserId(""); setWorkerId(""); resetDayDefaults(); }} />
     <SelectField label={targetKind === "employee" ? "申請員工" : "申請支援人員"} required value={targetId} options={targetKind === "employee" ? employeeOptions : workerOptions} searchable disabled={write.isPending} onChange={(event) => { if (targetKind === "employee") setEmployeeUserId(event.target.value); else setWorkerId(event.target.value); resetDayDefaults(); }} />
     <SegmentedControl size="lg" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={write.isPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />
@@ -450,7 +450,7 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
     <SelectField label="結算方式" required value={settlementKind} options={[{ value: "pay", label: "付薪" }, { value: "compensatory", label: "補休" }]} disabled={write.isPending} onChange={(event) => setSettlementKind(event.target.value as "pay" | "compensatory")} />
     <Field label="加班原因（選填）"><Textarea rows={3} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
     {write.error && !showUnscheduledConfirmation ? <Alert tone="danger">{write.error.message}</Alert> : null}
-    {actionsSlot ? createPortal(<><Button variant="secondary" type="button" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" tone="success" mobileIconOnly loading={write.isPending} disabled={!canSubmit}>{mode === "multiple" && entries.length ? `建立 ${entries.length} 筆加班申請` : "建立加班申請"}</Button></>, actionsSlot) : null}
+    {actionsSlot ? createPortal(<><Button variant="secondary" type="button" className="max-[620px]:flex-1" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" tone="success" mobileIconOnly loading={write.isPending} disabled={!canSubmit}>{mode === "multiple" && entries.length ? `建立 ${entries.length} 筆加班申請` : "建立加班申請"}</Button></>, actionsSlot) : null}
     {showUnscheduledConfirmation ? <ConfirmDialog
       title="確認未排班日加班"
       confirmLabel="確認建立申請"
@@ -471,8 +471,8 @@ function CreateRequestDialog({ initialKind, employees, workers, leaveTypes, onCl
   const [kind, setKind] = useState<"leave" | "overtime">(initialKind);
   const [pending, setPending] = useState(false);
   const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
-  return <Dialog title="新增申請" titleMeta="建立後會出現在申請紀錄" width={680} className="hr-request-dialog" bodyLayout="grid gap-4 px-6 pb-5" onClose={onClose} closeDisabled={pending} actions={<div ref={setActionsSlot} className="hr-request-dialog-actions" />}>
-    <div className="hr-request-kind-picker">
+  return <Dialog title="新增申請" titleMeta="建立後會出現在申請紀錄" width={680} bodyLayout="grid gap-4 px-6 pb-5" onClose={onClose} closeDisabled={pending} actions={<div ref={setActionsSlot} className="contents" />}>
+    <div className="grid gap-2">
       <span className="muted">申請類型</span>
       <SegmentedControl
         size="lg"
@@ -588,11 +588,11 @@ export function HrRequestCenter() {
     void requests.refetch();
   }
 
-  return <Page layout="fills" className="hr-request-page">
+  return <Page layout="fills">
     <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" tone="success" mobileIconOnly onClick={() => setCreateOpen(true)}>新增申請</Button>} />
     <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登（含沒有平台帳號的支援人員）會保存「已核准」狀態；正式員工前台申請則由主管或 HR 進行審核。</Alert>
     {employees.error || leaveTypes.error || workers.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message ?? workers.error?.message}</Alert> : null}
-    <Panel grows className="hr-request-history-panel" title="申請紀錄" description="包含 HR 後台代登（正式員工與支援人員）及正式員工前台產生的申請；待審核資料可直接在此處理。">
+    <Panel grows title="申請紀錄" description="包含 HR 後台代登（正式員工與支援人員）及正式員工前台產生的申請；待審核資料可直接在此處理。">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <FilterToolbar>
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
@@ -604,23 +604,23 @@ export function HrRequestCenter() {
         </div>
       </FilterToolbar>
       {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
-      <div className="hr-request-table-region">
+      <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
         <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div>
-        {bulk.actionId && cancellableOvertimeIds.length ? <div className="hr-request-mobile-select-all"><label className="table-select-all"><input ref={mobileSelectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /><span>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</span></label></div> : null}
-      <DataTable className={`${REQUEST_TABLE} ${bulk.actionId ? "" : "hr-request-table-selection-inactive"}`} containerClassName={requests.isFetching ? "is-refreshing" : ""}>
+        {bulk.actionId && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" inputRef={mobileSelectAllOvertimeRef} checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
+      <DataTable className={`${REQUEST_TABLE} ${bulk.actionId ? TABLE_SELECT_COLUMN.corner : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${requests.isFetching ? "is-refreshing" : ""}`}>
         <thead><tr>
-          {bulk.actionId ? <th className="hr-request-select-cell">{cancellableOvertimeIds.length ? <input ref={selectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /> : null}</th> : null}
+          {bulk.actionId ? <th>{cancellableOvertimeIds.length ? <input ref={selectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /> : null}</th> : null}
           <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div></th>
         </tr></thead>
         <tbody>{visibleRows.map((row) => {
           const canBulkCancel = REQUEST_BULK_ACTIONS[0]!.isEligible(row);
           return <tr key={`${row.kind}-${row.id}`} className={bulk.selectedKeys.includes(requestRowKey(row)) ? "selected" : undefined}>
-            {bulk.actionId ? <td data-label="選取" className="hr-request-select-cell">{bulk.isRowEligible(row) ? <label className="hr-request-row-select"><input className="table-checkbox" type="checkbox" checked={bulk.selectedKeys.includes(requestRowKey(row))} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleRow(row, event.target.checked)} aria-label={`選取 ${row.employeeName} ${row.period} 的已核准加班申請`} /></label> : null}</td> : null}
+            {bulk.actionId ? <td data-label="選取">{bulk.isRowEligible(row) ? <label className="inline-grid size-10 cursor-pointer place-items-center"><input className="table-checkbox" type="checkbox" checked={bulk.selectedKeys.includes(requestRowKey(row))} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleRow(row, event.target.checked)} aria-label={`選取 ${row.employeeName} ${row.period} 的已核准加班申請`} /></label> : null}</td> : null}
             <td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td>
             <td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td>
             <td data-label="期間">{row.period}</td>
-            <td data-label="內容"><Tooltip label={row.detail} focusable={false} className="min-[761px]:block"><span className="hr-request-cell-truncate">{row.detail}</span></Tooltip></td>
-            <td data-label="原因"><Tooltip label={row.reason} focusable={false} className="min-[761px]:block"><span className="hr-request-cell-truncate">{row.reason}</span></Tooltip></td>
+            <td data-label="內容"><Tooltip label={row.detail} focusable={false} className="min-[761px]:block"><span className="min-[761px]:block min-[761px]:max-w-[280px] min-[761px]:truncate">{row.detail}</span></Tooltip></td>
+            <td data-label="原因"><Tooltip label={row.reason} focusable={false} className="min-[761px]:block"><span className="min-[761px]:block min-[761px]:max-w-[280px] min-[761px]:truncate">{row.reason}</span></Tooltip></td>
             <td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge>{row.payrollLocked ? <span className="cell-sub">薪資已鎖定</span> : null}</td>
             <td data-label="操作">{row.payrollLocked ? <span className="muted">薪資已鎖定</span> : row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false} className="min-[761px]:block"><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
           </tr>;
