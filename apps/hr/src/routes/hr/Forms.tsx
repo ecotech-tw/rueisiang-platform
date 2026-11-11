@@ -4,7 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
-import { Alert, Button, ConfirmDialog, Dialog, Field, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, SegmentedControl, SelectField, StatusBadge, Textarea, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, ConfirmDialog, Dialog, EmptyRecords, Field, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, SegmentedControl, SelectField, StatusBadge, Textarea, TextField, Tooltip } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrLeaveEnd, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type HrOvertimeDay, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
 import { dateBefore, formatHours, taipeiDay, taipeiTimeRange, utcStampDate } from "./format.js";
 import { hoursToMinutes } from "./hours-entry.js";
@@ -21,6 +21,34 @@ const FORM_PANEL = `${MOBILE_CARD} max-[760px]:pb-[116px]`;
 // 手機上標題與說明疊成兩行，字也收小。
 const FORM_SECTION_HEAD = `${PANEL_HEAD} max-[760px]:grid max-[760px]:gap-1 max-[760px]:mb-3.5 max-[760px]:[&>div]:min-w-0 max-[760px]:[&_h2]:text-[17px] max-[760px]:[&_h2]:leading-[1.35]`;
 const FORM_SECTION_DESCRIPTION = `${PANEL_DESCRIPTION} max-[760px]:text-[12.5px] max-[760px]:leading-[1.55]`;
+const REQUEST_LIST = "grid gap-3 max-[760px]:gap-2.5";
+const REQUEST_SUMMARY = "grid min-w-0 gap-2.5";
+const REQUEST_FIELDS = "m-0 grid grid-cols-[72px_minmax(0,1fr)] gap-x-3 gap-y-[5px] text-[13px] [&_dt]:text-muted [&_dd]:m-0 [&_dd]:min-w-0 [&_dd]:wrap-anywhere max-[760px]:grid-cols-[60px_minmax(0,1fr)] max-[760px]:gap-x-2.5 max-[760px]:text-[12.5px]";
+// 手機上按鈕各佔一整列，拇指才按得到。
+const REQUEST_ACTIONS = "flex justify-start gap-2 max-[760px]:grid max-[760px]:grid-cols-[1fr]";
+const LIST_FOOTNOTE = "pt-[18px] pb-0.5 text-center text-[12px] text-muted";
+const REQUEST_CARD_TONE = {
+  own: "bg-paper",
+  review: "bg-canvas",
+  // 整批核准的入口排在逐筆卡片上面，用成功色的細框跟單筆區分；逐筆卡片還在下面，要駁回個別幾筆走那裡。
+  batch: "bg-ok-soft [box-shadow:0_0_0_1px_--alpha(var(--color-ok)/28%)_inset] [&_p]:text-[13px] [&_p]:leading-[1.55] [&_p]:tabular-nums",
+} as const;
+const TAB_ENTER = {
+  forward: "animate-[hr-form-tab-enter_.24s_cubic-bezier(.05,.7,.1,1)] motion-reduce:animate-none",
+  back: "animate-[hr-form-tab-enter-back_.24s_cubic-bezier(.05,.7,.1,1)] motion-reduce:animate-none",
+} as const;
+const ADD_BUTTON = "grid size-10 flex-none place-items-center rounded-[50%] border-0 bg-brand text-paper [box-shadow:0_5px_14px_--alpha(var(--color-brand)/24%)] transition-[background-color,scale] duration-120 ease-out motion-reduce:transition-none not-disabled:hover:bg-brand-dark not-disabled:hover:text-paper enabled:active:scale-[.96] motion-reduce:enabled:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary [&_svg]:size-5";
+
+function RequestCard({ tone = "own", children }: { tone?: keyof typeof REQUEST_CARD_TONE; children: ReactNode }) {
+  return <article className={`grid gap-3.5 rounded-[14px] border border-line p-4 max-[760px]:gap-[11px] max-[760px]:p-[13px] max-[760px]:[&>p]:text-[13px] max-[760px]:[&>p]:leading-[1.55] max-[760px]:[&>p]:wrap-anywhere ${REQUEST_CARD_TONE[tone]}`}>{children}</article>;
+}
+
+function RequestTitle({ children, badge }: { children: ReactNode; badge: ReactNode }) {
+  return <div className="flex items-center justify-between gap-2.5 max-[760px]:items-start max-[760px]:gap-2">
+    <strong className="text-[16px] max-[760px]:min-w-0 max-[760px]:text-[14px] max-[760px]:leading-[1.45] max-[760px]:wrap-anywhere">{children}</strong>
+    {badge}
+  </div>;
+}
 const statusCopy: Record<FormRequestStatus, { label: string; tone: "neutral" | "info" | "success" | "danger" }> = {
   draft: { label: "草稿", tone: "neutral" },
   pending: { label: "申請中", tone: "info" },
@@ -126,9 +154,9 @@ function leaveStatus(status: LeaveRequest["request"]["status"]) {
 
 function RequestSummary({ request, reviewer = false }: { request: FormRequest; reviewer?: boolean }) {
   const status = statusCopy[request.status];
-  return <div className="hr-form-request-summary">
-    <div className="hr-form-request-title"><strong>{formLabel(request)}</strong><StatusBadge tone={status.tone}>{status.label}</StatusBadge></div>
-    <dl>
+  return <div className={REQUEST_SUMMARY}>
+    <RequestTitle badge={<StatusBadge tone={status.tone}>{status.label}</StatusBadge>}>{formLabel(request)}</RequestTitle>
+    <dl className={REQUEST_FIELDS}>
       {reviewer ? <><dt>申請人</dt><dd>{request.requesterName ?? request.employeeUserId}</dd></> : null}
       <dt>補登時間</dt><dd>{formatTaipei(request.requestedAt)}</dd>
       <dt>審核者</dt><dd>{request.approverName ?? "尚未指定"}</dd>
@@ -161,12 +189,12 @@ function OvertimeRequestCard({ item, onEdit, onReapply, onCancel }: { item: Over
   const canCancel = status === "pending" || status === "approved";
   const tone = status === "approved" ? "success" : status === "rejected" ? "danger" : status === "cancelled" ? "neutral" : "info";
   const label = status === "pending" ? "申請中" : status === "approved" ? "已核准" : status === "rejected" ? "已駁回" : status === "cancelled" ? "已取消" : "草稿";
-  return <article className="hr-form-request-card">
-    <div className="hr-form-request-title"><strong>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</strong><StatusBadge tone={tone}>{label}</StatusBadge></div>
+  return <RequestCard>
+    <RequestTitle badge={<StatusBadge tone={tone}>{label}</StatusBadge>}>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</RequestTitle>
     <p>{item.request.settlementKind === "pay" ? "付薪" : "補休"}・{item.request.reason || "—"}</p>
     {item.request.decisionReason ? <small>審核意見：{item.request.decisionReason}</small> : null}
-    {canEdit || canReapply || canCancel ? <div className="hr-form-request-actions">{canEdit ? <Button size="lg" variant="secondary" tone="info" onClick={() => onEdit(item)}>編輯</Button> : null}{canReapply ? <Button size="lg" variant="secondary" tone="info" onClick={() => onReapply(item)}>修改後重新申請</Button> : null}{canCancel ? <Button size="lg" variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
-  </article>;
+    {canEdit || canReapply || canCancel ? <div className={REQUEST_ACTIONS}>{canEdit ? <Button size="lg" variant="secondary" tone="info" onClick={() => onEdit(item)}>編輯</Button> : null}{canReapply ? <Button size="lg" variant="secondary" tone="info" onClick={() => onReapply(item)}>修改後重新申請</Button> : null}{canCancel ? <Button size="lg" variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
+  </RequestCard>;
 }
 
 function LeaveCancelDialog({ item, onClose }: { item: LeaveRequest; onClose: () => void }) {
@@ -189,12 +217,12 @@ function LeaveRequestCard({ item, onEdit, onReapply, onCancel }: { item: LeaveRe
   const canEdit = item.request.status === "pending";
   const canReapply = item.request.status === "rejected";
   const canCancel = item.request.status === "pending" || item.request.status === "approved";
-  return <article className="hr-form-request-card">
-    <div className="hr-form-request-title"><strong>{item.request.leaveType}・{leavePeriod(item)}</strong><StatusBadge tone={status.tone}>{status.label}</StatusBadge></div>
+  return <RequestCard>
+    <RequestTitle badge={<StatusBadge tone={status.tone}>{status.label}</StatusBadge>}>{item.request.leaveType}・{leavePeriod(item)}</RequestTitle>
     <p>{formatHours(item.request.durationMinutes)}・{item.request.reason || "未填寫原因"}</p>
     {item.request.reviewComment ? <small>審核意見：{item.request.reviewComment}</small> : null}
-    {canEdit || canReapply || canCancel ? <div className="hr-form-request-actions">{canEdit ? <Button size="lg" variant="secondary" tone="info" onClick={() => onEdit(item)}>編輯</Button> : null}{canReapply ? <Button size="lg" variant="secondary" tone="info" onClick={() => onReapply(item)}>修改後重新申請</Button> : null}{canCancel ? <Button size="lg" variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
-  </article>;
+    {canEdit || canReapply || canCancel ? <div className={REQUEST_ACTIONS}>{canEdit ? <Button size="lg" variant="secondary" tone="info" onClick={() => onEdit(item)}>編輯</Button> : null}{canReapply ? <Button size="lg" variant="secondary" tone="info" onClick={() => onReapply(item)}>修改後重新申請</Button> : null}{canCancel ? <Button size="lg" variant="secondary" onClick={() => onCancel(item)}>取消申請</Button> : null}</div> : null}
+  </RequestCard>;
 }
 
 /**
@@ -230,7 +258,7 @@ function LeaveReviewDialog({ item, latest, onReload, onClose }: { item: LeaveReq
     <Button variant="danger" disabled={locked} onClick={() => { void submit("rejected"); }}>駁回</Button>
     <Button tone="success" loading={review.isPending} disabled={locked} onClick={() => { void submit("approved"); }}>核准</Button>
   </>}>
-    <div className="hr-form-request-summary"><dl><dt>請假期間</dt><dd>{leavePeriod(item)}</dd><dt>假別</dt><dd>{item.request.leaveType}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
+    <div className={REQUEST_SUMMARY}><dl className={REQUEST_FIELDS}><dt>請假期間</dt><dd>{leavePeriod(item)}</dd><dt>假別</dt><dd>{item.request.leaveType}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><Textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
     {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : error ? <Alert tone="danger">{error}</Alert> : null}
     {/* 打到一半的審核意見留著：只換上面的申請內容。 */}
@@ -265,7 +293,7 @@ function OvertimeReviewDialog({ item, latest, onReload, onClose }: { item: Overt
     <Button variant="danger" disabled={locked} onClick={() => { void submit("rejected"); }}>駁回</Button>
     <Button tone="success" loading={review.isPending} disabled={locked} onClick={() => { void submit("approved"); }}>核准</Button>
   </>}>
-    <div className="hr-form-request-summary"><dl><dt>加班期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算方式</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
+    <div className={REQUEST_SUMMARY}><dl className={REQUEST_FIELDS}><dt>加班期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算方式</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
     <Field label="審核意見" hint="駁回時必填；核准時可留空。"><Textarea maxLength={1000} rows={4} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="請填寫審核意見（選填）" /></Field>
     {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : error ? <Alert tone="danger">{error}</Alert> : null}
     {/* 打到一半的審核意見留著：只換上面的申請內容。 */}
@@ -478,7 +506,7 @@ export function HrForms() {
     // 螢幕邊緣留給 iOS 的「滑動返回」，輸入框與分頁列留給它們自己的手勢。
     const usable = touch && event.touches.length === 1
       && event.currentTarget.contains(target)
-      && !target.closest("input, select, textarea, .hr-form-tabs-shell")
+      && !target.closest("input, select, textarea, [data-form-tabs]")
       && touch.clientX > SWIPE_EDGE_GUARD && touch.clientX < window.innerWidth - SWIPE_EDGE_GUARD;
     swipeStart.current = usable ? { x: touch.clientX, y: touch.clientY } : null;
   }
@@ -499,7 +527,7 @@ export function HrForms() {
     navigate(activeTab === "leave" ? "/forms/leave" : activeTab === "overtime" ? "/forms/overtime" : "/forms/new");
   }
 
-  const addRequestAction = (placement: "inline" | "floating") => <Tooltip label="新增申請" focusable={false} className={placement === "floating" ? "max-[760px]:pointer-events-auto max-[760px]:absolute max-[760px]:right-[max(16px,env(safe-area-inset-right))] max-[760px]:bottom-[calc(var(--hr-safe-bottom)+96px)]" : ""}><button type="button" className={`hr-form-add-button hr-form-add-button-${placement}`} aria-label="新增申請" onClick={openNewForm}><Icon name="plus" /></button></Tooltip>;
+  const addRequestAction = (placement: "inline" | "floating") => <Tooltip label="新增申請" focusable={false} className={placement === "floating" ? "max-[760px]:pointer-events-auto max-[760px]:absolute max-[760px]:right-[max(16px,env(safe-area-inset-right))] max-[760px]:bottom-[calc(var(--hr-safe-bottom)+96px)]" : ""}><button type="button" className={placement === "floating" ? `${ADD_BUTTON} max-[760px]:size-[52px]` : ADD_BUTTON} aria-label="新增申請" onClick={openNewForm}><Icon name="plus" /></button></Tooltip>;
 
   const tabOptions = FORM_TAB_OPTIONS.map((option) => {
     const count = option.value === "leave"
@@ -516,8 +544,8 @@ export function HrForms() {
 
   return <Page className="w-full max-w-[760px] mx-auto max-[760px]:max-w-none" onTouchStart={startSwipe} onTouchEnd={endSwipe} onTouchCancel={() => { swipeStart.current = null; }}>
     <HrBackBar label="返回工作" onBack={() => navigate("/work")} />
-    <PageHeader className="mt-2 max-[760px]:[&>:first-child]:min-w-0 max-[760px]:[&>:first-child]:flex-1" title="表單申請" actions={<span className="hr-form-add-inline">{addRequestAction("inline")}</span>} />
-    {typeof document !== "undefined" ? createPortal(<div className="hr-form-add-portal">{addRequestAction("floating")}</div>, document.body) : null}
+    <PageHeader className="mt-2 max-[760px]:[&>:first-child]:min-w-0 max-[760px]:[&>:first-child]:flex-1" title="表單申請" actions={<span className="max-[760px]:hidden">{addRequestAction("inline")}</span>} />
+    {typeof document !== "undefined" ? createPortal(<div className="hidden max-[760px]:pointer-events-none max-[760px]:fixed max-[760px]:inset-0 max-[760px]:z-21 max-[760px]:block">{addRequestAction("floating")}</div>, document.body) : null}
     {isLoading ? <p className="muted">載入申請紀錄…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
@@ -526,11 +554,11 @@ export function HrForms() {
     {/* 從通知點進來只會看到那一筆（或那一批）；待審清單還有別的時要有路回到全部。 */}
     {reviewFiltered && reviewTotal > reviewShown ? <Button variant="text" className="justify-self-start" onClick={() => clearParams("review", "reviewBatch")}>查看全部 {reviewTotal} 筆待審</Button> : null}
     {recordsFiltered ? <Button variant="text" className="justify-self-start" onClick={() => clearParams("batch", "focus")}>{focusId ? "目前只顯示通知提到的申請，改看全部" : "目前只顯示同一批送出的加班，改看全部"}</Button> : null}
-    <div className="hr-form-sticky-controls top-12 mt-0">
-      <div className="hr-form-tabs-shell">
+    <div className="sticky top-12 z-10 mt-0 -mx-0.5 bg-canvas/92 px-0.5 py-2 backdrop-blur-[10px] max-[760px]:-mx-3.5 max-[760px]:px-3.5">
+      <div data-form-tabs="">
         <SegmentedControl skin="tabs" aria-label="申請表單類型" options={tabOptions} value={activeTab} onChange={(value) => selectTab(formTab(value))} />
       </div>
-      <div className="hr-form-filters" aria-label="申請列表篩選">
+      <div className="grid grid-cols-[minmax(0,1fr)_170px] items-end gap-3 pt-2 pb-0.5 max-[760px]:grid-cols-[minmax(0,1fr)_128px] max-[760px]:gap-2" aria-label="申請列表篩選">
         <TextField className="min-w-0" aria-label="搜尋申請" type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜尋申請編號、假別、日期或原因" inputClassName="hr-form-search-input" />
         <SelectField className="min-w-0" aria-label="狀態" value={statusFilter} options={REQUEST_STATUS_OPTIONS} onChange={(event) => setStatusFilter(event.target.value as RequestStatusFilter)} />
       </div>
@@ -538,41 +566,41 @@ export function HrForms() {
     {/* 從審核結果通知進來時先收起待審面板：身兼審核者的人，通知提到的那一筆會被一長串待審擠到要捲才看得到。 */}
     {!recordsFiltered && activeTab === "clock_correction" && reviewForms.length ? <Panel tone="attention" className={MOBILE_CARD}>
       <div data-panel-head="" className={FORM_SECTION_HEAD}><div><h2>待我審核</h2><p className={FORM_SECTION_DESCRIPTION}>只顯示指定你為審核者、且尚未完成處理的申請。</p></div></div>
-      <div className="hr-form-request-list">{reviewForms.map((request) => <article className="hr-form-request-card review" key={request.id}>
+      <div className={REQUEST_LIST}>{reviewForms.map((request) => <RequestCard tone="review" key={request.id}>
         <RequestSummary request={request} reviewer />
-        <div className="hr-form-review-actions"><Button size="lg" tone="info" onClick={() => setReviewing(request)}>審核</Button></div>
-      </article>)}</div>
+        <div className={REQUEST_ACTIONS}><Button size="lg" tone="info" onClick={() => setReviewing(request)}>審核</Button></div>
+      </RequestCard>)}</div>
     </Panel> : null}
     {!recordsFiltered && activeTab === "leave" && reviewLeaves.length ? <Panel tone="attention" className={MOBILE_CARD}>
       <div data-panel-head="" className={FORM_SECTION_HEAD}><div><h2>待我審核</h2><p className={FORM_SECTION_DESCRIPTION}>請假申請只有指定主管或 HR 管理者可以處理。</p></div></div>
-      <div className="hr-form-request-list">{reviewLeaves.map((item) => <article className="hr-form-request-card review" key={item.request.id}>
-        <div className="hr-form-request-summary"><div className="hr-form-request-title"><strong>{item.employeeName ?? item.employeeUserId}・{item.request.leaveType}</strong><StatusBadge tone="info">申請中</StatusBadge></div><dl><dt>期間</dt><dd>{leavePeriod(item)}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
-        <div className="hr-form-review-actions"><Button size="lg" tone="info" onClick={() => setReviewingLeave(item)}>審核</Button></div>
-      </article>)}</div>
+      <div className={REQUEST_LIST}>{reviewLeaves.map((item) => <RequestCard tone="review" key={item.request.id}>
+        <div className={REQUEST_SUMMARY}><RequestTitle badge={<StatusBadge tone="info">申請中</StatusBadge>}>{item.employeeName ?? item.employeeUserId}・{item.request.leaveType}</RequestTitle><dl className={REQUEST_FIELDS}><dt>期間</dt><dd>{leavePeriod(item)}</dd><dt>時數</dt><dd>{formatHours(item.request.durationMinutes)}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
+        <div className={REQUEST_ACTIONS}><Button size="lg" tone="info" onClick={() => setReviewingLeave(item)}>審核</Button></div>
+      </RequestCard>)}</div>
     </Panel> : null}
     {!recordsFiltered && activeTab === "overtime" && reviewOvertime.length ? <Panel tone="attention" className={MOBILE_CARD}>
       <div data-panel-head="" className={FORM_SECTION_HEAD}><div><h2>待我審核</h2><p className={FORM_SECTION_DESCRIPTION}>加班申請由指定主管或 HR 管理者處理。</p></div></div>
-      {overtimeBatches.length ? <div className="hr-form-request-list hr-overtime-batch-list">{overtimeBatches.map((batch) => <article className="hr-form-request-card review batch" key={batch.batchId}>
-        <div className="hr-form-request-summary"><div className="hr-form-request-title"><strong>{batch.items[0]?.employeeName ?? batch.items[0]?.employeeUserId}・同一批 {batch.items.length} 筆</strong><StatusBadge tone="info">申請中</StatusBadge></div><p className="muted">{batch.items.map((item) => taipeiDay(item.request.requestedStart)).join("、")}</p></div>
-        <div className="hr-form-review-actions"><Button size="lg" tone="success" onClick={() => setApprovingBatch(batch)}>整批核准</Button></div>
-      </article>)}</div> : null}
-      <div className="hr-form-request-list">{reviewOvertime.map((item) => <article className="hr-form-request-card review" key={item.request.id}>
-        <div className="hr-form-request-summary"><div className="hr-form-request-title"><strong>{item.employeeName ?? item.employeeUserId}・{formatTaipei(item.request.requestedStart)}</strong><StatusBadge tone="info">申請中</StatusBadge></div><dl><dt>期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
-        <div className="hr-form-review-actions"><Button size="lg" tone="info" onClick={() => setReviewingOvertime(item)}>審核</Button></div>
-      </article>)}</div>
+      {overtimeBatches.length ? <div className={`${REQUEST_LIST} hr-overtime-batch-list`}>{overtimeBatches.map((batch) => <RequestCard tone="batch" key={batch.batchId}>
+        <div className={REQUEST_SUMMARY}><RequestTitle badge={<StatusBadge tone="info">申請中</StatusBadge>}>{batch.items[0]?.employeeName ?? batch.items[0]?.employeeUserId}・同一批 {batch.items.length} 筆</RequestTitle><p className="muted">{batch.items.map((item) => taipeiDay(item.request.requestedStart)).join("、")}</p></div>
+        <div className={REQUEST_ACTIONS}><Button size="lg" tone="success" onClick={() => setApprovingBatch(batch)}>整批核准</Button></div>
+      </RequestCard>)}</div> : null}
+      <div className={REQUEST_LIST}>{reviewOvertime.map((item) => <RequestCard tone="review" key={item.request.id}>
+        <div className={REQUEST_SUMMARY}><RequestTitle badge={<StatusBadge tone="info">申請中</StatusBadge>}>{item.employeeName ?? item.employeeUserId}・{formatTaipei(item.request.requestedStart)}</RequestTitle><dl className={REQUEST_FIELDS}><dt>期間</dt><dd>{formatTaipei(item.request.requestedStart)}～{formatTaipei(item.request.requestedEnd)}</dd><dt>結算</dt><dd>{item.request.settlementKind === "pay" ? "付薪" : "補休"}</dd><dt>原因</dt><dd>{item.request.reason || "—"}</dd></dl></div>
+        <div className={REQUEST_ACTIONS}><Button size="lg" tone="info" onClick={() => setReviewingOvertime(item)}>審核</Button></div>
+      </RequestCard>)}</div>
     </Panel> : null}
-    <section key={activeTab} className={`mt-2 [[data-panel]+&]:mt-5 max-[760px]:[[data-panel]+&]:mt-3.5 hr-form-request-panel hr-form-request-panel-${activeTab}${tabDirection ? ` hr-form-tab-transition${tabDirection === "back" ? " back" : ""}` : ""}`}>
-      {activeError ? null : activeTab === "leave" ? <div className="hr-form-request-list">{filteredLeaves.slice(0, visibleCount).map((item) => <LeaveRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/leave?request=${encodeURIComponent(request.request.id)}`)} onReapply={(request) => navigate(`/forms/leave?copy=${encodeURIComponent(request.request.id)}`)} onCancel={setCancellingLeave} />)}</div> : activeTab === "overtime" ? <div className="hr-form-request-list">{filteredOvertime.slice(0, visibleCount).map((item) => <OvertimeRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/overtime?request=${encodeURIComponent(request.request.id)}`)} onReapply={(request) => navigate(`/forms/overtime?copy=${encodeURIComponent(request.request.id)}`)} onCancel={setCancelling} />)}</div> : <div className="hr-form-request-list">{filteredCorrections.slice(0, visibleCount).map((request) => <article className="hr-form-request-card" key={request.id}>
+    <section key={activeTab} className={`mt-2 [[data-panel]+&]:mt-5 max-[760px]:[[data-panel]+&]:mt-3.5 ${tabDirection ? TAB_ENTER[tabDirection] : ""}`}>
+      {activeError ? null : activeTab === "leave" ? <div className={REQUEST_LIST}>{filteredLeaves.slice(0, visibleCount).map((item) => <LeaveRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/leave?request=${encodeURIComponent(request.request.id)}`)} onReapply={(request) => navigate(`/forms/leave?copy=${encodeURIComponent(request.request.id)}`)} onCancel={setCancellingLeave} />)}</div> : activeTab === "overtime" ? <div className={REQUEST_LIST}>{filteredOvertime.slice(0, visibleCount).map((item) => <OvertimeRequestCard key={item.request.id} item={item} onEdit={(request) => navigate(`/forms/overtime?request=${encodeURIComponent(request.request.id)}`)} onReapply={(request) => navigate(`/forms/overtime?copy=${encodeURIComponent(request.request.id)}`)} onCancel={setCancelling} />)}</div> : <div className={REQUEST_LIST}>{filteredCorrections.slice(0, visibleCount).map((request) => <RequestCard key={request.id}>
         <RequestSummary request={request} />
-        {request.status === "draft" ? <div className="hr-form-request-actions">
+        {request.status === "draft" ? <div className={REQUEST_ACTIONS}>
           <Button size="lg" variant="secondary" tone="info" onClick={() => navigate(`/forms/new?request=${encodeURIComponent(request.id)}`)}>繼續編輯</Button>
           <Button size="lg" variant="secondary" onClick={() => setCorrectionAction({ request, mode: "delete" })}>刪除草稿</Button>
-        </div> : request.status === "pending" ? <div className="hr-form-request-actions">
+        </div> : request.status === "pending" ? <div className={REQUEST_ACTIONS}>
           <Button size="lg" variant="secondary" onClick={() => setCorrectionAction({ request, mode: "cancel" })}>取消申請</Button>
         </div> : null}
-      </article>)}</div>}
-      {!isLoading && !activeError && activeCount === 0 ? <div className="hr-form-empty-state"><strong>{emptyMessage.title}</strong><p className="muted">{emptyMessage.hint}</p></div> : null}
-      {hasMore ? <div ref={sentinelRef} className="hr-form-load-sentinel" aria-live="polite">載入更多申請…</div> : activeCount > 0 ? <div className="hr-form-list-end">已顯示全部申請</div> : null}
+      </RequestCard>)}</div>}
+      {!isLoading && !activeError && activeCount === 0 ? <EmptyRecords title={emptyMessage.title} hint={emptyMessage.hint} /> : null}
+      {hasMore ? <div ref={sentinelRef} className={LIST_FOOTNOTE} aria-live="polite">載入更多申請…</div> : activeCount > 0 ? <div className={LIST_FOOTNOTE}>已顯示全部申請</div> : null}
     </section>
     {reviewing ? <ReviewDialog request={reviewing} onClose={() => setReviewing(null)} /> : null}
     {reviewingLeave ? <LeaveReviewDialog item={reviewingLeave} latest={leave.data?.reviewRequests.find((item) => item.request.id === reviewingLeave.request.id)} onReload={setReviewingLeave} onClose={() => setReviewingLeave(null)} /> : null}

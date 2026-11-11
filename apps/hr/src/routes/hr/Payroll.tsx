@@ -1,6 +1,6 @@
 import { useNavigate, useParams } from "react-router";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, EmptyRecords, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type HrPayrollHistoryRecord, type HrPayslipDetailResponse, type PayrollLine } from "./api.js";
 import { dateLabel } from "./format.js";
 import { HrBackBar } from "./HrBackBar.js";
@@ -56,7 +56,7 @@ export function HrPayrollHistory() {
         <div className="flex items-start justify-between gap-2.5"><div className="grid gap-[3px]"><strong className="text-[16px]">{periodLabel(record.periodKey)}</strong><span className="text-[12px] text-muted">發薪日 {dateLabel(record.payDate, NO_PAY_DATE)}</span></div><StatusBadge tone="success">已發放</StatusBadge></div>
         <div className="grid gap-1 rounded-[11px] bg-canvas p-3"><span className="text-[12px] font-bold text-muted">實領金額</span><strong className="text-[23px] tabular-nums">{money(record.netMinor)}</strong></div>
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-[12px] text-muted"><span>收入 {money(record.earningMinor)}</span><span>扣除 {money(record.deductionMinor)}</span><span>薪資版本 {record.versionNumber}</span></div>
-      </button>)}</div> : !query.isPending && !query.error ? <div className="hr-form-empty-state"><strong>目前沒有已發放的薪資單</strong><p className="muted">完成薪資結帳後，紀錄會出現在這裡。</p></div> : null}
+      </button>)}</div> : !query.isPending && !query.error ? <EmptyRecords title="目前沒有已發放的薪資單" hint="完成薪資結帳後，紀錄會出現在這裡。" /> : null}
     </div>
   </Page>;
 }

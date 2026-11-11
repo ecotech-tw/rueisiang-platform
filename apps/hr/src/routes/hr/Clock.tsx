@@ -5,7 +5,7 @@ import { useSession, useSignOut } from "../../auth/session.js";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Page, PageHeader, PANEL_SURFACE } from "../../ui/index.js";
+import { Alert, Button, Dialog, EmptyRecords, Page, PageHeader, PANEL_SURFACE } from "../../ui/index.js";
 import { API_BASE_URL } from "../../config.js";
 import { PeriodToolbar } from "./PeriodToolbar.js";
 import { useHrQuery, useHrWrite, type ClockCalendar, type ClockCalendarDay, type ClockLocationCheck, type ClockMapLocation, type ClockStatus } from "./api.js";
@@ -616,7 +616,7 @@ export function HrClockLogs() {
       {/* 焦點外框往內收：這一塊貼著子頁的 overflow: hidden，往外畫會被裁掉。 */}
       <div className="min-h-0 overflow-y-auto overscroll-contain [&>*+*]:mt-2.5 focus-visible:rounded-[14px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary" role="region" aria-label="每日打卡紀錄" tabIndex={0}>
         {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
-        {calendar.isPending ? <p className="muted">載入月度紀錄…</p> : calendar.data ? days.length ? <div className="grid gap-2.5">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <div className="hr-form-empty-state"><strong>本月沒有需要顯示的紀錄</strong><p className="muted">有打卡或出勤異常的日期會列在這裡。</p></div> : null}
+        {calendar.isPending ? <p className="muted">載入月度紀錄…</p> : calendar.data ? days.length ? <div className="grid gap-2.5">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <EmptyRecords title="本月沒有需要顯示的紀錄" hint="有打卡或出勤異常的日期會列在這裡。" /> : null}
       </div>
     </section>
   </Page>;
