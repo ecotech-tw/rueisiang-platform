@@ -57,7 +57,9 @@ describe("本人唯讀排班", () => {
 
     const response = await request("/me/my-schedules?periodKey=2026-02&scopeId=all", "GET", undefined, "scheduler");
     expect(response.status).toBe(200);
-    const data = await response.json() as { scopes: Array<{ id: string }>; entries: Array<{ personName: string; isMine: boolean }>; scheduleManagers: unknown[] };
+    const data = await response.json() as { attendanceMode: string; monthlyRestDays: number | null; scopes: Array<{ id: string }>; entries: Array<{ personName: string; isMine: boolean }>; scheduleManagers: unknown[] };
+    expect(data.attendanceMode).toBe("general");
+    expect(data.monthlyRestDays).toBeNull();
     expect(data.scopes.map((scope) => scope.id)).toEqual(["store-a"]);
     expect(data.entries.map(({ personName, isMine }) => ({ personName, isMine }))).toEqual([{ personName: "scheduler", isMine: true }, { personName: "worker-1", isMine: false }]);
     expect(data.scheduleManagers).toEqual([{ scopeId: "store-a", name: null }]);

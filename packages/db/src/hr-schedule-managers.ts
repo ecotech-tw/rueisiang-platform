@@ -7,6 +7,7 @@ import { calendarSpecialAppliesToScope, defaultDayType } from "./hr-calendar.js"
 import { getHrSchedule, getHrScheduleScopeLock, monthPeriodFromKey, saveHrScheduleChanges, setHrScheduleScopeLock, type HrScheduleChangesInput } from "./hr-scheduling.js";
 import { users } from "./schema/auth.js";
 import { hrEmployments, hrEmployeeScopes, hrWorkerAccountLinks } from "./schema/hr-people.js";
+import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrScheduleManagers } from "./schema/hr-scheduling.js";
 import { scopes } from "./schema/reports.js";
 import { canSchedulePerson } from "./schedule-draft.js";
@@ -86,6 +87,7 @@ export async function getHrSelfSchedule(db: Database, userId: string, periodKey:
     getHrSchedule(db, periodKey),
   ]);
   const personKind = employee ? "employee" : "worker";
+  const attendanceSettings = employee ? (await db.select({ attendanceMode: hrEmploymentAttendanceSettings.attendanceMode, monthlyRestDays: hrEmploymentAttendanceSettings.monthlyRestDays }).from(hrEmploymentAttendanceSettings).where(eq(hrEmploymentAttendanceSettings.employmentId, personId)).limit(1))[0] : undefined;
   const ownEntries = data.entries.filter((entry) => entry.personKind === personKind && (personKind === "employee" ? entry.employmentId === personId : entry.workerId === personId));
   const allowedScopeIds = new Set([...assignedScopes.map((scope) => scope.id), ...ownEntries.map((entry) => entry.scopeId)]);
   if (requestedScopeId && requestedScopeId !== "all" && !allowedScopeIds.has(requestedScopeId)) throw new HrError(403, "只能查看本人所屬據點的排班。 ");
@@ -100,6 +102,8 @@ export async function getHrSelfSchedule(db: Database, userId: string, periodKey:
 
   return {
     periodKey,
+    attendanceMode: attendanceSettings?.attendanceMode ?? (worker ? "scheduled" : "general"),
+    monthlyRestDays: attendanceSettings?.monthlyRestDays ?? null,
     scopes: visibleScopes,
     calendar: data.calendar.map((day) => {
       const applies = day.specialKind === "none" || !day.specialScopeIds.length || day.specialScopeIds.some((id) => visibleScopeIds.has(id));
