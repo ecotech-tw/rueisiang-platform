@@ -1264,21 +1264,4 @@
   .analytics-chart-actions { justify-content: flex-start; margin-top: 8px; }
 }
 
-@media (max-width: 760px) {
-  .hr-module-self { padding-bottom: 84px; }
-}
-
-/* HR 月曆排班 */
-.hr-schedule-month { display: flex; align-items: center; gap: 2px; }
-.hr-schedule-month > strong { min-width: 112px; text-align: center; font-variant-numeric: tabular-nums; }
-.hr-schedule-status { display: flex; align-items: center; align-self: center; gap: 8px; margin: 0 0 0 auto; color: var(--color-muted); font-size: 13px; }
 .field-note { margin: 0 0 4px; font-size: 12px; }
-
-.hr-payroll-warning-list { margin: 7px 0 0; padding-left: 20px; }
-.hr-payroll-employee-picker-section { display: grid; gap: 10px; }
-.hr-payroll-employee-picker { display: grid; gap: 2px; max-height: min(38vh, 360px); overflow-y: auto; padding: 5px; border: 1px solid var(--color-line); border-radius: var(--radius-card); background: var(--color-canvas); }
-
-.hr-payroll-section-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding-bottom: 12px; border-bottom: 1px solid var(--color-soft-line); }
-.hr-payroll-section-head > div { display: grid; gap: 4px; min-width: 0; }
-.hr-payroll-section-head h3 { margin: 0; font-size: 15px; }
-.hr-payroll-section-head p { margin: 0; color: var(--color-muted); font-size: 13px; }

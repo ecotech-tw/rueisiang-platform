@@ -7,7 +7,7 @@ import { Alert, Button, Dialog, Page, PageHeader, Panel, SelectField, StatusBadg
 import { groupShiftsByTemplate, isDefaultHrCalendarSpecialName, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, HR_SHIFT_DAY_LABELS, SCHEDULE_ATTENDANCE_STATUS_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { GuardedNavLink, useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
-import { CalendarScopePicker } from "./Calendar.js";
+import { CalendarScopePicker, PERIOD_SWITCHER, PERIOD_SWITCHER_LABEL, SCHEDULE_STATUS } from "./Calendar.js";
 
 function taipeiMonthStart() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -494,18 +494,18 @@ export function HrScheduling() {
     <Panel grows className="gap-3 overflow-auto">
       {/* 只有日期格那一塊捲；月份、快速排班、星期列放在捲動區外，不需要 sticky。 */}
       <div className="flex flex-none flex-wrap items-center gap-x-3 gap-y-2">
-        <div className="hr-schedule-month">
+        <div className={PERIOD_SWITCHER}>
           {/*
             * 換月份也要先問：它不經過導覽，但新資料一到就會把草稿洗掉，結果一樣是
             * 白做工，而且箭頭就在月曆正上方，比側邊選單更容易誤觸。
             */}
           <Button variant="icon" icon="chevronLeft" aria-label="上個月" onClick={() => void switchMonth(-1)} />
-          <strong>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong>
+          <strong className={PERIOD_SWITCHER_LABEL}>{month.getUTCFullYear()} 年 {month.getUTCMonth() + 1} 月</strong>
           <Button variant="icon" icon="chevronRight" aria-label="下個月" onClick={() => void switchMonth(1)} />
         </div>
         <SelectField className="min-w-[168px]" aria-label="營運據點" value={scopeId} options={[...(quick ? [] : [{ value: "all", label: "全部營運據點" }]), ...data.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => pickScope(event.target.value)} />
         {/* 不掛 role="status"：快速排班每點一天就會改「新增 N 筆」，做成 live region 等於整月被念一遍。 */}
-        <p className="hr-schedule-status"><StatusBadge tone={status.tone}>{status.label}</StatusBadge><span>{status.detail}</span></p>
+        <p className={`ml-auto ${ SCHEDULE_STATUS }`}><StatusBadge tone={status.tone}>{status.label}</StatusBadge><span>{status.detail}</span></p>
       </div>
       {quick ? <div className="flex flex-none flex-wrap items-center gap-x-[10px] gap-y-2 rounded-[14px] bg-brand/7 py-2 pr-2 pl-4 [box-shadow:0_1px_0_--alpha(var(--color-paper)/58%)_inset,0_0_0_1px_--alpha(var(--color-paper)/18%)_inset]">
         <strong className="text-[15px] tracking-[.02em] text-brand-dark">快速排班</strong>
