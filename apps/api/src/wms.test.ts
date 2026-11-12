@@ -346,6 +346,88 @@ describe("WMS target-only API", () => {
       .toMatchObject([{ quantity: 22, minStock: 6 }]);
   });
 
+  it("只在唯一 SKU 可確認時修復 CYBERBIZ 款式 ID，並保留 WMS 數量", async () => {
+    const userId = await seedUser();
+    await seedCategory();
+    await seedWmsItem("item-1", "ALST06005");
+    await db.insert(cyberbizProductCatalog).values({
+      itemId: "item-1", cyberbizProductId: "product-1", cyberbizVariantId: "old-variant",
+    });
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({
+      products: [{
+        id: "product-2",
+        title: "液體皂旅行罐",
+        published: true,
+        product_variants: [{
+          id: "new-variant",
+          name: "賦活草本液體皂旅行罐",
+          sku: "ALST06005",
+          inventory_quantity: 3204,
+          safety_inventory_quantity: 720,
+          inventory_management: true,
+        }],
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const runtimeEnv = { ...env(), CYBERBIZ_API_TOKEN: "test-token", CYBERBIZ_API_BASE_URL: "https://cyberbiz.test" };
+    const preview = await as(userId, "admin@ecotech.tw", "/api/wms/items/item-1/cyberbiz-link/repair/preview", {
+      method: "POST",
+      body: JSON.stringify({ productId: "product-1", variantId: "old-variant" }),
+    }, runtimeEnv);
+    expect(preview.status).toBe(200);
+    expect(await preview.json()).toMatchObject({
+      changed: true,
+      oldVariantId: "old-variant",
+      newVariantId: "new-variant",
+      wmsQuantity: 10,
+      remote: { quantity: 3204, safetyQuantity: 720 },
+    });
+
+    const response = await as(userId, "admin@ecotech.tw", "/api/wms/items/item-1/cyberbiz-link/repair", {
+      method: "POST",
+      body: JSON.stringify({ productId: "product-1", variantId: "old-variant", newProductId: "product-2", newVariantId: "new-variant" }),
+    }, runtimeEnv);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      changed: true,
+      oldVariantId: "old-variant",
+      newVariantId: "new-variant",
+      sku: "ALST06005",
+      remote: { quantity: 3204, safetyQuantity: 720 },
+    });
+    expect(await db.select({ quantity: wmsItems.quantity, minStock: wmsItems.minStock }).from(wmsItems))
+      .toEqual([{ quantity: 10, minStock: 5 }]);
+    expect(await db.select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_relinked")))
+      .toHaveLength(1);
+  });
+
+  it("SKU 在目錄重複時不會猜測款式或改寫連結", async () => {
+    const userId = await seedUser();
+    await seedCategory();
+    await seedWmsItem("item-1", "ALST06005");
+    await db.insert(cyberbizProductCatalog).values({
+      itemId: "item-1", cyberbizProductId: "product-1", cyberbizVariantId: "old-variant",
+    });
+    vi.stubGlobal("fetch", async () => new Response(JSON.stringify({
+      products: [
+        { id: "product-2", product_variants: [{ id: "new-variant-1", sku: "ALST06005" }] },
+        { id: "product-3", product_variants: [{ id: "new-variant-2", sku: "ALST06005" }] },
+      ],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+
+    const response = await as(userId, "admin@ecotech.tw", "/api/wms/items/item-1/cyberbiz-link/repair", {
+      method: "POST",
+      body: JSON.stringify({ productId: "product-1", variantId: "old-variant", newProductId: "product-2", newVariantId: "new-variant-1" }),
+    }, { ...env(), CYBERBIZ_API_TOKEN: "test-token", CYBERBIZ_API_BASE_URL: "https://cyberbiz.test" });
+
+    expect(response.status).toBe(409);
+    expect(await db.select().from(cyberbizProductCatalog)).toMatchObject([{
+      cyberbizProductId: "product-1", cyberbizVariantId: "old-variant",
+    }]);
+    expect(await db.select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_relinked"))).toHaveLength(0);
+  });
+
   it("盤點會更新 wms_items，數量不變也會留下紀錄", async () => {
     const userId = await seedUser();
     await seedCategory();

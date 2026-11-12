@@ -398,6 +398,47 @@ export function useLinkCyberbiz() {
   );
 }
 
+export interface CyberbizLinkRepairPreview {
+  changed: boolean;
+  oldProductId: string;
+  oldVariantId: string;
+  newProductId: string;
+  newVariantId: string;
+  sku: string;
+  wmsQuantity: number;
+  wmsSafetyQuantity: number;
+  remote: {
+    productName: string;
+    variantName: string;
+    quantity: number;
+    safetyQuantity: number;
+  };
+}
+
+export type CyberbizLinkRepairResult = CyberbizLinkRepairPreview;
+
+export function usePreviewCyberbizLinkRepair() {
+  return useMutation<CyberbizLinkRepairPreview, Error, { id: string; productId: string; variantId: string }>({
+    mutationFn: ({ id, productId, variantId }) =>
+      write<CyberbizLinkRepairPreview>(`/api/wms/items/${id}/cyberbiz-link/repair/preview`, "POST", { productId, variantId }),
+  });
+}
+
+/** 只重新綁定外部身分，不會把官網庫存寫進 WMS。 */
+export function useRepairCyberbizLink() {
+  return useWarehouseMutation(({ id, productId, variantId, newProductId, newVariantId }: {
+    id: string;
+    productId: string;
+    variantId: string;
+    newProductId: string;
+    newVariantId: string;
+  }) =>
+    write<CyberbizLinkRepairResult>(`/api/wms/items/${id}/cyberbiz-link/repair`, "POST", {
+      productId, variantId, newProductId, newVariantId,
+    }),
+  );
+}
+
 export interface CyberbizSyncResult {
   updated: number;
   unchanged: number;

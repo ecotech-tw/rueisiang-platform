@@ -1,10 +1,14 @@
 import { useState } from "react";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, Dialog, Field, FieldHint, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateCatalogItem,
   useLinkCyberbiz,
+  usePreviewCyberbizLinkRepair,
+  useRepairCyberbizLink,
   useUpdateItem,
+  type CyberbizLinkRepairPreview,
   type InventoryItem,
   type ProductCategory,
   type Zone,
@@ -56,6 +60,8 @@ export function ItemForm({
   const initialCategory = categories.find((category) => category.name === (item?.category ?? (categories.length === 1 ? categories[0]?.name : "")));
 
   const [selectedCategoryId, setSelectedCategoryId] = useState(initialCategory?.id ?? "");
+  const [confirmCyberbizRepair, setConfirmCyberbizRepair] = useState(false);
+  const [repairPreview, setRepairPreview] = useState<CyberbizLinkRepairPreview | null>(null);
   const [fields, setFields] = useState({
     sku: item?.sku ?? "",
     name: item?.name ?? "",
@@ -72,8 +78,10 @@ export function ItemForm({
   const createCatalog = useCreateCatalogItem();
   const update = useUpdateItem();
   const link = useLinkCyberbiz();
+  const previewLinkRepair = usePreviewCyberbizLinkRepair();
+  const repairLink = useRepairCyberbizLink();
   const toast = useToast();
-  const pending = createCatalog.isPending || update.isPending || link.isPending;
+  const pending = createCatalog.isPending || update.isPending || link.isPending || previewLinkRepair.isPending || repairLink.isPending;
   const error = createCatalog.error ?? update.error ?? link.error;
 
   /** 選了倉位才有層可選，而且只能選那個倉位自己的層。 */
@@ -124,6 +132,7 @@ export function ItemForm({
   }
 
   return (
+    <>
     <Dialog
       manageFocus
       title={item ? "編輯品項" : "新增自訂品項"}
@@ -280,7 +289,22 @@ export function ItemForm({
                       {item.cyberbiz.syncedAt ? `・目錄同步 ${formatTime(item.cyberbiz.syncedAt)}` : ""}
                     </div>
                   </div>
-                  <div className="cell-sub">商品身分與官網鏡像共用，若要停止庫存同步請移出 WMS。</div>
+                  <div className="flex flex-col items-end gap-2">
+                    <div className="cell-sub">商品身分與官網鏡像共用，若要停止庫存同步請移出 WMS。</div>
+                    <Button
+                      className="flex-none"
+                      variant="secondary"
+                      disabled={pending}
+                      onClick={() => {
+                        setRepairPreview(null);
+                        previewLinkRepair.reset();
+                        repairLink.reset();
+                        setConfirmCyberbizRepair(true);
+                      }}
+                    >
+                      檢查並修復連結
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="link-panel">
@@ -322,5 +346,64 @@ export function ItemForm({
           {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
     </Dialog>
+    {confirmCyberbizRepair && item?.cyberbiz ? (
+      <ConfirmDialog
+        title={repairPreview ? "確認 CYBERBIZ 連結修復" : "檢查 CYBERBIZ 連結"}
+        confirmLabel={repairPreview ? (repairPreview.changed ? "確認修復連結" : "完成") : "檢查款式"}
+        tone="primary"
+        pending={previewLinkRepair.isPending || repairLink.isPending}
+        onCancel={() => {
+          setConfirmCyberbizRepair(false);
+          setRepairPreview(null);
+        }}
+        onConfirm={() => {
+          if (!repairPreview) {
+            previewLinkRepair.mutate(
+              { id: item.id, productId: item.cyberbiz!.cyberbizProductId, variantId: item.cyberbiz!.cyberbizVariantId },
+              { onSuccess: setRepairPreview },
+            );
+            return;
+          }
+          if (!repairPreview.changed) {
+            setConfirmCyberbizRepair(false);
+            return;
+          }
+          repairLink.mutate(
+            {
+              id: item.id,
+              productId: repairPreview.oldProductId,
+              variantId: repairPreview.oldVariantId,
+              newProductId: repairPreview.newProductId,
+              newVariantId: repairPreview.newVariantId,
+            },
+            {
+              onSuccess: (result) => {
+                toast.show(`連結已修復：${result.oldVariantId} → ${result.newVariantId}；官網庫存 ${result.remote.quantity}，尚未同步到 WMS`);
+                setConfirmCyberbizRepair(false);
+                setRepairPreview(null);
+                onClose();
+              },
+            },
+          );
+        }}
+      >
+        {repairPreview ? (
+          <>
+            <p>SKU {repairPreview.sku}・{repairPreview.remote.productName}／{repairPreview.remote.variantName}</p>
+            <p>款式 ID：{repairPreview.oldProductId}/{repairPreview.oldVariantId} → {repairPreview.newProductId}/{repairPreview.newVariantId}</p>
+            <p>庫存：WMS {repairPreview.wmsQuantity} → 官網 {repairPreview.remote.quantity}；安全庫存：WMS {repairPreview.wmsSafetyQuantity} → 官網 {repairPreview.remote.safetyQuantity}</p>
+            <p>確認前請核對款式與數量。修復只更新連結，不會修改庫存或推送數量。</p>
+          </>
+        ) : (
+          <>
+            <p>系統會重新載入 CYBERBIZ 公司倉目錄，只有 SKU 唯一且新款式未連到其他品項時才會提供修復預覽。</p>
+            <p>檢查階段不會修改連結或庫存。</p>
+          </>
+        )}
+        {previewLinkRepair.error ? <Alert tone="danger">{previewLinkRepair.error.message}</Alert> : null}
+        {repairLink.error ? <Alert tone="danger">{repairLink.error.message}</Alert> : null}
+      </ConfirmDialog>
+    ) : null}
+    </>
   );
 }

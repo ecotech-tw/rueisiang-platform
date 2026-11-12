@@ -1,4 +1,4 @@
-import { applySyncPlan, buildSyncPlan, claimCyberbizSyncLock, createDatabase, listCompanyLinks, loadWarehouse, releaseCyberbizSyncLock, retryFailedCyberbizPushes, type LinkedItem, type RemoteItem } from "@rueisiang/db";
+import { applySyncPlan, buildSyncPlan, claimCyberbizSyncLock, createDatabase, listCompanyLinks, loadWarehouse, releaseCyberbizSyncLock, retryFailedCyberbizPushes, repairCyberbizItemLink, type LinkedItem, type RemoteItem } from "@rueisiang/db";
 import { activityEvents, cyberbizProductCatalog, cyberbizSyncLocks, items, wmsCategories, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -230,5 +230,75 @@ describe("target WMS CYBERBIZ 連結", () => {
     expect(result).toEqual({ updated: 1, unchanged: 0, failed: 0 });
     expect((await targetDb.select().from(wmsItems))[0]).toMatchObject({ itemId: "target-linked-item", quantity: 11, minStock: 4 });
     expect(await targetDb.select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_synced"))).toHaveLength(1);
+  });
+
+  it("只修復外部商品身分並留下稽核，不碰 WMS 庫存", async () => {
+    const targetDb = createDatabase(createLocalD1(":memory:", { targetOnly: true }) as never);
+    await targetDb.insert(items).values({ id: "repair-item", source: "cyberbiz", kind: "sellable", sku: "ALST06005", name: "液體皂旅行罐", active: 1 });
+    await targetDb.insert(wmsItems).values({ itemId: "repair-item", quantity: 3204, minStock: 720, unit: "件", notes: "" });
+    await targetDb.insert(cyberbizProductCatalog).values({
+      itemId: "repair-item", cyberbizProductId: "product-1", cyberbizVariantId: "old-variant",
+    });
+    const oldLink = (await listCompanyLinks(targetDb))[0]!;
+    const stalePlan = buildSyncPlan([oldLink], [{
+      productId: "product-1", variantId: "old-variant", sku: "ALST06005", quantity: 999, safetyQuantity: 1,
+    }]);
+
+    const result = await repairCyberbizItemLink(targetDb, {
+      inventoryItemId: "repair-item",
+      expectedProductId: "product-1",
+      expectedVariantId: "old-variant",
+      expectedNewProductId: "product-2",
+      expectedNewVariantId: "new-variant",
+      products: [{
+        productId: "product-2", productName: "液體皂旅行罐", variantId: "new-variant",
+        variantName: "賦活草本", sku: "ALST06005", quantity: 3204, safetyQuantity: 720,
+        inventoryManagement: true, published: true, posShopId: "", posShopName: "", updatedAt: null,
+      }],
+      actor,
+    });
+
+    expect(result).toMatchObject({ changed: true, oldVariantId: "old-variant", newVariantId: "new-variant" });
+    expect(await targetDb.select({ quantity: wmsItems.quantity, minStock: wmsItems.minStock }).from(wmsItems))
+      .toEqual([{ quantity: 3204, minStock: 720 }]);
+    expect(await targetDb.select().from(cyberbizProductCatalog)).toMatchObject([{
+      cyberbizProductId: "product-2", cyberbizVariantId: "new-variant", variantName: "賦活草本",
+    }]);
+    expect(await targetDb.select().from(activityEvents).where(eq(activityEvents.eventType, "cyberbiz_relinked")))
+      .toMatchObject([{ oldValue: "product-1/old-variant", newValue: "product-2/new-variant", actorEmail: actor.email }]);
+
+    expect(await applySyncPlan(targetDb, stalePlan, actor)).toMatchObject({ updated: 0, unchanged: 1, failed: 0 });
+    expect(await targetDb.select({ quantity: wmsItems.quantity }).from(wmsItems).where(eq(wmsItems.itemId, "repair-item")))
+      .toEqual([{ quantity: 3204 }]);
+  });
+
+  it("新外部身分已屬於其他品項時拒絕修復", async () => {
+    const targetDb = createDatabase(createLocalD1(":memory:", { targetOnly: true }) as never);
+    await targetDb.insert(items).values([
+      { id: "repair-item", source: "cyberbiz", kind: "sellable", sku: "ALST06005", name: "旅行皂", active: 1 },
+      { id: "other-item", source: "cyberbiz", kind: "sellable", sku: "OTHER-01", name: "其他品項", active: 1 },
+    ]);
+    await targetDb.insert(wmsItems).values([
+      { itemId: "repair-item", quantity: 0, minStock: 0, unit: "件", notes: "" },
+      { itemId: "other-item", quantity: 0, minStock: 0, unit: "件", notes: "" },
+    ]);
+    await targetDb.insert(cyberbizProductCatalog).values([
+      { itemId: "repair-item", cyberbizProductId: "product-1", cyberbizVariantId: "old-variant" },
+      { itemId: "other-item", cyberbizProductId: "product-2", cyberbizVariantId: "new-variant" },
+    ]);
+
+    await expect(repairCyberbizItemLink(targetDb, {
+      inventoryItemId: "repair-item",
+      expectedProductId: "product-1",
+      expectedVariantId: "old-variant",
+      expectedNewProductId: "product-2",
+      expectedNewVariantId: "new-variant",
+      products: [{
+        productId: "product-2", productName: "商品", variantId: "new-variant",
+        variantName: "款式", sku: "ALST06005", quantity: 1, safetyQuantity: 0,
+        inventoryManagement: true, published: true, posShopId: "", posShopName: "", updatedAt: null,
+      }],
+      actor,
+    })).rejects.toThrow("已連結其他品項");
   });
 });
