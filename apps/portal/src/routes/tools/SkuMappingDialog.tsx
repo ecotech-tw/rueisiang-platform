@@ -157,8 +157,8 @@ export function SkuMappingDialog({
       formProps={{ onSubmit: submit }}
       actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!externalName.trim() || (channel === "shopee" ? !shopeeProductId.trim() : !externalSku.trim()) || !channel.trim() || !components.length}>{mapping ? "儲存變更" : "新增對應"}</Button></>}
     >
-      <div className="admin-form sku-mapping-form">
-        <div className="field-grid">
+      <div className="admin-form grid gap-4">
+        <div className="field-grid min-w-0">
           <SelectField label="平台" required value={channel} onChange={(event) => changeChannel(event.target.value)} options={channelOptions} disabled={pending} />
           {channel === "shopee" ? (
             <>
@@ -169,16 +169,16 @@ export function SkuMappingDialog({
         </div>
         <TextField className="min-w-0" label="通路商品名稱" required value={externalName} onChange={(event) => setExternalName(event.target.value)} disabled={pending} />
 
-        <div className="sku-mapping-components">
-          <div className="sku-mapping-components-head">
-            <div><strong>對應到品項</strong><span className="cell-sub">每列直接選擇品項；若品項已納入 WMS，報表銷售時會展開扣料。</span></div>
+        <div className="grid min-w-0 gap-2.5 pt-1">
+          <div className="flex items-center justify-between gap-3">
+            <div className="grid gap-0.5"><strong>對應到品項</strong><span className="cell-sub">每列直接選擇品項；若品項已納入 WMS，報表銷售時會展開扣料。</span></div>
             <Button type="button" variant="secondary" icon="plus" onClick={() => setComponents((current) => [...current, emptyDraft()])} disabled={pending}>新增用料</Button>
           </div>
           {components.map((component, index) => {
             const selectedItem = items.find((item) => item.id === component.itemId) ?? null;
             return (
-              <div className="sku-mapping-component" key={index}>
-                <div className="sku-mapping-component-row">
+              <div className={`grid gap-1.5 ${ index > 0 ? "pt-1.5" : "" }`} key={index}>
+                <div className="grid grid-cols-[minmax(0,1fr)_minmax(80px,96px)_40px] items-end gap-2.5 max-[620px]:grid-cols-[minmax(0,1fr)_40px]">
                   <Combo
                     className="min-w-0 max-[620px]:col-span-full"
                     items={items}
