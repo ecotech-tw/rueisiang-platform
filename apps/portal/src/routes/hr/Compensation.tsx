@@ -9,6 +9,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, FilterToolbar, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { EmployeeFilterBar } from "./EmployeeFilterBar.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
+import { SALARY_ITEM_NAME, SALARY_ITEM_STACKED, SALARY_ITEMS, SALARY_ITEMS_FOOT, SALARY_ITEMS_HEAD, SALARY_ITEMS_LABEL } from "./salary-item-rows.js";
 
 interface EmployeePageResponse { employees: Employee[]; total: number; page: number; pageSize: number; hasMore: boolean }
 const EMPLOYEE_PAGE_SIZES = [10, 25, 50, 100] as const;
@@ -63,6 +64,12 @@ function workerOvertimeLabel(version: { overtimeRatePpm?: number | null; overtim
 const ITEM_PRESETS = ["職務加給", "職務津貼", "伙食費", "全勤獎金", "交通津貼", "主管加給", "證照津貼", "輪班津貼"];
 const CUSTOM_ITEM = "__custom__";
 /** 每筆項目自己的計算單位；月給的津貼不會因為員工是日薪就被乘上出勤天數。 */
+/*
+ * 一列一個項目（名稱＋計算單位＋金額＋刪除）。只有第一列「基本薪資」不能刪，所以它留一格空位對齊
+ * 其他列的刪除鈕；少了那一格，金額欄會比下面幾列寬，一整排數字就對不齊。
+ */
+const SALARY_ITEM_COLUMNS = "grid grid-cols-[minmax(0,1fr)_128px_130px_44px] items-center gap-2.5";
+const SALARY_ITEM_ROW = `${ SALARY_ITEM_COLUMNS } ${ SALARY_ITEM_STACKED } max-[640px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px]`;
 const ITEM_BASIS_OPTIONS = [{ value: "monthly", label: "月" }, { value: "daily", label: "日" }, { value: "hourly", label: "時" }] as const;
 type ContributionTarget = "labor:ordinary_accident" | "labor:employment" | "health";
 const CONTRIBUTION_TARGETS: Array<{ value: ContributionTarget; label: string; scheme: "labor" | "health"; component: InsuranceContributionComponent | null }> = [
@@ -279,17 +286,18 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       <TextField label="生效日" type="date" value={validFrom} required hint="日薪轉月薪時，請填實際轉為月薪的第一天；若早於服務年資起算日，特休會以後者為準。" onChange={(event) => setValidFrom(event.target.value)} />
       <TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} />
     </div>
-    <div className="salary-items">
-      <span className="salary-items-label">薪資項目</span>
-      <div className="salary-items-head"><span>項目</span><span>計算單位</span><span>金額（元）</span><span className="salary-item-spacer" aria-hidden="true" /></div>
-      <div className="salary-item-row">
-        <span className="salary-item-name">基本薪資</span>
+    <div className={SALARY_ITEMS}>
+      <span className={SALARY_ITEMS_LABEL}>薪資項目</span>
+      {/* 欄位標題只寫一次；每一列再各寫一次「項目／金額」會讓整塊變成一堆重複的小字。 */}
+      <div className={`${ SALARY_ITEM_COLUMNS } ${ SALARY_ITEMS_HEAD }`}><span>項目</span><span>計算單位</span><span>金額（元）</span><span aria-hidden="true" /></div>
+      <div className={SALARY_ITEM_ROW}>
+        <span className={SALARY_ITEM_NAME}>基本薪資</span>
         {/* 基本薪資的單位就是這份敘薪的計薪方式（月薪／日薪／時薪），不另外開一個欄位重複設定。 */}
         <SelectField label="計算單位" stackedLabel="viewport" aria-label="基本薪資的計算單位（即計薪方式）" value={payBasis} options={ITEM_BASIS_OPTIONS.map((option) => ({ value: option.value, label: option.label }))} onChange={(event) => setPayBasis(event.target.value as CompensationVersion["payBasis"])} />
         <TextField label="金額（元）" stackedLabel="viewport" aria-label="基本薪資金額（元）" type="number" min="0" step="1" value={baseAmount} required onChange={(event) => setBaseAmount(event.target.value)} />
-        <span className="salary-item-spacer" aria-hidden="true" />
+        <span aria-hidden="true" />
       </div>
-      {items.map((item) => <div className="salary-item-row" key={item.key}>
+      {items.map((item) => <div className={SALARY_ITEM_ROW} key={item.key}>
         {item.custom
           ? <TextField aria-label="薪資項目名稱" value={item.name} placeholder="自行輸入項目名稱" onChange={(event) => updateItem(item.key, { name: event.target.value })} />
           : <SelectField
@@ -309,9 +317,9 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
         <TextField label="金額（元）" stackedLabel="viewport" aria-label={`${item.name.trim() || "項目"}金額（元）`} type="number" min="0" step="1" value={item.amount} onChange={(event) => updateItem(item.key, { amount: event.target.value })} />
         <Button className="max-[640px]:mb-0.5 max-[640px]:self-end" variant="icon" icon="trash" title={`刪除${item.name.trim() || "這個項目"}`} aria-label={`刪除${item.name.trim() || "這個項目"}`} onClick={() => setItems((list) => list.filter((row) => row.key !== item.key))} />
       </div>)}
-      <div className="salary-items-foot">
+      <div className={SALARY_ITEMS_FOOT}>
         <Button variant="secondary" icon="plus" tone="success" onClick={() => setItems((list) => [...list, { key: `item-${Date.now()}-${list.length}`, name: "", amount: "", custom: false, basis: "monthly" }])}>新增項目</Button>
-        <p className="salary-items-total">合計：<strong>{totalsText(draftTotals)}</strong></p>
+        <p className="m-0 text-[13px] text-muted">合計：<strong className="text-[15px] text-ink tabular-nums">{totalsText(draftTotals)}</strong></p>
       </div>
     </div>
 
