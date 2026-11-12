@@ -241,9 +241,9 @@ function PayrollCalculationDialog({ employees, employeesPending, employeesError,
       <TextField type="month" label="計算月份" value={periodKey} required onChange={(event) => setPeriodKey(event.target.value)} />
       <TextField type="date" label="發薪日（選填）" value={payDate} onChange={(event) => setPayDate(event.target.value)} />
     </div>
-    <div className="hr-payroll-employee-picker-section">
+    <div className="grid gap-[10px]">
       <PeoplePickerHeading title="試算人員" description="每位人員會在發放紀錄建立一筆資料；預設納入全部符合資格的人員。當月已有試算結果或正在試算的人員（不論是否已發放）會自動排除。" count={selectionMode === "all" ? `全體 ${selectedCount} 人` : `已選 ${selectedCount} 人`}><Button variant="link" onClick={selectAllPeople} disabled={selectionMode === "all" || peopleCount === 0 || calculatePayroll.isPending}>全選</Button></PeoplePickerHeading>
-      <div className="hr-payroll-employee-picker" role="group" aria-label="選擇員工與支援人員">
+      <div className="grid max-h-[min(38vh,360px)] gap-0.5 overflow-y-auto rounded-card border border-line bg-canvas p-[5px]" role="group" aria-label="選擇員工與支援人員">
         <div className="grid gap-0.5">
           <strong className={PICKER_GROUP_TITLE}>正式員工</strong>
           {!periodKey ? <PeoplePickerEmpty>選擇計算月份後會列出尚未試算的正式員工。</PeoplePickerEmpty> : employeesPending || candidateExclusions.isPending ? <PeoplePickerEmpty>正在載入符合資格的員工…</PeoplePickerEmpty> : employeesError || candidateExclusions.error ? <PeoplePickerEmpty>本月薪資試算名單載入失敗。</PeoplePickerEmpty> : availableEmployees.length ? <DropdownSelect

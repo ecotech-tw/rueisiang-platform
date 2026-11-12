@@ -7,6 +7,7 @@ import { useToast } from "../../shell/Toast.js";
 import { useHrEmployeeRoster, useHrQuery, useHrWrite, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { PeoplePickerEmpty, PeoplePickerHeading } from "./PickerList.js";
+import { SALARY_ITEM_NAME, SALARY_ITEM_STACKED, SALARY_ITEMS, SALARY_ITEMS_EMPTY, SALARY_ITEMS_FOOT, SALARY_ITEMS_HEAD, SALARY_ITEMS_LABEL } from "./salary-item-rows.js";
 
 interface AllowanceDraft { itemName: string; amount: string }
 interface AssignmentTarget { key: string; kind: "employee" | "worker"; employmentId?: string; workerId?: string; displayName: string; secondary: string }
@@ -138,16 +139,21 @@ function useSpecialWorkdayTargets() {
   return { employees, workers, targets, targetOptions };
 }
 
+/* 補貼沿用敘薪的逐列編輯，但只有單價欄。 */
+const ALLOWANCE_ITEM_COLUMNS = "grid grid-cols-[minmax(0,1fr)_130px_44px] items-center gap-2.5";
+const ALLOWANCE_ITEM_ROW = `${ ALLOWANCE_ITEM_COLUMNS } ${ SALARY_ITEM_STACKED } max-[640px]:grid-cols-[minmax(0,1fr)_44px]`;
+/* 加班費級距拆成兩行，讓欄位標籤與輸入框在窄對話框裡仍有呼吸空間。 */
+const OVERTIME_RULE_ROW = "grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_44px] items-start gap-2.5";
 const ALLOWANCE_GRID = "grid grid-cols-[minmax(0,1fr)_130px_100px] items-center gap-2.5";
 
 function AllowanceQuantities({ version, quantities, disabled, onChange }: { version?: SpecialWorkdayRuleVersion; quantities: Record<string, string>; disabled: boolean; onChange: (allowanceId: string, value: string) => void }) {
   return <div className="grid min-w-0 gap-2.5">
-    <div className="salary-items-label">補貼數量（每人／每天）</div>
+    <div className={SALARY_ITEMS_LABEL}>補貼數量（每人／每天）</div>
     <p className="form-hint -mt-[3px] mb-0.5">同一個規則的每個補貼可以分別設定數量；套用或編輯時都可依需要調整。</p>
     {version?.allowances.length ? <>
       <div className={`${ ALLOWANCE_GRID } text-[12px] font-semibold text-muted max-[640px]:hidden`}><span>項目</span><span>補貼單價</span><span>數量</span></div>
       {version.allowances.map((allowance, index) => <div className={`${ ALLOWANCE_GRID } max-[640px]:grid-cols-[minmax(0,1fr)_44px] max-[640px]:items-start max-[640px]:gap-2 ${ index ? "border-t border-t-soft-line pt-2.5" : "" }`} key={allowance.id}>
-        <span className="salary-item-name max-[640px]:col-span-full">{allowance.itemName}</span>
+        <span className={`${ SALARY_ITEM_NAME } max-[640px]:col-span-full`}>{allowance.itemName}</span>
         {/* 手機收掉欄位標題，單價前面自己補一行標籤；數量欄的標籤由 TextField 的 stackedLabel 補。 */}
         <span className="text-[13px] text-muted tabular-nums max-[640px]:before:mb-1.5 max-[640px]:before:block max-[640px]:before:text-[12px] max-[640px]:before:font-semibold max-[640px]:before:text-muted max-[640px]:before:content-['補貼單價']">{money(allowance.unitAmountMinor)}</span>
         <TextField className="min-w-0" label="數量" stackedLabel="viewport" aria-label={`${allowance.itemName}補貼數量`} type="number" min="0" step="1" value={quantities[allowance.id] ?? "0"} disabled={disabled} onChange={(event) => onChange(allowance.id, event.target.value)} />
@@ -231,29 +237,29 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
       {rule ? <p className="form-hint">新版本會從指定生效日起成為目前設定；日期套用不固定綁定版本，重新試算會讀取目前規則，已結算薪資明細不會被改寫。</p> : null}
       <div className="form-grid two"><TextField label="生效日" type="date" required value={validFrom} onChange={(event) => setValidFrom(event.target.value)} /><TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} /></div>
       <div className="form-grid two"><SelectField label="薪資方式" value={wageKind} options={[{ value: "fixed_hourly", label: "固定每小時金額" }, { value: "multiplier", label: "依底薪總倍率" }]} onChange={(event) => setWageKind(event.target.value as "fixed_hourly" | "multiplier")} />{wageKind === "fixed_hourly" ? <TextField label="固定每小時（元）" type="number" min="0" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} /> : <TextField label="總倍率（%）" type="number" min="0" step="0.01" required value={multiplier} onChange={(event) => setMultiplier(event.target.value)} />}</div>
-      <div className="salary-items special-overtime-items">
-        <span className="salary-items-label">特殊日加班費規則</span>
+      <div className={`${ SALARY_ITEMS } min-w-0`}>
+        <span className={SALARY_ITEMS_LABEL}>特殊日加班費規則</span>
         <p className="form-hint">以累計加班時數設定半開區間：起始含、迄止不含；第一段從 0.0 小時起算，例如 0.0～2.0、2.0～不限。</p>
-        {overtimeRules.map((overtimeRule, index) => <div className="special-overtime-item-row" key={`overtime-rule-${index}`}>
+        {overtimeRules.map((overtimeRule, index) => <div className={`${ OVERTIME_RULE_ROW } ${ index ? "border-t border-t-soft-line pt-3.5" : "" }`} key={`overtime-rule-${index}`}>
           <TextField className="col-start-1 row-start-1 min-w-0" label="起始（含，小時）" aria-label={`第 ${index + 1} 筆加班規則起始時數`} type="number" min="0" step="0.5" value={overtimeRule.fromHours} onChange={(event) => updateOvertimeRule(index, { fromHours: event.target.value })} />
           <TextField className="col-start-2 row-start-1 min-w-0" label="迄止（不含，可留空）" aria-label={`第 ${index + 1} 筆加班規則迄止時數`} type="number" min="0.5" step="0.5" value={overtimeRule.toHours} onChange={(event) => updateOvertimeRule(index, { toHours: event.target.value })} />
           <SelectField className="col-start-1 row-start-2 min-w-0" label="計算方式" aria-label={`第 ${index + 1} 筆加班規則計算方式`} value={overtimeRule.rateKind} options={[{ value: "multiplier", label: "依底薪總倍率" }, { value: "fixed_hourly", label: "固定每小時" }]} onChange={(event) => updateOvertimeRule(index, { rateKind: event.target.value as OvertimeRuleDraft["rateKind"], amount: "" })} />
           <TextField className="col-start-2 row-start-2 min-w-0" label="總倍率／每小時（元）" aria-label={`第 ${index + 1} 筆加班規則${overtimeRule.rateKind === "multiplier" ? "總倍率" : "每小時金額"}`} type="number" min="0" step={overtimeRule.rateKind === "multiplier" ? "0.01" : "1"} value={overtimeRule.amount} onChange={(event) => updateOvertimeRule(index, { amount: event.target.value })} />
           <Button className="col-start-3 row-start-2 mb-0.5 self-end" type="button" variant="icon" icon="trash" aria-label={`刪除第 ${index + 1} 筆特殊日加班規則`} onClick={() => setOvertimeRules((items) => items.filter((_, itemIndex) => itemIndex !== index))} />
         </div>)}
-        {!overtimeRules.length ? <p className="muted special-overtime-items-empty">尚未設定特殊日加班費，會沿用一般加班規則。</p> : null}
-        <div className="salary-items-foot"><Button type="button" variant="secondary" icon="plus" tone="success" disabled={overtimeRules.length >= 50 || overtimeRules.some((item) => !item.toHours.trim())} onClick={() => setOvertimeRules((items) => [...items, nextOvertimeRule(items)])}>新增規則</Button></div>
+        {!overtimeRules.length ? <p className={`muted ${ SALARY_ITEMS_EMPTY }`}>尚未設定特殊日加班費，會沿用一般加班規則。</p> : null}
+        <div className={SALARY_ITEMS_FOOT}><Button type="button" variant="secondary" icon="plus" tone="success" disabled={overtimeRules.length >= 50 || overtimeRules.some((item) => !item.toHours.trim())} onClick={() => setOvertimeRules((items) => [...items, nextOvertimeRule(items)])}>新增規則</Button></div>
       </div>
-      <div className="salary-items special-allowance-items">
-        <span className="salary-items-label">補貼項目</span>
-        <div className="salary-items-head"><span>項目</span><span>補貼單價（元）</span><span className="salary-item-spacer" aria-hidden="true" /></div>
-        {allowances.map((allowance, index) => <div className="salary-item-row" key={`allowance-${index}`}>
+      <div className={`${ SALARY_ITEMS } min-w-0`}>
+        <span className={SALARY_ITEMS_LABEL}>補貼項目</span>
+        <div className={`${ ALLOWANCE_ITEM_COLUMNS } ${ SALARY_ITEMS_HEAD }`}><span>項目</span><span>補貼單價（元）</span><span aria-hidden="true" /></div>
+        {allowances.map((allowance, index) => <div className={ALLOWANCE_ITEM_ROW} key={`allowance-${index}`}>
           <TextField className="min-w-0" aria-label={`補貼項目 ${index + 1}`} value={allowance.itemName} onChange={(event) => updateAllowance(index, { itemName: event.target.value })} />
           <TextField className="min-w-0" label="補貼單價（元）" stackedLabel="viewport" aria-label={`${allowance.itemName.trim() || "補貼項目"}單價（元）`} type="number" min="0" step="1" value={allowance.amount} onChange={(event) => updateAllowance(index, { amount: event.target.value })} />
           <Button className="self-center max-[640px]:col-start-2 max-[640px]:mb-0.5 max-[640px]:self-end" type="button" variant="icon" icon="trash" aria-label={`刪除${allowance.itemName.trim() || `第 ${index + 1} 筆補貼`}`} onClick={() => setAllowances((items) => items.filter((_, itemIndex) => itemIndex !== index))} />
         </div>)}
-        {!allowances.length ? <p className="muted special-allowance-items-empty">尚未設定補貼。</p> : null}
-        <div className="salary-items-foot"><Button type="button" variant="secondary" icon="plus" tone="success" disabled={allowances.length >= 50} onClick={() => setAllowances((items) => [...items, { itemName: "", amount: "" }])}>新增補貼</Button></div>
+        {!allowances.length ? <p className={`muted ${ SALARY_ITEMS_EMPTY }`}>尚未設定補貼。</p> : null}
+        <div className={SALARY_ITEMS_FOOT}><Button type="button" variant="secondary" icon="plus" tone="success" disabled={allowances.length >= 50} onClick={() => setAllowances((items) => [...items, { itemName: "", amount: "" }])}>新增補貼</Button></div>
       </div>
       <TextField label="備註（選填）" maxLength={1000} value={note} onChange={(event) => setNote(event.target.value)} />
       {message || save.error || voidVersion.error ? <Alert tone="danger">{message ?? save.error?.message ?? voidVersion.error?.message}</Alert> : null}
