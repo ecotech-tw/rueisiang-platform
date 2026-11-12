@@ -8,7 +8,7 @@ import {
   YAxis,
 } from "recharts";
 import { Chip, DataTable, Panel } from "../../../../ui/index.js";
-import { ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
+import { ANALYTICS_CHART_EMPTY, ANALYTICS_CHART_PANEL, ANALYTICS_TABLE, AnalyticsDataDialog, AnalyticsTooltip } from "./ChartPrimitives.js";
 import type { SalesSkuBreakdown, SalesTopSkuMetric } from "../api.js";
 
 interface TopSkuChartProps {
@@ -20,6 +20,9 @@ interface TopSkuChartProps {
   valueFormatter: (value: number) => string;
   quantityFormatter: (value: number) => string;
 }
+
+/** 十列長條加上「其他」，比其他圖表高；排序更新中的提示佔同樣高度，畫面才不會跳。 */
+const SKU_CHART = "h-[360px] min-h-[240px] w-full";
 
 function formatPercent(value: number): string {
   return `${(value * 100).toLocaleString("zh-TW", { maximumFractionDigits: 1 })}%`;
@@ -37,8 +40,8 @@ export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, va
       title="Top 10 SKU"
       description="圖表顯示前十名；查看資料表可展開全部商品。"
       actions={(
-        <div className="analytics-panel-actions">
-          <div className="analytics-chart-actions" role="group" aria-label="Top SKU 排序方式">
+        <div className="flex flex-wrap items-center justify-end gap-2 max-[760px]:items-start max-[760px]:justify-start">
+          <div className="flex flex-wrap justify-end gap-1 max-[760px]:mt-2 max-[760px]:justify-start" role="group" aria-label="Top SKU 排序方式">
             <Chip size="sm" selected={metric === "netQuantity"} onClick={() => onMetricChange("netQuantity")}>依淨銷量</Chip>
             <Chip size="sm" selected={metric === "salesAmount"} onClick={() => onMetricChange("salesAmount")}>依售額</Chip>
           </div>
@@ -65,12 +68,12 @@ export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, va
         </div>
       )}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-sku-panel"
+      className={ANALYTICS_CHART_PANEL}
     >
       {loading ? (
-        <div className="analytics-chart analytics-chart-pending" role="status">正在更新 Top 10 SKU 排序…</div>
+        <div className={`${SKU_CHART} m-0 grid place-items-center text-[13px] text-muted`} role="status">正在更新 Top 10 SKU 排序…</div>
       ) : data.length ? (
-        <div className="analytics-chart analytics-sku-chart" role="img" aria-label={`Top 10 SKU（依${metricLabel}）`}>
+        <div className={SKU_CHART} role="img" aria-label={`Top 10 SKU（依${metricLabel}）`}>
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={data} layout="vertical" margin={{ top: 8, right: 16, left: 4, bottom: 4 }}>
               <CartesianGrid stroke="var(--color-soft-line)" horizontal={false} />
@@ -81,7 +84,7 @@ export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, va
             </BarChart>
           </ResponsiveContainer>
         </div>
-      ) : <p className="analytics-chart-empty">本期沒有 SKU 資料。</p>}
+      ) : <p className={ANALYTICS_CHART_EMPTY}>本期沒有 SKU 資料。</p>}
     </Panel>
   );
 }

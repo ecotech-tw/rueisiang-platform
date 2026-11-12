@@ -1,10 +1,18 @@
 import { useState } from "react";
 import { Icon } from "../../../shell/icons.js";
-import { Alert, Button, ButtonLink, Panel } from "../../../ui/index.js";
+import { Alert, Button, ButtonLink } from "../../../ui/index.js";
 import { CategoryBreakdownChart } from "./charts/CategoryBreakdownChart.js";
 import { ChannelBreakdownChart } from "./charts/ChannelBreakdownChart.js";
 import { SalesTrendChart } from "./charts/SalesTrendChart.js";
-import { AnalyticsKpiHint, AnalyticsKpiValue } from "./charts/ChartPrimitives.js";
+import {
+  ANALYTICS_CHART_COLUMN,
+  ANALYTICS_CHART_GRID,
+  AnalyticsEmptyPanel,
+  AnalyticsKpi,
+  AnalyticsKpiGrid,
+  AnalyticsRefreshing,
+  AnalyticsResultHeading,
+} from "./charts/ChartPrimitives.js";
 import { TopSkuChart } from "./charts/TopSkuChart.js";
 import {
   ReportApiError,
@@ -72,11 +80,17 @@ function importerKeys(query: AnalyticsQuery): SalesImporterKey[] {
   return ["cyberbiz", "shopee"];
 }
 
+const CHART_REGION = "relative min-w-0";
+
+/*
+ * 搜尋期間舊圖表還留在畫面上（keepPreviousData），沒有遮罩的話使用者會以為
+ * 那就是新結果。提示卡靠上排，圖表區很高時不用捲動也看得到。
+ */
 function ChartMask({ label }: { label: string }) {
   return (
-    <div className="analytics-chart-mask" role="status" aria-live="polite">
-      <span className="analytics-chart-mask-card">
-        <Icon name="search" />
+    <div className="absolute inset-0 z-2 grid rounded-card bg-canvas/72 pt-14 [place-items:start_center] [backdrop-filter:blur(2px)]" role="status" aria-live="polite">
+      <span className="sticky top-14 inline-flex items-center gap-2 rounded-full border border-line bg-paper px-[18px] py-2.5 text-[13px] font-semibold text-ink [box-shadow:var(--shadow-panel)]">
+        <Icon name="search" className="size-[18px] text-brand" />
         {label}
       </span>
     </div>
@@ -110,22 +124,23 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
 
   if (summary.status === "UNSUPPORTED_GRANULARITY") {
     return (
-      <Panel className="analytics-empty-panel p-[30px] max-[760px]:px-5 max-[760px]:py-6">
-        <span className="analytics-empty-icon"><Icon name="analytics" /></span>
-        <h2>商品銷售只支援完整月份</h2>
-        <p>{summary.message ?? "請改用 YYYY-MM、YYYY 或完整月份的自訂日期區間。"}</p>
-        <p className="muted">商品銷售資料是按月匯入，無法用不完整月份計算。</p>
-      </Panel>
+      <AnalyticsEmptyPanel
+        icon="analytics"
+        title="商品銷售只支援完整月份"
+        message={summary.message ?? "請改用 YYYY-MM、YYYY 或完整月份的自訂日期區間。"}
+        note="商品銷售資料是按月匯入，無法用不完整月份計算。"
+      />
     );
   }
   if (summary.status === "NO_DATA_FOR_RANGE") {
     return (
-      <div className="analytics-chart-region">
-        <Panel className="analytics-empty-panel p-[30px] max-[760px]:px-5 max-[760px]:py-6" aria-busy={busy}>
-          <span className="analytics-empty-icon"><Icon name="analytics" /></span>
-          <h2>{productQuery ? `找不到符合「${productQuery}」的商品銷售資料` : `${scopeLabel}在這段期間沒有商品銷售資料`}</h2>
-          <p>{summary.message ?? "這段期間沒有已匯入的商品銷售資料。"}</p>
-          <div className="analytics-empty-actions">
+      <div className={CHART_REGION}>
+        <AnalyticsEmptyPanel
+          icon="analytics"
+          title={productQuery ? `找不到符合「${productQuery}」的商品銷售資料` : `${scopeLabel}在這段期間沒有商品銷售資料`}
+          message={summary.message ?? "這段期間沒有已匯入的商品銷售資料。"}
+        >
+          <div className="mt-2.5 flex flex-wrap gap-2">
             {productQuery ? (
               <Button variant="secondary" icon="close" onClick={onClearProduct}>清除商品篩選</Button>
             ) : importerKeys(query).map((key) => {
@@ -135,7 +150,7 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
                 );
               })}
           </div>
-        </Panel>
+        </AnalyticsEmptyPanel>
         {busy ? <ChartMask label={busyLabel} /> : null}
       </div>
     );
@@ -144,58 +159,30 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
   const isAnnual = /^\d{4}$/u.test(summary.period);
   const asOf = summary.complete || !summary.asOfDate ? null : `截至 ${formatDate(summary.asOfDate)}`;
   return (
-    <div className="analytics-results">
-      <div className="analytics-result-heading">
-        <div>
-          <p className="analytics-eyebrow">商品銷售脈動</p>
-          <h2>{scopeLabel}</h2>
-          {productQuery ? <span className="analytics-product-pill">商品：{productQuery}</span> : null}
-        </div>
-        <div className="analytics-result-meta">
-          {asOf ? <span className="analytics-as-of">{asOf}</span> : null}
-          <span>僅計入啟用中的店別</span>
-        </div>
-      </div>
+    <div className="grid gap-3.5">
+      <AnalyticsResultHeading eyebrow="商品銷售脈動" title={scopeLabel} asOf={asOf}>
+        {productQuery ? <span>商品：{productQuery}</span> : null}
+      </AnalyticsResultHeading>
 
-      <div className={`analytics-kpi-grid analytics-sales-kpi-grid${isAnnual ? " annual" : ""}`}>
-        <article className="analytics-kpi analytics-kpi-primary">
-          <span>本期淨銷量</span>
-          <AnalyticsKpiValue>{formatQuantity(summary.netQuantity)}</AnalyticsKpiValue>
-          <small>毛銷量 {formatQuantity(summary.grossQuantity)}，退貨 {formatQuantity(summary.returnQuantity)}</small>
-        </article>
+      <AnalyticsKpiGrid tab="sales" annual={isAnnual}>
+        <AnalyticsKpi primary label="本期淨銷量" value={formatQuantity(summary.netQuantity)}>
+          毛銷量 {formatQuantity(summary.grossQuantity)}，退貨 {formatQuantity(summary.returnQuantity)}
+        </AnalyticsKpi>
         {!isAnnual ? (
-          <article className="analytics-kpi">
-            <span>銷量 MoM</span>
-            <AnalyticsKpiValue>{formatPercent(summary.quantityGrowth.mom)}</AnalyticsKpiValue>
-            <AnalyticsKpiHint>{growthHint("上期淨銷量", summary.quantityGrowth.mom, summary.previousQuantity)}</AnalyticsKpiHint>
-          </article>
+          <AnalyticsKpi label="銷量 MoM" value={formatPercent(summary.quantityGrowth.mom)} hint={growthHint("上期淨銷量", summary.quantityGrowth.mom, summary.previousQuantity)} />
         ) : null}
-        <article className="analytics-kpi">
-          <span>銷量 YoY</span>
-          <AnalyticsKpiValue>{formatPercent(summary.quantityGrowth.yoy)}</AnalyticsKpiValue>
-          <AnalyticsKpiHint>{growthHint("去年同期淨銷量", summary.quantityGrowth.yoy, summary.lastYearQuantity)}</AnalyticsKpiHint>
-        </article>
-        <article className="analytics-kpi">
-          <span>銷售額</span>
-          <AnalyticsKpiValue>{formatCurrency(summary.salesAmount)}</AnalyticsKpiValue>
-          <small>{summary.current.start} ～ {summary.current.end}，僅作參考</small>
-        </article>
-        <article className="analytics-kpi">
-          <span>退貨率</span>
-          <AnalyticsKpiValue>{formatRate(summary.returnRate)}</AnalyticsKpiValue>
-          <small>退貨量 ÷ 毛銷量</small>
-        </article>
-        <article className="analytics-kpi">
-          <span>有銷售 SKU</span>
-          <AnalyticsKpiValue>{formatQuantity(summary.skuCount)}</AnalyticsKpiValue>
-          <small>本期有交易的商品</small>
-        </article>
-      </div>
+        <AnalyticsKpi label="銷量 YoY" value={formatPercent(summary.quantityGrowth.yoy)} hint={growthHint("去年同期淨銷量", summary.quantityGrowth.yoy, summary.lastYearQuantity)} />
+        <AnalyticsKpi label="銷售額" value={formatCurrency(summary.salesAmount)}>
+          {summary.current.start} ～ {summary.current.end}，僅作參考
+        </AnalyticsKpi>
+        <AnalyticsKpi label="退貨率" value={formatRate(summary.returnRate)}>退貨量 ÷ 毛銷量</AnalyticsKpi>
+        <AnalyticsKpi label="有銷售 SKU" value={formatQuantity(summary.skuCount)}>本期有交易的商品</AnalyticsKpi>
+      </AnalyticsKpiGrid>
 
-      {result.isFetching ? <p className="analytics-refreshing" role="status">正在更新統計…</p> : null}
+      {result.isFetching ? <AnalyticsRefreshing /> : null}
 
-      <div className="analytics-chart-region">
-        <div className="analytics-chart-grid analytics-sales-chart-grid" aria-busy={busy}>
+      <div className={CHART_REGION}>
+        <div className={ANALYTICS_CHART_GRID} aria-busy={busy}>
           <SalesTrendChart
             quantity={{ current: summary.currentQuantity, trend: summary.trendQuantity, lastYear: summary.lastYearQuantity }}
             amount={{ current: summary.current, trend: summary.trend, lastYear: summary.lastYear }}
@@ -203,11 +190,11 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
             quantityFormatter={formatQuantity}
             amountFormatter={formatCurrency}
           />
-          <div className="analytics-chart-column">
+          <div className={ANALYTICS_CHART_COLUMN}>
             <CategoryBreakdownChart breakdown={summary.byCategory} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
             <ChannelBreakdownChart metric="quantity" breakdown={summary.breakdown} valueFormatter={formatCurrency} quantityFormatter={formatQuantity} />
           </div>
-          <div className="analytics-chart-column">
+          <div className={ANALYTICS_CHART_COLUMN}>
             <TopSkuChart
               rows={summary.byTopSku}
               allRows={summary.bySku}

@@ -12,6 +12,8 @@ import {
 } from "recharts";
 import { DataTable, Panel } from "../../../../ui/index.js";
 import {
+  ANALYTICS_CHART,
+  ANALYTICS_CHART_PANEL,
   ANALYTICS_TABLE,
   AnalyticsDataDialog,
   AnalyticsLegend,
@@ -40,6 +42,9 @@ interface SalesTrendChartProps {
 
 /** 銷量與金額差好幾個數量級，共用一條軸的話銷量長條會被壓成看不見，所以分左右兩軸。 */
 const AMOUNT_KEYS = new Set(["amount"]);
+
+/** 趨勢圖在雙欄版面裡橫跨兩欄，變成單欄時回到一般位置。 */
+const TREND_PANEL = `${ANALYTICS_CHART_PANEL} col-span-full max-[900px]:col-auto`;
 
 function hasSingleMonth(range: AnalyticsRange): boolean {
   return range.start.slice(0, 7) === range.end.slice(0, 7);
@@ -104,7 +109,7 @@ export function SalesTrendChart({
               <thead><tr><th>月份</th><th className="numeric">淨銷量</th><th className="numeric">銷售額</th></tr></thead>
               <tbody>
                 {data.map((point) => (
-                  <tr key={point.key} className={point.key === selectedKey ? "analytics-table-selected" : undefined}>
+                  <tr key={point.key} className={point.key === selectedKey ? "bg-brand/6" : undefined}>
                     <td data-label="月份">{point.label}{point.key === selectedKey ? "（目前）" : ""}</td>
                     <td data-label="淨銷量" className="numeric">{point.quantity === undefined ? <span className="muted">無資料</span> : quantityFormatter(point.quantity)}</td>
                     <td data-label="銷售額" className="numeric">{point.amount === undefined ? <span className="muted">無資料</span> : amountFormatter(point.amount)}</td>
@@ -115,9 +120,9 @@ export function SalesTrendChart({
           </AnalyticsDataDialog>
         )}
         headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-trend-panel analytics-sales-trend-panel"
+        className={TREND_PANEL}
       >
-        <div className="analytics-chart" role="img" aria-label="近十三個月商品淨銷量與銷售額趨勢圖">
+        <div className={ANALYTICS_CHART} role="img" aria-label="近十三個月商品淨銷量與銷售額趨勢圖">
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
               <CartesianGrid stroke="var(--color-soft-line)" vertical={false} />
@@ -174,9 +179,9 @@ export function SalesTrendChart({
         </AnalyticsDataDialog>
       )}
       headerClassName="mb-3" titleClassName="text-[14px]"
-      className="analytics-chart-panel px-[18px] pt-[17px] pb-[14px] max-[760px]:px-[13px] analytics-trend-panel analytics-sales-trend-panel"
+      className={TREND_PANEL}
     >
-      <div className="analytics-chart" role="img" aria-label="商品淨銷量與銷售額趨勢圖">
+      <div className={ANALYTICS_CHART} role="img" aria-label="商品淨銷量與銷售額趨勢圖">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 8, right: 12, left: 4, bottom: 4 }}>
             <CartesianGrid stroke="var(--color-soft-line)" vertical={false} />
