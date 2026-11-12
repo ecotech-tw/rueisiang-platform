@@ -65,7 +65,7 @@ export function AppShell() {
         />
       </> : null}
 
-      <main className={`h-full min-h-0 min-w-0 overflow-y-auto ${content} has-[[data-page=fills]]:overflow-y-hidden has-[.assistant-sandbox-page]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
+      <main className={`h-full min-h-0 min-w-0 overflow-y-auto ${content} has-[[data-page=fills]]:overflow-y-hidden has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
         <Outlet />
       </main>
     </div>

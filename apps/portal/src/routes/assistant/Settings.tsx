@@ -3,6 +3,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Field, FieldHint, FilterSelect, Page, PageHeader, Panel, Textarea } from "../../ui/index.js";
 import { useSaveAssistantToolStatus, useSavePiCodexCredential, useSandboxConfig, type AssistantTool } from "./api.js";
 import { ToolList, ToolNote, ToolStatusRow } from "./ToolOption.js";
+import { ASSISTANT_ACTIONS } from "./AssistantSection.js";
 
 function statusLabel(status: AssistantTool["status"]): string {
   if (status === "enabled") return "已啟用";
@@ -62,7 +63,7 @@ export function AssistantSettings() {
           />
           <FieldHint>只會送到目前平台的 HTTPS API；API 回應不包含 access 或 refresh token。</FieldHint>
         </Field>
-        <div className="assistant-actions">
+        <div className={ASSISTANT_ACTIONS}>
           <Button
             loading={saveCodexCredential.isPending}
             loadingLabel="匯入中…"

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { ToolList, ToolNote, ToolOption } from "./ToolOption.js";
+import { ASSISTANT_ACTIONS, AssistantSubsection } from "./AssistantSection.js";
 import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, Page, PageHeader, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
@@ -46,6 +47,8 @@ const MESSAGE_DISCLOSURE = "mt-2 border-t border-t-soft-line pt-[7px]";
 const MESSAGE_SUMMARY = "cursor-pointer text-[12px] text-muted";
 // 不寫 [font:inherit]：簡寫屬性排在 text-*／leading-* 後面，會把行高與字級蓋回去。
 const TEXT_PRE = "m-0 whitespace-pre-wrap [overflow-wrap:anywhere] [font-family:inherit]";
+const MUTED_NOTE = "text-[12px] text-muted";
+const TYPING_DOT = "size-1.5 rounded-[50%] bg-muted motion-reduce:animate-none motion-reduce:opacity-80";
 
 function ToolCallList({ calls }: { calls: SandboxToolCall[] }) {
   return (
@@ -271,7 +274,8 @@ export function Sandbox() {
   }
 
   return (
-    <Page className="assistant-sandbox-page">
+    // data-sandbox-page 讓外框整個不捲：設定欄與對話各自捲，送出列才能一直留在畫面上。
+    <Page className="flex h-full min-h-0 flex-col" data-sandbox-page="">
       <PageHeader
         className="flex-none mb-3"
         title="小香助理 Sandbox"
@@ -289,9 +293,9 @@ export function Sandbox() {
         <Alert tone="danger">ChatGPT／Codex OAuth 更新 token 時回傳 401；請重新執行 codex login 並更新平台 credential。若已設定 fallback，請求會先嘗試備援模型。</Alert>
       ) : null}
 
-      <div className="assistant-sandbox-layout">
-        <div className="assistant-settings-column">
-          <Panel title="執行設定" className="assistant-settings-panel px-[18px] py-4" titleClassName="mb-2.5">
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,.85fr)_minmax(0,1.15fr)] items-stretch gap-4 max-[760px]:grid-cols-[1fr]">
+        <div className="grid min-h-0 min-w-0 content-start gap-4 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
+          <Panel title="執行設定" className="min-h-min px-[18px] py-4" titleClassName="mb-2.5">
             <div className="field-grid">
               <Field label="Pi 模型">
                 <DropdownSelect options={modelOptions} value={model} onChange={(event) => setModel(event.target.value)} aria-label="Pi 模型" />
@@ -301,7 +305,7 @@ export function Sandbox() {
                 <FieldHint>目前小香正式使用：{data.models.find((item) => item.id === data.activeModel)?.label ?? data.activeModel}</FieldHint>
                 {!sessionId ? <FieldHint>尚未選擇 session，建立新 session 時會使用目前小香的 active model 與 active revision。</FieldHint> : null}
                 {sessionOpen ? <FieldHint>目前 session 可直接切換模型；下一次送出時會套用選取的模型。</FieldHint> : null}
-                <div className="assistant-actions">
+                <div className={ASSISTANT_ACTIONS}>
                   <Button
                     loading={saveModel.isPending}
                     loadingLabel="套用中…"
@@ -319,7 +323,7 @@ export function Sandbox() {
                 <FieldHint>主要模型回傳 error 時，這一輪會改用選定的模型重試；不會固定綁死 Gemini。</FieldHint>
                 {selectedFallbackModel?.supportsVision ? <FieldHint>此 fallback 支援圖片輸入。</FieldHint> : null}
                 {fallbackModel === data.activeModel || fallbackModel === model ? <FieldHint>fallback 不能與選取中的 active model 相同。</FieldHint> : null}
-                <div className="assistant-actions">
+                <div className={ASSISTANT_ACTIONS}>
                   <Button
                     loading={saveFallbackModel.isPending}
                     loadingLabel="儲存中…"
@@ -334,20 +338,19 @@ export function Sandbox() {
               </Field>
             </div>
 
-            <div className="assistant-subsection">
-              <div className="assistant-subsection-head">
-                <div>
-                  <h3>可調用的 tools</h3>
-                  <p className="muted">Sandbox 可測試「開發中」與「已啟用」；停用工具不會送給模型。</p>
-                </div>
+            <AssistantSubsection
+              title="可調用的 tools"
+              description="Sandbox 可測試「開發中」與「已啟用」；停用工具不會送給模型。"
+              aside={
                 <ButtonSkin skin="paper">
                   <Button variant="secondary" icon="widgets" className="flex-none" onClick={() => setToolsOpen(true)}>
                     設定 tools
                     <span className="min-w-[18px] rounded-[999px] bg-brand-soft px-[5px] py-px text-center text-[11px] text-brand-dark">{activeToolKeys.length}</span>
                   </Button>
                 </ButtonSkin>
-              </div>
-              <div className="assistant-selection-summary">
+              }
+            >
+              <div className="flex min-h-6 flex-wrap items-center gap-1.5">
                 {activeToolKeys.length
                   ? data.tools.filter((tool) => activeToolKeys.includes(tool.key)).map((tool) => (
                     <StatusBadge tone="success" key={tool.key}>{tool.label}</StatusBadge>
@@ -356,7 +359,7 @@ export function Sandbox() {
               </div>
               {hrAuthorizeMissing ? <Alert tone="danger">HR 查詢工具要連同「hr_authorize」一起勾選才能送出。</Alert> : null}
               {employee && hrAuthorizeDisabled ? <Alert tone="danger">「hr_authorize」目前已停用，這一輪不會送出 HR 工具；請先到小香設定頁啟用。</Alert> : null}
-            </div>
+            </AssistantSubsection>
 
             {data.hrSandbox.available ? (
               <HrImpersonation
@@ -367,18 +370,15 @@ export function Sandbox() {
               />
             ) : null}
 
-            <div className="assistant-subsection assistant-prompt-section">
-              <div className="assistant-subsection-head">
-                <div>
-                  <h3>System prompt</h3>
-                  <p className="muted">目前 Revision {activeRevision?.revision ?? "—"}；儲存後會立即套用。</p>
-                </div>
-                <StatusBadge tone="success">編輯中</StatusBadge>
-              </div>
+            <AssistantSubsection
+              title="System prompt"
+              description={<>目前 Revision {activeRevision?.revision ?? "—"}；儲存後會立即套用。</>}
+              aside={<StatusBadge tone="success">編輯中</StatusBadge>}
+            >
               <Field label="目前編輯內容" hint="儲存後會建立新的 revision，並立即成為之後執行與未來 LINE channel 的 active prompt。">
                 <Textarea className="max-h-60 min-h-40" value={prompt} onChange={(event) => setPrompt(event.target.value)} />
               </Field>
-              <div className="assistant-actions">
+              <div className={ASSISTANT_ACTIONS}>
                 <Button loading={savePrompt.isPending} loadingLabel="儲存中…" disabled={!prompt.trim()} onClick={submitPrompt}>
                   儲存新 revision
                 </Button>
@@ -388,21 +388,21 @@ export function Sandbox() {
                 {savePrompt.error ? <Alert tone="danger">{savePrompt.error.message}</Alert> : null}
                 {savePrompt.isSuccess ? <span className="form-hint">已儲存並套用。</span> : null}
               </div>
-            </div>
+            </AssistantSubsection>
           </Panel>
         </div>
 
-      <Panel title="測試對話" className="assistant-chat-panel px-[18px] py-4" titleClassName="mb-2.5">
-        <div className="assistant-session-bar">
-          <div className="assistant-session-copy">
+      <Panel title="測試對話" className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden px-[18px] py-4 max-[760px]:min-h-[620px]" titleClassName="mb-2.5">
+        <div className="mb-3 flex items-center justify-between gap-3 rounded-[11px] border border-line bg-canvas px-3 py-2.5 max-[760px]:flex-col max-[760px]:items-stretch">
+          <div className="grid min-w-0 gap-[3px]">
             <strong>Sandbox session</strong>
-            <span>
+            <span className={MUTED_NOTE}>
               {currentSession
                 ? `${currentSession.status === "open" ? "進行中" : "已關閉"} · ${formatDate(currentSession.updatedAt)}`
                 : "尚未建立 session；建立後每一輪會保留在同一段對話中。"}
             </span>
           </div>
-          <div className="assistant-session-actions">
+          <div className="flex flex-none items-center justify-end gap-2 max-[760px]:justify-start">
             <FilterSelect
               className="min-w-[180px] max-[760px]:min-w-0 max-[760px]:flex-1"
               label="選擇 Sandbox session"
@@ -430,7 +430,7 @@ export function Sandbox() {
         {createSession.error ? <Alert tone="danger">{createSession.error.message}</Alert> : null}
         {closeSession.error ? <Alert tone="danger">{closeSession.error.message}</Alert> : null}
         {session.error ? <Alert tone="danger">{session.error.message}</Alert> : null}
-        <div ref={conversationRef} className="assistant-conversation" aria-live="polite">
+        <div ref={conversationRef} className="mb-2.5 grid max-h-none min-h-0 flex-1 gap-2 overflow-y-auto rounded-[11px] border border-line bg-canvas p-2.5" aria-live="polite">
           {currentSession ? (
             currentSession.messages.length ? currentSession.messages.map((message) => (
               <div className={message.role === "user" ? MESSAGE_USER : MESSAGE_MODEL} key={message.id}>
@@ -479,29 +479,29 @@ export function Sandbox() {
                 <strong>小香</strong>
                 <small className={MESSAGE_META_TIME}>回覆中…</small>
               </div>
-              <span className="assistant-typing" aria-hidden="true">
-                <span />
-                <span />
-                <span />
+              <span className="inline-flex min-h-3.5 items-center gap-1" aria-hidden="true">
+                <span className={`${TYPING_DOT} animate-[assistant-typing_1.2s_ease-in-out_infinite]`} />
+                <span className={`${TYPING_DOT} animate-[assistant-typing_1.2s_ease-in-out_.15s_infinite]`} />
+                <span className={`${TYPING_DOT} animate-[assistant-typing_1.2s_ease-in-out_.3s_infinite]`} />
               </span>
             </div>
           ) : null}
         </div>
         {run.data?.hrRequestDraft && run.data.sessionId === sessionId ? (
-          <div className="assistant-request-card">
-            <div className="assistant-request-card-head">
+          <div className="mb-2.5 rounded-[14px] border border-line bg-brand-soft px-3.5 py-3">
+            <div className="mb-2 grid gap-0.5">
               <strong>確認卡片預覽</strong>
-              <small>LINE 上員工會收到這張卡片與按鈕；Sandbox 只預覽，不會送出。</small>
+              <small className={MUTED_NOTE}>LINE 上員工會收到這張卡片與按鈕；Sandbox 只預覽，不會送出。</small>
             </div>
-            <pre>{run.data.hrRequestDraft.card}</pre>
-            <div className="assistant-actions">
+            <pre className="m-0 rounded-[10px] bg-paper px-3 py-2.5 whitespace-pre-wrap [font:inherit]">{run.data.hrRequestDraft.card}</pre>
+            <div className={ASSISTANT_ACTIONS}>
               <Button disabled>確認送出</Button>
               <Button variant="secondary" disabled>取消</Button>
             </div>
           </div>
         ) : null}
         {failedRun?.toolCalls.length ? (
-          <div className="assistant-failed-run">
+          <div className="mx-2.5 mb-2.5 rounded-[8px] border border-line bg-canvas px-2">
             <details className={MESSAGE_DISCLOSURE}>
               <summary className={MESSAGE_SUMMARY}>本次失敗前的工具調用（{failedRun.toolCalls.length}）</summary>
               <ToolCallList calls={failedRun.toolCalls} />
@@ -510,10 +510,11 @@ export function Sandbox() {
         ) : null}
         <Field as="div" label="輸入內容" gap={4} className="flex-none">
           {attachments.length ? (
-            <div className="assistant-pending-attachments">
+            <div className="mt-[5px] mb-[7px] flex flex-wrap gap-1.5">
               {attachments.map((attachment) => (
                 <button
                   type="button"
+                  className="cursor-pointer rounded-[999px] border border-line bg-canvas px-2 py-[5px] text-[12px] text-ink hover:border-secondary hover:bg-brand-soft disabled:cursor-not-allowed disabled:opacity-55"
                   key={attachment.key}
                   disabled={run.isPending}
                   onClick={() => setAttachments((current) => current.filter((item) => item.key !== attachment.key))}
@@ -523,10 +524,10 @@ export function Sandbox() {
               ))}
             </div>
           ) : null}
-          <div className="assistant-input-wrap">
+          <div className="relative">
             <input
               ref={attachmentInputRef}
-              className="assistant-attachment-input"
+              className="hidden"
               type="file"
               accept="image/jpeg,image/png,image/webp,image/gif"
               disabled={!sessionOpen || run.isPending || uploadAttachment.isPending || !selectedModel?.supportsVision}
@@ -553,7 +554,7 @@ export function Sandbox() {
               }}
               placeholder="輸入要交給小香的問題…"
             />
-            <div className="assistant-composer-actions">
+            <div className="absolute right-2 bottom-2 left-2 flex items-center gap-2">
               <Button
                 variant="icon"
                 icon="attachment"
@@ -563,7 +564,7 @@ export function Sandbox() {
                 aria-label={uploadAttachment.isPending ? "圖片上傳中" : "附加圖片"}
                 onClick={() => attachmentInputRef.current?.click()}
               />
-              <span className="assistant-input-shortcut">Shift + Enter 送出</span>
+              <span className="pointer-events-none mx-auto text-[11px] text-muted opacity-65">Shift + Enter 送出</span>
               <Button
                 className="flex-none"
                 loading={run.isPending}
@@ -578,7 +579,7 @@ export function Sandbox() {
           {!selectedModel?.supportsVision ? <FieldHint>目前模型不支援圖片輸入</FieldHint> : null}
           {uploadAttachment.isPending ? <FieldHint>圖片上傳中…</FieldHint> : null}
         </Field>
-        <div className="assistant-actions assistant-composer-note">
+        <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <span className="form-hint">
             {sessionOpen
               ? `目前使用 Revision ${activeRevision?.revision ?? "—"}、${selectedModel?.label ?? model}${employee ? `，模擬 ${employee.displayName}（${employee.employeeNumber}）本人` : ""}。`
@@ -598,11 +599,11 @@ export function Sandbox() {
           actions={<Button variant="secondary" type="button" onClick={() => setRevisionsOpen(false)}>關閉</Button>}
         >
               <p className="muted">選擇一個 revision 載入到目前的 System prompt 編輯器。</p>
-              <div className="assistant-revisions">
+              <div className="grid gap-1.5">
                 {data.revisions.map((revision) => (
                   <button
                     type="button"
-                    className={`assistant-revision ${revision.id === promptId ? "selected" : ""}`}
+                    className={`flex justify-between gap-3 rounded-[9px] border px-[11px] py-[9px] text-left text-ink ${revision.id === promptId ? "border-secondary bg-brand-soft" : "border-line bg-transparent hover:border-secondary hover:bg-brand-soft"}`}
                     key={revision.id}
                     onClick={() => {
                       selectRevision(revision);
@@ -610,7 +611,7 @@ export function Sandbox() {
                     }}
                   >
                     <span>Revision {revision.revision}{revision.isActive ? " · active" : ""}</span>
-                    <small>{formatDate(revision.createdAt)}</small>
+                    <small className="whitespace-nowrap text-muted">{formatDate(revision.createdAt)}</small>
                   </button>
                 ))}
               </div>
