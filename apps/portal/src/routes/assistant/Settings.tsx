@@ -38,7 +38,7 @@ export function AssistantSettings() {
       {data.modelNotice ? <Alert tone="danger">{data.modelNotice}</Alert> : null}
 
       <Panel title="目前模型">
-        <p className="settings-summary">
+        <p className="m-0 leading-[1.7]">
           小香目前使用 <strong>{activeModel?.label ?? data.activeModel}</strong>。
           {fallbackModel ? <> 失敗時會 fallback 到 <strong>{fallbackModel.label}</strong>。</> : " 目前沒有設定 fallback。"}
           要更換模型或 fallback，請到 Sandbox 設定。
@@ -49,7 +49,7 @@ export function AssistantSettings() {
       </Panel>
 
       <Panel title="ChatGPT／Codex OAuth credential" description="credential 會由唯一的 vault Durable Object 加密保存並自動輪替；不需要把 refresh token 放在 Worker secret。">
-        <p className="settings-summary">
+        <p className="m-0 leading-[1.7]">
           目前狀態：<strong>{data.credentialStatus.codex === "needs_reauth" ? "需要重新授權" : data.credentialStatus.codex === "ready" ? "可使用" : "尚未設定"}</strong>。
           可貼上 Pi `auth.json` 全文，或只貼 `openai-codex` credential JSON；儲存成功後輸入內容會立即清除。
         </p>

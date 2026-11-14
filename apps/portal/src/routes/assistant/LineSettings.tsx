@@ -134,7 +134,7 @@ export function LineSettings() {
         }
       >
 
-        <form className="line-channel-form" onSubmit={submitChannel}>
+        <form className="grid gap-3.5" onSubmit={submitChannel}>
           <TextField
             label="LINE Channel ID"
             maxLength={120}

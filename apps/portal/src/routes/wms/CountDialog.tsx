@@ -58,7 +58,7 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
         </>
       }
     >
-          <div className="count-subject">
+          <div className="rounded-field bg-canvas px-3.5 py-3">
             <div className="cell-strong">{item.name}</div>
             <div className="cell-sub">
               {item.sku ? `${item.sku}・` : ""}

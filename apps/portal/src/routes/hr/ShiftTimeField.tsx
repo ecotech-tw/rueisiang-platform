@@ -18,7 +18,7 @@ export function ShiftTimeField({ label, ariaLabel, value, disabled, onChange, cl
     }
   };
   return <Field label={label} required className={className} stackedLabel={stackedLabel}>
-    <div className="shift-time-control">
+    <div className="relative min-w-0">
       <Input className="w-full pr-11 tabular-nums" type="text" aria-label={ariaLabel} placeholder="HH:mm" maxLength={5} autoComplete="off" required value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
       <Button variant="icon" icon="clock" className="absolute inset-y-0 right-0.5 my-auto" aria-label={`點選${ariaLabel}`} disabled={disabled} onClick={openPicker} />
     </div>

@@ -258,14 +258,14 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
       {rows.map((row, rowIndex) => {
         const legacyOvernight = Boolean(row.original?.weekday.endDayOffset);
         const disabled = !canWrite || legacyOvernight || save.isPending;
-        return <div key={row.key} className={`shift-group grid gap-3 p-0${rowIndex > 0 ? " mt-3 border-t border-soft-line pt-6" : ""}`}>
-          <div className="shift-group-head items-end">
+        return <div key={row.key} className={`grid gap-3 p-0${rowIndex > 0 ? " mt-3 border-t border-soft-line pt-6" : ""}`}>
+          <div className="grid grid-cols-[minmax(0,1fr)_44px] items-end gap-2">
             <TextField className="min-w-0" label="班別名稱" aria-label={`${row.name || "班別"}名稱`} required maxLength={100} placeholder="例如：早班" value={row.name} disabled={disabled} onChange={(event) => updateRow(row.key, { name: event.target.value })} />
             {canWrite ? <Tooltip className="self-end mb-0.5" label={`刪除${row.name ? ` ${row.name}` : "這個班別"}`} focusable={false}>
               <Button className="self-center" variant="icon" icon="trash" tone="danger" aria-label={`刪除${row.name || "這個班別"}`} disabled={save.isPending} onClick={() => removeRow(row)} />
-            </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
+            </Tooltip> : <span className="block" aria-hidden="true" />}
           </div>
-          <div className="shift-members">
+          <div className="grid gap-2 px-1 py-1.5">
             <SelectField className="min-w-0" label="排班人員" aria-label={`${row.name || "班別"}排班人員`} multiple searchable value={row.allowedPersonIds ?? people.map((person) => person.id)} disabled={disabled} options={[...people.map((person) => ({ value: person.id, label: `${person.employeeNumber}・${person.name}${person.personKind === "worker" ? "（支援）" : ""}` })), ...(row.allowedPersonIds ?? []).filter((id) => !people.some((person) => person.id === id)).map((id) => ({ value: id, label: "已封存人員" }))]} onValueChange={(allowedPersonIds: string[]) => updateRow(row.key, { allowedPersonIds })} />
           </div>
           <div className={`${ SHIFT_DAY_COLUMNS } px-1 text-[12px] font-semibold text-muted [&>span:not(:first-child):not(:last-child)]:text-center @max-[640px]:hidden`} aria-hidden="true">
@@ -281,7 +281,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
               <ShiftTimeField className="min-w-0 @max-[640px]:col-start-2 @max-[640px]:row-start-2" stackedLabel="container" label="結束時間" ariaLabel={`${row.name || "班別"}${label}結束時間`} value={draft.endTime} disabled={disabled} onChange={(endTime) => updateTime(row.key, dayType, { endTime })} />
               <TextField className="min-w-0 @max-[640px]:col-start-1 @max-[640px]:row-start-3" stackedLabel="container" label="休息分鐘" aria-label={`${row.name || "班別"}${label}休息分鐘`} type="number" min="0" step="30" value={draft.breakMinutes} disabled={disabled} onChange={(event) => updateTime(row.key, dayType, { breakMinutes: Number(event.target.value) })} />
               <TextField className="min-w-0 @max-[640px]:col-start-2 @max-[640px]:row-start-3" stackedLabel="container" label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
-              <span className="shift-item-spacer" aria-hidden="true" />
+              <span className="block" aria-hidden="true" />
             </div>;
           })()}
           {row.overrides.map((override, overrideIndex) => {
@@ -295,7 +295,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
               <span className="muted min-w-0 @max-[640px]:col-span-full @max-[640px]:row-start-2 @max-[400px]:col-span-full">選擇星期或國定假日後設定時間。</span>
               {canWrite ? <Tooltip label="移除此列" focusable={false} className="self-center">
                 <Button className="@max-[640px]:col-start-3 @max-[640px]:row-start-1" variant="icon" icon="close" aria-label={`${row.name || "班別"}移除未選擇的覆蓋列`} disabled={save.isPending} onClick={() => removeOverride(row.key, override.key)} />
-              </Tooltip> : <span className="shift-item-spacer @max-[640px]:col-start-2 @max-[640px]:row-start-2 @max-[640px]:justify-self-end" aria-hidden="true" />}
+              </Tooltip> : <span className="block @max-[640px]:col-start-2 @max-[640px]:row-start-2 @max-[640px]:justify-self-end" aria-hidden="true" />}
             </div>;
             const dayType = override.dayType;
             const draft = row.times[dayType]!;
@@ -308,12 +308,12 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
               <TextField className="min-w-0 @max-[640px]:col-start-2 @max-[640px]:row-start-3" stackedLabel="container" label="需求人力" aria-label={`${row.name || "班別"}${label}需求人力`} type="number" min="1" max="100" step="1" required value={draft.requiredHeadcount} disabled={disabled} onChange={(event) => updateHeadcount(row.key, dayType, Number(event.target.value))} />
               {canWrite ? <Tooltip label={`${label}改回共用時間`} focusable={false} className="@max-[640px]:col-start-3 @max-[640px]:row-start-1 @max-[640px]:[justify-self:end]">
                 <Button className="self-center" variant="icon" icon="close" aria-label={`${label}改回共用時間`} disabled={disabled} onClick={() => removeOverride(row.key, override.key)} />
-              </Tooltip> : <span className="shift-item-spacer" aria-hidden="true" />}
+              </Tooltip> : <span className="block" aria-hidden="true" />}
             </div>;
           })}
           {canWrite ? <Button variant="secondary" icon="plus" tone="success" className="justify-self-start" disabled={disabled || row.overrides.length >= HR_SHIFT_OVERRIDE_TYPES.length || row.overrides.some((override) => !override.dayType)} onClick={() => addOverride(row.key)}>新增星期／國定假日覆蓋</Button> : null}
           <p className="muted m-0 text-xs">未設定覆蓋的日期沿用共用時間與需求人力。</p>
-          {legacyOvernight ? <small className="shift-item-note">跨午夜的舊班別，請刪除後重新建立。</small> : null}
+          {legacyOvernight ? <small className="col-span-full -mt-1 text-[12px] text-muted">跨午夜的舊班別，請刪除後重新建立。</small> : null}
         </div>;
       })}
       {!rows.length ? <p className="muted col-span-full my-0.5 rounded-field bg-canvas px-3.5 py-3">尚未設定班別，按下「新增班別」後會直接出現可編輯的列。</p> : null}

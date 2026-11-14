@@ -1,13 +1,13 @@
 export { Button, ButtonLink, ButtonSkin } from "./Button.js";
 export { Chip, ChipGroup } from "./Chip.js";
-export { DataTable, TABLE_SCROLL, TableSkin, type TableSkinName } from "./DataTable.js";
+export { CellError, DataTable, TABLE_SCROLL, TableSkin, type TableSkinName } from "./DataTable.js";
 export { Dialog, DialogScope, useDialogScope } from "./Dialog.js";
 export { DropdownSelect, SearchCombobox } from "./DropdownSelect.js";
 export { EmptyState } from "./EmptyState.js";
 export { ExternalLink } from "./ExternalLink.js";
 export { FilterToolbar } from "./FilterToolbar.js";
 export { FilterInput, FilterSelect, SEARCH_INPUT_WIDTH, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";
-export { Field, FieldHint, Input, InputSkin, SelectField, Textarea, TextField } from "./Field.js";
+export { Field, FieldGroup, FieldHint, Input, InputSkin, SelectField, StaticValue, Textarea, TextField } from "./Field.js";
 export { Alert, StatusBadge, type StatusTone } from "./Feedback.js";
 export { Page, PageSpacing, type PageLayout, type PageSpacingName } from "@rueisiang/ui";
 export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";

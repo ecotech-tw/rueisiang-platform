@@ -123,9 +123,9 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
             * 訊息會照原樣顯示在下面。
             */}
           <Field as="div" label="層架">
-            <div className="shelf-levels">
+            <div className="grid gap-1.5">
               {levels.map((level, index) => (
-                <div className="shelf-level" key={level.id}>
+                <div className="flex items-center gap-1.5" key={level.id}>
                   <Input
                     className="min-w-0 flex-1"
                     aria-label={`第 ${index + 1} 層的名稱`}

@@ -17,6 +17,7 @@ import {
 import { CountDialog } from "./CountDialog.js";
 import { ItemForm } from "./ItemForm.js";
 import { EnrollItemDialog } from "./EnrollItemDialog.js";
+import { STOCK_LOW } from "./stock-low.js";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
@@ -109,7 +110,7 @@ function ItemRow({
         * 單位會被當成下一個 grid item 掉到下一列去——「40」跟「個」分家。
         */}
       <td data-label="數量" className="numeric">
-        <span className={low ? "stock-low" : undefined}>
+        <span className={low ? STOCK_LOW : undefined}>
           {Number(item.quantity ?? 0).toLocaleString("zh-TW")}
           <span className="cell-sub"> {item.unit || "件"}</span>
         </span>

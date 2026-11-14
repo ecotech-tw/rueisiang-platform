@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, CellError, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 interface EventRow {
   id: string;
@@ -147,7 +147,7 @@ export function Activity() {
                   <td>
                     <div>{event.summary}</div>
                     <div className="cell-sub">{event.eventType}</div>
-                    {event.error ? <div className="cell-error">{event.error}</div> : null}
+                    {event.error ? <CellError>{event.error}</CellError> : null}
                   </td>
                   <td className="cell-sub">
                     {event.actorType === "system" ? "系統" : (event.actorEmail ?? "—")}

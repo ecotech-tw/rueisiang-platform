@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, Field, FieldHint, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FieldGroup, FieldHint, SearchCombobox, SelectField, StaticValue, TextField } from "../../ui/index.js";
 import {
   useCreateCatalogItem,
   useLinkCyberbiz,
@@ -205,10 +205,9 @@ export function ItemForm({
                   */}
                 {item ? (
                   <Field as="div" label="目前數量">
-                    <p className="field-static">
+                    <StaticValue note="要改數量請用列表上的「盤點」。">
                       {item.quantity.toLocaleString("zh-TW")} {item.unit}
-                      <small>要改數量請用列表上的「盤點」。</small>
-                    </p>
+                    </StaticValue>
                   </Field>
                 ) : (
                   <TextField
@@ -240,7 +239,7 @@ export function ItemForm({
                 />
               </div>
 
-              <div className="address-fields">
+              <FieldGroup>
             <div className="field-grid">
               <SelectField
                 label="倉位"
@@ -268,7 +267,7 @@ export function ItemForm({
                 ]}
               />
             </div>
-          </div>
+          </FieldGroup>
             </>
           ) : null}
 

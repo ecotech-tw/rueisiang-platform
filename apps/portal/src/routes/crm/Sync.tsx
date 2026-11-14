@@ -214,8 +214,8 @@ export function Sync() {
 
         {progress ? (
           <>
-            <div className="progress-bar" role="progressbar" aria-valuenow={progress.page} aria-valuemin={0} aria-valuemax={progress.totalPages}>
-              <span style={{ width: `${Math.min(100, (progress.page / Math.max(1, progress.totalPages)) * 100)}%` }} />
+            <div className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-soft-line" role="progressbar" aria-valuenow={progress.page} aria-valuemin={0} aria-valuemax={progress.totalPages}>
+              <span className="block h-full rounded-full [background:linear-gradient(90deg,var(--color-brand),#e14842)] transition-[width] duration-300 ease-[ease]" style={{ width: `${Math.min(100, (progress.page / Math.max(1, progress.totalPages)) * 100)}%` }} />
             </div>
             <p className="muted form-foot">
               第 {progress.page}／{progress.totalPages} 頁：收到 {progress.received} 筆，
