@@ -15,6 +15,13 @@ import {
   type AssistantTool,
 } from "./api.js";
 import { ToolList, ToolNote, ToolOption } from "./ToolOption.js";
+import { ASSISTANT_ACTIONS } from "./AssistantSection.js";
+
+/** 勾選框或單選鈕在左、標題與說明在右；控制項往下 3px，對齊第一行文字。 */
+const TOGGLE = "inline-flex items-start gap-[9px] text-ink";
+const TOGGLE_INPUT = "mt-[3px] accent-brand";
+/** 32px 的圓形縮圖，跟 Material 的 list avatar 一致。 */
+const AVATAR = "size-8 flex-none rounded-[999px]";
 
 /**
  * 工具在 LINE 上實際能不能用，是三層的交集：全域狀態 ∩ channel 白名單 ∩ 對話白名單。
@@ -162,14 +169,14 @@ export function LineSettings() {
             value={displayName}
             onChange={(event) => setDisplayName(event.target.value)}
           />
-          <label className="assistant-toggle">
-            <input type="checkbox" checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
+          <label className={TOGGLE}>
+            <input type="checkbox" className={TOGGLE_INPUT} checked={enabled} onChange={(event) => setEnabled(event.target.checked)} />
             <span>
-              <strong>允許 LINE webhook 進入回覆流程</strong>
-              <small>關閉時仍會驗證並記錄提及訊息，但不會在線上回覆。</small>
+              <strong className="block">允許 LINE webhook 進入回覆流程</strong>
+              <small className="mt-[3px] block text-[12px] text-muted">關閉時仍會驗證並記錄提及訊息，但不會在線上回覆。</small>
             </span>
           </label>
-          <div className="assistant-actions">
+          <div className={ASSISTANT_ACTIONS}>
             <Button
               type="submit"
               loading={saveChannel.isPending}
@@ -233,12 +240,12 @@ export function LineSettings() {
             一個工具都沒開，小香在 LINE 只能靠對話本身回答，查不了倉庫或客戶資料。
           </Alert>
         ) : (
-          <ul className="assistant-granted-tools">
+          <ul className="m-0 flex list-none flex-wrap gap-2 p-0">
             {grantedTools.map((tool) => {
               const blocked = blockedReason(tool);
               return (
-                <li key={tool.key}>
-                  <strong>{tool.label}</strong>
+                <li key={tool.key} className="inline-flex items-center gap-2 rounded-[999px] bg-brand-soft px-3.5 py-[7px] text-[13px] text-brand-dark">
+                  <strong className="font-medium">{tool.label}</strong>
                   {blocked ? <StatusBadge tone="warning">{blocked}</StatusBadge> : null}
                 </li>
               );
@@ -286,7 +293,7 @@ export function LineSettings() {
         {addGroup.error ? <Alert tone="danger">{addGroup.error.message}</Alert> : null}
 
         {data.groups.length ? (
-          <DataTable containerClassName="line-groups-table">
+          <DataTable containerClassName="mt-[22px]">
               <thead><tr><th>對話</th><th>LINE ID</th><th>發現時間</th><th>工具</th><th>回覆</th><th>操作</th></tr></thead>
               <tbody>
                 {data.groups.map((group) => (
@@ -385,12 +392,12 @@ function LineGroupRow({
   return (
     <tr>
       <td>
-        <div className="line-group-cell">
+        <div className="flex min-w-0 items-center gap-2.5">
           {group.pictureUrl && !avatarFailed
-            ? <img className="line-group-avatar" src={group.pictureUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
-            : <span className="line-group-avatar is-fallback" aria-hidden="true">{(group.displayName || group.lineGroupId).slice(0, 1)}</span>}
-          <div className="line-group-main">
-            <div className="line-group-label">
+            ? <img className={`${AVATAR} bg-soft-line object-cover`} src={group.pictureUrl} alt="" loading="lazy" onError={() => setAvatarFailed(true)} />
+            : <span className={`${AVATAR} grid place-items-center bg-brand-soft text-[13px] font-medium text-brand-dark`} aria-hidden="true">{(group.displayName || group.lineGroupId).slice(0, 1)}</span>}
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <div className="flex flex-none items-center">
               <StatusBadge tone="danger">{sourceTypeLabel(group.sourceType)}</StatusBadge>
             </div>
             <FilterInput
@@ -403,19 +410,19 @@ function LineGroupRow({
           </div>
         </div>
       </td>
-      <td><code>{group.lineGroupId}</code></td>
+      <td><code className="text-[12px] text-muted [overflow-wrap:anywhere]">{group.lineGroupId}</code></td>
       <td>{formatDate(group.discoveredAt)}</td>
       <td>
         <button
           type="button"
-          className={`line-tool-cell${group.toolMode === "custom" ? " is-custom" : ""}`}
+          className="inline-flex cursor-pointer items-center gap-2 rounded-[999px] border-0 bg-transparent py-[5px] pr-1.5 pl-[5px] text-left text-ink hover:bg-brand/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
           onClick={onOpenTools}
           title={group.toolMode === "custom"
             ? "只給這個對話指定的工具。點開可修改。"
             : "跟著 channel 的設定走；channel 增減工具時這裡會一起變。點開可改成自訂。"}
         >
-          <span className="line-tool-mode">{group.toolMode === "custom" ? "自訂" : "繼承"}</span>
-          <span className="line-tool-count">{group.toolMode === "custom" ? group.tools.length : grantedCount} 個工具</span>
+          <span className={`whitespace-nowrap rounded-[999px] px-2.5 py-[3px] text-[12px] font-medium ${group.toolMode === "custom" ? "bg-brand-soft text-brand-dark" : "bg-soft-line text-muted"}`}>{group.toolMode === "custom" ? "自訂" : "繼承"}</span>
+          <span className="whitespace-nowrap text-[12px] text-muted">{group.toolMode === "custom" ? group.tools.length : grantedCount} 個工具</span>
         </button>
       </td>
       <td>
@@ -485,15 +492,15 @@ function GroupToolsDialog({
       }
     >
           <div className="mb-[18px] grid gap-3">
-            <label className="assistant-inline-toggle">
-              <input type="radio" name="toolMode" checked={mode === "inherit"} onChange={() => setMode("inherit")} />
+            <label className={TOGGLE}>
+              <input type="radio" name="toolMode" className={TOGGLE_INPUT} checked={mode === "inherit"} onChange={() => setMode("inherit")} />
               <span>
                 <strong className="block">繼承</strong>
                 <small className="mt-[3px] block text-[12px] text-muted">用 channel 給的全部（目前 {tools.length} 個）。channel 之後增減，這個對話會跟著變。</small>
               </span>
             </label>
-            <label className="assistant-inline-toggle">
-              <input type="radio" name="toolMode" checked={mode === "custom"} onChange={() => setMode("custom")} />
+            <label className={TOGGLE}>
+              <input type="radio" name="toolMode" className={TOGGLE_INPUT} checked={mode === "custom"} onChange={() => setMode("custom")} />
               <span>
                 <strong className="block">自訂</strong>
                 <small className="mt-[3px] block text-[12px] text-muted">只給下面勾選的。channel 收回某個工具時，這裡也會跟著消失。</small>

@@ -5,140 +5,16 @@
 
 
 /* AI 助理 Sandbox */
-.assistant-sandbox-page { display: flex; height: 100%; min-height: 0; flex-direction: column; }
-.assistant-sandbox-page > .assistant-sandbox-layout { flex: 1; min-height: 0; }
-.assistant-sandbox-layout { display: grid; grid-template-columns: minmax(280px, .85fr) minmax(0, 1.15fr); align-items: stretch; gap: 16px; min-height: 0; }
-.assistant-settings-column { display: grid; align-content: start; gap: 16px; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
-.assistant-chat-panel { display: flex; min-width: 0; min-height: 0; height: 100%; flex-direction: column; overflow: hidden; }
-.assistant-chat-panel .assistant-conversation { flex: 1; min-height: 0; max-height: none; }
-.assistant-sandbox-page .assistant-subsection { margin-top: 14px; padding-top: 12px; }
-.assistant-settings-panel { min-height: min-content; }
-.assistant-subsection { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--color-soft-line); }
-.assistant-subsection h3 { margin: 0 0 4px; font-size: 14px; }
-.assistant-subsection-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.assistant-selection-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 24px; }
 .settings-summary { margin: 0; line-height: 1.7; }
-.assistant-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-.assistant-revisions { display: grid; gap: 6px; }
-.assistant-revision { display: flex; justify-content: space-between; gap: 12px; padding: 9px 11px; border: 1px solid var(--color-line); border-radius: 9px; background: transparent; color: var(--color-ink); text-align: left; font: inherit; }
-.assistant-revision:hover, .assistant-revision.selected { border-color: var(--color-secondary); background: var(--color-brand-soft); }
-.assistant-revision small { color: var(--color-muted); white-space: nowrap; }
-.assistant-session-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--color-line); border-radius: 11px; background: var(--color-canvas); }
-.assistant-session-copy { display: grid; gap: 3px; min-width: 0; }
-.assistant-session-copy span { color: var(--color-muted); font-size: 12px; }
-.assistant-session-actions { display: flex; flex: none; align-items: center; justify-content: flex-end; gap: 8px; }
-.assistant-request-card { margin-bottom: 10px; padding: 12px 14px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-brand-soft); }
-.assistant-request-card-head { display: grid; gap: 2px; margin-bottom: 8px; }
-.assistant-request-card-head small { color: var(--color-muted); font-size: 12px; }
-.assistant-request-card pre { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--color-paper); font: inherit; white-space: pre-wrap; }
-.assistant-conversation { display: grid; gap: 8px; max-height: none; min-height: 0; margin-bottom: 10px; padding: 10px; overflow-y: auto; border: 1px solid var(--color-line); border-radius: 11px; background: var(--color-canvas); }
-.assistant-typing { display: inline-flex; align-items: center; gap: 4px; min-height: 14px; }
-.assistant-typing > span { width: 6px; height: 6px; border-radius: 50%; background: var(--color-muted); animation: assistant-typing 1.2s ease-in-out infinite; }
-.assistant-typing > span:nth-child(2) { animation-delay: .15s; }
-.assistant-typing > span:nth-child(3) { animation-delay: .3s; }
+.line-channel-form { display: grid; gap: 14px; }
+.copy-field { display: flex; align-items: center; gap: 8px; }
+.copy-field input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-canvas); color: var(--color-ink); font: inherit; }
+.copy-field svg { width: 17px; height: 17px; }
+/* Sandbox 的「回覆中」三點；引用寫在 Sandbox.tsx 的 animate-[assistant-typing_…]。 */
 @keyframes assistant-typing {
   0%, 60%, 100% { opacity: .35; transform: translateY(0); }
   30% { opacity: 1; transform: translateY(-3px); }
 }
-@media (prefers-reduced-motion: reduce) {
-  .assistant-typing > span { animation: none; opacity: .8; }
-}
-.assistant-failed-run { margin: 0 10px 10px; padding: 0 8px; border: 1px solid var(--color-line); border-radius: 8px; background: var(--color-canvas); }
-.assistant-attachment-input { display: none; }
-.assistant-pending-attachments { display: flex; flex-wrap: wrap; gap: 6px; margin: 5px 0 7px; }
-.assistant-pending-attachments button { padding: 5px 8px; border: 1px solid var(--color-line); border-radius: 999px; background: var(--color-canvas); color: var(--color-ink); font: inherit; font-size: 12px; cursor: pointer; }
-.assistant-pending-attachments button:hover { border-color: var(--color-secondary); background: var(--color-brand-soft); }
-.assistant-pending-attachments button:disabled { opacity: .55; cursor: not-allowed; }
-.assistant-input-wrap { position: relative; }
-.assistant-composer-actions { position: absolute; right: 8px; bottom: 8px; left: 8px; display: flex; align-items: center; gap: 8px; }
-.assistant-input-shortcut { margin: 0 auto; pointer-events: none; color: var(--color-muted); opacity: .65; font-size: 11px; }
-.assistant-composer-note { margin-top: 6px; }
-.line-channel-form { display: grid; gap: 14px; }
-/* channel 已授權工具的一覽；被別層擋住的會帶一個狀態標籤。 */
-.assistant-granted-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.assistant-granted-tools li {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 14px;
-  border-radius: 999px;
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-  font-size: 13px;
-}
-.assistant-granted-tools strong { font-weight: 500; }
-
-/*
- * 群組列的工具欄位。原本只有一顆寫著「自訂 1」的按鈕，看不出 1 是什麼，也看不出
- * 「自訂」跟「繼承」差在哪。改成「狀態膠囊 ＋ 幾個工具」兩段，狀態用 Material 的
- * 色調容器表示，數量用一般文字。
- */
-.line-tool-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 5px 6px 5px 5px;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--color-ink);
-  cursor: pointer;
-  font: inherit;
-  text-align: left;
-}
-.line-tool-cell:hover { background: --alpha(var(--color-brand) / 7%); }
-.line-tool-cell:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
-.line-tool-mode {
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--color-soft-line);
-  color: var(--color-muted);
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-.line-tool-cell.is-custom .line-tool-mode { background: var(--color-brand-soft); color: var(--color-brand-dark); }
-.line-tool-count { color: var(--color-muted); font-size: 12px; white-space: nowrap; }
-
-.assistant-toggle,
-.assistant-inline-toggle { display: inline-flex; align-items: flex-start; gap: 9px; color: var(--color-ink); }
-.assistant-toggle input,
-.assistant-inline-toggle input { margin-top: 3px; accent-color: var(--color-brand); }
-.assistant-toggle strong,
-.assistant-toggle small { display: block; }
-.assistant-toggle small { margin-top: 3px; color: var(--color-muted); font-size: 12px; }
-.copy-field { display: flex; align-items: center; gap: 8px; }
-.copy-field input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-canvas); color: var(--color-ink); font: inherit; }
-.copy-field svg { width: 17px; height: 17px; }
-.line-groups-table { margin-top: 22px; }
-.line-group-cell { display: flex; align-items: center; gap: 10px; min-width: 0; }
-/* 32px 的圓形縮圖，跟 Material 的 list avatar 一致。 */
-.line-group-avatar {
-  width: 32px;
-  height: 32px;
-  flex: none;
-  border-radius: 999px;
-  object-fit: cover;
-  background: var(--color-soft-line);
-}
-.line-group-avatar.is-fallback {
-  display: grid;
-  place-items: center;
-  background: var(--color-brand-soft);
-  color: var(--color-brand-dark);
-  font-size: 13px;
-  font-weight: 500;
-}
-.line-group-main { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
-.line-group-label { display: flex; align-items: center; flex: none; }
-.line-groups-table code { color: var(--color-muted); font-size: 12px; overflow-wrap: anywhere; }
 
 /* 權限管理頁 */
 /* 跟在面板標題列後面時，距離由 panel-head 的 margin-bottom 決定，這裡不再疊加。 */
@@ -1024,12 +900,5 @@
   font-weight: 500;
 }
 .tag-create svg { width: 16px; height: 16px; flex: none; }
-
-@media (max-width: 760px) {
-  .assistant-sandbox-layout { grid-template-columns: 1fr; }
-  .assistant-chat-panel { min-height: 620px; }
-  .assistant-session-bar { align-items: stretch; flex-direction: column; }
-  .assistant-session-actions { justify-content: flex-start; }
-}
 
 .field-note { margin: 0 0 4px; font-size: 12px; }
