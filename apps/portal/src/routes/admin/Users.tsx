@@ -64,16 +64,23 @@ function InviteLink({ email, url, onDismiss }: { email: string; url: string; onD
   const [copied, setCopied] = useState(false);
 
   return (
-    <div className="invite-link" role="status">
+    // primary-container 的淡底標出「剛產生、要現在處理」；它是成功結果，所以不用警示紅。
+    <div className="mt-3.5 grid gap-3 rounded-card border border-secondary bg-brand-soft px-4 py-3.5" role="status">
       <div>
-        <strong>已邀請 {email}</strong>
-        <p className="muted">
+        <strong className="text-[14px] text-brand-dark">已邀請 {email}</strong>
+        <p className="muted mt-1 text-[12.5px]">
           把這條連結傳給對方，他設定密碼之後就能登入。連結七天內有效，
-          而且<b>只會出現這一次</b>——關掉之後要重發才拿得到新的。
+          而且<b className="text-brand-dark">只會出現這一次</b>——關掉之後要重發才拿得到新的。
         </p>
       </div>
-      <div className="invite-link-row"><ButtonSkin skin="paper">
-        <input readOnly value={url} onFocus={(event) => event.target.select()} />
+      <div className="flex flex-wrap gap-2"><ButtonSkin skin="paper">
+        {/* 連結長，讓輸入框吃掉剩下的寬度，按鈕維持自己的大小。 */}
+        <input
+          className="min-w-60 flex-1 rounded-field border border-line bg-paper px-[11px] py-2 text-[12px] text-ink [font-family:ui-monospace,SFMono-Regular,Menlo,monospace]"
+          readOnly
+          value={url}
+          onFocus={(event) => event.target.select()}
+        />
         <Button
           variant="secondary"
           onClick={async () => {

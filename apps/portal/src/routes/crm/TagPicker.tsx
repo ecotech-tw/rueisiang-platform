@@ -17,6 +17,9 @@ interface DropdownBox {
 const GAP = 4;
 const EDGE = 12;
 
+/** 下拉裡每一列的共同外觀；圓角與文字色依「既有選項／新增標籤」各自給。 */
+const OPTION = "flex w-full items-center justify-between gap-2.5 bg-transparent px-2.5 py-2 text-left text-[13.5px] hover:bg-brand/7";
+
 function measure(anchor: HTMLElement): DropdownBox {
   const rect = anchor.getBoundingClientRect();
   const below = window.innerHeight - rect.bottom - GAP - EDGE;
@@ -168,12 +171,14 @@ export function TagPicker({
         * 留在原地的話會被對話框卡片的 overflow: hidden 裁掉（選項看得到卻
         * 點不到）；改成在流內展開又會把表單推長、讓對話框長出捲軸——那是使用者
         * 回報「很奇怪」的那一版。掛到 body 兩個問題都沒有：它浮在最上層，
-        * 表單的高度完全不受影響。
+        * 表單的高度完全不受影響。位置由上面量出來的 box 用 inline style 給。
+        *
+        * z-index 要比對話框（60）與提示（70）都高，它是當下最上層的互動元件。
         */}
       {open && box && (matches.length > 0 || (term && !exact))
         ? createPortal(
             <ul
-              className="tag-options"
+              className="fixed z-80 m-0 list-none overflow-y-auto rounded-card border border-line bg-paper p-1 [box-shadow:0_12px_28px_rgba(64,30,30,.16)]"
               ref={listRef}
               style={{
                 left: box.left,
@@ -186,15 +191,20 @@ export function TagPicker({
             >
               {matches.map((option) => (
                 <li key={option.name}>
-                  <button type="button" onClick={() => add(option.name)}>
+                  <button type="button" className={`${OPTION} rounded-field text-ink`} onClick={() => add(option.name)}>
                     <span>{option.name}</span>
-                    <small>{option.customerCount}</small>
+                    <small className="text-[11px] text-muted tabular-nums">{option.customerCount}</small>
                   </button>
                 </li>
               ))}
               {term && !exact ? (
                 <li>
-                  <button type="button" className="tag-create" onClick={() => add(term)}>
+                  {/* 「新增標籤」跟既有選項分開，免得誤按而多開一個近似的標籤。 */}
+                  <button
+                    type="button"
+                    className={`${OPTION} mt-0.5 rounded-b-field border-t border-t-soft-line font-medium text-brand-dark [&_svg]:size-4 [&_svg]:flex-none`}
+                    onClick={() => add(term)}
+                  >
                     <Icon name="plus" />
                     新增標籤「{term}」
                   </button>

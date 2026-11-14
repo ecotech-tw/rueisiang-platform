@@ -286,9 +286,9 @@ export function Sync() {
                   <td className="cell-sub">
                     {event.lastError ?? "—"}
                     {/* 原始內容：查「這個 ID 到底是什麼」時，沒有它就只能猜。 */}
-                    <details className="payload-peek">
-                      <summary>原始內容</summary>
-                      <pre>{event.payloadJson}</pre>
+                    <details className="mt-1">
+                      <summary className="cursor-pointer text-[11px] text-brand">原始內容</summary>
+                      <pre className="mt-1.5 max-h-[220px] max-w-[520px] overflow-auto rounded-[10px] bg-canvas px-2.5 py-2 text-[11px] break-all whitespace-pre-wrap">{event.payloadJson}</pre>
                     </details>
                   </td>
                 </tr>

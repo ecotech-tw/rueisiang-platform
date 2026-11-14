@@ -434,19 +434,6 @@
 /* 已連結的用綠色的邊，一眼看得出狀態不同。 */
 .link-panel.linked { border-color: var(--color-ok); background: var(--color-ok-soft); }
 
-/*
- * 操作紀錄的欄寬。
- *
- * 不指定的話瀏覽器會把寬度分給內容最長的那一欄（摘要），「B-01 包材區」就被壓成
- * 一欄三行、逐字折行。時間與對象是固定長度的東西，給它們一個下限。
- */
-.activity-table th:nth-child(1),
-.activity-table td:nth-child(1) { width: 150px; }
-.activity-table th:nth-child(2),
-.activity-table td:nth-child(2) { width: 180px; }
-.activity-table th:nth-child(5),
-.activity-table td:nth-child(5) { width: 190px; }
-
 @media (max-width: 760px) {
   /*
    * 手機上浮動的東西改成貼齊上下緣、左右滿版。角落定位在 390px 的螢幕上會讓
@@ -512,21 +499,6 @@
 }
 .count-diff.short { color: var(--color-brand-dark); }
 .count-diff.warn { color: var(--color-warn); }
-
-.payload-peek { margin-top: 4px; }
-.payload-peek summary { color: var(--color-brand); cursor: pointer; font-size: 11px; }
-.payload-peek pre {
-  max-width: 520px;
-  max-height: 220px;
-  margin: 6px 0 0;
-  padding: 8px 10px;
-  overflow: auto;
-  border-radius: 10px;
-  background: var(--color-canvas);
-  font-size: 11px;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
 
 .progress-bar {
   height: 6px;
@@ -625,36 +597,6 @@
  */
 .filter-fields { display: contents; }
 
-/*
- * 邀請連結。用 primary-container 的淡底標出「這是剛剛才產生、要你現在處理」的東西，
- * 但不用警示紅——它是成功結果，不是錯誤。
- */
-.invite-link {
-  display: grid;
-  gap: 12px;
-  margin-top: 14px;
-  padding: 14px 16px;
-  border: 1px solid var(--color-secondary);
-  border-radius: var(--radius-card);
-  background: var(--color-brand-soft);
-}
-.invite-link strong { font-size: 14px; color: var(--color-brand-dark); }
-.invite-link .muted { margin-top: 4px; font-size: 12.5px; }
-.invite-link b { color: var(--color-brand-dark); }
-.invite-link-row { display: flex; flex-wrap: wrap; gap: 8px; }
-/* 連結長，讓輸入框吃掉剩下的寬度，按鈕維持自己的大小。 */
-.invite-link-row input {
-  flex: 1;
-  min-width: 240px;
-  padding: 8px 11px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-field);
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
-}
-
 /* 操作提示（shell/Toast.tsx）的進場。 */
 @keyframes toast-in {
   from { opacity: 0; filter: blur(4px); transform: translateY(10px) scale(.96); }
@@ -728,55 +670,5 @@
   color: var(--color-muted);
   pointer-events: none;
 }
-
-/*
- * 下拉浮在上層而不是把表單往下推——推的話每打一個字對話框就跳一次高度。
- */
-/*
- * 下拉浮在最上層。位置由 JS 量出來後用 inline style 給（fixed，視窗座標）。
- *
- * 為什麼是 portal ＋ fixed：這張表單在對話框的內容區（會捲）裡，外層卡片
- * 又是 overflow: hidden。留在原地會被裁掉——選項看得到卻點不到；改成在流內
- * 展開又會把表單推長、讓對話框長出捲軸。掛到 body 兩個問題都沒有。
- *
- * z-index 要比對話框（60）與提示（70）都高，它是當下最上層的互動元件。
- */
-.tag-options {
-  position: fixed;
-  z-index: 80;
-  margin: 0;
-  padding: 4px;
-  overflow-y: auto;
-  list-style: none;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-card);
-  background: var(--color-paper);
-  box-shadow: 0 12px 28px rgba(64, 30, 30, .16);
-}
-.tag-options button {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--radius-field);
-  background: transparent;
-  color: var(--color-ink);
-  font-size: 13.5px;
-  text-align: left;
-}
-.tag-options button:hover { background: --alpha(var(--color-brand) / 7%); }
-.tag-options small { color: var(--color-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-/* 「新增標籤」跟既有選項分開，免得誤按而多開一個近似的標籤。 */
-.tag-create {
-  margin-top: 2px;
-  border-top: 1px solid var(--color-soft-line) !important;
-  border-radius: 0 0 var(--radius-field) var(--radius-field) !important;
-  color: var(--color-brand-dark) !important;
-  font-weight: 500;
-}
-.tag-create svg { width: 16px; height: 16px; flex: none; }
 
 .field-note { margin: 0 0 4px; font-size: 12px; }
