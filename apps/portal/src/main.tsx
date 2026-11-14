@@ -1,3 +1,4 @@
+import { createAuthRedirectFetch } from "@rueisiang/auth/fetch-redirect";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -5,6 +6,8 @@ import { BrowserRouter } from "react-router";
 import { App } from "./App.js";
 import { UnsavedChangesProvider } from "./shell/UnsavedChanges.js";
 import "./styles.css";
+
+window.fetch = createAuthRedirectFetch(window.fetch.bind(window), window.location);
 
 const queryClient = new QueryClient({
   defaultOptions: {

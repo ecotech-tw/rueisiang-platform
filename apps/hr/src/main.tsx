@@ -1,3 +1,5 @@
+import { API_BASE_URL } from "./config.js";
+import { createAuthRedirectFetch } from "@rueisiang/auth/fetch-redirect";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
@@ -5,6 +7,8 @@ import { createBrowserRouter, RouterProvider } from "react-router";
 import { initializeLiff } from "./auth/liff.js";
 import { App } from "./App.js";
 import "./styles.css";
+
+window.fetch = createAuthRedirectFetch(window.fetch.bind(window), window.location, API_BASE_URL);
 
 const queryClient = new QueryClient({
   defaultOptions: {

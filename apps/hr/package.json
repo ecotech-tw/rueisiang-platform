@@ -16,6 +16,7 @@
   "dependencies": {
     "@base-ui/react": "^1.7.0",
     "@line/liff": "^2.31.2",
+    "@rueisiang/auth": "workspace:*",
     "@rueisiang/ui": "workspace:*",
     "@rueisiang/db": "workspace:*",
     "@tanstack/react-query": "^5.90.2",

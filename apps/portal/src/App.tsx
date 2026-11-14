@@ -64,7 +64,8 @@ function RequireSession({ children }: { children: React.ReactNode }) {
 
   if (loading) return <div className="boot">載入中…</div>;
   if (!user) {
-    return <Navigate to={`/login?returnTo=${encodeURIComponent(location.pathname)}`} replace />;
+    const returnTo = `${location.pathname}${location.search}${location.hash}`;
+    return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
   return <>{children}</>;
 }
