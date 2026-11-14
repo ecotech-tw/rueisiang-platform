@@ -1,0 +1,19 @@
+export class Container<Env extends { containerFetch?: (request: Request) => Promise<Response> }> {
+  readonly ctx: { storage: unknown };
+  readonly env: Env;
+  envVars: Record<string, string> = {};
+
+  constructor(ctx: { storage: unknown }, env: Env) {
+    this.ctx = ctx;
+    this.env = env;
+  }
+
+  async startAndWaitForPorts(): Promise<void> {}
+
+  async containerFetch(request: Request): Promise<Response> {
+    if (!this.env.containerFetch) throw new Error("No test containerFetch configured");
+    return this.env.containerFetch(request);
+  }
+
+  async alarm(_alarmProps?: unknown): Promise<void> {}
+}

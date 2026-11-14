@@ -1,8 +1,9 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
+import { vi } from "vitest";
 import { createDatabase, createReportManagementScope, getShopeeSalesSettings, listShopeeSalesRuns, syncSystemRoles } from "@rueisiang/db";
 import { reportRunScopes, reportRuns, rolePermissionGrants, roles, scopes, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,12 +20,28 @@ function db() {
   return createDatabase(d1 as never);
 }
 
-function stubGithub() {
+function stubRunner() {
   const calls: { url: string; body: Record<string, unknown> }[] = [];
-  vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
-    calls.push({ url, body: init.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {} });
-    return new Response(null, { status: 204 });
-  });
+  const jobs = new Map<string, Record<string, unknown>>();
+  const preview = {
+    reportMonths: ["2025-02"], dailyPayoutRows: [{ businessDate: "2025-02-14", payoutAmount: 280 }], sourceRowCount: 3, rowCount: 1,
+    rows: [{ reportMonth: "2025-02", sku: "SKU-1", productName: "商品一", grossQuantity: 3, returnQuantity: 0, netQuantity: 3, salesAmount: 300 }],
+    uniqueOrders: 2, uniqueProducts: 1, totalPerformance: 280, totalQuantity: 3, totalSalesAmount: 300,
+    duplicateRowsExcluded: 1, warnings: [],
+  };
+  env.REPORT_RUNNER = { getByName: () => ({ fetch: async (request: Request) => {
+    const url = new URL(request.url);
+    const body = request.method === "POST" ? await request.json() as Record<string, unknown> : {};
+    calls.push({ url: `${url.pathname}${url.search}`, body });
+    if (url.pathname === "/preview" || url.pathname === "/jobs") {
+      const requestId = String(body.requestId);
+      jobs.set(requestId, { requestId, status: "succeeded", result: url.pathname === "/preview" ? preview : { salesRows: 1, payoutRows: 1 }, error: "" });
+      return Response.json(jobs.get(requestId), { status: 202 });
+    }
+    const requestId = url.pathname.split("/").at(-1) ?? "";
+    const job = jobs.get(requestId);
+    return job ? Response.json(job) : Response.json({ error: "job_not_found" }, { status: 404 });
+  } }) };
   return calls;
 }
 
@@ -52,12 +69,10 @@ beforeEach(async () => {
     AUTH_SESSION_SECRET: SECRET,
     GOOGLE_OAUTH_CLIENT_ID: "client-id",
     GOOGLE_OAUTH_CLIENT_SECRET: "client-secret",
-    GITHUB_TOKEN: "gh-token",
-    SHOPEE_GITHUB_REPO: "ecotech-tw/rueisiang-platform",
-    SHOPEE_WORKFLOW_FILE: "shopee-sales-report.yml",
-    SHOPEE_GITHUB_REF: "main",
+    REPORT_RUNNER_TOKEN: "runner-token",
     SHOPEE_SOURCE_BASE_URL: "https://platform.rueisiang.com",
   };
+  stubRunner();
   await syncSystemRoles(db());
 });
 
@@ -76,8 +91,8 @@ describe("蝦皮銷售報表", () => {
     }
   });
 
-  it("沒有 Drive 連結時不會觸發 GitHub", async () => {
-    const calls = stubGithub();
+  it("沒有 Drive 連結時不會啟動報表工作", async () => {
+    const calls = stubRunner();
     await createReportManagementScope(db(), { id: "shopee:store:no-folder", sourceType: "shopee", scopeKind: "channel", name: "蝦皮測試" });
     const id = await seedUser("manager@ecotech.tw", "role-manager");
     const form = new FormData();
@@ -89,8 +104,8 @@ describe("蝦皮銷售報表", () => {
     expect(calls).toHaveLength(0);
   });
 
-  it("管理者設定 Drive 後，執行者可直接上傳報表並觸發 GitHub", async () => {
-    const calls = stubGithub();
+  it("管理者設定 Drive 後，執行者可直接上傳報表並啟動背景工作", async () => {
+    const calls = stubRunner();
     const admin = await seedUser("eli@ecotech.tw", "role-admin");
     // Drive 資料夾改在通路管理設定；這裡就是實際的操作路徑。
     const shopeeScopeId = (await getShopeeSalesSettings(db())).id;
@@ -115,14 +130,14 @@ describe("蝦皮銷售報表", () => {
     form.append("scopeId", selectedScopeId);
     const response = await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/upload", { method: "POST", body: form });
     expect(response.status, await response.clone().text()).toBe(202);
-    expect(calls[0]?.url).toContain("actions/workflows/shopee-sales-report.yml/dispatches");
-    const inputs = (calls[0]?.body.inputs ?? {}) as Record<string, string>;
-    expect(inputs.drive_folder_url).toBe("https://drive.google.com/drive/folders/folder456");
-    expect(inputs.scope_id).toBe(selectedScopeId);
-    expect(inputs.scope_name).toBe("蝦皮二店");
+    expect(calls[0]?.url).toBe("/jobs");
+    const inputs = calls[0]?.body ?? {};
+    expect(inputs.driveFolderUrl).toBe("https://drive.google.com/drive/folders/folder456");
+    expect(inputs.scopeId).toBe(selectedScopeId);
+    expect(inputs.scopeName).toBe("蝦皮二店");
     expect(inputs.start).toBe("2025-02-01");
     expect(inputs.end).toBe("2025-02-28");
-    const sourceUrl = inputs.source_url!;
+    const sourceUrl = String(inputs.sourceUrl);
     expect(sourceUrl).toContain("/api/internal/shopee-sales/source/");
     expect(await listShopeeSalesRuns(db())).toMatchObject([{ driveFolderUrl: "https://drive.google.com/drive/folders/folder456" }]);
     expect(await db().select({ scopeId: reportRunScopes.scopeId }).from(reportRunScopes)).toEqual([{ scopeId: selectedScopeId }]);
@@ -143,6 +158,8 @@ describe("蝦皮銷售報表", () => {
     const state = await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/state");
     expect((await state.json()) as { latestRequestId: string }).toMatchObject({ latestRequestId: expect.any(String) });
     expect((await getShopeeSalesSettings(db())).driveFolderName).toBe("蝦皮新資料夾");
+    const status = await as(manager, "manager@ecotech.tw", `/api/tools/shopee-sales/status?requestId=${encodeURIComponent(String(inputs.requestId))}`);
+    expect(await status.json()).toMatchObject({ runs: [{ status: "completed", conclusion: "success" }] });
 
     const source = await app.fetch(new Request(sourceUrl), env as never);
     expect(source.status).toBe(200);
@@ -152,8 +169,8 @@ describe("蝦皮銷售報表", () => {
     expect((await app.fetch(new Request(sourceUrl), env as never)).status).toBe(404);
   });
 
-  it("解析預覽不會匯入；確認後才另行觸發整理", async () => {
-    const calls = stubGithub();
+  it("解析預覽不會匯入；確認後才另行啟動整理", async () => {
+    const calls = stubRunner();
     const scopeId = "shopee:store:preview";
     await createReportManagementScope(db(), {
       id: scopeId, sourceType: "shopee", scopeKind: "channel", name: "蝦皮預覽",
@@ -173,9 +190,9 @@ describe("蝦皮銷售報表", () => {
     const started = await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/preview", { method: "POST", body: form });
     expect(started.status, await started.clone().text()).toBe(202);
     const { requestId, previewToken } = await started.json() as { requestId: string; previewToken: string };
-    const previewInputs = (calls[0]?.body.inputs ?? {}) as Record<string, string>;
-    expect(previewInputs.preview_only).toBe("true");
-    expect(previewInputs.preview_url).toContain(`/api/internal/shopee-sales/preview/${requestId}`);
+    const previewInputs = calls[0]?.body ?? {};
+    expect(calls[0]?.url).toBe("/preview");
+    expect(previewInputs.requestId).toBe(requestId);
     expect(await listShopeeSalesRuns(db())).toEqual([]);
 
     const preview = {
@@ -184,12 +201,6 @@ describe("蝦皮銷售報表", () => {
       uniqueOrders: 2, uniqueProducts: 1, totalPerformance: 280, totalQuantity: 3, totalSalesAmount: 300,
       duplicateRowsExcluded: 1, warnings: [],
     };
-    const callback = await app.fetch(new Request(previewInputs.preview_url!, {
-      method: "POST",
-      headers: { "X-Shopee-Preview-Token": previewInputs.preview_token!, "Content-Type": "application/json" },
-      body: JSON.stringify(preview),
-    }), env as never);
-    expect(callback.status).toBe(200);
     const fetched = await as(manager, "manager@ecotech.tw", `/api/tools/shopee-sales/preview/${requestId}?token=${previewToken}`);
     expect(await fetched.json()).toEqual({ preview });
 
@@ -202,7 +213,7 @@ describe("蝦皮銷售報表", () => {
     expect((await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/confirm", {
       method: "POST", body: wrongPasswordForm,
     })).status).toBe(409);
-    expect(calls).toHaveLength(1);
+    expect(calls.filter((call) => call.url === "/jobs")).toHaveLength(0);
 
     const wrongScopeForm = new FormData();
     wrongScopeForm.append("file", new File(["xlsx"], "Order.completed.20250201_20250228.xlsx"));
@@ -215,9 +226,9 @@ describe("蝦皮銷售報表", () => {
     });
     expect(wrongScope.status).toBe(409);
     expect(await wrongScope.json()).toMatchObject({ error: "確認匯入的通路與預覽不一致，請重新選擇通路並解析報表。" });
-    expect(calls).toHaveLength(1);
+    expect(calls.filter((call) => call.url === "/jobs")).toHaveLength(0);
 
-    const sourceUrl = previewInputs.source_url!;
+    const sourceUrl = String(previewInputs.sourceUrl);
     const cleanupUrl = sourceUrl.replace("/source/", "/cleanup/");
     expect((await app.fetch(new Request(cleanupUrl, { method: "POST" }), env as never)).status).toBe(200);
 
@@ -231,12 +242,12 @@ describe("蝦皮銷售報表", () => {
       method: "POST", body: confirmForm,
     });
     expect(confirmed.status, await confirmed.clone().text()).toBe(202);
-    expect(calls).toHaveLength(2);
-    const processInputs = (calls[1]?.body.inputs ?? {}) as Record<string, string>;
-    expect(processInputs.preview_only).toBe("false");
-    expect(processInputs.source_url).not.toBe(previewInputs.source_url);
+    const processCall = calls.find((call) => call.url === "/jobs");
+    expect(processCall).toBeDefined();
+    const processInputs = processCall?.body ?? {};
+    expect(processInputs.sourceUrl).not.toBe(previewInputs.sourceUrl);
     expect(await listShopeeSalesRuns(db())).toMatchObject([{ startDate: "2025-02-01", endDate: "2025-02-28" }]);
-    const processSource = await app.fetch(new Request(processInputs.source_url!), env as never);
+    const processSource = await app.fetch(new Request(String(processInputs.sourceUrl)), env as never);
     expect(processSource.status).toBe(200);
     expect(await db().select({ scopeId: reportRunScopes.scopeId }).from(reportRunScopes)).toEqual([{ scopeId }]);
     expect((await as(manager, "manager@ecotech.tw", `/api/tools/shopee-sales/preview/${requestId}?token=${previewToken}`)).status).toBe(404);
