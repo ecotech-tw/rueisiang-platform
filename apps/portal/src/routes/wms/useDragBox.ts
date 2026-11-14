@@ -130,7 +130,7 @@ export function useDragBox(
       // 只理左鍵：右鍵要留給瀏覽器的選單，中鍵是貼上。
       if (event.button !== 0) return;
 
-      const canvas = event.currentTarget.closest(".map-canvas");
+      const canvas = event.currentTarget.closest("[data-map-canvas]");
       if (!(canvas instanceof HTMLElement)) return;
       const rect = canvas.getBoundingClientRect();
 
