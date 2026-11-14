@@ -1,5 +1,5 @@
 name = "rueisiang-platform"
-main = "src/index.ts"
+main = "src/worker.ts"
 compatibility_date = "2026-08-01"
 workers_dev = true
 keep_vars = true
@@ -82,6 +82,17 @@ class_name = "AssistantCredentialVault"
 name = "PAYROLL_RUN_AGENT"
 class_name = "PayrollRunAgent"
 
+[[durable_objects.bindings]]
+name = "REPORT_RUNNER"
+class_name = "ReportRunner"
+
+[[containers]]
+class_name = "ReportRunner"
+image = "../../tools/report-runner/Dockerfile"
+image_build_context = "../.."
+instance_type = "standard-2"
+max_instances = 2
+
 [[migrations]]
 tag = "v1_pi_agent_sqlite"
 new_sqlite_classes = ["AssistantChatAgent", "AssistantCredentialVault"]
@@ -89,6 +100,10 @@ new_sqlite_classes = ["AssistantChatAgent", "AssistantCredentialVault"]
 [[migrations]]
 tag = "v2_payroll_run_agent"
 new_sqlite_classes = ["PayrollRunAgent"]
+
+[[migrations]]
+tag = "v3_report_runner"
+new_sqlite_classes = ["ReportRunner"]
 
 # 正式網域。custom_domain 會由 Cloudflare 自己建立對應的 DNS 記錄——
 # 所以不要先手動加一筆，已經有同名記錄的話這裡會掛。
@@ -114,9 +129,6 @@ PI_AGENT_MODEL = "gpt-6-luna"
 PI_OPENAI_CODEX_RELAY_URL = "https://codex-relay.rueisiang.com"
 CYBERBIZ_API_RELAY_URL = "https://cyberbiz-relay.rueisiang.com"
 NAS_STORAGE_URL = "https://storage.rueisiang.com"
-SHOPEE_GITHUB_REPO = "ecotech-tw/rueisiang-platform"
-SHOPEE_WORKFLOW_FILE = "shopee-sales-report.yml"
-SHOPEE_GITHUB_REF = "main"
 SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 
 # 需要的 secret（值不進版控，在 Cloudflare 儀表板或用指令設）：
@@ -136,8 +148,11 @@ SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 #   CYBERBIZ_API_TOKEN         客戶與商品 API token
 #   CYBERBIZ_API_RELAY_TOKEN   Worker 與 NAS relay 共用的獨立 secret；需搭配 Worker variable CYBERBIZ_API_RELAY_URL
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
-#   GITHUB_TOKEN               出金表、商品銷售與蝦皮報表共用的 fine-grained PAT；需涵蓋各自 repo 的
-#                              Actions 讀寫
+#   REPORT_RUNNER_TOKEN        Worker 與報表 Container 之間的獨立 bearer token
+#   GOOGLE_CLIENT_ID           報表 Container 用來取得 Google access token
+#   GOOGLE_CLIENT_SECRET
+#   GOOGLE_REFRESH_TOKEN
+#   GITHUB_TOKEN               暫時保留給尚未遷移的 CYBERBIZ runner
 #   UPSTASH_REDIS_REST_URL     商品目錄與營運報表查詢的快取，沿用舊 WMS 的同一個實例
 #   UPSTASH_REDIS_REST_TOKEN   （沒設定時改成直接查資料來源，只是比較慢）
 #

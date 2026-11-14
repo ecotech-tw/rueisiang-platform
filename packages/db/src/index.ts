@@ -442,6 +442,7 @@ export {
   getShopeeSalesSettings,
   listShopeeSalesRuns,
   recordShopeeSalesRun,
+  updateShopeeSalesRun,
 } from "./shopee-sales.js";
 export {
   REPORT_RUN_KINDS,

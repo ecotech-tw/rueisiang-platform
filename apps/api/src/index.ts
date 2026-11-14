@@ -29,7 +29,6 @@ import { health } from "./routes/health.js";
 import { hr } from "./routes/hr.js";
 import { items } from "./routes/items.js";
 import { PayoutGithubError } from "./payout/github.js";
-import { ShopeeSalesGithubError } from "./shopee-sales/github.js";
 import { tools } from "./routes/tools.js";
 import { CyberbizSalesGithubError } from "./cyberbiz-sales/github.js";
 import { ShopReportGithubError } from "./shop-report/github.js";
@@ -163,15 +162,6 @@ app.onError((error, c) => {
   // 同理，GitHub 拒絕觸發時要說得出是憑證問題還是別的，不然沒人查得下去。
   if (error instanceof PayoutGithubError) {
     assistantLog("error", "payout.github_trigger_failed", {
-      method: c.req.method,
-      path: new URL(c.req.url).pathname,
-      error: assistantErrorDetails(error),
-    });
-    return c.json({ error: error.message }, 502);
-  }
-
-  if (error instanceof ShopeeSalesGithubError) {
-    assistantLog("error", "shopee.github_trigger_failed", {
       method: c.req.method,
       path: new URL(c.req.url).pathname,
       error: assistantErrorDetails(error),
