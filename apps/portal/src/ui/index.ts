@@ -4,6 +4,7 @@ export { DataTable, TABLE_SCROLL, TableSkin, type TableSkinName } from "./DataTa
 export { Dialog, DialogScope, useDialogScope } from "./Dialog.js";
 export { DropdownSelect, SearchCombobox } from "./DropdownSelect.js";
 export { EmptyState } from "./EmptyState.js";
+export { ExternalLink } from "./ExternalLink.js";
 export { FilterToolbar } from "./FilterToolbar.js";
 export { FilterInput, FilterSelect, SEARCH_INPUT_WIDTH, type FilterInputProps, type FilterSelectOption, type FilterSelectProps } from "./Filter.js";
 export { Field, FieldHint, Input, InputSkin, SelectField, Textarea, TextField } from "./Field.js";
@@ -13,6 +14,7 @@ export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHea
 export { PageTabControl, PageTabs } from "./PageTabs.js";
 export { ReportSummary } from "./ReportSummary.js";
 export { SegmentedControl } from "./SegmentedControl.js";
+export { Stat, StatRow } from "./Stat.js";
 export { SearchFilterInput, type SearchFilterInputProps } from "./SearchFilterInput.js";
 export { SelectionActionBar, type SelectionActionBarProps, useModalFocus } from "@rueisiang/ui";
 export { TABLE_SELECT_COLUMN, TableBulkActionMenu, TableMobileSelectAll, type TableBulkActionOption } from "./TableBulkActionControls.js";

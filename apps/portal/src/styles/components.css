@@ -7,9 +7,6 @@
 /* AI 助理 Sandbox */
 .settings-summary { margin: 0; line-height: 1.7; }
 .line-channel-form { display: grid; gap: 14px; }
-.copy-field { display: flex; align-items: center; gap: 8px; }
-.copy-field input { flex: 1; min-width: 0; padding: 9px 10px; border: 1px solid var(--color-line); border-radius: 9px; background: var(--color-canvas); color: var(--color-ink); font: inherit; }
-.copy-field svg { width: 17px; height: 17px; }
 /* Sandbox 的「回覆中」三點；引用寫在 Sandbox.tsx 的 animate-[assistant-typing_…]。 */
 @keyframes assistant-typing {
   0%, 60%, 100% { opacity: .35; transform: translateY(0); }
@@ -28,21 +25,6 @@
  */
 .admin-form.row { margin-top: 16px; }
 [data-panel-head] + .admin-form.row { margin-top: 0; }
-/*
- * 儲存的檢視，做成 Material 的 filter chip：一列膠囊，選中的用色調容器
- * （淡底深字）＋前置打勾，不是高彩度的填滿。
- *
- * 它在工具列上方而且自己沒有分隔線——檢視是「一次選好一整組條件」的捷徑，
- * 跟底下那排篩選器講的是同一件事，中間再切一條線只會把它看成另一個區塊。
- */
-.view-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin: -4px -22px 0;
-  padding: 2px 22px 12px;
-}
 
 .table-select-all {
   display: inline-flex;
@@ -62,49 +44,6 @@
 /* 表格內可直接編輯的欄位。邊框只在 hover 或聚焦時出現，不然整張表會滿是框線。 */
 
 .inline-label { font-size: 13px; color: var(--color-muted); }
-
-/* 開新分頁的連結。箭頭圖示先講清楚會離開這一頁，不用等 hover。 */
-.link-external {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--color-brand-dark);
-  text-decoration: none;
-}
-.link-external svg { width: 14px; height: 14px; opacity: .65; }
-.link-external:hover { text-decoration: underline; }
-
-/* GitHub Actions 的步驟。做完的淡掉，正在跑的用品牌色標出來。 */
-.step-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
-.step {
-  display: flex;
-  gap: 10px;
-  padding: 5px 0;
-  font-size: 13px;
-  color: var(--color-muted);
-}
-.step-mark { width: 16px; text-align: center; }
-.step.done { color: var(--color-muted); }
-.step.doing { color: var(--color-brand-dark); font-weight: 500; }
-.step.fail { color: var(--color-brand); font-weight: 500; }
-
-/* 客戶列表 */
-.stat-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
-}
-.stat {
-  display: grid;
-  gap: 2px;
-  padding: 12px 14px;
-  border: 1px solid var(--color-line);
-  border-radius: 14px;
-  background: var(--color-paper);
-}
-.stat span { color: var(--color-muted); font-size: 12px; }
-.stat strong { font-size: 20px; }
 
 .table-note { margin: 16px 4px 0; }
 .cell-error { margin-top: 2px; color: var(--color-brand-dark); font-size: 12px; }
@@ -134,25 +73,6 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
-
-.change-values { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.change-values b { font-variant-numeric: tabular-nums; font-weight: 700; }
-.change-values i { color: var(--color-muted); font-style: normal; }
-
-/* 商品表單裡的 CYBERBIZ 連結區：說明在左、按鈕在右。 */
-.link-panel {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--color-line);
-  border-radius: var(--radius-field);
-  background: var(--color-canvas);
-}
-.link-panel > div { min-width: 0; }
-/* 已連結的用綠色的邊，一眼看得出狀態不同。 */
-.link-panel.linked { border-color: var(--color-ok); background: var(--color-ok-soft); }
 
 /* 層架清單：一行一層，右邊一顆移除。 */
 .shelf-levels { display: grid; gap: 6px; }
@@ -184,19 +104,6 @@
   border-radius: var(--radius-field);
   background: var(--color-canvas);
 }
-
-/*
- * 盤點的差額。三種語氣：多了（中性）、少了（品牌紅）、低於安全庫存（警示黃）。
- * 少了才用紅色——多出來通常是漏記了一批進貨，不是壞事。
- */
-.count-diff {
-  margin: 0;
-  color: var(--color-muted);
-  font-size: 13px;
-  font-weight: 700;
-}
-.count-diff.short { color: var(--color-brand-dark); }
-.count-diff.warn { color: var(--color-warn); }
 
 .progress-bar {
   height: 6px;
@@ -257,13 +164,6 @@
  */
 .form-hint { margin: 10px 0 0; color: var(--color-ok); font-size: 13px; font-weight: 700; }
 .form-foot { margin-top: 12px; font-size: 12px; }
-.detail-list { display: grid; gap: 12px; margin: 0; }
-.detail-list > div { display: grid; grid-template-columns: 148px minmax(0, 1fr); gap: 12px; }
-.detail-list dt { color: var(--color-muted); font-size: 13px; }
-.detail-list dd { margin: 0; }
-@media (max-width: 620px) {
-  .detail-list > div { grid-template-columns: 1fr; gap: 2px; }
-}
 
 /*
  * ── 客戶列表的篩選 ────────────────────────────────────────────────────────
@@ -304,26 +204,6 @@
 @media (max-width: 760px) {
   .row-actions { justify-content: flex-start; }
 
-  /* 統計卡在窄螢幕上排成兩欄，避免每張卡都佔滿整列。 */
-  .stat-row {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  .stat { padding: 10px 12px; }
-  .stat strong { font-size: 17px; }
-
-
-  /* 檢視列的膠囊改成水平捲，不要換行疊高。 */
-  .view-bar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-    padding-bottom: 2px;
-  }
-  .view-bar::-webkit-scrollbar { display: none; }
-  .view-bar > * { flex: none; }
-
   /*
    * 手機：三個下拉收起來，由「篩選」按鈕開關。展開時每個各佔一整行，比擠成
    * 兩欄好按。
@@ -357,16 +237,5 @@
  * 不然會剛好停在對話框底部那條 sticky 按鈕列的下面。
  */
 .tag-combo { display: grid; }
-
-/* 放大鏡疊在輸入框左邊，跟一般搜尋框長得一樣。 */
-.tag-search { position: relative; display: flex; align-items: center; }
-.tag-search svg {
-  position: absolute;
-  left: 11px;
-  width: 18px;
-  height: 18px;
-  color: var(--color-muted);
-  pointer-events: none;
-}
 
 .field-note { margin: 0 0 4px; font-size: 12px; }

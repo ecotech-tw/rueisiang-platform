@@ -134,8 +134,8 @@ export function TagPicker({
         * 那些選項看得到一半卻點不到。在流內就交給對話框自己捲。
         */}
       <div className="tag-combo" ref={comboRef}>
-      <div className="tag-search">
-        <Icon name="search" />
+      <div className="relative flex items-center">
+        <Icon name="search" className="pointer-events-none absolute left-[11px] size-[18px] text-muted" />
         <Input
           className="w-full pl-9"
           ref={inputRef}

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Field, Input, Page, PageHeader, Panel, ReportSummary, SegmentedControl, SelectField, TextField, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, Field, Input, Page, PageHeader, Panel, ReportSummary, SegmentedControl, SelectField, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import {
   useConfirmShopeeSales,
   useDiscardShopeePreview,
@@ -313,7 +313,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
             </div>
           ) : null}
           {previewFailed ? <Button type="button" variant="secondary" disabled={busy} onClick={forgetPreview}>重新選擇報表</Button> : null}
-          {selectedScope?.driveFolderUrl ? <p className="muted table-note">上傳位置：<a className="link-external" href={selectedScope.driveFolderUrl} target="_blank" rel="noopener noreferrer">{selectedScope.driveFolderName || "Google Drive 資料夾"}<Icon name="external" /></a></p> : null}
+          {selectedScope?.driveFolderUrl ? <p className="muted table-note">上傳位置：<ExternalLink href={selectedScope.driveFolderUrl}>{selectedScope.driveFolderName || "Google Drive 資料夾"}<Icon name="external" /></ExternalLink></p> : null}
         </div>
       </Panel>
       {(tracking || state.data.latestRequestId) ? (

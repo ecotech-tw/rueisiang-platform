@@ -4,6 +4,10 @@ import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, Page, PageHeader, Panel, TextField } from "../../ui/index.js";
 
+// 標籤欄固定寬、值欄吃剩下的；窄螢幕改成標籤在上、值在下。
+const DETAIL_ROW = "grid grid-cols-[148px_minmax(0,1fr)] gap-3 max-[620px]:grid-cols-[1fr] max-[620px]:gap-0.5";
+const DETAIL_TERM = "text-[13px] text-muted";
+
 const ROLE_LABEL: Record<string, string> = {
   admin: "管理者",
   manager: "主管",
@@ -83,18 +87,18 @@ export function Profile() {
       </Panel>
 
       <Panel title="帳號">
-        <dl className="detail-list">
-          <div>
-            <dt>電子信箱</dt>
-            <dd>{user.email}</dd>
+        <dl className="m-0 grid gap-3">
+          <div className={DETAIL_ROW}>
+            <dt className={DETAIL_TERM}>電子信箱</dt>
+            <dd className="m-0">{user.email}</dd>
           </div>
-          <div>
-            <dt>Google 帳號姓名</dt>
-            <dd>{user.googleName || "—"}</dd>
+          <div className={DETAIL_ROW}>
+            <dt className={DETAIL_TERM}>Google 帳號姓名</dt>
+            <dd className="m-0">{user.googleName || "—"}</dd>
           </div>
-          <div>
-            <dt>角色</dt>
-            <dd>
+          <div className={DETAIL_ROW}>
+            <dt className={DETAIL_TERM}>角色</dt>
+            <dd className="m-0">
               {user.roles.length === 0
                 ? "沒有任何角色"
                 : user.roles.map((role) => ROLE_LABEL[role] ?? role).join("、")}

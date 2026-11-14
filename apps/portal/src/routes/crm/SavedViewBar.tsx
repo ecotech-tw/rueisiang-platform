@@ -53,7 +53,12 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
 
   return (
     <>
-      <div className="view-bar">
+      {/*
+        * 儲存的檢視做成 Material 的 filter chip。它在工具列上方而且自己沒有分隔線——
+        * 檢視是「一次選好一整組條件」的捷徑，跟底下那排篩選器講的是同一件事。
+        * 手機上膠囊改成水平捲，不要換行疊高。
+        */}
+      <div className="-mx-[22px] -mt-1 flex flex-wrap items-center gap-2 px-[22px] pt-0.5 pb-3 max-[760px]:flex-nowrap max-[760px]:overflow-x-auto max-[760px]:pb-0.5 max-[760px]:[scrollbar-width:none] max-[760px]:[&::-webkit-scrollbar]:hidden max-[760px]:[&>*]:flex-none">
         <Chip
           type="button"
           selected={!active && isDefault}

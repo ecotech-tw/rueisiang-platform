@@ -120,10 +120,10 @@ function renderChange(event: ActivityRow) {
   return (
     <div className="change">
       {event.field ? <small>{FIELD_LABEL[event.field] ?? event.field}</small> : null}
-      <span className="change-values">
-        <b>{before ?? "—"}</b>
-        <i aria-hidden="true">→</i>
-        <b>{after ?? "—"}</b>
+      <span className="flex items-center gap-1.5 text-[13px]">
+        <b className="font-bold tabular-nums">{before ?? "—"}</b>
+        <i className="text-muted not-italic" aria-hidden="true">→</i>
+        <b className="font-bold tabular-nums">{after ?? "—"}</b>
       </span>
     </div>
   );

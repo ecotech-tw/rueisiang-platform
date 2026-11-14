@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties, type Reac
 import { useSession } from "../../auth/session.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, ButtonSkin, useModalFocus } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Stat, StatRow, useModalFocus } from "../../ui/index.js";
 import {
   useCountItem,
   useDeleteZoneImage,
@@ -409,16 +409,10 @@ export function ZoneDrawer({
             </div>
           ) : null}
 
-          <div className="stat-row m-0">
-            <div className="stat">
-              <strong>{items.length}</strong>
-              <span>商品品項</span>
-            </div>
-            <div className="stat">
-              <strong>{images.data?.length ?? 0}</strong>
-              <span>現場照片</span>
-            </div>
-          </div>
+          <StatRow>
+            <Stat valueFirst label="商品品項" value={items.length} />
+            <Stat valueFirst label="現場照片" value={images.data?.length ?? 0} />
+          </StatRow>
 
           {zone.notes ? <p className="muted m-0 text-[13px]">{zone.notes}</p> : null}
 

@@ -14,6 +14,9 @@ import {
   type Zone,
 } from "./api.js";
 
+// CYBERBIZ 連結區：說明在左、按鈕在右。已連結的用綠色的邊，一眼看得出狀態不同。
+const LINK_PANEL = "flex items-center justify-between gap-3 rounded-field border px-3.5 py-3";
+
 /** 分類下拉先排母分類，再排它的子分類，避免所有子分類集中在列表底部。 */
 function arrangeCategories(categories: ProductCategory[]): ProductCategory[] {
   return categories.flatMap((category) => category.parentId ? [] : [category, ...categories.filter((child) => child.parentId === category.id)]);
@@ -281,15 +284,15 @@ export function ItemForm({
           {item ? (
             <Field as="div" label="CYBERBIZ 連結">
               {item.cyberbiz ? (
-                <div className="link-panel linked">
-                  <div>
+                <div className={`${LINK_PANEL} border-ok bg-ok-soft`}>
+                  <div className="min-w-0">
                     <div className="cell-strong">已連結款式 {item.cyberbiz.cyberbizVariantId}</div>
                     <div className="cell-sub">
                       SKU {item.cyberbiz.sku}
                       {item.cyberbiz.syncedAt ? `・目錄同步 ${formatTime(item.cyberbiz.syncedAt)}` : ""}
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
+                  <div className="flex min-w-0 flex-col items-end gap-2">
                     <div className="cell-sub">商品身分與官網鏡像共用，若要停止庫存同步請移出 WMS。</div>
                     <Button
                       className="flex-none"
@@ -307,8 +310,8 @@ export function ItemForm({
                   </div>
                 </div>
               ) : (
-                <div className="link-panel">
-                  <div>
+                <div className={`${LINK_PANEL} border-line bg-canvas`}>
+                  <div className="min-w-0">
                     {item.source === "cyberbiz" ? (
                       <div className="cell-strong">品項主檔已與 cyberbiz_products 同步</div>
                     ) : null}

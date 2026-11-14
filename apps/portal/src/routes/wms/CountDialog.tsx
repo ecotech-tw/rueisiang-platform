@@ -12,6 +12,12 @@ import { useCountItem, type InventoryItem } from "./api.js";
  * 輸入的是**盤點後的實際數量**，不是增減。現場的人手上有的是「架上有 37 個」
  * 這個事實，不是「比系統少 5 個」——要他自己算差額只會多一個算錯的機會。
  */
+/*
+ * 盤點的差額。三種語氣：多了（中性）、少了（品牌紅）、低於安全庫存（警示黃）。
+ * 少了才用紅色——多出來通常是漏記了一批進貨，不是壞事。
+ */
+const COUNT_DIFF = "m-0 text-[13px] font-bold";
+
 export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: () => void }) {
   const [value, setValue] = useState(String(item.quantity));
   const [note, setNote] = useState("");
@@ -79,13 +85,13 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
             * 而不是就這樣存下去。
             */}
           {valid && difference !== 0 ? (
-            <p className={`count-diff${difference < 0 ? " short" : ""}`}>
+            <p className={`${COUNT_DIFF} ${difference < 0 ? "text-brand-dark" : "text-muted"}`}>
               {difference > 0 ? "比系統多" : "比系統少"} {Math.abs(difference).toLocaleString("zh-TW")} {item.unit}
             </p>
           ) : null}
 
           {valid && Math.round(parsed) < item.minStock ? (
-            <p className="count-diff warn">
+            <p className={`${COUNT_DIFF} text-warn`}>
               低於安全庫存（{item.minStock.toLocaleString("zh-TW")} {item.unit}），存檔後要補貨。
             </p>
           ) : null}

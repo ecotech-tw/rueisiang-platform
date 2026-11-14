@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, Stat, StatRow, StatusBadge, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
@@ -245,12 +245,12 @@ export function Items() {
         actions={canWrite ? <Button icon="plus" onClick={() => setEditing("new")}>新增自訂品項</Button> : null}
       />
 
-      <div className="stat-row catalog-stat-row" aria-label="品項列表摘要">
-        <div className="stat"><span>品項總數</span><strong>{items.length.toLocaleString("zh-TW")}</strong></div>
-        <div className="stat"><span>已納入倉儲</span><strong>{inWarehouseCount.toLocaleString("zh-TW")}</strong></div>
-        <div className="stat"><span>待納入倉儲</span><strong>{pendingWarehouseCount.toLocaleString("zh-TW")}</strong></div>
-        <div className="stat"><span>CYBERBIZ 鏡像</span><strong>{cyberbizCount.toLocaleString("zh-TW")}</strong></div>
-      </div>
+      <StatRow aria-label="品項列表摘要">
+        <Stat label="品項總數" value={items.length.toLocaleString("zh-TW")} />
+        <Stat label="已納入倉儲" value={inWarehouseCount.toLocaleString("zh-TW")} />
+        <Stat label="待納入倉儲" value={pendingWarehouseCount.toLocaleString("zh-TW")} />
+        <Stat label="CYBERBIZ 鏡像" value={cyberbizCount.toLocaleString("zh-TW")} />
+      </StatRow>
 
       <Panel grows>
         <FilterToolbar>
