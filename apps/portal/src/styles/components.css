@@ -595,69 +595,6 @@
   .detail-list > div { grid-template-columns: 1fr; gap: 2px; }
 }
 
-.style-guide-stack { display: grid; gap: 12px; }
-.style-guide-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.style-guide-principles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.style-guide-principles > div { display: grid; gap: 4px; padding: 14px; border: 1px solid var(--color-soft-line); border-radius: 10px; background: var(--color-canvas); }
-.style-guide-principles span { color: var(--color-muted); font-size: 12px; }
-.style-guide-token-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; }
-.style-guide-token { display: grid; grid-template-columns: 32px minmax(0, 1fr); align-items: center; gap: 10px; padding: 10px; border: 1px solid var(--color-soft-line); border-radius: 10px; }
-.style-guide-token > span:last-child { display: grid; gap: 2px; min-width: 0; }
-.style-guide-token code { color: var(--color-muted); font-size: 10px; overflow-wrap: anywhere; }
-.style-guide-swatch { width: 32px; height: 32px; border: 1px solid var(--color-line); border-radius: 50%; }
-.style-guide-type-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(220px, .6fr); gap: 24px; align-items: center; }
-.style-guide-eyebrow { margin: 0 0 5px; color: var(--color-brand); font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
-.style-guide-display { margin: 0 0 6px; font-size: 28px; }
-.style-guide-surface-stack { display: grid; gap: 10px; }
-.style-guide-surface-sample { display: grid; gap: 3px; padding: 14px; border: 1px solid var(--color-line); border-radius: 14px; background: var(--color-paper); box-shadow: var(--shadow-panel); }
-.style-guide-surface-sample + .style-guide-surface-sample { background: var(--color-canvas); box-shadow: none; }
-.style-guide-surface-sample span { font-size: 12px; }
-.style-guide-control-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 28px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--color-soft-line); }
-.style-guide-switch-copy { display: flex; align-items: center; gap: 10px; }
-.style-guide-switch-copy > span { display: grid; gap: 2px; }
-.style-guide-switch-copy small { color: var(--color-muted); font-size: 12px; }
-.style-guide-icon-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 10px; }
-.style-guide-icon { display: grid; justify-items: center; gap: 5px; padding: 12px 8px; border: 1px solid var(--color-soft-line); border-radius: 10px; color: var(--color-brand); }
-.style-guide-icon svg { width: 24px; height: 24px; }
-.style-guide-icon code { color: var(--color-muted); font-size: 10px; }
-.style-guide-liquid-preview {
-  position: relative;
-  min-height: 430px;
-  overflow: hidden;
-  border: 1px solid var(--color-soft-line);
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 8% 0%, --alpha(var(--color-brand) / 18%), transparent 34%),
-    radial-gradient(circle at 96% 86%, --alpha(var(--color-info) / 12%), transparent 38%),
-    linear-gradient(135deg, --alpha(var(--color-paper) / 60%), --alpha(var(--color-canvas) / 90%));
-}
-.style-guide-liquid-content { display: grid; gap: 14px; min-width: 0; }
-.style-guide-liquid-copy { display: grid; gap: 4px; }
-.style-guide-liquid-copy h3,
-.style-guide-liquid-copy p { margin: 0; }
-.style-guide-liquid-copy h3 { font-size: 20px; }
-.style-guide-liquid-preview [data-panel] { margin: 0; }
-.style-guide-liquid-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 16px; }
-.style-guide-liquid-metrics > div {
-  display: grid;
-  gap: 3px;
-  padding: 12px 14px;
-  border-radius: 10px;
-  background: --alpha(var(--color-paper) / 28%);
-  box-shadow: 0 0 0 1px --alpha(var(--color-paper) / 24%) inset;
-  -webkit-backdrop-filter: blur(6px) saturate(145%);
-  backdrop-filter: blur(6px) saturate(145%);
-}
-.style-guide-liquid-metrics span { color: var(--color-muted); font-size: 12px; }
-.style-guide-liquid-metrics strong { font-size: 16px; }
-
-@media (max-width: 720px) {
-  .style-guide-principles,
-  .style-guide-type-grid { grid-template-columns: 1fr; }
-  .style-guide-control-row { align-items: stretch; flex-direction: column; gap: 16px; }
-  .style-guide-liquid-metrics { grid-template-columns: 1fr; }
-}
-
 /*
  * ── 客戶列表的篩選 ────────────────────────────────────────────────────────
  *

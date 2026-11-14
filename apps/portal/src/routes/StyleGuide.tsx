@@ -64,6 +64,15 @@ const LIQUID_GLASS_NAV: ReadonlyArray<{ label: string; icon: IconName }> = [
   { label: "薪資", icon: "payments" },
 ];
 
+const STACK = "grid gap-3";
+const ROW = "flex flex-wrap items-center gap-2.5";
+const PRINCIPLES = "grid grid-cols-3 gap-3 max-[720px]:grid-cols-[1fr]";
+const PRINCIPLE = "grid gap-1 p-3.5 border border-soft-line rounded-[10px] bg-canvas";
+const NOTE = "text-muted text-[12px]";
+const EYEBROW = "mt-0 mx-0 mb-[5px] text-brand text-[11px] font-extrabold tracking-[.08em] uppercase";
+const CONTROL_ROW = "flex flex-wrap items-end gap-7 mt-5 pt-5 border-t border-t-soft-line max-[720px]:items-stretch max-[720px]:flex-col max-[720px]:gap-4";
+const METRIC = "grid gap-[3px] px-3.5 py-3 rounded-[10px] bg-paper/28 [box-shadow:0_0_0_1px_color-mix(in_oklab,var(--color-paper)_24%,transparent)_inset] [-webkit-backdrop-filter:blur(6px)_saturate(145%)] [backdrop-filter:blur(6px)_saturate(145%)]";
+
 function LiquidGlassPreview() {
   const [activeNav, setActiveNav] = useState("出勤");
   const activeIndex = Math.max(0, LIQUID_GLASS_NAV.findIndex((item) => item.label === activeNav));
@@ -73,7 +82,7 @@ function LiquidGlassPreview() {
   } as CSSProperties;
 
   return (
-    <div className="style-guide-liquid-preview">
+    <div className="relative min-h-[430px] overflow-hidden border border-soft-line rounded-[16px] [background:radial-gradient(circle_at_8%_0%,color-mix(in_oklab,var(--color-brand)_18%,transparent),transparent_34%),radial-gradient(circle_at_96%_86%,color-mix(in_oklab,var(--color-info)_12%,transparent),transparent_38%),linear-gradient(135deg,color-mix(in_oklab,var(--color-paper)_60%,transparent),color-mix(in_oklab,var(--color-canvas)_90%,transparent))]">
       <ButtonSkin skin="glass"><PanelSkin skin="glass"><div className={HR_SHELL}>
         <HrGlassDefs />
         <HrHeader compact>
@@ -98,19 +107,19 @@ function LiquidGlassPreview() {
           </div>
         </HrHeader>
         <HrMain compact>
-          <div className="style-guide-liquid-content">
-            <div className="style-guide-liquid-copy">
-              <span className="style-guide-eyebrow">HRIS SHELL / LIQUID GLASS</span>
-              <h3>透明、分層，但不犧牲可讀性</h3>
-              <p className="muted">這裡直接重用 HRIS shell 的玻璃導覽、滑動 thumb 與 panel surface；按導覽項目可查看膠囊位置變化。</p>
+          <div className="grid gap-3.5 min-w-0">
+            <div className="grid gap-1">
+              <span className={EYEBROW}>HRIS SHELL / LIQUID GLASS</span>
+              <h3 className="m-0 text-[20px]">透明、分層，但不犧牲可讀性</h3>
+              <p className="muted m-0">這裡直接重用 HRIS shell 的玻璃導覽、滑動 thumb 與 panel surface；按導覽項目可查看膠囊位置變化。</p>
             </div>
-            <Panel title="共用元件放在玻璃表面上" description="Liquid Glass 是 HRIS shell 的 surface treatment；元件本身仍維持 packages/ui 的語意 API。">
-              <div className="style-guide-liquid-metrics">
-                <div><span>玻璃層級</span><strong>3 層</strong></div>
-                <div><span>背景模糊</span><strong>7px</strong></div>
-                <div><span>選取狀態</span><strong>{activeNav}</strong></div>
+            <Panel className="m-0" title="共用元件放在玻璃表面上" description="Liquid Glass 是 HRIS shell 的 surface treatment；元件本身仍維持 packages/ui 的語意 API。">
+              <div className="grid grid-cols-3 gap-2.5 mb-4 max-[720px]:grid-cols-[1fr]">
+                <div className={METRIC}><span className={NOTE}>玻璃層級</span><strong className="text-[16px]">3 層</strong></div>
+                <div className={METRIC}><span className={NOTE}>背景模糊</span><strong className="text-[16px]">7px</strong></div>
+                <div className={METRIC}><span className={NOTE}>選取狀態</span><strong className="text-[16px]">{activeNav}</strong></div>
               </div>
-              <div className="style-guide-row">
+              <div className={ROW}>
                 <Button icon="check">共用按鈕</Button>
                 <StatusBadge tone="info">Glass surface</StatusBadge>
               </div>
@@ -160,7 +169,7 @@ export function StyleGuide() {
   return (
     // 這一頁的對話框預覽要跟 HRIS 的玻璃樣式一起看；頁面本身不在 HrLayout 底下，所以自己提供範圍。
     <DialogScope className="hr-system">
-    <Page className="style-guide">
+    <Page>
       <PageHeader
         title="UI 元件樣式指南"
         description="Portal 的 Material 3 tokens、HRIS 共用元件與互動狀態。這一頁直接使用 packages/ui 的 canonical exports。"
@@ -170,27 +179,27 @@ export function StyleGuide() {
       <Alert tone="info" className="mb-5">目前這一頁只需要登入，不會出現在一般 sidebar；可直接開啟 <code>/style-guide</code> 檢查元件。</Alert>
 
       <Panel title="HRIS 共用元件索引" description="所有共用元件都從 packages/ui 統一 export；route 只負責資料、狀態與 domain rendering。">
-        <div className="style-guide-principles">
-          <div><strong>版面與資料</strong><span>PageHeader、Panel、DataTable、Pager、SortableHeader、EmptyState。</span></div>
-          <div><strong>表單與篩選</strong><span>Field、TextField、SelectField、DropdownSelect、FilterToolbar 與搜尋控制項。</span></div>
-          <div><strong>操作與回饋</strong><span>Button、Dialog、ConfirmDialog、Alert、StatusBadge、SegmentedControl、Tooltip、Icon。</span></div>
+        <div className={PRINCIPLES}>
+          <div className={PRINCIPLE}><strong>版面與資料</strong><span className={NOTE}>PageHeader、Panel、DataTable、Pager、SortableHeader、EmptyState。</span></div>
+          <div className={PRINCIPLE}><strong>表單與篩選</strong><span className={NOTE}>Field、TextField、SelectField、DropdownSelect、FilterToolbar 與搜尋控制項。</span></div>
+          <div className={PRINCIPLE}><strong>操作與回饋</strong><span className={NOTE}>Button、Dialog、ConfirmDialog、Alert、StatusBadge、SegmentedControl、Tooltip、Icon。</span></div>
         </div>
       </Panel>
 
       <Panel title="設計原則" description="語意化元件 class 集中在 components.css，色彩與圓角 token 集中在 styles.css。">
-        <div className="style-guide-principles">
-          <div><strong>先定義 Props</strong><span>Page 傳入 variant、tone、label、disabled 等語意參數。</span></div>
-          <div><strong>Material 3</strong><span>primary container、state layer、focus ring 與安靜的圓角層級。</span></div>
-          <div><strong>預設可存取</strong><span>保留原生 input、button、switch 的鍵盤與螢幕閱讀器語意。</span></div>
+        <div className={PRINCIPLES}>
+          <div className={PRINCIPLE}><strong>先定義 Props</strong><span className={NOTE}>Page 傳入 variant、tone、label、disabled 等語意參數。</span></div>
+          <div className={PRINCIPLE}><strong>Material 3</strong><span className={NOTE}>primary container、state layer、focus ring 與安靜的圓角層級。</span></div>
+          <div className={PRINCIPLE}><strong>預設可存取</strong><span className={NOTE}>保留原生 input、button、switch 的鍵盤與螢幕閱讀器語意。</span></div>
         </div>
       </Panel>
 
       <Panel title="色彩 tokens" description="不要在 page 寫死色碼；新增顏色先加到 styles.css 的 @theme。">
-        <div className="style-guide-token-grid">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(170px,1fr))] gap-2.5">
           {TOKENS.map((token) => (
-            <div className="style-guide-token" key={token.variable}>
-              <span className="style-guide-swatch" style={{ background: `var(${token.variable})` }} />
-              <span><strong>{token.label}</strong><code>{token.variable}</code></span>
+            <div className="grid grid-cols-[32px_minmax(0,1fr)] items-center gap-2.5 p-2.5 border border-soft-line rounded-[10px]" key={token.variable}>
+              <span className="size-8 border border-line rounded-[50%]" style={{ background: `var(${token.variable})` }} />
+              <span className="grid gap-0.5 min-w-0"><strong>{token.label}</strong><code className="text-muted text-[10px] [overflow-wrap:anywhere]">{token.variable}</code></span>
             </div>
           ))}
         </div>
@@ -201,22 +210,22 @@ export function StyleGuide() {
       </Panel>
 
       <Panel title="字體與表面">
-        <div className="style-guide-type-grid">
+        <div className="grid grid-cols-[minmax(0,1.4fr)_minmax(220px,.6fr)] gap-6 items-center max-[720px]:grid-cols-[1fr]">
           <div>
-            <p className="style-guide-eyebrow">頁面標題 / 24px</p>
-            <h1 className="style-guide-display">營運資料，一眼看懂</h1>
+            <p className={EYEBROW}>頁面標題 / 24px</p>
+            <h1 className="mt-0 mx-0 mb-1.5 text-[28px]">營運資料，一眼看懂</h1>
             <p className="muted">說明文字使用 on-surface-variant，讓主要資料保有優先層級。</p>
           </div>
-          <div className="style-guide-surface-stack">
-            <div className="style-guide-surface-sample"><strong>表面 / paper</strong><span>Panel 14px + shadow-panel</span></div>
-            <div className="style-guide-surface-sample muted"><strong>畫布</strong><span>頁面背景與次要區塊</span></div>
+          <div className="grid gap-2.5">
+            <div className="grid gap-[3px] p-3.5 border border-line rounded-[14px] bg-paper shadow-panel"><strong>表面 / paper</strong><span className="text-[12px]">Panel 14px + shadow-panel</span></div>
+            <div className="muted grid gap-[3px] p-3.5 border border-line rounded-[14px] bg-canvas"><strong>畫布</strong><span className="text-[12px]">頁面背景與次要區塊</span></div>
           </div>
         </div>
       </Panel>
 
       <Panel title="按鈕與狀態" description="Button 以 variant 控制視覺與語意；StatusBadge 以 tone 控制狀態色。">
-        <div className="style-guide-stack">
-          <div className="style-guide-row">
+        <div className={STACK}>
+          <div className={ROW}>
             <Button icon="plus" onClick={() => setMessage("已觸發主要按鈕")}>主要動作</Button>
             <Button variant="secondary" icon="edit">次要動作</Button>
             <Button variant="danger" icon="trash">危險動作</Button>
@@ -229,7 +238,7 @@ export function StyleGuide() {
             <Button variant="secondary" onClick={() => setDialogOpen(true)}>預覽 Dialog</Button>
             <Button variant="danger" onClick={() => setConfirmOpen(true)}>預覽 ConfirmDialog</Button>
           </div>
-          <div className="style-guide-row">
+          <div className={ROW}>
             <StatusBadge tone="success">已完成</StatusBadge>
             <StatusBadge tone="info">同步中</StatusBadge>
             <StatusBadge tone="warning">等待處理</StatusBadge>
@@ -275,8 +284,8 @@ export function StyleGuide() {
             />
           </Field>
         </div>
-        <div className="style-guide-control-row">
-          <div className="style-guide-switch-copy"><Switch checked={enabled} onChange={setEnabled} label="即時同步" /><span><strong>即時同步</strong><small>{enabled ? "目前開啟" : "目前關閉"}</small></span></div>
+        <div className={CONTROL_ROW}>
+          <div className="flex items-center gap-2.5"><Switch checked={enabled} onChange={setEnabled} label="即時同步" /><span className="grid gap-0.5"><strong>即時同步</strong><small className={NOTE}>{enabled ? "目前開啟" : "目前關閉"}</small></span></div>
           <Field as="div" label="對帳區間"><DateRangePicker start={range.start} end={range.end} onChange={setRange} /></Field>
         </div>
       </Panel>
@@ -291,21 +300,21 @@ export function StyleGuide() {
           />
           <Button type="submit" variant="secondary" icon="filter">套用篩選</Button>
         </FilterToolbar>
-        <div className="style-guide-control-row">
+        <div className={CONTROL_ROW}>
           <SearchFilterInput label="延遲搜尋" placeholder="輸入關鍵字，400ms 後送出" value={search} onSearch={(value) => { setSearch(value); setMessage(`搜尋條件已更新為「${value || "（空白）"}」。`); }} />
           <p className="form-hint">目前搜尋值：{search || "（空白）"}</p>
         </div>
       </Panel>
 
       <Panel title="選擇、提示與圖示" description="SegmentedControl、Tooltip 與 Icon 都保留共用的 ARIA、focus ring 與 currentColor 圖示語意。">
-        <div className="style-guide-stack">
+        <div className={STACK}>
           <SegmentedControl
             aria-label="資料檢視模式"
             value={segment}
             onChange={(value) => { setSegment(value); setMessage(`檢視模式切換為「${value}」。`); }}
             options={[{ value: "all", label: "全部" }, { value: "pending", label: "待處理" }, { value: "done", label: "已完成" }]}
           />
-          <div className="style-guide-row">
+          <div className={ROW}>
             <Tooltip label="這是補充資訊，不是唯一資訊；滑過或用 Tab 聚焦即可查看。">
               <span>滑過或用 Tab 聚焦這段文字</span>
             </Tooltip>
@@ -322,7 +331,7 @@ export function StyleGuide() {
       </Panel>
 
       <Panel title="回饋" description="錯誤留在原地；成功或資訊可以用 Alert 做明確但不打斷的回饋。">
-        <div className="style-guide-stack">
+        <div className={STACK}>
           <Alert tone="success">報表已成功整理並上傳。</Alert>
           <Alert tone="warning">目前仍有一個工作在等待執行。</Alert>
           <Alert tone="danger">無法連線到服務，請稍後再試。</Alert>
@@ -338,7 +347,7 @@ export function StyleGuide() {
       </Panel>
 
       <Panel title="資料表、排序、分頁與空狀態" description="DataTable 只負責表格外框；欄位、SortableHeader、Pager 與 EmptyState 的內容與 state 仍由 route 組合。">
-        <DataTable className="style-guide-sort-table">
+        <DataTable>
           <thead>
             <tr>
               <SortableHeader label="項目" field="name" active={sort.field} direction={sort.direction} onSort={handleSort} />
@@ -366,8 +375,8 @@ export function StyleGuide() {
       </Panel>
 
       <Panel title="圖示系統" description="沿用 packages/ui 的 24px、currentColor、線性 SVG。">
-        <div className="style-guide-icon-grid">
-          {ICONS.map((name) => <div className="style-guide-icon" key={name}><Icon name={name} /><code>{name}</code></div>)}
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(92px,1fr))] gap-2.5">
+          {ICONS.map((name) => <div className="grid justify-items-center gap-[5px] px-2 py-3 border border-soft-line rounded-[10px] text-brand" key={name}><Icon name={name} className="size-6" /><code className="text-muted text-[10px]">{name}</code></div>)}
         </div>
       </Panel>
 
