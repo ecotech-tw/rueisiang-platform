@@ -42,7 +42,7 @@ describe("createAuthRedirectFetch", () => {
     expect(current.assign).not.toHaveBeenCalled();
   });
 
-  it("只攔截同源 API，不攔截外站 401", async () => {
+  it("不攔截未設定的外站 401", async () => {
     const current = location();
     const request = createAuthRedirectFetch(async () => new Response(null, { status: 401 }), current);
 

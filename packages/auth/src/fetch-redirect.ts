@@ -27,7 +27,7 @@ export function createAuthRedirectFetch(
     const url = requestUrl(input, location.origin);
     if (url.origin !== apiBase.origin || !url.pathname.startsWith(apiPrefix)) return response;
 
-    // Credential and invite failures are expected 401s and should stay on their own forms.
+    // 登入憑證錯誤與邀請連結失效也是預期的 401，應留在原表單顯示。
     const publicAuthPath = /\/auth\/(?:password|logout|invite(?:\/|$))/.test(url.pathname);
     if (publicAuthPath) return response;
 
