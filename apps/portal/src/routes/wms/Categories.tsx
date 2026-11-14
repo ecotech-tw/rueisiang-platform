@@ -96,7 +96,8 @@ export function Categories() {
 
         {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
-        <DataTable className="category-table">
+        {/* 只有三欄：後兩欄給固定寬度，讓「分類」吃掉剩下的空間；平均分掉的話個位數的數量會停在畫面正中央，離表頭很遠。 */}
+        <DataTable className="[&_th:nth-child(2):not(:last-child)]:w-40 [&_td:nth-child(2):not(:last-child)]:w-40 [&_th:last-child]:w-30 [&_td:last-child]:w-30">
             <thead>
               <tr>
                 <th>分類</th>

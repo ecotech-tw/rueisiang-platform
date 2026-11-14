@@ -85,8 +85,8 @@ function CreateDialog({ categories, onClose }: { categories: ItemCategory[]; onC
 
 function SortableCategoryRow({ category, canWrite, over, parentHighlight, onEdit, onDelete }: { category: ItemCategory; canWrite: boolean; over: boolean; parentHighlight: boolean; onEdit: () => void; onDelete: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id });
-  return <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={isDragging ? "dragging" : parentHighlight ? "[&&>td]:bg-brand/7" : over ? "[&&>td]:border-t-2 [&&>td]:border-t-brand [&&>td]:bg-brand/4" : undefined}>
-    <td data-label="分類" style={{ paddingLeft: category.depth === 1 ? 48 : undefined }}><span className="category-drag-handle" {...attributes} {...listeners} aria-label="拖曳調整排序" title="拖曳調整排序"><Icon name="dragHandle" /></span><StatusBadge palette={category.color}>{category.name}</StatusBadge></td>
+  return <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={isDragging ? "opacity-72" : parentHighlight ? "[&&>td]:bg-brand/7" : over ? "[&&>td]:border-t-2 [&&>td]:border-t-brand [&&>td]:bg-brand/4" : undefined}>
+    <td data-label="分類" style={{ paddingLeft: category.depth === 1 ? 48 : undefined }}><span className="mr-2 inline-flex h-8 w-7 cursor-grab items-center justify-center align-middle text-muted active:cursor-grabbing focus-visible:rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand [&_svg]:size-[18px]" {...attributes} {...listeners} aria-label="拖曳調整排序" title="拖曳調整排序"><Icon name="dragHandle" /></span><StatusBadge palette={category.color}>{category.name}</StatusBadge></td>
     <td data-label="使用中的品項" className="numeric">{category.usageCount}</td>
     {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" onClick={onEdit} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" tone="danger" icon="trash" disabled={category.usageCount > 0} onClick={onDelete} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
   </tr>;
@@ -187,7 +187,8 @@ export function ItemCategories() {
         {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
         {dropHint ? <div className="drag-drop-hint" role="status">{dropHint}</div> : null}
-        <DataTable className="category-table">
+        {/* 只有三欄：後兩欄給固定寬度，讓「分類」吃掉剩下的空間；平均分掉的話個位數的數量會停在畫面正中央，離表頭很遠。 */}
+        <DataTable className="[&_th:nth-child(2):not(:last-child)]:w-40 [&_td:nth-child(2):not(:last-child)]:w-40 [&_th:last-child]:w-30 [&_td:last-child]:w-30">
             <thead><tr><th>分類</th><th className="numeric">使用中的品項</th>{canWrite ? <th /> : null}</tr></thead>
             <DndContext collisionDetection={closestCenter} onDragOver={handleDragOver} onDragCancel={() => { setDraggingId(null); setOverId(null); setDragDeltaX(0); }} onDragEnd={handleDragEnd}>
               <SortableContext items={orderedCategories.map((category) => category.id)} strategy={verticalListSortingStrategy}>
