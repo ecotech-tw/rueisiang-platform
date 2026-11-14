@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterInput, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   useCyberbizSalesState,
@@ -123,9 +123,9 @@ export function CyberbizSales() {
                   <td className="cell-strong store-name-cell" data-label="通路">{store.name}</td>
                   <td className="cell-sub" data-label="Drive 資料夾">
                     {store.folderUrl ? (
-                      <a className="link-external" href={store.folderUrl} target="_blank" rel="noopener noreferrer">
+                      <ExternalLink href={store.folderUrl}>
                         {store.folder || store.name}<Icon name="external" />
-                      </a>
+                      </ExternalLink>
                     ) : "未設定資料夾"}
                   </td>
                   <td data-label="操作"><Button variant="secondary" loading={run.isPending} loadingLabel="執行中…" disabled={blocked} onClick={() => start_([store.name])}>執行</Button></td>

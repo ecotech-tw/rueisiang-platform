@@ -28,11 +28,12 @@ interface WorkflowRunPanelProps {
 
 const STEP_MARK: Record<string, string> = { completed: "✓", in_progress: "▶" };
 
+// 做完的淡掉，正在跑的用品牌色標出來。
 function stepClass(step: WorkflowStepSummary): string {
-  if (step.conclusion === "failure") return "step fail";
-  if (step.status === "completed") return "step done";
-  if (step.status === "in_progress") return "step doing";
-  return "step";
+  const base = "flex gap-2.5 py-[5px] text-[13px]";
+  if (step.conclusion === "failure") return `${base} font-medium text-brand`;
+  if (step.status === "in_progress") return `${base} font-medium text-brand-dark`;
+  return `${base} text-muted`;
 }
 
 /** GitHub Actions 執行狀態的共用呈現，讓不同營運工具的追蹤體驗保持一致。 */
@@ -67,10 +68,10 @@ export function WorkflowRunPanel({
       actions={<StatusBadge tone={tone}>{label}</StatusBadge>}
     >
       {steps.length ? (
-        <ol className="step-list">
+        <ol className="m-0 grid list-none gap-0.5 p-0">
           {steps.map((step, index) => (
             <li className={stepClass(step)} key={`${step.name}-${index}`}>
-              <span className="step-mark">{STEP_MARK[step.status] ?? "·"}</span>
+              <span className="w-4 text-center">{STEP_MARK[step.status] ?? "·"}</span>
               {step.name}
             </li>
           ))}

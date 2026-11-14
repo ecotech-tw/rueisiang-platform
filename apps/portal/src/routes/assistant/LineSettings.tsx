@@ -204,8 +204,8 @@ export function LineSettings() {
           </StatusBadge>
         }
       >
-        <div className="copy-field">
-          <input readOnly value={data.webhookUrl} aria-label="LINE webhook URL" />
+        <div className="flex items-center gap-2">
+          <input className="min-w-0 flex-1 rounded-[9px] border border-line bg-canvas px-2.5 py-[9px] text-ink" readOnly value={data.webhookUrl} aria-label="LINE webhook URL" />
           <Button variant="secondary" icon="copy" onClick={() => void copyWebhookUrl()}>
             {copied ? "已複製" : "複製"}
           </Button>

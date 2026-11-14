@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Page, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, DataTable, Page, PageHeader, Panel, Stat, StatRow, StatusBadge, type StatusTone } from "../../ui/index.js";
 
 interface SyncStatus {
   configured: boolean;
@@ -171,11 +171,11 @@ export function Sync() {
         <Alert tone="danger">尚未設定 CYBERBIZ_WEBHOOK_SECRET，webhook 會一律被擋下。</Alert>
       ) : null}
 
-      <div className="stat-row">
-        <div className="stat"><span>客戶總數</span><strong>{data.customers.total}</strong></div>
-        <div className="stat"><span>已與官網同步</span><strong>{data.customers.synced}</strong></div>
-        <div className="stat"><span>同步失敗</span><strong>{data.customers.failed}</strong></div>
-      </div>
+      <StatRow>
+        <Stat label="客戶總數" value={data.customers.total} />
+        <Stat label="已與官網同步" value={data.customers.synced} />
+        <Stat label="同步失敗" value={data.customers.failed} />
+      </StatRow>
 
       <Panel
         title="手動同步"

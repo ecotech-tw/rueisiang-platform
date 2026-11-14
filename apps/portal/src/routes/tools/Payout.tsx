@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   usePayoutState,
@@ -135,15 +135,10 @@ export function Payout() {
                   <td className="cell-strong store-name-cell" data-label="通路">{store.name}</td>
                   <td className="cell-sub" data-label="Drive 資料夾">
                     {store.folderUrl ? (
-                      <a
-                        className="link-external"
-                        href={store.folderUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
+                      <ExternalLink href={store.folderUrl}>
                         {store.folder || store.name}
                         <Icon name="external" />
-                      </a>
+                      </ExternalLink>
                     ) : (
                       "未設定資料夾"
                     )}
