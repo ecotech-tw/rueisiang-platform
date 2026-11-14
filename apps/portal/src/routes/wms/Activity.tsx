@@ -205,7 +205,12 @@ export function Activity() {
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
 
-        <DataTable className="activity-table">
+        {/*
+          * 欄寬：不指定的話瀏覽器會把寬度分給內容最長的摘要欄，「B-01 包材區」就被壓成
+          * 一欄三行、逐字折行。時間與對象是固定長度的東西，給它們一個下限。
+          * 第一格在手機卡片上是滿版標題（DataTable 的 w-full），所以它的寬度只在卡片斷點以上給。
+          */}
+        <DataTable className="[&_th:nth-child(1)]:w-[150px] min-[760px]:[&_td:nth-child(1)]:w-[150px] [&_th:nth-child(2)]:w-[180px] [&_td:nth-child(2)]:w-[180px] [&_th:nth-child(5)]:w-[190px] [&_td:nth-child(5)]:w-[190px]">
             <thead>
               <tr>
                 <th>時間</th>
