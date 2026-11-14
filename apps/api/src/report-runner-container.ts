@@ -49,6 +49,7 @@ export class ReportRunner extends Container<Env> {
     const jobId = /^\/jobs\/([A-Za-z0-9-]{16,80})$/.exec(url.pathname)?.[1]
       ?? (submitted?.requestId && /^[A-Za-z0-9-]{16,80}$/.test(submitted.requestId) ? submitted.requestId : undefined);
     const saved = jobId ? await this.durableState.storage.get<RunnerJob>(`job:${jobId}`) : undefined;
+    if (request.method === "GET" && jobId && !saved) return new Response("Job not found", { status: 404 });
     if (request.method === "GET" && saved && isTerminal(saved.status)) return Response.json(saved);
     if (request.method === "POST" && saved) return Response.json(saved, { status: 202 });
 
@@ -63,11 +64,13 @@ export class ReportRunner extends Container<Env> {
     }));
     if (response.ok && jobId) {
       const job = await response.clone().json() as RunnerJob;
-      await this.durableState.storage.put(`job:${jobId}`, job);
-      if (isTerminal(job.status)) await this.persistTerminal(jobId, job);
-      else {
-        if (saved?.status !== "running") await this.persistRunning(jobId);
+      if (isTerminal(job.status)) {
+        await this.persistTerminal(jobId, job);
+        await this.durableState.storage.put(`job:${jobId}`, job);
+      } else {
+        await this.durableState.storage.put(`job:${jobId}`, job);
         await this.durableState.storage.setAlarm(Date.now() + 10_000);
+        if (saved?.status !== "running") await this.persistRunning(jobId);
       }
     }
     return response;
@@ -86,11 +89,12 @@ export class ReportRunner extends Container<Env> {
       }));
       if (response.ok) {
         const current = await response.json() as RunnerJob;
-        await this.durableState.storage.put(key, current);
         if (isTerminal(current.status)) {
           await this.persistTerminal(requestId, current);
+          await this.durableState.storage.put(key, current);
           return;
         }
+        await this.durableState.storage.put(key, current);
       } else if (response.status === 404) {
         const failedJob = {
           ...job,
@@ -98,8 +102,8 @@ export class ReportRunner extends Container<Env> {
           error: "報表執行環境重新啟動，工作狀態遺失。",
           finishedAt: new Date().toISOString(),
         };
-        await this.durableState.storage.put(key, failedJob);
         await this.persistTerminal(requestId, failedJob);
+        await this.durableState.storage.put(key, failedJob);
         return;
       }
     } catch (error) {
