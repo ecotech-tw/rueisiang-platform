@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog, Field, Input, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FieldGrid, Input, TextField } from "../../ui/index.js";
 import { ColorPicker } from "./ColorPicker.js";
 import {
   useCreateZone,
@@ -84,7 +84,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
         </>
       }
     >
-          <div className="field-grid">
+          <FieldGrid>
             <TextField
               label="倉位代碼"
               required
@@ -101,7 +101,7 @@ export function ZoneDialog({ zone, onClose }: { zone?: Zone; onClose: () => void
               value={fields.name}
               onChange={(event) => set({ name: event.target.value })}
             />
-          </div>
+          </FieldGrid>
 
           <TextField
             label="用途"

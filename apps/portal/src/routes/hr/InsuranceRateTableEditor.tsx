@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, DataTable, EmptyState, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, FieldGrid, TextField } from "../../ui/index.js";
 import { useHrWrite, type InsuranceBracket, type InsuranceRateTableRecord } from "./api.js";
 
 const SCHEME_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
@@ -114,10 +114,10 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
         {!brackets.length ? <EmptyState className="mt-[18px]">尚無級距，請新增一筆。</EmptyState> : null}
         <div className="flex flex-wrap items-center gap-4 px-0.5"><Button type="button" icon="plus" tone="success" mobileIconOnly onClick={addBracket}>新增級距</Button><span className="muted">薪資下限填 0 代表「以下」級距；員工負擔由該年度費率計算，健保欄先以 0 位眷屬呈現。</span></div>
       </div>
-      <div className="field-grid gap-5">
+      <FieldGrid className="gap-5">
         <TextField label="資料來源網址或公告名稱（可留空）" value={sourceUrl} maxLength={500} onChange={(event) => setSourceUrl(event.target.value)} />
         <TextField label="人工維護備註" required value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} hint="請填官方公告、文件名稱或主管覆核依據。" />
-      </div>
+      </FieldGrid>
       {message || save.error || remove.error ? <Alert tone="danger">{message || save.error?.message || remove.error?.message}</Alert> : null}
       <div className="flex flex-wrap justify-end gap-3 pt-1">
         {isExistingDraft ? <Button type="button" variant="danger" icon="trash" onClick={() => setConfirmDelete(true)} disabled={save.isPending || remove.isPending}>刪除草稿</Button> : null}

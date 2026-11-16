@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Alert, Button, Dialog, Field, FieldHint, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FieldGrid, FieldHint, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
 import type { ProductCategory, Zone } from "./api.js";
 
 interface CatalogItem { id: string; sku: string; name: string; source: string; inWarehouse: boolean; }
@@ -94,8 +94,8 @@ export function EnrollItemDialog({ categories, zones, onClose, onSuccess }: { ca
         {selected ? <FieldHint>已選擇：{selected.name}（{selected.sku || "無 SKU"}）</FieldHint> : <FieldHint>只顯示尚未納入倉儲的品項，選取後直接建立庫存資料。</FieldHint>}
       </Field>
       <CategoryPicker categories={categories} value={categoryId} onChange={setCategoryId} disabled={pending} />
-      <div className="field-grid"><SelectField label="倉位" value={zoneId} onChange={(event) => { setZoneId(event.target.value); setShelfLevel(""); }} options={[{ label: "未指定倉位", value: "" }, ...zones.map((item) => ({ label: `${item.code} ${item.name}`, value: item.id }))]} disabled={pending} /><SelectField label="層架" value={shelfLevel} disabled={!zone || pending} onChange={(event) => setShelfLevel(event.target.value)} options={[{ label: zone ? "不指定層架" : "請先選倉位", value: "" }, ...(zone?.shelfLevels ?? []).map((item) => ({ label: item.name, value: item.id }))]} /></div>
-      <div className="field-grid trio"><TextField label="初始數量" type="number" min={0} value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={pending} /><TextField label="單位" value={unit} onChange={(event) => setUnit(event.target.value)} disabled={pending} /><TextField label="安全庫存" type="number" min={0} value={minStock} onChange={(event) => setMinStock(event.target.value)} disabled={pending} /></div>
+      <FieldGrid><SelectField label="倉位" value={zoneId} onChange={(event) => { setZoneId(event.target.value); setShelfLevel(""); }} options={[{ label: "未指定倉位", value: "" }, ...zones.map((item) => ({ label: `${item.code} ${item.name}`, value: item.id }))]} disabled={pending} /><SelectField label="層架" value={shelfLevel} disabled={!zone || pending} onChange={(event) => setShelfLevel(event.target.value)} options={[{ label: zone ? "不指定層架" : "請先選倉位", value: "" }, ...(zone?.shelfLevels ?? []).map((item) => ({ label: item.name, value: item.id }))]} /></FieldGrid>
+      <FieldGrid columns={3}><TextField label="初始數量" type="number" min={0} value={quantity} onChange={(event) => setQuantity(event.target.value)} disabled={pending} /><TextField label="單位" value={unit} onChange={(event) => setUnit(event.target.value)} disabled={pending} /><TextField label="安全庫存" type="number" min={0} value={minStock} onChange={(event) => setMinStock(event.target.value)} disabled={pending} /></FieldGrid>
       {error ? <Alert tone="danger">{error}</Alert> : null}
     </Dialog>
   );
