@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FieldGrid, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableMobileSelectAll, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FieldGrid, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
@@ -609,13 +609,13 @@ export function HrRequestCenter() {
         {bulk.actionId && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" inputRef={mobileSelectAllOvertimeRef} checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
       <DataTable className={`${REQUEST_TABLE} ${bulk.actionId ? TABLE_SELECT_COLUMN.corner : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${requests.isFetching ? "is-refreshing" : ""}`}>
         <thead><tr>
-          {bulk.actionId ? <th>{cancellableOvertimeIds.length ? <input ref={selectAllOvertimeRef} className="table-checkbox" type="checkbox" checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /> : null}</th> : null}
+          {bulk.actionId ? <th>{cancellableOvertimeIds.length ? <TableCheckbox ref={selectAllOvertimeRef} checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /> : null}</th> : null}
           <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div></th>
         </tr></thead>
         <tbody>{visibleRows.map((row) => {
           const canBulkCancel = REQUEST_BULK_ACTIONS[0]!.isEligible(row);
           return <tr key={`${row.kind}-${row.id}`} className={bulk.selectedKeys.includes(requestRowKey(row)) ? "selected" : undefined}>
-            {bulk.actionId ? <td data-label="選取">{bulk.isRowEligible(row) ? <label className="inline-grid size-10 cursor-pointer place-items-center"><input className="table-checkbox" type="checkbox" checked={bulk.selectedKeys.includes(requestRowKey(row))} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleRow(row, event.target.checked)} aria-label={`選取 ${row.employeeName} ${row.period} 的已核准加班申請`} /></label> : null}</td> : null}
+            {bulk.actionId ? <td data-label="選取">{bulk.isRowEligible(row) ? <label className="inline-grid size-10 cursor-pointer place-items-center"><TableCheckbox checked={bulk.selectedKeys.includes(requestRowKey(row))} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleRow(row, event.target.checked)} aria-label={`選取 ${row.employeeName} ${row.period} 的已核准加班申請`} /></label> : null}</td> : null}
             <td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td>
             <td data-label="員工"><span className="cell-strong">{row.employeeName}</span> <span className="cell-sub">{row.employeeNumber}</span></td>
             <td data-label="期間">{row.period}</td>

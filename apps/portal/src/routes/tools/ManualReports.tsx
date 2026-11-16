@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableSelectAllLabel, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -1201,18 +1201,10 @@ function TableSelectAllCheckbox({
   onToggleAll: (checked: boolean) => void;
   ariaLabel: string;
 }) {
-  const checkboxRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (checkboxRef.current) checkboxRef.current.indeterminate = someSelected;
-  }, [someSelected]);
-
   return (
-    <input
-      ref={checkboxRef}
-      className="table-checkbox"
-      type="checkbox"
+    <TableCheckbox
       checked={allSelected}
+      indeterminate={someSelected}
       onChange={(event) => onToggleAll(event.target.checked)}
       disabled={busy}
       aria-label={ariaLabel}
@@ -1235,7 +1227,7 @@ function MobileTableSelectAll({
 }) {
   return (
     <div className="hidden max-[620px]:flex max-[620px]:border-b max-[620px]:border-b-soft-line max-[620px]:px-3.5 max-[620px]:py-2">
-      <label className="table-select-all">
+      <TableSelectAllLabel>
         <TableSelectAllCheckbox
           allSelected={allSelected}
           someSelected={someSelected}
@@ -1244,7 +1236,7 @@ function MobileTableSelectAll({
           ariaLabel={ariaLabel}
         />
         <span>{allSelected ? "取消全選本頁" : "全選本頁"}</span>
-      </label>
+      </TableSelectAllLabel>
     </div>
   );
 }
@@ -1330,9 +1322,7 @@ function PayoutTable({
             {rows.map((row) => (
               <tr key={row.id} className={selectedIds.has(row.id) ? SELECTED_ROW : undefined}>
                 <td data-label="選取">
-                  <input
-                    className="table-checkbox"
-                    type="checkbox"
+                  <TableCheckbox
                     checked={selectedIds.has(row.id)}
                     onChange={() => onToggle(row)}
                     disabled={busy}
@@ -1444,9 +1434,7 @@ function SalesTable({
             {rows.map((row) => (
               <tr key={row.id} className={selectedIds.has(row.id) ? SELECTED_ROW : undefined}>
                 <td data-label="選取">
-                  <input
-                    className="table-checkbox"
-                    type="checkbox"
+                  <TableCheckbox
                     checked={selectedIds.has(row.id)}
                     onChange={() => onToggle(row)}
                     disabled={busy}

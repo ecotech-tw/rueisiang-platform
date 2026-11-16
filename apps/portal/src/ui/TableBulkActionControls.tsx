@@ -1,6 +1,34 @@
-import type { ReactNode, Ref } from "react";
+import { useEffect, useImperativeHandle, useRef, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
 
 export { TableBulkActionMenu, type TableBulkActionOption } from "@rueisiang/ui";
+
+interface TableCheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "className"> {
+  ref?: Ref<HTMLInputElement>;
+  /** 部分選取。HTML 沒有這個屬性，只能從 DOM 設，所以包在元件裡。 */
+  indeterminate?: boolean;
+  /** 聚焦時改用跟批次勾選欄同一種外框（TABLE_SELECT_COLUMN 由表格套上；表格外的勾選框用這個）。 */
+  focusOutline?: boolean;
+}
+
+/** 表格勾選欄與全選列共用的勾選框。 */
+export function TableCheckbox({ ref, indeterminate, focusOutline = false, ...props }: TableCheckboxProps) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useImperativeHandle(ref, () => inputRef.current!, []);
+  useEffect(() => {
+    if (inputRef.current && indeterminate !== undefined) inputRef.current.indeterminate = indeterminate;
+  }, [indeterminate]);
+  return <input
+    ref={inputRef}
+    type="checkbox"
+    className={`m-0 size-[18px] cursor-pointer accent-brand disabled:cursor-not-allowed ${focusOutline ? "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary" : ""}`}
+    {...props}
+  />;
+}
+
+/** 勾選框旁邊帶文字的全選標籤；點文字也能切換。 */
+export function TableSelectAllLabel({ children }: { children: ReactNode }) {
+  return <label className="inline-flex cursor-pointer items-center gap-2">{children}</label>;
+}
 
 const SELECT_COLUMN_FOCUS = "[&_tr>:first-child_input:focus-visible]:outline-2 [&_tr>:first-child_input:focus-visible]:outline-offset-2 [&_tr>:first-child_input:focus-visible]:outline-secondary";
 
@@ -13,7 +41,7 @@ const SELECT_COLUMN_FOCUS = "[&_tr>:first-child_input:focus-visible]:outline-2 [
  *   右邊照 DataTable 的標題讓出 84px 給操作鈕。桌機欄寬 48px，勾選框靠格子裡的 40px 點擊區置中。
  */
 export const TABLE_SELECT_COLUMN = {
-  inline: `[&_tr>:first-child]:text-center min-[761px]:[&_tr>:first-child]:w-16 min-[761px]:[&_tr>:first-child]:min-w-16 min-[761px]:[&_tr>:first-child]:p-0 min-[761px]:[&_tr>:first-child>.table-checkbox]:block min-[761px]:[&_tr>:first-child>.table-checkbox]:mx-auto max-[760px]:[&_tr>:first-child]:px-2.5 ${SELECT_COLUMN_FOCUS}`,
+  inline: `[&_tr>:first-child]:text-center min-[761px]:[&_tr>:first-child]:w-16 min-[761px]:[&_tr>:first-child]:min-w-16 min-[761px]:[&_tr>:first-child]:p-0 min-[761px]:[&_tr>:first-child>input]:block min-[761px]:[&_tr>:first-child>input]:mx-auto max-[760px]:[&_tr>:first-child]:px-2.5 ${SELECT_COLUMN_FOCUS}`,
   corner: `[&_tr>:first-child]:text-center [&_tr>:first-child]:w-12 min-[761px]:[&_tr>:first-child]:min-w-12 min-[761px]:[&_tr>:first-child]:p-0 ${SELECT_COLUMN_FOCUS} max-[760px]:[&_tbody_tr>td:first-child]:absolute max-[760px]:[&_tbody_tr>td:first-child]:top-2 max-[760px]:[&_tbody_tr>td:first-child]:left-2 max-[760px]:[&_tbody_tr>td:first-child]:block max-[760px]:[&_tbody_tr>td:first-child]:w-10 max-[760px]:[&_tbody_tr>td:first-child]:min-w-10 max-[760px]:[&_tbody_tr>td:first-child]:p-0 max-[760px]:[&_tbody_tr>td:first-child]:border-0 max-[760px]:[&_tbody_tr>td:first-child]:m-0 max-[760px]:[&_tbody_tr>td:nth-child(2)]:order-1 max-[760px]:[&_tbody_tr>td:nth-child(2)]:block max-[760px]:[&_tbody_tr>td:nth-child(2)]:w-full max-[760px]:[&_tbody_tr>td:nth-child(2)]:pt-0 max-[760px]:[&_tbody_tr>td:nth-child(2)]:pr-[84px] max-[760px]:[&_tbody_tr>td:nth-child(2)]:pb-2 max-[760px]:[&_tbody_tr>td:nth-child(2)]:pl-12 max-[760px]:[&_tbody_tr>td:nth-child(2)]:mb-1.5 max-[760px]:[&_tbody_tr>td:nth-child(2)]:border-b max-[760px]:[&_tbody_tr>td:nth-child(2)]:border-soft-line max-[760px]:[&_tbody_tr>td:nth-child(2)]:before:hidden`,
 } as const;
 
@@ -23,8 +51,8 @@ export const TABLE_SELECT_COLUMN = {
  * - plain：不帶分隔線，只跟卡片隔 8px，勾選框聚焦時跟表格裡的勾選框同一種外框（申請與審核）。
  */
 const MOBILE_SELECT_ALL = {
-  divided: { row: "hidden max-[760px]:flex max-[760px]:flex-none max-[760px]:border-b max-[760px]:border-b-soft-line max-[760px]:px-3.5 max-[760px]:py-2", input: "table-checkbox" },
-  plain: { row: "hidden max-[760px]:flex max-[760px]:items-center max-[760px]:mb-2", input: "table-checkbox focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary" },
+  divided: { row: "hidden max-[760px]:flex max-[760px]:flex-none max-[760px]:border-b max-[760px]:border-b-soft-line max-[760px]:px-3.5 max-[760px]:py-2", focusOutline: false },
+  plain: { row: "hidden max-[760px]:flex max-[760px]:items-center max-[760px]:mb-2", focusOutline: true },
 } as const;
 
 interface TableMobileSelectAllProps {
@@ -41,9 +69,9 @@ interface TableMobileSelectAllProps {
 export function TableMobileSelectAll({ variant, inputRef, checked, disabled, "aria-label": ariaLabel, onChange, children }: TableMobileSelectAllProps) {
   const skin = MOBILE_SELECT_ALL[variant];
   return <div className={skin.row}>
-    <label className="table-select-all">
-      <input ref={inputRef} className={skin.input} type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} aria-label={ariaLabel} />
+    <TableSelectAllLabel>
+      <TableCheckbox ref={inputRef} focusOutline={skin.focusOutline} checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} aria-label={ariaLabel} />
       <span>{children}</span>
-    </label>
+    </TableSelectAllLabel>
   </div>;
 }
