@@ -4,7 +4,7 @@ import { HR_SHELL, HR_USER_MENU, HrBrand, HrGlassDefs, HrHeader, HrMain, HrNav, 
 import { DateRangePicker } from "../shell/DateRangePicker.js";
 import { Switch } from "../shell/Switch.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { Page, PageTabs, WorkflowRunPanel } from "../ui/index.js";
+import { FieldGrid, Page, PageTabs, WorkflowRunPanel } from "../ui/index.js";
 import {
   Alert,
   Button,
@@ -262,7 +262,7 @@ export function StyleGuide() {
       </Panel>
 
       <Panel title="表單與控制項" description="Field、TextField、SelectField、DropdownSelect 與既有 DateRangePicker / Switch 都可用 props 組合。">
-        <div className="field-grid">
+        <FieldGrid>
           <TextField label="名稱" required defaultValue="Ruei Siang" hint="欄位下方的輔助說明。" />
           <SelectField
             label="狀態"
@@ -283,7 +283,7 @@ export function StyleGuide() {
               options={[{ label: "北區", value: "north" }, { label: "中區", value: "central" }, { label: "南區", value: "south" }]}
             />
           </Field>
-        </div>
+        </FieldGrid>
         <div className={CONTROL_ROW}>
           <div className="flex items-center gap-2.5"><Switch checked={enabled} onChange={setEnabled} label="即時同步" /><span className="grid gap-0.5"><strong>即時同步</strong><small className={NOTE}>{enabled ? "目前開啟" : "目前關閉"}</small></span></div>
           <Field as="div" label="對帳區間"><DateRangePicker start={range.start} end={range.end} onChange={setRange} /></Field>

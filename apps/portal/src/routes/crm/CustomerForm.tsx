@@ -5,7 +5,7 @@ import {
   taiwanDistricts,
   type TaiwanCity,
 } from "../../lib/taiwan-address.js";
-import { Alert, Button, Dialog, FieldGroup, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FieldGrid, FieldGroup, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateCustomer,
   useTagOptions,
@@ -110,7 +110,7 @@ export function CustomerForm({ customer, onClose }: Props) {
             hint="電話是辨識客戶的主要欄位，同一支不會重複建立；市話等電話只保留在本地，同步失敗時也不會遺失本地資料。"
           />
 
-          <div className="field-grid">
+          <FieldGrid>
             <TextField label="姓名" value={fields.name} onChange={(event) => set({ name: event.target.value })} />
             <TextField
               label="Email"
@@ -118,7 +118,7 @@ export function CustomerForm({ customer, onClose }: Props) {
               value={fields.email}
               onChange={(event) => set({ email: event.target.value })}
             />
-          </div>
+          </FieldGrid>
 
           {/*
             * 地址拆成縣市／區域／街道三格，但**存進去的還是單一字串**。
@@ -130,7 +130,7 @@ export function CustomerForm({ customer, onClose }: Props) {
             * 把這一組跟上面分開。
           */}
           <FieldGroup>
-            <div className="field-grid">
+            <FieldGrid>
               <SelectField
                 label="縣市"
                 value={address.city}
@@ -153,7 +153,7 @@ export function CustomerForm({ customer, onClose }: Props) {
                   ...districtsOf(address.city).map((district) => ({ label: district, value: district })),
                 ]}
               />
-            </div>
+            </FieldGrid>
             <TextField
               label="地址"
               placeholder="例如：中山東路 138 號 2 樓"

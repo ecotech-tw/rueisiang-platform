@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, Field, FieldGroup, FieldHint, SearchCombobox, SelectField, StaticValue, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FieldGrid, FieldGroup, FieldHint, SearchCombobox, SelectField, StaticValue, TextField } from "../../ui/index.js";
 import {
   useCreateCatalogItem,
   useLinkCyberbiz,
@@ -166,7 +166,7 @@ export function ItemForm({
             onChange={(event) => set({ name: event.target.value })}
           />
 
-          <div className="field-grid">
+          <FieldGrid>
             <TextField
               label="SKU"
               placeholder="例如 BOX-M"
@@ -194,11 +194,11 @@ export function ItemForm({
               />
               <FieldHint>{categories.length === 0 ? (catalogOnly ? "還沒有任何品項分類，請先去「品項分類」建立一個。" : "還沒有任何倉儲分類，請先去「倉儲分類管理」建立一個。") : "可搜尋分類名稱或選擇階層分類。"}</FieldHint>
             </Field>
-          </div>
+          </FieldGrid>
 
           {!catalogOnly ? (
             <>
-              <div className="field-grid trio">
+              <FieldGrid columns={3}>
                 {/*
                   * 數量只有新增時填得動。既有商品要改數量得走盤點——那裡會留下
                   * 「誰、什麼時候、從幾改到幾」的紀錄，直接在這裡改就沒有了。
@@ -237,10 +237,10 @@ export function ItemForm({
                     ? "已連結 CYBERBIZ，安全庫存以官網為準，請到官網修改。"
                     : "低於這個數量會被標成需要補貨。"}
                 />
-              </div>
+              </FieldGrid>
 
               <FieldGroup>
-            <div className="field-grid">
+            <FieldGrid>
               <SelectField
                 label="倉位"
                 value={fields.zoneId}
@@ -266,7 +266,7 @@ export function ItemForm({
                   ...(zone?.shelfLevels ?? []).map((level) => ({ label: level.name, value: level.id })),
                 ]}
               />
-            </div>
+            </FieldGrid>
           </FieldGroup>
             </>
           ) : null}

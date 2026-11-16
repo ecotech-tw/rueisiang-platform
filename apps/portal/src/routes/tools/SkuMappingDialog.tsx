@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Dialog, Field, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FieldGrid, SearchCombobox, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateProductSkuMapping,
   useUpdateProductSkuMapping,
@@ -158,7 +158,7 @@ export function SkuMappingDialog({
       actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!externalName.trim() || (channel === "shopee" ? !shopeeProductId.trim() : !externalSku.trim()) || !channel.trim() || !components.length}>{mapping ? "儲存變更" : "新增對應"}</Button></>}
     >
       <div className="admin-form grid gap-4">
-        <div className="field-grid min-w-0">
+        <FieldGrid className="min-w-0">
           <SelectField label="平台" required value={channel} onChange={(event) => changeChannel(event.target.value)} options={channelOptions} disabled={pending} />
           {channel === "shopee" ? (
             <>
@@ -166,7 +166,7 @@ export function SkuMappingDialog({
               <TextField label="蝦皮規格 ID" hint="沒有規格的商品留空即可。" value={shopeeVariantId} onChange={(event) => setShopeeVariantId(event.target.value)} disabled={pending} />
             </>
           ) : <TextField label="外部 SKU" required value={externalSku} onChange={(event) => setExternalSku(event.target.value)} disabled={pending} />}
-        </div>
+        </FieldGrid>
         <TextField className="min-w-0" label="通路商品名稱" required value={externalName} onChange={(event) => setExternalName(event.target.value)} disabled={pending} />
 
         <div className="grid min-w-0 gap-2.5 pt-1">

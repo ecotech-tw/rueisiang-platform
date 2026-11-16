@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Dialog, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FieldGrid, TextField } from "../../ui/index.js";
 import { useUpdateSettings } from "./api.js";
 
 /**
@@ -83,7 +83,7 @@ export function CanvasDialog({
             ))}
           </div>
 
-          <div className="field-grid">
+          <FieldGrid>
             <TextField
               label="寬度"
               type="number"
@@ -104,7 +104,7 @@ export function CanvasDialog({
               onChange={(event) => setHeight(event.target.value)}
               hint="550–2000"
             />
-          </div>
+          </FieldGrid>
 
           {update.error ? <Alert tone="danger">{update.error.message}</Alert> : null}
 

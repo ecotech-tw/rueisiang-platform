@@ -3,7 +3,7 @@ import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { ToolList, ToolNote, ToolOption } from "./ToolOption.js";
 import { ASSISTANT_ACTIONS, AssistantSubsection } from "./AssistantSection.js";
-import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldHint, FilterSelect, Page, PageHeader, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldGrid, FieldHint, FilterSelect, Page, PageHeader, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -296,7 +296,7 @@ export function Sandbox() {
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(280px,.85fr)_minmax(0,1.15fr)] items-stretch gap-4 max-[760px]:grid-cols-[1fr]">
         <div className="grid min-h-0 min-w-0 content-start gap-4 overflow-x-hidden overflow-y-auto [scrollbar-gutter:stable]">
           <Panel title="執行設定" className="min-h-min px-[18px] py-4" titleClassName="mb-2.5">
-            <div className="field-grid">
+            <FieldGrid>
               <Field label="Pi 模型">
                 <DropdownSelect options={modelOptions} value={model} onChange={(event) => setModel(event.target.value)} aria-label="Pi 模型" />
                 <FieldHint>{selectedModel?.note ?? "GPT 使用 ChatGPT OAuth；Gemini 使用 Cloudflare secret 裡的 API key。"}</FieldHint>
@@ -336,7 +336,7 @@ export function Sandbox() {
                   {saveFallbackModel.error ? <Alert tone="danger">{saveFallbackModel.error.message}</Alert> : null}
                 </div>
               </Field>
-            </div>
+            </FieldGrid>
 
             <AssistantSubsection
               title="可調用的 tools"

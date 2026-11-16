@@ -2,7 +2,7 @@ import type { Permission } from "@rueisiang/auth/permissions";
 import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FieldGrid, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useCatalog,
   useCreateRole,
@@ -225,7 +225,7 @@ export function Roles() {
                 </p>
               ) : (
                 <>
-                  <div className="field-grid">
+                  <FieldGrid>
                     <TextField
                       label="角色名稱"
                       required
@@ -240,7 +240,7 @@ export function Roles() {
                       onChange={(event) => setEditor({ ...editor, description: event.target.value })}
                       placeholder="這個角色是給誰用的"
                     />
-                  </div>
+                  </FieldGrid>
                 </>
               )}
 

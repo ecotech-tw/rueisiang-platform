@@ -110,7 +110,7 @@ HRIS 語意 class 一覽（都是加在 `Button` 的 `className`，`variant` 照
 ### Form
 
 - label、hint、error 一律由 `Field` contract 提供。
-- 一般控制項高度使用 `--size-field`（目前 44px）；並排欄位使用 `.field-grid` 或 `.form-grid`。
+- 一般控制項高度使用 `--size-field`（目前 44px）；並排欄位使用 portal 的 `<FieldGrid>`。
 - textarea 也要放在 `Field` 內；不能只用 placeholder 代替 label 或錯誤訊息。
 - 搜尋、篩選是 toolbar 的控制項，不要把頁面資料編輯欄位與篩選欄位混成同一種 layout。
 
