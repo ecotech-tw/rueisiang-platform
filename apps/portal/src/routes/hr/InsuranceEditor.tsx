@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Dialog, Field, SelectField, SegmentedControl, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, Field, FieldGrid, SelectField, SegmentedControl, TextField } from "../../ui/index.js";
 import { useHrInsuranceEstimate, useHrQuery, useHrWrite, type Employment, type InsuranceBracket, type InsuranceContributionEstimate, type InsuranceEstimateRequest, type InsuranceRateTableRecord, type InsuranceVersion } from "./api.js";
 
 const INSURANCE_LABEL: Record<"labor" | "health", string> = { labor: "勞保", health: "健保" };
@@ -206,7 +206,7 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
     <TextField name="validFrom" label={validFromLabel} type="date" value={validFrom} required onChange={(event) => setValidFrom(event.target.value)} hint={validFromHint} />
     {status === "enrolled" ? <>
       <TextField label="實際月薪（元）" type="number" min="0" step="1" value={salary} required onChange={(event) => setSalary(event.target.value)} hint="勞保／健保級距會依月薪自動帶入，也可以從下拉選單選擇其他級距。" />
-      <div className="form-grid two">
+      <FieldGrid columns={2}>
         {SCHEMES.map((scheme) => {
           const activeTable = activeTables.get(scheme);
           const selection = bracketSelections[scheme];
@@ -220,7 +220,7 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
             <SelectField label={`${INSURANCE_LABEL[scheme]}級距`} value={displayedSelection} options={bracketOptions} onChange={(event) => updateBracketSelection(scheme, event.target.value)} />
           </section>;
         })}
-      </div>
+      </FieldGrid>
       <TextField label="健保眷屬人數（0～3）" type="number" min="0" max="3" step="1" value={dependents} onChange={(event) => setDependents(event.target.value)} />
       <div className="grid gap-0.5 rounded-[10px] bg-paper/46 px-3 py-[10px] [box-shadow:0_1px_0_--alpha(var(--color-paper)/64%)_inset,0_0_0_1px_--alpha(var(--color-ink)/6%)_inset]" aria-live="polite">
         <div className="text-[11px] font-extrabold tracking-[.02em] text-muted">員工每月扣款試算</div>

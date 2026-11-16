@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { HR_PROFILE_FIELDS, emptyHrPersonalData, type HrPersonalData, type HrProfileField } from "@rueisiang/db/hr-profile-fields";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, FieldGrid, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type NamedOption, type Profile } from "./api.js";
 
 import { EmployeePhoto } from "./EmployeePhoto.js";
@@ -72,27 +72,27 @@ export function EmployeeProfile({ profile, canWrite, onSaved }: { profile: Profi
       {profile.personalData !== undefined && employment ? <EmployeePhoto employmentId={employment.id} revision={employment.revision} name={profile.employee.legalName} photo={profile.photo} canWrite={canWrite && active} disabled={editing !== null || save.isPending || archive.isPending} onBusyChange={setPhotoBusy} onSaved={onSaved} /> : <p className="muted">員工大頭貼僅限全平台 HR 管理者查看。</p>}
     </Panel>
     <Panel id="employee-basic" title="基本資料" actions={editButton("basic")}>
-      {editing === "basic" ? <form className="grid gap-4" onSubmit={submit}><fieldset disabled={pending} className="field-grid m-0 min-w-0 border-0 p-0">
+      {editing === "basic" ? <form className="grid gap-4" onSubmit={submit}><FieldGrid as="fieldset" disabled={pending}>
         <TextField label="中文姓名（身分證）" required maxLength={100} value={values.legalName} onChange={(event) => setValues({ ...values, legalName: event.target.value })} />
         <TextField label="員工編號" required maxLength={40} value={values.employeeNumber} onChange={(event) => setValues({ ...values, employeeNumber: event.target.value })} />
         {profile.personalData !== undefined ? <PersonalFields group="basic" data={personal} editing onChange={changePersonal} /> : null}
-      </fieldset>{error}{actions}</form> : <ProfileGrid>
+      </FieldGrid>{error}{actions}</form> : <ProfileGrid>
         <div><dt>中文姓名</dt><dd>{profile.employee.legalName}</dd></div><div><dt>員工編號</dt><dd>{profile.employee.employeeNumber}</dd></div>
         {profile.personalData !== undefined ? <PersonalFields group="basic" data={savedPersonal} editing={false} onChange={changePersonal} /> : null}
       </ProfileGrid>}
       {profile.personalData === undefined ? <p className="muted">生日、證件與其他個資僅限全平台 HR 管理者查看。</p> : null}
     </Panel>
     <Panel id="employee-contact" title="聯絡資料" actions={profile.personalData !== undefined ? editButton("contact") : null}>
-      {profile.personalData === undefined ? <p className="muted">聯絡資料僅限全平台 HR 管理者查看。</p> : editing === "contact" ? <form className="grid gap-4" onSubmit={submit}><fieldset disabled={pending} className="field-grid m-0 min-w-0 border-0 p-0"><PersonalFields group="contact" data={personal} editing onChange={changePersonal} /></fieldset>{error}{actions}</form> : <ProfileGrid><PersonalFields group="contact" data={savedPersonal} editing={false} onChange={changePersonal} /></ProfileGrid>}
+      {profile.personalData === undefined ? <p className="muted">聯絡資料僅限全平台 HR 管理者查看。</p> : editing === "contact" ? <form className="grid gap-4" onSubmit={submit}><FieldGrid as="fieldset" disabled={pending}><PersonalFields group="contact" data={personal} editing onChange={changePersonal} /></FieldGrid>{error}{actions}</form> : <ProfileGrid><PersonalFields group="contact" data={savedPersonal} editing={false} onChange={changePersonal} /></ProfileGrid>}
     </Panel>
     <Panel id="employee-company" title="公司／任職資料" actions={editButton("company")}>
       {editing === "company" || editing === "reactivate" ? <form className="grid gap-4" onSubmit={submit}>
         {editing === "reactivate" ? <p className="muted">沿用原任職、服務年資與歷史資料；恢復後請確認出勤範圍。</p> : null}
-        <fieldset disabled={pending} className="field-grid m-0 min-w-0 border-0 p-0">
+        <FieldGrid as="fieldset" disabled={pending}>
           {editing === "reactivate" ? <><TextField label="中文姓名" required maxLength={100} value={values.legalName} onChange={(event) => setValues({ ...values, legalName: event.target.value })} /><TextField label="員工編號" required maxLength={40} value={values.employeeNumber} onChange={(event) => setValues({ ...values, employeeNumber: event.target.value })} /></> : null}
           <TextField label="職位" required maxLength={100} value={values.position} onChange={(event) => setValues({ ...values, position: event.target.value })} />
           {editing === "company" ? <><SelectField label="主管" value={values.supervisorUserId} searchable options={[{ value: "", label: "未指定" }, ...[...currentSupervisor, ...supervisorOptions].map((option) => ({ value: option.id, label: option.employeeNumber ? `${option.employeeNumber}・${option.name}` : option.name }))]} disabled={supervisors.isPending || Boolean(supervisors.error)} onChange={(event) => setValues({ ...values, supervisorUserId: event.target.value })} /><TextField label="服務年資起算日" type="date" value={values.serviceStartOn} required hint="供在職薪資計算使用；特休依第一筆有效月薪敘薪生效日計算。" onChange={(event) => setValues({ ...values, serviceStartOn: event.target.value })} /></> : null}
-        </fieldset>{supervisors.error ? <Alert tone="danger">主管清單載入失敗，既有主管會保留。</Alert> : null}{error}{actions}
+        </FieldGrid>{supervisors.error ? <Alert tone="danger">主管清單載入失敗，既有主管會保留。</Alert> : null}{error}{actions}
       </form> : <ProfileGrid>
         <div><dt>公司 Email（登入帳號）</dt><dd>{profile.employee.email || "—"}</dd></div><div><dt>帳號名稱</dt><dd>{profile.employee.accountName || "—"}</dd></div>
         <div><dt>職位</dt><dd>{employment?.position ?? profile.employee.position}</dd></div><div><dt>主管</dt><dd>{employment?.supervisorName ?? profile.employee.supervisorName ?? "未設定"}</dd></div>

@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FieldGrid, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
@@ -262,7 +262,7 @@ function ReviewDialog({ row, latest, onReload, onClose, onDone }: { row: Request
     </>}
   >
     <dl><dt>申請期間</dt><dd>{row.period}</dd><dt>申請內容</dt><dd>{row.detail}</dd><dt>原因</dt><dd>{row.reason}</dd></dl>
-    {row.kind === "overtime" && !isApprovedCancellable ? <div className="form-grid two"><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><Input type="datetime-local" step="1800" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><Input type="datetime-local" step="1800" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></div> : null}
+    {row.kind === "overtime" && !isApprovedCancellable ? <FieldGrid columns={2}><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><Input type="datetime-local" step="1800" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><Input type="datetime-local" step="1800" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></FieldGrid> : null}
     {isApprovedCancellable ? <p className="muted field-note">{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</p> : <Field label="審核意見" hint="駁回時必填"><Textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
     {row.kind === "overtime" && row.status === "pending" ? <p className="muted field-note">按「取消申請」會直接刪除這筆加班，不會留在申請紀錄。</p> : null}
     {row.payrollLocked ? <Alert tone="info">此申請已納入薪資計算，不能取消或修改。</Alert> : null}
@@ -318,7 +318,7 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
   return <form id={REQUEST_FORM_ID} className="grid gap-4 pt-0.5" onSubmit={submit}>
     <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} searchable disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
     <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length || write.isPending} onChange={(event) => setLeaveTypeId(event.target.value)} />
-    <div className="form-grid two"><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} disabled={write.isPending} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} disabled={write.isPending} onChange={(event) => setEndsAt(event.target.value)} /></div>
+    <FieldGrid columns={2}><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} disabled={write.isPending} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} disabled={write.isPending} onChange={(event) => setEndsAt(event.target.value)} /></FieldGrid>
     <p className="muted field-note">{durationDescription}{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</p>
     <Field label="請假原因"><Textarea rows={4} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
@@ -420,23 +420,23 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
     <SelectField label={targetKind === "employee" ? "申請員工" : "申請支援人員"} required value={targetId} options={targetKind === "employee" ? employeeOptions : workerOptions} searchable disabled={write.isPending} onChange={(event) => { if (targetKind === "employee") setEmployeeUserId(event.target.value); else setWorkerId(event.target.value); resetDayDefaults(); }} />
     <SegmentedControl size="lg" aria-label="一次申請幾天" value={mode} options={OVERTIME_MODE_OPTIONS} disabled={write.isPending} onChange={(value) => setMode(value === "multiple" ? "multiple" : "single")} />
     {mode === "single" ? <>
-      <div className="form-grid two">
+      <FieldGrid columns={2}>
         <TextField label="加班日期" type="date" required value={date} disabled={write.isPending} onChange={(event) => { setDate(event.target.value); resetDayDefaults(); }} />
         <TextField label="開始時間" type="time" step={1800} required value={startTime} disabled={write.isPending} hint={startHint} onChange={(event) => setManualStart(event.target.value)} />
-      </div>
+      </FieldGrid>
       {presets}
-      <div className="form-grid two">
+      <FieldGrid columns={2}>
         {hoursField}
         <TextField label="結束時間" type="time" step={1800} value={end.slice(11)} disabled={write.isPending || !start} hint={end && end.slice(0, 10) !== date ? "隔天結束" : "改時數或結束時間，另一個會跟著變"} onChange={(event) => { const next = minutesUntil(start, event.target.value); if (next !== null) setHours(hoursText(next)); }} />
-      </div>
+      </FieldGrid>
       {singleDay?.existing.length ? <p className="muted field-note">這天已有加班：{singleDay.existing.map((row) => `${taipeiInputValue(row.requestedStart).slice(11)}～${taipeiInputValue(row.requestedEnd).slice(11)}`).join("、")}，時段不能重疊。</p> : null}
       {dayQuery.error ? <Alert tone="danger">無法確認這天的班表：{dayQuery.error.message}</Alert> : null}
       <p className="hr-overtime-summary" aria-live="polite">{start && minutesValid ? <>共 <strong>{hoursText(minutes)} 小時</strong>・{start.slice(11)}～{end.slice(11)}{end.slice(0, 10) !== date ? "（隔天）" : ""}</> : "填好開始時間與時數後會顯示加班時段。"}</p>
     </> : <>
-      <div className="form-grid two">
+      <FieldGrid columns={2}>
         <TextField label="月份" type="month" required value={month} disabled={write.isPending} onChange={(event) => { setMonth(event.target.value); resetDayDefaults(); }} />
         {hoursField}
-      </div>
+      </FieldGrid>
       {presets}
       <p className="muted field-note">先選時數，再點日期；再點一次同樣時數就取消。有排班的日期從班表下班時間開始；未排班日期需指定開始時間，送出前會再次確認。</p>
       {!targetId ? <p className="muted table-note">先選申請對象，才看得到這個月的班表。</p>

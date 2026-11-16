@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableSelectAllLabel, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableSelectAllLabel, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -255,7 +255,7 @@ function ManualReportDialog({
         />
 
         {state.kind === "payout" ? (
-          <div className="field-grid">
+          <FieldGrid>
             <TextField
               label="出金日期"
               required
@@ -274,10 +274,10 @@ function ManualReportDialog({
               onChange={(event) => setPayoutAmount(event.target.value)}
               disabled={pending}
             />
-          </div>
+          </FieldGrid>
         ) : (
           <>
-            <div className="field-grid">
+            <FieldGrid>
               <TextField
                 label="報表月份"
                 required
@@ -304,7 +304,7 @@ function ManualReportDialog({
                 ]}
                 disabled={pending}
               />
-            </div>
+            </FieldGrid>
             {skuSource === "cyberbiz" ? (
               <>
                 <Field as="div" label="CYBERBIZ SKU" required>
@@ -327,7 +327,7 @@ function ManualReportDialog({
                 <TextField label="商品名稱" value={productName} readOnly hint="名稱會取自 CYBERBIZ 商品目錄。" />
               </>
             ) : (
-              <div className="field-grid">
+              <FieldGrid>
                 <TextField
                   label="自訂 SKU"
                   required
@@ -359,9 +359,9 @@ function ManualReportDialog({
                     disabled={pending}
                   />
                 </Field>
-              </div>
+              </FieldGrid>
             )}
-            <div className="field-grid trio">
+            <FieldGrid columns={3}>
               <TextField
                 label="銷售數量"
                 required
@@ -392,7 +392,7 @@ function ManualReportDialog({
                 onChange={(event) => setNetQuantity(event.target.value)}
                 disabled={pending}
               />
-            </div>
+            </FieldGrid>
             <TextField
               label="銷售金額"
               required
@@ -504,7 +504,7 @@ function ImportRecordDialog({
     >
       <div className={RECORD_FORM}>
         {state.kind === "payout" ? (
-          <div className="field-grid">
+          <FieldGrid>
             <TextField
               label="出金日期"
               required
@@ -521,20 +521,20 @@ function ImportRecordDialog({
               value={payoutAmount}
               onChange={(event) => setPayoutAmount(event.target.value)}
             />
-          </div>
+          </FieldGrid>
         ) : (
           <>
-            <div className="field-grid">
+            <FieldGrid>
               <TextField label="報表月份" required type="month" value={reportMonth} onChange={(event) => setReportMonth(event.target.value)} />
               <TextField label="SKU" required value={sku} onChange={(event) => setSku(event.target.value)} />
               <TextField label="商品名稱" value={productName} onChange={(event) => setProductName(event.target.value)} />
               <TextField label="類別" value={category} onChange={(event) => setCategory(event.target.value)} />
-            </div>
-            <div className="field-grid trio">
+            </FieldGrid>
+            <FieldGrid columns={3}>
               <TextField label="銷售數量" required type="number" step="1" inputMode="numeric" value={grossQuantity} onChange={(event) => setGrossQuantity(event.target.value)} />
               <TextField label="退回數量" required type="number" step="1" inputMode="numeric" value={returnQuantity} onChange={(event) => setReturnQuantity(event.target.value)} />
               <TextField label="淨銷售數量" required type="number" step="1" inputMode="numeric" value={netQuantity} onChange={(event) => setNetQuantity(event.target.value)} />
-            </div>
+            </FieldGrid>
             <TextField label="售額總計" required type="number" step="1" inputMode="numeric" value={salesAmount} onChange={(event) => setSalesAmount(event.target.value)} />
           </>
         )}
@@ -670,7 +670,7 @@ function StandardReportImportDialog({
         }
       >
         <div className="grid min-h-0 min-w-0 flex-auto gap-[18px] overflow-hidden max-[620px]:gap-3.5">
-          <div className="field-grid">
+          <FieldGrid>
             <SelectField
               label="據點"
               required
@@ -683,7 +683,7 @@ function StandardReportImportDialog({
               disabled={pending}
             />
             {!scopeId ? <TextField label="新據點名稱" required value={scopeName} onChange={(event) => setScopeName(event.target.value)} disabled={pending} /> : <div />}
-          </div>
+          </FieldGrid>
 
           <div className="flex items-center justify-between gap-3 rounded-xl bg-canvas px-4 py-3">
             <p className="m-0">請使用指定欄位順序的 CSV 或 XLSX 檔案；匯入前可逐筆編輯所有欄位。</p>

@@ -50,22 +50,6 @@
  * 「新增對／應」。給它 flex: none 與 nowrap，寬度由文字決定。
  */
 
-.field-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
-.field-grid > [data-field] { min-width: 0; }
-/*
- * 三個窄欄位（數量、單位、安全庫存）。auto-fit 在對話框的寬度下只排得下兩欄，
- * 第三個會自己掉到下一列、旁邊空一大格。這種一組的數字欄位就明講要三欄。
- */
-.field-grid.trio { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-/*
- * 好幾個 HR 對話框用 form-grid／form-grid two 排兩欄，但這個 class 一直沒有定義，
- * 所以那些欄位其實是一欄一欄疊著、標題與輸入框的間距看起來鬆掉。補上定義比逐一改頁面安全。
- */
-.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
-.form-grid > [data-field] { min-width: 0; }
-.form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-@media (max-width: 560px) { .form-grid.two { grid-template-columns: minmax(0, 1fr); } }
-
 /*
  * 欄位底下的說明文字。
  *
