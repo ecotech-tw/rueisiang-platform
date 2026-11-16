@@ -21,21 +21,6 @@
 .admin-form.row { margin-top: 16px; }
 [data-panel-head] + .admin-form.row { margin-top: 0; }
 
-.table-select-all {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-.table-checkbox {
-  width: 18px;
-  height: 18px;
-  margin: 0;
-  accent-color: var(--color-brand);
-  cursor: pointer;
-}
-.table-checkbox:disabled { cursor: not-allowed; }
-
 /* 表格內可直接編輯的欄位。邊框只在 hover 或聚焦時出現，不然整張表會滿是框線。 */
 
 .inline-label { font-size: 13px; color: var(--color-muted); }

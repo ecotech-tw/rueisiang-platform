@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, FilterInput, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterInput, FilterToolbar, Page, PageHeader, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   useCyberbizSalesState,
@@ -90,17 +90,15 @@ export function CyberbizSales() {
             <thead>
               <tr>
                 <th>
-                  <label className="table-select-all">
+                  <TableSelectAllLabel>
                     <span>選取</span>
-                    <input
-                      className="table-checkbox"
-                      type="checkbox"
+                    <TableCheckbox
                       checked={allSelected}
                       disabled={blocked || !stores.length}
                       onChange={toggleAll}
                       aria-label="全選顯示中的店別"
                     />
-                  </label>
+                  </TableSelectAllLabel>
                 </th>
                 <th>通路</th>
                 <th>Drive 資料夾</th>
@@ -111,9 +109,7 @@ export function CyberbizSales() {
               {stores.map((store) => (
                 <tr key={store.name}>
                   <td className="store-selection-cell" data-label="選取">
-                    <input
-                      className="table-checkbox"
-                      type="checkbox"
+                    <TableCheckbox
                       checked={selectedNames.includes(store.name)}
                       disabled={blocked}
                       onChange={(event) => toggle(store.name, event.target.checked)}
