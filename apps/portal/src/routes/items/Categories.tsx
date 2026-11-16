@@ -186,7 +186,7 @@ export function ItemCategories() {
       <Panel grows>
         {error ? <Alert tone="danger">{error.message}</Alert> : null}
 
-        {dropHint ? <div className="drag-drop-hint" role="status">{dropHint}</div> : null}
+        {dropHint ? <div className="mx-6 mb-2.5 rounded-[10px] bg-brand-soft px-3 py-2 text-[13px] text-brand-dark" role="status">{dropHint}</div> : null}
         {/* 只有三欄：後兩欄給固定寬度，讓「分類」吃掉剩下的空間；平均分掉的話個位數的數量會停在畫面正中央，離表頭很遠。 */}
         <DataTable className="[&_th:nth-child(2):not(:last-child)]:w-40 [&_td:nth-child(2):not(:last-child)]:w-40 [&_th:last-child]:w-30 [&_td:last-child]:w-30">
             <thead><tr><th>分類</th><th className="numeric">使用中的品項</th>{canWrite ? <th /> : null}</tr></thead>

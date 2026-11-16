@@ -1,12 +1,7 @@
-.attendance-event-table td:first-child { white-space: nowrap; font-variant-numeric: tabular-nums; }
-
 /* useHrQuery 換條件時畫面上還是舊資料；變淡並擋掉點擊，免得對著舊資料操作。 */
 .is-refreshing { opacity: .55; pointer-events: none; transition: opacity 150ms ease-out; }
 
 
-/* AI 助理 Sandbox */
-.settings-summary { margin: 0; line-height: 1.7; }
-.line-channel-form { display: grid; gap: 14px; }
 /* Sandbox 的「回覆中」三點；引用寫在 Sandbox.tsx 的 animate-[assistant-typing_…]。 */
 @keyframes assistant-typing {
   0%, 60%, 100% { opacity: .35; transform: translateY(0); }
@@ -46,19 +41,6 @@
 .inline-label { font-size: 13px; color: var(--color-muted); }
 
 .table-note { margin: 16px 4px 0; }
-.cell-error { margin-top: 2px; color: var(--color-brand-dark); font-size: 12px; }
-
-/*
- * 低於安全庫存的數字。
- *
- * 同一列右邊已經有「需要補貨」的標籤，這裡不再重複一個標籤，只把數字本身
- * 染色——掃過一整欄數字時，眼睛找的是數字，不是旁邊那一欄。
- */
-.stock-low { color: var(--color-brand-dark); font-weight: 700; }
-
-/* 畫布尺寸的預設值。 */
-.preset-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.preset-row small { color: var(--color-muted); font-size: 11px; font-weight: 400; }
 
 /* 倉位明細抽屜（wms/ZoneDrawer.tsx）的進退場。用法與曲線的取捨寫在元件裡。 */
 @keyframes drawer-slide-in {
@@ -74,51 +56,7 @@
   to { opacity: 1; }
 }
 
-/* 層架清單：一行一層，右邊一顆移除。 */
-.shelf-levels { display: grid; gap: 6px; }
-.shelf-level { display: flex; align-items: center; gap: 6px; }
-
-.drag-drop-hint { margin: 0 24px 10px; padding: 8px 12px; border-radius: 10px; background: var(--color-brand-soft); color: var(--color-brand-dark); font-size: 13px; }
-
 /* 盤點按鈕比旁邊的圖示鈕高一點才對得齊，而且它有文字，要窄一點的內距。 */
-
-/* 表單裡的唯讀值。長得像輸入框的位置，但明確不是輸入框。 */
-.field-static {
-  margin: 0;
-  padding: 8px 0 0;
-  color: var(--color-ink);
-  font-size: 15px;
-  font-weight: 700;
-}
-.field-static small {
-  display: block;
-  margin-top: 2px;
-  color: var(--color-muted);
-  font-size: 12px;
-  font-weight: 400;
-}
-
-/* 盤點對話框：正在數的是哪一項，釘在最上面。 */
-.count-subject {
-  padding: 12px 14px;
-  border-radius: var(--radius-field);
-  background: var(--color-canvas);
-}
-
-.progress-bar {
-  height: 6px;
-  margin-top: 14px;
-  border-radius: 999px;
-  background: var(--color-soft-line);
-  overflow: hidden;
-}
-.progress-bar span {
-  display: block;
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--color-brand), #e14842);
-  transition: width .3s ease;
-}
 
 /*
  * 標題列的動作區不能被壓扁。
@@ -134,19 +72,6 @@
  * 第三個會自己掉到下一列、旁邊空一大格。這種一組的數字欄位就明講要三欄。
  */
 .field-grid.trio { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-/*
- * 地址那三格。原本外面包一層 Field 加「地址」標題，但裡面的標籤已經寫著
- * 縣市／區域／地址，標題只是重複。拿掉標題之後這一組跟上面那排就黏在一起了
- * （對話框內容區的 16px 對「一組」來說不夠），多給 8px 把它推開。
- */
-.address-fields { display: grid; gap: 16px; margin-top: 8px; }
-/* 班別清單沿用敘薪的「逐列編輯／底部新增與儲存」結構，但一個班別是一張卡，卡裡才是三個日型。 */
-.shift-members { display: grid; gap: 8px; padding: 6px 4px; }
-.shift-time-control { position: relative; min-width: 0; }
-.shift-group { display: grid; gap: 6px; }
-.shift-group-head { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 8px; }
-.shift-item-spacer { display: block; }
-.shift-item-note { grid-column: 1 / -1; margin-top: -4px; color: var(--color-muted); font-size: 12px; }
 /*
  * 好幾個 HR 對話框用 form-grid／form-grid two 排兩欄，但這個 class 一直沒有定義，
  * 所以那些欄位其實是一欄一欄疊著、標題與輸入框的間距看起來鬆掉。補上定義比逐一改頁面安全。
@@ -222,20 +147,5 @@
     padding-top: 4px;
   }
 }
-
-.checkbox-field { display: inline-flex; align-items: center; gap: 8px; font-weight: 400; }
-.checkbox-field input { width: 18px; height: 18px; accent-color: var(--color-brand); }
-
-/*
- * ── 標籤選擇器 ────────────────────────────────────────────────────────────
- *
- * 原本是空白輸入框加一顆「新增」，打字的人看不到公司已經有哪些標籤，於是
- * 「需追蹤」「待追蹤」「要追蹤」會同時存在。改成先搜尋、找不到才新增。
- */
-/*
- * 輸入框與下拉一組。scroll-margin-bottom 讓 scrollIntoView 多留一段空間，
- * 不然會剛好停在對話框底部那條 sticky 按鈕列的下面。
- */
-.tag-combo { display: grid; }
 
 .field-note { margin: 0 0 4px; font-size: 12px; }

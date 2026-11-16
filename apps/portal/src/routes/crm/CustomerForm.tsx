@@ -5,7 +5,7 @@ import {
   taiwanDistricts,
   type TaiwanCity,
 } from "../../lib/taiwan-address.js";
-import { Alert, Button, Dialog, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FieldGroup, SelectField, TextField } from "../../ui/index.js";
 import {
   useCreateCustomer,
   useTagOptions,
@@ -129,7 +129,7 @@ export function CustomerForm({ customer, onClose }: Props) {
             * 這是什麼，多一層標題只是讓「地址」在同一塊裡出現兩次。改成靠間距
             * 把這一組跟上面分開。
           */}
-          <div className="address-fields">
+          <FieldGroup>
             <div className="field-grid">
               <SelectField
                 label="縣市"
@@ -160,7 +160,7 @@ export function CustomerForm({ customer, onClose }: Props) {
               value={address.addressLine}
               onChange={(event) => setAddress({ ...address, addressLine: event.target.value })}
             />
-          </div>
+          </FieldGroup>
 
           <TagPicker
             value={fields.tags}

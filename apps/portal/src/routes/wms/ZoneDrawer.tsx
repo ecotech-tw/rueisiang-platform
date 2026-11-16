@@ -11,6 +11,7 @@ import {
   type InventoryItem,
   type Zone,
 } from "./api.js";
+import { STOCK_LOW } from "./stock-low.js";
 
 const STEPPER_BUTTON = "size-7 rounded-[50%] border-0 bg-transparent text-[15px] leading-none text-ink enabled:hover:bg-brand/7 disabled:text-muted";
 
@@ -99,13 +100,13 @@ function ZoneItem({ item, levelName, placeLabel }: { item: InventoryItem; levelN
             >
               −
             </button>
-            <span className={`min-w-[46px] text-center text-[14px] font-bold tabular-nums ${low ? "stock-low" : ""}`}>{shown.toLocaleString("zh-TW")}</span>
+            <span className={`min-w-[46px] text-center text-[14px] font-bold tabular-nums ${ low ? STOCK_LOW : "" }`}>{shown.toLocaleString("zh-TW")}</span>
             <button type="button" className={STEPPER_BUTTON} aria-label={`${item.name} 加一`} onClick={() => adjust(1)}>
               ＋
             </button>
           </div>
         ) : (
-          <span className={`flex-none font-bold ${low ? "stock-low" : ""}`}>
+          <span className={`flex-none font-bold ${ low ? STOCK_LOW : "" }`}>
             {shown.toLocaleString("zh-TW")} {item.unit}
           </span>
         )}

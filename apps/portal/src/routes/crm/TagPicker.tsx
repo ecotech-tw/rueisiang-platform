@@ -129,11 +129,10 @@ export function TagPicker({
       ) : null}
 
       {/*
-        * 下拉在流內展開（不是絕對定位）。這張表單在一個會捲動、而且外層
-        * overflow: hidden 的對話框裡——浮起來的下拉一超過卡片底部就被裁掉，
-        * 那些選項看得到一半卻點不到。在流內就交給對話框自己捲。
+        * 輸入框這一塊只負責量位置：下面的下拉用 portal 掛到 body、fixed 定位，
+        * 座標從這裡的 getBoundingClientRect 算出來。
         */}
-      <div className="tag-combo" ref={comboRef}>
+      <div className="grid" ref={comboRef}>
       <div className="relative flex items-center">
         <Icon name="search" className="pointer-events-none absolute left-[11px] size-[18px] text-muted" />
         <Input

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, StaticValue, TextField } from "../../ui/index.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type GoogleMapPlace, type NamedOption } from "./api.js";
@@ -185,7 +185,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
               <strong>{selectedPlace.name}</strong>
               <small>{selectedPlace.address}</small>
             </div>
-          ) : <p className="field-static">尚未選取辦公位置</p>}
+          ) : <StaticValue>尚未選取辦公位置</StaticValue>}
         </Field>
         {coordinateQuery ? <a className="inline-flex min-h-10 items-center self-start rounded-full px-2.5 text-[13px] font-bold text-brand-dark hover:bg-brand/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary" href={mapsSearch(coordinateQuery)} target="_blank" rel="noreferrer">在 Google Maps 檢視已選辦公位置</a> : null}
       </section>

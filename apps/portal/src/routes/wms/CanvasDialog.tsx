@@ -64,7 +64,7 @@ export function CanvasDialog({
             放大畫布可以容納更多倉位。既有的區塊會維持相對位置與比例，不會跑掉。
           </p>
 
-          <div className="preset-row">
+          <div className="flex flex-wrap gap-2">
             {PRESETS.map((preset) => (
               <Button
                 key={preset.label}
@@ -78,7 +78,7 @@ export function CanvasDialog({
                 }}
               >
                 {preset.label}
-                <small>{preset.width} × {preset.height}</small>
+                <small className="text-[11px] font-normal text-muted">{preset.width} × {preset.height}</small>
               </Button>
             ))}
           </div>
