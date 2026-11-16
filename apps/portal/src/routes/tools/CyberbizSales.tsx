@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, FilterInput, FilterToolbar, Page, PageHeader, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterInput, FilterLabel, FilterToolbar, Page, PageHeader, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   useCyberbizSalesState,
@@ -61,7 +61,7 @@ export function CyberbizSales() {
 
       <Panel grows>
         <FilterToolbar>
-          <span className="inline-label">報表月份</span>
+          <FilterLabel>報表月份</FilterLabel>
           <FilterInput
             label="報表月份"
             type="month"

@@ -14,7 +14,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone, Tag, TagList } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterCount, FilterFields, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone, Tag, TagList } from "../../ui/index.js";
 
 const SYNC_TONE: Record<string, StatusTone> = {
   synced: "success",
@@ -199,7 +199,7 @@ export function Customers() {
             onClick={() => setShowFilters((open) => !open)}
           >
             篩選
-            {activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}
+            <FilterCount count={activeFilterCount} />
           </Button>
           {activeFilterCount ? (
             <Button
@@ -215,7 +215,7 @@ export function Customers() {
             * 只是把兩次點擊塞進本來就看得到的東西前面。
             * 手機空間不夠才收起來——那顆按鈕與這裡的 open 狀態都只在窄螢幕生效。
             */}
-          <div className={`filter-fields${showFilters ? " open" : ""}`}>
+          <FilterFields open={showFilters}>
           <FilterSelect
             label="狀態"
             value={filters.status}
@@ -240,7 +240,7 @@ export function Customers() {
               ]}
             />
           ) : null}
-          </div>
+          </FilterFields>
         </FilterToolbar>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}

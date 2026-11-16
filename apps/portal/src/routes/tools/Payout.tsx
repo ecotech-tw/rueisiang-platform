@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, FilterToolbar, Page, PageHeader, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterLabel, FilterToolbar, Page, PageHeader, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   usePayoutState,
@@ -72,7 +72,7 @@ export function Payout() {
 
       <Panel grows>
         <FilterToolbar>
-          <span className="inline-label">對帳區間</span>
+          <FilterLabel>對帳區間</FilterLabel>
           <DateRangePicker
             start={start}
             end={end}

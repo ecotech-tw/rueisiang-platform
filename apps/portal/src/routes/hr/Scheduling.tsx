@@ -3,7 +3,7 @@ import { canSchedulePerson, outdatedScheduleIds, resolveSchedulePerson, schedule
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Dialog, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, Dialog, FieldNote, Page, PageHeader, Panel, REFRESHING, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { groupShiftsByTemplate, isDefaultHrCalendarSpecialName, pickShiftForDay, shiftTimeRange, useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, HR_SHIFT_DAY_LABELS, SCHEDULE_ATTENDANCE_STATUS_LABELS, type HrCalendarDay, type HrCalendarSpecialKind, type HrDayType, type HrScheduleResponse, type ScheduleEntry, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { GuardedNavLink, useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
@@ -192,7 +192,7 @@ function ScheduleEntryDialog({ data, entries, day, dayType, defaultScopeId, onAd
       const shift = pickShiftForDay(versions, dayType, day);
       return shift ? [{ value: shift.versionId, label: shiftLabel(shift) }] : [];
     })} onChange={(event) => setShiftVersionId(event.target.value)} />
-    {selectedShift && selectedShift.dayType !== "weekday" ? <p className="muted field-note">這天是{HR_DAY_TYPE_LABELS[dayType]}，已套用{HR_SHIFT_DAY_LABELS[selectedShift.dayType]}時間。</p> : null}
+    {selectedShift && selectedShift.dayType !== "weekday" ? <FieldNote>這天是{HR_DAY_TYPE_LABELS[dayType]}，已套用{HR_SHIFT_DAY_LABELS[selectedShift.dayType]}時間。</FieldNote> : null}
     {otherScopeNames.length ? <Alert tone="warning">此人員已在 {day} 排入「{otherScopeNames.join("、")}」。仍可加入另一據點；請確認支援安排，日薪會依排班單位計算。</Alert> : null}
     {!shifts.length ? <Alert tone="info">這個營運據點尚未設定班別，請先到 <GuardedNavLink to="/hr/scheduling/shifts">班別管理</GuardedNavLink> 新增。</Alert> : selectedShift && !personIds.length ? <Alert>此班別沒有可排的{personKind === "employee" ? "正式員工" : "支援人員"}。</Alert> : null}
   </Dialog>;
@@ -239,7 +239,7 @@ function CalendarDialog({ periodKey: key, days: initial, scopes, canWrite, onClo
     closeDisabled={save.isPending}
     actions={canWrite ? <Button loading={save.isPending} disabled={!changed} onClick={() => { void submit(); }}>儲存</Button> : undefined}
   >
-    <p className="muted field-note">週六日預設就是週末，不用特別標。災防停班只適用平日，不會刪除原排班，結算時會保留給薪紀錄。</p>
+    <FieldNote>週六日預設就是週末，不用特別標。災防停班只適用平日，不會刪除原排班，結算時會保留給薪紀錄。</FieldNote>
     {/* 一個月一次看完，所以是自己捲的一欄，不是整個對話框變得比螢幕長。 */}
     <div className="mt-2 grid max-h-[52vh] gap-1 overflow-y-auto">
       {days.map((day) => <div className={`grid grid-cols-[54px_132px_180px_230px_minmax(0,1fr)] items-center gap-2.5 rounded-xl px-1.5 py-[3px] max-[560px]:grid-cols-[44px_minmax(0,1fr)] max-[560px]:gap-[6px_8px] ${ CALENDAR_EDITOR_ROW_TONE[day.dayType] }`} key={day.date}>
@@ -528,7 +528,7 @@ export function HrScheduling() {
         <Button variant="secondary" onClick={() => setQuick(null)}>結束</Button>
       </div> : null}
       <div className="grid min-h-0 flex-none grid-cols-7 gap-2 border-b border-b-ink/8 pb-2 text-center text-[12px] text-muted">{["日", "一", "二", "三", "四", "五", "六"].map((day) => <strong className="min-h-[26px] text-[13px] font-black tracking-[.08em] text-muted" key={day}>{day}</strong>)}</div>
-      <div className={`-mx-[22px] -mb-5 flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain px-[22px] pb-5 ${loading ? "is-refreshing" : ""}`}>
+      <div className={`-mx-[22px] -mb-5 flex min-h-0 flex-1 flex-col overflow-auto overscroll-contain px-[22px] pb-5 ${ loading ? REFRESHING : "" }`}>
       <div className="grid min-h-0 flex-[1_0_auto] grid-cols-7 gap-2 pt-1">
         {Array.from({ length: weekday(month) }, (_, index) => <div className={`${CALENDAR_CELL} border-transparent bg-transparent`} key={`empty-${index}`} />)}
         {dates.map((day, index) => {
