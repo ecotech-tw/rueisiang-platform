@@ -3,6 +3,7 @@ import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it } from "vitest";
 import { TableBulkActionMenu, type TableBulkActionOption } from "@rueisiang/ui";
+import { TableMobileSelectAll } from "./TableBulkActionControls.js";
 
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -72,4 +73,20 @@ it("只有一種操作時點擊批次操作即可開始，啟用後按鈕變成�
   expect(container.querySelector("output")?.textContent).toBe("cancel");
   expect(container.querySelector("button")?.textContent).toBe("取消批次操作");
   expect(container.querySelector("button")?.className).toContain("bg-brand-soft");
+});
+
+it("手機全選列的部分選取跟著 indeterminate prop 走，全選或清空時拿掉", () => {
+  container = document.createElement("div");
+  document.body.append(container);
+  root = createRoot(container);
+  const render = (checked: boolean, indeterminate: boolean) => act(() => root?.render(createElement(TableMobileSelectAll, { variant: "plain", checked, indeterminate, "aria-label": "全選本頁", onChange: () => {}, children: "全選本頁" })));
+
+  render(false, false);
+  const input = container.querySelector<HTMLInputElement>("input[type=checkbox]");
+  expect(input?.indeterminate).toBe(false);
+  render(false, true);
+  expect(input?.indeterminate).toBe(true);
+  render(true, false);
+  expect(input?.indeterminate).toBe(false);
+  expect(input?.checked).toBe(true);
 });
