@@ -39,6 +39,7 @@ import { cyberbizReportsInternal } from "./routes/cyberbiz-reports-internal.js";
 import { cyberbizReportsMcp } from "./routes/cyberbiz-reports-mcp.js";
 import { wms } from "./routes/wms.js";
 import { media } from "./routes/media.js";
+import { rfidInternal } from "./routes/rfid-internal.js";
 import { maintainMediaCdn, mediaCdnConfig, serveMediaCdn } from "./media-cdn.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
 import { drainPayrollQueueOutbox, failPayrollQueueMessage, isPayrollQueueMessage, PAYROLL_QUEUE_MAX_ATTEMPTS, processPayrollQueueMessage, type PayrollQueueMessage } from "./payroll-queue.js";
@@ -109,6 +110,7 @@ const routes = app
   .route("/crm", crm)
   .route("/internal/shopee-sales", shopeeSalesInternal)
   .route("/internal/cyberbiz-reports", cyberbizReportsInternal)
+  .route("/internal/rfid", rfidInternal)
   .route("/mcp/cyberbiz-reports", cyberbizReportsMcp)
   .route("/tools", tools)
   .route("/reports/cyberbiz", cyberbizReports)

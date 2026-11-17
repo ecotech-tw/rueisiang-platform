@@ -1,9 +1,9 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie, verifySession } from "@rueisiang/auth";
 import {
-  HrError, HrInsuranceRateError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, checkHrClockLocation, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
+  HrError, HrInsuranceRateError, HrRfidError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, beginHrRfidEnrollment, cancelHrRfidEnrollment, checkHrClockLocation, confirmHrRfidEnrollment, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
   cancelHrFormRequest, createHrCompensationVersion, deleteHrFormRequestDraft, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview, getHrPerson,
   createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
-  isHrAdministrator, requireHrSelfEmployment,
+  getHrRfidCard, getHrRfidEnrollment, isHrAdministrator, requireHrSelfEmployment, revokeHrRfidCard,
   listHrAttendanceLocations, listHrCandidates, listHrEmployees, listHrFormApprovers, listHrFormRequests, listHrPersonnel,
   listHrScopes, listHrSupervisorCandidates, listHrFormRequestsForHr, reviewHrFormRequest,
   approveHrPayrollRecords, assignHrBonusPolicyMember, calculateHrPayroll, closeHrPayrollRun, createHrBonusPolicy, createHrPayrollJob, deleteHrBonusPolicy, deleteHrPayrollRecord, deleteHrPayrollRun, getHrPayrollJob, getHrPayrollRecordDetail, HR_BONUS_POLICY_PAGE_SIZES, HR_PAYROLL_RECORD_PAGE_SIZES, listHrBonusAssignments, listHrBonusPolicies, getHrPayrollRun, listHrPayrollEmployeeHistory, listHrPayrollSelfHistory, getHrPayrollSelfDetail, listHrPayrollJobs, listHrPayrollRecords, listHrPayrollRuns, listHrPayrollCandidateExclusions, listHrPayrollWorkerCandidates, retryHrPayrollJob, updateHrBonusPolicy, voidHrBonusPolicyVersion, withdrawHrPayrollRecord, withdrawHrPayrollRun,
@@ -607,7 +607,7 @@ export const hr = new Hono<AppEnv>()
     return next();
   })
   .onError((error, c) => {
-    if (error instanceof HrError || error instanceof HTTPException) return c.json({ error: error.message }, error.status);
+    if (error instanceof HrError || error instanceof HrRfidError || error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     throw error;
   })
   .post("/me/liff-session", async (c) => {
@@ -1610,6 +1610,15 @@ export const hr = new Hono<AppEnv>()
       includeEmploymentActions: can(c.get("user"), "hr:employee:write"),
     }));
   })
+  .get("/employments/:id/rfid-card", requirePermission("hr:employee:read"), async (c) => c.json({ card: await getHrRfidCard(c.get("db"), c.req.param("id")) }))
+  .post("/employments/:id/rfid-enrollments", requirePermission("hr:employee:write"), async (c) => {
+    if (!c.env.RFID_GATEWAY_TOKEN?.trim()) throw new HTTPException(503, { message: "RFID Gateway 尚未完成伺服器設定，暫時無法感應綁卡。" });
+    return c.json(await beginHrRfidEnrollment(c.get("db"), c.req.param("id"), c.get("user")), 201);
+  })
+  .get("/employments/:id/rfid-enrollments/:sessionId", requirePermission("hr:employee:write"), async (c) => c.json({ enrollment: await getHrRfidEnrollment(c.get("db"), c.req.param("id"), c.req.param("sessionId")) }))
+  .post("/employments/:id/rfid-enrollments/:sessionId/confirm", requirePermission("hr:employee:write"), async (c) => c.json(await confirmHrRfidEnrollment(c.get("db"), c.req.param("id"), c.req.param("sessionId"), c.get("user"))))
+  .post("/employments/:id/rfid-enrollments/:sessionId/cancel", requirePermission("hr:employee:write"), async (c) => c.json(await cancelHrRfidEnrollment(c.get("db"), c.req.param("id"), c.req.param("sessionId"), c.get("user"))))
+  .delete("/employments/:id/rfid-card", requirePermission("hr:employee:write"), async (c) => c.json(await revokeHrRfidCard(c.get("db"), c.req.param("id"), c.get("user"))))
   .get("/employees/:id/photo", requirePermission("hr:employee:read"), async (c) => {
     if (!await isHrAdministrator(c.get("db"), c.get("user").id)) throw new HTTPException(403, { message: "只有全平台 HR 管理者可以查看員工大頭貼。" });
     const person = await getHrPerson(c.get("db"), c.req.param("id"));

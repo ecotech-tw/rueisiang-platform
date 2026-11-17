@@ -86,6 +86,12 @@ jobs:
           npm ci
           node selftest.mjs
 
+      - name: RFID TCP Gateway 的自我檢查
+        working-directory: tools/rfid-gateway
+        run: |
+          node --check src/server.mjs
+          node --test test/server.test.mjs
+
       # 開發機是 Windows on ARM，起不了 workerd，所以「設定檔到底能不能部署」
       # 這件事只有在 Linux 上才驗得到。放在最後：前面都過了才有意義。
       - name: 驗證 API Worker 設定與打包

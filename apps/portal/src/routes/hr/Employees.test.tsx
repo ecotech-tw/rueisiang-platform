@@ -10,7 +10,8 @@ describe("人事資料呈現", () => {
   it("浮動導覽只列出存在的區塊，聯絡在任職之前，支援人員不提供正式員工區塊", () => {
     const profile: Profile = { employee, employments: [], assignments: [] };
     const sections = employeeSections(profile);
-    expect(sections.map(({ id }) => id)).toEqual(["employee-photo", "employee-basic", "employee-contact", "employee-company", "employee-compensation", "employee-insurance", "employee-attendance"]);
+    expect(sections.map(({ id }) => id)).toEqual(["employee-photo", "employee-basic", "employee-contact", "employee-rfid", "employee-company", "employee-compensation", "employee-insurance", "employee-attendance"]);
+    expect(employeeSections(profile, false).map(({ id }) => id)).not.toContain("employee-rfid");
     const html = renderToStaticMarkup(<EmployeeSectionNav profile={profile} />);
     for (const section of sections) expect(html).toContain(`href="#${section.id}"`);
     expect(html).toContain('aria-current="location"');

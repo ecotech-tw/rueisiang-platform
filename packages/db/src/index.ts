@@ -7,6 +7,7 @@ export {
   getHrAttendanceLocation, setHrAttendanceLocationPrimary, updateHrAttendanceScope, getHrClockCalendar, countHrClockCalendarAnomalies, getHrClockMapCenters, getHrClockStatus, listHrAttendanceLocations, updateHrAttendanceLocation, HR_ATTENDANCE_LOCATION_PAGE_SIZES, type HrAttendanceLocationListQuery, type HrAttendanceScopeUpdateInput,
 } from "./hr-attendance.js";
 export { getHrOverview, type HrOverviewResult, type HrOverviewPayrollStatus } from "./hr-overview.js";
+export { beginHrRfidEnrollment, cancelHrRfidEnrollment, captureHrRfidScan, confirmHrRfidEnrollment, getHrRfidCard, getHrRfidEnrollment, parseHrRfidPacket, revokeHrRfidCard, HrRfidError, type HrRfidCard, type HrRfidEnrollment } from "./hr-rfid.js";
 export { insertHrNotification, listHrNotifications, markAllHrNotificationsRead, markHrNotificationRead, type HrNotificationEntityKind, type HrNotificationInsert, type HrNotificationKind } from "./hr-notifications.js";
 export {
   saveHrScheduleChanges, createHrScheduleWorker, createHrShift, deleteHrShift, listHrShifts, updateHrShift, createHrWorkerCompensation, voidHrWorkerCompensationVersion, getHrSchedule, getHrScheduleScopeLock, listHrScheduleWorkers, listHrScheduleWorkersPage, saveHrSchedule, setHrScheduleLock, setHrScheduleScopeLock, updateHrScheduleWorker, HR_SCHEDULE_WORKER_PAGE_SIZES,
