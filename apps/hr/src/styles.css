@@ -5,6 +5,13 @@
 @source "../../../packages/ui/src";
 
 @layer base {
+  /*
+   * viewport-fit=cover 之後頁面會畫進 Home 橫條那一塊；底部導覽、打卡子頁、表單送出列與浮動新增鍵
+   * 都從這個值往上算。要定義在 :root：浮動新增鍵用 portal 掛在 body 底下，不在 HR 版面容器裡，
+   * 變數只寫在容器上的話它讀不到，bottom 失效，按鈕會跳到畫面最上面。
+   */
+  :root { --hr-safe-bottom: max(12px, env(safe-area-inset-bottom)); }
+
   html, body, #root { min-height: 100%; }
 
   html:has([data-shell]),
