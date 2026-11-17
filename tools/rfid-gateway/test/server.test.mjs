@@ -74,11 +74,15 @@ test("TCP fragments and coalesced CRLF frames are forwarded as exact raw packets
     socket.write("0002 15");
     socket.write("A9AC63\r\n0002 F1B7E886\r\n");
     await waitFor(() => context.sent.length === 2);
+    socket.write("0002 15A9AC63\r\n");
+    await waitFor(() => context.logs.some((event) => event.event === "duplicate_frame_ignored"));
 
-    assert.deepEqual(context.sent.map(({ url, body }) => ({ url, body })), [
-      { url: "https://hr.example.com/api/internal/rfid/scans", body: { deviceId: "office-entrance", rawPacket: "0002 15A9AC63\r\n" } },
-      { url: "https://hr.example.com/api/internal/rfid/scans", body: { deviceId: "office-entrance", rawPacket: "0002 F1B7E886\r\n" } },
+    assert.deepEqual(context.sent.map(({ url, body }) => ({ url, deviceId: body.deviceId, attendanceLocationName: body.attendanceLocationName, rawPacket: body.rawPacket })), [
+      { url: "https://hr.example.com/api/internal/rfid/scans", deviceId: "office-entrance", attendanceLocationName: "瑞香雲林總部", rawPacket: "0002 15A9AC63\r\n" },
+      { url: "https://hr.example.com/api/internal/rfid/scans", deviceId: "office-entrance", attendanceLocationName: "瑞香雲林總部", rawPacket: "0002 F1B7E886\r\n" }
     ]);
+    assert.ok(context.sent.every(({ body }) => /^[0-9a-f-]{36}$/i.test(body.scanId)));
+    assert.notEqual(context.sent[0].body.scanId, context.sent[1].body.scanId);
     assert.equal(context.sent[0].init.headers["x-rfid-gateway-token"], TOKEN);
     assert.equal(context.logs.some((event) => JSON.stringify(event).includes("15A9AC63")), false);
     assert.equal(context.logs.filter((event) => event.event === "frame_forwarded").length, 2);
@@ -87,11 +91,13 @@ test("TCP fragments and coalesced CRLF frames are forwarded as exact raw packets
   }
 });
 
-test("transient upstream failures are retried without logging packet contents", async () => {
+test("transient upstream failures reuse the request ID and do not log packet contents", async () => {
   let calls = 0;
+  const requestIds = [];
   const context = await startGateway({
-    fetchImpl: async () => {
+    fetchImpl: async (_url, init) => {
       calls += 1;
+      requestIds.push(JSON.parse(init.body).scanId);
       return new Response(null, { status: calls === 1 ? 503 : 200 });
     },
   });
@@ -100,6 +106,7 @@ test("transient upstream failures are retried without logging packet contents", 
     socket.write("0002 0F281549\r\n");
     await waitFor(() => context.logs.some((event) => event.event === "frame_forwarded"));
     assert.equal(calls, 2);
+    assert.equal(requestIds[0], requestIds[1]);
     assert.equal(context.logs.some((event) => JSON.stringify(event).includes("0F281549")), false);
   } finally {
     await stopGateway(context, socket);
@@ -109,4 +116,5 @@ test("transient upstream failures are retried without logging packet contents", 
 test("invalid HTTP origins and short secrets are rejected", () => {
   assert.throws(() => createRfidGateway({ apiOrigin: "http://hr.example.com", token: TOKEN }), /HTTPS origin/);
   assert.throws(() => createRfidGateway({ apiOrigin: "https://hr.example.com", token: "short" }), /至少有 32 個字元/);
+  assert.throws(() => createRfidGateway({ apiOrigin: "https://hr.example.com", token: TOKEN, attendanceLocationName: "" }), /RFID_ATTENDANCE_LOCATION_NAME/);
 });

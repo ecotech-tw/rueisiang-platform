@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import { createServer as createTcpServer } from "node:net";
 import { pathToFileURL } from "node:url";
@@ -7,6 +8,8 @@ const PENDING_FRAME_LIMIT = 8;
 const UPSTREAM_ATTEMPTS = 3;
 const UPSTREAM_TIMEOUT_MS = 5_000;
 const RETRY_DELAYS_MS = [200, 500];
+// Reader 在卡片停留期間可能重送相同列；避免一次感應連續翻轉上下班狀態。
+const DUPLICATE_FRAME_WINDOW_MS = 3_000;
 
 function log(logger, event, fields = {}) {
   logger({ service: "rfid-gateway", event, ...fields });
@@ -23,6 +26,9 @@ function validateConfig(config) {
   if (typeof config.deviceId !== "string" || !/^[A-Za-z0-9._-]{1,100}$/.test(config.deviceId)) {
     throw new Error("RFID_DEVICE_ID 必須是 1–100 個英數字、點、底線或連字號。");
   }
+  if (typeof config.attendanceLocationName !== "string" || !config.attendanceLocationName.trim() || config.attendanceLocationName.length > 100) {
+    throw new Error("RFID_ATTENDANCE_LOCATION_NAME 必須是 1–100 個字元的出勤地點名稱。");
+  }
   for (const [label, port] of [["LISTEN_PORT", config.listenPort], ["HEALTH_PORT", config.healthPort]]) {
     if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`${label} 必須是 0–65535 的整數。`);
   }
@@ -34,6 +40,7 @@ function retryableStatus(status) {
 }
 
 async function forwardFrame(rawPacket, config, fetchImpl) {
+  const scanId = randomUUID();
   let lastError;
   for (let attempt = 0; attempt < UPSTREAM_ATTEMPTS; attempt += 1) {
     try {
@@ -43,7 +50,7 @@ async function forwardFrame(rawPacket, config, fetchImpl) {
           "content-type": "application/json",
           "x-rfid-gateway-token": config.token,
         },
-        body: JSON.stringify({ deviceId: config.deviceId, rawPacket }),
+        body: JSON.stringify({ deviceId: config.deviceId, scanId, attendanceLocationName: config.attendanceLocationName, rawPacket }),
         signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
       });
       if (!retryableStatus(response.status) || attempt === UPSTREAM_ATTEMPTS - 1) return response.status;
@@ -62,6 +69,7 @@ export function createRfidGateway({
   apiOrigin,
   token,
   deviceId = "office-entrance",
+  attendanceLocationName = "瑞香雲林總部",
   listenHost = "0.0.0.0",
   listenPort = 6000,
   healthHost = "0.0.0.0",
@@ -69,8 +77,9 @@ export function createRfidGateway({
   fetchImpl = fetch,
   logger = (event) => console.log(JSON.stringify(event)),
 } = {}) {
-  const config = validateConfig({ apiOrigin, token, deviceId, listenPort, healthPort });
+  const config = validateConfig({ apiOrigin, token, deviceId, attendanceLocationName, listenPort, healthPort });
   const sockets = new Set();
+  const recentFrames = new Map();
   const healthServer = createHttpServer((request, response) => {
     if (request.method === "GET" && request.url === "/healthz") {
       response.writeHead(200, { "cache-control": "no-store", "content-type": "application/json" });
@@ -111,6 +120,18 @@ export function createRfidGateway({
           return;
         }
         const rawPacket = frame.toString("utf8");
+        const now = Date.now();
+        for (const [recentPacket, scannedAt] of recentFrames) {
+          if (now - scannedAt >= DUPLICATE_FRAME_WINDOW_MS) recentFrames.delete(recentPacket);
+        }
+        const previousScan = recentFrames.get(rawPacket);
+        if (previousScan !== undefined && now - previousScan < DUPLICATE_FRAME_WINDOW_MS) {
+          log(logger, "duplicate_frame_ignored", { deviceId: config.deviceId });
+          continue;
+        }
+        recentFrames.delete(rawPacket);
+        recentFrames.set(rawPacket, now);
+        if (recentFrames.size > 512) recentFrames.delete(recentFrames.keys().next().value);
         pendingFrames += 1;
         pending = pending.then(async () => {
           try {
@@ -163,6 +184,7 @@ export function configFromEnv(env = process.env) {
     apiOrigin: env.RFID_API_ORIGIN,
     token: env.RFID_GATEWAY_TOKEN,
     deviceId: env.RFID_DEVICE_ID ?? "office-entrance",
+    attendanceLocationName: env.RFID_ATTENDANCE_LOCATION_NAME ?? "瑞香雲林總部",
     listenHost: env.LISTEN_HOST ?? "0.0.0.0",
     listenPort,
     healthHost: env.HEALTH_HOST ?? "0.0.0.0",
