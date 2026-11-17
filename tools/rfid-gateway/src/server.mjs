@@ -75,6 +75,7 @@ export function createRfidGateway({
   healthHost = "0.0.0.0",
   healthPort = 8788,
   fetchImpl = fetch,
+  now = Date.now,
   logger = (event) => console.log(JSON.stringify(event)),
 } = {}) {
   const config = validateConfig({ apiOrigin, token, deviceId, attendanceLocationName, listenPort, healthPort });
@@ -120,17 +121,18 @@ export function createRfidGateway({
           return;
         }
         const rawPacket = frame.toString("utf8");
-        const now = Date.now();
-        for (const [recentPacket, scannedAt] of recentFrames) {
-          if (now - scannedAt >= DUPLICATE_FRAME_WINDOW_MS) recentFrames.delete(recentPacket);
+        const scannedAt = now();
+        for (const [recentPacket, previousScan] of recentFrames) {
+          if (scannedAt - previousScan >= DUPLICATE_FRAME_WINDOW_MS) recentFrames.delete(recentPacket);
         }
         const previousScan = recentFrames.get(rawPacket);
-        if (previousScan !== undefined && now - previousScan < DUPLICATE_FRAME_WINDOW_MS) {
+        if (previousScan !== undefined && scannedAt - previousScan < DUPLICATE_FRAME_WINDOW_MS) {
+          recentFrames.set(rawPacket, scannedAt);
           log(logger, "duplicate_frame_ignored", { deviceId: config.deviceId });
           continue;
         }
         recentFrames.delete(rawPacket);
-        recentFrames.set(rawPacket, now);
+        recentFrames.set(rawPacket, scannedAt);
         if (recentFrames.size > 512) recentFrames.delete(recentFrames.keys().next().value);
         pendingFrames += 1;
         pending = pending.then(async () => {

@@ -91,6 +91,30 @@ test("TCP fragments and coalesced CRLF frames are forwarded as exact raw packets
   }
 });
 
+test("continuous duplicate frames keep the debounce window alive", async () => {
+  let now = 10_000;
+  let duplicateCount = 0;
+  const context = await startGateway({ now: () => now });
+  const socket = await connectReader(context.tcpPort);
+  try {
+    const packet = "0002 15A9AC63\r\n";
+    socket.write(packet);
+    await waitFor(() => context.sent.length === 1);
+    for (const elapsed of [1_000, 1_000, 1_500]) {
+      now += elapsed;
+      socket.write(packet);
+      duplicateCount += 1;
+      await waitFor(() => context.logs.filter((event) => event.event === "duplicate_frame_ignored").length === duplicateCount);
+    }
+    assert.equal(context.sent.length, 1);
+    now += 3_100;
+    socket.write(packet);
+    await waitFor(() => context.sent.length === 2);
+  } finally {
+    await stopGateway(context, socket);
+  }
+});
+
 test("transient upstream failures reuse the request ID and do not log packet contents", async () => {
   let calls = 0;
   const requestIds = [];
