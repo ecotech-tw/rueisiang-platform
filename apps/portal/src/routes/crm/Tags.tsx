@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, Tag } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, PageStatus, Panel, Tag } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -98,7 +98,7 @@ export function Tags() {
     }
   }
 
-  if (tags.isPending) return <div className="boot">載入中…</div>;
+  if (tags.isPending) return <PageStatus>載入中…</PageStatus>;
 
   const rows = tags.data?.tags ?? [];
 

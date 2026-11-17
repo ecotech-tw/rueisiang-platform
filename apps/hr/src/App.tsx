@@ -3,7 +3,7 @@ import { useSession } from "./auth/session.js";
 import { LiffAccountLinkPage } from "./auth/LiffAccountLinkPage.js";
 import { useHrQuery } from "./routes/hr/api.js";
 import { Login } from "./routes/Login.js";
-import { PageSpacing } from "./ui/index.js";
+import { PageSpacing, PageStatus } from "./ui/index.js";
 import { HrProfile } from "./routes/Profile.js";
 import { HrClock, HrClockCalendar, HrClockLogs } from "./routes/hr/Clock.js";
 import { HrClockCorrectionForm, HrForms, HrLeaveForm, HrOvertimeForm } from "./routes/hr/Forms.js";
@@ -20,14 +20,14 @@ function RequireSession({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const checkLineLink = Boolean(user?.lineLinkRequired && !user.lineLiffAuthenticated);
   const lineLink = useHrQuery<{ linked: boolean; pending: boolean; replaceRequired: boolean }>("/liff/link", checkLineLink);
-  if (loading) return <div className="boot">載入中…</div>;
-  if (error) return <div className="boot" role="alert"><p>{error instanceof Error ? error.message : "讀取登入狀態失敗。"}</p><button type="button" onClick={() => void reload()}>重新嘗試</button></div>;
+  if (loading) return <PageStatus>載入中…</PageStatus>;
+  if (error) return <PageStatus role="alert"><p>{error instanceof Error ? error.message : "讀取登入狀態失敗。"}</p><button type="button" onClick={() => void reload()}>重新嘗試</button></PageStatus>;
   if (!user) {
     const returnTo = `${location.pathname}${location.search}${location.hash}`;
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
   }
-  if (checkLineLink && lineLink.isPending) return <div className="boot">確認 LINE 綁定狀態…</div>;
-  if (checkLineLink && lineLink.error) return <div className="boot" role="alert"><p>{lineLink.error instanceof Error ? lineLink.error.message : "讀取 LINE 綁定狀態失敗。"}</p><button type="button" onClick={() => void lineLink.refetch()}>重新嘗試</button></div>;
+  if (checkLineLink && lineLink.isPending) return <PageStatus>確認 LINE 綁定狀態…</PageStatus>;
+  if (checkLineLink && lineLink.error) return <PageStatus role="alert"><p>{lineLink.error instanceof Error ? lineLink.error.message : "讀取 LINE 綁定狀態失敗。"}</p><button type="button" onClick={() => void lineLink.refetch()}>重新嘗試</button></PageStatus>;
   if (checkLineLink) return <LiffAccountLinkPage replaceExisting={Boolean(lineLink.data?.replaceRequired)} intentExpired={!lineLink.data?.pending} />;
   if (user.hrSelfServiceKind === "worker" && !/^\/(?:clock(?:\/(?:calendar|logs))?|payroll(?:\/[^/]+\/[^/]+)?|my-schedule)$/.test(location.pathname)) {
     return <Navigate to="/clock" replace />;
@@ -38,7 +38,7 @@ function RequireSession({ children }: { children: React.ReactNode }) {
 function RedirectIfSignedIn({ children }: { children: React.ReactNode }) {
   const { user, loading } = useSession();
   const [params] = useSearchParams();
-  if (loading) return <div className="boot">載入中…</div>;
+  if (loading) return <PageStatus>載入中…</PageStatus>;
   if (user) {
     const returnTo = params.get("returnTo");
     const safe = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/";

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, FilterLabel, FilterToolbar, Page, PageHeader, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterLabel, FilterToolbar, Page, PageHeader, PageStatus, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   usePayoutState,
@@ -57,7 +57,7 @@ export function Payout() {
     );
   }
 
-  if (state.isPending) return <div className="boot">載入中…</div>;
+  if (state.isPending) return <PageStatus>載入中…</PageStatus>;
 
   return (
     <Page layout="fills">

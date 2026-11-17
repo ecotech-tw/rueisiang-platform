@@ -3,7 +3,7 @@ import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { ToolList, ToolNote, ToolOption } from "./ToolOption.js";
 import { ASSISTANT_ACTIONS, AssistantSubsection } from "./AssistantSection.js";
-import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldGrid, FieldHint, FilterSelect, Page, PageHeader, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldGrid, FieldHint, FilterSelect, Page, PageHeader, PageStatus, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -147,7 +147,7 @@ export function Sandbox() {
     conversation.scrollTo({ top: conversation.scrollHeight, behavior: "smooth" });
   }, [sessionId, session.data?.session?.messages.length, run.isPending, pendingSessionId, failedRun?.runId]);
 
-  if (config.isPending) return <div className="boot">載入中…</div>;
+  if (config.isPending) return <PageStatus>載入中…</PageStatus>;
   if (config.error) return <Page><Alert tone="danger">{config.error.message}</Alert></Page>;
 
   const data = config.data;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, FilterInput, FilterLabel, FilterToolbar, Page, PageHeader, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterInput, FilterLabel, FilterToolbar, Page, PageHeader, PageStatus, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   useCyberbizSalesState,
@@ -33,7 +33,7 @@ export function CyberbizSales() {
     setMonth((current) => current || state.data.defaultStart.slice(0, 7));
   }, [state.data]);
 
-  if (state.isPending) return <div className="boot">載入中…</div>;
+  if (state.isPending) return <PageStatus>載入中…</PageStatus>;
 
   const latest = status.data?.runs[0];
   const followed = tracking ?? state.data?.latestRequestId ?? null;

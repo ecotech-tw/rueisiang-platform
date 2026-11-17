@@ -1,4 +1,4 @@
-import { Alert, ButtonLink } from "../../../ui/index.js";
+import { Alert, ButtonLink, PageStatus } from "../../../ui/index.js";
 import {
   ANALYTICS_CHART_GRID,
   AnalyticsEmptyPanel,
@@ -42,7 +42,7 @@ export function PayoutTab({ query, scopeLabel, enabled }: PayoutTabProps) {
   const result = usePayoutSummary(query, enabled);
 
   if (!enabled) return <Alert tone="warning">請先選擇有效的完整日期區間。</Alert>;
-  if (result.isPending && !result.data) return <div className="boot">載入統計中…</div>;
+  if (result.isPending && !result.data) return <PageStatus>載入統計中…</PageStatus>;
   if (result.error) {
     const message = result.error instanceof ReportApiError && result.error.status === 403
       ? "你沒有檢視營運統計的權限。"

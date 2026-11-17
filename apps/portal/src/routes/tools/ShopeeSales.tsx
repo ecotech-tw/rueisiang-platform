@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, Field, Input, Page, PageHeader, Panel, ReportSummary, SegmentedControl, SelectField, TextField, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, Field, Input, Page, PageHeader, PageStatus, Panel, ReportSummary, SegmentedControl, SelectField, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import {
   useConfirmShopeeSales,
   useDiscardShopeePreview,
@@ -151,8 +151,8 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
     if (tracking?.mode === "import" && latest?.status === "completed") setTracking(null);
   }, [latest?.status, tracking?.mode]);
 
-  if (state.isPending) return <div className="boot">載入中…</div>;
-  if (!state.data) return <div className="boot"><Alert tone="danger">{state.error?.message ?? "無法載入蝦皮通路設定。"}</Alert></div>;
+  if (state.isPending) return <PageStatus>載入中…</PageStatus>;
+  if (!state.data) return <PageStatus><Alert tone="danger">{state.error?.message ?? "無法載入蝦皮通路設定。"}</Alert></PageStatus>;
 
   const scopes = state.data.scopes;
   const selectedScopeId = scopes.some((scope) => scope.id === scopeId) ? scopeId : scopes[0]?.id ?? "";

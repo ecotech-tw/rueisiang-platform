@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableSelectAllLabel, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, PageStatus, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableSelectAllLabel, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -872,7 +872,7 @@ export function ManualReports() {
   }
   const activeQuery = kind === "payout" ? payoutsQuery : salesQuery;
   if (optionsQuery.isPending || activeQuery.isPending) {
-    return <div className="boot">載入報表管理中…</div>;
+    return <PageStatus>載入報表管理中…</PageStatus>;
   }
   if (queryError) {
     return <Page><Alert tone="danger">{queryError.message}</Alert></Page>;

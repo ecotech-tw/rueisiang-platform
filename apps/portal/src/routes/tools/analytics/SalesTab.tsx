@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Icon } from "../../../shell/icons.js";
-import { Alert, Button, ButtonLink } from "../../../ui/index.js";
+import { Alert, Button, ButtonLink, PageStatus } from "../../../ui/index.js";
 import { CategoryBreakdownChart } from "./charts/CategoryBreakdownChart.js";
 import { ChannelBreakdownChart } from "./charts/ChannelBreakdownChart.js";
 import { SalesTrendChart } from "./charts/SalesTrendChart.js";
@@ -102,7 +102,7 @@ export function SalesTab({ query, scopeLabel, enabled, productQuery, pendingProd
   const result = useSalesSummary(query, topSkuBy, enabled);
 
   if (!enabled) return <Alert tone="warning">請先選擇有效的完整日期區間。</Alert>;
-  if (result.isPending && !result.data) return <div className="boot">載入商品銷售統計中…</div>;
+  if (result.isPending && !result.data) return <PageStatus>載入商品銷售統計中…</PageStatus>;
   if (result.error) {
     const message = result.error instanceof ReportApiError && result.error.status === 403
       ? "你沒有檢視營運統計的權限。"

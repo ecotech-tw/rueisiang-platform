@@ -3,7 +3,7 @@ import { useSearchParams } from "react-router";
 import { isSignedOutEntry, useSession } from "../auth/session.js";
 import { isLiffClient } from "../auth/liff.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { Button, TextField } from "../ui/index.js";
+import { Button, LoginButton, LoginCard, LoginDivider, LoginError, LoginForm, LoginNote, TextField } from "../ui/index.js";
 import { API_BASE_URL } from "../config.js";
 
 function safeReturnTo(value: string | null): string {
@@ -53,37 +53,33 @@ export function Login() {
   }
 
   return (
-    <div className="login-page">
-      <div className="login-card">
-        <img className="login-logo" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={168} height={45} />
-        <h1>內部系統</h1>
+    <LoginCard title="內部系統">
         <p className="muted">用公司的 Google 帳號，或邀請信裡設定的密碼登入。</p>
 
-        {error || sessionError ? <p className="login-error" role="alert">{error ?? (sessionError instanceof Error ? sessionError.message : "讀取登入狀態失敗，請重新載入。")}</p> : null}
+        {error || sessionError ? <LoginError>{error ?? (sessionError instanceof Error ? sessionError.message : "讀取登入狀態失敗，請重新載入。")}</LoginError> : null}
 
         {isSignedOutEntry() && isLiffClient() ? <>
           <p className="muted">已登出此裝置，LINE 綁定仍保留。可重新登入，或關閉後再從 LINE 開啟 HR。</p>
-          <a className="login-button" href={returnTo}>使用 LINE 重新登入</a>
+          <LoginButton href={returnTo}>使用 LINE 重新登入</LoginButton>
         </> : null}
 
-        <a className="login-button" href={`${API_BASE_URL}/auth/google/start?returnTo=${encodeURIComponent(googleReturnTo)}`}>
+        <LoginButton href={`${API_BASE_URL}/auth/google/start?returnTo=${encodeURIComponent(googleReturnTo)}`}>
           使用 Google 帳號登入
-        </a>
+        </LoginButton>
 
-        <div className="login-divider"><span>或使用帳號密碼登入</span></div>
+        <LoginDivider>或使用帳號密碼登入</LoginDivider>
 
-        <form className="login-form" onSubmit={submit}>
+        <LoginForm onSubmit={submit}>
           <TextField inputClassName="w-full" label="Email" required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
           <TextField inputClassName="w-full" label="密碼" required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
           <Button type="submit" size="lg" className="w-full" disabled={pending}>
             {pending ? "登入中…" : "登入"}
           </Button>
-        </form>
+        </LoginForm>
 
-        <p className="muted login-note">
+        <LoginNote>
           帳號需要先由管理者邀請才能登入。找不到人開通時請聯絡資訊窗口。
-        </p>
-      </div>
-    </div>
+        </LoginNote>
+    </LoginCard>
   );
 }

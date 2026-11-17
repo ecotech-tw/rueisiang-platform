@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { Button, TextField } from "../ui/index.js";
+import { Button, LoginButton, LoginCard, LoginDivider, LoginError, LoginForm, LoginNote, TextField } from "../ui/index.js";
 
 /**
  * 登入頁。兩條路：Google 帳號，或邀請時設好的 email / 密碼。
@@ -64,33 +64,28 @@ export function Login() {
   }
 
   return (
-    <div className="login-page">
-      <div className="login-card">
-        <img className="login-logo" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={168} height={45} />
-        <h1>內部系統</h1>
+    <LoginCard title="內部系統">
         <p className="muted">用公司的 Google 帳號，或邀請信裡設定的密碼登入。</p>
 
-        {error ? <p className="login-error" role="alert">{error}</p> : null}
+        {error ? <LoginError>{error}</LoginError> : null}
 
-        <a className="login-button" href={`/api/auth/google/start?returnTo=${encodeURIComponent(googleReturnTo)}`}>
+        <LoginButton href={`/api/auth/google/start?returnTo=${encodeURIComponent(googleReturnTo)}`}>
           使用 Google 帳號登入
-        </a>
+        </LoginButton>
 
-        {/* 分隔線把兩條路切開，免得下面的表單看起來像 Google 按鈕的附屬欄位。 */}
-        <div className="login-divider"><span>或使用帳號密碼登入</span></div>
+        <LoginDivider>或使用帳號密碼登入</LoginDivider>
 
-        <form className="login-form" onSubmit={submit}>
+        <LoginForm onSubmit={submit}>
           <TextField inputClassName="w-full" label="Email" required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} />
           <TextField inputClassName="w-full" label="密碼" required type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} />
           <Button type="submit" size="lg" className="w-full" disabled={pending}>
             {pending ? "登入中…" : "登入"}
           </Button>
-        </form>
+        </LoginForm>
 
-        <p className="muted login-note">
+        <LoginNote>
           帳號需要先由管理者邀請才能登入。找不到人開通時請聯絡資訊窗口。
-        </p>
-      </div>
-    </div>
+        </LoginNote>
+    </LoginCard>
   );
 }
