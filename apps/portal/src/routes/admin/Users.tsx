@@ -20,7 +20,7 @@ import { PermissionCount, PermissionGrid, PermissionGroup, PermissionHint, Permi
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, Page, PageHeader, PageStatus, Panel, SelectField, StatusBadge, type StatusTone, Tag, TagList, TextField } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, Page, PageHeader, PageStatus, Panel, RowActions, SelectField, StatusBadge, type StatusTone, Tag, TagList, TextField } from "../../ui/index.js";
 
 const USER_STATUS_TONE: Record<AdminUser["status"], StatusTone> = {
   invited: "neutral",
@@ -449,7 +449,7 @@ function UserRow({
         <td className="cell-sub">{formatTime(user.lastLoginAt)}</td>
 
         <td>
-          <div className="row-actions">
+          <RowActions>
           <Button
             variant="icon"
             icon="edit"
@@ -475,7 +475,7 @@ function UserRow({
               重發連結
             </Button>
           ) : null}
-          </div>
+          </RowActions>
         </td>
       </tr>
 

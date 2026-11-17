@@ -8,7 +8,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, DataTable, Dialog, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, PageStatus, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, PageStatus, Panel, RowActions, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 
 /**
  * 通路管理。
@@ -325,7 +325,7 @@ export function Scopes() {
                       />
                     </td>
                     <td data-label="操作">
-                      <div className="row-actions">
+                      <RowActions>
                         <Button
                           variant="icon"
                           icon="edit"
@@ -352,7 +352,7 @@ export function Scopes() {
                             onClick={() => setArchiving(scope)}
                           />
                         )}
-                      </div>
+                      </RowActions>
                     </td>
                   </tr>
               ))}

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FilterSelect, FilterToolbar, Page, PageHeader, Panel, RowActions, SearchFilterInput, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useHrQuery, useHrWrite, type HrLeaveGrantEmployee, type HrLeaveGrantResponse, type HrLeaveGrantRow, type HrLeaveType } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -131,7 +131,7 @@ export function HrLeaveGrants() {
             <td data-label="額度">發放 {hoursLabel(row.amountMinutes)}<br />已核准使用 {hoursLabel(row.usedMinutes)}<br /><strong>餘額 {hoursLabel(Math.max(0, row.balanceMinutes))}</strong></td>
             <td data-label="狀態"><StatusBadge tone={status.tone}>{status.label}</StatusBadge></td>
             <td data-label="備註">{row.note || "—"}</td>
-            <td data-label="操作"><div className="row-actions">{canWrite && row.status === "active" && row.balanceMinutes > 0 ? <Button variant="secondary" tone="danger" icon="archive" onClick={() => setRevoking(row)}>撤銷剩餘額度</Button> : null}</div></td>
+            <td data-label="操作"><RowActions spacing="wide">{canWrite && row.status === "active" && row.balanceMinutes > 0 ? <Button variant="secondary" tone="danger" icon="archive" onClick={() => setRevoking(row)}>撤銷剩餘額度</Button> : null}</RowActions></td>
           </tr>;
         })}
       </tbody></DataTable>

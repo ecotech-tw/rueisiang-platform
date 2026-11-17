@@ -39,12 +39,6 @@
   min-width: 260px;
 }
 
-.row-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 2px;
-}
-
 /* 多日加班的月曆：格子是可點的列，所以用膠囊以外的小元件圓角，選中走色調容器。 */
 .hr-overtime-summary { margin: 0; color: var(--color-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .hr-overtime-summary strong { color: var(--color-ink); font-weight: 700; }

@@ -217,7 +217,7 @@ export function HrCalendar() {
       title="行事曆"
       description="設定國定假日、補班日與災防停班。災防停班只適用平日，不刪除原排班，薪資結算會依原排班保留給薪紀錄；其他未登記日子照星期幾計算。"
       /* 還在載入新年份時一律停用：這三顆的行為都依賴 saved，而 saved 還是上一年的。 */
-      actions={canWrite ? <div className="button-row">
+      actions={canWrite ? <div className="flex flex-wrap items-center justify-end gap-2">
         <Button variant="secondary" icon="cloudSync" tone="info" disabled={save.isPending || loading} onClick={() => setImporting(true)}>匯入政府行事曆</Button>
         <Button variant="secondary" icon="plus" tone="success" mobileIconOnly disabled={save.isPending || loading} onClick={() => setAdding(true)}>新增日期</Button>
         <Button tone="info" loading={save.isPending} disabled={!changed || loading} onClick={() => { void submit(); }}>儲存</Button>

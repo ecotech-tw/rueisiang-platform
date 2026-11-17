@@ -14,7 +14,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterCount, FilterFields, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone, TableNote, Tag, TagList } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterCount, FilterFields, FilterSelect, FilterToolbar, Page, PageHeader, Panel, RowActions, SearchFilterInput, StatusBadge, type StatusTone, TableNote, Tag, TagList } from "../../ui/index.js";
 
 const SYNC_TONE: Record<string, StatusTone> = {
   synced: "success",
@@ -88,7 +88,7 @@ function CustomerRow({
       <td data-label="最近更新" className="cell-sub whitespace-nowrap">{formatDate(customer.updatedAt)}</td>
       {canWrite || canBlock ? (
         <td data-label="操作">
-          <div className="row-actions">
+          <RowActions>
             {canWrite ? (
               <Button
                 variant="icon"
@@ -110,7 +110,7 @@ function CustomerRow({
                 aria-label={`${customer.status === "blocked" ? "解除封鎖" : "封鎖"} ${customer.name || customer.phone}`}
               />
             ) : null}
-          </div>
+          </RowActions>
         </td>
       ) : null}
     </tr>

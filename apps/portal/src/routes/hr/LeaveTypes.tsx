@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, RowActions, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type HrLeaveType } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -80,7 +80,7 @@ export function HrLeaveTypes() {
           <td data-label="預設給薪比例">{payRateLabel(leaveType.defaultPayRatePpm)}</td>
           <td data-label="狀態"><StatusBadge tone={leaveType.active ? "success" : "neutral"}>{leaveType.active ? "啟用" : "停用"}</StatusBadge></td>
           <td data-label="最近更新">{timestampLabel(leaveType.updatedAt)}</td>
-          <td data-label="操作"><div className="row-actions">{canWrite ? <><Button variant="secondary" icon="edit" tone="info" onClick={() => setEditor(leaveType)}>編輯</Button><Button variant="secondary" icon={leaveType.active ? "archive" : "check"} loading={toggle.isPending} onClick={() => toggle.mutate({ path: `/leave-types/${leaveType.id}/status`, method: "POST", values: { active: !leaveType.active } }, { onSuccess: () => void leaveTypes.refetch() })}>{leaveType.active ? "停用" : "啟用"}</Button></> : null}</div></td>
+          <td data-label="操作"><RowActions spacing="wide">{canWrite ? <><Button variant="secondary" icon="edit" tone="info" onClick={() => setEditor(leaveType)}>編輯</Button><Button variant="secondary" icon={leaveType.active ? "archive" : "check"} loading={toggle.isPending} onClick={() => toggle.mutate({ path: `/leave-types/${leaveType.id}/status`, method: "POST", values: { active: !leaveType.active } }, { onSuccess: () => void leaveTypes.refetch() })}>{leaveType.active ? "停用" : "啟用"}</Button></> : null}</RowActions></td>
         </tr>)}
       </tbody></DataTable>
       {!rows.length ? <EmptyState className="mt-[18px]">尚未建立假別，請先新增一個假別再建立請假申請。</EmptyState> : null}

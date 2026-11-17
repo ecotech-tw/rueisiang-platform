@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, TableNote, Tag } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, RowActions, TableNote, Tag } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -179,7 +179,7 @@ export function Tags() {
                   <td className="numeric">{tag.linkedCount}</td>
                   {canWrite ? (
                     <td>
-                      <div className="row-actions">
+                      <RowActions>
                         <Button
                           variant="icon"
                           icon="edit"
@@ -205,7 +205,7 @@ export function Tags() {
                           }
                           aria-label={`移除標籤 ${tag.name}`}
                         />
-                      </div>
+                      </RowActions>
                     </td>
                   ) : null}
                 </tr>

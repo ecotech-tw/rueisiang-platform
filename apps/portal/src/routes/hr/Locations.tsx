@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, EmptyState, Field, FilterInput, FilterToolbar, FormHint, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, EmptyState, Field, FilterInput, FilterToolbar, FormHint, Page, PageHeader, Panel, RowActions, SEARCH_INPUT_WIDTH, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type Profile } from "./api.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 import { PickerEmpty, PickerList, PickerRow } from "./PickerList.js";
@@ -74,7 +74,7 @@ function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: Employe
     <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td>{employment?.attendanceMode === "scheduled" ? "排班" : employment ? "一般辦公" : "—"}</td>
     <td><div className="grid min-w-[220px] gap-[7px]">{assignments.length ? assignments.map((assignment) => <span className="flex flex-wrap items-center gap-1.5" key={assignment.id}><span className="min-w-0">{assignment.locationName}</span></span>) : <span className="muted">尚未指派</span>}</div></td>
-    <td>{canWrite ? <div className="row-actions items-start"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></div> : null}</td>
+    <td>{canWrite ? <RowActions spacing="wide" className="items-start"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></RowActions> : null}</td>
   </tr>;
 }
 

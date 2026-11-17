@@ -257,7 +257,7 @@ export function HrAttendanceSettings() {
       <PageHeader
         title={pageTitle}
         description="管理營運據點對應的辦公位置與定位範圍；員工可打卡地點請到出勤範圍管理設定。"
-        actions={(canWrite || canReviewOvertime) ? <div className="button-row">{canReviewOvertime ? <Button variant="secondary" tone="info" onClick={() => navigate("/hr/requests?type=overtime")}>申請與審核</Button> : null}{canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditor("new")}>新增辦公位置</Button> : null}</div> : undefined}
+        actions={(canWrite || canReviewOvertime) ? <div className="flex flex-wrap items-center justify-end gap-2">{canReviewOvertime ? <Button variant="secondary" tone="info" onClick={() => navigate("/hr/requests?type=overtime")}>申請與審核</Button> : null}{canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditor("new")}>新增辦公位置</Button> : null}</div> : undefined}
       />
       <Panel grows>
         <FilterToolbar>

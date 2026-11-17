@@ -8,7 +8,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, Page, PageHeader, Panel, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, Page, PageHeader, Panel, RowActions, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import { WAREHOUSE_CATEGORY_COLORS, type ProductCategory } from "../wms/api.js";
 import { ColorPicker } from "../wms/ColorPicker.js";
 
@@ -88,7 +88,7 @@ function SortableCategoryRow({ category, canWrite, over, parentHighlight, onEdit
   return <tr ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={isDragging ? "opacity-72" : parentHighlight ? "[&&>td]:bg-brand/7" : over ? "[&&>td]:border-t-2 [&&>td]:border-t-brand [&&>td]:bg-brand/4" : undefined}>
     <td data-label="分類" style={{ paddingLeft: category.depth === 1 ? 48 : undefined }}><span className="mr-2 inline-flex h-8 w-7 cursor-grab items-center justify-center align-middle text-muted active:cursor-grabbing focus-visible:rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand [&_svg]:size-[18px]" {...attributes} {...listeners} aria-label="拖曳調整排序" title="拖曳調整排序"><Icon name="dragHandle" /></span><StatusBadge palette={category.color}>{category.name}</StatusBadge></td>
     <td data-label="使用中的品項" className="numeric">{category.usageCount}</td>
-    {canWrite ? <td data-label="操作"><div className="row-actions"><Button variant="icon" icon="edit" onClick={onEdit} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" tone="danger" icon="trash" disabled={category.usageCount > 0} onClick={onDelete} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></div></td> : null}
+    {canWrite ? <td data-label="操作"><RowActions><Button variant="icon" icon="edit" onClick={onEdit} title="編輯名稱與顏色" aria-label={`編輯分類 ${category.name}`} /><Button variant="icon" tone="danger" icon="trash" disabled={category.usageCount > 0} onClick={onDelete} title={category.usageCount ? `還有 ${category.usageCount} 個品項使用這個分類` : "刪除這個分類"} aria-label={`刪除分類 ${category.name}`} /></RowActions></td> : null}
   </tr>;
 }
 
