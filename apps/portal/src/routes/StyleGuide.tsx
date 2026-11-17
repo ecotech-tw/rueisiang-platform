@@ -4,7 +4,7 @@ import { HR_SHELL, HR_USER_MENU, HrBrand, HrGlassDefs, HrHeader, HrMain, HrNav, 
 import { DateRangePicker } from "../shell/DateRangePicker.js";
 import { Switch } from "../shell/Switch.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { FieldGrid, Page, PageTabs, WorkflowRunPanel } from "../ui/index.js";
+import { FieldGrid, FormHint, Page, PageTabs, WorkflowRunPanel } from "../ui/index.js";
 import {
   Alert,
   Button,
@@ -245,7 +245,7 @@ export function StyleGuide() {
             <StatusBadge tone="danger">失敗</StatusBadge>
             <StatusBadge>未設定</StatusBadge>
           </div>
-          <p className="form-hint">互動回饋：{message}</p>
+          <FormHint>互動回饋：{message}</FormHint>
         </div>
       </Panel>
 
@@ -302,7 +302,7 @@ export function StyleGuide() {
         </FilterToolbar>
         <div className={CONTROL_ROW}>
           <SearchFilterInput label="延遲搜尋" placeholder="輸入關鍵字，400ms 後送出" value={search} onSearch={(value) => { setSearch(value); setMessage(`搜尋條件已更新為「${value || "（空白）"}」。`); }} />
-          <p className="form-hint">目前搜尋值：{search || "（空白）"}</p>
+          <FormHint>目前搜尋值：{search || "（空白）"}</FormHint>
         </div>
       </Panel>
 
@@ -318,7 +318,7 @@ export function StyleGuide() {
             <Tooltip label="這是補充資訊，不是唯一資訊；滑過或用 Tab 聚焦即可查看。">
               <span>滑過或用 Tab 聚焦這段文字</span>
             </Tooltip>
-            <span className="form-hint">Tooltip 會 portal 到 body，避免被表格或面板 overflow 裁切。</span>
+            <FormHint as="span">Tooltip 會 portal 到 body，避免被表格或面板 overflow 裁切。</FormHint>
           </div>
         </div>
       </Panel>

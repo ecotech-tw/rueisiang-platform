@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useToast } from "../../../shell/Toast.js";
-import { Alert, Button, DataTable, Field, Input, Panel, ReportSummary, SegmentedControl, SelectField } from "../../../ui/index.js";
+import { Alert, Button, DataTable, Field, FormHint, Input, Panel, ReportSummary, SegmentedControl, SelectField } from "../../../ui/index.js";
 import { useImportMoPlusReport, useMoPlusReportScopes, type MoPlusImportResult } from "../api.js";
 import { momoReportParser, type ParsedSalesReport } from "./report-adapter.js";
 
@@ -35,7 +35,7 @@ function PayoutTotalsTable({ report }: { report: ParsedSalesReport }) {
           </tbody>
         </DataTable>
       ) : <p className="muted">本次檔案沒有已入帳資料。</p>}
-      <p className="form-hint">出金日期使用檔案中的「入帳日」，金額使用「實際入帳金額」；不以商品出貨日或商品銷售額推算。</p>
+      <FormHint>出金日期使用檔案中的「入帳日」，金額使用「實際入帳金額」；不以商品出貨日或商品銷售額推算。</FormHint>
     </div>
   );
 }
@@ -47,7 +47,7 @@ function SalesSummary({ report }: { report: ParsedSalesReport }) {
         { label: "來源檔商品銷售額（含未對應 SKU）", value: formatAmount(report.salesTotals.salesAmount) },
         { label: "商品／月份組合", value: `${report.rows.length.toLocaleString("zh-TW")} 組` },
       ]} />
-      <p className="form-hint">以已送達與退貨商品計算；退貨金額為負數，不含運費及其他訂單狀態。</p>
+      <FormHint>以已送達與退貨商品計算；退貨金額為負數，不含運費及其他訂單狀態。</FormHint>
     </div>
   );
 }
@@ -258,7 +258,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
                 <strong>匯入預覽</strong>
                 <p className="muted mt-1">月份：{preview.reportMonths.join("、")}；{preview.sourceRowCount} 列來源資料整理為 {preview.rows.length} 個商品／月份組合。</p>
               </div>
-              <span className="form-hint">確認匯入後才會更新資料庫</span>
+              <FormHint as="span">確認匯入後才會更新資料庫</FormHint>
             </div>
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
             <ReportBreakdown report={preview} activeTab={activeTab} onTabChange={setActiveTab} />

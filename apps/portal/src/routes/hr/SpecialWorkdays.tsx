@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { useHrEmployeeRoster, useHrQuery, useHrWrite, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";
@@ -149,7 +149,7 @@ const ALLOWANCE_GRID = "grid grid-cols-[minmax(0,1fr)_130px_100px] items-center 
 function AllowanceQuantities({ version, quantities, disabled, onChange }: { version?: SpecialWorkdayRuleVersion; quantities: Record<string, string>; disabled: boolean; onChange: (allowanceId: string, value: string) => void }) {
   return <div className="grid min-w-0 gap-2.5">
     <div className={SALARY_ITEMS_LABEL}>補貼數量（每人／每天）</div>
-    <p className="form-hint -mt-[3px] mb-0.5">同一個規則的每個補貼可以分別設定數量；套用或編輯時都可依需要調整。</p>
+    <FormHint className="-mt-[3px] mb-0.5">同一個規則的每個補貼可以分別設定數量；套用或編輯時都可依需要調整。</FormHint>
     {version?.allowances.length ? <>
       <div className={`${ ALLOWANCE_GRID } text-[12px] font-semibold text-muted max-[640px]:hidden`}><span>項目</span><span>補貼單價</span><span>數量</span></div>
       {version.allowances.map((allowance, index) => <div className={`${ ALLOWANCE_GRID } max-[640px]:grid-cols-[minmax(0,1fr)_44px] max-[640px]:items-start max-[640px]:gap-2 ${ index ? "border-t border-t-soft-line pt-2.5" : "" }`} key={allowance.id}>
@@ -234,12 +234,12 @@ function RuleDialog({ rule, onClose }: { rule?: SpecialWorkdayRule; onClose: () 
       <Button type="submit" tone="success" loading={save.isPending} disabled={voidVersion.isPending}>{rule ? "建立新版本" : "建立規則"}</Button>
     </>}>
       {!rule ? <TextField label="規則名稱" required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} /> : <p>規則名稱：<strong>{rule.rule.name}</strong>（歷史版本不覆寫）</p>}
-      {rule ? <p className="form-hint">新版本會從指定生效日起成為目前設定；日期套用不固定綁定版本，重新試算會讀取目前規則，已結算薪資明細不會被改寫。</p> : null}
+      {rule ? <FormHint>新版本會從指定生效日起成為目前設定；日期套用不固定綁定版本，重新試算會讀取目前規則，已結算薪資明細不會被改寫。</FormHint> : null}
       <FieldGrid columns={2}><TextField label="生效日" type="date" required value={validFrom} onChange={(event) => setValidFrom(event.target.value)} /><TextField label="迄日（不含，可留空）" type="date" value={validTo} onChange={(event) => setValidTo(event.target.value)} /></FieldGrid>
       <FieldGrid columns={2}><SelectField label="薪資方式" value={wageKind} options={[{ value: "fixed_hourly", label: "固定每小時金額" }, { value: "multiplier", label: "依底薪總倍率" }]} onChange={(event) => setWageKind(event.target.value as "fixed_hourly" | "multiplier")} />{wageKind === "fixed_hourly" ? <TextField label="固定每小時（元）" type="number" min="0" step="1" required value={amount} onChange={(event) => setAmount(event.target.value)} /> : <TextField label="總倍率（%）" type="number" min="0" step="0.01" required value={multiplier} onChange={(event) => setMultiplier(event.target.value)} />}</FieldGrid>
       <div className={`${ SALARY_ITEMS } min-w-0`}>
         <span className={SALARY_ITEMS_LABEL}>特殊日加班費規則</span>
-        <p className="form-hint">以累計加班時數設定半開區間：起始含、迄止不含；第一段從 0.0 小時起算，例如 0.0～2.0、2.0～不限。</p>
+        <FormHint>以累計加班時數設定半開區間：起始含、迄止不含；第一段從 0.0 小時起算，例如 0.0～2.0、2.0～不限。</FormHint>
         {overtimeRules.map((overtimeRule, index) => <div className={`${ OVERTIME_RULE_ROW } ${ index ? "border-t border-t-soft-line pt-3.5" : "" }`} key={`overtime-rule-${index}`}>
           <TextField className="col-start-1 row-start-1 min-w-0" label="起始（含，小時）" aria-label={`第 ${index + 1} 筆加班規則起始時數`} type="number" min="0" step="0.5" value={overtimeRule.fromHours} onChange={(event) => updateOvertimeRule(index, { fromHours: event.target.value })} />
           <TextField className="col-start-2 row-start-1 min-w-0" label="迄止（不含，可留空）" aria-label={`第 ${index + 1} 筆加班規則迄止時數`} type="number" min="0.5" step="0.5" value={overtimeRule.toHours} onChange={(event) => updateOvertimeRule(index, { toHours: event.target.value })} />
@@ -344,7 +344,7 @@ function AssignDialog({ rules, onClose }: { rules: SpecialWorkdayRule[]; onClose
     </div>
     <FieldGrid columns={2}><TextField label="開始日期" type="date" required value={startDate} disabled={save.isPending} onChange={(event) => setStartDate(event.target.value)} /><TextField label="結束日期（含）" type="date" min={startDate} required value={endDate} disabled={save.isPending} onChange={(event) => setEndDate(event.target.value)} /></FieldGrid>
     <AllowanceQuantities version={selectedVersion} quantities={allowanceQuantities} disabled={save.isPending} onChange={(allowanceId, value) => setAllowanceQuantities((current) => ({ ...current, [allowanceId]: value }))} />
-    <p className="form-hint">同一人員同一天只能套用一個規則；日期區間含首尾，預計建立 {assignmentCount} 筆日期紀錄。跨規則版本日期會依各日期的有效版本送出補貼數量。</p>
+    <FormHint>同一人員同一天只能套用一個規則；日期區間含首尾，預計建立 {assignmentCount} 筆日期紀錄。跨規則版本日期會依各日期的有效版本送出補貼數量。</FormHint>
     {dateError || tooManyAssignments || missingVersionDates.length ? <Alert tone="warning">{dateError || tooManyAssignments ? (dateError || `這次會建立 ${assignmentCount} 筆日期套用，超過單次最多 ${MAX_SPECIAL_WORKDAY_ASSIGNMENTS} 筆的限制。`) : `以下日期沒有有效版本：${missingVersionDates.join("、")}`}</Alert> : null}
     {employees.error || workers.error ? <Alert tone="danger">人員名單載入失敗：{employees.error?.message ?? workers.error?.message}</Alert> : null}
     {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
@@ -404,7 +404,7 @@ function EditAssignmentDialog({ assignment, rules, onClose }: { assignment: Spec
     <SelectField label="套用人員" value={targetKey} options={targetOptions} searchable disabled={save.isPending || employees.isPending || workers.isPending} onChange={(event) => setTargetKey(event.target.value)} hint="同一人員同一天只能有一筆特殊上班日套用。" />
     <TextField label="套用日期" type="date" required value={workDate} disabled={save.isPending} onChange={(event) => setWorkDate(event.target.value)} />
     <AllowanceQuantities version={selectedVersion} quantities={allowanceQuantities} disabled={save.isPending} onChange={(allowanceId, value) => setAllowanceQuantities((current) => ({ ...current, [allowanceId]: value }))} />
-    <p className="form-hint">調整後，尚未重新試算的薪資會使用新的人員、日期、規則與補貼數量；已結算薪資明細不會被改寫。</p>
+    <FormHint>調整後，尚未重新試算的薪資會使用新的人員、日期、規則與補貼數量；已結算薪資明細不會被改寫。</FormHint>
     {employees.error || workers.error ? <Alert tone="danger">人員名單載入失敗：{employees.error?.message ?? workers.error?.message}</Alert> : null}
     {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
   </Dialog>;

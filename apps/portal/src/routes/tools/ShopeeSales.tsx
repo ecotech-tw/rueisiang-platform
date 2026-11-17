@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, Field, Input, Page, PageHeader, Panel, ReportSummary, SegmentedControl, SelectField, TextField, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, Field, FormHint, Input, Page, PageHeader, Panel, ReportSummary, SegmentedControl, SelectField, TableNote, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import {
   useConfirmShopeeSales,
   useDiscardShopeePreview,
@@ -269,11 +269,11 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
           >
             {preview ? "確認匯入" : "解析並預覽"}
           </Button>
-          {trackingRunning ? <span className="form-hint">{tracking?.mode === "preview" ? "正在解密並解析報表…" : "背景整理中…"}可以關閉這一頁</span> : null}
+          {trackingRunning ? <FormHint as="span">{tracking?.mode === "preview" ? "正在解密並解析報表…" : "背景整理中…"}可以關閉這一頁</FormHint> : null}
         </form>
         <div className={`mt-4 flex min-w-0 flex-col gap-3 ${embedded ? "min-h-0 flex-1 overflow-y-auto" : ""}`}>
           {fileTooLarge ? <Alert tone="danger">檔案不能超過 25 MB。</Alert> : null}
-          {preview && (!file || !password) ? <p className="form-hint">請重新選擇預覽時的原始檔案並輸入相同密碼，才能確認匯入。</p> : null}
+          {preview && (!file || !password) ? <FormHint>請重新選擇預覽時的原始檔案並輸入相同密碼，才能確認匯入。</FormHint> : null}
           {previewRun.error ? <Alert tone="danger">{previewRun.error.message}</Alert> : null}
           {confirmRun.error ? <Alert tone="danger">{confirmRun.error.message}</Alert> : null}
           {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
@@ -290,7 +290,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
                   </p>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="form-hint">確認匯入後才會更新資料庫</span>
+                  <FormHint as="span">確認匯入後才會更新資料庫</FormHint>
                   <Button type="button" variant="secondary" disabled={busy} onClick={forgetPreview}>重新選擇</Button>
                 </div>
               </div>
@@ -313,7 +313,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
             </div>
           ) : null}
           {previewFailed ? <Button type="button" variant="secondary" disabled={busy} onClick={forgetPreview}>重新選擇報表</Button> : null}
-          {selectedScope?.driveFolderUrl ? <p className="muted table-note">上傳位置：<ExternalLink href={selectedScope.driveFolderUrl}>{selectedScope.driveFolderName || "Google Drive 資料夾"}<Icon name="external" /></ExternalLink></p> : null}
+          {selectedScope?.driveFolderUrl ? <TableNote>上傳位置：<ExternalLink href={selectedScope.driveFolderUrl}>{selectedScope.driveFolderName || "Google Drive 資料夾"}<Icon name="external" /></ExternalLink></TableNote> : null}
         </div>
       </Panel>
       {(tracking || state.data.latestRequestId) ? (

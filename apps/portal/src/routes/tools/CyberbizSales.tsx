@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, FilterInput, FilterLabel, FilterToolbar, Page, PageHeader, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterInput, FilterLabel, FilterToolbar, FormHint, Page, PageHeader, Panel, TableCheckbox, TableNote, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   useCyberbizSalesState,
@@ -78,8 +78,8 @@ export function CyberbizSales() {
           >
             {allSelected ? "全部執行" : `執行選取的 ${selectedNames.length} 家`}
           </Button>
-          <span className="form-hint">已選 {selectedNames.length} / {stores.length} 家</span>
-          {running ? <span className="form-hint">執行中…可以關閉這一頁</span> : null}
+          <FormHint as="span">已選 {selectedNames.length} / {stores.length} 家</FormHint>
+          {running ? <FormHint as="span">執行中…可以關閉這一頁</FormHint> : null}
         </FilterToolbar>
 
 
@@ -129,7 +129,7 @@ export function CyberbizSales() {
               ))}
             </tbody>
           </DataTable>
-        {!stores.length ? <p className="muted table-note">還沒有任何店別，請先到「店別與報表設定」新增一家。</p> : null}
+        {!stores.length ? <TableNote>還沒有任何店別，請先到「店別與報表設定」新增一家。</TableNote> : null}
       </Panel>
 
       {followed ? (

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, Stat, StatRow, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, Stat, StatRow, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
@@ -330,8 +330,8 @@ export function Items() {
             </tbody>
           </DataTable>
 
-        {query.isPending ? <p className="muted table-note">載入中…</p> : null}
-        {query.data && visible.length === 0 ? <p className="muted table-note">沒有符合條件的品項。</p> : null}
+        {query.isPending ? <TableNote>載入中…</TableNote> : null}
+        {query.data && visible.length === 0 ? <TableNote>沒有符合條件的品項。</TableNote> : null}
         {visible.length > 0 ? (
           <Pager
             className="mt-4 shrink-0"

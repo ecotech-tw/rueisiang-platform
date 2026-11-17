@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, FieldGrid, FilterToolbar, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FieldGrid, FilterToolbar, FormHint, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, SelectField, StatusBadge, TextField } from "../../ui/index.js";
 import { EmployeeFilterBar } from "./EmployeeFilterBar.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 import { SALARY_ITEM_NAME, SALARY_ITEM_STACKED, SALARY_ITEMS, SALARY_ITEMS_FOOT, SALARY_ITEMS_HEAD, SALARY_ITEMS_LABEL } from "./salary-item-rows.js";
@@ -277,10 +277,10 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       disabled={isEditing}
       onChange={(event) => setUserId(event.target.value)}
     />
-    {isEditing ? <p className="form-hint">更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</p> : null}
+    {isEditing ? <FormHint>更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</FormHint> : null}
     {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
-    {employment ? <p className="form-hint">目前職位「{employment.position}」；實際服務年資起算日 {employment.serviceStartOn ?? "未設定"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}${effectiveVersion.overtimeHourlyMinor != null ? `，加班固定 ${money(effectiveVersion.overtimeHourlyMinor)}／時` : ""}` : allVoided ? "已全部撤回" : "尚未設定"}。</p> : null}
+    {employment ? <FormHint>目前職位「{employment.position}」；實際服務年資起算日 {employment.serviceStartOn ?? "未設定"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}${effectiveVersion.overtimeHourlyMinor != null ? `，加班固定 ${money(effectiveVersion.overtimeHourlyMinor)}／時` : ""}` : allVoided ? "已全部撤回" : "尚未設定"}。</FormHint> : null}
     {employment?.serviceStartOn && validFrom < employment.serviceStartOn ? <Alert tone="warning">這筆敘薪自 {validFrom} 生效，但服務年資起算日是 {employment.serviceStartOn}；該日期前不會被薪資試算視為在職日。若 {employment.serviceStartOn} 填錯，請先到員工管理修正。</Alert> : null}
     <FieldGrid>
       <TextField label="生效日" type="date" value={validFrom} required hint="日薪轉月薪時，請填實際轉為月薪的第一天；若早於服務年資起算日，特休會以後者為準。" onChange={(event) => setValidFrom(event.target.value)} />

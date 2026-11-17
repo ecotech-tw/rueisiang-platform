@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Pager } from "../../../shell/Pager.js";
 import { SortableHeader } from "../../../shell/SortableHeader.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
-import { Alert, DataTable, FilterSelect, FilterToolbar, Page, Panel, SearchFilterInput } from "../../../ui/index.js";
+import { Alert, DataTable, FilterSelect, FilterToolbar, Page, Panel, SearchFilterInput, TableNote } from "../../../ui/index.js";
 import { useReportRuns, type ReportRunKind, type ReportRunListRow } from "../api.js";
 import { useReportTabs } from "./ReportsLayout.js";
 
@@ -135,8 +135,8 @@ export function RunLog() {
           </tbody>
         </DataTable>
 
-      {query.isPending ? <p className="muted table-note">載入中…</p> : null}
-      {!query.isPending && !filtered.length ? <p className="muted table-note">沒有符合的執行紀錄。</p> : null}
+      {query.isPending ? <TableNote>載入中…</TableNote> : null}
+      {!query.isPending && !filtered.length ? <TableNote>沒有符合的執行紀錄。</TableNote> : null}
 
       <Pager
         className="mt-4 shrink-0"

@@ -8,7 +8,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, Page, PageHeader, Panel, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, Page, PageHeader, Panel, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import { WAREHOUSE_CATEGORY_COLORS, type ProductCategory } from "../wms/api.js";
 import { ColorPicker } from "../wms/ColorPicker.js";
 
@@ -199,8 +199,8 @@ export function ItemCategories() {
             </DndContext>
           </DataTable>
 
-        {query.isPending ? <p className="muted table-note">載入中…</p> : null}
-        {query.data && categories.length === 0 ? <p className="muted table-note">還沒有任何品項分類。這不會影響 WMS 分類。</p> : null}
+        {query.isPending ? <TableNote>載入中…</TableNote> : null}
+        {query.data && categories.length === 0 ? <TableNote>還沒有任何品項分類。這不會影響 WMS 分類。</TableNote> : null}
       </Panel>
 
       {creating ? <CreateDialog categories={categories} onClose={() => setCreating(false)} /> : null}

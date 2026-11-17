@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { TableNote } from "./DataTable.js";
 import { Panel } from "./Panel.js";
 import { StatusBadge } from "./Feedback.js";
 
@@ -79,10 +80,10 @@ export function WorkflowRunPanel({
       ) : null}
 
       {latest?.url ? (
-        <p className="muted table-note">
+        <TableNote>
           <a href={latest.url} target="_blank" rel="noopener noreferrer">在 GitHub 看完整紀錄</a>
           {artifactNote ? <>　{artifactNote}</> : null}
-        </p>
+        </TableNote>
       ) : null}
     </Panel>
   );

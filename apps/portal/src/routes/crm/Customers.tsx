@@ -14,7 +14,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterCount, FilterFields, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone, Tag, TagList } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterCount, FilterFields, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, StatusBadge, type StatusTone, TableNote, Tag, TagList } from "../../ui/index.js";
 
 const SYNC_TONE: Record<string, StatusTone> = {
   synced: "success",
@@ -278,14 +278,14 @@ export function Customers() {
             </tbody>
           </DataTable>
 
-        {query.isPending ? <p className="muted table-note">載入中…</p> : null}
+        {query.isPending ? <TableNote>載入中…</TableNote> : null}
 
         {data && data.customers.length === 0 ? (
-          <p className="muted table-note">
+          <TableNote>
             {data.stats.total === 0
               ? "還沒有任何客戶資料。CYBERBIZ 同步搬進來之後，資料會從官網流進這裡。"
               : "沒有符合條件的客戶，調整一下搜尋或篩選看看。"}
-          </p>
+          </TableNote>
         ) : null}
 
         {data && data.total > 0 ? (

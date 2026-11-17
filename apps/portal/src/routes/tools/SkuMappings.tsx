@@ -4,22 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Pager } from "../../shell/Pager.js";
-import {
-  Alert,
-  Button,
-  DataTable,
-  FilterInput,
-  FilterSelect,
-  FilterToolbar,
-  Page,
-  PageHeader,
-  Panel,
-  SEARCH_INPUT_WIDTH,
-  PageTabControl,
-  SelectField,
-  StatusBadge,
-  TextField,
-} from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, PageTabControl, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import {
   useAddReportSkuIgnore,
   useDeleteProductSkuMapping,
@@ -191,7 +176,7 @@ export function SkuMappings() {
                   ))}
                 </tbody>
               </DataTable>
-            ) : <p className="muted table-note">{query.isPending ? "載入中…" : query.error ? "待處理商品載入失敗。" : unmappedProducts.length === 0 ? "目前沒有待建立對應的外部商品。已建立對應或標記忽略的商品不會顯示在這裡。" : "沒有符合條件的外部商品，請調整搜尋或篩選。"}</p>}
+            ) : <TableNote>{query.isPending ? "載入中…" : query.error ? "待處理商品載入失敗。" : unmappedProducts.length === 0 ? "目前沒有待建立對應的外部商品。已建立對應或標記忽略的商品不會顯示在這裡。" : "沒有符合條件的外部商品，請調整搜尋或篩選。"}</TableNote>}
           </>
         ) : null}
 
@@ -221,7 +206,7 @@ export function SkuMappings() {
                   ))}
                 </tbody>
               </DataTable>
-            ) : <p className="muted table-note">{query.isPending ? "載入中…" : query.error ? "SKU 對應載入失敗。" : mappings.length === 0 ? "還沒有任何外部 SKU 對應。" : "沒有符合條件的對應，請調整搜尋或篩選。"}</p>}
+            ) : <TableNote>{query.isPending ? "載入中…" : query.error ? "SKU 對應載入失敗。" : mappings.length === 0 ? "還沒有任何外部 SKU 對應。" : "沒有符合條件的對應，請調整搜尋或篩選。"}</TableNote>}
           </>
         ) : null}
 
@@ -253,7 +238,7 @@ export function SkuMappings() {
                   </tr>
                 ))}</tbody>
               </DataTable>
-            ) : <p className="muted table-note">{ignoresQuery.isPending ? "載入中…" : ignoresQuery.error ? "忽略清單載入失敗。" : ignores.length === 0 ? "目前沒有標記忽略的外部 SKU。" : "沒有符合條件的項目，請調整搜尋或篩選。"}</p>}
+            ) : <TableNote>{ignoresQuery.isPending ? "載入中…" : ignoresQuery.error ? "忽略清單載入失敗。" : ignores.length === 0 ? "目前沒有標記忽略的外部 SKU。" : "沒有符合條件的項目，請調整搜尋或篩選。"}</TableNote>}
           </>
         ) : null}
 

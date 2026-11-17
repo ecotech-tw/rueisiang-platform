@@ -4,7 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Icon } from "../../shell/icons.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Chip, DataTable, Dialog, EmptyState, FieldGrid, FilterInput, FilterToolbar, Page, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, EmptyState, FieldGrid, FilterInput, FilterToolbar, FormHint, Page, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { hrEmployeeLabel, useHrPersonnelRoster, useHrQuery, useHrWrite, type Employee, type PayrollAdjustment } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -114,7 +114,7 @@ function PayrollAdjustmentDialog({
     formProps={{ onSubmit: submit }}
     actions={<><Button variant="secondary" onClick={onClose} disabled={save.isPending}>取消</Button><Button type="submit" icon="check" tone={adjustment ? "info" : "success"} loading={save.isPending} disabled={employeesPending || !personnelOptions.length}>{adjustment ? "保存加扣項" : "建立加扣項"}</Button></>}
   >
-    <p className="form-hint m-0">這筆加扣項會在生效月份試算時自動帶入，可用於一次性獎金、補發或扣款。</p>
+    <FormHint className="m-0">這筆加扣項會在生效月份試算時自動帶入，可用於一次性獎金、補發或扣款。</FormHint>
     <FieldGrid columns={2}>
       <SelectField label="人員" value={employmentId} required searchable options={[{ value: "", label: employeesPending ? "正在載入人員…" : "請選擇人員" }, ...personnelOptions.map((person) => ({ value: person.employmentId, label: payrollAdjustmentPersonnelLabel(person) }))]} onChange={(event) => setEmploymentId(event.target.value)} />
       <TextField label="生效薪資月份" type="month" value={effectivePeriodKey} required onChange={(event) => setEffectivePeriodKey(event.target.value)} />

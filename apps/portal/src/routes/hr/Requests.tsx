@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FieldGrid, FieldNote, FilterCount, FilterFields, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, REFRESHING, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FieldGrid, FieldNote, FilterCount, FilterFields, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, REFRESHING, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, TableNote, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
@@ -439,9 +439,9 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
       </FieldGrid>
       {presets}
       <FieldNote>先選時數，再點日期；再點一次同樣時數就取消。有排班的日期從班表下班時間開始；未排班日期需指定開始時間，送出前會再次確認。</FieldNote>
-      {!targetId ? <p className="muted table-note">先選申請對象，才看得到這個月的班表。</p>
+      {!targetId ? <TableNote>先選申請對象，才看得到這個月的班表。</TableNote>
         : dayQuery.error ? <Alert tone="danger">{dayQuery.error.message}</Alert>
-        : daysLoading ? <p className="muted table-note">載入班表…</p>
+        : daysLoading ? <TableNote>載入班表…</TableNote>
         : <OvertimeDayPicker days={pickerDays} assigned={assigned} disabled={write.isPending || !minutesValid} onToggle={toggleDay} />}
       {takenDates.length ? <Alert tone="info">{takenDates.join("、")} 已經有加班申請，已從這次的選擇移除。</Alert> : null}
       {unscheduledDates.length ? <TextField label="未排班日開始時間（台北）" type="time" step={1800} required value={unscheduledStartTime} disabled={write.isPending} hint="所有已選未排班日期都從這個時間開始；有排班日期仍沿用班表下班時間。" onChange={(event) => setUnscheduledStartTime(event.target.value)} /> : null}
@@ -603,7 +603,7 @@ export function HrRequestCenter() {
           <FilterSelect label="狀態" className="min-[761px]:flex-[0_1_190px] max-[760px]:flex-[1_1_100%] max-[760px]:w-full" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
         </FilterFields>
       </FilterToolbar>
-      {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
+      {requests.isFetching ? <TableNote>更新中…</TableNote> : null}
       <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
         <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div>
         {bulk.actionId && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" inputRef={mobileSelectAllOvertimeRef} checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
@@ -628,7 +628,7 @@ export function HrRequestCenter() {
       </DataTable>
       {selectedOvertimeRows.length ? <SelectionActionBar count={selectedOvertimeRows.length} countLabel="筆已核准加班申請" className="!pl-5 !pr-5 max-[760px]:!pl-4 max-[760px]:!pr-4"><Button variant="danger" icon="trash" disabled={requests.isFetching || cancelOvertime.isPending} onClick={() => { cancelOvertime.reset(); setCancelSelectedOpen(true); }}>取消並刪除所選加班</Button></SelectionActionBar> : null}
       </div>
-      {requests.data && !visibleRows.length ? <p className="muted table-note">{total ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</p> : null}
+      {requests.data && !visibleRows.length ? <TableNote>{total ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</TableNote> : null}
       {total ? <Pager className="mt-4 shrink-0" page={page} pageSize={filters.pageSize} pageSizes={REQUEST_PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={(nextPage) => { bulk.cancel(); setFilters((current) => ({ ...current, page: nextPage })); }} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
     </Panel>
     {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} workers={workers.data?.workers ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}

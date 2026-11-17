@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Page, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, FormHint, Page, PageHeader, Panel, TextField } from "../../ui/index.js";
 
 // 標籤欄固定寬、值欄吃剩下的；窄螢幕改成標籤在上、值在下。
 const DETAIL_ROW = "grid grid-cols-[148px_minmax(0,1fr)] gap-3 max-[620px]:grid-cols-[1fr] max-[620px]:gap-0.5";
@@ -78,7 +78,7 @@ export function Profile() {
           <Button type="submit" size="lg" loading={save.isPending} loadingLabel="儲存中…">
             儲存
           </Button>
-          {saved ? <span className="form-hint">已儲存</span> : null}
+          {saved ? <FormHint as="span">已儲存</FormHint> : null}
           {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
         </form>
         <p className="muted mt-3 text-[12px]">
