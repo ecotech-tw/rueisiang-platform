@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Page, PageHeader, Panel, Stat, StatRow, StatusBadge, type StatusTone, TableNote } from "../../ui/index.js";
+import { Alert, Button, DataTable, Page, PageHeader, PageStatus, Panel, Stat, StatRow, StatusBadge, type StatusTone, TableNote } from "../../ui/index.js";
 
 interface SyncStatus {
   configured: boolean;
@@ -148,7 +148,7 @@ export function Sync() {
     onSuccess: refresh,
   });
 
-  if (status.isPending) return <div className="boot">載入中…</div>;
+  if (status.isPending) return <PageStatus>載入中…</PageStatus>;
   if (status.error) {
     return (
       <Page>

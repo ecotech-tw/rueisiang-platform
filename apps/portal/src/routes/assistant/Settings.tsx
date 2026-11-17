@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Field, FieldHint, FilterSelect, FormHint, Page, PageHeader, Panel, Textarea } from "../../ui/index.js";
+import { Alert, Button, Field, FieldHint, FilterSelect, FormHint, Page, PageHeader, PageStatus, Panel, Textarea } from "../../ui/index.js";
 import { useSaveAssistantToolStatus, useSavePiCodexCredential, useSandboxConfig, type AssistantTool } from "./api.js";
 import { ToolList, ToolNote, ToolStatusRow } from "./ToolOption.js";
 import { ASSISTANT_ACTIONS } from "./AssistantSection.js";
@@ -18,7 +18,7 @@ export function AssistantSettings() {
   const saveCodexCredential = useSavePiCodexCredential();
   const [credential, setCredential] = useState("");
 
-  if (config.isPending) return <div className="boot">載入中…</div>;
+  if (config.isPending) return <PageStatus>載入中…</PageStatus>;
   if (config.error) return <Page><Alert tone="danger">{config.error.message}</Alert></Page>;
 
   const data = config.data;

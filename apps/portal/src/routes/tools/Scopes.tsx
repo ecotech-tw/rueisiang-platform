@@ -8,7 +8,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, DataTable, Dialog, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, PageStatus, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 
 /**
  * 通路管理。
@@ -235,7 +235,7 @@ export function Scopes() {
     });
   }
 
-  if (query.isPending) return <div className="boot">載入中…</div>;
+  if (query.isPending) return <PageStatus>載入中…</PageStatus>;
   if (query.error) return <Page><Alert tone="danger">{query.error.message}</Alert></Page>;
 
   return (

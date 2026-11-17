@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 import { Icon } from "../../../shell/icons.js";
 import { usePageTitle } from "../../../shell/usePageTitle.js";
-import { Alert, Button, DropdownSelect, Page, PageHeader, Panel } from "../../../ui/index.js";
+import { Alert, Button, DropdownSelect, Page, PageHeader, PageStatus, Panel } from "../../../ui/index.js";
 import { PayoutTab } from "./PayoutTab.js";
 import { SalesTab } from "./SalesTab.js";
 import { useReportScopes } from "./api.js";
@@ -299,7 +299,7 @@ export function Analytics() {
         {tab === "payout" ? (
           <PayoutTab query={query} scopeLabel={scopeLabel} enabled={ready} />
         ) : salesPeriodPending ? (
-          <div className="boot">尋找最近已匯入的商品銷售月份…</div>
+          <PageStatus>尋找最近已匯入的商品銷售月份…</PageStatus>
         ) : (
           <SalesTab
             query={query}

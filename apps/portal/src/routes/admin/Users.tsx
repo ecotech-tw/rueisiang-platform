@@ -20,7 +20,7 @@ import { PermissionCount, PermissionGrid, PermissionGroup, PermissionHint, Permi
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, Page, PageHeader, Panel, SelectField, StatusBadge, type StatusTone, Tag, TagList, TextField } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, Page, PageHeader, PageStatus, Panel, SelectField, StatusBadge, type StatusTone, Tag, TagList, TextField } from "../../ui/index.js";
 
 const USER_STATUS_TONE: Record<AdminUser["status"], StatusTone> = {
   invited: "neutral",
@@ -510,7 +510,7 @@ export function AdminUsers() {
   const [inviteLink, setInviteLink] = useState<{ email: string; url: string } | null>(null);
 
   if (users.isPending || catalog.isPending) {
-    return <div className="boot">載入中…</div>;
+    return <PageStatus>載入中…</PageStatus>;
   }
   if (users.error || catalog.error) {
     return (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ExternalLink, FilterInput, FilterLabel, FilterToolbar, FormHint, Page, PageHeader, Panel, TableNote, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, ExternalLink, FilterInput, FilterLabel, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, TableNote, WorkflowRunPanel } from "../../ui/index.js";
 import { useRunShopReport, useShopReportState, useShopReportStatus } from "./api.js";
 
 function isValidMonth(value: string): boolean {
@@ -31,7 +31,7 @@ export function ShopReport() {
     setMonth((current) => current || state.data.defaultStartMonth);
   }, [state.data]);
 
-  if (state.isPending) return <div className="boot">載入中…</div>;
+  if (state.isPending) return <PageStatus>載入中…</PageStatus>;
 
   const latest = status.data?.runs[0];
   const followed = tracking ?? state.data?.latestRequestId ?? null;

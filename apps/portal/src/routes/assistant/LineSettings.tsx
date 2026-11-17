@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Switch } from "../../shell/Switch.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, FormHint, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, FormHint, Page, PageHeader, PageStatus, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -76,7 +76,7 @@ export function LineSettings() {
     setChannelToolKeys(config.data.channelTools.filter((key) => known.has(key)));
   }, [config.data]);
 
-  if (config.isPending) return <div className="boot">載入中…</div>;
+  if (config.isPending) return <PageStatus>載入中…</PageStatus>;
   if (config.error) return <Page><Alert tone="danger">{config.error.message}</Alert></Page>;
   const data = config.data;
   if (!data) return null;

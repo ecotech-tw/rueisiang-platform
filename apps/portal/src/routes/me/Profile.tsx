@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FormHint, Page, PageHeader, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, FormHint, Page, PageHeader, PageStatus, Panel, TextField } from "../../ui/index.js";
 
 // 標籤欄固定寬、值欄吃剩下的；窄螢幕改成標籤在上、值在下。
 const DETAIL_ROW = "grid grid-cols-[148px_minmax(0,1fr)] gap-3 max-[620px]:grid-cols-[1fr] max-[620px]:gap-0.5";
@@ -50,7 +50,7 @@ export function Profile() {
     },
   });
 
-  if (!user) return <div className="boot">載入中…</div>;
+  if (!user) return <PageStatus>載入中…</PageStatus>;
 
   return (
     <Page>

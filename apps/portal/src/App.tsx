@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes, useLocation, useSearchParams } from "react-router";
 import { useSession } from "./auth/session.js";
+import { PageStatus } from "./ui/index.js";
 import { Roles } from "./routes/admin/Roles.js";
 import { AdminUsers } from "./routes/admin/Users.js";
 import { Sandbox } from "./routes/assistant/Sandbox.js";
@@ -62,7 +63,7 @@ function RequireSession({ children }: { children: React.ReactNode }) {
   const { user, loading } = useSession();
   const location = useLocation();
 
-  if (loading) return <div className="boot">載入中…</div>;
+  if (loading) return <PageStatus>載入中…</PageStatus>;
   if (!user) {
     const returnTo = `${location.pathname}${location.search}${location.hash}`;
     return <Navigate to={`/login?returnTo=${encodeURIComponent(returnTo)}`} replace />;
@@ -83,7 +84,7 @@ function RedirectIfSignedIn({ children }: { children: React.ReactNode }) {
   const { user, loading } = useSession();
   const [params] = useSearchParams();
 
-  if (loading) return <div className="boot">載入中…</div>;
+  if (loading) return <PageStatus>載入中…</PageStatus>;
   if (user) {
     const returnTo = params.get("returnTo");
     const safe = returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/";
@@ -158,7 +159,7 @@ export function App() {
           </Route>
           {/* 舊網址：可能有人加在書籤裡，留著導過去。 */}
           <Route path="payout" element={<Navigate to="/tools/reports/run/cyberbiz-payout" replace />} />
-          <Route path="analytics" element={<Suspense fallback={<div className="boot">載入統計頁…</div>}><Analytics /></Suspense>} />
+          <Route path="analytics" element={<Suspense fallback={<PageStatus>載入統計頁…</PageStatus>}><Analytics /></Suspense>} />
           <Route path="scopes" element={<Scopes />} />
           <Route path="payout/settings" element={<Navigate to="/tools/scopes" replace />} />
           <Route path="manual-reports" element={<ManualReports />} />

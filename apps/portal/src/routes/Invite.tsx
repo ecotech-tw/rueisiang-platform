@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { usePageTitle } from "../shell/usePageTitle.js";
-import { Button, TextField } from "../ui/index.js";
+import { Button, LoginCard, LoginError, LoginForm, LoginNote, TextField } from "../ui/index.js";
 
 /**
  * 走邀請連結設定密碼。
@@ -71,17 +71,14 @@ export function Invite() {
   }
 
   return (
-    <div className="login-page">
-      <div className="login-card">
-        <img className="login-logo" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={168} height={45} />
-        <h1>設定密碼</h1>
+    <LoginCard title="設定密碼">
 
         {checking ? <p className="muted">確認邀請連結…</p> : null}
 
         {!checking && !email ? (
           <>
-            <p className="login-error" role="alert">{error ?? "邀請連結無效或已過期。"}</p>
-            <p className="muted login-note">請聯絡管理者重新發送一條連結。</p>
+            <LoginError>{error ?? "邀請連結無效或已過期。"}</LoginError>
+            <LoginNote>請聯絡管理者重新發送一條連結。</LoginNote>
           </>
         ) : null}
 
@@ -92,19 +89,18 @@ export function Invite() {
               也仍然可以改用同一個信箱的 Google 帳號登入。
             </p>
 
-            {error ? <p className="login-error" role="alert">{error}</p> : null}
+            {error ? <LoginError>{error}</LoginError> : null}
 
-            <form className="login-form" onSubmit={submit}>
+            <LoginForm onSubmit={submit}>
               <TextField label="顯示名稱" maxLength={40} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="其他人在系統裡看到的名字" />
               <TextField label={<>密碼<b>至少 8 個字元</b></>} required type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} />
               <TextField label="再輸入一次" required type="password" autoComplete="new-password" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
               <Button type="submit" size="lg" className="w-full" disabled={pending}>
                 {pending ? "設定中…" : "設定密碼並進入系統"}
               </Button>
-            </form>
+            </LoginForm>
           </>
         ) : null}
-      </div>
-    </div>
+    </LoginCard>
   );
 }
