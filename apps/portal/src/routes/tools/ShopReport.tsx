@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ExternalLink, FilterInput, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, ExternalLink, FilterInput, FilterLabel, FilterToolbar, Page, PageHeader, Panel, WorkflowRunPanel } from "../../ui/index.js";
 import { useRunShopReport, useShopReportState, useShopReportStatus } from "./api.js";
 
 function isValidMonth(value: string): boolean {
@@ -60,7 +60,7 @@ export function ShopReport() {
 
       <Panel grows>
         <FilterToolbar>
-          <span className="inline-label">報表月份</span>
+          <FilterLabel>報表月份</FilterLabel>
           <FilterInput
             label="報表月份"
             type="month"

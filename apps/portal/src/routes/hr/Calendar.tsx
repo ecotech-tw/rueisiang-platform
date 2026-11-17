@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, Field, FieldHint, Page, PageHeader, Panel, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, Field, FieldHint, FieldNote, Page, PageHeader, Panel, REFRESHING, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, isDefaultHrCalendarSpecialName, type HrCalendarDay, type HrCalendarResponse, type HrCalendarSpecialKind, type HrDayType, type ScheduleScope } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
@@ -105,9 +105,9 @@ function AddDayDialog({ year, existing, scopes, onAdd, onClose }: { year: number
     {dayType === "weekday" ? <SelectField label="災防標記" value={specialKind} options={HR_CALENDAR_SPECIAL_KINDS.map((item) => ({ value: item, label: HR_CALENDAR_SPECIAL_KIND_LABELS[item] }))} onChange={(event) => { const value = event.target.value as HrCalendarSpecialKind; setSpecialKind(value); if (value !== "typhoon_stop") setSpecialScopeIds([]); if (value === "typhoon_stop" && isDefaultHrCalendarSpecialName(name)) setName("災防停班"); if (value !== "typhoon_stop" && isDefaultHrCalendarSpecialName(name)) setName(""); }} /> : null}
     {dayType === "weekday" && specialKind === "typhoon_stop" ? <Field as="div" label="適用門市／地區"><FieldHint>不指定就是全部門市／地區；指定後只有該範圍的原排班照薪。</FieldHint><CalendarScopePicker scopeIds={specialScopeIds} scopes={scopes} onChange={setSpecialScopeIds} /></Field> : null}
     <TextField label="備註／名稱" maxLength={100} placeholder="例如：中秋節、補行上班；災防停班可填公告名稱" value={name} onChange={(event) => setName(event.target.value)} />
-    {dayType === "weekday" && specialKind === "typhoon_stop" ? <p className="muted field-note">不會刪除原排班；薪資結算會將適用範圍內有排班的人列為「災防停班給薪」。</p> : null}
-    {isWeekendDate(date) && dayType === "weekday" ? <p className="muted field-note">這是星期{weekdayOf(date)}，設成平日之後當天沒打卡會算缺勤。</p> : null}
-    {!isWeekendDate(date) && dayType === "weekend" ? <p className="muted field-note">這是星期{weekdayOf(date)}，設成週末之後當天不排班也不會算缺勤。</p> : null}
+    {dayType === "weekday" && specialKind === "typhoon_stop" ? <FieldNote>不會刪除原排班；薪資結算會將適用範圍內有排班的人列為「災防停班給薪」。</FieldNote> : null}
+    {isWeekendDate(date) && dayType === "weekday" ? <FieldNote>這是星期{weekdayOf(date)}，設成平日之後當天沒打卡會算缺勤。</FieldNote> : null}
+    {!isWeekendDate(date) && dayType === "weekend" ? <FieldNote>這是星期{weekdayOf(date)}，設成週末之後當天不排班也不會算缺勤。</FieldNote> : null}
     {message ? <Alert tone="danger">{message}</Alert> : null}
   </Dialog>;
 }
@@ -163,7 +163,7 @@ export function HrCalendar() {
    *
    * 不用 keepPreviousData: false 把資料清掉：那會讓 isPending 變回 true，整頁換成
    * skeleton。切一次年份就閃掉整個版面，連年份切換鈕自己都跟著消失，想連按兩下
-   * 往回翻根本按不到。改成版面留著、表格淡化並停用（.is-refreshing），跟排班月曆
+   * 往回翻根本按不到。改成版面留著、表格淡化並停用（REFRESHING），跟排班月曆
    * 換月份同一種手感；這段期間會讀錯的數字與按鈕全部擋掉。
    */
   const loading = calendar.isPlaceholderData;
@@ -241,7 +241,7 @@ export function HrCalendar() {
         {changed ? <p className={`m-0 ${ SCHEDULE_STATUS }`}><StatusBadge tone="warning">尚未儲存</StatusBadge><span>按「儲存」才會生效。</span></p> : null}
       </div>
       {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
-      <DataTable containerClassName={loading ? "is-refreshing" : ""}><thead><tr>
+      <DataTable containerClassName={loading ? REFRESHING : ""}><thead><tr>
         <th>日期</th><th>星期</th><th>日型／災防</th><th>適用門市／地區</th><th>備註／名稱</th><th className="numeric">操作</th>
       </tr></thead><tbody>
         {days.map((day) => {

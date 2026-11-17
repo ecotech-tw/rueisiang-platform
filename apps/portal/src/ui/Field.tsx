@@ -43,6 +43,11 @@ export function FieldGroup({ children }: { children: ReactNode }) {
   return <div className="mt-2 grid gap-4">{children}</div>;
 }
 
+/** 對話框裡跟著目前選擇出現的補充說明（例如「這是星期六，設成平日之後…」）。 */
+export function FieldNote({ children }: { children: ReactNode }) {
+  return <p className="m-0 mb-1 text-[12px] text-muted">{children}</p>;
+}
+
 /** 表單裡的唯讀值。長得像輸入框的位置，但明確不是輸入框。 */
 export function StaticValue({ children, note }: { children: ReactNode; note?: ReactNode }) {
   return (

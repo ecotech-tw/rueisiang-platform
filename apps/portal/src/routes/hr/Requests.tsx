@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FieldGrid, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FieldGrid, FieldNote, FilterCount, FilterFields, FilterSelect, FilterToolbar, Input, Page, PageHeader, Panel, REFRESHING, SearchFilterInput, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, Textarea, TextField, Tooltip, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, sortHrEmployees, useHrLeaveDuration, useHrQuery, useHrWrite, type Employee, type FormRequest, type HrLeaveRequest, type HrOvertimeDay, type HrOvertimeRequest, type HrRequestCenterResponse, type HrRequestCenterRow } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, minutesUntil, monthRange, nextDate, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
@@ -263,8 +263,8 @@ function ReviewDialog({ row, latest, onReload, onClose, onDone }: { row: Request
   >
     <dl><dt>申請期間</dt><dd>{row.period}</dd><dt>申請內容</dt><dd>{row.detail}</dd><dt>原因</dt><dd>{row.reason}</dd></dl>
     {row.kind === "overtime" && !isApprovedCancellable ? <FieldGrid columns={2}><Field label="實際開始（台北）" hint="可縮短，不能超出申請時段"><Input type="datetime-local" step="1800" value={actualStart} onChange={(event) => setActualStart(event.target.value)} /></Field><Field label="實際結束（台北）"><Input type="datetime-local" step="1800" value={actualEnd} onChange={(event) => setActualEnd(event.target.value)} /></Field></FieldGrid> : null}
-    {isApprovedCancellable ? <p className="muted field-note">{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</p> : <Field label="審核意見" hint="駁回時必填"><Textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
-    {row.kind === "overtime" && row.status === "pending" ? <p className="muted field-note">按「取消申請」會直接刪除這筆加班，不會留在申請紀錄。</p> : null}
+    {isApprovedCancellable ? <FieldNote>{row.kind === "overtime" ? "取消後這筆加班會直接刪除，不會留在申請紀錄，也不再納入薪資計算。" : `取消後這筆${REQUEST_KIND_LABEL[row.kind]}不會再納入出勤或薪資計算。`}</FieldNote> : <Field label="審核意見" hint="駁回時必填"><Textarea rows={4} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} /></Field>}
+    {row.kind === "overtime" && row.status === "pending" ? <FieldNote>按「取消申請」會直接刪除這筆加班，不會留在申請紀錄。</FieldNote> : null}
     {row.payrollLocked ? <Alert tone="info">此申請已納入薪資計算，不能取消或修改。</Alert> : null}
     {snapshot !== "current" ? <Alert tone="warning">{REVIEW_SNAPSHOT_NOTICE[snapshot]}</Alert> : review.error ? <Alert tone="danger">{review.error.message}</Alert> : null}
     {snapshot === "changed" ? <Button type="button" variant="secondary" tone="info" onClick={reload}>載入最新內容</Button> : null}
@@ -319,7 +319,7 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
     <SelectField label="申請員工" required value={employeeUserId} options={employeeOptions} searchable disabled={write.isPending} onChange={(event) => setEmployeeUserId(event.target.value)} />
     <SelectField label="假別" required value={leaveTypeId} options={leaveTypeOptions} disabled={!leaveTypes.length || write.isPending} onChange={(event) => setLeaveTypeId(event.target.value)} />
     <FieldGrid columns={2}><TextField label="開始日期與時間（台北）" type="datetime-local" step="1800" required value={startsAt} disabled={write.isPending} onChange={(event) => { const value = event.target.value; setStartsAt(value); if (endsAt && endsAt <= value) setEndsAt(""); }} /><TextField label="結束日期與時間（台北）" type="datetime-local" step="1800" required value={endsAt} min={startsAt} disabled={write.isPending} onChange={(event) => setEndsAt(event.target.value)} /></FieldGrid>
-    <p className="muted field-note">{durationDescription}{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</p>
+    <FieldNote>{durationDescription}{leaveDuration.isPending ? "計算中…" : leaveDuration.error ? leaveDuration.error.message : durationMinutes !== null && durationValid ? `${(durationMinutes / 60).toFixed(1)} 小時` : durationMinutes !== null && durationMinutes > MAX_LEAVE_MINUTES ? "請假期間不可超過 31 天。" : "請先選擇有效的工作時間。"}</FieldNote>
     <Field label="請假原因"><Textarea rows={4} maxLength={1000} value={reason} disabled={write.isPending} onChange={(event) => setReason(event.target.value)} /></Field>
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
     {actionsSlot ? createPortal(<><Button variant="secondary" type="button" className="max-[620px]:flex-1" onClick={onClose} disabled={write.isPending}>取消</Button><Button type="submit" form={REQUEST_FORM_ID} icon="plus" tone="success" mobileIconOnly loading={write.isPending} disabled={!employees.length || !leaveTypes.length || leaveDuration.isPending || !durationValid}>建立請假申請</Button></>, actionsSlot) : null}
@@ -429,7 +429,7 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
         {hoursField}
         <TextField label="結束時間" type="time" step={1800} value={end.slice(11)} disabled={write.isPending || !start} hint={end && end.slice(0, 10) !== date ? "隔天結束" : "改時數或結束時間，另一個會跟著變"} onChange={(event) => { const next = minutesUntil(start, event.target.value); if (next !== null) setHours(hoursText(next)); }} />
       </FieldGrid>
-      {singleDay?.existing.length ? <p className="muted field-note">這天已有加班：{singleDay.existing.map((row) => `${taipeiInputValue(row.requestedStart).slice(11)}～${taipeiInputValue(row.requestedEnd).slice(11)}`).join("、")}，時段不能重疊。</p> : null}
+      {singleDay?.existing.length ? <FieldNote>這天已有加班：{singleDay.existing.map((row) => `${taipeiInputValue(row.requestedStart).slice(11)}～${taipeiInputValue(row.requestedEnd).slice(11)}`).join("、")}，時段不能重疊。</FieldNote> : null}
       {dayQuery.error ? <Alert tone="danger">無法確認這天的班表：{dayQuery.error.message}</Alert> : null}
       <p className="hr-overtime-summary" aria-live="polite">{start && minutesValid ? <>共 <strong>{hoursText(minutes)} 小時</strong>・{start.slice(11)}～{end.slice(11)}{end.slice(0, 10) !== date ? "（隔天）" : ""}</> : "填好開始時間與時數後會顯示加班時段。"}</p>
     </> : <>
@@ -438,7 +438,7 @@ export function OvertimeForm({ employees, workers, actionsSlot, onClose, onDone,
         {hoursField}
       </FieldGrid>
       {presets}
-      <p className="muted field-note">先選時數，再點日期；再點一次同樣時數就取消。有排班的日期從班表下班時間開始；未排班日期需指定開始時間，送出前會再次確認。</p>
+      <FieldNote>先選時數，再點日期；再點一次同樣時數就取消。有排班的日期從班表下班時間開始；未排班日期需指定開始時間，送出前會再次確認。</FieldNote>
       {!targetId ? <p className="muted table-note">先選申請對象，才看得到這個月的班表。</p>
         : dayQuery.error ? <Alert tone="danger">{dayQuery.error.message}</Alert>
         : daysLoading ? <p className="muted table-note">載入班表…</p>
@@ -596,18 +596,18 @@ export function HrRequestCenter() {
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <FilterToolbar>
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
-        <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[761px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選{activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}</Button>
+        <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[761px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選<FilterCount count={activeFilterCount} /></Button>
         {activeFilterCount ? <Button variant="link" onClick={() => updateFilters({ kind: "all", status: "all" })}>清除篩選</Button> : null}
-        <div className={`filter-fields${showFilters ? " open" : ""}`}>
+        <FilterFields open={showFilters}>
           <FilterSelect label="申請類型" className="min-[761px]:flex-[0_1_190px] max-[760px]:flex-[1_1_100%] max-[760px]:w-full" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
           <FilterSelect label="狀態" className="min-[761px]:flex-[0_1_190px] max-[760px]:flex-[1_1_100%] max-[760px]:w-full" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
-        </div>
+        </FilterFields>
       </FilterToolbar>
       {requests.isFetching ? <p className="muted table-note">更新中…</p> : null}
       <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
         <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div>
         {bulk.actionId && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" inputRef={mobileSelectAllOvertimeRef} checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
-      <DataTable className={`${REQUEST_TABLE} ${bulk.actionId ? TABLE_SELECT_COLUMN.corner : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${requests.isFetching ? "is-refreshing" : ""}`}>
+      <DataTable className={`${REQUEST_TABLE} ${bulk.actionId ? TABLE_SELECT_COLUMN.corner : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${ requests.isFetching ? REFRESHING : "" }`}>
         <thead><tr>
           {bulk.actionId ? <th>{cancellableOvertimeIds.length ? <TableCheckbox ref={selectAllOvertimeRef} checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /> : null}</th> : null}
           <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div></th>

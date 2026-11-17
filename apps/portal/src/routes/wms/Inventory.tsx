@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, Tooltip } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -338,7 +338,7 @@ export function Inventory() {
             onClick={() => setShowFilters((open) => !open)}
           >
             篩選
-            {activeFilterCount ? <span className="filter-count">{activeFilterCount}</span> : null}
+            <FilterCount count={activeFilterCount} />
           </Button>
           {activeFilterCount ? (
             <Button
@@ -349,7 +349,7 @@ export function Inventory() {
             </Button>
           ) : null}
 
-          <div className={`filter-fields${showFilters ? " open" : ""}`}>
+          <FilterFields open={showFilters}>
             <FilterSelect
               label="分類"
               value={filters.category}
@@ -378,7 +378,7 @@ export function Inventory() {
                 { value: "low", label: "需要補貨" },
               ]}
             />
-          </div>
+          </FilterFields>
         </FilterToolbar>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
