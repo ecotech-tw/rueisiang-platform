@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, TableNote, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, RowActions, SEARCH_INPUT_WIDTH, StatusBadge, TableNote, Tooltip } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -137,7 +137,7 @@ function ItemRow({
       </td>
       {canWrite || canCount || canSync ? (
         <td data-label="操作">
-          <div className="row-actions">
+          <RowActions>
             {canCount ? (
               <Button
                 variant="secondary"
@@ -183,7 +183,7 @@ function ItemRow({
                 />
               </>
             ) : null}
-          </div>
+          </RowActions>
         </td>
       ) : null}
     </tr>

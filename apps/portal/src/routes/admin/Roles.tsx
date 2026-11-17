@@ -2,7 +2,7 @@ import type { Permission } from "@rueisiang/auth/permissions";
 import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, FieldGrid, Page, PageHeader, Panel, StatusBadge, TableNote, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FieldGrid, Page, PageHeader, Panel, RowActions, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import {
   useCatalog,
   useCreateRole,
@@ -159,7 +159,7 @@ export function Roles() {
                   <td className="numeric">{role.permissions.length}</td>
                   <td className="numeric">{catalog.data?.holders[role.key] ?? 0}</td>
                   <td>
-                    <div className="row-actions">
+                    <RowActions>
                       <Button
                         variant="icon"
                         icon={role.key === PROTECTED_ROLE_KEY ? "eye" : "edit"}
@@ -184,7 +184,7 @@ export function Roles() {
                         title={role.key === PROTECTED_ROLE_KEY ? "管理員角色不能刪除" : "刪除"}
                         aria-label="刪除"
                       />
-                    </div>
+                    </RowActions>
                   </td>
                 </tr>
               ))}

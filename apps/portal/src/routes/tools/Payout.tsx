@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, FilterLabel, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, TableCheckbox, TableNote, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterLabel, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, RowActions, TableCheckbox, TableNote, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   usePayoutState,
@@ -140,7 +140,7 @@ export function Payout() {
                     )}
                   </td>
                   <td data-label="操作">
-                    <div className="row-actions">
+                    <RowActions>
                       <Button
                         variant="secondary"
                         disabled={blocked}
@@ -148,7 +148,7 @@ export function Payout() {
                       >
                         執行
                       </Button>
-                    </div>
+                    </RowActions>
                   </td>
                 </tr>
               ))}

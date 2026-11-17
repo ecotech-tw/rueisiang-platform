@@ -35,7 +35,7 @@ export function InsuranceRateManagementDialog({ year, onClose }: { year: number;
           options={SCHEMES.map((item) => ({ value: item, label: <>{SCHEME_LABEL[item]}{tables.some((table) => table.scheme === item && table.status === "draft") ? "・待審閱" : ""}</> }))}
           onChange={(value) => { if (value === "labor" || value === "health") setScheme(value); }}
         />
-        <div className="row-actions justify-end gap-2.5 max-[760px]:*:flex-1">
+        <div className="flex justify-end gap-2.5 max-[760px]:*:flex-1">
           <Button icon="sync" loading={getRates.isPending} loadingLabel="取得中…" onClick={() => getRates.mutate({ path: "/insurance-rates/sync", method: "POST", values: { year } }, { onSuccess: refresh })}>取得級距</Button>
           {draft ? <Button variant="secondary" tone="info" loading={activateRate.isPending} onClick={() => activateRate.mutate({ path: `/insurance-rates/${draft.id}/activate`, method: "POST", values: { contentHash: draft.contentHash } }, { onSuccess: refresh })}>啟用{SCHEME_LABEL[scheme]}草稿</Button> : null}
         </div>

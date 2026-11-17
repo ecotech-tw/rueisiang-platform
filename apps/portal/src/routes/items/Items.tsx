@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, Stat, StatRow, StatusBadge, TableNote, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, RowActions, SEARCH_INPUT_WIDTH, SearchCombobox, SelectField, Stat, StatRow, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
 import { Pager } from "../../shell/Pager.js";
@@ -309,7 +309,7 @@ export function Items() {
                   <td data-label="安全庫存" className="numeric cell-sub">{item.inWarehouse && item.minStock !== null ? item.minStock.toLocaleString("zh-TW") : "—"}</td>
                   {canWrite ? (
                     <td data-label="操作">
-                      <div className="row-actions">
+                      <RowActions>
                         <Button variant="icon" icon="edit" title="編輯品項" aria-label={`編輯 ${item.name}`} onClick={() => setEditingItem(item)} />
                         {item.source === "custom" ? (
                           <Button
@@ -322,7 +322,7 @@ export function Items() {
                             onClick={() => setDeleting(item)}
                           />
                         ) : null}
-                      </div>
+                      </RowActions>
                     </td>
                   ) : null}
                 </tr>

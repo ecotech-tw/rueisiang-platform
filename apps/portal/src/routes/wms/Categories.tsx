@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, StatusBadge, TableNote } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, RowActions, StatusBadge, TableNote } from "../../ui/index.js";
 import {
   WAREHOUSE_CATEGORY_COLORS,
   useCreateWarehouseCategory,
@@ -117,7 +117,7 @@ export function Categories() {
                     <td data-label="使用中的商品" className="numeric">{count}</td>
                     {canWrite ? (
                       <td data-label="操作">
-                        <div className="row-actions">
+                        <RowActions>
                           <Button
                             variant="icon"
                             icon="edit"
@@ -144,7 +144,7 @@ export function Categories() {
                             }
                             aria-label={`刪除分類 ${category.name}`}
                           />
-                        </div>
+                        </RowActions>
                       </td>
                     ) : null}
                   </tr>

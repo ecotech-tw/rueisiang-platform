@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableNote, TableSelectAllLabel, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, RowActions, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableNote, TableSelectAllLabel, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -1337,7 +1337,7 @@ function PayoutTable({
                   <small className="cell-sub">{formatTime(row.updatedAt)}</small>
                 </td>
                 <td data-label="操作">
-                  <div className="row-actions">
+                  <RowActions>
                     <Button
                       variant="icon"
                       icon="edit"
@@ -1355,7 +1355,7 @@ function PayoutTable({
                       title={`刪除 ${row.businessDate} 出金資料`}
                       aria-label={`刪除 ${row.businessDate} 出金資料`}
                     />
-                  </div>
+                  </RowActions>
                 </td>
               </tr>
             ))}
@@ -1460,7 +1460,7 @@ function SalesTable({
                   <small className="cell-sub">{formatTime(row.updatedAt)}</small>
                 </td>
                 <td data-label="操作">
-                  <div className="row-actions">
+                  <RowActions>
                     <Button
                       variant="icon"
                       icon="edit"
@@ -1478,7 +1478,7 @@ function SalesTable({
                       title={`刪除 ${row.sku} 商品銷售資料`}
                       aria-label={`刪除 ${row.sku} 商品銷售資料`}
                     />
-                  </div>
+                  </RowActions>
                 </td>
               </tr>
             ))}

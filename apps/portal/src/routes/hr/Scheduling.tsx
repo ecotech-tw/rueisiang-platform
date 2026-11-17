@@ -474,7 +474,7 @@ export function HrScheduling() {
         ? { tone: "success" as const, label: "已發布", detail: `共 ${data.entries.length} 筆排班，隨時可以再調整。` }
         : { tone: "neutral" as const, label: "尚未排班", detail: "排好之後按「儲存」即發布。" };
   const today = taipeiToday();
-  const pageActions = <div className="button-row">
+  const pageActions = <div className="flex flex-wrap items-center justify-end gap-2">
     <Button variant="secondary" onClick={() => setViewingOverlapRules(true)}>重疊規則</Button>
     {canWrite ? <>
       {quick ? null : <Button variant="secondary" disabled={!canEdit || !defaultScope} onClick={openQuick}>快速排班</Button>}

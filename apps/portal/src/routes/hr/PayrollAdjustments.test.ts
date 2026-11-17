@@ -35,7 +35,7 @@ describe("薪資加扣項操作欄", () => {
     expect(containers[1]).toBe(containers[0]);
     expect(cells[0]).toContain("編輯");
     expect(cells[0]).toContain("刪除");
-    expect(cells[0]).not.toContain('class="button-row"');
+    expect(cells[0]).not.toContain("justify-end");
     expect(cells[1]).toContain('role="img" aria-label="不能編輯或刪除"');
     expect(cells[1]).toContain('class="inline-flex size-6 shrink-0 items-center"');
     expect(cells[1]).toContain('<svg class="size-6 shrink-0"');

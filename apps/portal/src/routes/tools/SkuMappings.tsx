@@ -4,7 +4,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Pager } from "../../shell/Pager.js";
-import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, PageTabControl, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, PageTabControl, Panel, RowActions, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import {
   useAddReportSkuIgnore,
   useDeleteProductSkuMapping,
@@ -198,10 +198,10 @@ export function SkuMappings() {
                         </div>
                       ))}</td>
                       <td data-label="建立時間" className="cell-sub whitespace-nowrap">{formatTime(mapping.createdAt)}</td>
-                      {canWrite ? <td data-label="操作"><div className="row-actions">
+                      {canWrite ? <td data-label="操作"><RowActions>
                         <Button variant="icon" icon="edit" title={`編輯外部 SKU ${mapping.externalSku}`} aria-label={`編輯外部 SKU ${mapping.externalSku}`} disabled={remove.isPending} onClick={() => setMappingDialog(mapping)} />
                         <Button variant="icon" tone="danger" icon="trash" title={`移除外部 SKU ${mapping.externalSku}`} aria-label={`移除外部 SKU ${mapping.externalSku}`} disabled={remove.isPending} onClick={() => setDeleting(mapping)} />
-                      </div></td> : null}
+                      </RowActions></td> : null}
                     </tr>
                   ))}
                 </tbody>

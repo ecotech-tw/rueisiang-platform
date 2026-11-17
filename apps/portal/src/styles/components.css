@@ -48,6 +48,3 @@
   to { opacity: 1; filter: blur(0); transform: translateY(0) scale(1); }
 }
 
-@media (max-width: 760px) {
-  .row-actions { justify-content: flex-start; }
-}
