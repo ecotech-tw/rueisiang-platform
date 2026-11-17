@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Page, PageHeader, Panel, Stat, StatRow, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, DataTable, Page, PageHeader, Panel, Stat, StatRow, StatusBadge, type StatusTone, TableNote } from "../../ui/index.js";
 
 interface SyncStatus {
   configured: boolean;
@@ -297,9 +297,9 @@ export function Sync() {
           </DataTable>
 
         {data.recent.length === 0 ? (
-          <p className="muted table-note">
+          <TableNote>
             還沒有收到任何 webhook。CYBERBIZ 後台的 webhook 網址設好之後，會員異動就會出現在這裡。
-          </p>
+          </TableNote>
         ) : null}
       </Panel>
     </Page>

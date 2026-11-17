@@ -5,7 +5,7 @@ import { Icon } from "../../shell/icons.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FormHint, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import { downloadPayslipImage } from "./exportPayslip.js";
 import { useHrQuery, useHrWrite, type PayrollLine, type PayrollRecordDetail, type PayrollScheduleAllocationDetail, type PayrollWorker } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -458,7 +458,7 @@ export function HrPayrollRecordDetail() {
       <section className="grid gap-3" aria-labelledby="payroll-items-title">
         <div className="flex items-start justify-between gap-3 border-b border-b-soft-line pb-3"><div className="grid min-w-0 gap-1"><h3 className="m-0 text-[15px]" id="payroll-items-title">薪資加扣項</h3><p className="m-0 text-[13px] text-muted">附加在這筆紀錄的補發與扣款。{canCalculate && detail.record.status === "unsettled" ? <>新增與管理請至 <Link to="/hr/payroll-adjustments">薪資加扣項</Link>。</> : ""}</p></div></div>
         {detail.items.length ? <DataTable><thead><tr><th>項目</th><th>原因</th><th className="numeric">金額</th><th>操作</th></tr></thead><tbody>{detail.items.map((item) => <tr key={item.id}><td><strong>{item.itemName}</strong><small className="cell-sub">{item.direction === "earning" ? "補發" : "扣款"}</small></td><td>{item.reason}</td><td className="numeric">{item.direction === "earning" ? money(item.amountMinor) : deductionMoney(item.amountMinor)}</td><td>{canCalculate && detail.record.status === "unsettled" ? <Button variant="danger" onClick={() => setDeleteItemId(item.id)}>刪除</Button> : null}</td></tr>)}</tbody></DataTable> : <EmptyState className="mt-[18px]">尚未加入薪資加扣項。</EmptyState>}
-        {detail.items.length ? <p className="form-hint">加扣項合計：補發 {money(itemTotals.earningMinor)}・扣款 {itemTotals.deductionMinor ? deductionMoney(itemTotals.deductionMinor) : "—"}</p> : null}
+        {detail.items.length ? <FormHint>加扣項合計：補發 {money(itemTotals.earningMinor)}・扣款 {itemTotals.deductionMinor ? deductionMoney(itemTotals.deductionMinor) : "—"}</FormHint> : null}
       </section>
     </Panel>
     {approveOpen ? <ConfirmDialog title="確定發放這筆薪資？" confirmLabel="確定發放" pending={approve.isPending} onCancel={() => { if (!approve.isPending) setApproveOpen(false); }} onConfirm={approveRecord}>

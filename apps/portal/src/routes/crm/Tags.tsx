@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, Tag } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, FormHint, Page, PageHeader, Panel, TableNote, Tag } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -129,7 +129,7 @@ export function Tags() {
             <Button type="submit" loading={create.isPending} loadingLabel="新增中…" disabled={!newTag.trim()}>
               新增標籤
             </Button>
-            {busy ? <span className="form-hint">{busy}</span> : null}
+            {busy ? <FormHint as="span">{busy}</FormHint> : null}
           </FilterToolbar>
         ) : null}
 
@@ -214,9 +214,9 @@ export function Tags() {
           </DataTable>
 
         {rows.length === 0 ? (
-          <p className="muted table-note">
+          <TableNote>
             還沒有任何標籤。可以在這裡先建立，或等 CYBERBIZ 同步把官網的標籤帶進來。
-          </p>
+          </TableNote>
         ) : null}
       </Panel>
     </Page>

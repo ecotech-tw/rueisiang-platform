@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, Page, PageHeader, Panel, StatusBadge, TableNote } from "../../ui/index.js";
 import {
   WAREHOUSE_CATEGORY_COLORS,
   useCreateWarehouseCategory,
@@ -153,12 +153,12 @@ export function Categories() {
             </tbody>
           </DataTable>
 
-        {query.isPending ? <p className="muted table-note">載入中…</p> : null}
+        {query.isPending ? <TableNote>載入中…</TableNote> : null}
 
         {query.data && categories.length === 0 ? (
-          <p className="muted table-note">
+          <TableNote>
             還沒有任何分類。先在上面建一個，才能開始新增商品——商品一定要屬於某個分類。
-          </p>
+          </TableNote>
         ) : null}
       </Panel>
 

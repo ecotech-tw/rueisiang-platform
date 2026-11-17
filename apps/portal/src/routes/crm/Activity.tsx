@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, CellError, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, CellError, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, StatusBadge, type StatusTone, TableNote } from "../../ui/index.js";
 
 interface EventRow {
   id: string;
@@ -162,14 +162,14 @@ export function Activity() {
             </tbody>
           </DataTable>
 
-        {query.isPending ? <p className="muted table-note">載入中…</p> : null}
+        {query.isPending ? <TableNote>載入中…</TableNote> : null}
 
         {data && data.events.length === 0 ? (
-          <p className="muted table-note">
+          <TableNote>
             {filters.search || filters.source !== "all"
               ? "沒有符合條件的紀錄。"
               : "還沒有任何紀錄。有人編輯客戶、或 CYBERBIZ 送來異動之後就會出現。"}
-          </p>
+          </TableNote>
         ) : null}
 
         {data && (data.hasMore || data.page > 1) ? (

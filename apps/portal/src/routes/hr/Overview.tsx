@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Icon, type IconName } from "../../shell/icons.js";
-import { Alert, EmptyState, Page, PageHeader, StatusBadge } from "../../ui/index.js";
+import { Alert, EmptyState, FormHint, Page, PageHeader, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type HrOverview } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -51,7 +51,7 @@ export function HrOverview() {
 
   return <Page>
     <PageHeader title="HRIS 儀表板" description={`只顯示目前月份 ${periodLabel(data.periodKey)} 的待辦數量與處理入口，不在儀表板展開薪資或投保明細。`} />
-    {overview.isFetching ? <p className="form-hint">更新中…</p> : null}
+    {overview.isFetching ? <FormHint>更新中…</FormHint> : null}
     <section>
       <div className="grid grid-cols-4 gap-[14px] max-[1100px]:grid-cols-2 max-[620px]:grid-cols-[1fr]">{cards.map((card) => <Link className={CARD} to={card.to} key={card.title}>
         <div className="flex items-center justify-between gap-2"><span className={`grid size-9 place-items-center rounded-[12px] [&_svg]:size-[19px] ${ ICON_TONE[card.tone] }`}><Icon name={card.icon} /></span><StatusBadge tone={card.tone}>{card.title}</StatusBadge></div>

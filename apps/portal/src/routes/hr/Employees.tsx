@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TableNote, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type Candidate, type CompensationVersion, type Employee, type Employment, type InsuranceVersion, type LeaveRequest, type NamedOption, type Profile } from "./api.js";
 import { EmployeeProfile, ProfileGrid } from "./EmployeeProfile.js";
 import { EmployeeSectionNav } from "./EmployeeSectionNav.js";
@@ -186,8 +186,8 @@ export function HrEmployees() {
           <td data-label="員工編號"><Tooltip label={employee.employeeNumber}><span className="cell-strong block max-w-40 truncate">{employee.employeeNumber}</span></Tooltip></td><td data-label="姓名">{employee.legalName}<br /><span className="cell-sub">{employee.personKind === "worker" ? "排班支援人員" : "正式員工"}</span></td><td data-label="帳號" className="cell-sub">{employee.email || "無平台帳號"}</td><td data-label="帳號狀態"><StatusBadge tone={!employee.email ? "neutral" : employee.userStatus === "active" ? "success" : employee.userStatus === "invited" ? "neutral" : "danger"}>{!employee.email ? "無平台帳號" : statusLabel(employee.userStatus)}</StatusBadge></td><td data-label="LINE 綁定"><HrLineBindingStatus employee={employee} /></td><td data-label="職位">{employee.position}</td><td data-label="主管">{employee.supervisorName ?? "未設定"}</td><td data-label="員工狀態"><StatusBadge tone={employee.employmentStatus === "active" ? "success" : "neutral"}>{employee.employmentStatus === "active" ? "在職" : "未在職"}</StatusBadge></td>
         </tr>;
       })}</tbody></DataTable>
-      {employees.isPlaceholderData ? <p className="muted table-note">載入中…</p> : null}
-      {data && !data.employees.length ? <p className="muted table-note">{data.total ? "沒有符合條件的人員，調整一下搜尋或篩選看看。" : filters.employmentStatus === "active" ? "目前沒有在職人員。" : "目前沒有未在職人員。"}</p> : null}
+      {employees.isPlaceholderData ? <TableNote>載入中…</TableNote> : null}
+      {data && !data.employees.length ? <TableNote>{data.total ? "沒有符合條件的人員，調整一下搜尋或篩選看看。" : filters.employmentStatus === "active" ? "目前沒有在職人員。" : "目前沒有未在職人員。"}</TableNote> : null}
       {data && data.total > 0 ? <Pager className="mt-4 shrink-0" page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={Math.max(1, Math.ceil(data.total / data.pageSize))} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}
     </Panel>
     {editor ? <EditorDialog editor={editor} onClose={() => { setEditor(null); void employees.refetch(); void candidates.refetch(); }} onSuccess={() => toast.show("已指派新員工", "success")} /> : null}

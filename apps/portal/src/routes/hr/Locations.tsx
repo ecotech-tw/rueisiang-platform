@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, EmptyState, Field, FilterInput, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, EmptyState, Field, FilterInput, FilterToolbar, FormHint, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type AttendanceAssignment, type AttendanceLocation, type Employee, type Employment, type Profile } from "./api.js";
 import { HrPageSkeleton, HrSkeletonTableRow } from "./HrSkeleton.js";
 import { PickerEmpty, PickerList, PickerRow } from "./PickerList.js";
@@ -95,7 +95,7 @@ export function HrAttendanceScopeManagement() {
     <Panel grows>
       <FilterToolbar><FilterInput label="搜尋員工" type="search" className={SEARCH_INPUT_WIDTH} placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => updateFilters({ search: event.target.value })} /></FilterToolbar>
       {employees.error || locations.error ? <Alert tone="danger">{employees.error?.message ?? locations.error?.message}</Alert> : null}
-      {employees.isFetching || locations.isFetching ? <p className="form-hint">更新中…</p> : null}
+      {employees.isFetching || locations.isFetching ? <FormHint>更新中…</FormHint> : null}
       <DataTable><thead><tr><th>員工</th><th>目前任職</th><th>出勤方式</th><th>有效辦公位置</th><th>操作</th></tr></thead><tbody>
         {(employees.data?.employees ?? []).map((employee) => <EmployeeLocationRow key={employee.employmentId ?? employee.userId} employee={employee} canWrite={canWrite} onEdit={setEditing} />)}
       </tbody></DataTable>
