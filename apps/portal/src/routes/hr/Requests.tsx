@@ -545,19 +545,12 @@ export function HrRequestCenter() {
   const selectedOvertimeRows = bulk.selectedRows;
   const requestBulkActionOptions = REQUEST_BULK_ACTIONS.map((action) => ({ id: action.id, label: action.label, eligibleCount: cancellableOvertimeRows.length }));
   const allVisibleOvertimeSelected = bulk.allEligibleSelected;
-  const selectAllOvertimeRef = useRef<HTMLInputElement>(null);
-  const mobileSelectAllOvertimeRef = useRef<HTMLInputElement>(null);
+  const someVisibleOvertimeSelected = bulk.someEligibleSelected && !allVisibleOvertimeSelected;
 
   useEffect(() => {
     if (!loadedPage) return;
     setFilters((current) => current.page === loadedPage ? current : { ...current, page: loadedPage });
   }, [loadedPage]);
-
-  useEffect(() => {
-    const indeterminate = bulk.someEligibleSelected && !allVisibleOvertimeSelected;
-    if (selectAllOvertimeRef.current) selectAllOvertimeRef.current.indeterminate = indeterminate;
-    if (mobileSelectAllOvertimeRef.current) mobileSelectAllOvertimeRef.current.indeterminate = indeterminate;
-  }, [allVisibleOvertimeSelected, bulk.someEligibleSelected]);
 
   if (!canAccess) return <Alert tone="danger">你沒有檢視 HR 申請的權限。</Alert>;
   if (employees.isPending || leaveTypes.isPending || workers.isPending || requests.isPending) return <HrPageSkeleton variant="table" />;
@@ -606,10 +599,10 @@ export function HrRequestCenter() {
       {requests.isFetching ? <TableNote>更新中…</TableNote> : null}
       <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
         <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div>
-        {bulk.actionId && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" inputRef={mobileSelectAllOvertimeRef} checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
+        {bulk.actionId && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" checked={allVisibleOvertimeSelected} indeterminate={someVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
       <DataTable className={`${REQUEST_TABLE} ${bulk.actionId ? TABLE_SELECT_COLUMN.corner : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${ requests.isFetching ? REFRESHING : "" }`}>
         <thead><tr>
-          {bulk.actionId ? <th>{cancellableOvertimeIds.length ? <TableCheckbox ref={selectAllOvertimeRef} checked={allVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /> : null}</th> : null}
+          {bulk.actionId ? <th>{cancellableOvertimeIds.length ? <TableCheckbox checked={allVisibleOvertimeSelected} indeterminate={someVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /> : null}</th> : null}
           <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div></th>
         </tr></thead>
         <tbody>{visibleRows.map((row) => {

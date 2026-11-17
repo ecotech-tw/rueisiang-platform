@@ -381,8 +381,7 @@ export function HrPayrollSettlement() {
   const selectedDeletableRecords = bulk.actionId === "delete" ? bulk.selectedRows : [];
   const payrollBulkActionOptions = PAYROLL_BULK_ACTIONS.map((action) => ({ id: action.id, label: action.label, eligibleCount: payrollRows.filter(action.isEligible).length }));
   const allVisibleSelected = bulk.allEligibleSelected;
-  const selectAllRef = useRef<HTMLInputElement>(null);
-  const mobileSelectAllRef = useRef<HTMLInputElement>(null);
+  const someVisibleSelected = bulk.someEligibleSelected && !allVisibleSelected;
 
   useEffect(() => {
     const jobs = payrollJobs.data?.jobs ?? [];
@@ -400,11 +399,6 @@ export function HrPayrollSettlement() {
       observedPayrollJobStatuses.set(job.jobId, job.status);
     }
   }, [canCalculate, payrollJobs.data?.jobs, records, toast]);
-  useEffect(() => {
-    const indeterminate = bulk.someEligibleSelected && !allVisibleSelected;
-    if (selectAllRef.current) selectAllRef.current.indeterminate = indeterminate;
-    if (mobileSelectAllRef.current) mobileSelectAllRef.current.indeterminate = indeterminate;
-  }, [allVisibleSelected, bulk.someEligibleSelected]);
 
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (records.isPending) return <HrPageSkeleton variant="table" />;
@@ -464,9 +458,9 @@ export function HrPayrollSettlement() {
       {records.error ? <Alert tone="danger">薪資紀錄載入失敗：{records.error.message}</Alert> : null}
       <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
         {canCalculate ? <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={payrollBulkActionOptions} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div> : null}
-        {bulk.actionId && bulk.eligibleKeys.length ? <TableMobileSelectAll variant="divided" inputRef={mobileSelectAllRef} checked={allVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"}>{allVisibleSelected ? "取消全選本頁" : "全選本頁符合條件"}</TableMobileSelectAll> : null}
+        {bulk.actionId && bulk.eligibleKeys.length ? <TableMobileSelectAll variant="divided" checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"}>{allVisibleSelected ? "取消全選本頁" : "全選本頁符合條件"}</TableMobileSelectAll> : null}
         <DataTable className={`${PAYROLL_RECORD_TABLE} ${bulk.actionId ? TABLE_SELECT_COLUMN.inline : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${ records.isPlaceholderData ? REFRESHING : "" }`}>
-            <thead><tr>{bulk.actionId ? <th>{bulk.eligibleKeys.length ? <TableCheckbox ref={selectAllRef} checked={allVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"} /> : null}</th> : null}<th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span>{canCalculate ? <TableBulkActionMenu actionId={bulk.actionId} actions={payrollBulkActionOptions} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /> : null}</div></th></tr></thead>
+            <thead><tr>{bulk.actionId ? <th>{bulk.eligibleKeys.length ? <TableCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"} /> : null}</th> : null}<th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span>{canCalculate ? <TableBulkActionMenu actionId={bulk.actionId} actions={payrollBulkActionOptions} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /> : null}</div></th></tr></thead>
             <tbody>{payrollRows.map((record) => <tr key={referenceKey(record)} className={bulk.selectedKeys.includes(referenceKey(record)) ? "selected" : undefined}>
               {bulk.actionId ? <td data-label="選取">{bulk.isRowEligible(record) ? <TableCheckbox checked={bulk.selectedKeys.includes(referenceKey(record))} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleRow(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td> : null}
               <td data-label="薪資月份"><strong>{payrollPeriodLabel(record.periodKey)}</strong><small className="cell-sub">{record.payDate ? `發薪日 ${record.payDate}` : "未設定發薪日"}</small></td>

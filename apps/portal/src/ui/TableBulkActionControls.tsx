@@ -1,9 +1,8 @@
-import { useEffect, useImperativeHandle, useRef, type InputHTMLAttributes, type ReactNode, type Ref } from "react";
+import { useEffect, useRef, type InputHTMLAttributes, type ReactNode } from "react";
 
 export { TableBulkActionMenu, type TableBulkActionOption } from "@rueisiang/ui";
 
 interface TableCheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "type" | "className"> {
-  ref?: Ref<HTMLInputElement>;
   /** 部分選取。HTML 沒有這個屬性，只能從 DOM 設，所以包在元件裡。 */
   indeterminate?: boolean;
   /** 聚焦時改用跟批次勾選欄同一種外框（TABLE_SELECT_COLUMN 由表格套上；表格外的勾選框用這個）。 */
@@ -11,9 +10,8 @@ interface TableCheckboxProps extends Omit<InputHTMLAttributes<HTMLInputElement>,
 }
 
 /** 表格勾選欄與全選列共用的勾選框。 */
-export function TableCheckbox({ ref, indeterminate, focusOutline = false, ...props }: TableCheckboxProps) {
+export function TableCheckbox({ indeterminate, focusOutline = false, ...props }: TableCheckboxProps) {
   const inputRef = useRef<HTMLInputElement>(null);
-  useImperativeHandle(ref, () => inputRef.current!, []);
   useEffect(() => {
     if (inputRef.current && indeterminate !== undefined) inputRef.current.indeterminate = indeterminate;
   }, [indeterminate]);
@@ -57,8 +55,9 @@ const MOBILE_SELECT_ALL = {
 
 interface TableMobileSelectAllProps {
   variant: keyof typeof MOBILE_SELECT_ALL;
-  inputRef?: Ref<HTMLInputElement>;
   checked: boolean;
+  /** 部分選取，跟表頭的全選框同一個值。 */
+  indeterminate?: boolean;
   disabled?: boolean;
   "aria-label": string;
   onChange: (checked: boolean) => void;
@@ -66,11 +65,11 @@ interface TableMobileSelectAllProps {
 }
 
 /** 手機版的「全選本頁」列；桌機的全選框在勾選欄的表頭。 */
-export function TableMobileSelectAll({ variant, inputRef, checked, disabled, "aria-label": ariaLabel, onChange, children }: TableMobileSelectAllProps) {
+export function TableMobileSelectAll({ variant, checked, indeterminate, disabled, "aria-label": ariaLabel, onChange, children }: TableMobileSelectAllProps) {
   const skin = MOBILE_SELECT_ALL[variant];
   return <div className={skin.row}>
     <TableSelectAllLabel>
-      <TableCheckbox ref={inputRef} focusOutline={skin.focusOutline} checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} aria-label={ariaLabel} />
+      <TableCheckbox focusOutline={skin.focusOutline} checked={checked} indeterminate={indeterminate} disabled={disabled} onChange={(event) => onChange(event.target.checked)} aria-label={ariaLabel} />
       <span>{children}</span>
     </TableSelectAllLabel>
   </div>;
