@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ExternalLink, FilterInput, FilterLabel, FilterToolbar, Page, PageHeader, PageStatus, Panel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, ExternalLink, FilterInput, FilterLabel, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, TableNote, WorkflowRunPanel } from "../../ui/index.js";
 import { useRunShopReport, useShopReportState, useShopReportStatus } from "./api.js";
 
 function isValidMonth(value: string): boolean {
@@ -55,7 +55,7 @@ export function ShopReport() {
         <Alert tone="danger">請先在通路管理設定官網的 Google Drive 資料夾，現在無法執行。</Alert>
       ) : null}
       {state.data?.driveFolderUrl ? (
-        <p className="muted table-note">上傳位置：<ExternalLink href={state.data.driveFolderUrl}>{state.data.driveFolderName || "Google Drive 資料夾"}</ExternalLink></p>
+        <TableNote>上傳位置：<ExternalLink href={state.data.driveFolderUrl}>{state.data.driveFolderName || "Google Drive 資料夾"}</ExternalLink></TableNote>
       ) : null}
 
       <Panel grows>
@@ -81,7 +81,7 @@ export function ShopReport() {
           >
             執行
           </Button>
-          {running ? <span className="form-hint">執行中…可以關閉這一頁</span> : null}
+          {running ? <FormHint as="span">執行中…可以關閉這一頁</FormHint> : null}
         </FilterToolbar>
 
 

@@ -1,0 +1,14 @@
+{
+  "name": "@rueisiang/rfid-gateway",
+  "private": true,
+  "type": "module",
+  "description": "PRH-566 TCP receiver that forwards complete RFID frames to the HR API",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "check": "node --check src/server.mjs",
+    "test": "node --test test/server.test.mjs",
+    "start": "node src/server.mjs"
+  }
+}

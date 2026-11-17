@@ -1,7 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, CellError, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, type StatusTone } from "../../ui/index.js";
+import { Alert, Button, CellError, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, type StatusTone, TableNote } from "../../ui/index.js";
 
 /**
  * 倉儲的操作紀錄。
@@ -252,14 +252,14 @@ export function Activity() {
             </tbody>
           </DataTable>
 
-        {query.isPending ? <p className="muted table-note">載入中…</p> : null}
+        {query.isPending ? <TableNote>載入中…</TableNote> : null}
 
         {data && data.events.length === 0 ? (
-          <p className="muted table-note">
+          <TableNote>
             {filters.search || filters.entityType !== "all"
               ? "沒有符合條件的紀錄。"
               : "還沒有任何紀錄。有人動到倉位、商品或分類之後就會出現。"}
-          </p>
+          </TableNote>
         ) : null}
 
         {data && (data.hasMore || data.page > 1) ? (

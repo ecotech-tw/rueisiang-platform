@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, PageStatus, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableSelectAllLabel, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableNote, TableSelectAllLabel, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -709,7 +709,7 @@ function StandardReportImportDialog({
               onChange={(event) => void pickFile(event.target.files?.[0])}
               disabled={pending}
             />
-            {fileName ? <span className="form-hint">{fileName}</span> : null}
+            {fileName ? <FormHint as="span">{fileName}</FormHint> : null}
           </label>
 
           {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -720,7 +720,7 @@ function StandardReportImportDialog({
                   <h3 className="m-0 text-[16px]">預覽</h3>
                   <p className="muted mx-0 mt-1 mb-0">{preview.coverageStart} ~ {preview.coverageEnd}，共 {preview.rows.length} 列，合計 {formatCurrency(preview.total)}</p>
                 </div>
-                <span className="form-hint">確認後才會寫入</span>
+                <FormHint as="span">確認後才會寫入</FormHint>
               </div>
               <DataTable containerClassName={IMPORT_TABLE_SCROLL}>
                   <thead><tr><th>來源列</th><th>日期</th><th className="numeric">金額</th><th /></tr></thead>
@@ -745,7 +745,7 @@ function StandardReportImportDialog({
                   <h3 className="m-0 text-[16px]">預覽</h3>
                   <p className="muted mx-0 mt-1 mb-0">月份：{preview.reportMonths.join("、")}，共 {preview.rows.length} 列</p>
                 </div>
-                <span className="form-hint">確認後才會寫入</span>
+                <FormHint as="span">確認後才會寫入</FormHint>
               </div>
               <DataTable className="manual-sales-table" containerClassName={IMPORT_TABLE_SCROLL}>
                   <thead><tr><th>來源列</th><th>月份</th><th>SKU</th><th>商品名稱</th><th>類別</th><th className="numeric">銷售數量</th><th className="numeric">退回數量</th><th className="numeric">淨銷售數量</th><th className="numeric">售額總計</th><th /></tr></thead>
@@ -1183,7 +1183,7 @@ function ListFooter({
   hasFilters: boolean;
   emptyLabel: string;
 }) {
-  if (isFetching) return <p className="muted table-note">更新資料中…</p>;
+  if (isFetching) return <TableNote>更新資料中…</TableNote>;
   if (hasRows || total > 0) return null;
   return <p className="m-0 px-4 pt-7 pb-3 text-center text-muted">{hasFilters ? "沒有符合篩選條件的紀錄。" : `目前沒有${emptyLabel}紀錄。`}</p>;
 }

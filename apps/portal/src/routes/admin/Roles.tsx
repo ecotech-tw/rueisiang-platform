@@ -2,7 +2,7 @@ import type { Permission } from "@rueisiang/auth/permissions";
 import { useMemo, useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, FieldGrid, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FieldGrid, Page, PageHeader, Panel, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import {
   useCatalog,
   useCreateRole,
@@ -190,7 +190,7 @@ export function Roles() {
               ))}
             </tbody>
           </DataTable>
-        {catalog.isPending ? <p className="muted table-note">載入中…</p> : null}
+        {catalog.isPending ? <TableNote>載入中…</TableNote> : null}
       </Panel>
 
       {editor ? (

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, StaticValue, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Field, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, SelectField, StaticValue, TableNote, TextField } from "../../ui/index.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useHrQuery, useHrWrite, type AttendanceLocation, type AttendanceLocationDetail, type GoogleMapPlace, type NamedOption } from "./api.js";
@@ -165,12 +165,12 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
           />
           <Button size="lg" className="min-w-[86px] flex-none max-[760px]:w-full" type="button" variant="primary" icon="search" disabled={!mapQuery.trim() || places.isFetching} onClick={searchPlaces}>搜尋</Button>
         </div>
-        {places.isFetching ? <p className="form-hint">搜尋 Google Maps 地點…</p> : null}
+        {places.isFetching ? <FormHint>搜尋 Google Maps 地點…</FormHint> : null}
         {places.error ? <Alert tone="danger">{places.error.message}</Alert> : null}
         {searchQuery && places.data && !placeResults.length ? <p className="muted">找不到地點，請換個關鍵字。</p> : null}
         {placeResults.length ? (
           <div className="grid max-h-60 flex-none gap-1.5 overflow-y-auto" role="listbox" aria-label="Google Maps 搜尋結果">
-            <p className="form-hint">搜尋結果（{placeResults.length} 筆），請選取正確的辦公位置：</p>
+            <FormHint>搜尋結果（{placeResults.length} 筆），請選取正確的辦公位置：</FormHint>
             {placeResults.map((place) => (
               <button type="button" role="option" className="grid min-h-14 w-full cursor-pointer gap-[3px] rounded-field border border-line bg-paper px-3 py-2.5 text-left text-ink transition-[background-color,border-color,scale] duration-120 ease-out hover:border-secondary hover:bg-brand/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary active:scale-[.99] motion-reduce:transition-none [&_small]:text-muted" key={place.id} onClick={() => selectPlace(place)}>
                 <strong>{place.name}</strong>
@@ -264,7 +264,7 @@ export function HrAttendanceSettings() {
           <FilterInput label="搜尋辦公位置或據點" type="search" className={SEARCH_INPUT_WIDTH} placeholder="搜尋辦公位置或營運據點" value={search} onChange={(event) => { setSearch(event.target.value); setPage(1); }} />
           <FilterSelect label="營運據點" value={scopeId} options={[{ value: "all", label: "全部營運據點" }, ...(scopes.data?.scopes ?? []).map((scope) => ({ value: scope.id, label: scope.name }))]} onChange={(event) => { setScopeId(event.target.value); setPage(1); }} />
         </FilterToolbar>
-        {locations.isFetching ? <p className="form-hint">更新中…</p> : null}
+        {locations.isFetching ? <FormHint>更新中…</FormHint> : null}
         <DataTable className="[&_td]:align-top">
             <thead><tr><SortableHeader label="辦公位置" field="name" active={sortField} direction={sortDirection} onSort={updateSort} /><SortableHeader label="營運據點" field="scope" active={sortField} direction={sortDirection} onSort={updateSort} /><th>定位判斷</th><SortableHeader label="半徑" field="radius" active={sortField} direction={sortDirection} onSort={updateSort} />{canWrite ? <th>操作</th> : null}</tr></thead>
             <tbody>
@@ -279,7 +279,7 @@ export function HrAttendanceSettings() {
               ))}
             </tbody>
         </DataTable>
-        {!rows.length ? <p className="muted table-note">沒有符合條件的辦公位置。</p> : null}
+        {!rows.length ? <TableNote>沒有符合條件的辦公位置。</TableNote> : null}
         <Pager className="mt-4 shrink-0" page={page} pageSize={pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.ceil(total / pageSize)} totalLabel={`共 ${total.toLocaleString("zh-TW")} 筆`} onPage={setPage} onPageSize={(size) => { setPageSize(size); setPage(1); }} />
       </Panel>
       {editor ? <LocationDialog location={editor === "new" ? undefined : editor} onClose={() => setEditor(null)} /> : null}

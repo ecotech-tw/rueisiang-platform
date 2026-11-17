@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, Panel, SearchFilterInput, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, type ScheduleWorkerPageResponse, type ScheduleWorkerRecord } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -50,7 +50,7 @@ function WorkerDialog({ worker, onClose }: { worker: ScheduleWorkerRecord | null
   } }} actions={<Button type="submit" tone={isEditing ? "info" : "success"} loading={save.isPending}>儲存</Button>}>
     <TextField label="姓名" value={displayName} maxLength={100} required onChange={(event) => setDisplayName(event.target.value)} />
     {isEditing ? <SelectField label="狀態" value={active ? "active" : "inactive"} options={[{ value: "active", label: "啟用中" }, { value: "inactive", label: "已停用" }]} onChange={(event) => setActive(event.target.value === "active")} /> : null}
-    <p className="form-hint">支援人員可另外連結平台帳號，使用打卡與薪資袋。停用會停止後續排班與本人功能，歷史排班、打卡及薪資資料仍會保留。</p>
+    <FormHint>支援人員可另外連結平台帳號，使用打卡與薪資袋。停用會停止後續排班與本人功能，歷史排班、打卡及薪資資料仍會保留。</FormHint>
     {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
   </Dialog>;
 }
@@ -66,7 +66,7 @@ function WorkerAccountDialog({ worker, onClose }: { worker: ScheduleWorkerRecord
     } }} actions={<Button type="submit" loading={save.isPending}>確認連結</Button>}>
     <p>請先在「權限管理」邀請此 Email，再連結至這位支援人員。帳號只能連結一位人員，請確認姓名與 Email 相符。</p>
     <TextField label="登入 Email" type="email" required maxLength={254} autoComplete="off" value={email} onChange={(event) => setEmail(event.target.value)} />
-    <p className="form-hint">連結後可用 Email 登入並綁定小香，只開放打卡與已發放薪資袋。請另外至「出勤範圍管理」指派可打卡位置。</p>
+    <FormHint>連結後可用 Email 登入並綁定小香，只開放打卡與已發放薪資袋。請另外至「出勤範圍管理」指派可打卡位置。</FormHint>
     {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
   </Dialog>;
 }
@@ -112,8 +112,8 @@ export function HrSupportWorkers() {
           </tr>;
         })}
       </tbody></DataTable>
-      {workers.isFetching ? <p className="muted table-note">載入中…</p> : null}
-      {data && !data.workers.length ? <p className="muted table-note">{data.total ? "沒有符合條件的支援人員，調整一下搜尋或篩選看看。" : "尚無支援人員，請先新增一位可排班的外部人力。"}</p> : null}
+      {workers.isFetching ? <TableNote>載入中…</TableNote> : null}
+      {data && !data.workers.length ? <TableNote>{data.total ? "沒有符合條件的支援人員，調整一下搜尋或篩選看看。" : "尚無支援人員，請先新增一位可排班的外部人力。"}</TableNote> : null}
       {data && data.total > 0 ? <Pager className="mt-4 shrink-0" page={data.page} pageSize={data.pageSize} pageSizes={PAGE_SIZES} totalPages={totalPages} totalLabel={`共 ${data.total.toLocaleString("zh-TW")} 位`} onPage={(page) => update({ page })} onPageSize={(pageSize) => update({ pageSize })} /> : null}
     </Panel>
     {linking ? <WorkerAccountDialog worker={linking} onClose={() => { setLinking(null); void workers.refetch(); }} /> : null}

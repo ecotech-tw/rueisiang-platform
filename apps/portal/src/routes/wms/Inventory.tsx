@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, TableNote, Tooltip } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -418,14 +418,14 @@ export function Inventory() {
             </tbody>
           </DataTable>
 
-        {query.isPending ? <p className="muted table-note">載入中…</p> : null}
+        {query.isPending ? <TableNote>載入中…</TableNote> : null}
 
         {query.data && filtered.length === 0 ? (
-          <p className="muted table-note">
+          <TableNote>
             {items.length === 0
               ? "還沒有任何入庫品項。請先在品項列表新增自訂品項，再回來新增入庫。"
               : "沒有符合條件的商品，調整一下搜尋或篩選看看。"}
-          </p>
+          </TableNote>
         ) : null}
 
         {filtered.length > 0 ? (

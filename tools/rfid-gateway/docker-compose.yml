@@ -1,0 +1,31 @@
+services:
+  rfid-gateway:
+    build:
+      context: .
+    container_name: rueisiang-platform-rfid-gateway
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      RFID_API_ORIGIN: ${RFID_API_ORIGIN:?請設定 RFID_API_ORIGIN}
+      RFID_GATEWAY_TOKEN: ${RFID_GATEWAY_TOKEN:?請設定 RFID_GATEWAY_TOKEN}
+      RFID_DEVICE_ID: ${RFID_DEVICE_ID:-office-entrance}
+      LISTEN_HOST: 0.0.0.0
+      LISTEN_PORT: 6000
+      HEALTH_HOST: 0.0.0.0
+      HEALTH_PORT: 8788
+    ports:
+      - "${RFID_TCP_BIND:-192.168.0.6}:6000:6000/tcp"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8788/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

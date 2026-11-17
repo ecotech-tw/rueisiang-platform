@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, Page, PageHeader, Panel, SelectField, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, Page, PageHeader, Panel, SelectField, TableNote, TextField, Tooltip } from "../../ui/index.js";
 import { groupShiftsByTemplate, shiftTimeRange, useHrQuery, useHrWrite, HR_SHIFT_DAY_TYPES, HR_SHIFT_DAY_LABELS, HR_SHIFT_OVERRIDE_TYPES, type HrShiftsResponse, type ScheduleScope, type ScheduleShift } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { ShiftTimeField } from "./ShiftTimeField.js";
@@ -395,7 +395,7 @@ export function HrShifts() {
           </tr>;
         })}
       </tbody></DataTable>
-      {!data.scopes.length ? <p className="muted table-note">目前沒有啟用中的營運據點。</p> : null}
+      {!data.scopes.length ? <TableNote>目前沒有啟用中的營運據點。</TableNote> : null}
     </Panel>
     {managers.error ? <Alert tone="danger">{managers.error.message}</Alert> : null}
     {openScope && managers.data?.scopes.find((scope) => scope.id === openScope.id) ? <StoreShiftsDialog

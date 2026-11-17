@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { DateRangePicker } from "../../shell/DateRangePicker.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, FilterLabel, FilterToolbar, Page, PageHeader, PageStatus, Panel, TableCheckbox, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, FilterLabel, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, TableCheckbox, TableNote, TableSelectAllLabel, WorkflowRunPanel } from "../../ui/index.js";
 import {
 
   usePayoutState,
@@ -90,8 +90,8 @@ export function Payout() {
           >
             {allSelected ? "全部執行" : `執行選取的 ${selectedNames.length} 家`}
           </Button>
-          <span className="form-hint">已選 {selectedNames.length} / {stores.length} 家</span>
-          {running ? <span className="form-hint">執行中…可以關掉這一頁</span> : null}
+          <FormHint as="span">已選 {selectedNames.length} / {stores.length} 家</FormHint>
+          {running ? <FormHint as="span">執行中…可以關掉這一頁</FormHint> : null}
         </FilterToolbar>
 
         {rangeError ? <Alert tone="danger">{rangeError}</Alert> : null}
@@ -156,7 +156,7 @@ export function Payout() {
           </DataTable>
 
         {stores.length === 0 ? (
-          <p className="muted table-note">還沒有任何店別，先到「店別與報表設定」加一家。</p>
+          <TableNote>還沒有任何店別，先到「店別與報表設定」加一家。</TableNote>
         ) : null}
       </Panel>
 

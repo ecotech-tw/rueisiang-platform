@@ -19,8 +19,6 @@
 
 /* 表格內可直接編輯的欄位。邊框只在 hover 或聚焦時出現，不然整張表會滿是框線。 */
 
-.table-note { margin: 16px 4px 0; }
-
 /* 倉位明細抽屜（wms/ZoneDrawer.tsx）的進退場。用法與曲線的取捨寫在元件裡。 */
 @keyframes drawer-slide-in {
   from { transform: translateX(100%); }
@@ -43,14 +41,6 @@
  * 描述文字長的時候，flex 會把右邊那顆按鈕擠到只剩兩個字寬，「新增對應」就被折成
  * 「新增對／應」。給它 flex: none 與 nowrap，寬度由文字決定。
  */
-
-/*
- * 欄位底下的說明文字。
- *
- * margin 要自己寫回來：preflight 把 <p> 的邊距清成 0，少了這一行的話說明會直接貼在
- * 輸入框或按鈕的下緣，看起來像同一個元件的一部分而不是註解。
- */
-.form-hint { margin: 10px 0 0; color: var(--color-ok); font-size: 13px; font-weight: 700; }
 
 /* 操作提示（shell/Toast.tsx）的進場。 */
 @keyframes toast-in {

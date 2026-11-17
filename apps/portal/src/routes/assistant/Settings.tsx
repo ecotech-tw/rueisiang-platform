@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Field, FieldHint, FilterSelect, Page, PageHeader, PageStatus, Panel, Textarea } from "../../ui/index.js";
+import { Alert, Button, Field, FieldHint, FilterSelect, FormHint, Page, PageHeader, PageStatus, Panel, Textarea } from "../../ui/index.js";
 import { useSaveAssistantToolStatus, useSavePiCodexCredential, useSandboxConfig, type AssistantTool } from "./api.js";
 import { ToolList, ToolNote, ToolStatusRow } from "./ToolOption.js";
 import { ASSISTANT_ACTIONS } from "./AssistantSection.js";
@@ -72,7 +72,7 @@ export function AssistantSettings() {
           >
             匯入並更新 credential
           </Button>
-          {saveCodexCredential.isSuccess ? <span className="form-hint">Codex credential 已更新，之後由 vault 自動 refresh。</span> : null}
+          {saveCodexCredential.isSuccess ? <FormHint as="span">Codex credential 已更新，之後由 vault 自動 refresh。</FormHint> : null}
           {saveCodexCredential.error ? <Alert tone="danger">{saveCodexCredential.error.message}</Alert> : null}
         </div>
       </Panel>
@@ -106,7 +106,7 @@ export function AssistantSettings() {
         </ToolList>
 
         {saveTool.error ? <Alert tone="danger">{saveTool.error.message}</Alert> : null}
-        {saveTool.isSuccess ? <p className="form-hint">工具狀態已儲存，Sandbox 與後續 channel 會立即讀取新設定。</p> : null}
+        {saveTool.isSuccess ? <FormHint>工具狀態已儲存，Sandbox 與後續 channel 會立即讀取新設定。</FormHint> : null}
       </Panel>
     </Page>
   );

@@ -3,7 +3,7 @@ import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { ToolList, ToolNote, ToolOption } from "./ToolOption.js";
 import { ASSISTANT_ACTIONS, AssistantSubsection } from "./AssistantSection.js";
-import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldGrid, FieldHint, FilterSelect, Page, PageHeader, PageStatus, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, Dialog, DropdownSelect, EmptyState, Field, FieldGrid, FieldHint, FilterSelect, FormHint, Page, PageHeader, PageStatus, Panel, StatusBadge, type StatusTone, Textarea } from "../../ui/index.js";
 import {
   useCloseSandboxSession,
   useCreateSandboxSession,
@@ -314,7 +314,7 @@ export function Sandbox() {
                   >
                     儲存並套用到小香
                   </Button>
-                  {saveModel.isSuccess ? <span className="form-hint">已更新，小香之後會使用這個模型。</span> : null}
+                  {saveModel.isSuccess ? <FormHint as="span">已更新，小香之後會使用這個模型。</FormHint> : null}
                   {saveModel.error ? <Alert tone="danger">{saveModel.error.message}</Alert> : null}
                 </div>
               </Field>
@@ -332,7 +332,7 @@ export function Sandbox() {
                   >
                     儲存 fallback 設定
                   </Button>
-                  {saveFallbackModel.isSuccess ? <span className="form-hint">fallback 設定已更新。</span> : null}
+                  {saveFallbackModel.isSuccess ? <FormHint as="span">fallback 設定已更新。</FormHint> : null}
                   {saveFallbackModel.error ? <Alert tone="danger">{saveFallbackModel.error.message}</Alert> : null}
                 </div>
               </Field>
@@ -386,7 +386,7 @@ export function Sandbox() {
                   Revision history
                 </Button>
                 {savePrompt.error ? <Alert tone="danger">{savePrompt.error.message}</Alert> : null}
-                {savePrompt.isSuccess ? <span className="form-hint">已儲存並套用。</span> : null}
+                {savePrompt.isSuccess ? <FormHint as="span">已儲存並套用。</FormHint> : null}
               </div>
             </AssistantSubsection>
           </Panel>
@@ -580,11 +580,11 @@ export function Sandbox() {
           {uploadAttachment.isPending ? <FieldHint>圖片上傳中…</FieldHint> : null}
         </Field>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <span className="form-hint">
+          <FormHint as="span">
             {sessionOpen
               ? `目前使用 Revision ${activeRevision?.revision ?? "—"}、${selectedModel?.label ?? model}${employee ? `，模擬 ${employee.displayName}（${employee.employeeNumber}）本人` : ""}。`
               : "請先建立一個新的 session；關閉的 session 只能查看歷史，不能繼續對話。"}
-          </span>
+          </FormHint>
         </div>
         {run.error ? <Alert tone="danger">{run.error.message}</Alert> : null}
       </Panel>

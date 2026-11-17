@@ -8,7 +8,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, DataTable, Dialog, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, PageStatus, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, PageStatus, Panel, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TableNote, TextField } from "../../ui/index.js";
 
 /**
  * 通路管理。
@@ -359,7 +359,7 @@ export function Scopes() {
             </tbody>
           </DataTable>
 
-        {visible.length === 0 ? <p className="muted table-note">沒有符合條件的通路。</p> : null}
+        {visible.length === 0 ? <TableNote>沒有符合條件的通路。</TableNote> : null}
         {visible.length > 0 ? (
           <Pager
             className="mt-4 shrink-0"

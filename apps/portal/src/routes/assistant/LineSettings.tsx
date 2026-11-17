@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Switch } from "../../shell/Switch.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, Page, PageHeader, PageStatus, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, FormHint, Page, PageHeader, PageStatus, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -185,7 +185,7 @@ export function LineSettings() {
             >
               儲存 channel 設定
             </Button>
-            {saveChannel.isSuccess ? <span className="form-hint">channel 設定已更新。</span> : null}
+            {saveChannel.isSuccess ? <FormHint as="span">channel 設定已更新。</FormHint> : null}
             {saveChannel.error ? <Alert tone="danger">{saveChannel.error.message}</Alert> : null}
           </div>
         </form>
@@ -210,14 +210,14 @@ export function LineSettings() {
             {copied ? "已複製" : "複製"}
           </Button>
         </div>
-        <p className="form-hint">Channel ID 可直接核對；Channel Secret 只顯示設定狀態，原值不會回傳。</p>
+        <FormHint>Channel ID 可直接核對；Channel Secret 只顯示設定狀態，原值不會回傳。</FormHint>
         {data.credentials.channelSecretDecryptionFailed || data.credentials.accessTokenDecryptionFailed ? (
           <Alert tone="danger">
             儲存的 LINE 憑證無法解密，可能是 AUTH_SESSION_SECRET 已輪替；請重新輸入並儲存對應憑證。
           </Alert>
         ) : null}
         {data.credentials.accessTokenConfigured ? (
-          <p className="form-hint">LINE access token 已設定，已授權對話可以進入 AI 回覆流程。</p>
+          <FormHint>LINE access token 已設定，已授權對話可以進入 AI 回覆流程。</FormHint>
         ) : (
           <Alert tone="warning">尚未設定 LINE Channel Access Token；目前仍可驗證 webhook 並記錄提及訊息，但不會送出 LINE 回覆。</Alert>
         )}
@@ -260,7 +260,7 @@ export function LineSettings() {
         description={
           <>
             Webhook 會自動發現群組與一對一對話；新發現的對話預設關閉，先確認後再讓小香回答。
-            <span className="form-hint">一對一不需要 @ 小香。內部測試時可傳送 <code>/reset</code> 或 <code>/重設</code>，清除目前上下文但保留歷史紀錄。</span>
+            <FormHint as="span">一對一不需要 @ 小香。內部測試時可傳送 <code>/reset</code> 或 <code>/重設</code>，清除目前上下文但保留歷史紀錄。</FormHint>
           </>
         }
       >

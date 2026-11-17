@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, Field, FieldHint, FieldNote, Page, PageHeader, Panel, REFRESHING, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, DropdownSelect, Field, FieldHint, FieldNote, Page, PageHeader, Panel, REFRESHING, SelectField, StatusBadge, TableNote, TextField, Tooltip } from "../../ui/index.js";
 import { useHrQuery, useHrWrite, HR_CALENDAR_SPECIAL_KINDS, HR_CALENDAR_SPECIAL_KIND_LABELS, HR_DAY_TYPES, HR_DAY_TYPE_LABELS, isDefaultHrCalendarSpecialName, type HrCalendarDay, type HrCalendarResponse, type HrCalendarSpecialKind, type HrDayType, type ScheduleScope } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { useConfirmLeave, useUnsavedChanges } from "../../shell/UnsavedChanges.js";
@@ -279,7 +279,7 @@ export function HrCalendar() {
           </tr>;
         })}
       </tbody></DataTable>
-      {!days.length && !loading ? <p className="muted table-note">{year} 年還沒有登記任何特殊日期。可以按「匯入政府行事曆」一次帶進來，再手動標記災防停班。</p> : null}
+      {!days.length && !loading ? <TableNote>{year} 年還沒有登記任何特殊日期。可以按「匯入政府行事曆」一次帶進來，再手動標記災防停班。</TableNote> : null}
     </Panel>
     {adding ? <AddDayDialog year={year} existing={days} scopes={calendar.data?.scopes ?? []} onAdd={(day) => setDraft(sortByDate([...days, day]))} onClose={() => setAdding(false)} /> : null}
     {importing ? <ImportDialog year={year} currentCount={saved.length} onClose={() => setImporting(false)} onDone={() => calendar.refetch()} /> : null}
