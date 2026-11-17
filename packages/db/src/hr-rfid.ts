@@ -1,8 +1,11 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { createHrClockEvent } from "./hr-attendance.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
-import { HR_RFID_PROTOCOL_CODE, hrEmployeeRfidCards, hrRfidEnrollmentSessions } from "./schema/hr-rfid.js";
+import { hrAttendanceLocations } from "./schema/hr-attendance.js";
 import { hrEmployments } from "./schema/hr-people.js";
+import { HR_RFID_PROTOCOL_CODE, hrEmployeeRfidCards, hrRfidEnrollmentSessions } from "./schema/hr-rfid.js";
+import { users } from "./schema/auth.js";
 
 export class HrRfidError extends Error {
   constructor(public readonly status: 400 | 403 | 404 | 409, message: string) { super(message); }
@@ -98,7 +101,7 @@ export async function getHrRfidEnrollment(db: Database, employmentId: string, se
   return row;
 }
 
-export async function captureHrRfidScan(db: Database, input: { deviceId: string; rawPacket: string }) {
+export async function captureHrRfidScan(db: Database, input: { deviceId: string; scanId?: string; rawPacket: string; attendanceLocationName?: string }) {
   const parsed = parseHrRfidPacket(input.rawPacket);
   if (!parsed) throw new HrRfidError(400, "讀卡資料格式無法辨識，請保留原始資料並確認 Reader 協定。");
   const [captured] = await db.update(hrRfidEnrollmentSessions).set({
@@ -111,7 +114,42 @@ export async function captureHrRfidScan(db: Database, input: { deviceId: string;
     eq(hrRfidEnrollmentSessions.status, "listening"),
     sql`${hrRfidEnrollmentSessions.expiresAt} > CURRENT_TIMESTAMP`,
   )).returning({ id: hrRfidEnrollmentSessions.id });
-  return { captured: Boolean(captured), sessionId: captured?.id ?? null };
+  if (captured) return { captured: true, sessionId: captured.id, clocked: false };
+
+  const [enrollment] = await db.select({ id: hrRfidEnrollmentSessions.id }).from(hrRfidEnrollmentSessions)
+    .where(and(sql`${hrRfidEnrollmentSessions.status} IN ('listening', 'captured')`, sql`${hrRfidEnrollmentSessions.expiresAt} > CURRENT_TIMESTAMP`)).limit(1);
+  if (enrollment) return { captured: false, sessionId: enrollment.id, clocked: false };
+  if (!input.scanId || !input.attendanceLocationName) return { captured: false, sessionId: null, clocked: false };
+
+  const [card] = await db.select({ userId: hrEmployments.employeeUserId, email: users.email })
+    .from(hrEmployeeRfidCards).innerJoin(hrEmployments, eq(hrEmployments.id, hrEmployeeRfidCards.employmentId))
+    .innerJoin(users, eq(users.id, hrEmployments.employeeUserId))
+    .where(and(eq(hrEmployeeRfidCards.cardCode, parsed.cardCode), eq(hrEmployeeRfidCards.protocolCode, parsed.protocolCode), isNull(hrEmployeeRfidCards.revokedAt), eq(hrEmployments.personKind, "employee"), isNull(hrEmployments.archivedAt), eq(users.status, "active"))).limit(1);
+  if (!card?.userId) return { captured: false, sessionId: null, clocked: false };
+
+  const [location] = await db.select({ id: hrAttendanceLocations.id }).from(hrAttendanceLocations)
+    .where(and(eq(hrAttendanceLocations.name, input.attendanceLocationName), sql`${hrAttendanceLocations.active} = 1`)).limit(1);
+  if (!location) throw new HrRfidError(400, `找不到啟用中的出勤地點「${input.attendanceLocationName}」。`);
+  try {
+    const result = await createHrClockEvent(db, {
+      userId: card.userId,
+      idempotencyKey: `rfid:${input.deviceId}:${input.scanId}`,
+      latitudeE7: null,
+      longitudeE7: null,
+      sourceKind: "rfid",
+      attendanceLocationId: location.id,
+    }, { id: card.userId, email: card.email });
+    return {
+      captured: false,
+      sessionId: null,
+      clocked: true,
+      idempotent: result.idempotent,
+      event: { id: result.event.id, eventKind: result.event.eventKind, occurredAt: result.event.occurredAt, locationName: result.event.locationName },
+    };
+  } catch (error) {
+    if (error instanceof HrError) throw new HrRfidError(error.status, error.message);
+    throw error;
+  }
 }
 
 export async function cancelHrRfidEnrollment(db: Database, employmentId: string, sessionId: string, actor: HrActor) {

@@ -267,7 +267,8 @@ export interface HrClockEventInput {
   idempotencyKey: string;
   latitudeE7: number | null;
   longitudeE7: number | null;
-  sourceKind?: "portal" | "line";
+  sourceKind?: "portal" | "line" | "rfid";
+  attendanceLocationId?: string;
 }
 
 export interface HrClockLocationCheck {
@@ -810,16 +811,20 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   const assignments = await currentClockAssignments(db, employment.id, serverNow.date);
   if (!assignments.length) throw new HrError(400, "尚未指派目前辦公位置，暫時無法打卡。");
 
-  const requiresLocation = employment.personKind === "worker" || input.sourceKind === "line" || geolocationRequired(assignments);
+  // 固定 Reader 已證明實體地點；以明確的地點指派取代 GPS，仍不略過員工出勤指派檢查。
+  const isRfid = input.sourceKind === "rfid";
+  const requiresLocation = !isRfid && (employment.personKind === "worker" || input.sourceKind === "line" || geolocationRequired(assignments));
   const latitudeE7 = requiresLocation ? input.latitudeE7 : null;
   const longitudeE7 = requiresLocation ? input.longitudeE7 : null;
   if (requiresLocation && (latitudeE7 === null || longitudeE7 === null)) {
     throw new HrError(400, "請允許瀏覽器定位後再打卡。");
   }
-  const assignment = requiresLocation
-    ? nearestLocation(assignments, latitudeE7!, longitudeE7!)?.assignment
-    : assignments.find((candidate) => !candidate.geolocationRequired) ?? assignments[0];
-  if (!assignment) throw new HrError(400, "目前沒有可用的辦公位置座標。");
+  const assignment = isRfid
+    ? assignments.find((candidate) => candidate.locationId === input.attendanceLocationId)
+    : requiresLocation
+      ? nearestLocation(assignments, latitudeE7!, longitudeE7!)?.assignment
+      : assignments.find((candidate) => !candidate.geolocationRequired) ?? assignments[0];
+  if (!assignment) throw new HrError(400, isRfid ? "員工未指派目前 RFID Reader 所在的出勤地點。" : "目前沒有可用的辦公位置座標。");
   const distance = requiresLocation
     ? distanceMeters(latitudeE7!, longitudeE7!, assignment.latitudeE7!, assignment.longitudeE7!)
     : null;

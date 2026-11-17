@@ -25,6 +25,7 @@ node --test test/server.test.mjs
 RFID_API_ORIGIN=https://platform.rueisiang.com
 RFID_GATEWAY_TOKEN=<至少 32 字元的高熵隨機值>
 RFID_DEVICE_ID=office-entrance
+RFID_ATTENDANCE_LOCATION_NAME=瑞香雲林總部
 RFID_TCP_BIND=192.168.0.6
 ```
 
@@ -51,6 +52,6 @@ docker compose exec rfid-gateway node -e "fetch('http://127.0.0.1:8788/healthz')
 - PRH-566 設定為 TCP Client，Server IP `192.168.0.6`、Port `6000`。
 - NAS 防火牆只允許讀卡機所在網段／IP 連入 TCP 6000；不要在 router 做 6000 的 port forwarding。
 - Gateway 只需要 NAS 對外 HTTPS `443`，轉送至 `https://platform.rueisiang.com/api/internal/rfid/scans`。部署在其他環境時，才將 origin 換成該環境 HR API 的 HTTPS origin。
-- Gateway 回傳 API HTTP 狀態只寫入不含卡號的 log。HTTP 200 表示有綁卡感應操作收到資料；HTTP 202 表示資料格式可接受、但目前沒有進行中的綁卡操作。HTTP 4xx 會記錄狀態並丟棄，不會自動重試；網路錯誤、429、5xx 最多重試三次。
+- Gateway 回傳 API HTTP 狀態只寫入不含卡號的 log。綁卡感應仍由 HR 管理員啟動並確認；沒有綁卡操作時，已綁定的在職員工刷卡會依最近一筆紀錄建立上班／下班事件，事件來源為 RFID、時間取 HR API 伺服器時間，地點固定對應 `RFID_ATTENDANCE_LOCATION_NAME`。員工必須有該地點的有效出勤指派；Reader 固定地點取代瀏覽器 GPS，但不會略過員工在職與出勤地點指派檢查。未知卡片不建立出勤紀錄。Gateway 對相同原始封包在 3 秒內只轉送一次，HTTP 重試會沿用同一請求識別碼。HTTP 4xx 會記錄狀態並丟棄，不會自動重試；網路錯誤、429、5xx 最多重試三次。
 
 目前這個 Gateway 以 CRLF/LF 行結尾作為實測封包 framing；若原廠資料顯示封包 framing 不同，應先修正 parser，不能靠調整 Reader UART 或猜測封包格式。
