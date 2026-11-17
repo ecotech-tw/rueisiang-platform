@@ -125,7 +125,7 @@ export function RunLog() {
               return (
                 <tr key={run.id}>
                   <td data-label="時間" className="whitespace-nowrap">{formatTime(run.createdAt)}</td>
-                  <td data-label="報表" className="cell-strong">{KIND_LABELS[run.kind]}</td>
+                  <td data-label="報表" className="font-bold">{KIND_LABELS[run.kind]}</td>
                   <td data-label="通路">{run.scopeNames.length > 1 ? `${run.scopeNames.length} 個通路` : run.scopeNames[0] ?? "—"}</td>
                   <td data-label="區間" className="whitespace-nowrap">{formatRange(run)}</td>
                   <td data-label="執行的人">{run.actorEmail}</td>

@@ -185,7 +185,7 @@ export function HrPayrollAdjustments() {
             <thead><tr><th>生效月份</th><th>人員</th><th>加扣項目</th><th className="numeric">加扣金額</th><th>原因</th><th>操作</th></tr></thead>
             <tbody>{(adjustments.data?.adjustments ?? []).map((adjustment) => <tr key={adjustment.id}>
               <td data-label="生效月份"><strong>{periodLabel(adjustment.effectivePeriodKey)}</strong></td>
-              <td data-label="人員"><div className="flex items-baseline gap-2"><strong>{adjustment.employeeName}</strong><small className="cell-sub whitespace-nowrap">{adjustment.employeeNumber ?? adjustment.employmentId}</small></div></td>
+              <td data-label="人員"><div className="flex items-baseline gap-2"><strong>{adjustment.employeeName}</strong><small className="text-[12px] text-muted whitespace-nowrap">{adjustment.employeeNumber ?? adjustment.employmentId}</small></div></td>
               <td data-label="加扣項目"><div className="grid min-w-[150px] gap-[3px]">{adjustment.items.map((item) => <span key={item.id} className="flex items-baseline gap-2"><strong>{item.itemName}</strong><small className="text-[12px] whitespace-nowrap text-muted">{item.amountMinor < 0 ? "扣款" : "補發／加給"}</small></span>)}</div></td>
               <td data-label="加扣金額" className="numeric"><strong>{signedMoney(totalMinor(adjustment))}</strong></td>
               <td data-label="原因">{adjustment.reason}</td>

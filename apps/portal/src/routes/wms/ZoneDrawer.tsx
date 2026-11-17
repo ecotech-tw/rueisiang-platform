@@ -83,8 +83,8 @@ function ZoneItem({ item, levelName, placeLabel }: { item: InventoryItem; levelN
         {/* 層架徽章。名字可能很長，限寬省略而不是把整列撐開。 */}
         <span className="max-w-[62px] flex-none truncate rounded-[6px] bg-canvas px-2 py-[3px] text-[11px] text-muted" title={levelName}>{levelName}</span>
         <div className="min-w-0 flex-1">
-          <div className="cell-strong">{item.name}</div>
-          <div className="cell-sub">
+          <div className="font-bold">{item.name}</div>
+          <div className="text-[12px] text-muted">
             {item.sku || "沒有 SKU"}・{item.category}
           </div>
         </div>

@@ -285,14 +285,14 @@ export function ItemForm({
               {item.cyberbiz ? (
                 <div className={`${LINK_PANEL} border-ok bg-ok-soft`}>
                   <div className="min-w-0">
-                    <div className="cell-strong">已連結款式 {item.cyberbiz.cyberbizVariantId}</div>
-                    <div className="cell-sub">
+                    <div className="font-bold">已連結款式 {item.cyberbiz.cyberbizVariantId}</div>
+                    <div className="text-[12px] text-muted">
                       SKU {item.cyberbiz.sku}
                       {item.cyberbiz.syncedAt ? `・目錄同步 ${formatTime(item.cyberbiz.syncedAt)}` : ""}
                     </div>
                   </div>
                   <div className="flex min-w-0 flex-col items-end gap-2">
-                    <div className="cell-sub">商品身分與官網鏡像共用，若要停止庫存同步請移出 WMS。</div>
+                    <div className="text-[12px] text-muted">商品身分與官網鏡像共用，若要停止庫存同步請移出 WMS。</div>
                     <Button
                       className="flex-none"
                       variant="secondary"
@@ -312,13 +312,13 @@ export function ItemForm({
                 <div className={`${LINK_PANEL} border-line bg-canvas`}>
                   <div className="min-w-0">
                     {item.source === "cyberbiz" ? (
-                      <div className="cell-strong">品項主檔已與 cyberbiz_products 同步</div>
+                      <div className="font-bold">品項主檔已與 cyberbiz_products 同步</div>
                     ) : null}
-                    <div className="cell-sub">
+                    <div className="text-[12px] text-muted">
                       連結之後，盤點會把數量推回官網，官網的異動也同步得回來。
                     </div>
                     {!fields.sku.trim() ? (
-                      <div className="cell-sub">要先填 SKU——連結是用 SKU 去官網找的。</div>
+                      <div className="text-[12px] text-muted">要先填 SKU——連結是用 SKU 去官網找的。</div>
                     ) : null}
                   </div>
                   <Button

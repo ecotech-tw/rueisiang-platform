@@ -98,7 +98,7 @@ export function ChannelBreakdownChart({
             <tbody>
               {data.map((row) => (
                 <tr key={row.scopeId}>
-                  <td data-label="店別" className="cell-strong">{row.scopeName}</td>
+                  <td data-label="店別" className="font-bold">{row.scopeName}</td>
                   <td data-label="通路">{channelLabel(row.channel)}</td>
                   <td data-label={metricLabel} className="numeric">{metricFormatter(metricOf(row))}</td>
                   <td data-label={shareLabel} className="numeric">{formatPercent(shareOf(row))}</td>

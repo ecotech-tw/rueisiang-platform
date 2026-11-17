@@ -55,7 +55,7 @@ export function TopSkuChart({ rows, allRows, metric, loading, onMetricChange, va
               <tbody>
                 {allRows.map((row) => (
                   <tr key={row.sku}>
-                    <td data-label="商品" className="cell-strong">{row.productName}</td>
+                    <td data-label="商品" className="font-bold">{row.productName}</td>
                     <td data-label="SKU">{row.sku}</td>
                     <td data-label="淨銷量" className="numeric">{quantityFormatter(row.netQuantity)}</td>
                     <td data-label="售額（參考）" className="numeric">{valueFormatter(row.salesAmount)}</td>

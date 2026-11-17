@@ -184,7 +184,7 @@ export function CategoryBreakdownChart({ breakdown, valueFormatter, quantityForm
             <tbody>
               {parentRows.map((row) => (
                 <tr key={`${row.categoryParent ?? "root"}:${row.category}`}>
-                  <td data-label="分類" className="cell-strong">{row.category}</td>
+                  <td data-label="分類" className="font-bold">{row.category}</td>
                   <td data-label="淨銷量" className="numeric">{quantityFormatter(row.netQuantity)}</td>
                   <td data-label="銷量佔比" className="numeric">{formatPercent(row.quantityShare)}</td>
                   <td data-label="銷售額" className="numeric">{valueFormatter(row.value)}</td>

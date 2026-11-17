@@ -168,8 +168,8 @@ export function SkuMappings() {
                   {pagedUnmapped.map((product) => (
                     <tr key={`${product.channel}:${product.externalSku}`}>
                       <td data-label="平台"><StatusBadge palette="amber">{productSkuChannelLabel(product.channel)}</StatusBadge></td>
-                      <td data-label="外部商品"><span className="cell-strong">{product.externalName || "未提供名稱"}</span><small className="cell-sub"><code>{product.externalSku}</code></small></td>
-                      <td data-label="最近出現" className="cell-sub">{formatTime(product.lastSeenAt)}</td>
+                      <td data-label="外部商品"><span className="font-bold">{product.externalName || "未提供名稱"}</span><small className="text-[12px] text-muted"><code>{product.externalSku}</code></small></td>
+                      <td data-label="最近出現" className="text-muted">{formatTime(product.lastSeenAt)}</td>
                       <td data-label="資料列" className="numeric">{product.rowCount.toLocaleString("zh-TW")}</td>
                       <td data-label="操作">{canWrite ? <Button variant="secondary" onClick={() => setMappingDialog({ kind: "new", product })}>建立對應</Button> : null}</td>
                     </tr>
@@ -189,15 +189,15 @@ export function SkuMappings() {
                   {pagedMappings.map((mapping) => (
                     <tr key={mapping.id}>
                       <td data-label="平台"><StatusBadge palette="slate">{productSkuChannelLabel(mapping.channel)}</StatusBadge></td>
-                      <td data-label="平台商品"><div className="cell-strong">{mapping.externalName || "未設定通路商品名稱"}</div></td>
-                      <td data-label="外部 SKU"><span className="cell-strong">{mapping.externalSku}</span></td>
+                      <td data-label="平台商品"><div className="font-bold">{mapping.externalName || "未設定通路商品名稱"}</div></td>
+                      <td data-label="外部 SKU"><span className="font-bold">{mapping.externalSku}</span></td>
                       <td data-label="組合用料">{mapping.components.map((component) => (
-                        <div className="cell-sub" key={component.itemId}>
+                        <div className="text-[12px] text-muted" key={component.itemId}>
                           {component.sku} × {component.quantity}
                           {component.source === "custom" ? <StatusBadge palette="slate">舊自訂</StatusBadge> : null}
                         </div>
                       ))}</td>
-                      <td data-label="建立時間" className="cell-sub whitespace-nowrap">{formatTime(mapping.createdAt)}</td>
+                      <td data-label="建立時間" className="text-muted whitespace-nowrap">{formatTime(mapping.createdAt)}</td>
                       {canWrite ? <td data-label="操作"><RowActions>
                         <Button variant="icon" icon="edit" title={`編輯外部 SKU ${mapping.externalSku}`} aria-label={`編輯外部 SKU ${mapping.externalSku}`} disabled={remove.isPending} onClick={() => setMappingDialog(mapping)} />
                         <Button variant="icon" tone="danger" icon="trash" title={`移除外部 SKU ${mapping.externalSku}`} aria-label={`移除外部 SKU ${mapping.externalSku}`} disabled={remove.isPending} onClick={() => setDeleting(mapping)} />
@@ -231,9 +231,9 @@ export function SkuMappings() {
                 <tbody>{pagedIgnores.map((ignore) => (
                   <tr key={ignore.id}>
                     <td data-label="平台"><StatusBadge palette="slate">{productSkuChannelLabel(ignore.channel)}</StatusBadge></td>
-                    <td data-label="外部 SKU"><span className="cell-strong">{ignore.externalSku}</span></td>
-                    <td data-label="原因" className="cell-sub">{ignore.reason || "—"}</td>
-                    <td data-label="標記時間" className="cell-sub whitespace-nowrap">{formatTime(ignore.createdAt)}</td>
+                    <td data-label="外部 SKU"><span className="font-bold">{ignore.externalSku}</span></td>
+                    <td data-label="原因" className="text-muted">{ignore.reason || "—"}</td>
+                    <td data-label="標記時間" className="text-muted whitespace-nowrap">{formatTime(ignore.createdAt)}</td>
                     {canWrite ? <td data-label="操作"><Button variant="link" disabled={removeIgnore.isPending} onClick={() => removeIgnore.mutate(ignore.id, { onSuccess: () => toast.show(`已取消忽略「${ignore.externalSku}」`) })}>取消忽略</Button></td> : null}
                   </tr>
                 ))}</tbody>

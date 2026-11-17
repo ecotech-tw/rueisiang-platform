@@ -379,7 +379,7 @@ export function HrShifts() {
           const manager = managers.data?.scopes.find((item) => item.id === scope.id);
           const managerName = managers.data?.candidates.find((person) => person.userId === manager?.userId)?.name;
           return <tr key={scope.id}>
-            <td data-label="營運據點"><span className="cell-strong">{scope.name}</span></td>
+            <td data-label="營運據點"><span className="font-bold">{scope.name}</span></td>
             <td data-label="班別數" className="numeric">{list.length}</td>
             {/* 沒有班別的店在排班月曆選不到任何班，所以要一眼看得出來，不是留一格空白。 */}
             <td data-label="班別與可排人員">{list.length ? <div className="grid gap-3">{list.map((group) => {

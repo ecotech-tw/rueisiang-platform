@@ -248,7 +248,7 @@ export function HrCalendar() {
           const kind = rowKind(day);
           const disasterPrevention = day.dayType === "weekday" && day.specialKind === "typhoon_stop";
           return <tr key={day.date}>
-            <td data-label="日期"><span className="cell-strong numeric">{day.date}</span></td>
+            <td data-label="日期"><span className="font-bold numeric">{day.date}</span></td>
             <td data-label="星期">{weekdayOf(day.date)}</td>
             <td data-label="日型／災防">
               {canWrite

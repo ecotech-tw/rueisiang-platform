@@ -357,8 +357,8 @@ export function StyleGuide() {
             </tr>
           </thead>
           <tbody>
-            <tr><td className="cell-strong">蝦皮銷售報表</td><td><StatusBadge tone="success">已完成</StatusBadge></td><td className="numeric">1,558</td><td><Button variant="icon" icon="external" aria-label="開啟報表" /></td></tr>
-            <tr><td className="cell-strong">出金表</td><td><StatusBadge tone="warning">處理中</StatusBadge></td><td className="numeric">42</td><td><Button variant="icon" icon="eye" aria-label="查看狀態" /></td></tr>
+            <tr><td className="font-bold">蝦皮銷售報表</td><td><StatusBadge tone="success">已完成</StatusBadge></td><td className="numeric">1,558</td><td><Button variant="icon" icon="external" aria-label="開啟報表" /></td></tr>
+            <tr><td className="font-bold">出金表</td><td><StatusBadge tone="warning">處理中</StatusBadge></td><td className="numeric">42</td><td><Button variant="icon" icon="eye" aria-label="查看狀態" /></td></tr>
           </tbody>
         </DataTable>
         <Pager
