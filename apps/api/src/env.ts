@@ -52,6 +52,8 @@ export interface Env {
   PI_OPENAI_CODEX_RELAY_URL?: string;
   /** NAS Codex relay 的共享 secret；必須與 relay 同時設定。 */
   PI_OPENAI_CODEX_RELAY_TOKEN?: string;
+  /** RFID Gateway 將刷卡封包送入 HR 綁卡流程的 shared secret。 */
+  RFID_GATEWAY_TOKEN?: string;
   /** 私有 NAS storage gateway 的 HTTPS origin；未設定時 WMS 使用既有 R2。 */
   NAS_STORAGE_URL?: string;
   /** 私有 NAS storage gateway 的獨立 shared secret。 */
