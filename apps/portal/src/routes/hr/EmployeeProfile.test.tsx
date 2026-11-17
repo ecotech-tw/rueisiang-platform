@@ -19,7 +19,7 @@ const profile: Profile = {
 
 describe("員工內頁資料區", () => {
   it("基本、公司與聯絡分區呈現，三個編輯入口都在內頁", () => {
-    const markup = renderToStaticMarkup(<EmployeeProfile profile={profile} canWrite onSaved={() => {}} />);
+    const markup = renderToStaticMarkup(<EmployeeProfile profile={profile} canRead canWrite onSaved={() => {}} />);
     for (const title of ["基本資料", "公司／任職資料", "聯絡資料"]) expect(markup).toContain(title);
     for (const field of HR_PROFILE_FIELDS) expect(markup).toContain(field.label);
     expect(markup).toContain("Test Employee");
@@ -29,7 +29,8 @@ describe("員工內頁資料區", () => {
     expect(markup.match(/>編輯<\/button>/g)).toHaveLength(3);
     expect(markup).toContain("設為未在職");
     expect(markup.indexOf('id="employee-basic"')).toBeLessThan(markup.indexOf('id="employee-contact"'));
-    expect(markup.indexOf('id="employee-contact"')).toBeLessThan(markup.indexOf('id="employee-company"'));
+    expect(markup.indexOf('id="employee-contact"')).toBeLessThan(markup.indexOf('id="employee-rfid"'));
+    expect(markup.indexOf('id="employee-rfid"')).toBeLessThan(markup.indexOf('id="employee-company"'));
     expect(markup.match(/border-info/g)).toHaveLength(4);
     expect(markup).toContain("上傳大頭貼");
     expect(markup).toContain("尚未上傳大頭貼");
@@ -37,7 +38,7 @@ describe("員工內頁資料區", () => {
   });
 
   it("無寫入權限只顯示資料，不顯示編輯與封存入口", () => {
-    const markup = renderToStaticMarkup(<EmployeeProfile profile={profile} canWrite={false} onSaved={() => {}} />);
+    const markup = renderToStaticMarkup(<EmployeeProfile profile={profile} canRead canWrite={false} onSaved={() => {}} />);
     expect(markup).not.toContain(">編輯</button>");
     expect(markup).not.toContain("設為未在職");
     expect(markup).not.toContain("恢復在職");
@@ -45,7 +46,7 @@ describe("員工內頁資料區", () => {
   });
 
   it("個資未提供時顯示權限提示，不偽裝為空白可編輯欄位", () => {
-    const markup = renderToStaticMarkup(<EmployeeProfile profile={{ ...profile, personalData: undefined }} canWrite onSaved={() => {}} />);
+    const markup = renderToStaticMarkup(<EmployeeProfile profile={{ ...profile, personalData: undefined }} canRead canWrite onSaved={() => {}} />);
     expect(markup).toContain("聯絡資料僅限全平台 HR 管理者查看");
     expect(markup).not.toContain("身分證／居留證字號");
     expect(markup).not.toContain("上傳大頭貼</button>");
@@ -55,7 +56,7 @@ describe("員工內頁資料區", () => {
   });
 
   it("照片只使用受權限保護的 API，顯示更換與移除入口", () => {
-    const markup = renderToStaticMarkup(<EmployeeProfile profile={{ ...profile, photo: { id: "photo-version" } }} canWrite onSaved={() => {}} />);
+    const markup = renderToStaticMarkup(<EmployeeProfile profile={{ ...profile, photo: { id: "photo-version" } }} canRead canWrite onSaved={() => {}} />);
     expect(markup).toContain("/api/hr/employees/employment/photo?v=photo-version");
     expect(markup).toContain("更換大頭貼");
     expect(markup).toContain("移除大頭貼");
@@ -63,7 +64,7 @@ describe("員工內頁資料區", () => {
 
   it("未在職只提供恢復入口，保留個資與聯絡資料", () => {
     const archived: Profile = { ...profile, employee: { ...profile.employee, employmentStatus: "inactive" }, employments: profile.employments.map((job) => ({ ...job, archivedAt: "2026-09-01 00:00:00" })) };
-    const markup = renderToStaticMarkup(<EmployeeProfile profile={archived} canWrite onSaved={() => {}} />);
+    const markup = renderToStaticMarkup(<EmployeeProfile profile={archived} canRead canWrite onSaved={() => {}} />);
     expect(markup).toContain("恢復在職");
     expect(markup).toContain("0912345678");
     expect(markup).not.toContain(">編輯</button>");

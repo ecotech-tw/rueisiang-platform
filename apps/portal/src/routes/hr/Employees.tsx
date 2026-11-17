@@ -141,8 +141,8 @@ export function HrEmployeeDetail() {
   // 區塊導覽釘在頂端，捲到某個面板時要留出導覽列的高度，標題才不會被它蓋住。
   return <Page className="[&_[data-panel][id]]:[scroll-margin-block-start:88px]">
     <PageHeader title={`${profile.employee.employeeNumber} · ${profile.employee.legalName}`} description={formalEmployee ? "集中維護大頭貼、基本、聯絡與公司資料，查看敘薪、保險與出勤紀錄。" : "支援人員的人員與敘薪紀錄；異動由支援人員管理維護。"} actions={<Button variant="secondary" onClick={() => navigate("/hr/employees")}>返回列表</Button>} />
-    <EmployeeSectionNav key={id} profile={profile} />
-    {formalEmployee ? <EmployeeProfile key={profile.employee.userId} profile={profile} canWrite={canWrite} onSaved={() => void detail.refetch()} /> : <BasicSection profile={profile} />}
+    <EmployeeSectionNav key={id} profile={profile} canReadEmployee={canRead} />
+    {formalEmployee ? <EmployeeProfile key={profile.employee.userId} profile={profile} canRead={canRead} canWrite={canWrite} onSaved={() => void detail.refetch()} /> : <BasicSection profile={profile} />}
     <HrProfileDetails profile={profile} includeBasic={false} />
   </Page>;
 }

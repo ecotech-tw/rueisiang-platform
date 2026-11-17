@@ -5,6 +5,7 @@ import { Alert, Button, FieldGrid, Panel, SelectField, StatusBadge, TextField } 
 import { useHrQuery, useHrWrite, type NamedOption, type Profile } from "./api.js";
 
 import { EmployeePhoto } from "./EmployeePhoto.js";
+import { EmployeeRfidCard } from "./EmployeeRfidCard.js";
 
 type EditGroup = "basic" | "contact" | "company" | "reactivate";
 
@@ -20,7 +21,7 @@ function PersonalFields({ group, data, editing, onChange }: { group: "basic" | "
   })}</>;
 }
 
-export function EmployeeProfile({ profile, canWrite, onSaved }: { profile: Profile; canWrite: boolean; onSaved: () => void }) {
+export function EmployeeProfile({ profile, canRead, canWrite, onSaved }: { profile: Profile; canRead: boolean; canWrite: boolean; onSaved: () => void }) {
   const employment = profile.employments.find((job) => !job.archivedAt) ?? profile.employments[0];
   const active = Boolean(employment && !employment.archivedAt);
   const [editing, setEditing] = useState<EditGroup | null>(null);
@@ -85,6 +86,7 @@ export function EmployeeProfile({ profile, canWrite, onSaved }: { profile: Profi
     <Panel id="employee-contact" title="聯絡資料" actions={profile.personalData !== undefined ? editButton("contact") : null}>
       {profile.personalData === undefined ? <p className="muted">聯絡資料僅限全平台 HR 管理者查看。</p> : editing === "contact" ? <form className="grid gap-4" onSubmit={submit}><FieldGrid as="fieldset" disabled={pending}><PersonalFields group="contact" data={personal} editing onChange={changePersonal} /></FieldGrid>{error}{actions}</form> : <ProfileGrid><PersonalFields group="contact" data={savedPersonal} editing={false} onChange={changePersonal} /></ProfileGrid>}
     </Panel>
+    {employment ? <EmployeeRfidCard employmentId={employment.id} active={active} canRead={canRead} canWrite={canWrite} /> : null}
     <Panel id="employee-company" title="公司／任職資料" actions={editButton("company")}>
       {editing === "company" || editing === "reactivate" ? <form className="grid gap-4" onSubmit={submit}>
         {editing === "reactivate" ? <p className="muted">沿用原任職、服務年資與歷史資料；恢復後請確認出勤範圍。</p> : null}

@@ -1,21 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import type { Profile } from "./api.js";
 
-export function employeeSections(profile: Profile) {
+export function employeeSections(profile: Profile, canReadEmployee = true) {
   const formalEmployee = profile.employee.personKind !== "worker" && profile.employee.userId !== null;
   return [
     ...(formalEmployee ? [{ id: "employee-photo", label: "大頭貼" }] : []),
     { id: "employee-basic", label: "基本資料" },
-    ...(formalEmployee ? [{ id: "employee-contact", label: "聯絡資料" }, { id: "employee-company", label: "公司／任職" }] : []),
+    ...(formalEmployee ? [{ id: "employee-contact", label: "聯絡資料" }, ...(canReadEmployee ? [{ id: "employee-rfid", label: "RFID 卡片" }] : []), { id: "employee-company", label: "公司／任職" }] : []),
     { id: "employee-compensation", label: "敘薪" },
     ...(formalEmployee ? [{ id: "employee-insurance", label: "保險" }, { id: "employee-attendance", label: "出勤" }] : []),
     ...(profile.employments.length > 1 ? [{ id: "employee-history", label: "任職歷史" }] : []),
   ];
 }
 
-export function EmployeeSectionNav({ profile }: { profile: Profile }) {
+export function EmployeeSectionNav({ profile, canReadEmployee = true }: { profile: Profile; canReadEmployee?: boolean }) {
   const nav = useRef<HTMLElement>(null);
-  const sections = employeeSections(profile);
+  const sections = employeeSections(profile, canReadEmployee);
   const sectionIds = sections.map(({ id }) => id).join(",");
   const [active, setActive] = useState(sections[0]?.id ?? "");
   useEffect(() => {
