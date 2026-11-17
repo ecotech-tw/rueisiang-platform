@@ -32,7 +32,7 @@ export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHea
 export { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";
 export { useModalFocus } from "./useModalFocus.js";
-export { OvertimeDayPicker, type OvertimePickerDay } from "./OvertimeDayPicker.js";
+export { OvertimeDayPicker, OvertimeSummary, OvertimeUnscheduledDates, type OvertimePickerDay } from "./OvertimeDayPicker.js";
 export {
   OVERTIME_HOUR_PRESETS,
   OVERTIME_UNIT_MINUTES,

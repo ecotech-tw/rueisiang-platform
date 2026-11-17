@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
+import { OVERTIME_HOUR_PRESETS, OvertimeDayPicker, OvertimeUnscheduledDates, REVIEW_SNAPSHOT_NOTICE, addMinutes, hoursText, isValidOvertimeMinutes, monthRange, parseHours, reviewSnapshotState, useOvertimeBatchSelection } from "@rueisiang/ui";
 import { Alert, Button, ConfirmDialog, Dialog, EmptyRecords, Field, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, SegmentedControl, SelectField, StatusBadge, Textarea, TextField, Tooltip } from "../../ui/index.js";
 import { useHrLeaveDuration, useHrLeaveEnd, useHrQuery, useHrWrite, type FormApproversResponse, type FormRequest, type FormRequestStatus, type HrOvertimeDay, type LeaveRequest, type LeaveTypeOption, type LeaveTypesResponse, type OvertimeRequest } from "./api.js";
 import { dateBefore, formatHours, taipeiDay, taipeiTimeRange, utcStampDate } from "./format.js";
@@ -700,7 +700,7 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
     </FormActions>
     {confirmingUnscheduled ? <ConfirmDialog title="確認未排班日加班" confirmLabel="確認送出申請" cancelLabel="返回修改" tone="primary" pending={save.isPending} onConfirm={send} onCancel={() => setConfirmingUnscheduled(false)}>
       <p>以下日期沒有排班，會從 {unscheduledStartTime} 開始計算；有排班的日期仍從下班時間起算。</p>
-      <ul className="hr-overtime-unscheduled-dates">{unscheduledDates.map((day) => <li key={day}>{day}</li>)}</ul>
+      <OvertimeUnscheduledDates dates={unscheduledDates} />
     </ConfirmDialog> : null}
   </>;
 }
