@@ -7,8 +7,6 @@
  * 自己捲——這樣篩選列與統計固定在上面，滑動時不會把它們一起帶走。
  */
 .muted { color: var(--color-muted); margin: 0; }
-/* 頁面裡的區塊間距由 Page 負責；這裡只管不在頁面直接底下的相鄰 Panel。 */
-[data-panel] + [data-panel] { margin-top: 20px; }
 
 @media (max-width: 760px) {
   /*
