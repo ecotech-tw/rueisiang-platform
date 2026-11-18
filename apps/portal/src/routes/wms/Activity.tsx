@@ -118,8 +118,8 @@ function renderChange(event: ActivityRow) {
   if (before === null && after === null) return null;
 
   return (
-    <div className="change">
-      {event.field ? <small>{FIELD_LABEL[event.field] ?? event.field}</small> : null}
+    <div className="grid gap-0.5">
+      {event.field ? <small className="text-[11px] text-muted">{FIELD_LABEL[event.field] ?? event.field}</small> : null}
       <span className="flex items-center gap-1.5 text-[13px]">
         <b className="font-bold tabular-nums">{before ?? "—"}</b>
         <i className="text-muted not-italic" aria-hidden="true">→</i>
@@ -223,14 +223,14 @@ export function Activity() {
             <tbody>
               {data?.events.map((event) => (
                 <tr key={event.id}>
-                  <td data-label="時間" className="cell-sub whitespace-nowrap">{formatTime(event.createdAt)}</td>
+                  <td data-label="時間" className="text-muted whitespace-nowrap">{formatTime(event.createdAt)}</td>
                   <td data-label="對象">
-                    <div className="cell-strong">{event.entityLabel || "（已刪除）"}</div>
-                    <div className="cell-sub">{ENTITY_LABEL[event.entityType] ?? event.entityType}</div>
+                    <div className="font-bold">{event.entityLabel || "（已刪除）"}</div>
+                    <div className="text-[12px] text-muted">{ENTITY_LABEL[event.entityType] ?? event.entityType}</div>
                   </td>
                   <td data-label="發生什麼事">
                     <div>{event.summary}</div>
-                    <div className="cell-sub">{event.eventType}</div>
+                    <div className="text-[12px] text-muted">{event.eventType}</div>
                     {event.error ? <CellError>{event.error}</CellError> : null}
                   </td>
                   {/*
@@ -239,7 +239,7 @@ export function Activity() {
                     * 硬要塞一個「—」只是製造噪音。
                     */}
                   <td data-label="變更">{renderChange(event)}</td>
-                  <td data-label="操作者" className="cell-sub">
+                  <td data-label="操作者" className="text-muted">
                     <div>{event.actorType === "system" ? "系統" : (event.actorEmail ?? "—")}</div>
                     {event.source !== "wms" ? (
                       <StatusBadge tone={SOURCE_TONE[event.source]}>
@@ -264,7 +264,7 @@ export function Activity() {
 
         {data && (data.hasMore || data.page > 1) ? (
           <footer className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-t-soft-line pt-3.5 max-[760px]:flex-col max-[760px]:items-stretch max-[760px]:gap-2.5">
-            <span className="cell-sub">第 {data.page} 頁</span>
+            <span className="text-[12px] text-muted">第 {data.page} 頁</span>
             <div className="flex gap-2">
               <Button
                 variant="secondary"

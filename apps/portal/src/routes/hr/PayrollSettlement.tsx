@@ -39,7 +39,7 @@ const NO_PAYROLL_WORKERS: PayrollWorkerCandidate[] = [];
 const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放", withdrawn: "已撤回" } as const;
 const PAYROLL_PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
-const PAYROLL_RECORD_TABLE = "min-w-[960px] max-[760px]:min-w-0 [&_.numeric]:whitespace-nowrap [&_.cell-sub]:block [&_.cell-sub]:mt-0.5 [&_tr.selected_td]:bg-brand/8";
+const PAYROLL_RECORD_TABLE = "min-w-[960px] max-[760px]:min-w-0 [&_.numeric]:whitespace-nowrap [&_tr.selected_td]:bg-brand/8";
 
 function taipeiMonth() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -463,8 +463,8 @@ export function HrPayrollSettlement() {
             <thead><tr>{bulk.actionId ? <th>{bulk.eligibleKeys.length ? <TableCheckbox checked={allVisibleSelected} indeterminate={someVisibleSelected} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleSelected ? "取消全選本頁符合條件紀錄" : "全選本頁符合條件紀錄"} /> : null}</th> : null}<th>薪資月份</th><th>人員</th><th>計薪方式</th><th className="numeric">應發</th><th className="numeric">扣款</th><th className="numeric">實領</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span>{canCalculate ? <TableBulkActionMenu actionId={bulk.actionId} actions={payrollBulkActionOptions} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /> : null}</div></th></tr></thead>
             <tbody>{payrollRows.map((record) => <tr key={referenceKey(record)} className={bulk.selectedKeys.includes(referenceKey(record)) ? "selected" : undefined}>
               {bulk.actionId ? <td data-label="選取">{bulk.isRowEligible(record) ? <TableCheckbox checked={bulk.selectedKeys.includes(referenceKey(record))} disabled={approvePayroll.isPending || deletePayrollRecord.isPending || withdrawPayrollRecord.isPending} onChange={(event) => bulk.toggleRow(record, event.target.checked)} aria-label={`選取${record.personName}`} /> : null}</td> : null}
-              <td data-label="薪資月份"><strong>{payrollPeriodLabel(record.periodKey)}</strong><small className="cell-sub">{record.payDate ? `發薪日 ${record.payDate}` : "未設定發薪日"}</small></td>
-              <td data-label="人員"><div className="grid min-w-0 gap-0.5"><strong className="truncate">{record.personName}</strong><small className="cell-sub">{record.personNumber ? `${record.personNumber}・` : ""}{PAYROLL_PERSON_KIND_LABEL[record.personKind]}</small></div></td>
+              <td data-label="薪資月份"><strong>{payrollPeriodLabel(record.periodKey)}</strong><small className="mt-0.5 block text-[12px] text-muted">{record.payDate ? `發薪日 ${record.payDate}` : "未設定發薪日"}</small></td>
+              <td data-label="人員"><div className="grid min-w-0 gap-0.5"><strong className="truncate">{record.personName}</strong><small className="mt-0.5 block text-[12px] text-muted">{record.personNumber ? `${record.personNumber}・` : ""}{PAYROLL_PERSON_KIND_LABEL[record.personKind]}</small></div></td>
               <td data-label="計薪方式">{record.payBasis ? PAY_BASIS_LABEL[record.payBasis] ?? record.payBasis : "—"}</td>
               <td data-label="應發" className="numeric">{money(record.earningMinor)}</td>
               <td data-label="扣款" className="numeric">{record.deductionMinor ? deductionMoney(record.deductionMinor) : "—"}</td>

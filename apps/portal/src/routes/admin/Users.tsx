@@ -424,19 +424,19 @@ function UserRow({
     <>
       <tr>
         <td>
-          <div className="cell-strong">{displayNameOf(user)}</div>
-          <div className="cell-sub">{user.email}</div>
+          <div className="font-bold">{displayNameOf(user)}</div>
+          <div className="text-[12px] text-muted">{user.email}</div>
         </td>
 
         <td>
           <StatusBadge tone={USER_STATUS_TONE[user.status]}>{STATUS_LABEL[user.status]}</StatusBadge>
-          {isSelf ? <span className="cell-sub">這是你自己</span> : null}
+          {isSelf ? <span className="text-[12px] text-muted">這是你自己</span> : null}
         </td>
 
         {/* 表格只負責看，所有的改都在對話框裡——每列高度才會一致。 */}
         <td>
           {user.assignments.length === 0 ? (
-            <span className="cell-sub">沒有任何角色</span>
+            <span className="text-[12px] text-muted">沒有任何角色</span>
           ) : (
             <TagList className="mt-1">
               {user.assignments.map((assignment) => (
@@ -446,7 +446,7 @@ function UserRow({
           )}
         </td>
 
-        <td className="cell-sub">{formatTime(user.lastLoginAt)}</td>
+        <td className="text-muted">{formatTime(user.lastLoginAt)}</td>
 
         <td>
           <RowActions>

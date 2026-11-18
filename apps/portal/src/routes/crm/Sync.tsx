@@ -275,15 +275,15 @@ export function Sync() {
             <tbody>
               {data.recent.map((event) => (
                 <tr key={event.id}>
-                  <td className="cell-sub whitespace-nowrap">{formatTime(event.receivedAt)}</td>
+                  <td className="text-muted whitespace-nowrap">{formatTime(event.receivedAt)}</td>
                   <td className="whitespace-nowrap">{event.topic}</td>
                   <td>
                     <StatusBadge tone={WEBHOOK_TONE[event.status]}>
                       {STATUS_LABEL[event.status] ?? event.status}
                     </StatusBadge>
                   </td>
-                  <td className="cell-sub">{event.cyberbizCustomerId ?? "—"}</td>
-                  <td className="cell-sub">
+                  <td className="text-muted">{event.cyberbizCustomerId ?? "—"}</td>
+                  <td className="text-muted">
                     {event.lastError ?? "—"}
                     {/* 原始內容：查「這個 ID 到底是什麼」時，沒有它就只能猜。 */}
                     <details className="mt-1">

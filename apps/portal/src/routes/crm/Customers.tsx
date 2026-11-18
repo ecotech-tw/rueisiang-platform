@@ -66,26 +66,26 @@ function CustomerRow({
   return (
     <tr>
       <td data-label="客人">
-        <div className="cell-strong">{customer.name || "未填姓名"}</div>
-        <div className="cell-sub">{customer.email || "未填 Email"}</div>
+        <div className="font-bold">{customer.name || "未填姓名"}</div>
+        <div className="text-[12px] text-muted">{customer.email || "未填 Email"}</div>
         {tags.length ? (
           <TagList className="mt-1">
             {tags.slice(0, 3).map((tag) => (
               <Tag subtle key={tag}>{tag}</Tag>
             ))}
-            {tags.length > 3 ? <span className="cell-sub">+{tags.length - 3}</span> : null}
+            {tags.length > 3 ? <span className="text-[12px] text-muted">+{tags.length - 3}</span> : null}
           </TagList>
         ) : null}
       </td>
       <td data-label="電話" className="whitespace-nowrap">{customer.phone}</td>
-      <td data-label="地址" className="cell-sub">{customer.address || "—"}</td>
+      <td data-label="地址" className="text-muted">{customer.address || "—"}</td>
       <td data-label="狀態">
         <StatusBadge tone={customer.cyberbizCustomerId ? SYNC_TONE[customer.syncStatus] : undefined} quiet={!customer.cyberbizCustomerId}>
           {customer.cyberbizCustomerId ? (SYNC_LABEL[customer.syncStatus] ?? customer.syncStatus) : "僅本地"}
         </StatusBadge>
         {customer.status === "blocked" ? <StatusBadge tone="danger">已封鎖</StatusBadge> : null}
       </td>
-      <td data-label="最近更新" className="cell-sub whitespace-nowrap">{formatDate(customer.updatedAt)}</td>
+      <td data-label="最近更新" className="text-muted whitespace-nowrap">{formatDate(customer.updatedAt)}</td>
       {canWrite || canBlock ? (
         <td data-label="操作">
           <RowActions>

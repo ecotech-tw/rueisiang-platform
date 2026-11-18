@@ -148,8 +148,8 @@ export function Roles() {
               {(catalog.data?.roles ?? []).map((role) => (
                 <tr key={role.key}>
                   <td>
-                    <div className="cell-strong">{role.name}</div>
-                    {role.description ? <div className="cell-sub">{role.description}</div> : null}
+                    <div className="font-bold">{role.name}</div>
+                    {role.description ? <div className="text-[12px] text-muted">{role.description}</div> : null}
                   </td>
                   <td>
                     <StatusBadge tone={role.key === PROTECTED_ROLE_KEY ? "neutral" : "success"}>

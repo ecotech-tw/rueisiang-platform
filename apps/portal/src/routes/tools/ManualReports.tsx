@@ -1334,7 +1334,7 @@ function PayoutTable({
                 <td data-label="出金金額" className="numeric">{formatCurrency(row.payoutAmount)}</td>
                 <td data-label="最後更新">
                   <span className="block">{row.updatedByEmail}</span>
-                  <small className="cell-sub">{formatTime(row.updatedAt)}</small>
+                  <small className="text-[12px] text-muted">{formatTime(row.updatedAt)}</small>
                 </td>
                 <td data-label="操作">
                   <RowActions>
@@ -1448,16 +1448,16 @@ function SalesTable({
                 </td>
                 <td data-label="商品">
                   <span className="block">{row.productName}</span>
-                  <small className="cell-sub">{row.category}</small>
+                  <small className="text-[12px] text-muted">{row.category}</small>
                 </td>
                 <td data-label="數量" className="numeric">
                   <span className="block">{row.netQuantity.toLocaleString("zh-TW")}</span>
-                  <small className="cell-sub">銷售 {row.grossQuantity.toLocaleString("zh-TW")} · 退貨 {row.returnQuantity.toLocaleString("zh-TW")}</small>
+                  <small className="text-[12px] text-muted">銷售 {row.grossQuantity.toLocaleString("zh-TW")} · 退貨 {row.returnQuantity.toLocaleString("zh-TW")}</small>
                 </td>
                 <td data-label="銷售金額" className="numeric">{formatCurrency(row.salesAmount)}</td>
                 <td data-label="最後更新">
                   <span className="block">{row.updatedByEmail}</span>
-                  <small className="cell-sub">{formatTime(row.updatedAt)}</small>
+                  <small className="text-[12px] text-muted">{formatTime(row.updatedAt)}</small>
                 </td>
                 <td data-label="操作">
                   <RowActions>

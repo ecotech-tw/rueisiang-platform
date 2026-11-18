@@ -59,8 +59,8 @@ export function CountDialog({ item, onClose }: { item: InventoryItem; onClose: (
       }
     >
           <div className="rounded-field bg-canvas px-3.5 py-3">
-            <div className="cell-strong">{item.name}</div>
-            <div className="cell-sub">
+            <div className="font-bold">{item.name}</div>
+            <div className="text-[12px] text-muted">
               {item.sku ? `${item.sku}・` : ""}
               系統現有 {item.quantity.toLocaleString("zh-TW")} {item.unit}
             </div>

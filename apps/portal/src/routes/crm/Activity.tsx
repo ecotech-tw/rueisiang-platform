@@ -139,17 +139,17 @@ export function Activity() {
             <tbody>
               {data?.events.map((event) => (
                 <tr key={event.id}>
-                  <td className="cell-sub whitespace-nowrap">{formatTime(event.createdAt)}</td>
+                  <td className="text-muted whitespace-nowrap">{formatTime(event.createdAt)}</td>
                   <td>
-                    <div className="cell-strong">{event.customerName || "未填姓名"}</div>
-                    <div className="cell-sub">{event.customerPhone || "未填電話"}</div>
+                    <div className="font-bold">{event.customerName || "未填姓名"}</div>
+                    <div className="text-[12px] text-muted">{event.customerPhone || "未填電話"}</div>
                   </td>
                   <td>
                     <div>{event.summary}</div>
-                    <div className="cell-sub">{event.eventType}</div>
+                    <div className="text-[12px] text-muted">{event.eventType}</div>
                     {event.error ? <CellError>{event.error}</CellError> : null}
                   </td>
-                  <td className="cell-sub">
+                  <td className="text-muted">
                     {event.actorType === "system" ? "系統" : (event.actorEmail ?? "—")}
                   </td>
                   <td>
@@ -174,7 +174,7 @@ export function Activity() {
 
         {data && (data.hasMore || data.page > 1) ? (
           <footer className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-t-soft-line pt-3.5 max-[760px]:flex-col max-[760px]:items-stretch max-[760px]:gap-2.5">
-            <span className="cell-sub">第 {data.page} 頁</span>
+            <span className="text-[12px] text-muted">第 {data.page} 頁</span>
             <div className="flex gap-2">
               <Button
                 variant="secondary"

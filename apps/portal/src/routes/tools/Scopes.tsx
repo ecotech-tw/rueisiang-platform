@@ -298,11 +298,11 @@ export function Scopes() {
                         * 只有「已封存」是開關表達不出來的——它會被 disable，但畫面上看
                         * 不出為什麼，所以標在名稱旁邊。
                         */}
-                      <div className="cell-strong flex items-center gap-2">
+                      <div className="font-bold flex items-center gap-2">
                         {scope.name}
                         {scope.archivedAt ? <StatusBadge>已封存</StatusBadge> : null}
                       </div>
-                      <div className="cell-sub">
+                      <div className="text-[12px] text-muted">
                         {scope.externalName && scope.externalName !== scope.name ? `後台店名：${scope.externalName}` : scope.id}
                       </div>
                     </td>
@@ -312,7 +312,7 @@ export function Scopes() {
                       <td data-label="Drive 資料夾">
                         {scope.driveFolderUrl
                           ? <a href={scope.driveFolderUrl} target="_blank" rel="noreferrer">{scope.driveFolderName || "開啟資料夾"}</a>
-                          : <span className="cell-sub">—</span>}
+                          : <span className="text-[12px] text-muted">—</span>}
                       </td>
                     ) : null}
                     <td data-label="還在營業">

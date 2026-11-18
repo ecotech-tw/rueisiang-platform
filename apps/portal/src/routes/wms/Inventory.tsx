@@ -97,8 +97,8 @@ function ItemRow({
   return (
     <tr>
       <td data-label="商品">
-        <div className="cell-strong">{item.name}</div>
-        <div className="cell-sub">{item.sku || "沒有 SKU"}</div>
+        <div className="font-bold">{item.name}</div>
+        <div className="text-[12px] text-muted">{item.sku || "沒有 SKU"}</div>
       </td>
       <td data-label="分類">
         {/* 顏色沿用分類自己的設定，跟分類管理頁看到的一致。 */}
@@ -112,10 +112,10 @@ function ItemRow({
       <td data-label="數量" className="numeric">
         <span className={low ? STOCK_LOW : undefined}>
           {Number(item.quantity ?? 0).toLocaleString("zh-TW")}
-          <span className="cell-sub"> {item.unit || "件"}</span>
+          <span className="text-[12px] text-muted"> {item.unit || "件"}</span>
         </span>
       </td>
-      <td data-label="安全庫存" className="numeric cell-sub">{Number(item.minStock ?? 0).toLocaleString("zh-TW")}</td>
+      <td data-label="安全庫存" className="numeric text-muted">{Number(item.minStock ?? 0).toLocaleString("zh-TW")}</td>
       <td data-label="狀態">
         {low ? <StatusBadge tone="danger">需要補貨</StatusBadge> : <StatusBadge quiet>正常</StatusBadge>}
         {/*

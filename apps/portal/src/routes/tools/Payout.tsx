@@ -128,8 +128,8 @@ export function Payout() {
                       aria-label={`選取 ${store.name}`}
                     />
                   </td>
-                  <td className="cell-strong store-name-cell" data-label="通路">{store.name}</td>
-                  <td className="cell-sub" data-label="Drive 資料夾">
+                  <td className="font-bold store-name-cell" data-label="通路">{store.name}</td>
+                  <td className="text-muted" data-label="Drive 資料夾">
                     {store.folderUrl ? (
                       <ExternalLink href={store.folderUrl}>
                         {store.folder || store.name}

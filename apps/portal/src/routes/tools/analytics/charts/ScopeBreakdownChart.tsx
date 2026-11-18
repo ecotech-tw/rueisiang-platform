@@ -39,7 +39,7 @@ export function ScopeBreakdownChart({ breakdown, valueFormatter }: ScopeBreakdow
             <tbody>
               {breakdown.map((row) => (
                 <tr key={row.scopeId}>
-                  <td data-label="店別" className="cell-strong">{row.scopeName}</td>
+                  <td data-label="店別" className="font-bold">{row.scopeName}</td>
                   <td data-label="通路">{channelLabel(row.channel)}</td>
                   <td data-label="本期出金" className="numeric">{valueFormatter(row.value)}</td>
                   <td data-label="佔比" className="numeric">{formatPercent(row.share)}</td>

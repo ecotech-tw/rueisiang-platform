@@ -2,15 +2,6 @@
  * Shared primitive styles. Domain and shell modifiers stay in each app;
  * this file owns the base contracts used by the shared UI components.
  */
-.cell-strong {
-  font-weight: 700;
-}
-
-.cell-sub {
-  color: var(--color-muted);
-  font-size: 12px;
-}
-
 /* Form and field base styles; filters and domain forms add their own layout modifiers. */
 .admin-form {
   display: flex;
@@ -58,14 +49,6 @@
  * 兩種修正都會幫倒忙：純文字標籤只有 19.5px 高，底部對齊會讓它比旁邊的膠囊低 7px。
  */
 .admin-form:has(> [data-field]) { align-items: flex-end; }
-/*
- * 操作紀錄裡的「舊值 → 新值」。
- *
- * 兩個值等寬對齊，中間一個箭頭。數字用 tabular-nums，整欄掃下來時位數才對得齊
- * ——那一欄多半是數量，看的人在找「哪一筆差很多」。
- */
-.change { display: grid; gap: 2px; }
-.change small { color: var(--color-muted); font-size: 11px; }
 
 @media (max-width: 760px) {
   /*

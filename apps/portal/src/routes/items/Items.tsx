@@ -299,14 +299,14 @@ export function Items() {
               {groups.map((group) => group.items.map((item) => (
                 <tr key={item.id}>
                   <td data-label="品項">
-                    <div className="cell-strong">{item.name}</div>
-                    <div className="cell-sub">{item.sku || "沒有 SKU"}</div>
+                    <div className="font-bold">{item.name}</div>
+                    <div className="text-[12px] text-muted">{item.sku || "沒有 SKU"}</div>
                   </td>
                   <td data-label="來源"><StatusBadge quiet>{sourceLabel(item)}</StatusBadge></td>
                   <td data-label="用途"><StatusBadge quiet>{kindLabel(item)}</StatusBadge></td>
                   <td data-label="分類"><StatusBadge palette={group.color}>{group.label}</StatusBadge></td>
-                  <td data-label="倉儲庫存" className="numeric">{item.inWarehouse && item.quantity !== null ? item.quantity.toLocaleString("zh-TW") : "—"} <span className="cell-sub">{item.unit}</span></td>
-                  <td data-label="安全庫存" className="numeric cell-sub">{item.inWarehouse && item.minStock !== null ? item.minStock.toLocaleString("zh-TW") : "—"}</td>
+                  <td data-label="倉儲庫存" className="numeric">{item.inWarehouse && item.quantity !== null ? item.quantity.toLocaleString("zh-TW") : "—"} <span className="text-[12px] text-muted">{item.unit}</span></td>
+                  <td data-label="安全庫存" className="numeric text-muted">{item.inWarehouse && item.minStock !== null ? item.minStock.toLocaleString("zh-TW") : "—"}</td>
                   {canWrite ? (
                     <td data-label="操作">
                       <RowActions>

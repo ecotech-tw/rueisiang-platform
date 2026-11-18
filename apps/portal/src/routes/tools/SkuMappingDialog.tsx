@@ -171,7 +171,7 @@ export function SkuMappingDialog({
 
         <div className="grid min-w-0 gap-2.5 pt-1">
           <div className="flex items-center justify-between gap-3">
-            <div className="grid gap-0.5"><strong>對應到品項</strong><span className="cell-sub">每列直接選擇品項；若品項已納入 WMS，報表銷售時會展開扣料。</span></div>
+            <div className="grid gap-0.5"><strong>對應到品項</strong><span className="text-[12px] text-muted">每列直接選擇品項；若品項已納入 WMS，報表銷售時會展開扣料。</span></div>
             <Button type="button" variant="secondary" icon="plus" onClick={() => setComponents((current) => [...current, emptyDraft()])} disabled={pending}>新增用料</Button>
           </div>
           {components.map((component, index) => {
