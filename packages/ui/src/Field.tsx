@@ -86,7 +86,7 @@ interface FieldProps {
 /** 統一 label、說明與錯誤文字的欄位包裝器。 */
 export function Field({ label, required, hint, error, className = "", as: Tag = "label", gap = 6, stackedLabel, children }: FieldProps) {
   return (
-    // data-field 讓外層的版面規則認得出 Field（.admin-form 與 FilterToolbar 的底部對齊、格線子元素的 min-width）。
+    // data-field 讓外層的版面規則認得出 Field（FormRow 與 FilterToolbar 的底部對齊、格線子元素的 min-width）。
     <Tag data-field="" className={`grid content-start ${FIELD_GAP[gap]} ${className}`.trim()}>
       {label ? (
         <span className={stackedLabel ? `${STACKED_LABEL[stackedLabel]} mb-1.5 text-[12px] font-semibold text-muted` : "text-[13px] font-bold"}>

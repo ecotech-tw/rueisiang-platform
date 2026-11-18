@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, FormHint, Page, PageHeader, PageStatus, Panel, TextField } from "../../ui/index.js";
+import { Alert, Button, FormHint, FormRow, Page, PageHeader, PageStatus, Panel, TextField } from "../../ui/index.js";
 
 // 標籤欄固定寬、值欄吃剩下的；窄螢幕改成標籤在上、值在下。
 const DETAIL_ROW = "grid grid-cols-[148px_minmax(0,1fr)] gap-3 max-[620px]:grid-cols-[1fr] max-[620px]:gap-0.5";
@@ -57,8 +57,8 @@ export function Profile() {
       <PageHeader title="個人資料" description="這裡只有顯示名稱可以改，其餘欄位由登入方式與權限決定。" />
 
       <Panel title="顯示名稱">
-        <form
-          className="admin-form"
+        <FormRow
+          as="form"
           onSubmit={(event) => {
             event.preventDefault();
             setSaved(false);
@@ -80,7 +80,7 @@ export function Profile() {
           </Button>
           {saved ? <FormHint as="span">已儲存</FormHint> : null}
           {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
-        </form>
+        </FormRow>
         <p className="muted mt-3 text-[12px]">
           留白就會用回 Google 帳號上的姓名。這個名字只影響畫面顯示，操作紀錄一律以電子信箱為準。
         </p>

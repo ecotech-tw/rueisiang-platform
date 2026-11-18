@@ -1,7 +1,7 @@
 import { useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useToast } from "../../../shell/Toast.js";
-import { Alert, Button, DataTable, Field, FormHint, Input, Panel, ReportSummary, SegmentedControl, SelectField } from "../../../ui/index.js";
+import { Alert, Button, DataTable, Field, FORM_ROW_SPACING, FormHint, FormRow, Input, Panel, ReportSummary, SegmentedControl, SelectField } from "../../../ui/index.js";
 import { useImportMoPlusReport, useMoPlusReportScopes, type MoPlusImportResult } from "../api.js";
 import { momoReportParser, type ParsedSalesReport } from "./report-adapter.js";
 
@@ -192,7 +192,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
       {!scopesQuery.isPending && !scopesQuery.error && !scopes.length ? (
         <Alert tone="warning">尚未建立啟用中的 Mo+ 通路。請先到通路管理新增「種類：通路、平台：Mo+」。</Alert>
       ) : null}
-      <div className="admin-form row flex-none">
+      <FormRow className={`${FORM_ROW_SPACING} flex-none`}>
         {sourceField}
         <SelectField
           className="min-w-[180px] flex-[1_1_190px]"
@@ -230,7 +230,7 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
         >
           {preview ? "確認匯入" : "解析並預覽"}
         </Button>
-      </div>
+      </FormRow>
       <div className="mt-4 flex min-h-0 min-w-0 flex-1 flex-col gap-4 overflow-y-auto">
         {error ? <Alert tone="danger">{error}</Alert> : null}
         {importReport.error ? <Alert tone="danger">{importReport.error.message}</Alert> : null}

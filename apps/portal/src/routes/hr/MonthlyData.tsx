@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, EmptyState, Field, FilterToolbar, FormHint, Page, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, Field, FilterToolbar, FormHint, FormRow, Page, PageHeader, Panel, SelectField, TextField } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type Employee, type Profile } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -63,12 +63,12 @@ export function HrMonthlyData() {
     {error ? <Alert tone="danger">{error}</Alert> : null}
     <Panel>
       <FilterToolbar><TextField label="薪資月份" type="month" value={periodKey} onChange={(event) => { setPeriodKey(event.target.value); setLeaveDate(`${event.target.value}-01`); setWorkDate(`${event.target.value}-01`); }} /><SelectField label="員工" value={employeeUserId} options={employeeOptions} searchable onChange={(event) => setEmployeeUserId(event.target.value)} /><SelectField label="資料類型" value={mode} options={[{ value: "leave", label: "假勤紀錄" }, { value: "hourly", label: "時薪工時" }]} onChange={(event) => setMode(event.target.value as "leave" | "hourly")} /></FilterToolbar>
-      <form className="admin-form" onSubmit={submit}>
+      <FormRow as="form" onSubmit={submit}>
         {!selectedEmployment && employeeUserId ? <FormHint>此員工目前沒有活動員工資料。</FormHint> : null}
         {mode === "leave" ? <><SelectField label="假別" value={leaveTypeId} options={leaveTypeOptions} required onChange={(event) => setLeaveTypeId(event.target.value)} /><TextField label="日期" type="date" value={leaveDate} required onChange={(event) => setLeaveDate(event.target.value)} /><TextField label="時數" type="number" min="0.5" step="0.5" value={leaveHours} required onChange={(event) => setLeaveHours(event.target.value)} /><TextField label="給薪比例（%）" type="number" min="0" max="100" step="0.01" value={payRate} required onChange={(event) => setPayRate(event.target.value)} /><TextField label="扣款金額（元）" type="number" min="0" step="1" value={deduction} required onChange={(event) => setDeduction(event.target.value)} /></> : <><TextField label="工作日期" type="date" value={workDate} required onChange={(event) => setWorkDate(event.target.value)} /><TextField label="工時" type="number" min="0.5" step="0.5" value={workHours} disabled={noWork} required={!noWork} onChange={(event) => setWorkHours(event.target.value)} /><Field label="本期無工時"><span className="inline-flex items-center gap-2 text-[13px] font-normal [&_input]:size-[18px] [&_input]:accent-brand"><input type="checkbox" checked={noWork} onChange={(event) => setNoWork(event.target.checked)} /> 明確標記本期無工時</span></Field></>}
         <TextField label="備註" value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} />
         {canWrite ? <Button type="submit" size="lg" icon="plus" tone="success" loading={write.isPending} disabled={!selectedEmployment}>新增登記</Button> : null}
-      </form>
+      </FormRow>
     </Panel>
     <Panel grows title={mode === "leave" ? "本月假勤紀錄" : "本月時薪工時"}>
       {data.error ? <Alert tone="danger">{data.error.message}</Alert> : null}

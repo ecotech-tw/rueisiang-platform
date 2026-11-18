@@ -335,7 +335,6 @@ describe("shared HRIS UI contracts", () => {
 
     expect(markup).toContain('<form aria-label="員工篩選" class="');
     expect(markup).toContain("border-b border-line");
-    expect(markup).not.toContain("admin-form");
     expect(markup).toContain('name="query"');
   });
 });
