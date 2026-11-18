@@ -849,8 +849,11 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   }
   const latest = await latestClockEvent(db, input.userId);
   const eventKind = latest?.eventKind === "clock_in" ? "clock_out" as const : "clock_in" as const;
-  const schedule = await scheduleForClock(db, employment.id, serverNow.date, eventKind, serverNow.minute);
-  const timeAnomalyKind = clockTimeAnomaly(schedule, eventKind, serverNow.minute);
+  // 原始序列供跨日班次銜接；遲到／早退判定則依當日首末筆分類。
+  const todayEvents = await todayClockEvents(db, input.userId, serverNow.date);
+  const classifiedEventKind = todayEvents.length === 0 ? "clock_in" as const : "clock_out" as const;
+  const schedule = await scheduleForClock(db, employment.id, serverNow.date, classifiedEventKind, serverNow.minute);
+  const timeAnomalyKind = clockTimeAnomaly(schedule, classifiedEventKind, serverNow.minute);
   const assignmentExists = sql`EXISTS (SELECT 1 FROM hr_employee_attendance_locations AS employee_assignment
       WHERE employee_assignment.id=${assignment.id} AND employee_assignment.employment_id=${employment.id}
         AND employee_assignment.valid_from <= ${serverNow.date}

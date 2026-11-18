@@ -129,6 +129,16 @@ describe("支援人員本人服務", () => {
     expect((await request(`/hr/schedule-workers/${id}`, "PATCH", { displayName: "新姓名", active: true, revision: 2 })).status).toBe(200);
   });
 
+  it("新的一天第一筆分類為上班，不受前一日最後類型影響", async () => {
+    const id = await worker(); await link(id);
+    expect((await assignLocation(id)).status).toBe(200);
+    await db().insert(hrClockEvents).values({ id: "yesterday-clock", employeeUserId: "self", employmentId: id, idempotencyKey: "yesterday-clock", eventKind: "clock_in", occurredAt: "2020-01-01 01:00:00" });
+    const response = await request("/hr/me/clock-events", "POST", { idempotencyKey: "first-today", latitude: 25, longitude: 121.5 }, "self");
+    expect(await response.json()).toMatchObject({ event: { eventKind: "clock_in" } });
+    const [saved] = await db().select().from(hrClockEvents).where(eq(hrClockEvents.idempotencyKey, "first-today"));
+    expect(saved?.eventKind).toBe("clock_out");
+  });
+
   it("支援人員出勤日曆讀取已發布班表及月底跨日打卡，不混入別人的紀錄", async () => {
     const id = await worker(); await link(id);
     d1.sqlite.exec(`
