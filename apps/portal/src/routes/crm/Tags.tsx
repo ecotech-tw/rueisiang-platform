@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterInput, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, RowActions, TableNote, Tag } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterInput, FilterToolbar, FormHint, FormRow, Page, PageHeader, PageStatus, Panel, RowActions, TableNote, Tag } from "../../ui/index.js";
 
 interface TagRow {
   name: string;
@@ -150,8 +150,9 @@ export function Tags() {
                 <tr key={tag.name}>
                   <td>
                     {editing?.name === tag.name ? (
-                      <form
-                        className="admin-form row"
+                      <FormRow
+                        as="form"
+                        className="mt-4"
                         onSubmit={(event) => {
                           event.preventDefault();
                           if (editing.next.trim()) void applyChange(tag.name, editing.next.trim());
@@ -170,7 +171,7 @@ export function Tags() {
                         <Button variant="link" type="button" onClick={() => setEditing(null)}>
                           取消
                         </Button>
-                      </form>
+                      </FormRow>
                     ) : (
                       <Tag>{tag.name}</Tag>
                     )}

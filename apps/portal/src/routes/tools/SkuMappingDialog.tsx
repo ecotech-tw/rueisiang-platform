@@ -157,7 +157,7 @@ export function SkuMappingDialog({
       formProps={{ onSubmit: submit }}
       actions={<><Button variant="secondary" type="button" onClick={onClose} disabled={pending}>取消</Button><Button type="submit" loading={pending} loadingLabel="儲存中…" disabled={!externalName.trim() || (channel === "shopee" ? !shopeeProductId.trim() : !externalSku.trim()) || !channel.trim() || !components.length}>{mapping ? "儲存變更" : "新增對應"}</Button></>}
     >
-      <div className="admin-form grid gap-4">
+      <div className="grid gap-4 items-end">
         <FieldGrid className="min-w-0">
           <SelectField label="平台" required value={channel} onChange={(event) => changeChannel(event.target.value)} options={channelOptions} disabled={pending} />
           {channel === "shopee" ? (

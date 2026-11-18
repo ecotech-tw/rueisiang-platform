@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Alert, Button, Chip, ChipGroup, FilterInput } from "../../ui/index.js";
+import { Alert, Button, Chip, ChipGroup, FilterInput, FormRow } from "../../ui/index.js";
 import {
   DEFAULT_FILTERS,
   matchesView,
@@ -109,8 +109,9 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
         ) : null}
 
         {canManage && name !== null ? (
-          <form
-            className="admin-form row"
+          <FormRow
+            as="form"
+            className="mt-4"
             onSubmit={(event) => {
               event.preventDefault();
               const { page: _page, ...rest } = filters;
@@ -134,7 +135,7 @@ export function SavedViewBar({ filters, onApply, canManage }: Props) {
             <Button variant="link" type="button" onClick={() => setName(null)}>
               取消
             </Button>
-          </form>
+          </FormRow>
         ) : null}
       </div>
 

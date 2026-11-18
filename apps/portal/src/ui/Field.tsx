@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { FormHTMLAttributes, HTMLAttributes, ReactNode } from "react";
 import { defaultUnless } from "@rueisiang/ui";
 
 export { Field, FieldHint, Input, InputSkin, SelectField, Textarea, TextField } from "@rueisiang/ui";
@@ -32,6 +32,29 @@ export function FieldGrid({ columns = "auto", as = "div", disabled, className = 
   if (as === "fieldset") return <fieldset disabled={disabled} className={`m-0 min-w-0 border-0 p-0 ${classes}`}>{children}</fieldset>;
   return <div className={classes}>{children}</div>;
 }
+
+/**
+ * 排成一列、放不下就換行的欄位與按鈕（邀請信箱＋送出、改名輸入框＋儲存）。
+ *
+ * 有 Field 的那種排要底部對齊：Field 是「標籤在上、輸入框在下」兩層，旁邊的按鈕只有一層，
+ * 置中的話按鈕會對到整塊 Field 的中線、浮在輸入框上方。條件寫成「有 Field 直接子層」而不是
+ * 一律底部對齊，因為沒有 Field 的排（純文字標籤＋膠囊）底部對齊反而會讓文字比膠囊低 7px。
+ */
+export function FormRow({ as: Tag = "div", className = "", children, ...props }: Omit<FormHTMLAttributes<HTMLFormElement>, "className"> & {
+  as?: "div" | "form";
+  className?: string;
+  children: ReactNode;
+}) {
+  const classes = `flex flex-wrap items-center gap-2.5 has-[>[data-field]]:items-end ${className}`.trim();
+  if (Tag === "form") return <form {...props} className={classes}>{children}</form>;
+  return <div {...(props as HTMLAttributes<HTMLDivElement>)} className={classes}>{children}</div>;
+}
+
+/**
+ * 面板內容中間的 FormRow 跟上一塊隔 16px；直接接在面板標題列後面時，距離由標題列的下距負責，不再疊加。
+ * 上面那塊常是有條件才出現的提示（例如「尚未建立通路」），所以要看實際的相鄰關係，不能寫死。
+ */
+export const FORM_ROW_SPACING = "mt-4 [[data-panel-head]+&]:mt-0";
 
 /**
  * 一組相關的欄位（例如縣市／區域／地址、倉位／層）。

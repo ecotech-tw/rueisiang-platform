@@ -2,51 +2,11 @@
  * Shared primitive styles. Domain and shell modifiers stay in each app;
  * this file owns the base contracts used by the shared UI components.
  */
-/* Form and field base styles; filters and domain forms add their own layout modifiers. */
-.admin-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-.admin-form input,
-.admin-form select {
-  padding: 7px 10px;
-  border: 1px solid var(--color-line);
-  border-radius: 9px;
-  background: var(--color-paper);
-  color: var(--color-ink);
-  font: inherit;
-}
-
-.admin-form input:focus-visible,
-.admin-form select:focus-visible {
-  outline: 2px solid var(--color-secondary);
-  outline-offset: 1px;
-}
-
-.admin-form input[type="email"] {
-  min-width: 260px;
-}
-
 /*
  * 內容區自己就是一個 100vh 的欄。頁面不整頁捲動，改由需要的區塊（例如客戶列表）
  * 自己捲——這樣篩選列與統計固定在上面，滑動時不會把它們一起帶走。
  */
 .muted { color: var(--color-muted); margin: 0; }
-/*
- * 有 Field 的那種排要另外處理。Field 是「標籤在上、輸入框在下」的兩層，
- * 旁邊的按鈕只有一層，兩件事都會歪：
- *
- * 1. 置中的話按鈕對到的是整塊 Field 的中線，也就是浮在輸入框上方 → 底部對齊。
- * 2. 只靠 padding 撐出來的按鈕是 33.5px、輸入框是 44px，光是底部對齊仍然
- *    看得出一高一矮 → 拉成同一個高度。
- *
- * 條件寫成 :has(> [data-field]) 而不是套在整個 .admin-form 上，因為沒有 Field 的排
- * 兩種修正都會幫倒忙：純文字標籤只有 19.5px 高，底部對齊會讓它比旁邊的膠囊低 7px。
- */
-.admin-form:has(> [data-field]) { align-items: flex-end; }
 
 @media (max-width: 760px) {
   /*
