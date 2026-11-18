@@ -1000,6 +1000,34 @@ export const hr = new Hono<AppEnv>()
     const ids = overtimeRequestIds(await body(c));
     return c.json(await cancelHrOvertimeRequests(c.get("db"), ids, c.get("user")));
   })
+  .post("/requests/approve-batch", requirePermission("hr:request:review"), async (c) => {
+    const input = await body(c);
+    if (!Array.isArray(input.requests) || input.requests.length < 1 || input.requests.length > 100) throw new HTTPException(400, { message: "請選擇 1～100 筆待審申請。" });
+    const items = input.requests.map((item) => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) throw new HTTPException(400, { message: "批次審核資料格式不正確。" });
+      const request = item as Record<string, unknown>;
+      const kind = request.kind === "leave" || request.kind === "overtime" || request.kind === "clock_correction" ? request.kind : null;
+      if (!kind) throw new HTTPException(400, { message: "申請類型不正確。" });
+      const id = text(request, "id", "申請編號", 100);
+      const revision = request.revision;
+      if (revision !== undefined && revision !== null && (!Number.isSafeInteger(revision) || (revision as number) < 1)) throw new HTTPException(400, { message: "申請版本不正確。" });
+      return { kind, id, revision: typeof revision === "number" ? revision : undefined };
+    });
+    if (new Set(items.map((item) => `${item.kind}:${item.id}`)).size !== items.length) throw new HTTPException(400, { message: "批次清單含重複申請。" });
+    const actor = c.get("user");
+    const results: Array<{ id: string; kind: string; status: "approved" } | { id: string; kind: string; error: string }> = [];
+    for (const item of items) {
+      try {
+        if (item.kind === "leave") await reviewHrLeaveRequest(c.get("db"), item.id, "approved", "", actor, { allowAny: true, expectedRevision: item.revision });
+        else if (item.kind === "overtime") await reviewHrOvertimeRequest(c.get("db"), item.id, "approved", "", actor, undefined, { allowAny: true, expectedRevision: item.revision });
+        else await reviewHrFormRequest(c.get("db"), item.id, actor.id, "approved", "", true, actor);
+        results.push({ id: item.id, kind: item.kind, status: "approved" });
+      } catch (error) {
+        results.push({ id: item.id, kind: item.kind, error: error instanceof HrError ? error.message : "處理失敗，請稍後重試。" });
+      }
+    }
+    return c.json({ results });
+  })
   .get("/requests/overtime-days", requirePermission("hr:request:review"), async (c) => {
     const rawEmployeeUserId = c.req.query("employeeUserId");
     const rawWorkerId = c.req.query("workerId");
