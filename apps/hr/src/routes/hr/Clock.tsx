@@ -302,7 +302,7 @@ function CalendarDayDetails({ day, onCorrection, onLeave }: { day: ClockCalendar
     {day.specialKind === "typhoon_stop" ? <p className="m-0 rounded-[8px] bg-secondary/12 px-2 py-1.5 text-[12px] text-ink">災防停班：原排班保留，適用範圍內未打卡不列為缺勤。</p> : null}
     {day.expectedStartAt || day.expectedEndAt || day.workedMinutes > 0 ? <div className="flex items-baseline justify-between gap-2 rounded-[8px] bg-paper px-[9px] py-[7px] text-[11px] text-muted"><span>預期 {day.expectedStartAt ? formatTaipeiTime(day.expectedStartAt) : "—"}～{day.expectedEndAt ? formatTaipeiTime(day.expectedEndAt) : "—"}</span><strong className="text-[12px] text-ink tabular-nums">實際 {formatWorkedMinutes(day.workedMinutes)}</strong></div> : null}
     {day.status === "leave" ? <p className={CALENDAR_EMPTY_DETAIL}>已核准請假，這天沒有預期出勤。</p> : day.events.length ? <ul className="m-0 grid list-none grid-cols-2 gap-1.5 p-0 max-[760px]:gap-1">
-      {day.events.map((event) => <li key={event.id} className="grid min-w-0 grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-1 rounded-[8px] bg-paper px-2 py-1.5 max-[760px]:px-1.5 max-[760px]:py-[5px]"><span className="text-[11px] text-muted">{event.eventKind === "clock_in" ? "上班" : "下班"}</span><strong className="text-[12px] tabular-nums">{formatTaipei(event.occurredAt)}</strong><small className="col-span-full overflow-hidden text-[10px] text-ellipsis whitespace-nowrap text-muted">{event.locationName ?? "未指定辦公位置"}</small></li>)}
+      {day.events.map((event) => <li key={event.id} className="grid min-w-0 grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-1 rounded-[8px] bg-paper px-2 py-1.5 max-[760px]:px-1.5 max-[760px]:py-[5px]"><span className="text-[11px] text-muted">{event.eventKind === "clock_in" ? "上班" : event.eventKind === "clock_out" ? "下班" : "—"}</span><strong className="text-[12px] tabular-nums">{formatTaipei(event.occurredAt)}</strong><small className="col-span-full overflow-hidden text-[10px] text-ellipsis whitespace-nowrap text-muted">{event.locationName ?? "未指定辦公位置"}</small></li>)}
     </ul> : day.anomaly ? null : <p className={CALENDAR_EMPTY_DETAIL}>{day.status === "rest" ? "休息日，沒有預期出勤。" : day.status === "future" ? "尚未到這一天。" : day.status === "not-employed" ? "目前不是活動員工。" : "這天尚未有打卡紀錄。"}</p>}
     {day.anomaly ? <div className="sticky bottom-0 z-1 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 bg-canvas before:size-1.5 before:rounded-full before:bg-brand before:content-[''] max-[760px]:grid-cols-[auto_minmax(0,1fr)]"><strong className="text-[12px] text-brand-dark">{anomalyTitle}</strong><span className={CALENDAR_ANOMALY_NOTE}>{day.anomalyMessage ?? "請確認當日出勤紀錄。"}</span>{canApply ? <div className="flex gap-1.5 max-[760px]:col-span-full max-[760px]:justify-stretch"><Button size="lg" tone="success" className="max-[760px]:flex-1" onClick={() => onCorrection(day.date, correctionKind)}>申請忘刷</Button><Button size="lg" variant="secondary" tone="success" className="max-[760px]:flex-1" onClick={() => onLeave(day.date)}>請假申請</Button></div> : <span className={CALENDAR_ANOMALY_NOTE}>如需更正紀錄，請聯絡管理者。</span>}</div> : null}
   </section>;
@@ -453,7 +453,7 @@ export function HrClock() {
     return () => window.clearTimeout(timer);
   }, [successMessage]);
 
-  const actionLabel = status?.nextEventKind === "clock_out" ? "下班" : "上班";
+  const actionLabel = status?.nextEventKind === "clock_in" ? "上班" : "打卡";
   const clockDisabled = demoLocationFailed || !status?.canClock || query.isPending || Boolean(query.error) || (status?.geolocationRequired === true && locationCheck.data?.withinRadius !== true) || locationCheck.isPending;
   const lastEvent = status?.events[0];
   const lastEventClass = "-mt-0.5 text-center text-[12px] text-muted tabular-nums";
@@ -475,7 +475,7 @@ export function HrClock() {
           <NavLink to="/clock/calendar" aria-label="出勤日曆" className={DEEP_LINK}><Icon name="calendar" className={DEEP_LINK_ICON} /><span>出勤日曆</span></NavLink>
           <NavLink to="/clock/logs" aria-label="打卡紀錄" className={DEEP_LINK}><Icon name="history" className={DEEP_LINK_ICON} /><span>打卡紀錄</span></NavLink>
         </nav>
-        {lastEvent ? <p className={lastEventClass}>最近一次：{lastEvent.eventKind === "clock_out" ? "下班" : "上班"}・{formatTaipei(lastEvent.occurredAt)}</p> : <p className={lastEventClass}>今天尚未打卡。</p>}
+        {lastEvent ? <p className={lastEventClass}>最近一次：{lastEvent.eventKind === "clock_in" ? "上班" : lastEvent.eventKind === "clock_out" ? "下班" : "打卡"}・{formatTaipei(lastEvent.occurredAt)}</p> : <p className={lastEventClass}>今天尚未打卡。</p>}
         {(demoLocationFailed || status?.geolocationRequired) && (visibleLocationError || outsideOffice) ? <Button tone="info" size="lg" className="max-[760px]:w-full" variant="secondary" disabled={!status?.canClock || locating} onClick={() => { void verifyLocation(); }}>重新定位</Button> : null}
         {user?.hrSelfServiceKind === "worker" ? <Button variant="link" onClick={() => { void signOut().catch((error: unknown) => setUnlinkError(error instanceof Error ? error.message : "登出失敗，請稍後再試。")); }}>登出</Button> : null}
         {lineLiffAuthenticated ? <Button variant="link" disabled={unlink.isPending} onClick={() => setUnlinkConfirmOpen(true)}>解除 LINE 綁定</Button> : null}

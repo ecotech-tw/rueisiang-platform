@@ -1,5 +1,5 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, inviteUser, linkHrWorkerAccount, listHrPayrollSelfHistory, getHrPayrollSelfDetail, getHrClockCalendar, withdrawHrPayrollRun, syncSystemRoles } from "@rueisiang/db";
+import { createDatabase, inviteUser, linkHrWorkerAccount, listHrPayrollSelfHistory, getHrPayrollSelfDetail, getHrClockCalendar, listHrAttendanceEvents, withdrawHrPayrollRun, syncSystemRoles } from "@rueisiang/db";
 import { hrAttendanceLocations, hrClockEvents, hrEmployments, hrPayrollClosedWorkers, hrPayrollPeriods, hrPayrollRecordItems, hrPayrollRuns, hrPayrollWorkerResults, hrWorkerAccountLinks, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -110,8 +110,18 @@ describe("支援人員本人服務", () => {
     expect((await request("/hr/me/clock-events", "POST", values, "self")).status).toBe(201);
     expect((await request("/hr/me/clock-events", "POST", values, "self")).status).toBe(200);
     expect((await request("/hr/me/clock-events", "POST", { ...values, idempotencyKey: "second" }, "self")).status).toBe(201);
+    const third = await request("/hr/me/clock-events", "POST", { ...values, idempotencyKey: "third" }, "self");
+    expect(await third.json()).toMatchObject({ event: { eventKind: "clock_out" } });
+    const fourth = await request("/hr/me/clock-events", "POST", { ...values, idempotencyKey: "fourth" }, "self");
+    expect(await fourth.json()).toMatchObject({ event: { eventKind: "clock_out" } });
+    const statusAfterFour = await (await request("/hr/me/clock-events", "GET", undefined, "self")).json() as { events: Array<{ eventKind: string | null }> };
+    expect(statusAfterFour.events.map((event) => event.eventKind)).toEqual(["clock_out", null, null, "clock_in"]);
+    const attendanceRows = await listHrAttendanceEvents(db(), { page: 1, pageSize: 25, search: "", eventKind: "all", sourceKind: "all", startDate: null, endDate: null, sortField: "occurredAt", sortDirection: "asc" });
+    expect(attendanceRows.events.filter((event) => event.eventKind === null)).toHaveLength(2);
+    expect((await listHrAttendanceEvents(db(), { page: 1, pageSize: 25, search: "", eventKind: "clock_in", sourceKind: "all", startDate: null, endDate: null, sortField: "occurredAt", sortDirection: "asc" })).events).toHaveLength(1);
+    expect((await listHrAttendanceEvents(db(), { page: 1, pageSize: 25, search: "", eventKind: "clock_out", sourceKind: "all", startDate: null, endDate: null, sortField: "occurredAt", sortDirection: "asc" })).events).toHaveLength(1);
     const events = await db().select().from(hrClockEvents);
-    expect(events.map((event) => [event.employeeUserId, event.employmentId, event.eventKind])).toEqual([["self", id, "clock_in"], ["self", id, "clock_out"]]);
+    expect(events.map((event) => [event.employeeUserId, event.employmentId, event.eventKind])).toEqual([["self", id, "clock_in"], ["self", id, "clock_out"], ["self", id, "clock_in"], ["self", id, "clock_out"]]);
     expect((await request("/hr/me/clock-events", "POST", { ...values, idempotencyKey: "other" }, "other")).status).toBe(400);
     expect((await request("/hr/me/attendance-calendar?year=2026&month=11", "GET", undefined, "self")).status).toBe(200);
     expect(() => d1.sqlite.prepare("INSERT INTO hr_clock_events (id, employee_user_id, employment_id, idempotency_key, event_kind) VALUES ('forged', 'other', ?, 'forged', 'clock_in')").run(id)).toThrow("hr_clock_identity_mismatch");
@@ -135,6 +145,7 @@ describe("支援人員本人服務", () => {
     const calendar = await getHrClockCalendar(db(), "self", 2020, 1);
     expect(calendar.days.find((day) => day.date === "2020-01-31")).toMatchObject({ workedMinutes: 480, expectedStartAt: "2020-01-31 22:00:00", expectedEndAt: "2020-02-01 06:00:00", anomaly: null });
     expect(calendar.days.find((day) => day.date === "2020-01-30")).toMatchObject({ status: "rest", anomaly: null });
+    expect((await getHrClockCalendar(db(), "self", 2020, 2)).days.find((day) => day.date === "2020-02-01")).toMatchObject({ anomaly: null });
     expect((await getHrClockCalendar(db(), "other", 2020, 1)).days.every((day) => day.events.length === 0)).toBe(true);
   });
 

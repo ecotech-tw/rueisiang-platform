@@ -1,6 +1,7 @@
 import { and, asc, count, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
+import { classifyDailyClockEvents, dailyClockEventKindSql } from "./hr-attendance-kind.js";
 import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes } from "./hr-calendar.js";
 import { HrError, hrEmployeeName, hrEmployeeNumberOrder, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
@@ -82,11 +83,12 @@ export interface HrAttendanceEventListQuery {
 }
 
 export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEventListQuery) {
+  const classifiedEventKind = dailyClockEventKindSql(hrClockEvents.id, hrClockEvents.employeeUserId, hrClockEvents.occurredAt);
   const startUtc = input.startDate ? taipeiMidnightUtc(input.startDate) : null;
   const endUtc = input.endDate ? taipeiMidnightUtc(input.endDate) : null;
   const where = and(
     input.search ? or(like(hrEmployments.employeeNumber, `%${input.search}%`), like(hrEmployments.legalName, `%${input.search}%`), like(users.displayName, `%${input.search}%`), like(users.googleName, `%${input.search}%`), like(users.email, `%${input.search}%`)) : undefined,
-    input.eventKind !== "all" ? eq(hrClockEvents.eventKind, input.eventKind) : undefined,
+    input.eventKind !== "all" ? eq(classifiedEventKind, input.eventKind) : undefined,
     input.sourceKind !== "all" ? eq(hrClockEvents.sourceKind, input.sourceKind) : undefined,
     // occurred_at 以 UTC 保存；查詢日期是台北當地日，邊界先由 IANA timezone 轉成 UTC wall-clock。
     startUtc ? sql`${hrClockEvents.occurredAt} >= ${startUtc}` : undefined,
@@ -100,7 +102,7 @@ export async function listHrAttendanceEvents(db: Database, input: HrAttendanceEv
       employeeUserId: sql<string>`${hrClockEvents.employeeUserId}`.as("attendance_event_employee_user_id"),
       employeeNumber: sql<string>`${hrEmployments.employeeNumber}`.as("attendance_event_employee_number"),
       employeeName: hrEmployeeName.as("attendance_event_employee_name"),
-      eventKind: hrClockEvents.eventKind,
+      eventKind: classifiedEventKind,
       occurredAt: hrClockEvents.occurredAt,
       locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`.as("attendance_event_location_name"),
       scopeName: sql<string | null>`coalesce(nullif(${hrClockEvents.scopeNameSnapshot}, ''), ${scopes.name})`.as("attendance_event_scope_name"),
@@ -329,12 +331,13 @@ function overnightScheduleForDate(schedules: CalendarSchedule[], date: string) {
   return rows.length ? scheduleForDate(rows, previousDate) : null;
 }
 
-function calendarEventsForDate<T extends { eventKind: "clock_in" | "clock_out"; occurredAt: string }>(eventDates: Map<string, T[]>, date: string, schedule: ReturnType<typeof scheduleForDate>, previousOvernight: ReturnType<typeof scheduleForDate>, includeEvent: (event: T) => boolean = () => true) {
-  const current = (eventDates.get(date) ?? []).filter(includeEvent);
-  const withoutPreviousClose = previousOvernight && current[0]?.eventKind === "clock_out" ? current.slice(1) : current;
-  if (!schedule || schedule.endsAt.slice(0, 10) <= date || withoutPreviousClose.at(-1)?.eventKind !== "clock_in") return withoutPreviousClose;
+function calendarEventsForDate<T extends { eventKind: "clock_in" | "clock_out" | null; recordedEventKind?: "clock_in" | "clock_out"; occurredAt: string }>(eventDates: Map<string, T[]>, date: string, schedule: ReturnType<typeof scheduleForDate>, previousOvernight: ReturnType<typeof scheduleForDate>, includeEvent: (event: T) => boolean = () => true) {
+  const current = (eventDates.get(date) ?? []).filter((event): event is T & { eventKind: "clock_in" | "clock_out" } => event.eventKind !== null && includeEvent(event));
+  const withoutPreviousClose = previousOvernight && current[0]?.recordedEventKind === "clock_out" ? current.slice(1) : current;
+  if (!schedule || withoutPreviousClose.at(-1)?.eventKind !== "clock_in") return withoutPreviousClose;
+  if (schedule.endsAt.slice(0, 10) <= date) return withoutPreviousClose;
   const nextClose = (eventDates.get(calendarDate(date, 1)) ?? []).filter(includeEvent)[0];
-  return nextClose?.eventKind === "clock_out" ? [...withoutPreviousClose, nextClose] : withoutPreviousClose;
+  return nextClose?.recordedEventKind === "clock_out" ? [...withoutPreviousClose, { ...nextClose, eventKind: "clock_out" as const }] : withoutPreviousClose;
 }
 
 function calendarWorkedMinutes(events: Array<{ eventKind: "clock_in" | "clock_out"; occurredAt: string }>) {
@@ -401,6 +404,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
       id: hrClockEvents.id,
       rowId: sql<number>`hr_clock_events.rowid`,
       eventKind: hrClockEvents.eventKind,
+      recordedEventKind: hrClockEvents.eventKind,
       occurredAt: hrClockEvents.occurredAt,
       scopeId: hrClockEvents.scopeId,
       locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`,
@@ -430,6 +434,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
     const datedEvent = { ...event, eventDate: taipeiDateFromUtcWallClock(event.occurredAt) };
     eventDates.set(datedEvent.eventDate, [...(eventDates.get(datedEvent.eventDate) ?? []), datedEvent]);
   }
+  for (const [date, rows] of eventDates) eventDates.set(date, classifyDailyClockEvents(rows));
   const modeByEmployment = new Map(attendanceSettings.map((setting) => [setting.employmentId, setting.attendanceMode]));
   const scheduleByEmployment = new Map<string, CalendarSchedule[]>();
   for (const schedule of schedules) scheduleByEmployment.set(schedule.employmentId, [...(scheduleByEmployment.get(schedule.employmentId) ?? []), schedule]);
@@ -485,7 +490,7 @@ export async function getHrClockCalendar(db: Database, userId: string, year: num
       anomalyMessage: detectedAnomaly?.message ?? null,
       expectedStartAt: schedule?.startsAt ?? null,
       expectedEndAt: schedule?.endsAt ?? null,
-      events: dayEvents.map(({ eventDate: _eventDate, rowId: _rowId, scopeId: _scopeId, ...event }) => event),
+      events: dayEvents.map(({ eventDate: _eventDate, rowId: _rowId, scopeId: _scopeId, recordedEventKind: _recordedEventKind, ...event }) => event),
     };
   });
   return { year, month, today, days };
@@ -524,6 +529,7 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
       rowId: sql<number>`hr_clock_events.rowid`,
       employeeUserId: hrClockEvents.employeeUserId,
       eventKind: hrClockEvents.eventKind,
+      recordedEventKind: hrClockEvents.eventKind,
       occurredAt: hrClockEvents.occurredAt,
       scopeId: hrClockEvents.scopeId,
     }).from(hrClockEvents)
@@ -545,6 +551,9 @@ export async function countHrClockCalendarAnomalies(db: Database, userIds: strin
     const dates = eventDatesByUser.get(event.employeeUserId) ?? new Map<string, Array<(typeof events)[number] & { eventDate: string }>>();
     dates.set(datedEvent.eventDate, [...(dates.get(datedEvent.eventDate) ?? []), datedEvent]);
     eventDatesByUser.set(event.employeeUserId, dates);
+  }
+  for (const dates of eventDatesByUser.values()) {
+    for (const [date, rows] of dates) dates.set(date, classifyDailyClockEvents(rows));
   }
   const leavesByUser = new Map<string, typeof leaves>();
   for (const leave of leaves) {
@@ -654,21 +663,28 @@ async function findClockEventById(db: Database, id: string) {
   return event;
 }
 
-async function todayClockEvents(db: Database, userId: string, today = taipeiToday()) {
-  const startUtc = taipeiMidnightUtc(today);
-  const endUtc = taipeiMidnightUtc(calendarDate(today, 1));
-  return db.select(clockEventFields).from(hrClockEvents)
-    .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
-    .where(and(eq(hrClockEvents.employeeUserId, userId), sql`${hrClockEvents.occurredAt} >= ${startUtc}`, sql`${hrClockEvents.occurredAt} < ${endUtc}`))
-    // SQLite 的 CURRENT_TIMESTAMP 只有秒精度；rowid 讓同一秒的連續按鈕仍有先後。
-    .orderBy(desc(hrClockEvents.occurredAt), sql`hr_clock_events.rowid DESC`);
-}
-
 async function latestClockEvent(db: Database, userId: string) {
   const [event] = await db.select({ eventKind: hrClockEvents.eventKind }).from(hrClockEvents)
     .where(eq(hrClockEvents.employeeUserId, userId))
     .orderBy(desc(hrClockEvents.occurredAt), sql`hr_clock_events.rowid DESC`).limit(1);
   return event;
+}
+
+async function todayClockEvents(db: Database, userId: string, today = taipeiToday()) {
+  const startUtc = taipeiMidnightUtc(today);
+  const endUtc = taipeiMidnightUtc(calendarDate(today, 1));
+  const events = await db.select({ ...clockEventFields, rowId: sql<number>`hr_clock_events.rowid` }).from(hrClockEvents)
+    .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))
+    .where(and(eq(hrClockEvents.employeeUserId, userId), sql`${hrClockEvents.occurredAt} >= ${startUtc}`, sql`${hrClockEvents.occurredAt} < ${endUtc}`))
+    // SQLite 的 CURRENT_TIMESTAMP 只有秒精度；rowid 讓同一秒的連續按鈕仍有先後。
+    .orderBy(asc(hrClockEvents.occurredAt), asc(sql`hr_clock_events.rowid`));
+  return classifyDailyClockEvents(events).reverse();
+}
+
+async function classifyClockEvent<T extends { id: string; occurredAt: string }>(db: Database, userId: string, event: T) {
+  const date = taipeiDateFromUtcWallClock(event.occurredAt);
+  const classified = (await todayClockEvents(db, userId, date)).find((candidate) => candidate.id === event.id);
+  return { ...event, eventKind: classified?.eventKind ?? null };
 }
 
 function distanceMeters(latitudeE7: number, longitudeE7: number, targetLatitudeE7: number, targetLongitudeE7: number) {
@@ -735,7 +751,7 @@ export async function getHrClockMapCenters(db: Database, userId: string) {
 }
 
 export async function getHrClockStatus(db: Database, userId: string, options: { requireGeolocation?: boolean } = {}) {
-  const [events, latest] = await Promise.all([todayClockEvents(db, userId), latestClockEvent(db, userId)]);
+  const events = await todayClockEvents(db, userId);
   const employment = await currentEmployment(db, userId);
   const assignments = employment ? await currentClockAssignments(db, employment.id) : [];
   const names = locationNames(assignments);
@@ -744,7 +760,7 @@ export async function getHrClockStatus(db: Database, userId: string, options: { 
   return {
     canClock,
     message: !employment ? "目前沒有活動員工資料，暫時無法打卡。" : !assignments.length ? "尚未指派目前辦公位置，請聯絡管理者。" : null,
-    nextEventKind: latest?.eventKind === "clock_in" ? "clock_out" as const : "clock_in" as const,
+    nextEventKind: events.length === 0 ? "clock_in" as const : null,
     geolocationRequired: requiresLocation,
     locationName: names.length ? names.join("、") : null,
     locationNames: names,
@@ -803,7 +819,7 @@ function clockTimeAnomaly(schedule: Awaited<ReturnType<typeof scheduleForClock>>
 
 export async function createHrClockEvent(db: Database, input: HrClockEventInput, actor: HrActor) {
   const existing = await findClockEventByKey(db, input.userId, input.idempotencyKey);
-  if (existing) return { event: existing, idempotent: true };
+  if (existing) return { event: await classifyClockEvent(db, input.userId, existing), idempotent: true };
 
   const serverNow = serverTaipeiNow();
   const employment = await currentEmployment(db, input.userId);
@@ -857,11 +873,11 @@ export async function createHrClockEvent(db: Database, input: HrClockEventInput,
   } catch (error) {
     // 兩次相同請求同時抵達時，唯一鍵失敗的一方回傳先完成的事件，避免手機重試造成重複打卡。
     const duplicate = await findClockEventByKey(db, input.userId, input.idempotencyKey);
-    if (duplicate) return { event: duplicate, idempotent: true };
+    if (duplicate) return { event: await classifyClockEvent(db, input.userId, duplicate), idempotent: true };
     throw error;
   }
 
   const event = await findClockEventById(db, id);
   if (!event) throw new HrError(409, "打卡狀態已變更，請重新整理後再試。");
-  return { event, idempotent: false };
+  return { event: await classifyClockEvent(db, input.userId, event), idempotent: false };
 }

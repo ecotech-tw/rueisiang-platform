@@ -77,7 +77,6 @@ export const hrEmployeeAttendanceLocations = sqliteTable("hr_employee_attendance
   check("ck_hr_employee_attendance_locations_revision", sql`${table.revision} > 0`),
 ]);
 
-/** 打卡事件不可覆寫；按鈕只會新增事件，摘要再由事件 kind 判斷。 */
 /** 一段任職的出勤方式與月休設定；primaryAssignmentId 是既有歷史相容欄位，不作為授權規則。 */
 export const hrEmploymentAttendanceSettings = sqliteTable("hr_employment_attendance_settings", {
   employmentId: text("employment_id").primaryKey().references(() => hrEmployments.id, { onDelete: "restrict" }),
@@ -91,6 +90,7 @@ export const hrEmploymentAttendanceSettings = sqliteTable("hr_employment_attenda
   check("ck_hr_employment_attendance_settings_rest_days", sql`${table.monthlyRestDays} IS NULL OR ${table.monthlyRestDays} BETWEEN 0 AND 31`),
 ]);
 
+/** 打卡事件 append-only；對外的上下班類型依台灣當日首末筆即時計算，不回寫歷史事件。 */
 export const hrClockEvents = sqliteTable("hr_clock_events", {
   id: text("id").primaryKey(),
   employeeUserId: text("employee_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),

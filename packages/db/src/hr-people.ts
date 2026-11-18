@@ -3,6 +3,7 @@ import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { inJsonArray } from "./sql-lists.js";
+import { dailyClockEventKindSql } from "./hr-attendance-kind.js";
 import { hrEmployeePersonalData, hrEmployeePhotos, hrEmploymentServicePeriods, hrEmployments, hrEmployeeScopes, hrWorkerAccountLinks } from "./schema/hr-people.js";
 import { HR_PROFILE_FIELDS, emptyHrPersonalData, type HrPersonalData, type HrProfileField } from "./hr-profile-fields.js";
 import { hrAttendanceLocations, hrClockEvents, hrEmployeeAttendanceLocations, hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
@@ -379,7 +380,7 @@ export async function getHrEmployee(db: Database, userId: string, options: HrEmp
   }).from(hrLeaveRequests).where(inJsonArray(hrLeaveRequests.employmentId, employmentIds)).orderBy(desc(hrLeaveRequests.startsOn)) : undefined;
   const compensation = compensationRows?.map((item) => ({ ...item, items: compensationItems.filter((child) => child.compensationVersionId === item.id) }));
   const attendanceEvents = options.includeAttendanceEvents ? await db.select({
-    id: hrClockEvents.id, eventKind: hrClockEvents.eventKind, occurredAt: hrClockEvents.occurredAt,
+    id: hrClockEvents.id, eventKind: dailyClockEventKindSql(hrClockEvents.id, hrClockEvents.employeeUserId, hrClockEvents.occurredAt), occurredAt: hrClockEvents.occurredAt,
     locationName: sql<string | null>`coalesce(nullif(${hrClockEvents.locationNameSnapshot}, ''), ${hrAttendanceLocations.name})`, distanceMeters: hrClockEvents.distanceMeters,
   }).from(hrClockEvents)
     .leftJoin(hrAttendanceLocations, eq(hrAttendanceLocations.id, hrClockEvents.attendanceLocationId))

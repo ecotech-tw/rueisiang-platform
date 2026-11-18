@@ -44,7 +44,7 @@ export interface CompensationItem { id: string; compensationVersionId: string; i
 export interface CompensationVersion { id: string; employmentId: string; versionNumber: number; validFrom: string; validTo: string | null; payBasis: "monthly" | "daily" | "hourly"; baseAmountMinor: number; overtimeRatePpm?: number | null; overtimeHourlyMinor?: number | null; note: string; voidedAt?: string | null; voidedBy?: string | null; items?: CompensationItem[]; createdAt: string; createdBy: string }
 export interface InsuranceVersion { id: string; employmentId: string; scheme: "labor" | "health"; versionNumber: number; status: "enrolled" | "withdrawn"; validFrom: string; validTo: string | null; insuredAmountMinor: number; dependentCount: number; rateYear: number; sourceKind: "official" | "manual"; sourceUrl: string; note: string; voidedAt?: string | null; voidedBy?: string | null; createdAt: string; createdBy: string }
 export interface LeaveRequest { id: string; employmentId: string; leaveType: string; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; startsAt: string; endsAt: string; startsOn: string; endsOn: string; durationMinutes: number; payRatePpm?: number; reason: string; reviewedBy: string | null; reviewedAt: string | null; reviewComment: string | null; createdAt: string; createdBy: string }
-export interface AttendanceEvent { id: string; eventKind: "clock_in" | "clock_out"; occurredAt: string; locationName: string | null; scopeName?: string | null; distanceMeters: number | null; sourceKind?: string; manualReason?: string; recordedBy?: string | null }
+export interface AttendanceEvent { id: string; eventKind: "clock_in" | "clock_out" | null; occurredAt: string; locationName: string | null; scopeName?: string | null; distanceMeters: number | null; sourceKind?: string; manualReason?: string; recordedBy?: string | null }
 export interface Profile { photo?: { id: string } | null; personalData?: HrPersonalData; employee: Employee & { supervisorName?: string | null }; employments: Employment[]; /** 只有出勤讀取權限時不回傳。 */ assignments?: Assignment[]; attendanceAssignments?: AttendanceAssignment[]; compensation?: CompensationVersion[]; insurance?: InsuranceVersion[]; leave?: LeaveRequest[]; attendanceEvents?: AttendanceEvent[] }
 
 const employeeNumberCollator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
@@ -103,7 +103,7 @@ export interface ClockEvent {
 export interface ClockStatus {
   canClock: boolean;
   message: string | null;
-  nextEventKind: "clock_in" | "clock_out";
+  nextEventKind: "clock_in" | null;
   geolocationRequired: boolean;
   locationName: string | null;
   locationNames?: string[];
