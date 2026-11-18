@@ -4,18 +4,6 @@
   30% { opacity: 1; transform: translateY(-3px); }
 }
 
-/* 權限管理頁 */
-/* 跟在面板標題列後面時，距離由 panel-head 的 margin-bottom 決定，這裡不再疊加。 */
-/*
- * 修飾詞叫 row 不叫 inline。
- *
- * `inline` 是 Tailwind 的 utility（display: inline），而 utility 的 layer 永遠贏
- * component——寫成 `.admin-form.inline` 的話，`.admin-form` 的 display: flex 會被蓋掉，
- * 整排欄位退回 inline 排版，gap 也跟著失效（gap 只對 flex/grid 有作用）。
- * 命名修飾詞之前先確認它不是 Tailwind 已經有的 utility。
- */
-.admin-form.row { margin-top: 16px; }
-[data-panel-head] + .admin-form.row { margin-top: 0; }
 
 /* 表格內可直接編輯的欄位。邊框只在 hover 或聚焦時出現，不然整張表會滿是框線。 */
 

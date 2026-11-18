@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Switch } from "../../shell/Switch.js";
-import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, FormHint, Page, PageHeader, PageStatus, Panel, StatusBadge, TextField } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, EmptyState, FilterInput, FilterSelect, FORM_ROW_SPACING, FormHint, FormRow, Page, PageHeader, PageStatus, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import {
   useAddAssistantLineGroup,
   useAssistantLineConfig,
@@ -265,7 +265,7 @@ export function LineSettings() {
         }
       >
 
-        <form className="admin-form row" onSubmit={submitGroup}>
+        <FormRow as="form" className={FORM_ROW_SPACING} onSubmit={submitGroup}>
           <FilterInput
             label="LINE 對話 ID"
             value={groupId}
@@ -289,7 +289,7 @@ export function LineSettings() {
             placeholder="顯示名稱（選填）"
           />
           <Button type="submit" loading={addGroup.isPending} loadingLabel="新增中…" disabled={!groupId.trim()}>新增對話</Button>
-        </form>
+        </FormRow>
         {addGroup.error ? <Alert tone="danger">{addGroup.error.message}</Alert> : null}
 
         {data.groups.length ? (

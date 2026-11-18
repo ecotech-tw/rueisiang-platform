@@ -232,7 +232,7 @@ export function HrBonusManagement() {
     </Panel>
 
     {policyModalOpen ? <Dialog width={860} title={editingPolicyVersionId ? "編輯獎金" : "新增獎金"} titleMeta={editingPolicyVersionId ? "調整後會套用到新的薪資計算" : "可在建立時直接套用員工"} onClose={closePolicyModal} closeRequestRef={policyCloseRef} closeDisabled={writePolicy.isPending} formProps={{ onSubmit: submitPolicy }} actions={<><Button variant="secondary" onClick={closePolicyModal} disabled={writePolicy.isPending || voidPolicyVersion.isPending}>取消</Button>{canVoidEditingPolicy ? <Button type="button" variant="danger" icon="history" disabled={writePolicy.isPending || voidPolicyVersion.isPending} onClick={() => setVoidConfirmation(true)}>解除最新版本</Button> : null}<Button type="submit" icon={editingPolicyVersionId ? "edit" : "plus"} tone={editingPolicyVersionId ? "info" : "success"} loading={writePolicy.isPending} disabled={voidPolicyVersion.isPending}>{editingPolicyVersionId ? "保存變更" : "建立獎金"}</Button></>}>
-      <div className="admin-form grid grid-cols-2 items-end gap-4">
+      <div className="grid grid-cols-2 items-end gap-4">
         {employees.error ? <Alert tone="danger" className="col-span-full">{employees.error.message}</Alert> : null}
         {scopes.error ? <Alert tone="danger" className="col-span-full">{scopes.error.message}</Alert> : null}
         <TextField className="col-span-full min-w-0" label="獎金名稱" value={policyName} maxLength={100} required onChange={(event) => setPolicyName(event.target.value)} />

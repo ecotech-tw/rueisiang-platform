@@ -20,7 +20,7 @@ import { PermissionCount, PermissionGrid, PermissionGroup, PermissionHint, Permi
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, Page, PageHeader, PageStatus, Panel, RowActions, SelectField, StatusBadge, type StatusTone, Tag, TagList, TextField } from "../../ui/index.js";
+import { Alert, Button, ButtonSkin, DataTable, Dialog, Field, FieldHint, FormRow, Page, PageHeader, PageStatus, Panel, RowActions, SelectField, StatusBadge, type StatusTone, Tag, TagList, TextField } from "../../ui/index.js";
 
 const USER_STATUS_TONE: Record<AdminUser["status"], StatusTone> = {
   invited: "neutral",
@@ -116,8 +116,8 @@ function InviteForm({
   const [roleKey, setRoleKey] = useState("");
 
   return (
-    <form
-      className="admin-form"
+    <FormRow
+      as="form"
       onSubmit={(event) => {
         event.preventDefault();
         invite.mutate(
@@ -157,7 +157,7 @@ function InviteForm({
       </Button>
 
       {invite.error ? <Alert tone="danger">{invite.error.message}</Alert> : null}
-    </form>
+    </FormRow>
   );
 }
 
@@ -258,7 +258,7 @@ function UserEditor({
           ) : null}
 
           <Field as="div" label="狀態">
-            <div className="admin-form row">
+            <FormRow className="mt-4">
               <StatusBadge tone={USER_STATUS_TONE[user.status]}>{STATUS_LABEL[user.status]}</StatusBadge>
               {user.status === "disabled" ? (
                 <Button
@@ -289,7 +289,7 @@ function UserEditor({
                   停用
                 </Button>
               )}
-            </div>
+            </FormRow>
           </Field>
 
           <PermissionGroup legend={<>角色<PermissionCount>{held.size}/{catalog.roles.length}</PermissionCount></>}>

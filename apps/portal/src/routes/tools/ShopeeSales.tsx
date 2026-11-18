@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, ExternalLink, Field, FormHint, Input, Page, PageHeader, PageStatus, Panel, ReportSummary, SegmentedControl, SelectField, TableNote, TextField, WorkflowRunPanel } from "../../ui/index.js";
+import { Alert, Button, DataTable, ExternalLink, Field, FORM_ROW_SPACING, FormHint, FormRow, Input, Page, PageHeader, PageStatus, Panel, ReportSummary, SegmentedControl, SelectField, TableNote, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import {
   useConfirmShopeeSales,
   useDiscardShopeePreview,
@@ -224,7 +224,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
         title={embedded ? "蝦皮商品銷售" : undefined}
         description="選擇通路與報表檔案，先解析預覽並確認資料，再匯入銷售報表。"
       >
-        <form className="admin-form row flex-none" onSubmit={(event) => { event.preventDefault(); execute(); }}>
+        <FormRow as="form" className={`${FORM_ROW_SPACING} flex-none`} onSubmit={(event) => { event.preventDefault(); execute(); }}>
           {sourceField}
           <SelectField
             className="min-w-[180px] flex-[1_1_190px]"
@@ -270,7 +270,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
             {preview ? "確認匯入" : "解析並預覽"}
           </Button>
           {trackingRunning ? <FormHint as="span">{tracking?.mode === "preview" ? "正在解密並解析報表…" : "背景整理中…"}可以關閉這一頁</FormHint> : null}
-        </form>
+        </FormRow>
         <div className={`mt-4 flex min-w-0 flex-col gap-3 ${embedded ? "min-h-0 flex-1 overflow-y-auto" : ""}`}>
           {fileTooLarge ? <Alert tone="danger">檔案不能超過 25 MB。</Alert> : null}
           {preview && (!file || !password) ? <FormHint>請重新選擇預覽時的原始檔案並輸入相同密碼，才能確認匯入。</FormHint> : null}
