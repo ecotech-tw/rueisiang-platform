@@ -92,13 +92,14 @@ describe("多日加班的月份與小計", () => {
   it("未排班日期可點選，選取後仍標示未排班狀態", () => {
     const days = [{ date: "2026-10-13", startAt: null, hasExisting: false }];
     const unselected = renderToStaticMarkup(createElement(OvertimeDayPicker, { days, assigned: {}, onToggle: () => {} }));
-    expect(unselected).toContain('class="hr-overtime-day unscheduled"');
+    expect(unselected).toContain('aria-pressed="false"');
     expect(unselected).not.toContain("disabled");
     expect(unselected).toContain("未排班");
 
     const selected = renderToStaticMarkup(createElement(OvertimeDayPicker, { days, assigned: { "2026-10-13": 60 }, onToggle: () => {} }));
-    expect(selected).toContain('class="hr-overtime-day selected unscheduled"');
-    expect(selected).toContain('class="hr-overtime-day-status">未排班</small>');
+    expect(selected).toContain('aria-pressed="true"');
+    expect(selected).toContain("+1<span");
+    expect(selected).toContain(">未排班</small>");
   });
 
   it("依時數分組列出天數與總時數", () => {
