@@ -59,7 +59,7 @@ export interface GoogleMapPlace {
 }
 export interface ClockEvent {
   id: string;
-  eventKind: "clock_in" | "clock_out";
+  eventKind: "clock_in" | "clock_out" | null;
   occurredAt: string;
   locationName: string | null;
   distanceMeters: number | null;
@@ -67,7 +67,7 @@ export interface ClockEvent {
 export interface ClockStatus {
   canClock: boolean;
   message: string | null;
-  nextEventKind: "clock_in" | "clock_out";
+  nextEventKind: "clock_in" | null;
   geolocationRequired: boolean;
   locationName: string | null;
   locationNames?: string[];
@@ -92,7 +92,7 @@ export interface ClockMapLocation {
 }
 export interface ClockCalendarEvent {
   id: string;
-  eventKind: "clock_in" | "clock_out";
+  eventKind: "clock_in" | "clock_out" | null;
   occurredAt: string;
   locationName: string | null;
   distanceMeters: number | null;

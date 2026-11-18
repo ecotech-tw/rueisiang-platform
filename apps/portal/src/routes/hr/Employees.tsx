@@ -82,7 +82,7 @@ function InsuranceTable({ rows }: { rows: InsuranceVersion[] }) {
 function AttendanceEventsTable({ profile }: { profile: Profile }) {
   if (!profile.attendanceEvents) return <p className="muted">打卡明細僅限全平台 HR 管理者查看。</p>;
   if (!profile.attendanceEvents.length) return <p className="muted">尚無打卡紀錄。</p>;
-  return <DataTable><thead><tr><th>時間</th><th>事件</th><th>辦公位置</th><th className="numeric">距離（公尺）</th></tr></thead><tbody>{profile.attendanceEvents.map((event) => <tr key={event.id}><td data-label="時間">{dateTime(event.occurredAt)}</td><td data-label="事件">{event.eventKind === "clock_in" ? "上班" : "下班"}</td><td data-label="辦公位置">{event.locationName ?? "—"}</td><td data-label="距離（公尺）" className="numeric">{event.distanceMeters ?? "—"}</td></tr>)}</tbody></DataTable>;
+  return <DataTable><thead><tr><th>時間</th><th>事件</th><th>辦公位置</th><th className="numeric">距離（公尺）</th></tr></thead><tbody>{profile.attendanceEvents.map((event) => <tr key={event.id}><td data-label="時間">{dateTime(event.occurredAt)}</td><td data-label="事件">{event.eventKind === "clock_in" ? "上班" : event.eventKind === "clock_out" ? "下班" : "—"}</td><td data-label="辦公位置">{event.locationName ?? "—"}</td><td data-label="距離（公尺）" className="numeric">{event.distanceMeters ?? "—"}</td></tr>)}</tbody></DataTable>;
 }
 function LeaveTable({ rows }: { rows: LeaveRequest[] }) {
   if (!rows.length) return <p className="muted">尚無請假紀錄。</p>;
