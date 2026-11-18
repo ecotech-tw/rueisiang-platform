@@ -33,7 +33,14 @@ const SURFACE: Record<PanelSkinName, string> = {
 };
 
 // 標題、說明與表格以外的子元素照內容高度；表格那一格吃掉剩下的高度、自己捲。
-const GROWS = "[[data-page=fills]>&]:flex [[data-page=fills]>&]:min-h-0 [[data-page=fills]>&]:min-w-0 [[data-page=fills]>&]:flex-1 [[data-page=fills]>&]:flex-col [[data-page=fills]>&>[data-panel-head]]:flex-none [[data-page=fills]>&>.muted]:flex-none [[data-page=fills]>&>.table-note]:flex-none [[data-page=fills]>&>[data-table-scroll]]:min-h-0 [[data-page=fills]>&>[data-table-scroll]]:flex-1 [[data-page=fills]>&>[data-table-scroll]]:overflow-auto";
+const GROWS = "[[data-page=fills]>&]:flex [[data-page=fills]>&]:min-h-0 [[data-page=fills]>&]:min-w-0 [[data-page=fills]>&]:flex-1 [[data-page=fills]>&]:flex-col [[data-page=fills]>&>[data-panel-head]]:flex-none [[data-page=fills]>&>.muted]:flex-none [[data-page=fills]>&>[data-table-scroll]]:min-h-0 [[data-page=fills]>&>[data-table-scroll]]:flex-1 [[data-page=fills]>&>[data-table-scroll]]:overflow-auto";
+
+/*
+ * 面板接面板時隔 20px。直接放在 Page 底下的不管：頁面自己排區塊間距（flow 的 mt-5、手機緊湊的 mt-3.5、
+ * fills 的 gap），兩邊都寫的話權重同為 0，誰贏要看產生順序。包在 :where() 裡權重是 0，
+ * 呼叫端 className 給的 mt-* 一定贏。
+ */
+const ADJACENT_GAP = "[:where(:not([data-page])>[data-panel]+&)]:mt-5";
 
 const BORDER: Record<PanelSkinName, string> = { solid: "border-line", glass: "border-transparent" };
 
@@ -72,7 +79,7 @@ export function Panel({ title, description, actions, className = "", headerClass
   // 最後一個子元素不帶下外距，面板的下內距才是看得到的那一段。
   return (
     // data-panel 讓外層的版面規則認得出 Panel（fills 頁面的捲動、相鄰面板的間距、表格貼齊面板）。
-    <section id={id} aria-label={ariaLabel} data-panel="" data-grows={grows ? "" : undefined} className={`${grows ? `${GROWS} ${defaultUnless(className, "overflow-", "[[data-page=fills]>&]:overflow-hidden")}` : ""} ${SURFACE[skin]} ${tone === "attention" ? "border-secondary" : BORDER[skin]} ${padding} [&>:last-child]:mb-0 ${className}`.trim()}>
+    <section id={id} aria-label={ariaLabel} data-panel="" data-grows={grows ? "" : undefined} className={`${grows ? `${GROWS} ${defaultUnless(className, "overflow-", "[[data-page=fills]>&]:overflow-hidden")}` : ""} ${SURFACE[skin]} ${tone === "attention" ? "border-secondary" : BORDER[skin]} ${padding} ${ADJACENT_GAP} [&>:last-child]:mb-0 ${className}`.trim()}>
       {hasHeader ? (
         <div data-panel-head="" className={`flex justify-between gap-4 ${defaultUnless(headerClassName, "items-", HEAD_ITEMS)} ${defaultUnless(headerClassName, "mb-", HEAD_MARGIN)} ${headerClassName}`.trim()}>
           <div>
