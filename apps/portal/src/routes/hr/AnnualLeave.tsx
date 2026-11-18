@@ -131,7 +131,7 @@ function EntitlementAdjustmentDialog({ row, onClose }: { row: HrAnnualLeaveEntit
 
 function EntitlementDetailDialog({ row, onClose }: { row: HrAnnualLeaveEntitlement; onClose: () => void }) {
   const detail = useHrQuery<{ entitlement: HrAnnualLeaveEntitlementDetail }>(`/annual-leave/entitlements/${encodeURIComponent(row.id)}`, true, { keepPreviousData: false });
-  if (detail.isPending) return <Dialog title={`特休額度明細 · ${row.employeeName}`} onClose={onClose} width={760} bodyLayout="grid gap-[18px] px-6 pb-2"><p className="muted">載入額度依據與台帳明細…</p></Dialog>;
+  if (detail.isPending) return <Dialog title={`特休額度明細 · ${row.employeeName}`} onClose={onClose} width={760} bodyLayout="grid gap-[18px] px-6 pb-2"><p className="text-muted">載入額度依據與台帳明細…</p></Dialog>;
   if (detail.error || !detail.data) return <Dialog title={`特休額度明細 · ${row.employeeName}`} onClose={onClose} width={760} bodyLayout="grid gap-[18px] px-6 pb-2"><Alert tone="danger">{detail.error?.message ?? "額度明細載入失敗。"}</Alert></Dialog>;
 
   const entitlement = detail.data.entitlement;

@@ -31,7 +31,7 @@ export function EmployeePhoto({ employmentId, revision, name, photo, canWrite, d
     <div className="grid size-28 flex-none place-items-center overflow-hidden rounded-[50%] bg-canvas text-muted [&>svg]:size-12">{src ? <img className="size-full rounded-[inherit] object-cover outline-1 -outline-offset-1 outline-[oklch(0_0_0/0.1)]" src={src} alt={`${name}的大頭貼${file ? "預覽" : ""}`} onError={() => { if (file) photoFile.failPreview(); else if (photo) setFailedPhotoId(photo.id); }} /> : <Icon name="person" />}</div>
     <div className="grid min-w-0 gap-2">
       <p>{file ? previewStatus === "checking" ? "正在檢查照片…" : previewStatus === "invalid" ? "所選照片無法使用，請重新選擇。" : "預覽照片，儲存後才會更新員工檔案。" : photo ? failedPhotoId === photo.id ? "照片載入失敗，請重新整理或重新上傳。" : "員工檔案照片" : "尚未上傳大頭貼"}</p>
-      <p className="muted">JPEG、PNG 或 WebP 靜態照片，最大 5 MB、800 萬像素、單邊 8192 px；照片僅供本人與全平台 HR 管理者查看。</p>
+      <p className="text-muted">JPEG、PNG 或 WebP 靜態照片，最大 5 MB、800 萬像素、單邊 8192 px；照片僅供本人與全平台 HR 管理者查看。</p>
       {canWrite ? <>
         <input ref={input} type="file" accept={HR_EMPLOYEE_PHOTO_TYPES.join(",")} aria-label="選擇員工大頭貼" hidden disabled={disabled || pending} onChange={(event) => choose(event.target.files?.[0])} />
         <div className="flex flex-wrap items-center gap-2">
@@ -41,7 +41,7 @@ export function EmployeePhoto({ employmentId, revision, name, photo, canWrite, d
             upload.mutate({ path: `/employees/${encodeURIComponent(employmentId)}/photo`, method: "POST", formData }, { onSuccess: () => { cancel(); toast.show("大頭貼已更新"); onSaved(); } });
           }}>儲存大頭貼</Button></> : photo ? <Button variant="secondary" disabled={disabled || pending} onClick={() => { remove.reset(); setExpectedRevision(revision); setConfirmRemove(true); }}>移除大頭貼</Button> : null}
         </div>
-        {disabled && !pending ? <p className="muted">請先儲存或取消其他資料的編輯，再更新大頭貼。</p> : null}
+        {disabled && !pending ? <p className="text-muted">請先儲存或取消其他資料的編輯，再更新大頭貼。</p> : null}
       </> : null}
       {validationError || upload.error ? <Alert tone="danger">{validationError || `${upload.error?.message} 所選照片仍保留，請取消並重新整理後再試。`}</Alert> : null}
     </div>

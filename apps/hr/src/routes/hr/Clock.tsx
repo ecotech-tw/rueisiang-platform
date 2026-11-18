@@ -560,7 +560,7 @@ export function HrClockCalendar() {
         <strong className="text-[16px]">{monthLabel(calendarMonth.year, calendarMonth.month)}</strong>
         <Button variant="icon" icon="chevronRight" aria-label="下一個月" onClick={() => changeMonth(1)} />
       </div>
-      {calendar.isPending ? <p className="muted">載入日曆…</p> : calendar.data ? <>
+      {calendar.isPending ? <p className="text-muted">載入日曆…</p> : calendar.data ? <>
         <CalendarGrid key={`${calendarMonth.year}-${calendarMonth.month}`} data={calendar.data} selectedDate={selectedDate} onSelect={setSelectedDate} slide={monthSlide} />
         {selectedDay ? <CalendarDayDetails day={selectedDay} onCorrection={openCorrection} onLeave={openLeave} /> : null}
       </> : null}
@@ -616,7 +616,7 @@ export function HrClockLogs() {
       {/* 焦點外框往內收：這一塊貼著子頁的 overflow: hidden，往外畫會被裁掉。 */}
       <div className="min-h-0 overflow-y-auto overscroll-contain [&>*+*]:mt-2.5 focus-visible:rounded-[14px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary" role="region" aria-label="每日打卡紀錄" tabIndex={0}>
         {calendar.error ? <Alert tone="danger">{calendar.error.message}</Alert> : null}
-        {calendar.isPending ? <p className="muted">載入月度紀錄…</p> : calendar.data ? days.length ? <div className="grid gap-2.5">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <EmptyRecords title="本月沒有需要顯示的紀錄" hint="有打卡或出勤異常的日期會列在這裡。" /> : null}
+        {calendar.isPending ? <p className="text-muted">載入月度紀錄…</p> : calendar.data ? days.length ? <div className="grid gap-2.5">{days.map((day) => <ClockHistoryDay key={day.date} day={day} />)}</div> : <EmptyRecords title="本月沒有需要顯示的紀錄" hint="有打卡或出勤異常的日期會列在這裡。" /> : null}
       </div>
     </section>
   </Page>;

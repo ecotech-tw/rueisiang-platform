@@ -292,7 +292,7 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
               : <span className={`${ SHIFT_DAY_LABEL } ${ override.dayType ? "@max-[640px]:col-start-1" : "@max-[640px]:col-span-full" }`}>{override.dayType ? HR_SHIFT_DAY_LABELS[override.dayType] : "尚未選擇"}</span>;
             if (!override.dayType) return <div className={`grid grid-cols-[minmax(112px,140px)_minmax(0,1fr)_44px] items-center gap-2 ${ SHIFT_OVERRIDE_ROW }`} key={override.key}>
               {selector}
-              <span className="muted min-w-0 @max-[640px]:col-span-full @max-[640px]:row-start-2 @max-[400px]:col-span-full">選擇星期或國定假日後設定時間。</span>
+              <span className="text-muted min-w-0 @max-[640px]:col-span-full @max-[640px]:row-start-2 @max-[400px]:col-span-full">選擇星期或國定假日後設定時間。</span>
               {canWrite ? <Tooltip label="移除此列" focusable={false} className="self-center">
                 <Button className="@max-[640px]:col-start-3 @max-[640px]:row-start-1" variant="icon" icon="close" aria-label={`${row.name || "班別"}移除未選擇的覆蓋列`} disabled={save.isPending} onClick={() => removeOverride(row.key, override.key)} />
               </Tooltip> : <span className="block @max-[640px]:col-start-2 @max-[640px]:row-start-2 @max-[640px]:justify-self-end" aria-hidden="true" />}
@@ -312,11 +312,11 @@ function StoreShiftsDialog({ scope, groups, manager, candidates, people, canWrit
             </div>;
           })}
           {canWrite ? <Button variant="secondary" icon="plus" tone="success" className="justify-self-start" disabled={disabled || row.overrides.length >= HR_SHIFT_OVERRIDE_TYPES.length || row.overrides.some((override) => !override.dayType)} onClick={() => addOverride(row.key)}>新增星期／國定假日覆蓋</Button> : null}
-          <p className="muted m-0 text-xs">未設定覆蓋的日期沿用共用時間與需求人力。</p>
+          <p className="text-muted m-0 text-xs">未設定覆蓋的日期沿用共用時間與需求人力。</p>
           {legacyOvernight ? <small className="col-span-full -mt-1 text-[12px] text-muted">跨午夜的舊班別，請刪除後重新建立。</small> : null}
         </div>;
       })}
-      {!rows.length ? <p className="muted col-span-full my-0.5 rounded-field bg-canvas px-3.5 py-3">尚未設定班別，按下「新增班別」後會直接出現可編輯的列。</p> : null}
+      {!rows.length ? <p className="text-muted col-span-full my-0.5 rounded-field bg-canvas px-3.5 py-3">尚未設定班別，按下「新增班別」後會直接出現可編輯的列。</p> : null}
       {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-t-soft-line pt-3">
         {canWrite ? <Button variant="secondary" icon="plus" tone="success" disabled={save.isPending} onClick={addNewRow}>新增班別</Button> : <span />}
@@ -389,7 +389,7 @@ export function HrShifts() {
                 <span className="font-medium text-ink">{groupSummary(group)}</span>
                 <p className="m-0 text-sm text-muted"><span className="font-medium text-ink">可排人員：</span>{names || "無可排人員"}</p>
               </div>;
-            })}</div> : <span className="muted">尚未設定</span>}</td>
+            })}</div> : <span className="text-muted">尚未設定</span>}</td>
             <td data-label="排班負責人">{managerName ?? (manager?.userId ? "已停用或封存" : managers.isPending ? "載入中…" : "尚未指定")}</td>
             {canWrite ? <td data-label="操作"><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${scope.name} 的班別與排班負責人`} disabled={!manager || !managers.data} onClick={() => setOpenScopeId(scope.id)} /></td> : null}
           </tr>;

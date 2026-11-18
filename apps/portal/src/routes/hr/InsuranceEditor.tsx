@@ -8,7 +8,7 @@ const INSURANCE_LABEL: Record<"labor" | "health", string> = { labor: "勞保", h
 const SCHEMES = ["labor", "health"] as const;
 const ESTIMATE_DEBOUNCE_MS = 180;
 const AUTO_BRACKET = "__auto__";
-const ESTIMATE_NOTE = "muted text-[11px]";
+const ESTIMATE_NOTE = "text-muted text-[11px]";
 const ESTIMATE_ROW = "flex items-center justify-between gap-4 border-b border-b-ink/7 py-2";
 const ESTIMATE_AMOUNT = "text-[16px] tracking-[-.01em] text-brand-dark";
 
@@ -226,8 +226,8 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
         <div className="text-[11px] font-extrabold tracking-[.02em] text-muted">員工每月扣款試算</div>
         {calculationPending ? <span className={ESTIMATE_NOTE}>試算中…</span> : calculationError ? <span className={ESTIMATE_NOTE}>暫時無法取得試算</span> : calculated ? <>
           <div className="mt-1 grid gap-2">
-            <div className={ESTIMATE_ROW}><span className="grid gap-0.5">勞保<small className="muted text-[11px] font-medium">{estimateRateLabel(laborEstimate, false, 0)}</small></span>{laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined ? <strong className={ESTIMATE_AMOUNT}>{premiumLabel(laborEstimate.employeeAmountMinor)}</strong> : <span className={`grid gap-0.5 ${ ESTIMATE_NOTE }`}>尚未設定有效規則</span>}</div>
-            <div className={ESTIMATE_ROW}><span className="grid gap-0.5">健保<small className="muted text-[11px] font-medium">{estimateRateLabel(healthEstimate, true, dependentCount)}</small></span>{healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined ? <strong className={ESTIMATE_AMOUNT}>{premiumLabel(healthEstimate.employeeAmountMinor)}</strong> : <span className={`grid gap-0.5 ${ ESTIMATE_NOTE }`}>尚未設定有效規則</span>}</div>
+            <div className={ESTIMATE_ROW}><span className="grid gap-0.5">勞保<small className="text-muted text-[11px] font-medium">{estimateRateLabel(laborEstimate, false, 0)}</small></span>{laborEstimate?.employeeAmountMinor !== null && laborEstimate?.employeeAmountMinor !== undefined ? <strong className={ESTIMATE_AMOUNT}>{premiumLabel(laborEstimate.employeeAmountMinor)}</strong> : <span className={`grid gap-0.5 ${ ESTIMATE_NOTE }`}>尚未設定有效規則</span>}</div>
+            <div className={ESTIMATE_ROW}><span className="grid gap-0.5">健保<small className="text-muted text-[11px] font-medium">{estimateRateLabel(healthEstimate, true, dependentCount)}</small></span>{healthEstimate?.employeeAmountMinor !== null && healthEstimate?.employeeAmountMinor !== undefined ? <strong className={ESTIMATE_AMOUNT}>{premiumLabel(healthEstimate.employeeAmountMinor)}</strong> : <span className={`grid gap-0.5 ${ ESTIMATE_NOTE }`}>尚未設定有效規則</span>}</div>
           </div>
           {totalPremium !== undefined ? <div className="mt-1 flex items-center justify-between gap-3 pt-[10px] pb-0.5 text-[13px] font-bold text-brand-dark"><span>合計</span><strong className="text-[17px] tracking-[-.01em] text-brand-dark">{premiumLabel(totalPremium)}</strong></div> : null}
         </> : Number.isSafeInteger(dependentCount) && dependentCount >= 0 && dependentCount <= 3 ? <span className={ESTIMATE_NOTE}>選擇級距後即可計算</span> : <span className={ESTIMATE_NOTE}>請輸入有效的眷屬人數</span>}
@@ -246,7 +246,7 @@ export function InsuranceEditor({ employment, existing, insuranceVersions, defau
       onConfirm={voidLatest}
     >
       <p>這會撤回 <strong>{voidableVersions.length === 2 ? "最新勞保與健保版本" : "最新勞健保版本"}</strong>；資料不會刪除，既有月份的薪資快照也不會被改動。</p>
-      <p className="muted">撤回後會回到上一個仍有效的版本；可重複撤回，直到第一版，再用原生效日建立修正版。</p>
+      <p className="text-muted">撤回後會回到上一個仍有效的版本；可重複撤回，直到第一版，再用原生效日建立修正版。</p>
     </ConfirmDialog> : null}
   </>;
 }

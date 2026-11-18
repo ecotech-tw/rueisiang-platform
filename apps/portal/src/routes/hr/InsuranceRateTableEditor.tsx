@@ -96,10 +96,10 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
 
   return <>
     <form className="grid gap-[18px] pb-4" onSubmit={submit}>
-      <div className="flex flex-wrap items-baseline gap-2.5 px-0.5"><strong className="text-[14px] text-ink">{isExistingDraft ? "編輯待審閱版本" : table ? "從目前啟用版本建立人工版本" : "建立人工版本"}</strong><span className="muted text-[12px]">{year} 年・{SCHEME_LABEL[scheme]}；人工資料會保留來源與覆核備註。</span></div>
+      <div className="flex flex-wrap items-baseline gap-2.5 px-0.5"><strong className="text-[14px] text-ink">{isExistingDraft ? "編輯待審閱版本" : table ? "從目前啟用版本建立人工版本" : "建立人工版本"}</strong><span className="text-muted text-[12px]">{year} 年・{SCHEME_LABEL[scheme]}；人工資料會保留來源與覆核備註。</span></div>
       <div className="grid min-w-0 gap-4">
         <DataTable containerClassName="isolate max-h-[380px] overflow-y-auto rounded-2xl border border-ink/10 bg-paper/30 [box-shadow:0_1px_0_--alpha(var(--color-paper)/70%)_inset,0_0_0_1px_--alpha(var(--color-paper)/18%)_inset,0_12px_24px_--alpha(var(--color-ink)/8%)] [scrollbar-gutter:stable]" className="min-w-[820px] border-separate border-spacing-0 max-[760px]:min-w-0 [&_th]:h-11 [&_th]:py-1.5 [&_th]:text-[12px] min-[761px]:[&_td]:py-2 [[data-table-scroll]>&_thead_th:first-child]:rounded-tl-[14px] [[data-table-scroll]>&_thead_th:last-child]:rounded-tr-[14px]">
-            <thead><tr><th>級距</th><th>薪資下限（元）</th><th>薪資上限（元）</th><th>投保金額（元）</th><th>員工負擔／月<br /><span className="muted text-[10px] font-medium">健保以 0 位眷屬</span></th><th>操作</th></tr></thead>
+            <thead><tr><th>級距</th><th>薪資下限（元）</th><th>薪資上限（元）</th><th>投保金額（元）</th><th>員工負擔／月<br /><span className="text-muted text-[10px] font-medium">健保以 0 位眷屬</span></th><th>操作</th></tr></thead>
             <tbody>
               {brackets.map((bracket, index) => <tr key={bracket.key}>
                 <td data-label="級距"><output className="grid min-h-10 w-full place-items-center rounded-[10px] border border-soft-line bg-paper/54 px-2.5 py-2 font-extrabold text-muted tabular-nums max-[760px]:min-h-[38px]" aria-label={`第 ${index + 1} 筆級距序號`}>{index + 1}</output></td>
@@ -112,7 +112,7 @@ export function InsuranceRateTableEditor({ scheme, year, table, onSaved, onDelet
             </tbody>
         </DataTable>
         {!brackets.length ? <EmptyState className="mt-[18px]">尚無級距，請新增一筆。</EmptyState> : null}
-        <div className="flex flex-wrap items-center gap-4 px-0.5"><Button type="button" icon="plus" tone="success" mobileIconOnly onClick={addBracket}>新增級距</Button><span className="muted">薪資下限填 0 代表「以下」級距；員工負擔由該年度費率計算，健保欄先以 0 位眷屬呈現。</span></div>
+        <div className="flex flex-wrap items-center gap-4 px-0.5"><Button type="button" icon="plus" tone="success" mobileIconOnly onClick={addBracket}>新增級距</Button><span className="text-muted">薪資下限填 0 代表「以下」級距；員工負擔由該年度費率計算，健保欄先以 0 位眷屬呈現。</span></div>
       </div>
       <FieldGrid className="gap-5">
         <TextField label="資料來源網址或公告名稱（可留空）" value={sourceUrl} maxLength={500} onChange={(event) => setSourceUrl(event.target.value)} />

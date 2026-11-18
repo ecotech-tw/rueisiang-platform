@@ -186,7 +186,7 @@ function RequestSummary({ request, reviewer = false }: { request: FormRequest; r
       <dt>申請原因</dt><dd>{request.reason}</dd>
       {request.reviewComment ? <><dt>審核意見</dt><dd>{request.reviewComment}</dd></> : null}
     </dl>
-    {request.submittedAt ? <small className="muted">送出時間：{formatTaipei(request.submittedAt)}</small> : null}
+    {request.submittedAt ? <small className="text-muted">送出時間：{formatTaipei(request.submittedAt)}</small> : null}
   </div>;
 }
 
@@ -569,7 +569,7 @@ export function HrForms() {
     <HrBackBar label="返回工作" onBack={() => navigate("/work")} />
     <PageHeader className="mt-2 max-[760px]:[&>:first-child]:min-w-0 max-[760px]:[&>:first-child]:flex-1" title="表單申請" actions={<span className="max-[760px]:hidden">{addRequestAction("inline")}</span>} />
     {typeof document !== "undefined" ? createPortal(<div className="hidden max-[760px]:pointer-events-none max-[760px]:fixed max-[760px]:inset-0 max-[760px]:z-21 max-[760px]:block">{addRequestAction("floating")}</div>, document.body) : null}
-    {isLoading ? <p className="muted">載入申請紀錄…</p> : null}
+    {isLoading ? <p className="text-muted">載入申請紀錄…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {overtime.error ? <Alert tone="danger">{overtime.error.message}</Alert> : null}
     {leave.error ? <Alert tone="danger">{leave.error.message}</Alert> : null}
@@ -604,7 +604,7 @@ export function HrForms() {
     {!recordsFiltered && activeTab === "overtime" && reviewOvertime.length ? <Panel tone="attention" className={MOBILE_CARD}>
       <div data-panel-head="" className={FORM_SECTION_HEAD}><div><h2>待我審核</h2><p className={FORM_SECTION_DESCRIPTION}>加班申請由指定主管或 HR 管理者處理。</p></div></div>
       {overtimeBatches.length ? <div className={`${REQUEST_LIST} mb-3`}>{overtimeBatches.map((batch) => <RequestCard tone="batch" key={batch.batchId}>
-        <div className={REQUEST_SUMMARY}><RequestTitle badge={<StatusBadge tone="info">申請中</StatusBadge>}>{batch.items[0]?.employeeName ?? batch.items[0]?.employeeUserId}・同一批 {batch.items.length} 筆</RequestTitle><p className="muted">{batch.items.map((item) => taipeiDay(item.request.requestedStart)).join("、")}</p></div>
+        <div className={REQUEST_SUMMARY}><RequestTitle badge={<StatusBadge tone="info">申請中</StatusBadge>}>{batch.items[0]?.employeeName ?? batch.items[0]?.employeeUserId}・同一批 {batch.items.length} 筆</RequestTitle><p className="text-muted">{batch.items.map((item) => taipeiDay(item.request.requestedStart)).join("、")}</p></div>
         <div className={REQUEST_ACTIONS}><Button size="lg" tone="success" onClick={() => setApprovingBatch(batch)}>整批核准</Button></div>
       </RequestCard>)}</div> : null}
       <div className={REQUEST_LIST}>{reviewOvertime.map((item) => <RequestCard tone="review" key={item.request.id}>
@@ -683,10 +683,10 @@ function OvertimeBatchFields({ reason, onReasonChange, onPendingChange, onDone }
         <TextField label="每天加班時數（小時）" type="number" inputMode="decimal" min={0.5} max={24} step={0.5} required value={hours} disabled={save.isPending} error={hours.trim() && !minutesValid ? "時數要以 0.5 小時為單位，最多 24 小時。" : undefined} onChange={(event) => setHours(event.target.value)} />
       </div>
       <SegmentedControl skin="tabs" dense aria-label="快速選擇加班時數" value={minutes !== null ? hoursText(minutes) : ""} options={OVERTIME_PRESET_OPTIONS} disabled={save.isPending} onChange={setHours} />
-      <p className="muted m-0 text-[13px] leading-[1.55]">先選時數，再點日期；換個時數可以繼續點別天，再點一次同樣時數就取消。有排班的日期從下班時間起算。</p>
+      <p className="text-muted m-0 text-[13px] leading-[1.55]">先選時數，再點日期；換個時數可以繼續點別天，再點一次同樣時數就取消。有排班的日期從下班時間起算。</p>
       {dayQuery.error ? <Alert tone="danger">{dayQuery.error.message}</Alert>
-        : !range ? <p className="muted">請先選擇月份。</p>
-        : dayQuery.isPending ? <p className="muted">載入班表…</p>
+        : !range ? <p className="text-muted">請先選擇月份。</p>
+        : dayQuery.isPending ? <p className="text-muted">載入班表…</p>
         : <OvertimeDayPicker days={days} assigned={assigned} disabled={save.isPending || !minutesValid} onToggle={toggleDay} />}
       {takenDates.length ? <Alert tone="info">{takenDates.join("、")} 已經有加班申請，已從這次的選擇移除。</Alert> : null}
       {unscheduledDates.length ? <TextField label="未排班日開始時間（台北）" type="time" step={1800} required value={unscheduledStartTime} disabled={save.isPending} hint="所有已選的未排班日期都從這個時間開始。" error={missingUnscheduledStart ? "選了未排班的日期，要先填開始時間才能送出。" : undefined} onChange={(event) => setUnscheduledStartTime(event.target.value)} /> : null}
@@ -770,7 +770,7 @@ export function HrOvertimeForm() {
     sessionStorage.setItem("hr:overtime-draft", JSON.stringify({ start, end, reason }));
   }, [copying, editing, end, mode, reason, start]);
 
-  if ((editing || copying) && existing.isPending) return <FormPage><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="正在載入申請內容…" returnTo="/forms?tab=overtime" /><p className="muted">載入加班申請…</p></FormPage>;
+  if ((editing || copying) && existing.isPending) return <FormPage><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="正在載入申請內容…" returnTo="/forms?tab=overtime" /><p className="text-muted">載入加班申請…</p></FormPage>;
   if ((editing || copying) && existing.error) return <FormPage><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="無法載入這筆申請。" returnTo="/forms?tab=overtime" /><Alert tone="danger">{existing.error.message}</Alert></FormPage>;
   if ((editing || copying) && !existingRequest) return <FormPage><FormPageHeader title={copying ? "重新申請加班" : "編輯加班申請"} description="找不到這筆申請。" returnTo="/forms?tab=overtime" /><Alert tone="danger">找不到這筆加班申請。</Alert></FormPage>;
   if (editing && existingRequest?.request.status !== "pending") return <FormPage><FormPageHeader title="編輯加班申請" description="這筆申請已完成處理。" returnTo="/forms?tab=overtime" /><Alert tone="info">這筆加班申請已完成處理，無法再修改；如需變更請先取消後重新申請。</Alert></FormPage>;
@@ -970,7 +970,7 @@ export function HrLeaveForm() {
     });
   }
 
-  if ((editing || copying) && existing.isPending) return <FormPage><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="正在載入申請內容…" returnTo="/forms?tab=leave" /><p className="muted">載入請假申請…</p></FormPage>;
+  if ((editing || copying) && existing.isPending) return <FormPage><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="正在載入申請內容…" returnTo="/forms?tab=leave" /><p className="text-muted">載入請假申請…</p></FormPage>;
   if ((editing || copying) && existing.error) return <FormPage><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="無法載入這筆申請。" returnTo="/forms?tab=leave" /><Alert tone="danger">{existing.error.message}</Alert></FormPage>;
   if ((editing || copying) && !existingRequest) return <FormPage><FormPageHeader title={copying ? "重新申請請假" : "編輯請假申請"} description="找不到這筆申請。" returnTo="/forms?tab=leave" /><Alert tone="danger">找不到這筆請假申請。</Alert></FormPage>;
   if (editing && existingRequest?.request.status !== "pending") return <FormPage><FormPageHeader title="編輯請假申請" description="這筆申請已完成處理。" returnTo="/forms?tab=leave" /><Alert tone="info">這筆請假申請已完成處理，只有審核中的申請可以修改。</Alert></FormPage>;
@@ -1082,7 +1082,7 @@ export function HrClockCorrectionForm() {
   }
 
   // 沒帶 request 時這個 query 是停用的，停用的 query 會一直停在 pending；只有編輯草稿才需要等它。
-  if (requestId && existing.isPending) return <FormPage><FormPageHeader title="補打卡申請單" description="正在載入申請內容…" returnTo="/forms?tab=clock_correction" /><p className="muted">載入申請單…</p></FormPage>;
+  if (requestId && existing.isPending) return <FormPage><FormPageHeader title="補打卡申請單" description="正在載入申請內容…" returnTo="/forms?tab=clock_correction" /><p className="text-muted">載入申請單…</p></FormPage>;
   if (existing.error) return <FormPage><FormPageHeader title="補打卡申請單" description="無法載入這份申請。" returnTo="/forms?tab=clock_correction" /><Alert tone="danger">{existing.error.message}</Alert></FormPage>;
   if (existing.data?.request.status !== undefined && existing.data.request.status !== "draft") {
     const closed = existing.data.request.status === "cancelled" ? "已取消" : "已送出";

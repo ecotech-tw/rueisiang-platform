@@ -116,7 +116,7 @@ export function HrProfile() {
   }
   return <Page className="mx-auto w-full max-w-[900px] max-[760px]:max-w-none">
     <PageHeader title="個人中心" description="管理自己的大頭貼，查看帳號、任職與工作地點資料；其他資料如有錯誤，請聯絡管理者。" />
-    {query.isPending ? <Panel className="grid min-h-[84px] place-items-center"><p className="muted">正在載入個人資料…</p></Panel> : null}
+    {query.isPending ? <Panel className="grid min-h-[84px] place-items-center"><p className="text-muted">正在載入個人資料…</p></Panel> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {query.data?.profile ? <ProfileDetails key={query.data.profile.employee.userId} profile={query.data.profile} /> : null}
     {!query.isPending && !query.error && !query.data?.profile ? <Alert>尚未指派為員工，請聯絡管理者。</Alert> : null}

@@ -201,7 +201,7 @@ export function HrBonusManagement() {
 
   function assignmentSummary(policyVersionId: string) {
     const rows = assignmentsByVersion.get(policyVersionId) ?? [];
-    if (!rows.length) return <span className="muted">尚未指派</span>;
+    if (!rows.length) return <span className="text-muted">尚未指派</span>;
     const totalWeight = rows.reduce((sum, item) => sum + item.assignment.weightUnits, 0);
     const names = rows.slice(0, 2).map((item) => item.employeeName).join("、");
     return <div className="inline-grid max-w-[220px] gap-0.5"><span className="whitespace-nowrap font-bold text-ink">{rows.length} 位員工{totalWeight > rows.length ? ` · ${totalWeight} 份` : ""}</span><small className="truncate text-[12px] text-muted">{names}{rows.length > 2 ? ` 等 ${rows.length} 位` : ""}</small></div>;
@@ -225,7 +225,7 @@ export function HrBonusManagement() {
         <FilterSelect label="績效歸屬" value={filters.bonusKind} options={[{ value: "all", label: "全部績效歸屬" }, ...Object.entries(BONUS_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ bonusKind: event.target.value })} />
         <FilterSelect label="業績期間" value={filters.performancePeriod} options={[{ value: "all", label: "全部業績期間" }, ...Object.entries(PERIOD_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ performancePeriod: event.target.value })} />
       </FilterToolbar>
-      <DataTable><thead><tr><th>名稱</th><th>績效歸屬</th><th>業績期間</th><th>通路</th><th>套用員工</th><th className="numeric">比例</th><th className="numeric">保底</th><th>操作</th></tr></thead><tbody>{(policies.data?.policies ?? []).map((policy) => <tr key={policy.policyVersionId}><td data-label="名稱"><strong>{policy.policyName}</strong></td><td data-label="績效歸屬">{BONUS_KIND_LABEL[policy.bonusKind]}</td><td data-label="業績期間">{PERIOD_LABEL[policy.performancePeriod]}</td><td data-label="通路">{(policy.scopeNames?.length ? policy.scopeNames : [policy.scopeName]).join("、")}</td><td data-label="套用員工">{assignmentSummary(policy.policyVersionId)}</td><td data-label="比例" className="numeric">{(policy.ratePpm / 10_000).toFixed(2)}%</td><td data-label="保底" className="numeric">{money(policy.guaranteeMinor)}</td><td data-label="操作">{canWrite ? <RowActions spacing="wide"><Button variant="icon" icon="edit" tone="info" title={`編輯 ${policy.policyName}`} aria-label={`編輯 ${policy.policyName}`} disabled={policy.isLatest === false} onClick={() => startEdit(policy)} /><Button variant="icon" icon="trash" title={`刪除 ${policy.policyName}`} aria-label={`刪除 ${policy.policyName}`} tone="danger" onClick={() => setDeletingPolicy(policy)} /></RowActions> : <span className="muted">—</span>}</td></tr>)}</tbody></DataTable>
+      <DataTable><thead><tr><th>名稱</th><th>績效歸屬</th><th>業績期間</th><th>通路</th><th>套用員工</th><th className="numeric">比例</th><th className="numeric">保底</th><th>操作</th></tr></thead><tbody>{(policies.data?.policies ?? []).map((policy) => <tr key={policy.policyVersionId}><td data-label="名稱"><strong>{policy.policyName}</strong></td><td data-label="績效歸屬">{BONUS_KIND_LABEL[policy.bonusKind]}</td><td data-label="業績期間">{PERIOD_LABEL[policy.performancePeriod]}</td><td data-label="通路">{(policy.scopeNames?.length ? policy.scopeNames : [policy.scopeName]).join("、")}</td><td data-label="套用員工">{assignmentSummary(policy.policyVersionId)}</td><td data-label="比例" className="numeric">{(policy.ratePpm / 10_000).toFixed(2)}%</td><td data-label="保底" className="numeric">{money(policy.guaranteeMinor)}</td><td data-label="操作">{canWrite ? <RowActions spacing="wide"><Button variant="icon" icon="edit" tone="info" title={`編輯 ${policy.policyName}`} aria-label={`編輯 ${policy.policyName}`} disabled={policy.isLatest === false} onClick={() => startEdit(policy)} /><Button variant="icon" icon="trash" title={`刪除 ${policy.policyName}`} aria-label={`刪除 ${policy.policyName}`} tone="danger" onClick={() => setDeletingPolicy(policy)} /></RowActions> : <span className="text-muted">—</span>}</td></tr>)}</tbody></DataTable>
       {policies.isPlaceholderData ? <TableNote>載入中…</TableNote> : null}
       {policies.data && !policies.data.policies.length ? <TableNote>沒有符合條件的獎金。</TableNote> : null}
       {policies.data && policies.data.total > 0 ? <Pager className="mt-4 shrink-0" page={policies.data.page} pageSize={policies.data.pageSize} pageSizes={[10, 25, 50, 100]} totalPages={Math.max(1, Math.ceil(policies.data.total / policies.data.pageSize))} totalLabel={`共 ${policies.data.total.toLocaleString("zh-TW")} 筆`} onPage={(page) => updateFilters({ page })} onPageSize={(pageSize) => updateFilters({ pageSize })} /> : null}
@@ -253,7 +253,7 @@ export function HrBonusManagement() {
           * 那個限制是對的（同一天兩套規則沒有先後），但要在畫面上說出還有解除這條路。
           */}
         {editingPolicy && nextDate(editingPolicy.validFrom) > today
-          ? <p className="muted col-span-full m-0 rounded-[10px] bg-brand-soft px-3 py-2.5">目前這一版從 {editingPolicy.validFrom} 起生效，新版本最早只能從 {nextDate(editingPolicy.validFrom)} 起算。{canVoidEditingPolicy ? "要改掉這一版本身，請改按「解除最新版本」。" : "這是第一版，整個獎金設錯請用列表上的刪除。"}</p>
+          ? <p className="text-muted col-span-full m-0 rounded-[10px] bg-brand-soft px-3 py-2.5">目前這一版從 {editingPolicy.validFrom} 起生效，新版本最早只能從 {nextDate(editingPolicy.validFrom)} 起算。{canVoidEditingPolicy ? "要改掉這一版本身，請改按「解除最新版本」。" : "這是第一版，整個獎金設錯請用列表上的刪除。"}</p>
           : null}
       </div>
     </Dialog> : null}
@@ -267,7 +267,7 @@ export function HrBonusManagement() {
       onConfirm={confirmVoid}
     >
       <p>這會解除「<strong>{editingPolicy.policyName}</strong>」的第 {editingPolicy.versionNumber} 版；資料不會刪除，已結算月份的薪資也不會被改動。</p>
-      <p className="muted">解除後規則回到上一版，套用員工也跟著還原；可重複解除，直到只剩第一版。</p>
+      <p className="text-muted">解除後規則回到上一版，套用員工也跟著還原；可重複解除，直到只剩第一版。</p>
     </ConfirmDialog> : null}
 
     {deletingPolicy ? <Dialog title="刪除獎金？" role="alertdialog" onClose={closeDeleteDialog} closeRequestRef={deleteCloseRef} closeDisabled={deletePolicy.isPending} actions={<><Button variant="secondary" onClick={closeDeleteDialog} disabled={deletePolicy.isPending}>取消</Button><Button variant="danger" icon="trash" loading={deletePolicy.isPending} onClick={confirmDelete}>刪除獎金</Button></>}><p>「{deletingPolicy.policyName}」將停用，不再套用到新的薪資計算；已保存的歷史薪資不會被刪除。</p></Dialog> : null}

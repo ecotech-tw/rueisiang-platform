@@ -55,7 +55,7 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
   } }} actions={<Button type="submit" icon="check" tone="info" disabled={!employment} loading={save.isPending}>儲存</Button>}>
     <p>出勤範圍決定員工可在哪些辦公位置打卡；排班不會限制員工只能在當日排班位置打卡。移除辦公位置並儲存後，今天起停止可打卡，歷史資料仍會保留。</p>
     {!employment ? <Alert tone="danger">目前沒有活動員工資料，無法設定出勤範圍。</Alert> : null}
-    {worker ? <p className="muted">支援人員固定依排班出勤，打卡一律需要 GPS 定位。</p> : <SelectField label="出勤方式" value={mode} required options={[{ value: "general", label: "一般辦公" }, { value: "scheduled", label: "排班" }]} onChange={(event) => setMode(event.target.value as "general" | "scheduled")} />}
+    {worker ? <p className="text-muted">支援人員固定依排班出勤，打卡一律需要 GPS 定位。</p> : <SelectField label="出勤方式" value={mode} required options={[{ value: "general", label: "一般辦公" }, { value: "scheduled", label: "排班" }]} onChange={(event) => setMode(event.target.value as "general" | "scheduled")} />}
     {!worker && mode === "scheduled" ? <TextField label="每月休假天數" type="number" min="0" max="31" step="1" required value={monthlyRestDays} onChange={(event) => setMonthlyRestDays(event.target.value)} hint="薪資結算時依實際上班日數與約定月休天數調整月薪。" /> : null}
     <Field as="div" label="可打卡辦公位置"><PickerList>{selectedLocationIds.map((locationId, index) => <PickerRow key={`${locationId}-${index}`}><DropdownSelect value={locationId} aria-label="選擇辦公位置" options={locationOptions.map((option) => ({ ...option, disabled: selectedLocationIds.includes(option.value) && option.value !== locationId }))} onChange={(event) => setSelectedLocationIds((current) => current.map((id, currentIndex) => currentIndex === index ? event.target.value : id))} /><Button className="justify-self-end" type="button" variant="icon" icon="trash" aria-label="移除辦公位置" title="移除辦公位置" onClick={() => setSelectedLocationIds((current) => current.filter((_, currentIndex) => currentIndex !== index))} /></PickerRow>)}{!selectedLocationIds.length ? <PickerEmpty>尚未設定可打卡辦公位置。</PickerEmpty> : null}<Chip variant="action" tone="success" className="justify-self-start" type="button" icon="plus" onClick={addLocation} disabled={selectedLocationIds.length >= locationOptions.length}>{selectedLocationIds.length ? "新增辦公位置" : "新增第一個辦公位置"}</Chip></PickerList></Field>
     {message || save.error ? <Alert tone="danger">{message || save.error?.message}</Alert> : null}
@@ -65,15 +65,15 @@ function AttendanceScopeDialog({ profile, locations, onClose }: { profile: Profi
 function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: Employee; canWrite: boolean; onEdit: (edit: LocationEdit) => void }) {
   const profile = useHrQuery<Profile>(`/employees/${encodeURIComponent(employee.employmentId ?? employee.userId ?? "")}`, true, { keepPreviousData: false });
   if (profile.isPending) return <HrSkeletonTableRow columns={5} />;
-  if (profile.error || !profile.data) return <tr><td>{employee.legalName}</td><td colSpan={5}><span className="muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
+  if (profile.error || !profile.data) return <tr><td>{employee.legalName}</td><td colSpan={5}><span className="text-muted">{profile.error?.message ?? "資料載入失敗"}</span></td></tr>;
   const data = profile.data;
   const employment = currentEmployment(data.employments);
   const assignments = (data.attendanceAssignments ?? []).filter((assignment) => assignment.employmentId === employment?.id && activeAssignment(assignment, today()));
   return <tr>
-    <td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
+    <td><strong>{employee.legalName}</strong><br /><span className="text-muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td>{employment?.attendanceMode === "scheduled" ? "排班" : employment ? "一般辦公" : "—"}</td>
-    <td><div className="grid min-w-[220px] gap-[7px]">{assignments.length ? assignments.map((assignment) => <span className="flex flex-wrap items-center gap-1.5" key={assignment.id}><span className="min-w-0">{assignment.locationName}</span></span>) : <span className="muted">尚未指派</span>}</div></td>
+    <td><div className="grid min-w-[220px] gap-[7px]">{assignments.length ? assignments.map((assignment) => <span className="flex flex-wrap items-center gap-1.5" key={assignment.id}><span className="min-w-0">{assignment.locationName}</span></span>) : <span className="text-muted">尚未指派</span>}</div></td>
     <td>{canWrite ? <RowActions spacing="wide" className="items-start"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></RowActions> : null}</td>
   </tr>;
 }
