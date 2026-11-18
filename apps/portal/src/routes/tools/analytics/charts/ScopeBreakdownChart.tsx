@@ -43,7 +43,7 @@ export function ScopeBreakdownChart({ breakdown, valueFormatter }: ScopeBreakdow
                   <td data-label="通路">{channelLabel(row.channel)}</td>
                   <td data-label="本期出金" className="numeric">{valueFormatter(row.value)}</td>
                   <td data-label="佔比" className="numeric">{formatPercent(row.share)}</td>
-                  <td data-label="YoY" className="numeric">{row.yoy === null ? <span className="muted">—</span> : formatPercent(row.yoy)}</td>
+                  <td data-label="YoY" className="numeric">{row.yoy === null ? <span className="text-muted">—</span> : formatPercent(row.yoy)}</td>
                 </tr>
               ))}
             </tbody>

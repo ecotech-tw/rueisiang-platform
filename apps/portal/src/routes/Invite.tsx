@@ -73,7 +73,7 @@ export function Invite() {
   return (
     <LoginCard title="設定密碼">
 
-        {checking ? <p className="muted">確認邀請連結…</p> : null}
+        {checking ? <p className="text-muted">確認邀請連結…</p> : null}
 
         {!checking && !email ? (
           <>
@@ -84,7 +84,7 @@ export function Invite() {
 
         {email ? (
           <>
-            <p className="muted">
+            <p className="text-muted">
               正在為 <strong>{email}</strong> 設定密碼。設定完成後就能用這組 Email 與密碼登入，
               也仍然可以改用同一個信箱的 Google 帳號登入。
             </p>

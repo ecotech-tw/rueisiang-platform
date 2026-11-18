@@ -34,7 +34,7 @@ function PayoutTotalsTable({ report }: { report: ParsedSalesReport }) {
             </tr>
           </tbody>
         </DataTable>
-      ) : <p className="muted">本次檔案沒有已入帳資料。</p>}
+      ) : <p className="text-muted">本次檔案沒有已入帳資料。</p>}
       <FormHint>出金日期使用檔案中的「入帳日」，金額使用「實際入帳金額」；不以商品出貨日或商品銷售額推算。</FormHint>
     </div>
   );
@@ -81,11 +81,11 @@ function SalesSkuTable({ report }: { report: ParsedSalesReport }) {
                 ))}
               </tbody>
             </DataTable>
-          ) : <p className="muted p-4">本次檔案沒有符合銷售狀態的商品明細。</p>}
-          {report.rows.length > 100 ? <p className="muted p-3">表格先顯示前 100 列，實際匯入 {report.rows.length.toLocaleString("zh-TW")} 列。</p> : null}
+          ) : <p className="text-muted p-4">本次檔案沒有符合銷售狀態的商品明細。</p>}
+          {report.rows.length > 100 ? <p className="text-muted p-3">表格先顯示前 100 列，實際匯入 {report.rows.length.toLocaleString("zh-TW")} 列。</p> : null}
         </div>
       </details>
-      <p className="muted">找不到原廠編號對應的品項時，匯入完成後可到 <Link className="link" to="/items/sku-mappings">SKU 對應</Link> 手動建立；該商品會先列為待處理，不會被錯誤歸到其他 SKU。</p>
+      <p className="text-muted">找不到原廠編號對應的品項時，匯入完成後可到 <Link className="link" to="/items/sku-mappings">SKU 對應</Link> 手動建立；該商品會先列為待處理，不會被錯誤歸到其他 SKU。</p>
     </div>
   );
 }
@@ -256,13 +256,13 @@ export function MoPlusUpload({ sourceField }: { sourceField?: ReactNode }) {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <strong>匯入預覽</strong>
-                <p className="muted mt-1">月份：{preview.reportMonths.join("、")}；{preview.sourceRowCount} 列來源資料整理為 {preview.rows.length} 個商品／月份組合。</p>
+                <p className="text-muted mt-1">月份：{preview.reportMonths.join("、")}；{preview.sourceRowCount} 列來源資料整理為 {preview.rows.length} 個商品／月份組合。</p>
               </div>
               <FormHint as="span">確認匯入後才會更新資料庫</FormHint>
             </div>
             {preview.warnings.map((warning) => <Alert key={warning} tone="warning">{warning}</Alert>)}
             <ReportBreakdown report={preview} activeTab={activeTab} onTabChange={setActiveTab} />
-            {preview.skippedRowCount > 0 ? <p className="muted">略過 {preview.skippedRowCount} 列非商品或非已送達／退貨資料。</p> : null}
+            {preview.skippedRowCount > 0 ? <p className="text-muted">略過 {preview.skippedRowCount} 列非商品或非已送達／退貨資料。</p> : null}
           </>
         ) : null}
       </div>

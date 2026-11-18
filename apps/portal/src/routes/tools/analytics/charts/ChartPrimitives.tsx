@@ -128,7 +128,7 @@ export function AnalyticsEmptyPanel({ icon, title, message, note, children }: An
       <span className="grid size-[38px] flex-none place-items-center rounded-[12px] bg-brand-soft text-brand-dark"><Icon name={icon} className="size-[21px]" /></span>
       <h2 className="m-0 text-[18px]">{title}</h2>
       <p className="m-0 text-muted">{message}</p>
-      {note ? <p className="muted">{note}</p> : null}
+      {note ? <p className="text-muted">{note}</p> : null}
       {children}
     </Panel>
   );

@@ -606,7 +606,7 @@ export function WarehouseMap() {
           }
         >
           <p><strong>{deletingZone.code} {deletingZone.name}</strong> 會從地圖上移除，現場照片也會一起刪掉。</p>
-          <p className="muted">裡面還有商品的話刪不掉，要先把它們移到別的倉位。</p>
+          <p className="text-muted">裡面還有商品的話刪不掉，要先把它們移到別的倉位。</p>
         </ConfirmDialog>
       ) : null}
     </Page>

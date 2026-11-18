@@ -103,7 +103,7 @@ export function ChannelBreakdownChart({
                   <td data-label={metricLabel} className="numeric">{metricFormatter(metricOf(row))}</td>
                   <td data-label={shareLabel} className="numeric">{formatPercent(shareOf(row))}</td>
                   {isAmount ? (
-                    <td data-label="YoY" className="numeric">{row.yoy === null ? <span className="muted">—</span> : formatPercent(row.yoy)}</td>
+                    <td data-label="YoY" className="numeric">{row.yoy === null ? <span className="text-muted">—</span> : formatPercent(row.yoy)}</td>
                   ) : null}
                   <td data-label={referenceLabel} className="numeric">
                     {isAmount ? quantityFormatter(row.netQuantity) : valueFormatter(row.value)}

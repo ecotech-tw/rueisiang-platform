@@ -111,7 +111,7 @@ function LiquidGlassPreview() {
             <div className="grid gap-1">
               <span className={EYEBROW}>HRIS SHELL / LIQUID GLASS</span>
               <h3 className="m-0 text-[20px]">透明、分層，但不犧牲可讀性</h3>
-              <p className="muted m-0">這裡直接重用 HRIS shell 的玻璃導覽、滑動 thumb 與 panel surface；按導覽項目可查看膠囊位置變化。</p>
+              <p className="text-muted m-0">這裡直接重用 HRIS shell 的玻璃導覽、滑動 thumb 與 panel surface；按導覽項目可查看膠囊位置變化。</p>
             </div>
             <Panel className="m-0" title="共用元件放在玻璃表面上" description="Liquid Glass 是 HRIS shell 的 surface treatment；元件本身仍維持 packages/ui 的語意 API。">
               <div className="grid grid-cols-3 gap-2.5 mb-4 max-[720px]:grid-cols-[1fr]">
@@ -214,11 +214,11 @@ export function StyleGuide() {
           <div>
             <p className={EYEBROW}>頁面標題 / 24px</p>
             <h1 className="mt-0 mx-0 mb-1.5 text-[28px]">營運資料，一眼看懂</h1>
-            <p className="muted">說明文字使用 on-surface-variant，讓主要資料保有優先層級。</p>
+            <p className="text-muted">說明文字使用 on-surface-variant，讓主要資料保有優先層級。</p>
           </div>
           <div className="grid gap-2.5">
             <div className="grid gap-[3px] p-3.5 border border-line rounded-[14px] bg-paper shadow-panel"><strong>表面 / paper</strong><span className="text-[12px]">Panel 14px + shadow-panel</span></div>
-            <div className="muted grid gap-[3px] p-3.5 border border-line rounded-[14px] bg-canvas"><strong>畫布</strong><span className="text-[12px]">頁面背景與次要區塊</span></div>
+            <div className="text-muted grid gap-[3px] p-3.5 border border-line rounded-[14px] bg-canvas"><strong>畫布</strong><span className="text-[12px]">頁面背景與次要區塊</span></div>
           </div>
         </div>
       </Panel>

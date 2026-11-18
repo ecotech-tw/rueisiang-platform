@@ -718,7 +718,7 @@ function StandardReportImportDialog({
               <div className={IMPORT_PREVIEW_HEAD}>
                 <div>
                   <h3 className="m-0 text-[16px]">預覽</h3>
-                  <p className="muted mx-0 mt-1 mb-0">{preview.coverageStart} ~ {preview.coverageEnd}，共 {preview.rows.length} 列，合計 {formatCurrency(preview.total)}</p>
+                  <p className="text-muted mx-0 mt-1 mb-0">{preview.coverageStart} ~ {preview.coverageEnd}，共 {preview.rows.length} 列，合計 {formatCurrency(preview.total)}</p>
                 </div>
                 <FormHint as="span">確認後才會寫入</FormHint>
               </div>
@@ -743,7 +743,7 @@ function StandardReportImportDialog({
               <div className={IMPORT_PREVIEW_HEAD}>
                 <div>
                   <h3 className="m-0 text-[16px]">預覽</h3>
-                  <p className="muted mx-0 mt-1 mb-0">月份：{preview.reportMonths.join("、")}，共 {preview.rows.length} 列</p>
+                  <p className="text-muted mx-0 mt-1 mb-0">月份：{preview.reportMonths.join("、")}，共 {preview.rows.length} 列</p>
                 </div>
                 <FormHint as="span">確認後才會寫入</FormHint>
               </div>
@@ -1056,7 +1056,7 @@ export function ManualReports() {
           <p>
             將刪除 {deleting.rows.length} 筆{deleting.kind === "payout" ? "出金" : "商品銷售"}資料。
           </p>
-          <p className="muted">資料會從報表管理與報表統計中移除；若刪除的是人工覆寫，原本的匯入資料會恢復顯示。</p>
+          <p className="text-muted">資料會從報表管理與報表統計中移除；若刪除的是人工覆寫，原本的匯入資料會恢復顯示。</p>
           <ErrorMessage error={deleting.kind === "payout" ? deletePayouts.error : deleteSalesRecords.error} />
         </ConfirmDialog>
       ) : null}

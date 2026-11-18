@@ -188,7 +188,7 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
           * 沒有權限時明講，不要把按鈕悄悄藏起來——「這裡本來就沒有上傳功能」跟
           * 「我沒有權限」對使用者是兩件事，後者他知道該找誰。
           */}
-        {canWrite ? null : <span className="muted text-[12px]">需要地圖編輯權限才能上傳</span>}
+        {canWrite ? null : <span className="text-muted text-[12px]">需要地圖編輯權限才能上傳</span>}
       </div>
 
       {/*
@@ -293,7 +293,7 @@ function ZoneImages({ zoneId, canWrite }: { zoneId: string; canWrite: boolean })
           ))}
         </div>
       ) : (
-        <p className="muted">
+        <p className="text-muted">
           還沒有照片。{canWrite ? "拍一張架上的樣子，之後找東西時比文字好用。" : ""}
         </p>
       )}
@@ -398,7 +398,7 @@ export function ZoneDrawer({
             <span className="grid size-[62px] flex-none place-items-center rounded-xl bg-paper/75 text-[15px] font-bold">{zone.code}</span>
             <div>
               <h2 id="zone-drawer-title" className="m-0 text-[21px]">{zone.name}</h2>
-              <p className="muted mx-0 mt-0.5 mb-0 text-[13px]">{zone.category}</p>
+              <p className="text-muted mx-0 mt-0.5 mb-0 text-[13px]">{zone.category}</p>
             </div>
           </div>
         </header>
@@ -415,13 +415,13 @@ export function ZoneDrawer({
             <Stat valueFirst label="現場照片" value={images.data?.length ?? 0} />
           </StatRow>
 
-          {zone.notes ? <p className="muted m-0 text-[13px]">{zone.notes}</p> : null}
+          {zone.notes ? <p className="text-muted m-0 text-[13px]">{zone.notes}</p> : null}
 
           {canReadItems ? (
             <section className="grid gap-2.5">
               <div className="flex items-baseline justify-between gap-2.5">
                 <h3 className="text-[14px] font-bold">層架商品</h3>
-                <span className="muted text-[12px]">新增商品請到「商品庫存」</span>
+                <span className="text-muted text-[12px]">新增商品請到「商品庫存」</span>
               </div>
 
               {/*
@@ -465,7 +465,7 @@ export function ZoneDrawer({
                   ))}
                 </ul>
               ) : (
-                <p className="muted">
+                <p className="text-muted">
                   {items.length ? "這一層還沒有放東西。" : "這個倉位還沒有放東西。"}
                 </p>
               )}

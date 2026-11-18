@@ -20,8 +20,9 @@ export function RowActions({ spacing = "tight", className = "", children }: { sp
 /**
  * 表格上下的一行狀態說明：載入中、沒有資料、上傳位置。
  *
- * 保留 muted：Panel 在 fills 版面用 `>.muted` 讓這一行不被表格壓扁。
+ * flex-none：放在 fills 版面的 grows Panel 裡時，Panel 是直欄 flex，不加會被表格壓扁；
+ * 父層不是 flex 時這個 class 不起作用。
  */
 export function TableNote({ children }: { children: ReactNode }) {
-  return <p className="muted mx-1 mt-4">{children}</p>;
+  return <p className="mx-1 mt-4 flex-none text-muted">{children}</p>;
 }

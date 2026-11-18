@@ -111,8 +111,8 @@ export function SalesTrendChart({
                 {data.map((point) => (
                   <tr key={point.key} className={point.key === selectedKey ? "bg-brand/6" : undefined}>
                     <td data-label="月份">{point.label}{point.key === selectedKey ? "（目前）" : ""}</td>
-                    <td data-label="淨銷量" className="numeric">{point.quantity === undefined ? <span className="muted">無資料</span> : quantityFormatter(point.quantity)}</td>
-                    <td data-label="銷售額" className="numeric">{point.amount === undefined ? <span className="muted">無資料</span> : amountFormatter(point.amount)}</td>
+                    <td data-label="淨銷量" className="numeric">{point.quantity === undefined ? <span className="text-muted">無資料</span> : quantityFormatter(point.quantity)}</td>
+                    <td data-label="銷售額" className="numeric">{point.amount === undefined ? <span className="text-muted">無資料</span> : amountFormatter(point.amount)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -169,9 +169,9 @@ export function SalesTrendChart({
               {data.map((point) => (
                 <tr key={point.key}>
                   <td data-label="期間">{point.label}</td>
-                  <td data-label="本期淨銷量" className="numeric">{point.quantity === undefined ? <span className="muted">無資料</span> : quantityFormatter(point.quantity)}</td>
-                  <td data-label="本期銷售額" className="numeric">{point.amount === undefined ? <span className="muted">無資料</span> : amountFormatter(point.amount)}</td>
-                  <td data-label="去年同期淨銷量" className="numeric">{point.lastYear === undefined ? <span className="muted">無資料</span> : quantityFormatter(point.lastYear)}</td>
+                  <td data-label="本期淨銷量" className="numeric">{point.quantity === undefined ? <span className="text-muted">無資料</span> : quantityFormatter(point.quantity)}</td>
+                  <td data-label="本期銷售額" className="numeric">{point.amount === undefined ? <span className="text-muted">無資料</span> : amountFormatter(point.amount)}</td>
+                  <td data-label="去年同期淨銷量" className="numeric">{point.lastYear === undefined ? <span className="text-muted">無資料</span> : quantityFormatter(point.lastYear)}</td>
                 </tr>
               ))}
             </tbody>
