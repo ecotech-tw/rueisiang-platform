@@ -33,10 +33,10 @@ void initializeLiff().then(() => {
 }).catch((error: unknown) => {
   console.error("LIFF 初始化失敗。", error);
   reactRoot.render(
-    <main className="hr-liff-startup-error" role="alert">
+    <main className="grid min-h-screen content-center justify-items-center gap-3 p-6 text-center" role="alert">
       <h1>LINE 打卡載入失敗</h1>
-      <p>無法連線到 LINE 登入服務，請確認網路後重新開啟打卡頁。</p>
-      <button type="button" onClick={() => window.location.reload()}>重新載入</button>
+      <p className="max-w-[34rem] text-muted">無法連線到 LINE 登入服務，請確認網路後重新開啟打卡頁。</p>
+      <button type="button" className="min-h-12 rounded-full border-0 bg-brand px-6 font-bold text-white focus-visible:outline-2 focus-visible:outline-offset-3 focus-visible:outline-ink" onClick={() => window.location.reload()}>重新載入</button>
     </main>,
   );
 });
