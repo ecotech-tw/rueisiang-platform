@@ -7,21 +7,6 @@ const routeRoots = [
   join(repoRoot, "apps", "hr", "src", "routes"),
   join(repoRoot, "apps", "portal", "src", "routes", "hr"),
 ];
-const appComponentStyles = [
-  join(repoRoot, "apps", "hr", "src", "styles", "components.css"),
-  join(repoRoot, "apps", "portal", "src", "styles", "components.css"),
-];
-const sharedStyles = join(repoRoot, "packages", "ui", "components.css");
-const sharedPrimitiveSelectors = [
-  ".table-scroll",
-  ".data-table",
-  ".status",
-  ".admin-form",
-  ".admin-form.toolbar",
-  ".filter-control",
-  ".filter-select-control",
-  ".panel",
-];
 
 async function walk(directory) {
   const entries = await readdir(directory, { withFileTypes: true });
@@ -44,23 +29,9 @@ for (const routeRoot of routeRoots) {
   }
 }
 
-const sharedSource = await readFile(sharedStyles, "utf8");
-for (const selector of sharedPrimitiveSelectors) {
-  const selectorPattern = new RegExp(`^${selector.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*\\{`, "m");
-  if (!selectorPattern.test(sharedSource)) {
-    failures.push(`${relative(repoRoot, sharedStyles)} is missing ${selector}.`);
-  }
-  for (const file of appComponentStyles) {
-    const source = await readFile(file, "utf8");
-    if (selectorPattern.test(source)) {
-      failures.push(`${relative(repoRoot, file)} duplicates shared base selector ${selector}.`);
-    }
-  }
-}
-
 if (failures.length > 0) {
   console.error(failures.join("\n"));
   process.exitCode = 1;
 } else {
-  console.log(`UI contract check passed: ${sharedPrimitiveSelectors.length} shared base selectors and route table wrappers are clean.`);
+  console.log("UI contract check passed: route table wrappers are clean.");
 }

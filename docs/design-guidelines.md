@@ -27,7 +27,7 @@
 | icon registry | `packages/ui/src/icons.tsx` | 兩個 app 的 `shell/icons.tsx` 只 re-export；portal 原有 icon 名稱全部保留 |
 | HRIS composite | `SegmentedControl`、`FilterToolbar`、`EmptyState`、`DataTable` | HR route 直接從 app 的 `ui/index.ts` 組合，實作仍只有一份 |
 | token | `packages/ui/theme.css` | 兩個 app 的 styles 入口只 import 這份；shell／domain CSS 仍保留 app-specific layer |
-| primitive CSS | `packages/ui/components.css` | table、status、alert、empty、dialog、panel、field、filter、pager、sortable header、tooltip 的 base styles 只維護一份；shell／domain modifier 留在 app。按鈕與 chip 不在這裡，外觀寫在 `Button.tsx`／`Chip.tsx` |
+| primitive 外觀 | `packages/ui/src/*.tsx` | table、status、alert、empty、dialog、panel、field、filter、pager、sortable header、tooltip、button、chip 的外觀用 Tailwind utility 寫在各自的元件裡，沒有共用的 CSS 檔；app 的 `styles/components.css` 只放 `@keyframes` 與第三方元件（地圖）的 DOM |
 
 已抽出的 primitive 包含 `Button`、`Dialog`、`ConfirmDialog`、`DropdownSelect`、`FilterInput`、`FilterSelect`、`SearchFilterInput`、`Pager`、`SortableHeader`、`Alert`、`StatusBadge`、`Field`、`TextField`、`SelectField`、`Panel`、`PageHeader`、`Tooltip`。`Dialog` 預設 portal 到 `body`；需要保留在沉浸式全頁容器內的例外，明確使用 `portal={false}`（目前打卡確認框）。
 
@@ -44,7 +44,7 @@
 | `StatusBadge` 的所有狀態呈現 | 上述 6 個 HR route 已改用 `StatusBadge`；domain status 的 label／tone mapping 仍留在 route | 一律使用 `StatusBadge`。禁止新增裸 `.status` 或 `.status-badge`；`SupportWorkers.tsx` 的錯誤 class 已移除 |
 | `EmptyState` | 17 個 HRIS 空資料訊息已改用 `EmptyState`；表格上下的單行狀態說明用 `TableNote` | 列表沒有資料用 `EmptyState`；載入中用 skeleton／loading；錯誤用 `Alert`，三者不要混成一個狀態 |
 | `EmployeeFilterBar` | 敘薪與勞健保頁重複同一組員工搜尋、帳號狀態篩選、分頁 query 組合 | 兩頁的業務資料不同，但篩選 UI 與 query state 可共用；共用元件不得承擔薪資或保險規則 |
-| `DataTable` 基礎外框 | HRIS 的一般資料表已統一使用 `DataTable`；wrapper、table、status／alert／empty 的基礎 CSS 位於 `packages/ui/components.css`；共享 dialog、panel、field、tooltip 的 base style 也集中在同一份 CSS；特殊的選取列、手機工具列仍由 route 保留 | `DataTable` 只負責 `.table-scroll`／`.data-table` 外框與 modifier class，不負責欄位、排序、分頁或資料渲染；不要為不同欄位做一個過度通用的資料渲染器，只有排序、分頁、選取等行為穩定重複時才抽小元件 |
+| `DataTable` 基礎外框 | HRIS 的一般資料表已統一使用 `DataTable`，外框、格子與手機卡片的外觀寫在元件裡；特殊的選取列、手機工具列仍由 route 保留 | `DataTable` 只負責 `.table-scroll`／`.data-table` 外框與 modifier class，不負責欄位、排序、分頁或資料渲染；不要為不同欄位做一個過度通用的資料渲染器，只有排序、分頁、選取等行為穩定重複時才抽小元件 |
 
 這些數字是用目前 `apps/portal/src/routes/hr` 與 `apps/hr/src/routes` 的 source 盤點所得；新增頁面後若數字改變，應更新本節的**結構性結論**，不要把每次使用次數當成另一份手工清單。
 
