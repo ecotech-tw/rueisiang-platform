@@ -18,7 +18,7 @@ export function LoginCard({ title, children }: { title: ReactNode; children: Rea
 
 /** 登入卡片裡的主要登入路（Google、LINE），是整頁跳轉的連結，不是 button。 */
 export function LoginButton({ href, children }: { href: string; children: ReactNode }) {
-  return <a className="mt-[22px] mb-3.5 block rounded-[10px] bg-brand px-4 py-[11px] font-bold text-white no-underline hover:bg-brand-dark" href={href}>{children}</a>;
+  return <a className="mt-[22px] mb-3.5 block rounded-[10px] bg-brand px-4 py-[11px] font-bold text-white no-underline hover:bg-brand-dark focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary" href={href}>{children}</a>;
 }
 
 export function LoginError({ children }: { children: ReactNode }) {

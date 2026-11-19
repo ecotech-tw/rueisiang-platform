@@ -611,7 +611,7 @@ export function HrRequestCenter() {
     <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" tone="success" mobileIconOnly onClick={() => setCreateOpen(true)}>新增申請</Button>} />
     {employees.error || leaveTypes.error || workers.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message ?? workers.error?.message}</Alert> : null}
     {approvalErrors.length ? <Alert tone="warning"><strong>部分申請未能核准：</strong>{approvalErrors.map(({ id, kind, error }) => <p key={`${kind}:${id}`}>{REQUEST_KIND_LABEL[kind as RequestKind]}・{id}：{error}</p>)}</Alert> : null}
-    <Panel grows title="申請紀錄">
+    <Panel grows title="申請紀錄" className="max-[760px]:[[data-page=fills]>&]:overflow-visible">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <FilterToolbar>
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
@@ -623,7 +623,7 @@ export function HrRequestCenter() {
         </FilterFields>
       </FilterToolbar>
       {requests.isFetching ? <TableNote>更新中…</TableNote> : null}
-      <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
+      <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden max-[760px]:overflow-visible">
         <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending || approveRequests.isPending} onChange={(actionId) => { setApprovalErrors([]); actionId ? bulk.chooseAction(actionId) : bulk.cancel(); }} /></div>
         {bulk.actionId === "cancel-approved-overtime" && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" checked={allVisibleOvertimeSelected} indeterminate={someVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
         {bulk.actionId === "approve-pending" && bulk.eligibleKeys.length ? <TableMobileSelectAll variant="plain" checked={allVisiblePendingSelected} indeterminate={someVisiblePendingSelected} disabled={requests.isFetching || approveRequests.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisiblePendingSelected ? "取消全選本頁待審申請" : "全選本頁待審申請"}>{allVisiblePendingSelected ? "取消全選本頁" : "全選本頁待審申請"}</TableMobileSelectAll> : null}
