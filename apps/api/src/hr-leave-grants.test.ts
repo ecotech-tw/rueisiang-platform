@@ -77,11 +77,23 @@ beforeEach(async () => {
 afterEach(() => d1.sqlite.close());
 
 describe("HR 假別額度發放", () => {
-  it("發放時數以整數小時、使用期限含最後一天，請假略過班表並依最早到期額度扣除", async () => {
+  it("發放時數以整數小時、請假扣除午休但不檢查班表，並依最早到期額度扣除", async () => {
     const today = todayTaipei();
     const directHrDuration = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T23:00`, endsAt: `${dateOffset(today, 1)}T00:00` });
     expect(directHrDuration.status, await directHrDuration.clone().text()).toBe(200);
     expect(await directHrDuration.json()).toMatchObject({ durationMinutes: 60 });
+
+    const workdayDuration = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T09:00`, endsAt: `${today}T18:00` });
+    expect(workdayDuration.status, await workdayDuration.clone().text()).toBe(200);
+    expect(await workdayDuration.json()).toMatchObject({ durationMinutes: 8 * 60 });
+
+    const workdayEnd = await request("/hr/me/leave-end", "POST", { leaveTypeId, startsAt: `${today}T09:00`, durationMinutes: 8 * 60 }, employeeCookie);
+    expect(workdayEnd.status, await workdayEnd.clone().text()).toBe(200);
+    expect(await workdayEnd.json()).toMatchObject({ endsAt: `${today} 10:00:00`, durationMinutes: 8 * 60 });
+
+    const crossedLunch = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T11:30`, endsAt: `${today}T13:30` });
+    expect(crossedLunch.status, await crossedLunch.clone().text()).toBe(200);
+    expect(await crossedLunch.json()).toMatchObject({ durationMinutes: 60 });
 
     const earliestGrant = await issue(60, today);
     await issue(60, dateOffset(today, 30));

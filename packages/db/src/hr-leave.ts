@@ -140,6 +140,21 @@ function calculateStandardWorkdayBreakdown(startsAt: number, endsAt: number, sta
   return breakdown;
 }
 
+function grantLeaveWorkSegments(startsOn: string, endsOn: string): Array<[number, number]> {
+  return datesBetween(startsOn, endsOn).flatMap((date) => [
+    [canonicalTaipeiTime(date, "00:00:00", "日期開始時間"), canonicalTaipeiTime(date, STANDARD_LUNCH_START, "一般辦公午休開始時間")],
+    [canonicalTaipeiTime(date, STANDARD_LUNCH_END, "一般辦公午休結束時間"), canonicalTaipeiTime(nextTaipeiDate(date), "00:00:00", "日期結束時間")],
+  ]);
+}
+
+function calculateGrantLeaveMinutes(startsAt: number, endsAt: number, startsOn: string, endsOn: string) {
+  return datesBetween(startsOn, endsOn).reduce((minutes, date) => {
+    const lunchStart = canonicalTaipeiTime(date, STANDARD_LUNCH_START, "一般辦公午休開始時間");
+    const lunchEnd = canonicalTaipeiTime(date, STANDARD_LUNCH_END, "一般辦公午休結束時間");
+    return minutes - overlapMinutes(startsAt, endsAt, lunchStart, lunchEnd);
+  }, (endsAt - startsAt) / 60_000);
+}
+
 type LeaveScheduleRow = {
   periodStart: string;
   periodEnd: string;
@@ -295,7 +310,9 @@ async function resolveLeaveInterval(db: Database, input: HrLeaveDurationInput) {
     : [];
   const isGrantLeave = leaveType?.leaveKind === "grant";
   const ignoresSchedule = isGrantLeave && !leaveType.scheduleCheckRequired;
-  const durationMinutes = ignoresSchedule ? normalized.durationMinutes : await calculateLeaveWorkMinutes(db, employmentId, stamp(normalized.startsAt, "請假開始時間"), stamp(normalized.endsAt, "請假結束時間"), normalized.startsOn, normalized.endsOn);
+  const durationMinutes = ignoresSchedule
+    ? calculateGrantLeaveMinutes(stamp(normalized.startsAt, "請假開始時間"), stamp(normalized.endsAt, "請假結束時間"), normalized.startsOn, normalized.endsOn)
+    : await calculateLeaveWorkMinutes(db, employmentId, stamp(normalized.startsAt, "請假開始時間"), stamp(normalized.endsAt, "請假結束時間"), normalized.startsOn, normalized.endsOn);
   const unit = isGrantLeave ? 60 : HALF_HOUR_MINUTES;
   if (!Number.isSafeInteger(durationMinutes) || durationMinutes < unit || durationMinutes % unit !== 0) {
     throw new HrError(400, isGrantLeave ? "額度發放假別請假時數必須是 1 小時的整數倍，且至少 1 小時。" : "請假時數必須依工作日、班表與休息時間計算為 0.5 小時的倍數，且至少 0.5 小時。 ");
@@ -357,8 +374,12 @@ export async function calculateHrLeaveEnd(db: Database, input: HrLeaveEndInput) 
   }
   if (isGrantLeave && !leaveType.scheduleCheckRequired) {
     if (input.durationMinutes < 60 || input.durationMinutes % 60 !== 0) throw new HrError(400, "額度發放假別請假時數必須是 1 小時的整數倍，且至少 1 小時。");
-    const endMs = startMs + input.durationMinutes * 60_000;
     if (input.durationMinutes > MAX_LEAVE_MINUTES) throw new HrError(400, "請假期間不可超過 31 天。");
+    const startsOn = formatTaipeiDate(startMs);
+    const limitMs = startMs + MAX_LEAVE_MINUTES * 60_000;
+    const endsOn = nextTaipeiDate(formatTaipeiDate(limitMs));
+    const endMs = leaveEndFromSegments(grantLeaveWorkSegments(startsOn, endsOn), startMs, input.durationMinutes);
+    if (endMs === null || endMs > limitMs) throw new HrError(400, "從這個開始時間起 31 天內的工作時間不足這個時數，請調整開始時間或時數。");
     return calculateHrLeaveDuration(db, { employeeUserId: input.employeeUserId, leaveTypeId: input.leaveTypeId, startsAt: input.startsAt, endsAt: new Date(endMs).toISOString().slice(0, 19).replace("T", " ") });
   }
   const limitMs = startMs + MAX_LEAVE_MINUTES * 60_000;
