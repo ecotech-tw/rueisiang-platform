@@ -166,7 +166,6 @@ export function StyleGuide() {
   }
 
   return (
-    <>
     <Page>
       <PageHeader
         title="UI 元件樣式指南"
@@ -401,6 +400,5 @@ export function StyleGuide() {
       ) : null}
       </ButtonSkin>
     </Page>
-    </>
   );
 }
