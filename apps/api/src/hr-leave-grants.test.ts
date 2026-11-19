@@ -91,6 +91,12 @@ describe("HR 假別額度發放", () => {
     expect(workdayEnd.status, await workdayEnd.clone().text()).toBe(200);
     expect(await workdayEnd.json()).toMatchObject({ endsAt: `${today} 10:00:00`, durationMinutes: 8 * 60 });
 
+    const maximumGrantEnd = await request("/hr/me/leave-end", "POST", { leaveTypeId, startsAt: `${today}T09:00`, durationMinutes: 713 * 60 }, employeeCookie);
+    expect(maximumGrantEnd.status, await maximumGrantEnd.clone().text()).toBe(200);
+    expect(await maximumGrantEnd.json()).toMatchObject({ endsAt: `${dateOffset(today, 31)} 01:00:00`, durationMinutes: 713 * 60 });
+    const excessiveGrantEnd = await request("/hr/me/leave-end", "POST", { leaveTypeId, startsAt: `${today}T09:00`, durationMinutes: 714 * 60 }, employeeCookie);
+    expect(excessiveGrantEnd.status).toBe(400);
+
     const crossedLunch = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T11:30`, endsAt: `${today}T13:30` });
     expect(crossedLunch.status, await crossedLunch.clone().text()).toBe(200);
     expect(await crossedLunch.json()).toMatchObject({ durationMinutes: 60 });

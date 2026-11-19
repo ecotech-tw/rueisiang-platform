@@ -13,7 +13,9 @@ import { users } from "./schema/auth.js";
 import { ensurePayrollRequestSourcesIndexed, payrollRequestSourceReference } from "./hr-payroll-request-sources.js";
 
 const HALF_HOUR_MINUTES = 30;
-const MAX_LEAVE_MINUTES = 44_640;
+const MAX_LEAVE_DAYS = 31;
+const MAX_LEAVE_MINUTES = MAX_LEAVE_DAYS * 24 * 60;
+const MAX_GRANT_LEAVE_MINUTES = MAX_LEAVE_MINUTES - MAX_LEAVE_DAYS * 60;
 const STANDARD_WORKDAY_START = "09:00:00";
 const STANDARD_WORKDAY_END = "18:00:00";
 const STANDARD_LUNCH_START = "12:00:00";
@@ -374,7 +376,7 @@ export async function calculateHrLeaveEnd(db: Database, input: HrLeaveEndInput) 
   }
   if (isGrantLeave && !leaveType.scheduleCheckRequired) {
     if (input.durationMinutes < 60 || input.durationMinutes % 60 !== 0) throw new HrError(400, "額度發放假別請假時數必須是 1 小時的整數倍，且至少 1 小時。");
-    if (input.durationMinutes > MAX_LEAVE_MINUTES) throw new HrError(400, "請假期間不可超過 31 天。");
+    if (input.durationMinutes > MAX_GRANT_LEAVE_MINUTES) throw new HrError(400, "補休在 31 天內最多可請 713 小時（已扣除每日午休）。");
     const startsOn = formatTaipeiDate(startMs);
     const limitMs = startMs + MAX_LEAVE_MINUTES * 60_000;
     const endsOn = nextTaipeiDate(formatTaipeiDate(limitMs));
