@@ -54,6 +54,7 @@ const REQUEST_PAGE_SIZES = [10, 25, 50, 100] as const;
 function requestRowKey(row: RequestRow) { return `${row.kind}:${row.id}`; }
 
 const REQUEST_BULK_ACTIONS: TableBulkAction<RequestRow>[] = [
+  { id: "approve-pending", label: "批次核准待審申請", isEligible: (row) => row.status === "pending" && !row.payrollLocked },
   { id: "cancel-approved-overtime", label: "取消已核准加班", isEligible: (row) => row.kind === "overtime" && row.status === "approved" && !row.payrollLocked },
 ];
 
@@ -500,6 +501,8 @@ export function HrRequestCenter() {
   const [showFilters, setShowFilters] = useState(false);
   const [reviewing, setReviewing] = useState<RequestRow | null>(null);
   const [cancelSelectedOpen, setCancelSelectedOpen] = useState(false);
+  const [approveSelectedOpen, setApproveSelectedOpen] = useState(false);
+  const [approvalErrors, setApprovalErrors] = useState<Array<{ id: string; kind: string; error: string }>>([]);
   const employees = useHrQuery<EmployeePageResponse>("/requests/employees", canAccess, { keepPreviousData: false });
   const leaveTypes = useHrQuery<{ leaveTypes: LeaveType[] }>("/requests/leave-types", canAccess, { keepPreviousData: false });
   const workers = useHrQuery<{ workers: WorkerCandidate[] }>("/requests/workers", canAccess, { keepPreviousData: false });
@@ -513,6 +516,7 @@ export function HrRequestCenter() {
   }, [filters.kind, filters.page, filters.pageSize, filters.search, filters.status]);
   const requests = useHrQuery<HrRequestCenterResponse>(requestPath, canAccess);
   const cancelOvertime = useHrWrite<{ ids: string[]; count: number }>();
+  const approveRequests = useHrWrite<{ results: Array<{ id: string; kind: string; status?: "approved"; error?: string }> }>();
   const rows = useMemo(() => toRequestRows(requests.data), [requests.data]);
   const filteredRows = useMemo(() => {
     if (requests.data?.pagination) return rows;
@@ -539,13 +543,15 @@ export function HrRequestCenter() {
   const visibleRows = isServerPaged ? rows : filteredRows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
   const loadedPage = requests.data?.pagination?.page;
   const activeFilterCount = [filters.kind, filters.status].filter((value) => value !== "all").length;
-  const cancellableOvertimeRows = useMemo(() => visibleRows.filter(REQUEST_BULK_ACTIONS[0]!.isEligible), [visibleRows]);
   const bulk = useTableBulkSelection(visibleRows, requestRowKey, REQUEST_BULK_ACTIONS);
-  const cancellableOvertimeIds = bulk.eligibleKeys;
-  const selectedOvertimeRows = bulk.selectedRows;
-  const requestBulkActionOptions = REQUEST_BULK_ACTIONS.map((action) => ({ id: action.id, label: action.label, eligibleCount: cancellableOvertimeRows.length }));
-  const allVisibleOvertimeSelected = bulk.allEligibleSelected;
-  const someVisibleOvertimeSelected = bulk.someEligibleSelected && !allVisibleOvertimeSelected;
+  const cancellableOvertimeIds = bulk.actionId === "cancel-approved-overtime" ? bulk.eligibleKeys : [];
+  const selectedOvertimeRows = bulk.actionId === "cancel-approved-overtime" ? bulk.selectedRows : [];
+  const selectedPendingRows = bulk.actionId === "approve-pending" ? bulk.selectedRows : [];
+  const requestBulkActionOptions = REQUEST_BULK_ACTIONS.map((action) => ({ id: action.id, label: action.label, eligibleCount: visibleRows.filter(action.isEligible).length }));
+  const allVisibleOvertimeSelected = bulk.actionId === "cancel-approved-overtime" && bulk.allEligibleSelected;
+  const someVisibleOvertimeSelected = bulk.actionId === "cancel-approved-overtime" && bulk.someEligibleSelected && !allVisibleOvertimeSelected;
+  const allVisiblePendingSelected = bulk.actionId === "approve-pending" && bulk.allEligibleSelected;
+  const someVisiblePendingSelected = bulk.actionId === "approve-pending" && bulk.someEligibleSelected && !allVisiblePendingSelected;
 
   useEffect(() => {
     if (!loadedPage) return;
@@ -558,6 +564,26 @@ export function HrRequestCenter() {
   function updateFilters(patch: Partial<RequestFilters>) {
     bulk.cancel();
     setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
+  }
+
+  function approveSelectedRequests() {
+    if (!selectedPendingRows.length || approveRequests.isPending) return;
+    setApprovalErrors([]);
+    approveRequests.mutate({
+      path: "/requests/approve-batch",
+      method: "POST",
+      values: { requests: selectedPendingRows.map(({ id, kind, revision }) => ({ id, kind, revision })) },
+    }, {
+      onSuccess: ({ results }) => {
+        const approved = results.filter((result) => result.status === "approved").length;
+        const failures = results.flatMap((result) => result.error ? [{ id: result.id, kind: result.kind, error: result.error }] : []);
+        setApprovalErrors(failures);
+        bulk.cancel();
+        setApproveSelectedOpen(false);
+        void requests.refetch();
+        toast.show(failures.length ? `已核准 ${approved} 筆，${failures.length} 筆未處理；請查看原因並重新整理。` : `已批次核准 ${approved} 筆申請。`, failures.length ? "info" : "success");
+      },
+    });
   }
 
   function cancelSelectedOvertime() {
@@ -583,9 +609,9 @@ export function HrRequestCenter() {
 
   return <Page layout="fills">
     <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" tone="success" mobileIconOnly onClick={() => setCreateOpen(true)}>新增申請</Button>} />
-    <Alert tone="info">核准後才會成為出勤與薪資計算的正式來源。後台代登（含沒有平台帳號的支援人員）會保存「已核准」狀態；正式員工前台申請則由主管或 HR 進行審核。</Alert>
     {employees.error || leaveTypes.error || workers.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message ?? workers.error?.message}</Alert> : null}
-    <Panel grows title="申請紀錄" description="包含 HR 後台代登（正式員工與支援人員）及正式員工前台產生的申請；待審核資料可直接在此處理。">
+    {approvalErrors.length ? <Alert tone="warning"><strong>部分申請未能核准：</strong>{approvalErrors.map(({ id, kind, error }) => <p key={`${kind}:${id}`}>{REQUEST_KIND_LABEL[kind as RequestKind]}・{id}：{error}</p>)}</Alert> : null}
+    <Panel grows title="申請紀錄">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <FilterToolbar>
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
@@ -598,17 +624,18 @@ export function HrRequestCenter() {
       </FilterToolbar>
       {requests.isFetching ? <TableNote>更新中…</TableNote> : null}
       <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden">
-        <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div>
-        {bulk.actionId && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" checked={allVisibleOvertimeSelected} indeterminate={someVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
+        <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending || approveRequests.isPending} onChange={(actionId) => { setApprovalErrors([]); actionId ? bulk.chooseAction(actionId) : bulk.cancel(); }} /></div>
+        {bulk.actionId === "cancel-approved-overtime" && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" checked={allVisibleOvertimeSelected} indeterminate={someVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
+        {bulk.actionId === "approve-pending" && bulk.eligibleKeys.length ? <TableMobileSelectAll variant="plain" checked={allVisiblePendingSelected} indeterminate={someVisiblePendingSelected} disabled={requests.isFetching || approveRequests.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisiblePendingSelected ? "取消全選本頁待審申請" : "全選本頁待審申請"}>{allVisiblePendingSelected ? "取消全選本頁" : "全選本頁待審申請"}</TableMobileSelectAll> : null}
       <DataTable className={`${REQUEST_TABLE} ${bulk.actionId ? TABLE_SELECT_COLUMN.corner : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${ requests.isFetching ? REFRESHING : "" }`}>
         <thead><tr>
-          {bulk.actionId ? <th>{cancellableOvertimeIds.length ? <TableCheckbox checked={allVisibleOvertimeSelected} indeterminate={someVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"} /> : null}</th> : null}
-          <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(actionId) => actionId ? bulk.chooseAction(actionId) : bulk.cancel()} /></div></th>
+          {bulk.actionId ? <th>{bulk.eligibleKeys.length ? <TableCheckbox checked={bulk.allEligibleSelected} indeterminate={bulk.someEligibleSelected && !bulk.allEligibleSelected} disabled={requests.isFetching || cancelOvertime.isPending || approveRequests.isPending} onChange={(event) => bulk.toggleAll(event.target.checked)} aria-label={bulk.allEligibleSelected ? "取消全選本頁符合條件申請" : "全選本頁符合條件申請"} /> : null}</th> : null}
+          <th>類型</th><th>員工</th><th>期間</th><th>內容</th><th>原因</th><th>狀態</th><th><div className="flex min-w-[220px] items-center justify-between gap-2"><span>操作</span><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending || approveRequests.isPending} onChange={(actionId) => { setApprovalErrors([]); actionId ? bulk.chooseAction(actionId) : bulk.cancel(); }} /></div></th>
         </tr></thead>
         <tbody>{visibleRows.map((row) => {
-          const canBulkCancel = REQUEST_BULK_ACTIONS[0]!.isEligible(row);
+          const canBulkCancel = REQUEST_BULK_ACTIONS[1]!.isEligible(row);
           return <tr key={`${row.kind}-${row.id}`} className={bulk.selectedKeys.includes(requestRowKey(row)) ? "selected" : undefined}>
-            {bulk.actionId ? <td data-label="選取">{bulk.isRowEligible(row) ? <label className="inline-grid size-10 cursor-pointer place-items-center"><TableCheckbox checked={bulk.selectedKeys.includes(requestRowKey(row))} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(event) => bulk.toggleRow(row, event.target.checked)} aria-label={`選取 ${row.employeeName} ${row.period} 的已核准加班申請`} /></label> : null}</td> : null}
+            {bulk.actionId ? <td data-label="選取">{bulk.isRowEligible(row) ? <label className="inline-grid size-10 cursor-pointer place-items-center"><TableCheckbox checked={bulk.selectedKeys.includes(requestRowKey(row))} disabled={requests.isFetching || cancelOvertime.isPending || approveRequests.isPending} onChange={(event) => bulk.toggleRow(row, event.target.checked)} aria-label={`選取 ${row.employeeName} ${row.period} 的${bulk.actionId === "approve-pending" ? "待審申請" : "已核准加班申請"}`} /></label> : null}</td> : null}
             <td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td>
             <td data-label="員工"><span className="font-bold">{row.employeeName}</span> <span className="text-[12px] text-muted">{row.employeeNumber}</span></td>
             <td data-label="期間">{row.period}</td>
@@ -619,6 +646,7 @@ export function HrRequestCenter() {
           </tr>;
         })}</tbody>
       </DataTable>
+      {selectedPendingRows.length ? <SelectionActionBar count={selectedPendingRows.length} countLabel="筆待審申請" className="!pl-5 !pr-5 max-[760px]:!pl-4 max-[760px]:!pr-4"><Button icon="check" tone="success" disabled={requests.isFetching || approveRequests.isPending} onClick={() => { approveRequests.reset(); setApproveSelectedOpen(true); }}>核准所選申請</Button></SelectionActionBar> : null}
       {selectedOvertimeRows.length ? <SelectionActionBar count={selectedOvertimeRows.length} countLabel="筆已核准加班申請" className="!pl-5 !pr-5 max-[760px]:!pl-4 max-[760px]:!pr-4"><Button variant="danger" icon="trash" disabled={requests.isFetching || cancelOvertime.isPending} onClick={() => { cancelOvertime.reset(); setCancelSelectedOpen(true); }}>取消並刪除所選加班</Button></SelectionActionBar> : null}
       </div>
       {requests.data && !visibleRows.length ? <TableNote>{total ? "沒有符合條件的申請紀錄，請調整搜尋或篩選。" : "目前沒有申請紀錄。"}</TableNote> : null}
@@ -626,6 +654,10 @@ export function HrRequestCenter() {
     </Panel>
     {createOpen ? <CreateRequestDialog initialKind={initialKind} employees={employees.data?.employees ?? []} workers={workers.data?.workers ?? []} leaveTypes={leaveTypes.data?.leaveTypes ?? []} onClose={() => setCreateOpen(false)} onDone={finishCreate} /> : null}
     {reviewing ? <ReviewDialog row={reviewing} latest={rows.find((row) => row.kind === reviewing.kind && row.id === reviewing.id)} onReload={setReviewing} onClose={() => setReviewing(null)} onDone={() => void requests.refetch()} /> : null}
+    {approveSelectedOpen && selectedPendingRows.length ? <ConfirmDialog title={`批次核准 ${selectedPendingRows.length} 筆申請？`} confirmLabel={`核准 ${selectedPendingRows.length} 筆`} pending={approveRequests.isPending} onCancel={() => { if (!approveRequests.isPending) setApproveSelectedOpen(false); }} onConfirm={approveSelectedRequests}>
+      <p>請假與補打卡會依申請內容核准；加班會以申請時段作為核定時段。若要調整加班時段，請逐筆審核。</p>
+      {approveRequests.error ? <Alert tone="danger">{approveRequests.error.message}</Alert> : null}
+    </ConfirmDialog> : null}
     {cancelSelectedOpen && selectedOvertimeRows.length ? <ConfirmDialog title={`取消並刪除 ${selectedOvertimeRows.length} 筆加班申請？`} confirmLabel={`取消並刪除 ${selectedOvertimeRows.length} 筆`} pending={cancelOvertime.isPending} onCancel={() => { if (!cancelOvertime.isPending) setCancelSelectedOpen(false); }} onConfirm={cancelSelectedOvertime}>
       <p>選取的都是已核准加班。取消後會從申請紀錄刪除，不再納入薪資計算；HR 稽核紀錄會保留每筆申請的完整快照。</p>
       {cancelOvertime.error ? <Alert tone="danger">{cancelOvertime.error.message}</Alert> : null}

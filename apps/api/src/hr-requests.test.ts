@@ -769,6 +769,39 @@ describe("HR 申請中心", () => {
     expect((await request(`/hr/me/form-requests/${correctionId}`, "PATCH", { correctionDate: "2026-02-03", requestedTime: "08:00", requestedEventKind: "clock_in", reason: "改時間", approverUserId: "admin" }, employeeCookie)).status).toBe(409);
   });
 
+  it("申請中心可批次核准請假、加班與補打卡，單筆失敗不影響其他申請", async () => {
+    await assignEmployeeSupervisor();
+    const leaveType = await request("/hr/leave-types", "POST", { name: "批次核准測試假", defaultPayRatePpm: 1_000_000 });
+    const leaveTypeId = (await leaveType.json() as { id: string }).id;
+    const leave = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: "2026-02-05T09:00", endsAt: "2026-02-05T13:00", reason: "批次請假" }, employeeCookie);
+    const leaveId = (await leave.json() as { id: string }).id;
+    const overtime = await request("/hr/me/overtime", "POST", { requestedStart: "2026-02-10T18:00", requestedEnd: "2026-02-10T19:00", settlementKind: "pay", reason: "批次加班" }, employeeCookie);
+    const overtimeId = (await overtime.json() as { id: string }).id;
+    const correction = await request("/hr/me/form-requests", "POST", { correctionDate: "2026-02-03", requestedTime: "09:00", requestedEventKind: "clock_in", reason: "批次補打卡", approverUserId: "admin" }, employeeCookie);
+    const correctionId = (await correction.json() as { id: string }).id;
+    expect((await request(`/hr/me/form-requests/${correctionId}/submit`, "POST", {}, employeeCookie)).status).toBe(200);
+
+    const missingRevision = await request("/hr/requests/approve-batch", "POST", { requests: [{ kind: "leave", id: leaveId }] });
+    expect(missingRevision.status).toBe(400);
+    expect(await missingRevision.text()).toContain("必須帶上申請的版本");
+    expect(d1.sqlite.prepare("SELECT status FROM hr_leave_requests WHERE id=?").get(leaveId)).toEqual({ status: "pending" });
+
+    const response = await request("/hr/requests/approve-batch", "POST", { requests: [
+      { kind: "leave", id: leaveId, revision: 99 },
+      { kind: "overtime", id: overtimeId, revision: 1 },
+      { kind: "clock_correction", id: correctionId },
+    ] });
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(await response.json()).toEqual({ results: [
+      expect.objectContaining({ id: leaveId, kind: "leave", error: expect.stringContaining("修改過") }),
+      { id: overtimeId, kind: "overtime", status: "approved" },
+      { id: correctionId, kind: "clock_correction", status: "approved" },
+    ] });
+    expect(d1.sqlite.prepare("SELECT status FROM hr_leave_requests WHERE id=?").get(leaveId)).toEqual({ status: "pending" });
+    expect(d1.sqlite.prepare("SELECT status, actual_start, actual_end FROM hr_overtime_requests WHERE id=?").get(overtimeId)).toEqual({ status: "approved", actual_start: "2026-02-10 10:00:00", actual_end: "2026-02-10 11:00:00" });
+    expect(d1.sqlite.prepare("SELECT status FROM hr_form_requests WHERE id=?").get(correctionId)).toEqual({ status: "approved" });
+  });
+
   it("請假審核的寫入也守版本：讀出來之後、寫進去之前被改掉的申請不會被核准", async () => {
     await assignEmployeeSupervisor();
     const leaveType = await request("/hr/leave-types", "POST", { name: "寫入守門測試假", defaultPayRatePpm: 1_000_000 });
