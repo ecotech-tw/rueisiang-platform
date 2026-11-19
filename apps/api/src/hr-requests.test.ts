@@ -781,6 +781,11 @@ describe("HR 申請中心", () => {
     const correctionId = (await correction.json() as { id: string }).id;
     expect((await request(`/hr/me/form-requests/${correctionId}/submit`, "POST", {}, employeeCookie)).status).toBe(200);
 
+    const missingRevision = await request("/hr/requests/approve-batch", "POST", { requests: [{ kind: "leave", id: leaveId }] });
+    expect(missingRevision.status).toBe(400);
+    expect(await missingRevision.text()).toContain("必須帶上申請的版本");
+    expect(d1.sqlite.prepare("SELECT status FROM hr_leave_requests WHERE id=?").get(leaveId)).toEqual({ status: "pending" });
+
     const response = await request("/hr/requests/approve-batch", "POST", { requests: [
       { kind: "leave", id: leaveId, revision: 99 },
       { kind: "overtime", id: overtimeId, revision: 1 },

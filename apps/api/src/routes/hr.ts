@@ -1009,9 +1009,9 @@ export const hr = new Hono<AppEnv>()
       const kind = request.kind === "leave" || request.kind === "overtime" || request.kind === "clock_correction" ? request.kind : null;
       if (!kind) throw new HTTPException(400, { message: "申請類型不正確。" });
       const id = text(request, "id", "申請編號", 100);
-      const revision = request.revision;
-      if (revision !== undefined && revision !== null && (!Number.isSafeInteger(revision) || (revision as number) < 1)) throw new HTTPException(400, { message: "申請版本不正確。" });
-      return { kind, id, revision: typeof revision === "number" ? revision : undefined };
+      const revision = kind === "clock_correction" ? undefined : reviewerRevision(request);
+      if (kind === "clock_correction" && request.revision !== undefined && request.revision !== null) integerValue(request, "revision", "申請版本", 1, Number.MAX_SAFE_INTEGER);
+      return { kind, id, revision };
     });
     if (new Set(items.map((item) => `${item.kind}:${item.id}`)).size !== items.length) throw new HTTPException(400, { message: "批次清單含重複申請。" });
     const actor = c.get("user");
