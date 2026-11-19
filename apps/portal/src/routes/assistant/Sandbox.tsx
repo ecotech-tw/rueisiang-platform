@@ -355,7 +355,7 @@ export function Sandbox() {
                   ? data.tools.filter((tool) => activeToolKeys.includes(tool.key)).map((tool) => (
                     <StatusBadge tone="success" key={tool.key}>{tool.label}</StatusBadge>
                   ))
-                  : <span className="muted">尚未選擇 tools</span>}
+                  : <span className="text-muted">尚未選擇 tools</span>}
               </div>
               {hrAuthorizeMissing ? <Alert tone="danger">HR 查詢工具要連同「hr_authorize」一起勾選才能送出。</Alert> : null}
               {employee && hrAuthorizeDisabled ? <Alert tone="danger">「hr_authorize」目前已停用，這一輪不會送出 HR 工具；請先到小香設定頁啟用。</Alert> : null}
@@ -598,7 +598,7 @@ export function Sandbox() {
           onClose={() => setRevisionsOpen(false)}
           actions={<Button variant="secondary" type="button" onClick={() => setRevisionsOpen(false)}>關閉</Button>}
         >
-              <p className="muted">選擇一個 revision 載入到目前的 System prompt 編輯器。</p>
+              <p className="text-muted">選擇一個 revision 載入到目前的 System prompt 編輯器。</p>
               <div className="grid gap-1.5">
                 {data.revisions.map((revision) => (
                   <button
@@ -626,7 +626,7 @@ export function Sandbox() {
           onClose={() => setToolsOpen(false)}
           actions={<Button type="button" onClick={() => setToolsOpen(false)}>完成</Button>}
         >
-              <p className="muted">
+              <p className="text-muted">
                 勾選後會在下一次 Sandbox 執行時送給模型；「開發中」工具只可在 Sandbox 使用。
                 {hrToolKeys.size ? "HR 工具要先在「模擬員工本人」選一位員工、平台設好 LINE Login 綁定才會生效。" : ""}
               </p>

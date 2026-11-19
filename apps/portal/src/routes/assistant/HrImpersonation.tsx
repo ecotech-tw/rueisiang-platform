@@ -50,11 +50,11 @@ export function HrImpersonation({ employee, bindingConfigured, disabled, onChang
         </Field>
       </div>
       {/* 說明放在兩欄外面：掛在其中一欄底下會把另一欄撐出一塊空白。 */}
-      <p className="muted mt-2 text-xs">未綁定或帳號未啟用的員工可測試授權失敗；不會略過正式的綁定與在職檢查。</p>
+      <p className="text-muted mt-2 text-xs">未綁定或帳號未啟用的員工可測試授權失敗；不會略過正式的綁定與在職檢查。</p>
       {paged ? (
         <div className={ASSISTANT_ACTIONS}>
           <Button variant="secondary" disabled={page === 1 || disabled} onClick={() => setPage((current) => current - 1)}>上一頁</Button>
-          <span className="muted text-xs">員工清單第 {page} 頁</span>
+          <span className="text-muted text-xs">員工清單第 {page} 頁</span>
           <Button variant="secondary" disabled={!employees.data?.hasMore || disabled} onClick={() => setPage((current) => current + 1)}>下一頁</Button>
         </div>
       ) : null}

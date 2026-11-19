@@ -393,7 +393,7 @@ export function Scopes() {
           }}
         >
           <p><strong>{archiving.name}</strong> 會從報表執行頁、補登選單與這張清單的預設檢視收起來。</p>
-          <p className="muted">已匯入的出金與商品銷售不會被刪除，營運統計仍然算得到它；狀態篩選選「已封存」就找得回來。</p>
+          <p className="text-muted">已匯入的出金與商品銷售不會被刪除，營運統計仍然算得到它；狀態篩選選「已封存」就找得回來。</p>
         </ConfirmDialog>
       ) : null}
     </Page>

@@ -60,7 +60,7 @@ export function CanvasDialog({
         </>
       }
     >
-          <p className="muted">
+          <p className="text-muted">
             放大畫布可以容納更多倉位。既有的區塊會維持相對位置與比例，不會跑掉。
           </p>
 

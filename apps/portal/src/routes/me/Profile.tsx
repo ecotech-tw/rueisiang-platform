@@ -81,7 +81,7 @@ export function Profile() {
           {saved ? <FormHint as="span">已儲存</FormHint> : null}
           {save.error ? <Alert tone="danger">{save.error.message}</Alert> : null}
         </FormRow>
-        <p className="muted mt-3 text-[12px]">
+        <p className="text-muted mt-3 text-[12px]">
           留白就會用回 Google 帳號上的姓名。這個名字只影響畫面顯示，操作紀錄一律以電子信箱為準。
         </p>
       </Panel>
@@ -105,7 +105,7 @@ export function Profile() {
             </dd>
           </div>
         </dl>
-        <p className="muted mt-3 text-[12px]">
+        <p className="text-muted mt-3 text-[12px]">
           要調整角色請找管理者，這一頁改不了——不然權限就形同虛設。
         </p>
       </Panel>

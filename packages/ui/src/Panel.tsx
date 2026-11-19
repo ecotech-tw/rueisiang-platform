@@ -33,7 +33,7 @@ const SURFACE: Record<PanelSkinName, string> = {
 };
 
 // 標題、說明與表格以外的子元素照內容高度；表格那一格吃掉剩下的高度、自己捲。
-const GROWS = "[[data-page=fills]>&]:flex [[data-page=fills]>&]:min-h-0 [[data-page=fills]>&]:min-w-0 [[data-page=fills]>&]:flex-1 [[data-page=fills]>&]:flex-col [[data-page=fills]>&>[data-panel-head]]:flex-none [[data-page=fills]>&>.muted]:flex-none [[data-page=fills]>&>[data-table-scroll]]:min-h-0 [[data-page=fills]>&>[data-table-scroll]]:flex-1 [[data-page=fills]>&>[data-table-scroll]]:overflow-auto";
+const GROWS = "[[data-page=fills]>&]:flex [[data-page=fills]>&]:min-h-0 [[data-page=fills]>&]:min-w-0 [[data-page=fills]>&]:flex-1 [[data-page=fills]>&]:flex-col [[data-page=fills]>&>[data-panel-head]]:flex-none [[data-page=fills]>&>[data-table-scroll]]:min-h-0 [[data-page=fills]>&>[data-table-scroll]]:flex-1 [[data-page=fills]>&>[data-table-scroll]]:overflow-auto";
 
 /*
  * 面板接面板時隔 20px。直接放在 Page 底下的不管：頁面自己排區塊間距（flow 的 mt-5、手機緊湊的 mt-3.5、

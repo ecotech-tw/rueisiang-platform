@@ -169,7 +169,7 @@ export function CustomerForm({ customer, onClose }: Props) {
           />
 
           {customer?.cyberbizCustomerId ? (
-            <p className="muted mt-3 text-[12px]">
+            <p className="text-muted mt-3 text-[12px]">
               這位客戶已連結 CYBERBIZ 會員，儲存時會嘗試更新官網；市話或同步失敗時仍會保留本地修改。
             </p>
           ) : null}

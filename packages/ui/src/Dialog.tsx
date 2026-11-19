@@ -184,7 +184,7 @@ export function Dialog({
           {titleMeta ? (
             <div>
               <h2 id={titleId} className="m-0 text-[20px]">{title}</h2>
-              <p className="muted">{titleMeta}</p>
+              <p className="text-muted">{titleMeta}</p>
             </div>
           ) : (
             <h2 id={titleId} className="m-0 text-[20px]">{title}</h2>

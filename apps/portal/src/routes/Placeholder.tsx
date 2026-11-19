@@ -15,7 +15,7 @@ export function Placeholder({ title, phase, from }: PlaceholderProps) {
     <Page>
       <PageHeader title={title} description={`尚未搬入，預計於 ${phase} 完成。`} />
       <Panel>
-        <p className="muted">來源：<code>{from}</code></p>
+        <p className="text-muted">來源：<code>{from}</code></p>
       </Panel>
     </Page>
   );

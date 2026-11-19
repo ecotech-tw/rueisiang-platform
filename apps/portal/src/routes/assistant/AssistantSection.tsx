@@ -15,7 +15,7 @@ export function AssistantSubsection({ title, description, aside, children }: {
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="mx-0 mt-0 mb-1 text-[14px]">{title}</h3>
-          <p className="muted">{description}</p>
+          <p className="text-muted">{description}</p>
         </div>
         {aside}
       </div>

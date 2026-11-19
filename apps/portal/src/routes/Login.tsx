@@ -65,7 +65,7 @@ export function Login() {
 
   return (
     <LoginCard title="內部系統">
-        <p className="muted">用公司的 Google 帳號，或邀請信裡設定的密碼登入。</p>
+        <p className="text-muted">用公司的 Google 帳號，或邀請信裡設定的密碼登入。</p>
 
         {error ? <LoginError>{error}</LoginError> : null}
 
