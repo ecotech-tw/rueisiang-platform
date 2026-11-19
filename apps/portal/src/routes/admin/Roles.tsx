@@ -219,7 +219,7 @@ export function Roles() {
           }
         >
               {editor.readOnly ? (
-                <p className="muted">
+                <p className="text-muted">
                   管理員角色受系統保護，不能在這裡修改或刪除；要建立其他權限組合，
                   請按上一頁的「複製成自訂角色」。
                 </p>
@@ -321,7 +321,7 @@ export function Roles() {
           ) : (
             <p>目前沒有使用者被指派這個角色。</p>
           )}
-          <p className="muted">角色刪除後，相關的角色指派與權限設定也會一起移除。</p>
+          <p className="text-muted">角色刪除後，相關的角色指派與權限設定也會一起移除。</p>
           {remove.error ? <Alert tone="danger">{remove.error.message}</Alert> : null}
         </ConfirmDialog>
       ) : null}

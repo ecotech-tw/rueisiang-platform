@@ -68,7 +68,7 @@ function InviteLink({ email, url, onDismiss }: { email: string; url: string; onD
     <div className="mt-3.5 grid gap-3 rounded-card border border-secondary bg-brand-soft px-4 py-3.5" role="status">
       <div>
         <strong className="text-[14px] text-brand-dark">已邀請 {email}</strong>
-        <p className="muted mt-1 text-[12.5px]">
+        <p className="text-muted mt-1 text-[12.5px]">
           把這條連結傳給對方，他設定密碼之後就能登入。連結七天內有效，
           而且<b className="text-brand-dark">只會出現這一次</b>——關掉之後要重發才拿得到新的。
         </p>
@@ -362,7 +362,7 @@ function UserEditor({
           <Field as="div" label={<>這個人實際能做什麼<PermissionCount>{effective.size}</PermissionCount></>}>
             <FieldHint>角色帶來的 ＋ 額外授予的，取聯集。</FieldHint>
             {effective.size === 0 ? (
-              <p className="muted">沒有任何權限，登入後看不到任何頁面。</p>
+              <p className="text-muted">沒有任何權限，登入後看不到任何頁面。</p>
             ) : (
               <TagList className="mt-1">
                 {[...effective].map((permission) => (
@@ -391,7 +391,7 @@ function UserEditor({
           }
         >
           <p>這個動作<strong>無法復原</strong>。</p>
-          <p className="muted">
+          <p className="text-muted">
             他的角色指派與額外授予的權限會一起消失。操作紀錄與出金表執行紀錄會留著——
             那些存的是當時的信箱，不是帳號連結，所以「這筆是誰做的」仍然答得出來。
           </p>

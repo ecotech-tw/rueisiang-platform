@@ -54,8 +54,8 @@ export function PayoutTrendChart({ current, lastYear, granularity, valueFormatte
               {data.map((point) => (
                 <tr key={point.key}>
                   <td data-label="期間">{point.label}</td>
-                  <td data-label="本期" className="numeric">{point.current === undefined ? <span className="muted">無資料</span> : valueFormatter(point.current)}</td>
-                  <td data-label="去年同期" className="numeric">{point.lastYear === undefined ? <span className="muted">無資料</span> : valueFormatter(point.lastYear)}</td>
+                  <td data-label="本期" className="numeric">{point.current === undefined ? <span className="text-muted">無資料</span> : valueFormatter(point.current)}</td>
+                  <td data-label="去年同期" className="numeric">{point.lastYear === undefined ? <span className="text-muted">無資料</span> : valueFormatter(point.lastYear)}</td>
                 </tr>
               ))}
             </tbody>

@@ -79,7 +79,7 @@ export function Pager({
     // 手機上疊成兩列，導覽才不會被推出畫面右緣。
     <div className={`flex items-center justify-between gap-3 border-t border-t-soft-line pt-3.5 max-[760px]:flex-col max-[760px]:items-stretch max-[760px]:gap-2.5 ${className}`.trim()}>
       <div className="flex items-center gap-3.5 max-[760px]:justify-between">
-        <span className="muted">{totalLabel}</span>
+        <span className="text-muted">{totalLabel}</span>
         <label className="flex items-center gap-1.5 text-[13px] text-muted">
           每頁
           {/* 比一般表單欄位窄，footer 在小螢幕才不會被這個 select 撐寬。 */}

@@ -59,7 +59,7 @@ function ShopeePayoutPreview({ preview }: { preview: ShopeePreview }) {
                 </tr>
               </tbody>
             </DataTable>
-          ) : <p className="muted">本次報表沒有每日出金資料。</p>}
+          ) : <p className="text-muted">本次報表沒有每日出金資料。</p>}
         </>
       ) : <Alert tone="warning">這份預覽尚未包含每日出金明細，請重新解析報表。</Alert>}
     </div>
@@ -99,7 +99,7 @@ function ShopeeSalesPreview({ preview }: { preview: ShopeePreview }) {
               ))}
             </tbody>
           </DataTable>
-          {preview.rowCount > preview.rows.length ? <p className="muted p-3">表格先顯示前 {number(preview.rows.length)} 列，確認匯入時會處理全部 {number(preview.rowCount)} 列。</p> : null}
+          {preview.rowCount > preview.rows.length ? <p className="text-muted p-3">表格先顯示前 {number(preview.rows.length)} 列，確認匯入時會處理全部 {number(preview.rowCount)} 列。</p> : null}
         </div>
       </details>
     </div>
@@ -285,7 +285,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <strong>匯入預覽</strong>
-                  <p className="muted mt-1">
+                  <p className="text-muted mt-1">
                     期間：{preview.reportMonths.join("、") || "無"}；{number(preview.sourceRowCount)} 列來源資料整理為 {number(preview.rowCount)} 個商品／月份組合。
                   </p>
                 </div>

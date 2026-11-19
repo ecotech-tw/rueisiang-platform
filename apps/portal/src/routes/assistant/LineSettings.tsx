@@ -340,7 +340,7 @@ export function LineSettings() {
             </>
           }
         >
-              <p className="muted">只列出支援 LINE 的工具。這裡沒開的，任何對話都拿不到。</p>
+              <p className="text-muted">只列出支援 LINE 的工具。這裡沒開的，任何對話都拿不到。</p>
               <ToolList>
                 {lineTools.map((tool) => {
                   const blocked = blockedReason(tool);

@@ -145,7 +145,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     >
       {/* 講清楚捨棄的是什麼，不要只說「有未儲存的變更」——那句話沒有幫使用者做決定。 */}
       <p>{pending.message}</p>
-      <p className="muted">離開之後這些變更就找不回來了。</p>
+      <p className="text-muted">離開之後這些變更就找不回來了。</p>
     </Dialog></DialogScope> : null}
   </UnsavedChangesContext.Provider>;
 }

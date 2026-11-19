@@ -204,7 +204,7 @@ export function Sync() {
           </div>}
       >
 
-        <p className="muted">
+        <p className="text-muted">
           會一路拉到最後一頁為止。每一輪送一個獨立的請求（10 頁、500 筆），
           中途斷掉也只是停在某一頁，重按會從那裡接下去。
           最後一次同步：{formatTime(data.lastSyncedAt)}
@@ -217,7 +217,7 @@ export function Sync() {
             <div className="mt-3.5 h-1.5 overflow-hidden rounded-full bg-soft-line" role="progressbar" aria-valuenow={progress.page} aria-valuemin={0} aria-valuemax={progress.totalPages}>
               <span className="block h-full rounded-full [background:linear-gradient(90deg,var(--color-brand),#e14842)] transition-[width] duration-300 ease-[ease]" style={{ width: `${Math.min(100, (progress.page / Math.max(1, progress.totalPages)) * 100)}%` }} />
             </div>
-            <p className="muted mt-3 text-[12px]">
+            <p className="text-muted mt-3 text-[12px]">
               第 {progress.page}／{progress.totalPages} 頁：收到 {progress.received} 筆，
               寫入 {progress.written}
               {progress.skipped ? `、略過 ${progress.skipped}（沒有會員 ID）` : ""}。
@@ -253,7 +253,7 @@ export function Sync() {
           </div>}
       >
 
-        <p className="muted">
+        <p className="flex-none text-muted">
           已處理 {data.webhooks.processed}、略過 {data.webhooks.ignored}、
           失敗 {data.webhooks.failed}。最後收到：{formatTime(data.webhooks.lastReceivedAt)}。
           失敗的每 15 分鐘會自動補跑一次，這顆按鈕是催它立刻跑。
