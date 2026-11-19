@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useResolvedPath, type NavLinkProps } from "react-router";
-import { Button, Dialog, DialogScope, useDialogScope } from "../ui/index.js";
+import { Button, Dialog } from "../ui/index.js";
 
 /**
  * 「有未儲存的變更就先問一聲」。
@@ -22,16 +22,11 @@ interface Pending {
   resolve: (allow: boolean) => void;
   /** 開啟當下的訊息快照。不在 render 期間讀 ref：那在 concurrent 下不安全，而且開啟後就不會更新。 */
   message: string;
-  scope: string;
 }
 
-/**
- * 一頁登記的未儲存變更。scope 是那一頁所在的對話框樣式範圍：確認框掛在 shell 層、不在任何
- * 版面的 DialogScope 底下，要跟頁面同一套樣式就得由登記的那一頁告訴它。
- */
+/** 一頁登記的未儲存變更。 */
 interface DirtyEntry {
   message: string;
-  scope: string;
 }
 
 interface UnsavedChangesValue {
@@ -91,7 +86,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
      */
     return new Promise<boolean>((resolve) => {
       pendingRef.current?.resolve(false);
-      const next = { resolve, message: dirty.message, scope: dirty.scope };
+      const next = { resolve, message: dirty.message };
       pendingRef.current = next;
       setPending(next);
     });
@@ -134,7 +129,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
 
   return <UnsavedChangesContext.Provider value={{ isDirty, setDirty, confirmLeave, beginLeaving }}>
     {children}
-    {pending ? <DialogScope className={pending.scope}><Dialog manageFocus
+    {pending ? <Dialog manageFocus
       title="還有未儲存的變更"
       onClose={() => answer(false)}
       closeLabel="留在這一頁"
@@ -146,7 +141,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
       {/* 講清楚捨棄的是什麼，不要只說「有未儲存的變更」——那句話沒有幫使用者做決定。 */}
       <p>{pending.message}</p>
       <p className="text-muted">離開之後這些變更就找不回來了。</p>
-    </Dialog></DialogScope> : null}
+    </Dialog> : null}
   </UnsavedChangesContext.Provider>;
 }
 
@@ -165,11 +160,10 @@ function useUnsavedContext() {
 export function useUnsavedChanges(dirty: boolean, message: string) {
   const { setDirty } = useUnsavedContext();
   const key = useId();
-  const scope = useDialogScope();
   useEffect(() => {
-    setDirty(key, dirty ? { message, scope } : null);
+    setDirty(key, dirty ? { message } : null);
     return () => setDirty(key, null);
-  }, [dirty, message, key, scope, setDirty]);
+  }, [dirty, message, key, setDirty]);
 }
 
 /**

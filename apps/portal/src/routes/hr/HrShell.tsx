@@ -15,7 +15,7 @@ const DROPDOWN_CLOSED = "pointer-events-none invisible opacity-0";
 const DROPDOWN_OPEN = "pointer-events-auto visible opacity-100";
 
 /** 頁首與內容區疊在同一個 grid 裡：頁首固定高度，內容區吃掉剩下的高度並自己捲。 */
-export const HR_SHELL = "hr-system grid h-full min-h-0 w-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] content-stretch gap-0";
+export const HR_SHELL = "grid h-full min-h-0 w-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] content-stretch gap-0";
 
 /** 玻璃光澤用的 SVG 扭曲。一頁只要一份，id 被 ::before 的 filter: url(#…) 指著。 */
 export function HrGlassDefs() {

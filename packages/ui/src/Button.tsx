@@ -128,7 +128,7 @@ function appearance(variant: ButtonVariant, tone: ButtonTone, size: ButtonSize, 
   if (variant === "link") return ["border-0 bg-transparent p-0 text-[12px] text-brand underline disabled:opacity-45", FOCUS, hasIcon ? "inline-flex items-center gap-1.5 [&_svg]:size-[18px] [&_svg]:flex-none" : ""];
   if (variant === "text") return ["inline-flex min-h-11 items-center gap-1 border-0 bg-transparent px-0 py-1 text-[13px] font-bold text-brand disabled:opacity-45 [&_svg]:size-[18px] [&_svg]:flex-none", FOCUS];
   if (variant === "secondary") {
-    // 玻璃皮膚的開啟狀態只換文字色，底與邊框維持玻璃，跟原本 .hr-system 蓋過 .active 的結果一致。
+    // 玻璃皮膚的開啟狀態只換文字色，底與邊框維持玻璃：換成實色底會在半透明的面板上跳出一塊。
     const look = glass ? [GLASS, GLASS_OUTLINED_TONE[active ? "danger" : tone]] : [active ? OUTLINED_ACTIVE : onSurface(OUTLINED_TONE[tone], "bg-paper"), lifted];
     return [OUTLINED, ...look, FOCUS, touch, hasIcon ? WITH_ICON : ""];
   }

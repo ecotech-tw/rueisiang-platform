@@ -1,7 +1,7 @@
-import { useCallback, useContext, useEffect, useId, useRef, useState, type FormHTMLAttributes, type ReactNode } from "react";
+import { useCallback, useEffect, useId, useRef, useState, type FormHTMLAttributes, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Button } from "./Button.js";
-import { DialogContext, DialogScopeContext, type DialogCloseRef } from "./dialog-context.js";
+import { DialogContext, type DialogCloseRef } from "./dialog-context.js";
 import { useModalFocus } from "./useModalFocus.js";
 
 interface DialogProps {
@@ -144,12 +144,9 @@ export function Dialog({
    * 那個祖先就會變成 fixed 的定位基準，對話框會被關進頁面容器裡（HRIS 的玻璃效果與
    * 頁面轉場都會造成這件事）。掛到 body 底下就不受版面結構影響。
    *
-   * 站台的語意色與玻璃效果是寫在範圍 class 底下的（管理介面的 .hr-system），移出去之後會全部失效——核准會落回品牌紅，跟旁邊的駁回分不出來。
-   * 所以用一層 contents 的殼把範圍補回來，範圍由站台透過 DialogScope 提供。
-   * 不能直接加在遮罩上——.hr-system 自己帶著 grid-template-rows 與 align-content: stretch，
-   * 會把遮罩的垂直置中蓋掉。
+   * 站台的皮膚與語意色都是 React context（ButtonSkin、PanelSkin…）與 prop，context 會穿過
+   * portal，所以掛到 body 之後顏色照樣正確。不要改成靠祖先選擇器套樣式，portal 出去就會失效。
    */
-  const scopeClass = useContext(DialogScopeContext);
   /*
    * footer 是 card 或 form 的最後一層，不跟著內容捲走，也用實色底，捲動的內容不會透到按鈕下面。
    * compact 的內容不會捲到 footer 底下，footer 就不建立疊層，陰影壓在內容後面。
@@ -171,7 +168,6 @@ export function Dialog({
           if (event.target === event.currentTarget) requestClose();
         }}
       >
-        <div className={scopeClass ? `contents ${scopeClass}` : "contents"}>
         <div
           className={`flex origin-center flex-col overflow-hidden rounded-[28px] bg-paper shadow-dialog ${DIALOG_WIDTH[width]} ${compact ? "max-h-[calc(100dvh-32px)] max-[620px]:max-h-[calc(100dvh-16px)]" : "max-h-[calc(100vh-48px)]"} motion-reduce:animate-none ${closing ? "animate-dialog-card-exit" : "animate-dialog-card-enter"} ${className}`.trim()}
           ref={cardRef}
@@ -211,21 +207,10 @@ export function Dialog({
         )}
         {!formProps ? actionFooter : null}
         </div>
-        </div>
       </div>
     </DialogContext.Provider>
   );
 
   // 測試用 renderToStaticMarkup 時沒有 document，直接回傳原本的結構。
   return portal && typeof document !== "undefined" ? createPortal(dialog, document.body) : dialog;
-}
-
-/** 目前所在的對話框範圍。給「自己不在範圍裡、但要替範圍裡的頁面開對話框」的元件記下來用。 */
-export function useDialogScope() {
-  return useContext(DialogScopeContext);
-}
-
-/** 放在站台版面的根節點：這個範圍裡開的對話框 portal 出去後會帶回 `className`。 */
-export function DialogScope({ className, children }: { className: string; children: ReactNode }) {
-  return <DialogScopeContext.Provider value={className}>{children}</DialogScopeContext.Provider>;
 }

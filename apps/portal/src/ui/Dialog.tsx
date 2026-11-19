@@ -1,1 +1,1 @@
-export { Dialog, DialogScope, useDialogScope } from "@rueisiang/ui";
+export { Dialog } from "@rueisiang/ui";

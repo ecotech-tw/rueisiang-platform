@@ -13,7 +13,6 @@ import {
   ConfirmDialog,
   DataTable,
   Dialog,
-  DialogScope,
   DropdownSelect,
   EmptyState,
   Field,
@@ -167,8 +166,6 @@ export function StyleGuide() {
   }
 
   return (
-    // 這一頁的對話框預覽要跟 HRIS 的玻璃樣式一起看；頁面本身不在 HrLayout 底下，所以自己提供範圍。
-    <DialogScope className="hr-system">
     <Page>
       <PageHeader
         title="UI 元件樣式指南"
@@ -403,6 +400,5 @@ export function StyleGuide() {
       ) : null}
       </ButtonSkin>
     </Page>
-    </DialogScope>
   );
 }

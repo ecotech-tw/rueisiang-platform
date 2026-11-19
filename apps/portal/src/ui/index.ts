@@ -1,7 +1,7 @@
 export { Button, ButtonLink, ButtonSkin } from "./Button.js";
 export { Chip, ChipGroup } from "./Chip.js";
 export { CellError, DataTable, RowActions, TABLE_SCROLL, TableNote, TableSkin, type TableSkinName } from "./DataTable.js";
-export { Dialog, DialogScope, useDialogScope } from "./Dialog.js";
+export { Dialog } from "./Dialog.js";
 export { DropdownSelect, SearchCombobox } from "./DropdownSelect.js";
 export { EmptyState } from "./EmptyState.js";
 export { ExternalLink } from "./ExternalLink.js";
