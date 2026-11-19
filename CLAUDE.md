@@ -172,7 +172,7 @@ primary-container，`--color-muted` 當 on-surface-variant。
 不要在元件裡寫死色碼。
 
 **外觀寫在元件裡，用 Tailwind utility 當 inline class。** 語意放在元件名稱與 prop
-（`<Button tone="add" size="sm">`），不放在 class 名稱。會重複出現的東西抽成
+（`<Button tone="success" size="sm">`），不放在 class 名稱。會重複出現的東西抽成
 `packages/ui` 的元件，不是抽成一個 class。
 
 理由：class 是全域的，任何一頁都能從外面蓋掉它，也能把它挪去做別的事。
@@ -187,10 +187,10 @@ primary-container，`--color-muted` 當 on-surface-variant。
   位置）由外層用 utility 決定；元件的 `className` 只給這種用途，元件自己不帶外距。
 - **狀態與斷點用 variant 寫在同一處**（`hover:`、`focus-visible:`、`disabled:`、
   `active:`、`max-sm:`），不要拆到另一個檔案。
-- **不新增語意化 class。** `components.css` 裡既有的 class，在所屬元件搬完之前照舊
-  使用；搬一個元件時，把它的 class 連同所有從外面覆寫它的規則一起刪掉，不留新舊兩套。
+- **不新增語意化 class。** CSS 檔裡已經沒有任何元件 class，新畫面一律寫 utility；
+  不要因為「好幾處長得一樣」就在 CSS 檔開一個 class，那是抽元件或抽常數的時機。
 - **留在 CSS 檔的只有 utility 寫不到的東西**：`@theme`、`@layer base` 的元素預設、
-  `@keyframes`、第三方元件自己產生的 DOM（地圖）。
+  `@keyframes`、`::view-transition-*`、第三方元件自己產生的 DOM（地圖）。
 - 半透明的品牌色用 `bg-brand/7`，CSS 檔裡用 `--alpha(var(--color-brand) / 7%)`；不要手寫
   `rgba(213, 56, 59, .07)`——色碼改了那些 rgba 不會跟著改。
 
@@ -198,9 +198,25 @@ primary-container，`--color-muted` 當 on-surface-variant。
 styles 入口必須用 `@source` 指到 `packages/ui/src`。少了這一行不會報錯，元件裡的 class
 只是不會被產生，畫面上就是一顆沒有樣式的按鈕。
 
-**既有的 `components.css` 用 `layer(components)` 匯入**，所以 utility 一定贏過還沒搬的
-舊 class。沒有 layer 的話「`.page-head` 的 margin」跟「`mt-6`」誰贏要看誰寫在後面，
-那是最難查的一種 bug。
+**app 的 `styles/components.css` 用 `layer(components)` 匯入**，所以 utility 一定贏過那裡
+剩下的規則（地圖的 DOM）。拿掉 layer 的話，CSS 檔的規則跟 utility 改同一個屬性時誰贏
+要看誰寫在後面，那是最難查的一種 bug。
+
+**共用元件的預設值要讓外層蓋得掉，而且不能靠「誰寫在後面」。** 兩個沒有 variant 的
+utility 改同一個屬性時，誰贏看的是 Tailwind 的產生順序，不是 class 字串的順序。所以：
+
+- **元件自己的預設值用 `defaultUnless`**（`packages/ui/src/class-defaults.ts`）：呼叫端在
+  `className` 給了同一個屬性的 utility，元件就整組拿掉自己的預設，不是疊上去。`Panel` 的
+  內距、`FormHint` 的上外距都是這樣，所以給 `Panel` 傳 `p-*` 是契約，不算從外面改外觀。
+- **容器替子元素設的預設值寫成 `[:where(&>…)]:`**，權重歸零，子元素自己的 utility 才
+  一定贏。`Page` 的區塊間距就是這樣寫的。
+
+**給 portal 出去的元素用的 CSS 變數要定義在 `:root`。** `Dialog`、浮動按鈕這類用
+`createPortal` 掛到 `body` 底下的元素，不在版面容器裡，讀不到容器上定義的變數；
+`calc()` 裡有讀不到的變數，整個屬性就失效。員工 HR 站的浮動新增鈕曾因此跳到畫面最上面。
+
+Tailwind 掃 class 的兩個坑：class 必須是完整字串，不能用字串拼出來（`` `mt-${n}` `` 不會被產生）；
+`text-sm`／`text-xs` 會連行高一起設，只要字級就寫 `text-[13px]`。
 
 **preflight 會重置掉瀏覽器預設樣式**，所以標題字重、清單的項目符號這類東西要自己寫回來
 （`styles.css` 的 `@layer base` 已經處理了 `h1`–`h3`）。新加標籤時記得確認。
@@ -273,7 +289,7 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
 | 欄距 | 16px，最外側 24px |
 | 分隔線 | 只有列與列之間（`--color-soft-line`），欄之間沒有 |
 | hover | 4% 的品牌色 state layer |
-| 數字欄 | 靠右並用 `tabular-nums`（加 `.numeric`） |
+| 數字欄 | 靠右並用 `tabular-nums`（格子加 `numeric`，由 DataTable 套用；這是 DataTable 認得的標記，不是 CSS 檔裡的 class） |
 
 表格上方的工具列（搜尋、篩選）要有自己的下緣分隔線，跟表頭分成兩個區塊——
 沒有那條線的話兩排東西會黏在一起。
