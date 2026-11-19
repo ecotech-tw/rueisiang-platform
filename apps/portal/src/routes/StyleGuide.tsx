@@ -186,7 +186,7 @@ export function StyleGuide() {
         </div>
       </Panel>
 
-      <Panel title="設計原則" description="語意化元件 class 集中在 components.css，色彩與圓角 token 集中在 styles.css。">
+      <Panel title="設計原則" description="外觀用 Tailwind utility 寫在元件裡，色彩與圓角 token 集中在 packages/ui/theme.css。">
         <div className={PRINCIPLES}>
           <div className={PRINCIPLE}><strong>先定義 Props</strong><span className={NOTE}>Page 傳入 variant、tone、label、disabled 等語意參數。</span></div>
           <div className={PRINCIPLE}><strong>Material 3</strong><span className={NOTE}>primary container、state layer、focus ring 與安靜的圓角層級。</span></div>

@@ -278,7 +278,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       onChange={(event) => setUserId(event.target.value)}
     />
     {isEditing ? <FormHint>更新敘薪時員工欄位已鎖定，避免誤改到其他員工。</FormHint> : null}
-    {userId && profile.isPending ? <p className="muted">載入目前敘薪…</p> : null}
+    {userId && profile.isPending ? <p className="text-muted">載入目前敘薪…</p> : null}
     {userId && !profile.isPending && !employment ? <Alert tone="warning">這位員工沒有任職紀錄，請先在員工列表建立任職。</Alert> : null}
     {employment ? <FormHint>目前職位「{employment.position}」；實際服務年資起算日 {employment.serviceStartOn ?? "未設定"}；目前有效敘薪 {effectiveVersion ? `${PAY_BASIS_LABEL[effectiveVersion.payBasis]} ${totalsText(versionTotals(effectiveVersion))}${effectiveVersion.overtimeHourlyMinor != null ? `，加班固定 ${money(effectiveVersion.overtimeHourlyMinor)}／時` : ""}` : allVoided ? "已全部撤回" : "尚未設定"}。</FormHint> : null}
     {employment?.serviceStartOn && validFrom < employment.serviceStartOn ? <Alert tone="warning">這筆敘薪自 {validFrom} 生效，但服務年資起算日是 {employment.serviceStartOn}；該日期前不會被薪資試算視為在職日。若 {employment.serviceStartOn} 填錯，請先到員工管理修正。</Alert> : null}
@@ -336,7 +336,7 @@ function CompensationEditor({ employees, initialUserId, onClose }: { employees: 
       onConfirm={voidLatest}
     >
       <p>這會解除 <strong>{selected?.legalName ?? "這位員工"}</strong> 的第 {latestVersion.versionNumber} 版敘薪；資料不會刪除，既有月份的薪資快照也不會被改動。</p>
-      <p className="muted">解除後會回到上一個仍有效的版本；可重複解除，直到第一版，再建立第一版修正版。</p>
+      <p className="text-muted">解除後會回到上一個仍有效的版本；可重複解除，直到第一版，再建立第一版修正版。</p>
     </ConfirmDialog> : null}
   </>;
 }
@@ -396,7 +396,7 @@ export function WorkerCompensationEditor({ worker, onClose }: { worker: Schedule
     onConfirm={voidLatest}
   >
     <p>這會解除 <strong>{worker.displayName}</strong> 的第 {latestVersion.versionNumber} 版支援人員敘薪；資料不會刪除，既有月份的薪資快照也不會被改動。</p>
-    <p className="muted">只能依序解除最新版本；若前一版因本版生效而結束，撤回後會恢復前一版的有效期間。全部撤回後可重新建立修正版。</p>
+    <p className="text-muted">只能依序解除最新版本；若前一版因本版生效而結束，撤回後會恢復前一版的有效期間。全部撤回後可重新建立修正版。</p>
     {voidCompensation.error ? <Alert tone="danger">{voidCompensation.error.message}</Alert> : null}
   </ConfirmDialog> : null}</>;
 }
@@ -411,11 +411,11 @@ function EmployeeCompensationRow({ employee, canWrite, onEdit }: { employee: HrF
   const allVoided = compensationVersions.length > 0 && !latest;
   if (profile.isLoading) return <HrSkeletonTableRow columns={6} />;
   return <tr>
-    <td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}</span></td>
+    <td><strong>{employee.legalName}</strong><br /><span className="text-muted">{employee.employeeNumber}</span></td>
     <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
     <td>{current ? PAY_BASIS_LABEL[current.payBasis] : upcoming ? <>{PAY_BASIS_LABEL[upcoming.payBasis]}<br /><StatusBadge tone="info">預計生效</StatusBadge></> : allVoided ? "已全部撤回" : "尚未設定"}</td>
-    <td className="numeric">{current ? <>{totalsText(versionTotals(current))}{upcoming ? <><br /><span className="muted">預計 {totalsText(versionTotals(upcoming))}</span></> : null}</> : upcoming ? <><span className="muted">預計</span><br />{totalsText(versionTotals(upcoming))}</> : "—"}{current?.overtimeHourlyMinor != null ? <><br /><span className="muted">加班固定 {money(current.overtimeHourlyMinor)}／時</span></> : null}</td>
-    <td>{current ? <>{`${current.validFrom}～${current.validTo ?? "目前"}`}{upcoming ? <><br /><span className="muted">預計 {upcoming.validFrom} 起</span></> : null}</> : upcoming ? <><strong>{upcoming.validFrom} 起</strong><br /><span className="muted">尚未生效</span></> : allVoided ? "已全部撤回" : "—"}</td>
+    <td className="numeric">{current ? <>{totalsText(versionTotals(current))}{upcoming ? <><br /><span className="text-muted">預計 {totalsText(versionTotals(upcoming))}</span></> : null}</> : upcoming ? <><span className="text-muted">預計</span><br />{totalsText(versionTotals(upcoming))}</> : "—"}{current?.overtimeHourlyMinor != null ? <><br /><span className="text-muted">加班固定 {money(current.overtimeHourlyMinor)}／時</span></> : null}</td>
+    <td>{current ? <>{`${current.validFrom}～${current.validTo ?? "目前"}`}{upcoming ? <><br /><span className="text-muted">預計 {upcoming.validFrom} 起</span></> : null}</> : upcoming ? <><strong>{upcoming.validFrom} 起</strong><br /><span className="text-muted">尚未生效</span></> : allVoided ? "已全部撤回" : "—"}</td>
     <td>{canWrite && employment ? latest
       ? <Button variant="icon" icon="edit" tone="info" title="更新敘薪" aria-label="更新敘薪" onClick={() => onEdit(employee.userId)} />
       : allVoided
@@ -429,7 +429,7 @@ export function WorkerCompensationRow({ employee, worker, canWrite, onEdit }: { 
   const current = currentVersion(versions);
   const latest = latestCompensationVersion(versions);
   const allVoided = versions.length > 0 && !latest;
-  return <tr><td><strong>{employee.legalName}</strong><br /><span className="muted">{employee.employeeNumber}・排班支援人員</span></td><td>支援人員／排班</td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : allVoided ? "已全部撤回" : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite && worker ? <Button variant="icon" icon={latest ? "edit" : versions.length ? "edit" : "plus"} tone={latest ? "info" : versions.length ? "info" : "success"} title={latest ? "更新或解除最新敘薪" : allVoided ? "重新建立敘薪" : "新增版本"} aria-label={`為${employee.legalName}${latest ? "更新或解除最新" : allVoided ? "重新建立" : "新增"}敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
+  return <tr><td><strong>{employee.legalName}</strong><br /><span className="text-muted">{employee.employeeNumber}・排班支援人員</span></td><td>支援人員／排班</td><td>{current ? PAY_BASIS_LABEL[current.payBasis] : allVoided ? "已全部撤回" : "—"}</td><td className="numeric">{current ? <>{money(current.baseAmountMinor)}<br /><span className="text-muted">加班：{workerOvertimeLabel(current)}</span></> : "尚未設定"}</td><td>{current ? `${current.validFrom}～${current.validTo ?? "目前"}` : "—"}</td><td>{canWrite && worker ? <Button variant="icon" icon={latest ? "edit" : versions.length ? "edit" : "plus"} tone={latest ? "info" : versions.length ? "info" : "success"} title={latest ? "更新或解除最新敘薪" : allVoided ? "重新建立敘薪" : "新增版本"} aria-label={`為${employee.legalName}${latest ? "更新或解除最新" : allVoided ? "重新建立" : "新增"}敘薪版本`} onClick={onEdit} /> : null}</td></tr>;
 }
 
 export function HrCompensationManagement({ settingsOnly = false }: { settingsOnly?: boolean } = {}) {

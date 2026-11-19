@@ -59,7 +59,7 @@ export function CalendarScopePicker({ scopeIds, scopes, disabled, inTableCell = 
   const updateScope = (index: number, value: string) => onChange(scopeIds.map((scopeId, currentIndex) => currentIndex === index ? value : scopeId));
   return <div className={["grid min-w-0 gap-1", inTableCell ? "max-w-[240px]" : "", className].filter(Boolean).join(" ")}>
     {scopeIds.length === 0
-      ? <span className="muted">全部門市／地區</span>
+      ? <span className="text-muted">全部門市／地區</span>
       : scopeIds.map((scopeId, index) => <div className="flex min-w-0 items-center gap-1" key={`${scopeId}-${index}`}><DropdownSelect className="flex-1" value={scopeId} aria-label={`適用門市／地區 ${index + 1}`} disabled={disabled} options={[
         ...scopes.map((scope) => ({ value: scope.id, label: scope.name, disabled: scopeIds.includes(scope.id) && scope.id !== scopeId })),
         ...(scopes.some((scope) => scope.id === scopeId) ? [] : [{ value: scopeId, label: scopeLabel(scopeId, scopes), disabled: true }]),
@@ -264,12 +264,12 @@ export function HrCalendar() {
                 ? canWrite
                   ? <CalendarScopePicker inTableCell scopeIds={day.specialScopeIds ?? []} scopes={calendar.data?.scopes ?? []} disabled={save.isPending || loading} onChange={(specialScopeIds) => update(day.date, { specialScopeIds })} />
                   : (day.specialScopeIds?.length ? day.specialScopeIds.map((scopeId) => scopeLabel(scopeId, calendar.data?.scopes ?? [])).join("、") : "全部門市／地區")
-                : <span className="muted">—</span>}
+                : <span className="text-muted">—</span>}
             </td>
             <td data-label="備註／名稱">
               {canWrite
                 ? <TextField className="min-w-0" aria-label={`${day.date} 名稱`} maxLength={100} placeholder="未命名" value={day.name} disabled={save.isPending || loading} onChange={(event) => update(day.date, { name: event.target.value })} />
-                : day.name || <span className="muted">未命名</span>}
+                : day.name || <span className="text-muted">未命名</span>}
             </td>
             <td data-label="操作" className="numeric">
               {canWrite ? <Tooltip label={`移除 ${day.date}`} focusable={false}>

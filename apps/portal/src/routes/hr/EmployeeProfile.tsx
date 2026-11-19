@@ -70,7 +70,7 @@ export function EmployeeProfile({ profile, canRead, canWrite, onSaved }: { profi
   const savedPersonal = { ...emptyHrPersonalData(), ...profile.personalData };
   return <>
     <Panel id="employee-photo" title="員工大頭貼">
-      {profile.personalData !== undefined && employment ? <EmployeePhoto employmentId={employment.id} revision={employment.revision} name={profile.employee.legalName} photo={profile.photo} canWrite={canWrite && active} disabled={editing !== null || save.isPending || archive.isPending} onBusyChange={setPhotoBusy} onSaved={onSaved} /> : <p className="muted">員工大頭貼僅限全平台 HR 管理者查看。</p>}
+      {profile.personalData !== undefined && employment ? <EmployeePhoto employmentId={employment.id} revision={employment.revision} name={profile.employee.legalName} photo={profile.photo} canWrite={canWrite && active} disabled={editing !== null || save.isPending || archive.isPending} onBusyChange={setPhotoBusy} onSaved={onSaved} /> : <p className="text-muted">員工大頭貼僅限全平台 HR 管理者查看。</p>}
     </Panel>
     <Panel id="employee-basic" title="基本資料" actions={editButton("basic")}>
       {editing === "basic" ? <form className="grid gap-4" onSubmit={submit}><FieldGrid as="fieldset" disabled={pending}>
@@ -81,15 +81,15 @@ export function EmployeeProfile({ profile, canRead, canWrite, onSaved }: { profi
         <div><dt>中文姓名</dt><dd>{profile.employee.legalName}</dd></div><div><dt>員工編號</dt><dd>{profile.employee.employeeNumber}</dd></div>
         {profile.personalData !== undefined ? <PersonalFields group="basic" data={savedPersonal} editing={false} onChange={changePersonal} /> : null}
       </ProfileGrid>}
-      {profile.personalData === undefined ? <p className="muted">生日、證件與其他個資僅限全平台 HR 管理者查看。</p> : null}
+      {profile.personalData === undefined ? <p className="text-muted">生日、證件與其他個資僅限全平台 HR 管理者查看。</p> : null}
     </Panel>
     <Panel id="employee-contact" title="聯絡資料" actions={profile.personalData !== undefined ? editButton("contact") : null}>
-      {profile.personalData === undefined ? <p className="muted">聯絡資料僅限全平台 HR 管理者查看。</p> : editing === "contact" ? <form className="grid gap-4" onSubmit={submit}><FieldGrid as="fieldset" disabled={pending}><PersonalFields group="contact" data={personal} editing onChange={changePersonal} /></FieldGrid>{error}{actions}</form> : <ProfileGrid><PersonalFields group="contact" data={savedPersonal} editing={false} onChange={changePersonal} /></ProfileGrid>}
+      {profile.personalData === undefined ? <p className="text-muted">聯絡資料僅限全平台 HR 管理者查看。</p> : editing === "contact" ? <form className="grid gap-4" onSubmit={submit}><FieldGrid as="fieldset" disabled={pending}><PersonalFields group="contact" data={personal} editing onChange={changePersonal} /></FieldGrid>{error}{actions}</form> : <ProfileGrid><PersonalFields group="contact" data={savedPersonal} editing={false} onChange={changePersonal} /></ProfileGrid>}
     </Panel>
     {employment ? <EmployeeRfidCard employmentId={employment.id} active={active} canRead={canRead} canWrite={canWrite} /> : null}
     <Panel id="employee-company" title="公司／任職資料" actions={editButton("company")}>
       {editing === "company" || editing === "reactivate" ? <form className="grid gap-4" onSubmit={submit}>
-        {editing === "reactivate" ? <p className="muted">沿用原任職、服務年資與歷史資料；恢復後請確認出勤範圍。</p> : null}
+        {editing === "reactivate" ? <p className="text-muted">沿用原任職、服務年資與歷史資料；恢復後請確認出勤範圍。</p> : null}
         <FieldGrid as="fieldset" disabled={pending}>
           {editing === "reactivate" ? <><TextField label="中文姓名" required maxLength={100} value={values.legalName} onChange={(event) => setValues({ ...values, legalName: event.target.value })} /><TextField label="員工編號" required maxLength={40} value={values.employeeNumber} onChange={(event) => setValues({ ...values, employeeNumber: event.target.value })} /></> : null}
           <TextField label="職位" required maxLength={100} value={values.position} onChange={(event) => setValues({ ...values, position: event.target.value })} />
@@ -101,7 +101,7 @@ export function EmployeeProfile({ profile, canRead, canWrite, onSaved }: { profi
         <div><dt>服務年資起算日</dt><dd>{employment?.serviceStartOn ?? "—"}</dd></div><div><dt>員工狀態</dt><dd><StatusBadge tone={active ? "success" : "neutral"}>{active ? "在職" : "未在職"}</StatusBadge></dd></div>
         <div><dt>帳號狀態</dt><dd>{profile.employee.userStatus === "active" ? "啟用中" : profile.employee.userStatus === "invited" ? "待啟用" : "已停用"}</dd></div>
       </ProfileGrid>}
-      <p className="muted">公司 Email 與帳號名稱由平台帳號管理；在職與帳號啟用狀態分開。</p>
+      <p className="text-muted">公司 Email 與帳號名稱由平台帳號管理；在職與帳號啟用狀態分開。</p>
       {canWrite && employment && editing === null ? <div className="flex justify-end gap-2">{active ? <Button variant="danger" icon="archive" disabled={pending} onClick={() => { archive.reset(); setConfirmArchive(true); }}>設為未在職</Button> : <Button icon="plus" tone="success" mobileIconOnly onClick={() => begin("reactivate")}>恢復在職</Button>}</div> : null}
     </Panel>
     {confirmArchive && employment ? <ConfirmDialog title="將員工設為未在職？" confirmLabel="設為未在職" pending={archive.isPending} closeRequestRef={closeArchiveRef} onCancel={() => setConfirmArchive(false)} onConfirm={() => archive.mutate({ path: `/employments/${employment.id}/archive`, method: "POST", values: { revision: employment.revision } }, { onSuccess: () => { (closeArchiveRef.current ?? ((afterClose?: () => void) => { setConfirmArchive(false); afterClose?.(); }))(onSaved); } })}>

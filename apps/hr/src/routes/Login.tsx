@@ -54,12 +54,12 @@ export function Login() {
 
   return (
     <LoginCard title="內部系統">
-        <p className="muted">用公司的 Google 帳號，或邀請信裡設定的密碼登入。</p>
+        <p className="text-muted">用公司的 Google 帳號，或邀請信裡設定的密碼登入。</p>
 
         {error || sessionError ? <LoginError>{error ?? (sessionError instanceof Error ? sessionError.message : "讀取登入狀態失敗，請重新載入。")}</LoginError> : null}
 
         {isSignedOutEntry() && isLiffClient() ? <>
-          <p className="muted">已登出此裝置，LINE 綁定仍保留。可重新登入，或關閉後再從 LINE 開啟 HR。</p>
+          <p className="text-muted">已登出此裝置，LINE 綁定仍保留。可重新登入，或關閉後再從 LINE 開啟 HR。</p>
           <LoginButton href={returnTo}>使用 LINE 重新登入</LoginButton>
         </> : null}
 

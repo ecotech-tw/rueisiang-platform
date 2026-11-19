@@ -474,7 +474,7 @@ function CreateRequestDialog({ initialKind, employees, workers, leaveTypes, onCl
   const [actionsSlot, setActionsSlot] = useState<HTMLElement | null>(null);
   return <Dialog title="新增申請" titleMeta="建立後會出現在申請紀錄" width={680} bodyLayout="grid gap-4 px-6 pb-5" onClose={onClose} closeDisabled={pending} actions={<div ref={setActionsSlot} className="contents" />}>
     <div className="grid gap-2">
-      <span className="muted">申請類型</span>
+      <span className="text-muted">申請類型</span>
       <SegmentedControl
         size="lg"
         aria-label="申請類型"
@@ -642,7 +642,7 @@ export function HrRequestCenter() {
             <td data-label="內容"><Tooltip label={row.detail} focusable={false} className="min-[761px]:block"><span className="min-[761px]:block min-[761px]:max-w-[280px] min-[761px]:truncate">{row.detail}</span></Tooltip></td>
             <td data-label="原因"><Tooltip label={row.reason} focusable={false} className="min-[761px]:block"><span className="min-[761px]:block min-[761px]:max-w-[280px] min-[761px]:truncate">{row.reason}</span></Tooltip></td>
             <td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge>{row.payrollLocked ? <span className="text-[12px] text-muted">薪資已鎖定</span> : null}</td>
-            <td data-label="操作">{row.payrollLocked ? <span className="muted">薪資已鎖定</span> : row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false} className="min-[761px]:block"><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
+            <td data-label="操作">{row.payrollLocked ? <span className="text-muted">薪資已鎖定</span> : row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false} className="min-[761px]:block"><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
           </tr>;
         })}</tbody>
       </DataTable>

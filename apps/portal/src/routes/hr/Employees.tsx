@@ -33,9 +33,9 @@ function dateTime(value: string): string {
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" });
 }
 export function HrLineBindingStatus({ employee }: { employee: Pick<Employee, "personKind" | "userId" | "email" | "lineLinkedAt"> }) {
-  if (employee.userId === null && !employee.email) return <span className="muted">不適用</span>;
-  if (employee.lineLinkedAt === undefined) return <span className="muted">狀態未提供</span>;
-  return <><StatusBadge tone={employee.lineLinkedAt === null ? "neutral" : "success"}>{employee.lineLinkedAt === null ? "未綁定" : "已綁定"}</StatusBadge>{employee.lineLinkedAt ? <><br /><span className="muted">{dateTime(employee.lineLinkedAt)}</span></> : null}</>;
+  if (employee.userId === null && !employee.email) return <span className="text-muted">不適用</span>;
+  if (employee.lineLinkedAt === undefined) return <span className="text-muted">狀態未提供</span>;
+  return <><StatusBadge tone={employee.lineLinkedAt === null ? "neutral" : "success"}>{employee.lineLinkedAt === null ? "未綁定" : "已綁定"}</StatusBadge>{employee.lineLinkedAt ? <><br /><span className="text-muted">{dateTime(employee.lineLinkedAt)}</span></> : null}</>;
 }
 
 function EditorDialog({ editor, onClose, onSuccess }: { editor: Editor; onClose: () => void; onSuccess: () => void }) {
@@ -62,30 +62,30 @@ function BasicSection({ profile }: { profile: Profile }) {
   const job = profile.employments.find((entry) => !entry.archivedAt) ?? profile.employments[0];
   return <Panel id="employee-basic" title="基本資料"><ProfileGrid>
     <div><dt>姓名</dt><dd>{profile.employee.legalName}</dd></div><div><dt>員工編號</dt><dd>{profile.employee.employeeNumber}</dd></div><div><dt>職位</dt><dd>{job?.position ?? profile.employee.position}</dd></div><div><dt>員工狀態</dt><dd>{job?.archivedAt ? `未在職（${dateTime(job.archivedAt)}）` : job ? "在職" : "尚未建立員工資料"}</dd></div>
-  </ProfileGrid><p className="muted">員工不在職後仍保留資料，供薪資、出勤與稽核歷史追溯。</p>{profile.employee.personKind === "worker" ? <p className="muted">支援人員的帳號連結、人員與排班異動由支援人員管理維護。</p> : null}</Panel>;
+  </ProfileGrid><p className="text-muted">員工不在職後仍保留資料，供薪資、出勤與稽核歷史追溯。</p>{profile.employee.personKind === "worker" ? <p className="text-muted">支援人員的帳號連結、人員與排班異動由支援人員管理維護。</p> : null}</Panel>;
 }
 
 function CompensationTable({ rows }: { rows: CompensationVersion[] }) {
-  if (!rows.length) return <p className="muted">尚無敘薪資料。</p>;
+  if (!rows.length) return <p className="text-muted">尚無敘薪資料。</p>;
   return <DataTable><thead><tr><th>生效期間</th><th>狀態</th><th>計算方式</th><th className="numeric">本薪</th><th>加班設定</th><th>薪資項目／備註</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}>
     <td data-label="生效期間">{row.validFrom}～{row.validTo ?? "未設定迄日"}</td><td data-label="狀態"><StatusBadge tone={row.voidedAt ? "danger" : "neutral"}>{row.voidedAt ? "已撤回" : "有效版本"}</StatusBadge></td><td data-label="計算方式">{PAY_BASIS_LABEL[row.payBasis]}</td><td data-label="本薪" className="numeric">{money(row.baseAmountMinor)}</td><td data-label="加班設定">{row.overtimeRatePpm != null ? `固定 ${row.overtimeRatePpm / 1_000_000} 倍` : row.overtimeHourlyMinor != null ? `固定 ${money(row.overtimeHourlyMinor)}／時` : "制度倍率"}</td><td data-label="薪資項目／備註">{row.items?.map((item) => <div key={item.id}>{item.itemName}：{money(item.amountMinor)}／{PAY_BASIS_LABEL[item.amountBasis]}</div>)}{row.note || (!row.items?.length ? "—" : null)}</td>
   </tr>)}</tbody></DataTable>;
 }
 function AssignmentTable({ assignments }: { assignments: AttendanceAssignment[] }) {
-  if (!assignments.length) return <p className="muted">尚未指派辦公位置。</p>;
+  if (!assignments.length) return <p className="text-muted">尚未指派辦公位置。</p>;
   return <DataTable><thead><tr><th>辦公位置</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>{assignments.map((assignment) => <tr key={assignment.id}><td data-label="辦公位置">{assignment.locationName}</td><td data-label="起日">{assignment.validFrom}</td><td data-label="迄日（不含）">{assignment.validTo ?? "未設定"}</td></tr>)}</tbody></DataTable>;
 }
 function InsuranceTable({ rows }: { rows: InsuranceVersion[] }) {
-  if (!rows.length) return <p className="muted">尚無勞健保資料。</p>;
+  if (!rows.length) return <p className="text-muted">尚無勞健保資料。</p>;
   return <DataTable><thead><tr><th>種類</th><th>狀態</th><th>生效期間</th><th className="numeric">投保金額</th><th>眷屬</th><th>級距來源</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td data-label="種類">{INSURANCE_LABEL[row.scheme]}</td><td data-label="狀態"><StatusBadge tone={row.voidedAt ? "danger" : row.status === "enrolled" ? "success" : "neutral"}>{row.voidedAt ? "已撤回" : row.status === "enrolled" ? "加保" : "退保"}</StatusBadge></td><td data-label="生效期間">{row.validFrom}～{row.validTo ?? "未設定迄日"}</td><td data-label="投保金額" className="numeric">{money(row.insuredAmountMinor)}</td><td data-label="眷屬">{row.scheme === "health" ? row.dependentCount : "—"}</td><td data-label="級距來源">{row.sourceKind === "official" ? "官方" : "人工"} {row.rateYear}</td></tr>)}</tbody></DataTable>;
 }
 function AttendanceEventsTable({ profile }: { profile: Profile }) {
-  if (!profile.attendanceEvents) return <p className="muted">打卡明細僅限全平台 HR 管理者查看。</p>;
-  if (!profile.attendanceEvents.length) return <p className="muted">尚無打卡紀錄。</p>;
+  if (!profile.attendanceEvents) return <p className="text-muted">打卡明細僅限全平台 HR 管理者查看。</p>;
+  if (!profile.attendanceEvents.length) return <p className="text-muted">尚無打卡紀錄。</p>;
   return <DataTable><thead><tr><th>時間</th><th>事件</th><th>辦公位置</th><th className="numeric">距離（公尺）</th></tr></thead><tbody>{profile.attendanceEvents.map((event) => <tr key={event.id}><td data-label="時間">{dateTime(event.occurredAt)}</td><td data-label="事件">{event.eventKind === "clock_in" ? "上班" : event.eventKind === "clock_out" ? "下班" : "—"}</td><td data-label="辦公位置">{event.locationName ?? "—"}</td><td data-label="距離（公尺）" className="numeric">{event.distanceMeters ?? "—"}</td></tr>)}</tbody></DataTable>;
 }
 function LeaveTable({ rows }: { rows: LeaveRequest[] }) {
-  if (!rows.length) return <p className="muted">尚無請假紀錄。</p>;
+  if (!rows.length) return <p className="text-muted">尚無請假紀錄。</p>;
   return <DataTable><thead><tr><th>假別</th><th>狀態</th><th>期間</th><th>時數</th><th>原因</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td data-label="假別">{row.leaveType}</td><td data-label="狀態"><StatusBadge tone={row.status === "approved" ? "success" : row.status === "rejected" ? "danger" : row.status === "pending" ? "warning" : "neutral"}>{LEAVE_STATUS_LABEL[row.status]}</StatusBadge></td><td data-label="期間">{row.startsAt ? dateTime(row.startsAt) : row.startsOn}～{row.endsAt ? dateTime(row.endsAt) : row.endsOn}</td><td data-label="時數">{Math.floor(row.durationMinutes / 60)} 小時 {row.durationMinutes % 60 ? `${row.durationMinutes % 60} 分` : ""}</td><td data-label="原因">{row.reason || "—"}</td></tr>)}</tbody></DataTable>;
 }
 
@@ -108,17 +108,17 @@ export function HrProfileDetails({ profile, includeBasic = true }: { profile: Pr
   return <>
     {includeBasic ? <BasicSection profile={profile} /> : null}
     <Panel id="employee-compensation" title="敘薪資料" description="保留每次異動的生效期間、本薪、加班設定與薪資項目；已撤回版本不參與計算。">
-      {profile.compensation ? <CompensationTable rows={profile.compensation} /> : <p className="muted">敘薪明細僅限全平台 HR 管理者查看。</p>}
+      {profile.compensation ? <CompensationTable rows={profile.compensation} /> : <p className="text-muted">敘薪明細僅限全平台 HR 管理者查看。</p>}
     </Panel>
     {!isWorker ? <>
-      <Panel id="employee-insurance" title="保險資料" description="勞保、健保的加退保、投保級距與眷屬異動歷史。">{profile.insurance ? <InsuranceTable rows={profile.insurance} /> : <p className="muted">勞健保明細僅限全平台 HR 管理者查看。</p>}</Panel>
+      <Panel id="employee-insurance" title="保險資料" description="勞保、健保的加退保、投保級距與眷屬異動歷史。">{profile.insurance ? <InsuranceTable rows={profile.insurance} /> : <p className="text-muted">勞健保明細僅限全平台 HR 管理者查看。</p>}</Panel>
       <Panel id="employee-attendance" title="出勤資料">
         <ProfileGrid><div><dt>出勤方式</dt><dd>{job?.attendanceMode === "scheduled" ? "排班" : "一般辦公"}</dd></div>{job?.attendanceMode === "scheduled" ? <div><dt>每月約定休假</dt><dd>{job.monthlyRestDays == null ? "未設定" : `${job.monthlyRestDays} 天`}</dd></div> : null}</ProfileGrid>
         <h3>辦公位置</h3><AssignmentTable assignments={profile.attendanceAssignments ?? []} />
         <h3>營運據點歸屬</h3>
-        {profile.assignments === undefined ? <p className="muted">營運據點歸屬未提供。</p> : profile.assignments.length ? <DataTable><thead><tr><th>營運據點</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>{profile.assignments.map((assignment) => <tr key={assignment.id}><td data-label="營運據點">{assignment.scopeName}</td><td data-label="起日">{assignment.validFrom}</td><td data-label="迄日（不含）">{assignment.validTo ?? "未設定"}</td></tr>)}</tbody></DataTable> : <p className="muted">尚無營運據點歸屬。</p>}
+        {profile.assignments === undefined ? <p className="text-muted">營運據點歸屬未提供。</p> : profile.assignments.length ? <DataTable><thead><tr><th>營運據點</th><th>起日</th><th>迄日（不含）</th></tr></thead><tbody>{profile.assignments.map((assignment) => <tr key={assignment.id}><td data-label="營運據點">{assignment.scopeName}</td><td data-label="起日">{assignment.validFrom}</td><td data-label="迄日（不含）">{assignment.validTo ?? "未設定"}</td></tr>)}</tbody></DataTable> : <p className="text-muted">尚無營運據點歸屬。</p>}
         <RecordDetails summary="打卡紀錄（最近 200 筆）"><AttendanceEventsTable profile={profile} /></RecordDetails>
-        <RecordDetails summary="請假紀錄">{profile.leave ? <LeaveTable rows={profile.leave} /> : <p className="muted">請假明細僅限全平台 HR 管理者查看。</p>}</RecordDetails>
+        <RecordDetails summary="請假紀錄">{profile.leave ? <LeaveTable rows={profile.leave} /> : <p className="text-muted">請假明細僅限全平台 HR 管理者查看。</p>}</RecordDetails>
       </Panel>
     </> : null}
     {profile.employments.length > 1 ? <Panel id="employee-history" title="歷史任職資料"><EmploymentHistoryTable employments={profile.employments} /></Panel> : null}

@@ -10,7 +10,7 @@ export function PickerRow({ children }: { children: ReactNode }) {
 }
 
 export function PickerEmpty({ children }: { children: ReactNode }) {
-  return <p className="muted m-0 px-0.5 py-1.5">{children}</p>;
+  return <p className="text-muted m-0 px-0.5 py-1.5">{children}</p>;
 }
 
 /** 試算人員與特殊上班日套用人員共用的選人標題列：左邊標題與說明，右邊放全選與已選人數。 */
@@ -32,5 +32,5 @@ const PEOPLE_PICKER_EMPTY_VARIANT = {
 
 /** 選人區塊的空狀態與載入中。 */
 export function PeoplePickerEmpty({ children, variant = "plain" }: { children: ReactNode; variant?: keyof typeof PEOPLE_PICKER_EMPTY_VARIANT }) {
-  return <p className={`muted m-0 bg-canvas px-3.5 py-3 ${ PEOPLE_PICKER_EMPTY_VARIANT[variant] }`}>{children}</p>;
+  return <p className={`text-muted m-0 bg-canvas px-3.5 py-3 ${ PEOPLE_PICKER_EMPTY_VARIANT[variant] }`}>{children}</p>;
 }

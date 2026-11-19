@@ -45,7 +45,7 @@ export function HrProfilePhoto({ profile }: { profile: Profile }) {
     </div>
     {photoFile.file ? <div className="grid w-full justify-items-center gap-1.5 text-center">
       <p className="m-0 text-[12px] leading-[1.45]">{photoFile.status === "checking" ? "正在檢查照片…" : photoFile.status === "invalid" ? "所選照片無法使用，請重新選擇。" : "預覽照片，儲存後才會更新。"}</p>
-      <p className="muted text-[12px] leading-[1.45]">JPEG、PNG 或 WebP 靜態照片，最大 5 MB、800 萬像素、單邊 8192 px；不支援多影像 JPEG。</p>
+      <p className="text-muted text-[12px] leading-[1.45]">JPEG、PNG 或 WebP 靜態照片，最大 5 MB、800 萬像素、單邊 8192 px；不支援多影像 JPEG。</p>
       <div className="flex flex-wrap justify-center gap-1.5">
         <Button size="lg" variant="secondary" disabled={pending} onClick={cancel}>取消</Button>
         <Button size="lg" icon="check" loading={upload.isPending} disabled={remove.isPending || !photoFile.canSave} onClick={() => {

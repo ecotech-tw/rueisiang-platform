@@ -7,7 +7,6 @@
     ".": "./src/index.ts",
     "./icons": "./src/icons.tsx",
     "./theme.css": "./theme.css",
-    "./components.css": "./components.css",
     "./dialog-context": "./src/dialog-context.ts"
   },
   "scripts": {

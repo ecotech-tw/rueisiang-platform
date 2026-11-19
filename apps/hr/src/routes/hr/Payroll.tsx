@@ -50,7 +50,7 @@ export function HrPayrollHistory() {
   return <Page className={PAYROLL_PAGE}>
     <PageHeader title="薪資袋" description="查看已確定發放的薪資紀錄與實領金額。" />
     <div className="grid min-h-0 gap-3">
-      {query.isPending ? <p className="muted">載入薪資紀錄…</p> : null}
+      {query.isPending ? <p className="text-muted">載入薪資紀錄…</p> : null}
       {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
       {query.data?.records.length ? <div className="grid gap-2.5">{query.data.records.map((record) => <button className="grid w-full cursor-pointer gap-3.5 rounded-[14px] border border-line bg-paper p-4 text-left text-ink transition-[border-color,background-color] duration-150 ease-[ease] hover:border-brand hover:bg-brand/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary" key={`${record.runId}:${record.employmentId}`} type="button" onClick={() => navigate(historyPath(record))}>
         <div className="flex items-start justify-between gap-2.5"><div className="grid gap-[3px]"><strong className="text-[16px]">{periodLabel(record.periodKey)}</strong><span className="text-[12px] text-muted">發薪日 {dateLabel(record.payDate, NO_PAY_DATE)}</span></div><StatusBadge tone="success">已發放</StatusBadge></div>
@@ -74,14 +74,14 @@ export function HrPayslipDetail() {
   return <Page className={`${PAYROLL_PAGE} [&>[data-page-head]]:mt-2`}>
     <HrBackBar label="返回薪資袋" onBack={() => navigate("/payroll")} />
     <PageHeader title="薪資明細" description={record ? `${periodLabel(record.periodKey)}・${dateLabel(record.payDate, NO_PAY_DATE)}` : "查看已發放薪資項目。"} className="[&>div]:flex [&>div]:min-w-0 [&>div]:items-baseline [&>div]:justify-between [&>div]:gap-3 [&_h1]:flex-none [&_h1]:whitespace-nowrap [&_p]:min-w-0 [&_p]:overflow-hidden [&_p]:text-right [&_p]:text-ellipsis [&_p]:whitespace-nowrap" />
-    {query.isPending ? <p className="muted">載入薪資明細…</p> : null}
+    {query.isPending ? <p className="text-muted">載入薪資明細…</p> : null}
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     {record ? <Panel className="grid gap-[18px]">
       <div className="flex items-center justify-between gap-2.5 font-bold"><span>{record.employeeName}・{record.employeeNumber}</span><StatusBadge tone="success">已發放</StatusBadge></div>
       <SummaryTotals items={[{ label: "收入", value: money(record.earningMinor) }, { label: "扣除", value: money(record.deductionMinor) }, { label: "實領", value: money(record.netMinor), emphasis: true }]} />
       <div className="grid gap-4">{(["earning", "deduction"] as const).map((direction) => {
         const selected = lines.filter((line) => line.direction === direction);
-        return <section key={direction} className="grid gap-2"><h2 className="m-0 text-[15px]">{direction === "earning" ? "收入項目" : "扣除項目"}</h2>{selected.length ? <ul className="m-0 grid list-none gap-0 p-0">{selected.map((line) => <li key={line.lineKey} className="flex justify-between gap-3 border-b border-b-soft-line py-2.5 text-[13px]"><span>{lineLabel(line)}</span><strong className="flex-none tabular-nums">{direction === "deduction" ? `−${money(line.amountMinor)}` : money(line.amountMinor)}</strong></li>)}</ul> : <p className="muted">無項目</p>}</section>;
+        return <section key={direction} className="grid gap-2"><h2 className="m-0 text-[15px]">{direction === "earning" ? "收入項目" : "扣除項目"}</h2>{selected.length ? <ul className="m-0 grid list-none gap-0 p-0">{selected.map((line) => <li key={line.lineKey} className="flex justify-between gap-3 border-b border-b-soft-line py-2.5 text-[13px]"><span>{lineLabel(line)}</span><strong className="flex-none tabular-nums">{direction === "deduction" ? `−${money(line.amountMinor)}` : money(line.amountMinor)}</strong></li>)}</ul> : <p className="text-muted">無項目</p>}</section>;
       })}</div>
     </Panel> : null}
   </Page>;

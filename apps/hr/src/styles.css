@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import "@rueisiang/ui/components.css" layer(components);
 @import "@rueisiang/ui/theme.css";
 @import "./styles/components.css" layer(components);
 @source "../../../packages/ui/src";

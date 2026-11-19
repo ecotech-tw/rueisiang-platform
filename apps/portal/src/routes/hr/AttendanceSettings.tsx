@@ -92,7 +92,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
   }, [source]);
 
   if (editing && detail.isPending) {
-    return <Dialog title="編輯辦公位置" onClose={onClose}><p className="muted">載入位置設定…</p></Dialog>;
+    return <Dialog title="編輯辦公位置" onClose={onClose}><p className="text-muted">載入位置設定…</p></Dialog>;
   }
   if (editing && detail.error) {
     return <Dialog title="編輯辦公位置" onClose={onClose}><Alert tone="danger">{detail.error.message}</Alert></Dialog>;
@@ -167,7 +167,7 @@ function LocationDialog({ location, onClose }: { location?: AttendanceLocation; 
         </div>
         {places.isFetching ? <FormHint>搜尋 Google Maps 地點…</FormHint> : null}
         {places.error ? <Alert tone="danger">{places.error.message}</Alert> : null}
-        {searchQuery && places.data && !placeResults.length ? <p className="muted">找不到地點，請換個關鍵字。</p> : null}
+        {searchQuery && places.data && !placeResults.length ? <p className="text-muted">找不到地點，請換個關鍵字。</p> : null}
         {placeResults.length ? (
           <div className="grid max-h-60 flex-none gap-1.5 overflow-y-auto" role="listbox" aria-label="Google Maps 搜尋結果">
             <FormHint>搜尋結果（{placeResults.length} 筆），請選取正確的辦公位置：</FormHint>
@@ -270,7 +270,7 @@ export function HrAttendanceSettings() {
             <tbody>
               {rows.map((office) => (
                 <tr key={office.id}>
-                  <td><strong>{office.name}</strong><small className="muted mt-1 block">{office.geolocationRequired ? (office.hasCoordinates ? "座標已設定" : "缺少座標") : "不使用定位座標"}</small></td>
+                  <td><strong>{office.name}</strong><small className="text-muted mt-1 block">{office.geolocationRequired ? (office.hasCoordinates ? "座標已設定" : "缺少座標") : "不使用定位座標"}</small></td>
                   <td>{office.scopeName ?? "尚未對應"}</td>
                   <td>{office.geolocationRequired ? "需要" : "不檢查"}</td>
                   <td>{office.geolocationRequired ? `${office.radiusMeters} 公尺` : "—"}</td>
