@@ -9,7 +9,8 @@ Pi Durable Object。
 
 媒體 bytes 的 provider、endpoint、credential 與實體路徑都由 storage connect layer 管理。assistant、WMS
 與報表功能只使用共用的 `put`、`get`、`head`、`delete` contract，不直接連 NAS；未來切換到 S3 或自有
-server 時，替換 adapter 與設定即可。
+server 時，替換 adapter 與設定即可。Codex VPC egress 只改模型 request 的出口；Sandbox 圖片上傳
+目前仍經 NAS storage gateway 保存，DO 會再從 storage adapter 取回圖片 bytes 組入當輪 context。
 
 `ASSISTANT_KEY` 不是 API key 或 secret，也不需要在 Cloudflare 設成環境變數。它是小香在 D1、
 Queue 與 Durable Object instance name 共用的穩定內部識別碼；目前值是
@@ -96,26 +97,29 @@ usage-based 費用，但仍受 ChatGPT／Codex 方案的使用限制約束。
 Workers TCP Sockets 不是這個 relay 的替代方案。我們在 Cloudflare remote runtime 實際以
 `connect({ hostname: "chatgpt.com", port: 443, secureTransport: "on" })` 探測，收到
 `cannot connect to the specified address`；Cloudflare 也明確限制 outbound TCP 連到 Cloudflare IP
-range。因此目前仍須保留 NAS relay，不能只因 TCP socket API 存在就移除 NAS 上的服務。raw HTTP／SSE
-transport 可以處理 request header、response framing、chunked body 與 stream abort，但這些都發生在
-socket 建立成功之後，無法繞過這個 runtime 的 egress restriction。
+range。因此不能只因 TCP socket API 存在就移除 NAS relay。
 
-另一個待評估的 Cloudflare 原生路徑是 Workers VPC 的 `cf1:network` binding，讓 HTTP request 經
-Cloudflare Gateway public egress；這不是單純再包一層 Worker。它目前仍是 beta，需要 Connectivity
-Directory 權限與帳號的 VPC／Gateway 設定；本 repo 的 CI token 實測回傳 VPC authorization code `10196`，
-尚未驗證 ChatGPT response。因此在完成權限設定、Cloudflare Gateway policy 與真實 Codex SSE 驗收前，
-仍以 NAS relay 為正式路徑。
+Pi Codex transport 可選擇經 Workers VPC `cf1:network` binding 的 Gateway egress，或切回既有 NAS relay。
+DO 使用 VPC binding 的 `fetch()`，不是全域 `fetch()`；Cloudflare 對該路徑是否能讓 ChatGPT 接受 OAuth
+request 與 SSE，仍須以正式環境實測。VPC 目前為 beta，需帳號 Connectivity Directory 權限與 VPC／Gateway
+設定；本 repo 曾因 CI token 權限不足收到 authorization code `10196`。VPC 與 relay 間以
+`PI_OPENAI_CODEX_EGRESS_MODE` 明確切換，不在同一個模型 request 失敗後自動重送，避免不確定請求是否
+已被上游接受時重複執行。
 
-Worker 端只有在兩個設定都存在時才會啟用 relay：
+第一階段正式路徑使用 `vpc`，NAS relay 設定仍保留作為回退：將 mode 改成 `relay` 即可切回；relay URL
+與 token 必須成對設定。未設定 mode 的本機相容路徑會沿用舊行為：有 relay 設定就使用 relay，否則使用
+Worker 全域 `fetch()`。
 
 | 設定 | 類型 | 說明 |
 |---|---|---|
-| `PI_OPENAI_CODEX_RELAY_URL` | variable | Cloudflare Tunnel 對外的 HTTPS origin，例如 `https://codex-relay.example.com` |
+| `PI_OPENAI_CODEX_EGRESS_MODE` | variable | `vpc` 經 Cloudflare Gateway；改成 `relay` 可回退 NAS relay |
+| `PI_OPENAI_CODEX_RELAY_URL` | variable | relay 回退用的 HTTPS origin，例如 `https://codex-relay.example.com` |
 | `PI_OPENAI_CODEX_RELAY_TOKEN` | secret | 與 NAS `CODEX_RELAY_TOKEN` 相同的高熵字串 |
 
-本機 Sandbox 可在 `apps/api/.dev.vars` 使用：
+`vpc` 模式需要 `CODEX_EGRESS` binding（`cf1:network`）。回退至 relay 時保留以下設定：
 
 ```text
+PI_OPENAI_CODEX_EGRESS_MODE=relay
 PI_OPENAI_CODEX_RELAY_URL=http://127.0.0.1:8787
 PI_OPENAI_CODEX_RELAY_TOKEN=<與本機 relay 相同的 token>
 ```

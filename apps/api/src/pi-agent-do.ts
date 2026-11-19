@@ -12,6 +12,7 @@ import type {
   Api,
   AssistantMessage,
   Context,
+  FetchFunction,
   ImageContent,
   Model,
   Models,
@@ -56,6 +57,8 @@ import {
   PI_CODEX_PROVIDER_ID,
   isPiAssistantModel,
   piAssistantModel,
+  createPiCodexRelayFetch,
+  createPiCodexVPCFetch,
   type PiCodexRelayConfig,
   streamPiAssistantModelWithFallback,
 } from "./pi-agent-models.js";
@@ -868,6 +871,29 @@ export class AssistantChatAgent {
     return { baseUrl, token };
   }
 
+  private codexTransport(): { mode: "vpc" | "relay" | "direct"; fetch?: FetchFunction } {
+    const configuredMode = this.env.PI_OPENAI_CODEX_EGRESS_MODE;
+    if (configuredMode === "vpc") {
+      const egress = this.env.CODEX_EGRESS;
+      if (!egress) throw new Error("Codex egress mode=vpc，但未綁定 CODEX_EGRESS VPC network。 ");
+      return {
+        mode: "vpc",
+        fetch: createPiCodexVPCFetch((input, init) => egress.fetch(input, init)),
+      };
+    }
+    if (configuredMode === "relay") {
+      const relay = this.codexRelay();
+      if (!relay) throw new Error("Codex egress mode=relay，但 NAS relay 設定不完整。 ");
+      return { mode: "relay", fetch: createPiCodexRelayFetch(relay) };
+    }
+    if (configuredMode !== undefined) throw new Error(`不支援的 Codex egress mode：${configuredMode}`);
+
+    const relay = this.codexRelay();
+    return relay
+      ? { mode: "relay", fetch: createPiCodexRelayFetch(relay) }
+      : { mode: "direct" };
+  }
+
   private streamModel(
     model: Model<Api>,
     context: Context,
@@ -901,11 +927,12 @@ export class AssistantChatAgent {
         ? { transport: "sse" as const, onPayload: payloadWithOutputLimit }
         : {}),
     });
+    const usesCodex = model.provider === PI_CODEX_PROVIDER_ID || fallbackModel?.provider === PI_CODEX_PROVIDER_ID;
+    const codexTransport = usesCodex ? this.codexTransport() : undefined;
+    if (codexTransport) console.info("Pi Codex egress route", { mode: codexTransport.mode });
     const credentials = {
       resolveCodexAccessToken: async () => this.accessToken(),
-      codexRelay: model.provider === PI_CODEX_PROVIDER_ID || fallbackModel?.provider === PI_CODEX_PROVIDER_ID
-        ? this.codexRelay()
-        : undefined,
+      ...(codexTransport?.fetch ? { codexFetch: codexTransport.fetch } : {}),
       geminiApiKey: this.env.GEMINI_API_KEY,
     };
     return streamPiAssistantModelWithFallback(

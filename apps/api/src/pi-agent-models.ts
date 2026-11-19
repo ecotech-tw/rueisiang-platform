@@ -96,6 +96,20 @@ export function createPiCodexRelayFetch(
   };
 }
 
+export function createPiCodexVPCFetch(fetchImpl: FetchFunction): FetchFunction {
+  return async (input, init) => {
+    const request = new Request(input, init);
+    const url = new URL(request.url);
+    if (url.protocol !== "https:" || url.hostname !== CODEX_UPSTREAM_HOST) {
+      throw new Error("Codex VPC egress 只允許連線至 chatgpt.com。 ");
+    }
+    if (url.pathname !== CODEX_UPSTREAM_PATH) {
+      throw new Error(`Codex VPC egress 不支援上游 path：${url.pathname}`);
+    }
+    return fetchImpl(request);
+  };
+}
+
 export function piCodexModels(): Model<Api>[] {
   return Object.values(OPENAI_CODEX_MODELS);
 }
@@ -153,7 +167,7 @@ function streamPiCodex(
   context: Context,
   options: ModelsSimpleStreamOptions,
   resolveAccessToken: PiCodexAccessTokenResolver,
-  relay?: PiCodexRelayConfig,
+  fetchImpl?: FetchFunction,
 ) {
   return lazyStream(model, async () => {
     options.signal?.throwIfAborted();
@@ -163,7 +177,7 @@ function streamPiCodex(
     return streamOpenAICodex(model as Model<"openai-codex-responses">, normalizeContext(context), {
       ...options,
       apiKey,
-      ...(relay ? { fetch: createPiCodexRelayFetch(relay) } : {}),
+      ...(fetchImpl ? { fetch: fetchImpl } : {}),
     });
   });
 }
@@ -186,7 +200,7 @@ function streamPiGemini(
 
 export interface PiAssistantModelCredentials {
   resolveCodexAccessToken: PiCodexAccessTokenResolver;
-  codexRelay?: PiCodexRelayConfig;
+  codexFetch?: FetchFunction;
   geminiApiKey?: string;
 }
 
@@ -197,7 +211,7 @@ function streamPiAssistantModel(
   credentials: PiAssistantModelCredentials,
 ) {
   if (model.provider === PI_CODEX_PROVIDER_ID) {
-    return streamPiCodex(model, context, options, credentials.resolveCodexAccessToken, credentials.codexRelay);
+    return streamPiCodex(model, context, options, credentials.resolveCodexAccessToken, credentials.codexFetch);
   }
   if (model.provider === PI_GEMINI_PROVIDER_ID) {
     return streamPiGemini(model, context, options, credentials.geminiApiKey ?? "");
