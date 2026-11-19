@@ -293,9 +293,8 @@ function PayrollJobProgress({ jobs, onRetry, canRetry }: { jobs: PayrollJob[]; o
   // 沒有工作時元件還掛著、只是不畫：不重設的話，下一筆試算一出現面板就是展開的。
   useEffect(() => { if (!jobs.length) setExpanded(false); }, [jobs.length]);
   // 掛到 HRIS 最外層：頁面轉場會在自己的容器上留著 filter，那會變成 fixed 的定位基準，頁籤就不再貼著視窗右緣。
-  // 不掛 body，因為卡片裡的按鈕配色是靠 `.hr-system` 的選擇器套上的。
   const [host, setHost] = useState<Element | null>(null);
-  useEffect(() => { setHost(document.querySelector(".hr-system")); }, []);
+  useEffect(() => { setHost(document.querySelector("[data-hr-shell]")); }, []);
   if (!jobs.length || !host) return null;
   const failedCount = jobs.filter((job) => job.status === "failed").length;
   // 收合時只剩貼在視窗右緣的直式頁籤：它待在頁面右側的留白裡，不會蓋住表格右下角的「確定發放」。

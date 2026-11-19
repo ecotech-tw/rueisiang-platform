@@ -2,7 +2,7 @@ export { Button, ButtonLink, ButtonSkin } from "./Button.js";
 export { Chip, ChipGroup } from "./Chip.js";
 export { defaultUnless } from "./class-defaults.js";
 export { DataTable, TABLE_SCROLL, TableSkin, type TableSkinName } from "./DataTable.js";
-export { Dialog, DialogScope, useDialogScope } from "./Dialog.js";
+export { Dialog } from "./Dialog.js";
 export { ConfirmDialog, type ConfirmDialogProps } from "./ConfirmDialog.js";
 export {
   DropdownSelect,

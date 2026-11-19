@@ -2,23 +2,19 @@
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
-import { Button, Dialog, DialogScope, Panel } from "./index.js";
+import { Button, Dialog, Panel } from "./index.js";
 import { Icon } from "../shell/icons.js";
 import { ButtonSkin } from "@rueisiang/ui";
 
 let root: Root | null = null;
 let host: HTMLElement | null = null;
 
-const dialog = <Dialog title="審核加班申請" onClose={() => {}} actions={<button type="button">核准</button>}>內容</Dialog>;
-
-async function render(tree: ReactNode, hostClassName = "page") {
+async function render(tree: ReactNode) {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   host = document.createElement("div");
-  host.className = hostClassName;
   document.body.append(host);
   root = createRoot(host);
   await act(async () => root!.render(tree));
-  return document.body.querySelector('[role="presentation"] > div');
 }
 
 afterEach(async () => {
@@ -28,10 +24,6 @@ afterEach(async () => {
   host = null;
 });
 
-/**
- * 對話框 portal 到 body 之後會離開站的樣式範圍，語意色（核准的綠、修改的藍）全部失效，
- * 核准會落回品牌紅、跟駁回分不出來。這裡守的是「站台提供的範圍有被補回來」。
- */
 describe("Icon 線寬契約", () => {
   it("預設 consumer 不變，可明確配合 regular 與 semibold 字重", async () => {
     await render(<><Icon name="calendar" /><Icon name="calendar" weight="regular" /><Icon name="calendar" weight="semibold" /></>);
@@ -64,20 +56,16 @@ describe("Panel 內距契約", () => {
   });
 });
 
-describe("Dialog 補回站的樣式範圍", () => {
-  it("在 DialogScope 裡開的對話框帶回站台給的 class，而且殼已經移到範圍外面", async () => {
-    const scope = await render(<DialogScope className="hr-system">{dialog}</DialogScope>, "hr-system");
-    expect(scope?.className).toBe("contents hr-system");
-    expect(host!.contains(scope)).toBe(false);
-    expect(scope?.querySelector('[role="dialog"] > :last-child button')?.textContent).toBe("核准");
-  });
-
-  it("範圍跟的是開對話框的元件，不是畫面上剛好有沒有那個 class", async () => {
-    // 頁面上有 .hr-system，但對話框不是從那個範圍裡開的（例如掛在 shell 層的確認框）。
-    expect((await render(dialog, "hr-system"))?.className).toBe("contents");
-  });
-
-  it("內層的範圍蓋過外層；空字串等於不帶範圍", async () => {
-    expect((await render(<DialogScope className="hr-system"><DialogScope className="">{dialog}</DialogScope></DialogScope>))?.className).toBe("contents");
+/**
+ * 對話框 portal 到 body 之後就不在版面容器裡了。皮膚與語意色若靠祖先選擇器套上，核准會落回
+ * 品牌紅、跟駁回分不出來；現在它們是 context 與 prop，這裡守的是「portal 出去仍然拿得到」。
+ */
+describe("Dialog portal 之後保留皮膚與語意色", () => {
+  it("在玻璃皮膚裡開的對話框，掛在版面外面，按鈕仍是玻璃的成功色", async () => {
+    await render(<ButtonSkin skin="glass"><Dialog title="審核加班申請" onClose={() => {}} actions={<Button tone="success">核准</Button>}>內容</Dialog></ButtonSkin>);
+    const approve = [...document.body.querySelectorAll('[role="dialog"] button')].find((button) => button.textContent === "核准");
+    expect(approve).toBeDefined();
+    expect(host!.contains(approve!)).toBe(false);
+    expect(approve!.classList.contains("bg-ok/78")).toBe(true);
   });
 });

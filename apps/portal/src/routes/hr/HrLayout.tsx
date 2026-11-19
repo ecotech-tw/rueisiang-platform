@@ -1,7 +1,7 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
-import { ButtonSkin, DialogScope, InputSkin, PageDescriptions, PanelSkin, TableSkin } from "../../ui/index.js";
+import { ButtonSkin, InputSkin, PageDescriptions, PanelSkin, TableSkin } from "../../ui/index.js";
 import { GuardedNavLink } from "../../shell/UnsavedChanges.js";
 import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
@@ -176,8 +176,7 @@ export function HrLayout() {
     return () => observer.disconnect();
   }, [placeThumb]);
 
-  // .hr-system 本身不帶樣式，只是範圍：日曆、保險、費率等頁面的規則與 portal 出去的對話框靠它套上 HRIS 的玻璃與語意色。
-  return <ButtonSkin skin="glass"><InputSkin skin="glass"><TableSkin skin="glass"><PanelSkin skin="glass"><PageDescriptions visible={false}><DialogScope className="hr-system"><div className={HR_SHELL}>
+  return <ButtonSkin skin="glass"><InputSkin skin="glass"><TableSkin skin="glass"><PanelSkin skin="glass"><PageDescriptions visible={false}><div data-hr-shell="" className={HR_SHELL}>
     <HrGlassDefs />
     <HrHeader>
       <HrBrand current={current} />
@@ -241,7 +240,7 @@ export function HrLayout() {
     <HrMain>
       <HrPageTransition><Outlet /></HrPageTransition>
     </HrMain>
-  </div></DialogScope></PageDescriptions></PanelSkin></TableSkin></InputSkin></ButtonSkin>;
+  </div></PageDescriptions></PanelSkin></TableSkin></InputSkin></ButtonSkin>;
 }
 
 export function HrLanding() {

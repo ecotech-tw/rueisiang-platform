@@ -87,7 +87,7 @@ app `ui/*.tsx` 裡 re-export 共用元件的檔案是刻意保留的相容性入
 | 刪除、駁回、撤回、停用 | `variant="danger"` | 深紅 | `--color-brand-dark` |
 | 取消、返回、保留 | `variant="secondary"` | 中性 | — |
 
-語意色與皮膚都是 `Button` 自己的 prop 與 context，不靠祖先選擇器，所以 portal 到 `body` 的對話框裡顏色一樣正確。**不要寫掛在站台範圍 class 底下的樣式**（例如 `.hr-system .某按鈕`）：對話框 portal 出去就會脫離那個範圍。`Dialog` 會用一層 `display: contents` 的殼，把 `<DialogScope className="…">` 提供的範圍 class 補回來（管理介面的 `HrLayout` 提供 `hr-system`）；掛在 shell 層的對話框（例如未儲存變更的確認框）要用 `useDialogScope` 帶上開啟它那一頁的範圍。
+語意色與皮膚都是 `Button` 自己的 prop 與 context，不靠祖先選擇器，所以 portal 到 `body` 的對話框裡顏色一樣正確。**不要寫掛在站台範圍 class 底下的樣式**（例如 `.某站 .某按鈕`）：對話框 portal 出去就會脫離那個範圍。React context 會穿過 portal，所以對話框在皮膚 provider（`ButtonSkin` 等）底下開，就拿得到頁面的皮膚；掛在 shell 層、不在任何版面底下的對話框（例如未儲存變更的確認框）拿到的是預設的 `solid` 皮膚。
 
 - `loading` 時由元件負責 disabled 與 `aria-busy`；不要在 route 另做一顆「處理中」按鈕。
 - filter chip 用 `selected`，不要在頁面手寫 `aria-pressed` 與 selected class 的同步邏輯。
