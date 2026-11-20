@@ -345,7 +345,8 @@
               <text x="588" y="826" text-anchor="middle" style="font-size: 13px;">屏東縣</text>
             </g>
 
-            <g id="map-pins"></g>
+            <!-- 此示意圖的圖釘層統一向右校正；個別圖釘仍以尖端 (0, 0) 為錨點。 -->
+            <g id="map-pins" transform="translate(30, 0)"></g>
           </svg></div>
             </div>
           </div>
@@ -438,6 +439,7 @@
       return;
     }
     let activeStoreId = null;
+    let renderedDesktopStoreId;
     let isProgrammaticWheelScroll = false;
     let wheelScrollEndTimer = null;
     let wheelProgrammaticTimer = null;
@@ -596,12 +598,11 @@
     function renderDesktopStoreCard() {
       if (!desktopCardContainer) return;
 
-      if (!activeStoreId) {
-        desktopCardContainer.innerHTML = buildDesktopEmptyCardHTML();
-        return;
-      }
-
       const store = STORES_DATA.find(s => s.id === activeStoreId);
+      const nextStoreId = store ? store.id : null;
+      // 列表 snap 可能再次選到同一店；保留 DOM 才不會重播卡片進場與圖片載入。
+      if (renderedDesktopStoreId === nextStoreId) return;
+      renderedDesktopStoreId = nextStoreId;
       if (!store) {
         desktopCardContainer.innerHTML = buildDesktopEmptyCardHTML();
         return;
@@ -762,13 +763,18 @@
     function scrollWheelToIndex(index, smooth = true) {
       if (!wheelViewport || index < 0 || index >= STORES_DATA.length) return;
       const targetScrollTop = WHEEL_PAD_Y + index * WHEEL_ITEM_HEIGHT + WHEEL_ITEM_HEIGHT / 2 - WHEEL_VIEWPORT_HEIGHT / 2;
+      if (wheelScrollEndTimer) {
+        clearTimeout(wheelScrollEndTimer);
+        wheelScrollEndTimer = null;
+      }
       isProgrammaticWheelScroll = true;
       if (wheelProgrammaticTimer) {
         clearTimeout(wheelProgrammaticTimer);
       }
       wheelViewport.scrollTo({
         top: Math.max(0, targetScrollTop),
-        behavior: smooth ? 'smooth' : 'auto'
+        // auto 會沿用 CSS 的 scroll-behavior: smooth，超出即時同步的保護時間。
+        behavior: smooth ? 'smooth' : 'instant'
       });
       wheelProgrammaticTimer = setTimeout(() => {
         isProgrammaticWheelScroll = false;
@@ -1057,7 +1063,7 @@
         if (pinBody) {
           pinBody.setAttribute('fill', isSelected ? '#9B3B30' : '#B85D52');
         }
-        if (isSelected && anchor.parentNode === pinsLayer) {
+        if (isSelected && anchor.parentNode === pinsLayer && anchor !== pinsLayer.lastElementChild) {
           pinsLayer.appendChild(anchor);
         }
       });
