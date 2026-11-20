@@ -14,7 +14,7 @@ export function AppShell() {
   // 新畫面已經進 DOM、還沒上色：這時放行 View Transition 拍「新狀態」才拍得到。
   useLayoutEffect(() => settleHrTransition(isHrModule), [isHrModule]);
 
-  // 左欄寬度：HRIS 沒有 sidebar（自己有一套導覽），收合時只剩圖示欄。手機一律單欄，上面一條 topbar。
+  // 左欄寬度：HRIS 沒有 sidebar（自己有一套導覽），收合時只剩圖示欄。手機一律單欄；非 HRIS 上面另有一條 topbar。
   const columns = isHrModule ? "grid-cols-[minmax(0,1fr)]" : collapsed ? "grid-cols-[76px_minmax(0,1fr)]" : "grid-cols-[252px_minmax(0,1fr)]";
   // 手機上方列只有非 HRIS 才有；HRIS 也切兩列的話，唯一的 main 會掉進 auto 那列，只撐到內容高，底下露出一塊空白。
   const rows = isHrModule ? "grid-rows-[minmax(0,1fr)]" : "max-[900px]:grid-rows-[auto_minmax(0,1fr)]";
