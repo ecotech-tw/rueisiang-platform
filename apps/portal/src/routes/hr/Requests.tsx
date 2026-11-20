@@ -18,7 +18,7 @@ type HistoryKind = "all" | RequestKind;
 
 interface EmployeePageResponse { employees: Employee[] }
 interface WorkerCandidate { id: string; displayName: string }
-interface LeaveType { id: string; name: string; leaveKind: "annual" | "grant" | "other"; scheduleCheckRequired: number }
+interface LeaveType { id: string; name: string; leaveKind: "annual" | "grant" | "other" }
 
 interface RequestRow {
   id: string;
@@ -301,7 +301,7 @@ function LeaveForm({ employees, leaveTypes, actionsSlot, onClose, onDone, onPend
   const durationUnitMinutes = selectedLeaveType?.leaveKind === "grant" ? 60 : LEAVE_UNIT_MINUTES;
   const durationValid = durationMinutes !== null && durationMinutes >= durationUnitMinutes && durationMinutes % durationUnitMinutes === 0 && durationMinutes <= MAX_LEAVE_MINUTES;
   const durationDescription = selectedLeaveType?.leaveKind === "grant"
-    ? selectedLeaveType.scheduleCheckRequired ? "依班表與休息時間計算，請假時數須為整數小時：" : "不檢查班表，依申請時段計算並扣除每天與 12:00–13:00 重疊的午休，請假時數須為整數小時："
+    ? "依工作日、班表與休息時間計算，補休時數須為整數小時："
     : "系統依工作日、班表與休息時間計算請假時數：";
   function submit(event: React.FormEvent) {
     event.preventDefault();
