@@ -148,7 +148,7 @@ export function Tags() {
             <tbody>
               {rows.map((tag) => (
                 <tr key={tag.name}>
-                  <td>
+                  <td data-label="標籤">
                     {editing?.name === tag.name ? (
                       <FormRow
                         as="form"
@@ -176,10 +176,10 @@ export function Tags() {
                       <Tag>{tag.name}</Tag>
                     )}
                   </td>
-                  <td className="numeric">{tag.customerCount}</td>
-                  <td className="numeric">{tag.linkedCount}</td>
+                  <td data-label="使用中的客戶" className="numeric">{tag.customerCount}</td>
+                  <td data-label="其中已連到官網" className="numeric">{tag.linkedCount}</td>
                   {canWrite ? (
-                    <td>
+                    <td data-label="操作">
                       <RowActions>
                         <Button
                           variant="icon"
