@@ -39,6 +39,7 @@ import { cyberbizReportsInternal } from "./routes/cyberbiz-reports-internal.js";
 import { cyberbizReportsMcp } from "./routes/cyberbiz-reports-mcp.js";
 import { wms } from "./routes/wms.js";
 import { media } from "./routes/media.js";
+import { storeLocator } from "./routes/store-locator.js";
 import { rfidInternal } from "./routes/rfid-internal.js";
 import { maintainMediaCdn, mediaCdnConfig, serveMediaCdn } from "./media-cdn.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
@@ -75,10 +76,14 @@ function sameAllowedOrigin(value: string | undefined, origins: string[]): boolea
 app.use("*", async (c, next) => {
   const origins = allowedOrigins(c.env.AUTH_APP_ORIGINS);
   const origin = c.req.header("Origin");
-  if (origin && !origins.includes(origin)) return c.json({ error: "Origin not allowed" }, 403);
+  const path = new URL(c.req.url).pathname;
+  const isPublicStoreLocator = path === "/api/public/store-locator" && ["GET", "HEAD", "OPTIONS"].includes(c.req.method);
+  const publicStoreOrigins = ["https://www.rueisiang.com", "https://rueisiang.com"];
+  const publicStoreOrigin = isPublicStoreLocator && origin && publicStoreOrigins.includes(origin);
+  if (origin && !origins.includes(origin) && !publicStoreOrigin) return c.json({ error: "Origin not allowed" }, 403);
   if (origin) {
     c.header("Access-Control-Allow-Origin", origin);
-    c.header("Access-Control-Allow-Credentials", "true");
+    if (!publicStoreOrigin) c.header("Access-Control-Allow-Credentials", "true");
     c.header("Access-Control-Allow-Methods", "GET, POST, PATCH, PUT, DELETE, OPTIONS");
     c.header("Access-Control-Allow-Headers", "Content-Type, X-CSRF-Token");
     c.header("Vary", "Origin");
@@ -117,6 +122,7 @@ const routes = app
   .route("/items", items)
   .route("/wms", wms)
   .route("/media", media)
+  .route("/public/store-locator", storeLocator)
   .route("/webhooks", webhooks);
 
 // 打錯的 API 路徑要回 JSON，不要掉進 SPA 的 index.html。

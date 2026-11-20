@@ -1611,6 +1611,20 @@
       "when": 1794820512957,
       "tag": "0253_yellow_hemingway",
       "breakpoints": true
+    },
+    {
+      "idx": 254,
+      "version": "6",
+      "when": 1795159216730,
+      "tag": "0254_chubby_manta",
+      "breakpoints": true
+    },
+    {
+      "idx": 255,
+      "version": "6",
+      "when": 1795163904121,
+      "tag": "0255_perfect_anita_blake",
+      "breakpoints": true
     }
   ]
 }

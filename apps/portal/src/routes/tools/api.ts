@@ -326,6 +326,20 @@ export interface ManagementScope {
   scopeKind: "store" | "channel" | "company";
   driveFolderUrl: string;
   driveFolderName: string;
+  storeLocatorCategory: string;
+  storeLocatorLabel: string;
+  storeLocatorShortName: string;
+  storeLocatorCounty: string;
+  storeLocatorAddress: string;
+  storeLocatorFloorNote: string;
+  storeLocatorHours: string;
+  storeLocatorPhone: string;
+  storeLocatorHighlight: string;
+  storeLocatorImageId: string | null;
+  storeLocatorImageUrl: string;
+  storeLocatorMapUrl: string;
+  storeLocatorPinX: number | null;
+  storeLocatorPinY: number | null;
   active: boolean;
   archivedAt: string | null;
 }
@@ -334,6 +348,21 @@ export function useScopes() {
   return useQuery({
     queryKey: ["tools", "scopes"],
     queryFn: () => call<{ scopes: ManagementScope[] }>("/api/tools/scopes"),
+  });
+}
+
+export interface GoogleMapPlace {
+  id: string;
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+}
+
+/** 搜尋結果只留在 mutation state；不寫入 query cache 或通路資料。 */
+export function useSearchScopePlaces() {
+  return useMutation({
+    mutationFn: (query: string) => call<{ places: GoogleMapPlace[] }>(`/api/tools/scopes/places?query=${encodeURIComponent(query)}`),
   });
 }
 
