@@ -8,7 +8,8 @@ import { Input } from "./Field.js";
  * 手機改成 flex-basis: 0 只吃「剩下的」寬度——寬度還宣告成 min(340px, 100%) 的話，
  * flex 就沒有理由把按鈕留在同一行。
  */
-export const SEARCH_INPUT_WIDTH = "w-[min(340px,100%)] max-[760px]:w-auto max-[760px]:min-w-0 max-[760px]:flex-[1_1_0]";
+// 手機上跟旁邊的篩選共用一列，但至少留 12rem：旁邊是兩個下拉選單時，縮到 0 的搜尋框只剩一個字寬（額度發放）。放不下就讓選單換行。
+export const SEARCH_INPUT_WIDTH = "w-[min(340px,100%)] max-[760px]:w-auto max-[760px]:min-w-[min(100%,12rem)] max-[760px]:flex-[1_1_0]";
 
 export interface FilterInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "aria-label" | "size"> {
   label: string;
