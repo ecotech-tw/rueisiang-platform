@@ -17,7 +17,6 @@ function LeaveTypeDialog({ leaveType, onClose }: { leaveType?: HrLeaveType; onCl
   const [name, setName] = useState(leaveType?.name ?? "");
   const [payRate, setPayRate] = useState(String((leaveType?.defaultPayRatePpm ?? 1_000_000) / 10_000));
   const [leaveKind, setLeaveKind] = useState<"annual" | "grant" | "other">(leaveType?.leaveKind ?? "other");
-  const [scheduleCheckRequired, setScheduleCheckRequired] = useState(Boolean(leaveType?.scheduleCheckRequired ?? 1));
   const [message, setMessage] = useState<string | null>(null);
   const save = useHrWrite();
   const closeRequestRef = useRef<(() => void) | null>(null);
@@ -31,7 +30,7 @@ function LeaveTypeDialog({ leaveType, onClose }: { leaveType?: HrLeaveType; onCl
     save.mutate({
       path: leaveType ? `/leave-types/${leaveType.id}` : "/leave-types",
       method: leaveType ? "PATCH" : "POST",
-      values: { name: name.trim(), leaveKind, scheduleCheckRequired, defaultPayRatePpm: Math.round(parsedPayRate * 10_000) },
+      values: { name: name.trim(), leaveKind, defaultPayRatePpm: Math.round(parsedPayRate * 10_000) },
     }, { onSuccess: () => { (closeRequestRef.current ?? onClose)(); } });
   }
 
@@ -44,8 +43,7 @@ function LeaveTypeDialog({ leaveType, onClose }: { leaveType?: HrLeaveType; onCl
     actions={<><Button type="button" variant="secondary" onClick={onClose}>取消</Button><Button type="submit" tone={leaveType ? "info" : "success"} loading={save.isPending}>保存假別</Button></>}
   >
     <TextField label="假別名稱" hint="例如：特休、病假、事假；停用只會停止新申請，不刪除歷史資料。" required maxLength={80} value={name} onChange={(event) => setName(event.target.value)} />
-    <SelectField label="額度規則" value={leaveKind} options={[{ value: "annual", label: "特休（使用週年制額度）" }, { value: "grant", label: "額度發放（HR 逐批發放）" }, { value: "other", label: "其他假別（不扣額度）" }]} onChange={(event) => { const next = event.target.value as "annual" | "grant" | "other"; setLeaveKind(next); if (next === "grant" && next !== leaveKind) setScheduleCheckRequired(false); }} hint="特休依週年政策給予；額度發放假別由 HR 指定有效期間與員工；其他假別不扣額度台帳。" />
-    {leaveKind === "grant" ? <SelectField label="請假時數計算方式" value={scheduleCheckRequired ? "yes" : "no"} options={[{ value: "yes", label: "依班表計算" }, { value: "no", label: "依申請時數計算（補休）" }]} onChange={(event) => setScheduleCheckRequired(event.target.value === "yes")} hint="補休通常依申請時數計算；其他額度假別可選擇依班表計算。" /> : null}
+    <SelectField label="額度規則" value={leaveKind} options={[{ value: "annual", label: "特休（使用週年制額度）" }, { value: "grant", label: "額度發放（HR 逐批發放）" }, { value: "other", label: "其他假別（不扣額度）" }]} onChange={(event) => setLeaveKind(event.target.value as "annual" | "grant" | "other")} hint="特休依週年政策給予；額度發放假別由 HR 指定有效期間與員工；其他假別不扣額度台帳。" />
     <TextField label="預設給薪比例（%）" type="number" min="0" max="100" step="0.01" required value={payRate} onChange={(event) => setPayRate(event.target.value)} />
     {message || save.error ? <Alert tone="danger">{message ?? save.error?.message}</Alert> : null}
   </Dialog>;
@@ -76,7 +74,7 @@ export function HrLeaveTypes() {
       <DataTable className="[&_td:first-child]:min-w-[180px] [&_td:last-child]:min-w-[190px] max-[620px]:[&_td:last-child]:min-w-0 [&_td:nth-child(2)]:whitespace-nowrap [&_td:nth-child(2)]:tabular-nums"><thead><tr><th>假別</th><th>額度規則</th><th>預設給薪比例</th><th>狀態</th><th>最近更新</th><th>操作</th></tr></thead><tbody>
         {rows.map((leaveType) => <tr key={leaveType.id}>
           <td data-label="假別"><strong>{leaveType.name}</strong></td>
-          <td data-label="額度規則">{leaveType.leaveKind === "annual" ? "週年制特休" : leaveType.leaveKind === "grant" ? `HR 逐批發放・${leaveType.scheduleCheckRequired ? "依班表" : "依申請時數"}` : "其他假別"}</td>
+          <td data-label="額度規則">{leaveType.leaveKind === "annual" ? "週年制特休" : leaveType.leaveKind === "grant" ? `HR 逐批發放・依工作時段` : "其他假別"}</td>
           <td data-label="預設給薪比例">{payRateLabel(leaveType.defaultPayRatePpm)}</td>
           <td data-label="狀態"><StatusBadge tone={leaveType.active ? "success" : "neutral"}>{leaveType.active ? "啟用" : "停用"}</StatusBadge></td>
           <td data-label="最近更新">{timestampLabel(leaveType.updatedAt)}</td>

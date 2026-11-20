@@ -77,11 +77,10 @@ beforeEach(async () => {
 afterEach(() => d1.sqlite.close());
 
 describe("HR 假別額度發放", () => {
-  it("發放時數以整數小時、請假扣除午休但不檢查班表，並依最早到期額度扣除", async () => {
+  it("補休以整數小時計算，工時依工作日與班表，並依最早到期額度扣除", async () => {
     const today = todayTaipei();
-    const directHrDuration = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T23:00`, endsAt: `${dateOffset(today, 1)}T00:00` });
-    expect(directHrDuration.status, await directHrDuration.clone().text()).toBe(200);
-    expect(await directHrDuration.json()).toMatchObject({ durationMinutes: 60 });
+    const outsideWorkday = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T23:00`, endsAt: `${dateOffset(today, 1)}T00:00` });
+    expect(outsideWorkday.status).toBe(400);
 
     const workdayDuration = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T09:00`, endsAt: `${today}T18:00` });
     expect(workdayDuration.status, await workdayDuration.clone().text()).toBe(200);
@@ -91,11 +90,12 @@ describe("HR 假別額度發放", () => {
     expect(workdayEnd.status, await workdayEnd.clone().text()).toBe(200);
     expect(await workdayEnd.json()).toMatchObject({ endsAt: `${today} 10:00:00`, durationMinutes: 8 * 60 });
 
-    const maximumGrantEnd = await request("/hr/me/leave-end", "POST", { leaveTypeId, startsAt: `${today}T09:00`, durationMinutes: 713 * 60 }, employeeCookie);
-    expect(maximumGrantEnd.status, await maximumGrantEnd.clone().text()).toBe(200);
-    expect(await maximumGrantEnd.json()).toMatchObject({ endsAt: `${dateOffset(today, 31)} 01:00:00`, durationMinutes: 713 * 60 });
-    const excessiveGrantEnd = await request("/hr/me/leave-end", "POST", { leaveTypeId, startsAt: `${today}T09:00`, durationMinutes: 714 * 60 }, employeeCookie);
-    expect(excessiveGrantEnd.status).toBe(400);
+    const twoWorkdays = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T09:00`, endsAt: `${dateOffset(today, 1)}T18:00` });
+    expect(twoWorkdays.status, await twoWorkdays.clone().text()).toBe(200);
+    expect(await twoWorkdays.json()).toMatchObject({ durationMinutes: 16 * 60 });
+
+    const beyondThirtyOneDays = await request("/hr/me/leave-end", "POST", { leaveTypeId, startsAt: `${today}T09:00`, durationMinutes: 714 * 60 }, employeeCookie);
+    expect(beyondThirtyOneDays.status).toBe(400);
 
     const crossedLunch = await request("/hr/requests/leave-duration", "POST", { employeeUserId: "employee", leaveTypeId, startsAt: `${today}T11:30`, endsAt: `${today}T13:30` });
     expect(crossedLunch.status, await crossedLunch.clone().text()).toBe(200);
@@ -104,13 +104,13 @@ describe("HR 假別額度發放", () => {
     const earliestGrant = await issue(60, today);
     await issue(60, dateOffset(today, 30));
 
-    const early = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: `${dateOffset(today, -1)}T23:00`, endsAt: `${today}T00:00`, reason: "早於發放日" }, employeeCookie);
+    const early = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: `${dateOffset(today, -1)}T09:00`, endsAt: `${dateOffset(today, -1)}T10:00`, reason: "早於發放日" }, employeeCookie);
     expect(early.status).toBe(409);
 
     const fractional = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: `${today}T09:00`, endsAt: `${today}T09:30`, reason: "半小時" }, employeeCookie);
     expect(fractional.status).toBe(400);
 
-    const pending = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: `${today}T23:00`, endsAt: `${dateOffset(today, 1)}T00:00`, reason: "跨到午夜前一小時" }, employeeCookie);
+    const pending = await request("/hr/me/leave-requests", "POST", { leaveTypeId, startsAt: `${today}T09:00`, endsAt: `${today}T10:00`, reason: "補休工作時段" }, employeeCookie);
     expect(pending.status, await pending.clone().text()).toBe(201);
     const pendingBody = await pending.json() as { id: string };
     const blockedRevocation = await request(`/hr/leave-grants/${earliestGrant.id}/revoke`, "POST", {});

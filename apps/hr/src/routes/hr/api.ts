@@ -139,7 +139,6 @@ export interface LeaveTypeOption {
   id: string;
   name: string;
   leaveKind: "annual" | "grant" | "other";
-  scheduleCheckRequired: number;
   defaultPayRatePpm: number;
   credits: LeaveCredit[];
   grantCredits: LeaveGrantCredit[];
