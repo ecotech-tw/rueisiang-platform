@@ -80,14 +80,14 @@ it.each([
   await openDialog(); await selectFirstPlace();
   expect(input("地址").value).toBe(address);
   expect(field("縣市").querySelector("button")?.textContent).toContain(county);
-  expect(input("台灣地圖 X").value).toBe("731.3");
-  expect(input("台灣地圖 Y").value).toBe("306.6");
-  expect(document.body.textContent).toContain("X/Y 換算結果：X 731.3 · Y 306.6（已自動帶入）");
+  expect(input("台灣地圖 X").value).toBe("752.5");
+  expect(input("台灣地圖 Y").value).toBe("313.5");
+  expect(document.body.textContent).toContain("X/Y 換算結果：X 752.5 · Y 313.5（已自動帶入）");
   expect(document.body.textContent).not.toContain("帶入 X/Y 欄位");
   expect(writes).toHaveLength(0);
   await click(button("儲存"));
   expect(writes).toHaveLength(1);
-  expect(writes[0]).toMatchObject({ storeLocatorAddress: address, storeLocatorCounty: county, storeLocatorPinX: 731.3, storeLocatorPinY: 306.6 });
+  expect(writes[0]).toMatchObject({ storeLocatorAddress: address, storeLocatorCounty: county, storeLocatorPinX: 752.5, storeLocatorPinY: 313.5 });
   expect(writes[0]).not.toHaveProperty("latitude");
   expect(writes[0]).not.toHaveProperty("longitude");
 });

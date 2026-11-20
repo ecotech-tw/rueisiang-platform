@@ -8,7 +8,7 @@ const script = html.match(/<script>([\s\S]*?)<\/script>/)![1]!;
 const stores = [
   { id: "north", name: "北部櫃點", shortName: "北部櫃點", label: "臺北市｜北部櫃點", county: "臺北市", pinX: 750, pinY: 300 },
   { id: "south", name: "南部櫃點", shortName: "南部櫃點", label: "高雄市｜南部櫃點", county: "高雄市", pinX: 530, pinY: 800 },
-  { id: "east", name: "右界櫃點", shortName: "右界櫃點", label: "宜蘭縣｜右界櫃點", county: "宜蘭縣", pinX: 840, pinY: 500 },
+  { id: "east", name: "右界櫃點", shortName: "右界櫃點", label: "宜蘭縣｜右界櫃點", county: "宜蘭縣", pinX: 880, pinY: 500 },
 ].map((store) => ({ ...store, category: "百貨公司", address: "測試地址", hours: "11:00–22:00", image: "", mapUrl: "https://www.google.com/maps/", region: "north" }));
 let scrollTo: ReturnType<typeof vi.fn>;
 let listeners: Array<{ target: EventTarget; type: string; listener: EventListenerOrEventListenerObject; options?: boolean | AddEventListenerOptions }>;
@@ -57,11 +57,11 @@ it.each(stores)("$name 的尖端直接使用 API X/Y，不受祖先圖層的額�
   expect(document.querySelector("#map-pins")!.getAttribute("transform")).toBeNull();
 });
 
-it("合法右界 X=840 仍在 viewBox 內，並保留圖釘與點擊區域的留白", () => {
+it("合法右界 X=880 仍在 viewBox 內，並保留圖釘與點擊區域的留白", () => {
   const svg = document.querySelector("#rs-taiwan-map")!;
   const [x, , width] = svg.getAttribute("viewBox")!.split(" ").map(Number);
-  expect(x! + width!).toBeGreaterThanOrEqual(840 + 20);
-  expect(pin("east").getAttribute("transform")).toBe("translate(840, 500)");
+  expect(x! + width!).toBeGreaterThanOrEqual(880 + 20);
+  expect(pin("east").getAttribute("transform")).toBe("translate(880, 500)");
   click(pin("east"));
   expect(pin("east").classList.contains("is-selected")).toBe(true);
   expect(card()?.textContent).toContain("右界櫃點");
