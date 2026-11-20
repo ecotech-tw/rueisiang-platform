@@ -216,7 +216,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
   const content = (
     <>
       {embedded ? null : <PageHeader title="蝦皮商品銷售" />}
-      {!state.data.configured ? <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，現在無法處理報表。</Alert> : null}
+      {!state.data.configured ? <Alert tone="danger">報表背景執行環境尚未設定，現在無法處理報表。</Alert> : null}
       {!scopes.length ? <Alert tone="warning">尚未建立啟用中的蝦皮通路。請先到通路管理新增「種類：通路、平台：蝦皮」。</Alert> : null}
       {selectedScope && !selectedScope.driveFolderUrl ? <Alert tone="danger">「{selectedScope.name}」尚未設定 Google Drive 資料夾，請由有權限的人前往通路管理設定。</Alert> : null}
       <Panel
@@ -324,7 +324,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
           queuedLabel="排隊中"
           runningLabel={tracking?.mode === "preview" ? "解析中" : "整理中"}
           successLabel={tracking?.mode === "preview" ? "預覽完成" : "完成"}
-          waitingLabel="等待 GitHub 建立工作…"
+          waitingLabel="等待背景執行環境…"
         />
       ) : null}
     </>

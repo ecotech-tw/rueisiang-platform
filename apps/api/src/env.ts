@@ -13,6 +13,12 @@ export interface Env {
   PAYROLL_QUEUE?: Queue<PayrollQueueMessage>;
   /** 每批薪資一個 DO；沒有 binding 時 API 保留既有同步相容路徑。 */
   PAYROLL_RUN_AGENT?: DurableObjectNamespace;
+  /** 每次報表工作一個 Container-backed DO，執行 Python／Playwright driver。 */
+  REPORT_RUNNER?: DurableObjectNamespace;
+  REPORT_RUNNER_TOKEN?: string;
+  GOOGLE_CLIENT_ID?: string;
+  GOOGLE_CLIENT_SECRET?: string;
+  GOOGLE_REFRESH_TOKEN?: string;
   /** 正式環境一定會綁定；本機 Node server 與不碰 LINE 的測試可以省略。 */
   ASSISTANT_CHAT_AGENT?: DurableObjectNamespace;
   /** 全平台共用一個 credential vault，避免多個 chat 同時旋轉同一支 refresh token。 */
@@ -91,10 +97,8 @@ export interface Env {
   UPSTASH_REDIS_REST_TOKEN?: string;
 
   /*
-   * 出金表。真正的執行在帳務 repo 的 GitHub Actions 上——CYBERBIZ 帳密、Gmail 與
-   * Drive 的授權都只存在那邊的 Actions secrets，平台一個都不碰。這裡的 token 是
-   * fine-grained PAT，供出金表、商品銷售與蝦皮報表共用；只需要各自 repo 的
-   * Actions 讀寫。
+   * 出金表與尚未遷移的 CYBERBIZ 報表由 GitHub Actions 執行；它們的 CYBERBIZ 帳密、
+   * Gmail 與 Drive 憑證只存在 Actions secrets。這裡的 fine-grained PAT 供這些 runner 觸發 workflow。
    */
   GITHUB_TOKEN?: string;
   PAYOUT_GITHUB_REPO?: string;
@@ -114,11 +118,7 @@ export interface Env {
   CYBERBIZ_SHOP_GITHUB_REPO?: string;
   CYBERBIZ_SHOP_GITHUB_REF?: string;
 
-  /** 蝦皮報表 workflow；平台只暫存檔案並觸發 GitHub Actions。 */
-  SHOPEE_GITHUB_REPO?: string;
-  SHOPEE_WORKFLOW_FILE?: string;
-  SHOPEE_GITHUB_REF?: string;
-  /** GitHub runner 下載平台暫存檔案時使用的公開基底網址。 */
+  /** 報表 Container 讀取暫存檔案時使用的公開基底網址。 */
   SHOPEE_SOURCE_BASE_URL?: string;
 }
 
