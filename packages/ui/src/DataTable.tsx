@@ -64,9 +64,16 @@ const MOBILE_CARD = [
   /*
    * 每一格都要有 order，而且預設值要大於標題那一格：沒有 order 的格子會落在 0、排到標題前面，
    * 整張卡片從第二個欄位開始讀。分類管理頁踩過。
+   * 每一格也預設佔滿一整列：不給寬度的話，flex 會把短的格子兩兩塞進同一列，標籤跟值上下錯開，
+   * 看起來像兩欄表格擠在一起（HRIS 的申請、出勤、人員卡片都是這樣）。膠囊與操作鈕另外改回 w-auto。
    */
-  "max-[760px]:[&_:where(td)]:grid max-[760px]:[&_:where(td)]:grid-cols-[76px_minmax(0,1fr)] max-[760px]:[&_:where(td)]:items-start max-[760px]:[&_:where(td)]:gap-3 max-[760px]:[&_:where(td)]:px-0 max-[760px]:[&_:where(td)]:py-[5px] max-[760px]:[&_:where(td)]:border-0 max-[760px]:[&_:where(td)]:text-[14px] max-[760px]:[&_:where(td)]:order-10",
+  "max-[760px]:[&_:where(td)]:grid max-[760px]:[&_:where(td)]:w-full max-[760px]:[&_:where(td)]:grid-cols-[76px_minmax(0,1fr)] max-[760px]:[&_:where(td)]:items-start max-[760px]:[&_:where(td)]:gap-x-3 max-[760px]:[&_:where(td)]:gap-y-0.5 max-[760px]:[&_:where(td)]:px-0 max-[760px]:[&_:where(td)]:py-[5px] max-[760px]:[&_:where(td)]:border-0 max-[760px]:[&_:where(td)]:text-[14px] max-[760px]:[&_:where(td)]:order-10",
   "max-[760px]:[&_:where(td)]:before:content-[attr(data-label)] max-[760px]:[&_:where(td)]:before:text-[12px] max-[760px]:[&_:where(td)]:before:leading-[1.6] max-[760px]:[&_:where(td)]:before:text-muted",
+  /*
+   * 值有好幾段（姓名＋員工編號）時都排在值那一欄往下疊，不要第二段掉回標籤那一欄。
+   * 用「最後一欄」不用「第 2 欄」：拿掉標籤的格子只有一欄，寫 2 會多長出一欄把內容擠到旁邊。
+   */
+  "max-[760px]:[&_:where(td[data-label])>*]:col-start-[-2]",
   // 沒有標籤的格子（例如純操作欄）不要留一格空白。
   "max-[760px]:[&_:where(td):not([data-label])]:grid-cols-[minmax(0,1fr)] max-[760px]:[&_:where(td):not([data-label])]:before:hidden",
   "max-[760px]:[&_:where(td):last-child]:pr-6",
@@ -91,7 +98,7 @@ const MOBILE_CARD = [
   "max-[760px]:[&_tr>td[data-label=通路]]:py-1 max-[760px]:[&_tr>td[data-label=狀態]]:py-1 max-[760px]:[&_tr>td[data-label=分類]:not(:first-child)]:py-1",
   "max-[760px]:[&_tr>td[data-label=通路]]:before:hidden max-[760px]:[&_tr>td[data-label=狀態]]:before:hidden max-[760px]:[&_tr>td[data-label=分類]:not(:first-child)]:before:hidden",
   // 操作鈕釘在卡片右上角，不要自己佔一列（那一列量出來 50px）。
-  "max-[760px]:[&_tr>td[data-label=操作]]:absolute max-[760px]:[&_tr>td[data-label=操作]]:top-2 max-[760px]:[&_tr>td[data-label=操作]]:right-2 max-[760px]:[&_tr>td[data-label=操作]]:block max-[760px]:[&_tr>td[data-label=操作]]:p-0 max-[760px]:[&_tr>td[data-label=操作]]:before:hidden",
+  "max-[760px]:[&_tr>td[data-label=操作]]:absolute max-[760px]:[&_tr>td[data-label=操作]]:top-2 max-[760px]:[&_tr>td[data-label=操作]]:right-2 max-[760px]:[&_tr>td[data-label=操作]]:block max-[760px]:[&_tr>td[data-label=操作]]:w-auto max-[760px]:[&_tr>td[data-label=操作]]:p-0 max-[760px]:[&_tr>td[data-label=操作]]:before:hidden",
   // 值那一欄是 grid item，預設會被拉滿整格；膠囊撐成一整條就不像標記了。
   "max-[760px]:[&_td>[data-tag-list]]:justify-self-start",
 ].join(" ");

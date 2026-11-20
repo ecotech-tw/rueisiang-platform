@@ -1,13 +1,14 @@
 import type { Permission } from "@rueisiang/auth/permissions";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { HrSkins } from "../../shell/HrSkins.js";
 import { GuardedNavLink } from "../../shell/UnsavedChanges.js";
+import { useDismiss } from "../../shell/AccountPanel.js";
 import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
 import { HrOverview } from "./Overview.js";
 import { HrPageTransition } from "./HrPageTransition.js";
-import { HR_SHELL, HrBrand, HrGlassDefs, HrHeader, HrMain, HrNav, HrNavItem, hrMenuItemClass, hrNavChevronClass, hrNavIconClass, hrNavLinkClass, hrSubmenuClass } from "./HrShell.js";
+import { HR_SHELL, HrBrand, HrGlassDefs, HrHeader, HrMain, HrNav, HrNavItem, hrMenuItemClass, hrNavChevronClass, hrNavIconClass, hrNavLinkClass, hrSubmenuClass, hrUserTriggerClass } from "./HrShell.js";
 import { HrUserMenu } from "./HrUserMenu.js";
 
 /** platform 只承載 HR 管理功能；員工本人入口在 hr.rueisiang.com。 */
@@ -124,6 +125,25 @@ export function HrLayout() {
   const activeLabel = visiblePrimaryNav.find((item) => isActive(item.activePaths ?? [item.to], pathname))?.label ?? null;
 
   /*
+   * 手機上導覽收在選單鈕後面。打開時順便展開目前所在的大項，要換到同一組的另一頁少點一下；
+   * 換頁、點面板外面、按 Escape 都收起來。
+   */
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const headerRef = useRef<HTMLElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => { setMobileNavOpen(false); setOpenMenu(null); }, [pathname]);
+  useDismiss(headerRef, mobileNavOpen, (event) => {
+    setMobileNavOpen(false);
+    if (event instanceof KeyboardEvent) menuButtonRef.current?.focus();
+  });
+  const toggleMobileNav = () => {
+    const next = !mobileNavOpen;
+    setMobileNavOpen(next);
+    const activeItem = visiblePrimaryNav.find((item) => item.label === activeLabel);
+    setOpenMenu(next && activeItem?.children.length ? activeItem.label : null);
+  };
+
+  /*
    * 選中那一格底下的玻璃膠囊是一塊會滑動的 thumb，不是每一格各自的底色。
    * 每一格寬度跟著文字走，只能量實際的 offsetLeft / offsetWidth 再交給 CSS 變數。
    */
@@ -178,9 +198,26 @@ export function HrLayout() {
 
   return <HrSkins><div data-hr-shell="" className={HR_SHELL}>
     <HrGlassDefs />
-    <HrHeader>
+    <HrHeader
+      ref={headerRef}
+      // 鍵盤 Tab 出頁首就收起來，不然面板一直蓋在焦點所在的內容上面；點外面由 useDismiss 處理。
+      onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setMobileNavOpen(false); }}
+    >
       <HrBrand current={current} />
-      <HrNav label="HRIS 主要導覽" ref={navRef} thumbRef={thumbRef}>
+      <div className="hidden max-[900px]:col-[2] max-[900px]:row-[1] max-[900px]:block">
+        <button
+          ref={menuButtonRef}
+          type="button"
+          className={hrUserTriggerClass(mobileNavOpen)}
+          aria-expanded={mobileNavOpen}
+          aria-controls="hr-primary-nav"
+          aria-label={mobileNavOpen ? "關閉 HRIS 選單" : "開啟 HRIS 選單"}
+          onClick={toggleMobileNav}
+        >
+          <Icon name={mobileNavOpen ? "close" : "menu"} className="size-[22px] text-brand-dark" />
+        </button>
+      </div>
+      <HrNav label="HRIS 主要導覽" id="hr-primary-nav" mobileOpen={mobileNavOpen} ref={navRef} thumbRef={thumbRef}>
         {visiblePrimaryNav.map((item) => {
           const active = isActive(item.activePaths ?? [item.to], pathname);
           const hasChildren = item.children.length > 0;
@@ -193,7 +230,7 @@ export function HrLayout() {
             // 觸控裝置不應把合成 mouse 事件當成 hover，否則展開後可能立刻被離開事件收合。
             onPointerEnter={(event) => { if (hasChildren && event.pointerType === "mouse") setOpenMenu(item.label); }}
             onPointerLeave={(event) => { if (hasChildren && event.pointerType === "mouse") setOpenMenu((current) => current === item.label ? null : current); }}
-            onFocus={() => { if (hasChildren) setOpenMenu(item.label); }}
+            onFocus={(event) => { if (hasChildren && event.target.matches(":focus-visible")) setOpenMenu(item.label); }}
             onBlur={(event) => {
               if (hasChildren && !event.currentTarget.contains(event.relatedTarget)) setOpenMenu((current) => current === item.label ? null : current);
             }}
@@ -204,7 +241,11 @@ export function HrLayout() {
               aria-haspopup="menu"
               aria-expanded={open}
               aria-controls={submenuId}
-              onClick={() => setOpenMenu(item.label)}
+              // 滑鼠靠 hover 打開、點了也維持開著；觸控沒有 hover，點一下開、再點一下收。
+              onClick={(event) => {
+                const touch = (event.nativeEvent as PointerEvent).pointerType === "touch";
+                setOpenMenu((current) => touch && current === item.label ? null : item.label);
+              }}
             >
               <Icon name={item.icon} className={hrNavIconClass(active)} />
               <span>{item.label}</span>
@@ -234,7 +275,8 @@ export function HrLayout() {
           </HrNavItem>;
         })}
       </HrNav>
-      <HrUserMenu />
+      {/* 頭像也在頁首裡，useDismiss 不會把它當成點外面；打開帳號選單時自己把導覽面板收掉，兩塊才不會疊在一起。 */}
+      <HrUserMenu onOpen={() => setMobileNavOpen(false)} />
     </HrHeader>
 
     <HrMain>
