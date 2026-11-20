@@ -45,16 +45,22 @@ afterEach(() => {
   document.body.innerHTML = ""; document.body.style.overflow = "";
 });
 
-it("圖釘以尖端為錨點，整層只向右平移一次，不改 API 原始座標", () => {
-  expect(document.querySelector("#map-pins")!.getAttribute("transform")).toBe("translate(30, 0)");
-  expect(pin("south").getAttribute("transform")).toBe("translate(530, 800)");
-  expect(pin("south").querySelector(".rs-pin-body")!.getAttribute("d")).toMatch(/^M 0,0 /);
+it.each(stores)("$name 的尖端直接使用 API X/Y，不受祖先圖層的額外位移影響", (store) => {
+  expect(document.querySelector("#map-pins")!.getAttribute("transform")).toBeNull();
+  const anchor = pin(store.id);
+  expect(anchor.getAttribute("transform")).toBe(`translate(${store.pinX}, ${store.pinY})`);
+  expect(anchor.querySelector(".rs-pin-zoom-comp")!.getAttribute("transform")).toBeNull();
+  expect(anchor.querySelector(".rs-pin-body")!.getAttribute("d")).toMatch(/^M 0,0 /);
+  expect(getComputedStyle(anchor.querySelector(".rs-pin-visual")!).transformOrigin).toBe("0px 0px");
+  click(anchor);
+  expect(anchor.getAttribute("transform")).toBe(`translate(${store.pinX}, ${store.pinY})`);
+  expect(document.querySelector("#map-pins")!.getAttribute("transform")).toBeNull();
 });
 
-it("合法右界 X=840 校正後仍在 viewBox 內，並保留圖釘與點擊區域的留白", () => {
+it("合法右界 X=840 仍在 viewBox 內，並保留圖釘與點擊區域的留白", () => {
   const svg = document.querySelector("#rs-taiwan-map")!;
   const [x, , width] = svg.getAttribute("viewBox")!.split(" ").map(Number);
-  expect(x! + width!).toBeGreaterThanOrEqual(840 + 30 + 20);
+  expect(x! + width!).toBeGreaterThanOrEqual(840 + 20);
   expect(pin("east").getAttribute("transform")).toBe("translate(840, 500)");
   click(pin("east"));
   expect(pin("east").classList.contains("is-selected")).toBe(true);
