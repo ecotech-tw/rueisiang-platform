@@ -887,6 +887,68 @@ describe("AI 助理 Sandbox", () => {
     });
   });
 
+  it("VPC rollout keeps LINE Codex inference on NAS relay while Sandbox validates VPC", async () => {
+    await db().insert(assistantLineChannels).values({
+      channelKey: "rueisiang-xiaoxiang",
+      assistantKey: "rueisiang-xiaoxiang",
+      updatedBy: "test",
+      enabled: true,
+    });
+    await db().insert(assistantLineGroups).values({
+      id: "line-vpc-rollout-group",
+      channelKey: "rueisiang-xiaoxiang",
+      lineGroupId: "line-vpc-rollout-user",
+      sourceType: "user",
+      enabled: true,
+    });
+    env.PI_OPENAI_CODEX_EGRESS_MODE = "vpc";
+    env.PI_OPENAI_CODEX_RELAY_URL = "https://relay.example.test";
+    env.PI_OPENAI_CODEX_RELAY_TOKEN = "relay-test-token";
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({ fetch: async () => Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
+    };
+    const vpcRequests: Request[] = [];
+    env.CODEX_EGRESS = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        vpcRequests.push(new Request(input, init));
+        return asCodexStream({ candidates: [{ content: { parts: [{ text: "unexpected VPC response" }] } }] });
+      },
+    };
+    const relayFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      expect(String(input)).toBe("https://relay.example.test/codex/responses");
+      expect(new Headers(init?.headers).get("x-codex-relay-token")).toBe("relay-test-token");
+      return asCodexStream({
+        candidates: [{ content: { parts: [{ text: "LINE remains on the NAS relay." }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+      });
+    });
+
+    const agent = assistantAgents!.getByName("rueisiang-xiaoxiang:rueisiang-xiaoxiang:user:line-vpc-rollout-user");
+    const response = await agent.fetch(new Request("https://assistant-agent.internal/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        assistantKey: "rueisiang-xiaoxiang",
+        channelKey: "rueisiang-xiaoxiang",
+        groupRowId: "line-vpc-rollout-group",
+        lineGroupId: "line-vpc-rollout-user",
+        sourceType: "user",
+        contextGeneration: "",
+        webhookEventId: "line-vpc-rollout-event",
+        runId: "line-vpc-rollout-run",
+        model: "gpt-6-luna",
+        systemPrompt: "你是 LINE 助理。",
+        userText: "測試 VPC rollout scope",
+        toolKeys: [],
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { text: "LINE remains on the NAS relay." } });
+    expect(relayFetch).toHaveBeenCalledOnce();
+    expect(vpcRequests).toHaveLength(0);
+  });
+
   it("LINE Pi Agent 首次使用會回填既有 D1 訊息，且排除目前 webhook", async () => {
     await db().insert(assistantLineChannels).values({
       channelKey: "rueisiang-xiaoxiang",

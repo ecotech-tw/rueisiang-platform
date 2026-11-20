@@ -106,9 +106,10 @@ request 與 SSE，仍須以正式環境實測。VPC 目前為 beta，需帳號 C
 `PI_OPENAI_CODEX_EGRESS_MODE` 明確切換，不在同一個模型 request 失敗後自動重送，避免不確定請求是否
 已被上游接受時重複執行。
 
-第一階段正式路徑使用 `vpc`，NAS relay 設定仍保留作為回退：將 mode 改成 `relay` 即可切回；relay URL
-與 token 必須成對設定。未設定 mode 的本機相容路徑會沿用舊行為：有 relay 設定就使用 relay，否則使用
-Worker 全域 `fetch()`。
+第一階段設定 `vpc` 時只讓 Sandbox Codex request 經 VPC，LINE Codex request 繼續走既有 NAS relay，避免
+Sandbox 驗收前同時切換正式 LINE 流量。NAS relay 設定仍須保留；將 mode 改成 `relay` 時 Sandbox 與 LINE
+都會走 relay，且 relay URL 與 token 必須成對設定。未設定 mode 的本機相容路徑會沿用舊行為：有 relay
+設定就使用 relay，否則使用 Worker 全域 `fetch()`。
 
 | 設定 | 類型 | 說明 |
 |---|---|---|
@@ -116,7 +117,8 @@ Worker 全域 `fetch()`。
 | `PI_OPENAI_CODEX_RELAY_URL` | variable | relay 回退用的 HTTPS origin，例如 `https://codex-relay.example.com` |
 | `PI_OPENAI_CODEX_RELAY_TOKEN` | secret | 與 NAS `CODEX_RELAY_TOKEN` 相同的高熵字串 |
 
-`vpc` 模式需要 `CODEX_EGRESS` binding（`cf1:network`）。回退至 relay 時保留以下設定：
+`vpc` 模式需要 `CODEX_EGRESS` binding（`cf1:network`）；此模式的 LINE Codex request 仍需要有效的 relay
+URL 與 token。若要讓 Sandbox 與 LINE 都走 relay，保留以下設定並將 mode 設為 `relay`：
 
 ```text
 PI_OPENAI_CODEX_EGRESS_MODE=relay
@@ -124,8 +126,9 @@ PI_OPENAI_CODEX_RELAY_URL=http://127.0.0.1:8787
 PI_OPENAI_CODEX_RELAY_TOKEN=<與本機 relay 相同的 token>
 ```
 
-兩者都未設定時維持 Worker 直連；只設定一個時 Codex request 會 fail closed。第一階段只在 Sandbox
-驗收，NAS relay 仍回傳 HTML 403 時就停止修改 header，改回頭確認 credential 與上游服務的允許條件。
+只有在未設定 egress mode 的本機相容路徑中，兩個 relay 設定都未設定才會維持 Worker 直連；只設定一個時
+Codex request 會 fail closed。第一階段只在 Sandbox 驗收 VPC，LINE 維持 NAS relay；NAS relay 仍回傳 HTML
+403 時就停止修改 header，改回頭確認 credential 與上游服務的允許條件。
 
 ## Credential setup
 

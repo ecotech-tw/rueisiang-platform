@@ -50,7 +50,7 @@ export interface Env {
   PI_OPENAI_CODEX_CREDENTIAL?: string;
   /** vault 內 credential 的應用層 AES-GCM encryption key，至少 32 字元。 */
   PI_CREDENTIAL_ENCRYPTION_KEY?: string;
-  /** Codex 模型出站路徑；vpc 經 Gateway，relay 可作為明確切換的備援。 */
+  /** Codex 模型出站路徑；vpc 僅讓 Sandbox 經 Gateway，LINE 維持 relay；relay mode 讓兩者都走 relay。 */
   PI_OPENAI_CODEX_EGRESS_MODE?: "vpc" | "relay";
   /** 可選的 NAS Codex relay origin；relay mode 才會使用。 */
   PI_OPENAI_CODEX_RELAY_URL?: string;

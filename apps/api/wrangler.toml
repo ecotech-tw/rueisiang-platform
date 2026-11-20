@@ -82,7 +82,7 @@ class_name = "AssistantCredentialVault"
 name = "PAYROLL_RUN_AGENT"
 class_name = "PayrollRunAgent"
 
-# Codex ChatGPT OAuth 經 Cloudflare Gateway public egress；relay mode 可切回 NAS 備援。
+# Phase 1 只讓 Sandbox Codex 經 Cloudflare Gateway；LINE 保持 NAS relay，mode=relay 可讓兩者都回退。
 [[vpc_networks]]
 binding = "CODEX_EGRESS"
 network_id = "cf1:network"
