@@ -394,6 +394,24 @@ describe("報表統計 API", () => {
       },
     });
 
+    const imageUrl = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "PATCH",
+      admin,
+      "admin-scope-management@ecotech.tw",
+      { storeLocatorImageUrl: "https://images.example.com/store.jpg" },
+    );
+    expect(imageUrl.status).toBe(200);
+    expect(await imageUrl.json()).toMatchObject({ scope: { storeLocatorImageId: null, storeLocatorImageUrl: "https://images.example.com/store.jpg" } });
+    const invalidImageUrl = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
+      "PATCH",
+      admin,
+      "admin-scope-management@ecotech.tw",
+      { storeLocatorImageUrl: "http://images.example.com/store.jpg" },
+    );
+    expect(invalidImageUrl.status).toBe(400);
+
     const changedPlatform = await mutate(
       `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
       "PATCH",

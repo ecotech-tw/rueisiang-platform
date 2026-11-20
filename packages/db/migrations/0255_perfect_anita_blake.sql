@@ -1,0 +1,1 @@
+ALTER TABLE `store_locator_profiles` ADD `store_locator_image_url` text DEFAULT '' NOT NULL;

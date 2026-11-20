@@ -9,6 +9,7 @@ import { activityEvents } from "./schema/activity.js";
 import {
   reportItemSalesMonthly,
   scopes as targetScopes,
+  storeLocatorProfiles,
   reportPayoutDaily,
 } from "./schema/reports.js";
 import { itemCategories, cyberbizProducts, items as itemMasters } from "./schema/items.js";
@@ -157,6 +158,20 @@ export interface ReportManagementScope {
   /** 出金與商品銷售報表要寫進哪個 Google Drive 資料夾；只有 runner 跑得動的通路要填。 */
   driveFolderUrl: string;
   driveFolderName: string;
+  storeLocatorCategory: string;
+  storeLocatorLabel: string;
+  storeLocatorShortName: string;
+  storeLocatorCounty: string;
+  storeLocatorAddress: string;
+  storeLocatorFloorNote: string;
+  storeLocatorHours: string;
+  storeLocatorPhone: string;
+  storeLocatorHighlight: string;
+  storeLocatorImageId: string | null;
+  storeLocatorImageUrl: string;
+  storeLocatorMapUrl: string;
+  storeLocatorPinX: number | null;
+  storeLocatorPinY: number | null;
   active: boolean;
   archivedAt: string | null;
 }
@@ -168,6 +183,20 @@ export interface ReportManagementScopeInput {
   scopeKind?: ScopeKind;
   driveFolderUrl?: string;
   driveFolderName?: string;
+  storeLocatorCategory?: string;
+  storeLocatorLabel?: string;
+  storeLocatorShortName?: string;
+  storeLocatorCounty?: string;
+  storeLocatorAddress?: string;
+  storeLocatorFloorNote?: string;
+  storeLocatorHours?: string;
+  storeLocatorPhone?: string;
+  storeLocatorHighlight?: string;
+  storeLocatorImageId?: string | null;
+  storeLocatorImageUrl?: string;
+  storeLocatorMapUrl?: string;
+  storeLocatorPinX?: number | null;
+  storeLocatorPinY?: number | null;
   active?: boolean;
 }
 
@@ -193,6 +222,41 @@ function safeInteger(value: number, label: string): number {
   return value;
 }
 
+type StoreLocatorFields = Pick<ReportManagementScope,
+  | "storeLocatorCategory" | "storeLocatorLabel" | "storeLocatorShortName" | "storeLocatorCounty"
+  | "storeLocatorAddress" | "storeLocatorFloorNote" | "storeLocatorHours" | "storeLocatorPhone"
+  | "storeLocatorHighlight" | "storeLocatorImageId" | "storeLocatorImageUrl" | "storeLocatorMapUrl" | "storeLocatorPinX" | "storeLocatorPinY"
+>;
+
+function storeLocatorInput(input: Partial<StoreLocatorFields>) {
+  const textFields = [
+    "storeLocatorCategory", "storeLocatorLabel", "storeLocatorShortName", "storeLocatorCounty",
+    "storeLocatorAddress", "storeLocatorFloorNote", "storeLocatorHours", "storeLocatorPhone",
+    "storeLocatorHighlight", "storeLocatorImageUrl", "storeLocatorMapUrl",
+  ] as const;
+  const values: Record<string, string | number | null> = {};
+  for (const field of textFields) values[field] = input[field]?.trim() ?? "";
+  values.storeLocatorImageId = input.storeLocatorImageId?.trim() || null;
+  values.storeLocatorPinX = input.storeLocatorPinX ?? null;
+  values.storeLocatorPinY = input.storeLocatorPinY ?? null;
+  return values as StoreLocatorFields;
+}
+
+const STORE_LOCATOR_INPUT_KEYS: readonly (keyof StoreLocatorFields)[] = [
+  "storeLocatorCategory", "storeLocatorLabel", "storeLocatorShortName", "storeLocatorCounty",
+  "storeLocatorAddress", "storeLocatorFloorNote", "storeLocatorHours", "storeLocatorPhone",
+  "storeLocatorHighlight", "storeLocatorImageId", "storeLocatorImageUrl", "storeLocatorMapUrl", "storeLocatorPinX", "storeLocatorPinY",
+];
+
+function hasStoreLocatorInput(input: object): input is Partial<StoreLocatorFields> {
+  return STORE_LOCATOR_INPUT_KEYS.some((key) => key in input);
+}
+
+async function readStoreLocatorProfile(db: Database, scopeId: string): Promise<StoreLocatorFields> {
+  const [profile] = await db.select().from(storeLocatorProfiles).where(eq(storeLocatorProfiles.scopeId, scopeId)).limit(1);
+  return storeLocatorInput(profile ?? {});
+}
+
 async function requireScope(db: Database, scopeId: string) {
   const id = scopeId.trim();
   if (!id) throw new ReportManualError("invalid", "請選擇據點。");
@@ -208,11 +272,32 @@ export async function listReportManagementScopes(db: Database): Promise<ReportMa
     id: targetScopes.id, name: targetScopes.name, externalName: targetScopes.externalName,
     sourceType: targetScopes.sourceType, scopeKind: targetScopes.scopeKind,
     driveFolderUrl: targetScopes.driveFolderUrl, driveFolderName: targetScopes.driveFolderName,
+    storeLocatorCategory: storeLocatorProfiles.storeLocatorCategory, storeLocatorLabel: storeLocatorProfiles.storeLocatorLabel,
+    storeLocatorShortName: storeLocatorProfiles.storeLocatorShortName, storeLocatorCounty: storeLocatorProfiles.storeLocatorCounty,
+    storeLocatorAddress: storeLocatorProfiles.storeLocatorAddress, storeLocatorFloorNote: storeLocatorProfiles.storeLocatorFloorNote,
+    storeLocatorHours: storeLocatorProfiles.storeLocatorHours, storeLocatorPhone: storeLocatorProfiles.storeLocatorPhone,
+    storeLocatorHighlight: storeLocatorProfiles.storeLocatorHighlight, storeLocatorImageId: storeLocatorProfiles.storeLocatorImageId,
+    storeLocatorImageUrl: storeLocatorProfiles.storeLocatorImageUrl, storeLocatorMapUrl: storeLocatorProfiles.storeLocatorMapUrl, storeLocatorPinX: storeLocatorProfiles.storeLocatorPinX,
+    storeLocatorPinY: storeLocatorProfiles.storeLocatorPinY,
     active: targetScopes.active, archivedAt: targetScopes.archivedAt,
-  }).from(targetScopes)
+  }).from(targetScopes).leftJoin(storeLocatorProfiles, eq(storeLocatorProfiles.scopeId, targetScopes.id))
     .orderBy(asc(sql`${targetScopes.archivedAt} IS NOT NULL`), desc(targetScopes.active), asc(targetScopes.name));
   return rows.map((scope) => ({
     ...scope,
+    storeLocatorCategory: scope.storeLocatorCategory ?? "",
+    storeLocatorLabel: scope.storeLocatorLabel ?? "",
+    storeLocatorShortName: scope.storeLocatorShortName ?? "",
+    storeLocatorCounty: scope.storeLocatorCounty ?? "",
+    storeLocatorAddress: scope.storeLocatorAddress ?? "",
+    storeLocatorFloorNote: scope.storeLocatorFloorNote ?? "",
+    storeLocatorHours: scope.storeLocatorHours ?? "",
+    storeLocatorPhone: scope.storeLocatorPhone ?? "",
+    storeLocatorHighlight: scope.storeLocatorHighlight ?? "",
+    storeLocatorImageId: scope.storeLocatorImageId ?? null,
+    storeLocatorImageUrl: scope.storeLocatorImageUrl ?? "",
+    storeLocatorMapUrl: scope.storeLocatorMapUrl ?? "",
+    storeLocatorPinX: scope.storeLocatorPinX ?? null,
+    storeLocatorPinY: scope.storeLocatorPinY ?? null,
     scopeKind: scope.scopeKind as ScopeKind,
     active: scope.active === 1,
   }));
@@ -233,15 +318,17 @@ export async function createReportManagementScope(db: Database, input: ReportMan
   const externalName = (input.externalName ?? "").trim();
   const driveFolderUrl = (input.driveFolderUrl ?? "").trim();
   const driveFolderName = (input.driveFolderName ?? "").trim();
+  const storeLocator = storeLocatorInput(input);
   const now = new Date().toISOString();
   await db.insert(targetScopes).values({
     id, sourceType, scopeKind, name, normalizedName, externalName,
     driveFolderUrl, driveFolderName, sortOrder: 0, active: input.active === false ? 0 : 1,
     createdAt: now, updatedAt: now,
   });
+  if (hasStoreLocatorInput(input)) await db.insert(storeLocatorProfiles).values({ scopeId: id, ...storeLocator });
   return {
     id, name, externalName, sourceType, scopeKind, driveFolderUrl, driveFolderName,
-    active: input.active !== false, archivedAt: null,
+    ...storeLocator, active: input.active !== false, archivedAt: null,
   };
 }
 
@@ -249,7 +336,12 @@ export async function updateReportManagementScope(
   db: Database,
   input: {
     id: string; name?: string; externalName?: string; sourceType?: string;
-    scopeKind?: ScopeKind; driveFolderUrl?: string; driveFolderName?: string; active?: boolean;
+    scopeKind?: ScopeKind; driveFolderUrl?: string; driveFolderName?: string;
+    storeLocatorCategory?: string; storeLocatorLabel?: string; storeLocatorShortName?: string;
+    storeLocatorCounty?: string; storeLocatorAddress?: string; storeLocatorFloorNote?: string;
+    storeLocatorHours?: string; storeLocatorPhone?: string; storeLocatorHighlight?: string;
+    storeLocatorImageId?: string | null; storeLocatorImageUrl?: string; storeLocatorMapUrl?: string;
+    storeLocatorPinX?: number | null; storeLocatorPinY?: number | null; active?: boolean;
   },
 ): Promise<ReportManagementScope> {
   const id = input.id.trim();
@@ -280,13 +372,20 @@ export async function updateReportManagementScope(
   const driveFolderUrl = input.driveFolderUrl === undefined ? existing.driveFolderUrl : input.driveFolderUrl.trim();
   const driveFolderName = input.driveFolderName === undefined ? existing.driveFolderName : input.driveFolderName.trim();
   const active = input.active === undefined ? existing.active === 1 : input.active;
+  const profile = await readStoreLocatorProfile(db, id);
+  const storeLocator = hasStoreLocatorInput(input) ? storeLocatorInput({ ...profile, ...input }) : profile;
   // 封存的通路要先還原才能重新啟用；不然「停用」與「封存」會互相打架。
   const archivedAt = active && existing.archivedAt ? null : existing.archivedAt;
+  const now = new Date().toISOString();
   await db.update(targetScopes).set({
     name, normalizedName: normalizeReportScopeName(name), externalName, sourceType, scopeKind,
-    driveFolderUrl, driveFolderName, active: active ? 1 : 0, archivedAt, updatedAt: new Date().toISOString(),
+    driveFolderUrl, driveFolderName, active: active ? 1 : 0, archivedAt, updatedAt: now,
   }).where(eq(targetScopes.id, id));
-  return { id, name, externalName, sourceType, scopeKind, driveFolderUrl, driveFolderName, active, archivedAt };
+  if (hasStoreLocatorInput(input)) {
+    await db.insert(storeLocatorProfiles).values({ scopeId: id, ...storeLocator, updatedAt: now })
+      .onConflictDoUpdate({ target: storeLocatorProfiles.scopeId, set: { ...storeLocator, updatedAt: now } });
+  }
+  return { id, name, externalName, sourceType, scopeKind, driveFolderUrl, driveFolderName, ...storeLocator, active, archivedAt };
 }
 
 /**
@@ -310,7 +409,7 @@ export async function archiveReportManagementScope(db: Database, scopeId: string
   return {
     id, name: existing.name, externalName: existing.externalName, sourceType: existing.sourceType,
     scopeKind: existing.scopeKind as ScopeKind, driveFolderUrl: existing.driveFolderUrl,
-    driveFolderName: existing.driveFolderName, active: false, archivedAt: now,
+    driveFolderName: existing.driveFolderName, ...await readStoreLocatorProfile(db, id), active: false, archivedAt: now,
   };
 }
 

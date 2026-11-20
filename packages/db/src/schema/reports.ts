@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { items } from "./items.js";
 
 export type ScopeKind = "store" | "channel" | "company";
@@ -37,6 +37,27 @@ export const scopes = sqliteTable("scopes", {
   index("idx_scopes_pick").on(table.scopeKind, table.active, table.sortOrder),
   check("ck_scopes_kind", sql`${table.scopeKind} IN ('store', 'channel', 'company')`),
 ]);
+
+/** 官網 store locator 的可選資料；與通用 scopes 分表，避免影響批次寫入與報表資料模型。 */
+export const storeLocatorProfiles = sqliteTable("store_locator_profiles", {
+  scopeId: text("scope_id").primaryKey().references(() => scopes.id, { onDelete: "restrict" }),
+  storeLocatorCategory: text("store_locator_category").notNull().default(""),
+  storeLocatorLabel: text("store_locator_label").notNull().default(""),
+  storeLocatorShortName: text("store_locator_short_name").notNull().default(""),
+  storeLocatorCounty: text("store_locator_county").notNull().default(""),
+  storeLocatorAddress: text("store_locator_address").notNull().default(""),
+  storeLocatorFloorNote: text("store_locator_floor_note").notNull().default(""),
+  storeLocatorHours: text("store_locator_hours").notNull().default(""),
+  storeLocatorPhone: text("store_locator_phone").notNull().default(""),
+  storeLocatorHighlight: text("store_locator_highlight").notNull().default(""),
+  storeLocatorImageId: text("store_locator_image_id"),
+  storeLocatorImageUrl: text("store_locator_image_url").notNull().default(""),
+  storeLocatorMapUrl: text("store_locator_map_url").notNull().default(""),
+  storeLocatorPinX: real("store_locator_pin_x"),
+  storeLocatorPinY: real("store_locator_pin_y"),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
 
 /** 外部通路商品的對應或忽略設定。 */
 export const reportExternalProducts = sqliteTable("report_external_products", {

@@ -1,0 +1,1181 @@
+<style>
+/* 瑞香品牌色票與基礎字型設定 */
+    #rueisiang-store-locator {
+      font-family: 'Noto Sans TC', 'Inter', sans-serif;
+      color: #3D241E;
+      --rs-primary: #B85D52;
+      --rs-primary-dark: #9B4338;
+      --rs-primary-light: #C16E63;
+      --rs-map-fill: #EBC3BA;
+      --rs-map-hover: #E2AFA4;
+      --rs-map-active: #DA9B8E;
+      --rs-badge-bg: #5B2147;
+      --rs-card-bg: #FDFBF9;
+    }
+
+    .rs-serif {
+      font-family: 'Noto Serif TC', serif;
+    }
+
+    /* 台灣縣市多邊形平滑過渡 */
+    .rs-county-path {
+      fill: #EBC3BA;
+      stroke: #FFFFFF;
+      stroke-width: 2px;
+      stroke-linejoin: round;
+      stroke-linecap: round;
+      transition: fill 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .rs-county-path:hover {
+      fill: #E2AFA4;
+    }
+    .rs-county-path.is-county-active {
+      fill: #DFAAA0;
+    }
+
+    /* 圖釘外層固定於座標點，內層視覺縮放，避免 hover 造成座標抖動 */
+    .rs-pin-anchor {
+      cursor: pointer;
+      outline: none;
+      transition: opacity 0.35s ease;
+    }
+    .rs-pin-visual {
+      transform-origin: 0px 0px;
+      transition: transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .rs-pin-anchor:hover .rs-pin-visual,
+    .rs-pin-anchor:focus-visible .rs-pin-visual {
+      transform: scale(1.22);
+    }
+    .rs-pin-anchor.is-selected .rs-pin-visual {
+      transform: scale(1.32);
+    }
+    .rs-pin-body {
+      transition: fill 0.28s ease;
+    }
+
+    /* 選中圖釘脈衝波紋動畫 */
+    @keyframes rsPulseRing {
+      0% {
+        transform: scale(0.65);
+        opacity: 0.75;
+      }
+      100% {
+        transform: scale(2.35);
+        opacity: 0;
+      }
+    }
+    .rs-pin-pulse {
+      transform-box: fill-box;
+      transform-origin: 50% 50%;
+      opacity: 0;
+      pointer-events: none;
+    }
+    .rs-pin-anchor.is-selected .rs-pin-pulse {
+      animation: rsPulseRing 1.9s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+    }
+
+    /* 圖釘名稱提示氣泡 */
+    .rs-pin-tooltip {
+      opacity: 0;
+      transform: translateY(4px);
+      transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+      pointer-events: none;
+    }
+    .rs-pin-anchor:hover .rs-pin-tooltip,
+    .rs-pin-anchor:focus-visible .rs-pin-tooltip,
+    .rs-pin-anchor.is-selected .rs-pin-tooltip {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    /* 電腦版左側卡片進場動畫 */
+    @keyframes rsDesktopCardIn {
+      0% {
+        opacity: 0;
+        transform: translateY(12px) scale(0.985);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .rs-desktop-card-enter {
+      animation: rsDesktopCardIn 0.36s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+
+    /* 電腦版右側漸層滑動選單（無背景圓弧線） */
+    .rs-wheel-shell {
+      position: relative;
+      height: 368px;
+      width: 100%;
+    }
+    .rs-wheel-viewport {
+      position: relative;
+      z-index: 2;
+      height: 368px;
+      overflow-y: auto;
+      scroll-behavior: smooth;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      cursor: grab;
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: pan-y;
+    }
+    .rs-wheel-viewport.is-dragging {
+      cursor: grabbing;
+      scroll-behavior: auto;
+    }
+    .rs-wheel-viewport::-webkit-scrollbar {
+      display: none;
+    }
+    .rs-wheel-item {
+      position: relative;
+      z-index: 3;
+      height: 52px;
+      width: 100%;
+      cursor: pointer !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      text-align: center !important;
+      transition: transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.2s ease, color 0.2s ease;
+      will-change: transform, opacity;
+    }
+    .rs-wheel-item:hover .rs-wheel-text {
+      color: #B85D52 !important;
+    }
+    .rs-wheel-item > span {
+      pointer-events: none;
+    }
+    .rs-wheel-text {
+      display: inline-block;
+      text-align: center !important;
+    }
+
+    /* 手機與平板 Modal 動畫 */
+    .rs-modal-backdrop {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1), visibility 0.32s ease;
+    }
+    .rs-modal-backdrop.is-open {
+      opacity: 1;
+      visibility: visible;
+      pointer-events: auto;
+    }
+    .rs-modal-panel {
+      opacity: 0;
+      transform: translateY(18px) scale(0.96);
+      transition: transform 0.38s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+    .rs-modal-backdrop.is-open .rs-modal-panel {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+
+    /* 抵抗 Cyberbiz 全域樣式覆蓋的隔離規則 */
+    #rueisiang-store-locator,
+    #rueisiang-store-locator * {
+      box-sizing: border-box;
+    }
+    #rueisiang-store-locator .rs-pill-tag {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      width: auto !important;
+      height: auto !important;
+      min-width: 0 !important;
+      max-width: none !important;
+      padding-top: 0.2rem !important;
+      padding-bottom: 0.2rem !important;
+      padding-left: 0.65rem !important;
+      padding-right: 0.65rem !important;
+      border-radius: 9999px !important;
+      line-height: 1.25 !important;
+      white-space: nowrap !important;
+      flex-shrink: 0 !important;
+      letter-spacing: 0.02em !important;
+    }
+    #rueisiang-store-locator .rs-gmap-btn {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 0.4rem !important;
+      background-color: #B85D52 !important;
+      color: #FFFFFF !important;
+      border: 1px solid #B85D52 !important;
+      border-radius: 12px !important;
+      padding: 10px 16px !important;
+      font-size: 13px !important;
+      font-weight: 600 !important;
+      line-height: 1.3 !important;
+      text-decoration: none !important;
+      cursor: pointer !important;
+      box-shadow: 0 2px 6px rgba(184, 93, 82, 0.22) !important;
+      transition: background-color 0.2s ease, border-color 0.2s ease, transform 0.15s ease !important;
+    }
+    #rueisiang-store-locator .rs-gmap-btn:hover {
+      background-color: #9B4338 !important;
+      border-color: #9B4338 !important;
+      color: #FFFFFF !important;
+    }
+    #rueisiang-store-locator .rs-gmap-btn--full {
+      width: 100% !important;
+      padding: 12px 18px !important;
+      font-size: 14px !important;
+    }
+    #rueisiang-store-locator .rs-gmap-btn svg,
+    #rueisiang-store-locator .rs-gmap-btn span {
+      color: #FFFFFF !important;
+      stroke: #FFFFFF !important;
+      flex-shrink: 0 !important;
+    }
+    #rueisiang-store-locator .rs-modal-close-circle {
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      width: 36px !important;
+      height: 36px !important;
+      min-width: 36px !important;
+      min-height: 36px !important;
+      max-width: 36px !important;
+      max-height: 36px !important;
+      padding: 0 !important;
+      border-radius: 9999px !important;
+      line-height: 1 !important;
+      flex-shrink: 0 !important;
+    }
+    #rueisiang-store-locator .rs-modal-panel {
+      background-color: #FFFFFF !important;
+      border-color: #EBC3BA !important;
+      border-width: 0 !important;
+      box-shadow: 0 24px 48px -12px rgba(62, 39, 35, 0.28) !important;
+    }
+    #rueisiang-store-locator .rs-modal-panel > div,
+    #rueisiang-store-locator .rs-modal-panel > div > div {
+      width: 100% !important;
+      border: 0 !important;
+      outline: 0 !important;
+      box-shadow: none !important;
+    }
+    #rueisiang-store-locator .rs-modal-body-scroll {
+      background-color: #FFFFFF !important;
+      border: 0 !important;
+    }
+    #rueisiang-store-locator .rs-modal-footer-bar {
+      background-color: #FDFBF9 !important;
+      border-top: 1px solid rgba(235, 195, 186, 0.5) !important;
+    }
+</style>
+
+<div id="rueisiang-store-locator" class="relative w-full min-h-screen overflow-x-clip">
+    <div class="grid grid-cols-1 lg:grid-cols-12 min-h-screen items-center">
+      <!-- 左欄：標題、電腦版據點 Card、手機/平板下拉選單與放大的互動地圖 -->
+      <div class="lg:col-span-4 px-5 sm:px-8 lg:px-8 pt-10 pb-8 flex flex-col justify-between min-h-full z-10">
+        <div>
+          <div class="mb-5">
+            <p class="text-[11px] tracking-[0.24em] text-[#B85D52] font-semibold uppercase mb-1">STORE LOCATIONS</p>
+            <h1 id="rs-region-heading" class="rs-serif text-2xl sm:text-3xl lg:text-[32px] font-bold text-[#B85D52] tracking-wider leading-tight">
+              銷售據點
+            </h1>
+          </div>
+
+          <!-- 電腦版左側據點 Card 容器 -->
+          <div id="rs-desktop-card-container" class="hidden lg:block min-h-[340px]"></div>
+
+          <!-- 手機與平板版（< 1024px）：上方 Dropdown 選單 + 下方放大的互動地圖 -->
+          <div class="lg:hidden mt-2 space-y-4">
+            <div class="relative">
+              <label for="rs-mobile-store-select" class="block text-xs font-semibold text-[#5D4037] mb-1.5 tracking-wide">
+                選擇銷售據點查看詳情
+              </label>
+              <div class="relative">
+                <select id="rs-mobile-store-select" class="w-full appearance-none bg-white border border-[#EBC3BA] focus:border-[#B85D52] focus:outline-none rounded-xl px-4 py-3 pr-10 text-sm font-medium text-[#3E2723] shadow-2xs transition-colors cursor-pointer"><option value="" disabled="" selected="">請選擇銷售據點...</option><option value="taipei-eslite-ximen">臺北市｜誠品西門店</option><option value="newtaipei-honhui">新北市｜新莊宏匯廣場</option><option value="taichung-chungyo">臺中市｜台中中友百貨</option><option value="tainan-skm-ximen">臺南市｜新光三越西門店</option><option value="kaohsiung-dream-mall">高雄市｜高雄夢時代</option><option value="pingtung-pacific">屏東縣｜屏東太平洋百貨</option><option value="tainan-rende-service">臺南市｜國道仁德服務區</option><option value="tainan-dongshan-service">臺南市｜國道東山服務區</option><option value="tainan-xinying-service">臺南市｜國道新營服務區</option><option value="chiayi-pinhuang-coffee">嘉義縣｜品皇咖啡觀光工廠</option><option value="chiayi-wanju-planet">嘉義縣｜丸聚星球觀光工廠</option><option value="pingtung-nmmba">屏東縣｜屏東海生館</option></select>
+                <span class="pointer-events-none absolute inset-y-0 right-3.5 flex items-center text-[#B85D52]">
+                  <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="6 9 12 15 18 9"></polyline>
+                  </svg>
+                </span>
+              </div>
+            </div>
+
+            <div class="relative rounded-2xl p-2 overflow-hidden">
+              <div id="rs-mobile-map-host" class="w-full h-[500px] sm:h-[580px] flex items-center justify-center relative select-none"><svg id="rs-taiwan-map" viewBox="475 245 365 715" class="w-full h-full overflow-visible max-w-none w-auto" role="img" aria-label="瑞香台灣銷售據點互動地圖">
+            <defs>
+              <filter id="rsPinShadow" x="-40%" y="-30%" width="180%" height="180%">
+                <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#3D241E" flood-opacity="0.25"></feDropShadow>
+              </filter>
+            </defs>
+
+            <g id="taiwan-counties">
+              <path class="rs-county-path" d="M181.2 423.5l0 0.1-1.1-0.4-0.3-0.4 0.2-0.4 0.4-0.8-1.3-0.9-0.2-0.3-0.1-0.1-2.5-1.9-1.8-1.9-2.7 1-1.3 1.6 0.2 0.7-0.1 0.6-0.3 0.2-0.3-0.1-0.4 2.4-5 5.9-11.4-4.1 0.2 1-0.2 1-0.3 0.1 1.1 1.1-0.4 8.2-3.3 2.6 2.5 2.7-1.4-0.6-1.9-0.2-1.7-0.7-0.9-1.5 0.3-0.6 1.6-1.9 0.5-1 0.1-1.4 0-1.8-0.6-3.1-1.2-3-0.2-1.6 1.1-0.6 5.5-2.7 7.2 4.7 5-0.6 0.8-6.3 1.7-3.9 5.3-1.1 5.2 4.7 2 5.3z m0.2 10.5l0.3-2.1 0.3 0-0.2 1.7-0.4 0.4z m0.9-5l-1-3 0.1-0.7 0.3-0.4 0.8 2.4-0.2 1.7z" id="TWKIN" data-county="金門縣" name="Kinmen"></path>
+              <path class="rs-county-path" d="M471.2 47.6l0.1 0.6-0.3 0-0.7 0.1-0.5 0.1-0.1-0.9 0.3-0.4 0.1-0.1-0.1-0.3-0.1 0-0.1-0.1 0.4-0.5 0.2-0.1 0.4-0.2 0.2-0.3 0.6 1.3-0.6 0.7 0.2 0.1z m-12.4 22.5l-0.1-0.3-0.2 0.5 0.2 0.7 0.3 0.3 0.3 0.1 0.4 0.1 0.3 0 0.5 0.1 0.3 0.2 0.1 0.5 0.2-0.3 0.6-0.1 0.4-0.3 0.3-0.2 0-0.5 0.1-0.5 0.6-0.7 0.1 0 0.2-0.1 0.6 0.1 0.5 0 0.3 0.1 0.1 0 0.5 0 0.7 0.1 0.8-0.5 0 0.3-0.3 0.3-0.2 0.4-0.3 0-0.2 0.2-0.2 0.4 0 0.5-0.1 0.3 0 0.1-0.3 0.4-0.3 0.5-0.1 0.1-0.3 0.2-0.2-0.4-0.2 0-0.7 0.1-0.2 0.3-0.4 0.6-1 1-0.2 0-0.4-0.3-0.7-0.1-0.6 0.1-0.2 1.2-0.2 0.1-0.7 0.1-0.1-0.3-0.4-0.5-0.2-0.2-0.5 0.1-0.6 0.1-0.9-0.3-0.3-1 0.3-0.6 0.4-0.3 0.4-0.4 0.3-0.7-0.7-0.5 0.4-0.5 0.4 0 0.2 0 0.1-0.5-0.5-0.8 0-0.8 0.3-0.4 0.4 0 0.3 0.4 0.3 0.1 0.1 0 0.1 0 0.5 0.3-0.3 0.9-0.1 0.2z m12.6-10.9l-0.4 0-0.6 0-1.1-0.3-0.4 0.7-0.4 0.1-0.2 0.2-0.3 0.4 0 0.7 0.2 0.7 0 0.6-0.2 0.9 0.1 0.4 0.3 0.1 0.1 0.3-0.5 0.2-0.9-0.2-0.5 0.2 0-1 0.1-1.5 0.3-1.4 0.3-0.5-0.2-0.4 0-0.6 0.1-0.2 1.1-0.1 0.5-0.6 0.5-0.2 0.6-0.3 1-0.9 0.3-1 0.5-0.3 0.6-0.1 0.4-0.3 0.6 0.1 0.1 0.5 0.3 0.4 0.1 0 0.3 0 0 0.9 0 0.9 0.7-0.7 0.2 0 0.6 0 0.1 0.1 0 0.3 0 0.9-0.7 0.2 0.1 0.5 0.3 0.2 0 0.3 0 0.7-0.5-0.7-0.2-0.7-0.5-0.7-0.7 0-0.5 0-0.3 0.2-0.4 0.3-0.5 0.1-0.4 0.6z m2.1-5.6l-0.4 0.2-0.3 0-0.7 0 0.1-0.7 0.7-0.2 0.1-0.4 0.7-0.1 0.7-0.2-0.9 1.4z" id="TWLIE" data-county="連江縣" name="Matsu Islands"></path>
+              <path class="rs-county-path" d="M409.7 611.6l0.9 2.9-0.4 2.2-1.4-1.4-1.9-1.3-2-0.4-2.8 1.6-2.1 0.3-1 0.5-0.5 1.1-0.8 2.9-0.5 0.9-3.4 2-3.4 0.5-3.5-1.4-3.5-3.5 0.9-1.8 1.9 2.3 2.9 0.6 3.1-0.8 2.6-2.1-1.8-0.7-1.4-0.8-1.1-1.2-1-1.6-0.4 0.7 0 0.2-0.2 0.2-0.7 0.4-0.2-2.9 0.2-2.9 1.3 0 1.5 0.4 5.3-3.4 3.4-1.1-0.9 3.2-0.4 0.9 2.9-0.9 2.2 0.3 1.6-0.2 1.2-1.9 3.4 6.2z m-35.8-6.2l2.3-7.5 2.3-2.2 3 2.6-1.8 1.1-1.2 2.6-2 6.1-0.1 1.6 0.5 1.4-0.2 1-2.2 0.3-1.6 0.1-1.1 0.2-0.9 0.4-0.9 0.8-2.7 0 0.5-1.5 0.9-0.9 1.3-0.5 1.8-0.1 1.6-0.6 0.4-1.5 0.1-3.4z m18.1-5l-0.6-2.5-1.5-2.1-3.1-3.1 4-3 2.4 1.3 2.3 2 1 2.1-1.8 1.7 0.7 2.5-1 1.7-1.6 0.5-0.8-1.1z" id="TWPEN" data-county="澎湖縣" name="Penghu"></path>
+              <path class="rs-county-path" d="M657.2 325.1l6.4-10.3 5-5.9 5.2-4.4 13.2-4.4 3.1-1.9 2.7-2.4 3.3-1.8 6.4-2.3 14.5-2.6 3 3.3 4.6 2.2 3.4 2.2 2.3 2.1 2.9 0.7 3.1 1.6 3.7 5.4 0.3 2.9-0.7 3-2.4 2.5-9.4 2.8-2.7 2.9 0.2 4.5-0.8 4.1 0.8 3.7 3.8 3.7 0.8 3.7-1 4.8 3.7 2.1 5.3-0.3 3.7 1.4 6 8.9-1 3.8-2.3 2.7 0.6 3.7 1 4.1 6.4 6 1.8 4-2.2 0.6-3.9 2.8 2.3 9-1.6 2.7-2.5 1-2.3-0.5-2.9 1.1-0.3 1.1-3.5-1.5-5.2-3-2.9-2.1-4-0.7-4.5-2.6-3.7-2.9-0.4-3.1 3.3-4.7 1.4-5.6-1.2-5.2-0.2-3.6-2.5-1.9-3.1-1.6-1.9-3.3-2.4-2.5-2.8 0.2-2.8-0.5-2.2-2.2-3-2.2-4.8-1.5-2.4-2.7 0.8-4.2-2.6-3-4.9-1.6-3-1.4-3.1-0.9-3.6-1.4-2.9-6.3-3.3-2.2-9.8 0.7-2.3-0.8z" id="TWTAO" data-county="桃園市" name="Taoyuan"></path>
+              <path class="rs-county-path" d="M657.2 325.1l2.3 0.8 9.8-0.7 3.3 2.2 2.9 6.3 3.6 1.4 3.1 0.9 3 1.4 4.9 1.6 2.6 3-0.8 4.2 2.4 2.7 4.8 1.5 3 2.2 2.2 2.2 2.8 0.5 2.8-0.2 2.4 2.5 1.9 3.3 3.1 1.6 2.5 1.9 0.2 3.6 1.2 5.2-1.4 5.6-3.3 4.7 0.4 3.1 3.7 2.9 4.5 2.6 4 0.7 2.9 2.1 5.2 3 3.5 1.5-1.7 4.7-1 3.4 0.4 3.2-2.7 4.2-10.1 10.2-3.1 7.5-2-0.5-7.7 0.7-0.5 0.4-0.5-3.5-3.3-5.6-2.3-2.4-1-3.1-3.6-2.9-9.1 2.3-3.4-0.4-4.9 0.4-5.5 1.5-3-0.7 0.7-3.7 0.9-3.3-0.7-2.9-0.7-2.1 0.7-2.3 0.5-2.4 0.3-2.8-0.6-3.8-2.7-2.4-8.8-4.2-4.3-3.2-2.8-3.2-3.2-8 1.8-2.2 1.6-4.1 2.5-3.1 4.2-1.7 3.7-0.6 1.7-1 0.7-2.7-1.3-2.6-2.8-2.8-3.9-2-10.9-3.5-6-2.6 0.1-0.1 1.1-1.6 0.4-2.7 0.6-2.1 1.5-2.1 1.9-1.6 1.8-0.6-0.1-0.9 0.5-2.1 1.6-4.4 1.5-2.3z" id="TWHSQ" data-county="新竹縣" name="Hsinchu"></path>
+              <path class="rs-county-path" d="M646.3 345.6l6 2.6 10.9 3.5 3.9 2 2.8 2.8 1.3 2.6-0.7 2.7-1.7 1-3.7 0.6-4.2 1.7-2.5 3.1-1.6 4.1-1.8 2.2-0.2 0.2-3.3 0.8-3.1-1.3-2-2.7-3-1.9-5-1.9 0.8-3 4-8.2 1.6-2.1 0.5-1.2 0-1.2-0.5-1.3-0.8-1.6 1.1-2.2 1.2-1.3z" id="TWHSZ" data-county="新竹市" name="Hsinchu City"></path>
+              <path class="rs-county-path" d="M655 374.5l3.2 8 2.8 3.2 4.3 3.2 8.8 4.2 2.7 2.4 0.6 3.8-0.3 2.8-0.5 2.4-0.7 2.3 0.7 2.1 0.7 2.9-0.9 3.3-0.7 3.7 3 0.7 5.5-1.5 4.9-0.4 3.4 0.4 9.1-2.3 3.6 2.9 1 3.1 2.3 2.4 3.3 5.6 0.5 3.5-2.7 1.9-1.3 4-3.5 1.5-3.9-0.1-3 2.2-3.3 3.1-4.2 2.4-8.4 6.6-4.9 2-6.4 3.5-3.9-1.6-3.6-4-4.4-1.7-7.1-0.6-4 2.4-0.6 5.3-3.7 2-8.8 0.5-8.4-4.8-4.7-0.9-5.3-2.6-10.9-8-4.5-3.9-3.4-3.6-6.6-10.3 5.2-5.8 1.3-2.9 0.7-4.8 1.5-4 4.3-7.5 1.2-4.5 1.1-2 4.8-1.4 1.4-1.5 0.8-1.9 1-1.8 3-3.2 3.4-2.4 4-1.1 5.2 1-0.7-3.9 1.9-2.7 2.7-2.7 1.3-4.2 0.6-1.3 2.6-1.3 0.3-0.9 5 1.9 3 1.9 2 2.7 3.1 1.3 3.3-0.8 0.2-0.2z" id="TWMIA" data-county="苗栗縣" name="Miaoli"></path>
+              <path class="rs-county-path" d="M712.3 433.2l0.5-0.4 7.7-0.7 2 0.5 2.6 0.8-0.5 4 1.1 2.6 3.5 0.8 3.2 1.9 2.7 1.8 2.8-0.4 3.4-1.7 3.6 0 4.2 3.4-3.4 3.5-0.3 3-1.7 4.5-5.4 3.4-2.2 3.6-0.9 3.7-2.2 2.7-2.5 1.3-0.9 1.4-2 1.5-9.6-0.9-3.4-0.8-3.4 0.2-8 3.2-4.5 0.7-4.4 0.2-6.4 3.3-3.2 0.6-3.6 2.1-5.7 5.5-3.6 1.4-4.8-0.1-3.4 2.8-1.9 3.9-2.5 0.7-6.4-4.8-2.2 1.4-4.2 5.5-4.3 0.2-7.3-1.1-4.6 2.2-2.7 6.1-5.4 10.4-3.6 3.4-3 0.5-13-1.8-3-0.1-0.1-1-3.9-2.6-3.1-0.5-0.9-2.5 0-2.8-1.4-2.9-2.3-3.6-3.2-2.6-8.5-2.5-3.3-3.9-0.7-5.5-1.9-4.6-2.9-2.5-4.2-1.3 0.5-0.6 0.5-2.4 2.4-1.9 1.6-4.7 1.9-8.8 6.7-11.7 2.1-7.1 2.4-4 9.6-10.6 6.6 10.3 3.4 3.6 4.5 3.9 10.9 8 5.3 2.6 4.7 0.9 8.4 4.8 8.8-0.5 3.7-2 0.6-5.3 4-2.4 7.1 0.6 4.4 1.7 3.6 4 3.9 1.6 6.4-3.5 4.9-2 8.4-6.6 4.2-2.4 3.3-3.1 3-2.2 3.9 0.1 3.5-1.5 1.3-4 2.7-1.9z" id="TWTXG" data-county="臺中市" name="Taichung City"></path>
+              <path class="rs-county-path" d="M563.1 480.3l4.2 1.3 2.9 2.5 1.9 4.6 0.7 5.5 3.3 3.9 8.5 2.5 3.2 2.6 2.3 3.6 1.4 2.9 0 2.8 0.9 2.5 3.1 0.5 3.9 2.6 0.1 1 0 2.6-3.1 1.1-0.9 2.1 0.4 2.9-1.4 3.3-1.2 3.9-0.1 4.1-0.8 4.7-0.7 9.7 1.5 4.5 2.6 2.4 2.8 1 4.1 2.1-0.7 2.5-2.8 1.1-1.8 1.7-1.7 1.1-0.7 0.5-8.7-1.7-4.2 0.1-8.7-4.4-14.2-1.6-8.4-3.2-4.8-1.3-5.4-0.3-15.9 1.9-5.5-3.2 0.6-1 1.1-5.1 0.9-2.1 5.1-4.9 1.5-2.1 1.9-5.6 3-5.6 4.2-11.6 1.9-3.3 2.2-2.2 1.8-1.2 1.5-0.8 1.2-1 0.4-2.2 0.9-2 3.7-2.9 0.8-2.2 0.4-7.2 0.7-2 1.9-1.9 8.2-9.5z" id="TWCHA" data-county="彰化縣" name="Changhua"></path>
+              <path class="rs-county-path" d="M519.2 556.7l5.5 3.2 15.9-1.9 5.4 0.3 4.8 1.3 8.4 3.2 14.2 1.6 8.7 4.4 4.2-0.1 8.7 1.7 0.7-0.5 1.4 5.2-1.5 3.4-0.7 5.2 0.7 5.5-1.3 3.7-0.7 4.2 2.8 3.4 4.2 1.8 4.9-1.5 6-0.6 1.9 2.5-0.4 0-0.3 3.6 0 2.5-2.8 0.9-8.4 1.7-4.6 0.5-1.7-2.9-3.4-2.4-6 1.7-2.7 0.4-9.1-3.3-3.6-4.2-3.8-3.4-4.9 0.3-9.1 1.7-5.2 1.4-11.8 6.8-2.7 2.7-3.2 1.7-5 4.1-3.9 0.6-1.4 2.2-1.3 3.5-2.8 2.3-4.4-0.1-6-3.3-7.6 0.8-0.1 0.1-0.7 0 3.4-3.7-0.2-11.8 0.5-8.9 2-7 3.2-5.6 0.9-7.2 1.7-6.3 0.9-2.2 4.4-5.8 0.7-2 0.6-1.1 4-3.1 0.6-1.2z" id="TWYUN" data-county="雲林縣" name="Yunlin"></path>
+              <path class="rs-county-path" d="M496.5 622.6l0.7 0 0.1-0.1 7.6-0.8 6 3.3 4.4 0.1 2.8-2.3 1.3-3.5 1.4-2.2 3.9-0.6 5-4.1 3.2-1.7 2.7-2.7 11.8-6.8 5.2-1.4 9.1-1.7 4.9-0.3 3.8 3.4 3.6 4.2 9.1 3.3 2.7-0.4 6-1.7 3.4 2.4 1.7 2.9 4.6-0.5 8.4-1.7 2.8-0.9 0-2.5 0.3-3.6 0.4 0 4.4 0.5 4.8 1.9 3 0.8 3.7 2.1-0.3 3.8-2.1 3.7 0.9 3.4 1.9 4.7 0.3 4.2 0.8 2.8 5.5 1 18.4 0.1 0.6 0.2-13.3 6.8-6.1 4.8-2.5 4.9-3.1 3.7-5.5 3.1-5.8 4.4-3.2 3.8-8.9 5.3-4.2 0.4-4.9-0.5-2.6 2.6-0.1 3.5 1 3.3 0.7 4.8-6-0.7-2.7-0.8-3.6 0.5-3.8 1.7-2.7 0-3.3-2.5-1.1-3.3 1.2-10.3-0.7-5.4-7.1-7.3-1.3-3.6-1.5-3.1-2.9-1.7-5.1-1.7-6.1 0.3-11 2.1-5.6 2.5-4.4 3.3-3.4 3.4-4.8 3.7-4.1 2.6-1.8 3.6-4.5 2-5.3-1.3-6.3-1-3.8-1.4 2.8-0.2 2.3-1 1 0.3-0.6-2.3-1.6 1.2-1.3-0.4-1.8-0.1 0-2.3 1.8-4.1 2.6-0.2 3.9 0-2.6-7.5-3.1-5.8 1.4-2.6 0-1.4-2.2-1.1 0.3-1.2 1.3-1.5 0.6-1.9 3-3.8-6.2 0.4-0.2-6.3z m62.7 15.5l4.9-2 3.2-0.4 2.2-1.6-1.9-4.9-1.7-2.9-3-1.6-4-1.5-5.7 0.5-6.7 1.2-2.7 2.9 0.6 4.1 4.4 1.7 5.1 3.3 5.3 1.2z m-82.1-1.3l10.1-10.2 7.6-9.7 1.8-0.5-6.5 10.5-3.2 3.2-2.1 2.6-2.7 2.7-2.2 1.5-3.2 2.6-2.2 1.2 2.6-3.9z" id="TWCYQ" data-county="嘉義縣" name="Chiayi"></path>
+              <path class="rs-county-path" d="M495.1 664.4l3.8 1.4 6.3 1 5.3 1.3 4.5-2 1.8-3.6 4.1-2.6 4.8-3.7 3.4-3.4 4.4-3.3 5.6-2.5 11-2.1 6.1-0.3 5.1 1.7 2.9 1.7 1.5 3.1 1.3 3.6 7.1 7.3 0.7 5.4-1.2 10.3 1.1 3.3 3.3 2.5 2.7 0 3.8-1.7 3.6-0.5 2.7 0.8 6 0.7-1.6 4.8-7.5 10.9-7.2 12.2-4.7 6-5.4 5.3-4.6 3.9-4.5 4.6-3.8 5.1-2.1 3.7-1.7 4-4.6 3.2-4.6 1.9-2.6 1.8-3 1.1-6.1-0.7-5.9 0.6-11.3-1.6-3.5-1.8-2.8-6.2-0.1-0.3-4.5 2.6-0.7-4.5-1.3-2.6-2.8-2.8 3.5-2.5 1.9-4.3-0.8-3.8-4.6-0.7-0.8 1.4-0.8 2.4-1.3 1.9-2.4-0.1-0.9-1.6 0.3-5-0.5-1.8-3-1.3-1.6 1.5-1.4 2.1-1.9 0.5-2.1-1.8-0.6-2.5 0.5-2.4 0.9-1.7 2.1-1.1 2.7-0.4 2.2-0.7 0.7-2.2-1-1.1-6.7-1.7 0-1.4 5.6 0-0.5-1.9-3.1-2.7-2-2.3 0.5-2.9 1.8-1 1.9-0.7 1-1.8-0.6-2.8-1-2.3 0.7-2.2 1-2.6 1.6-1.9-0.3-1.7 0.3-1.6 2.4-6.5 1.2-1.2 1.8-0.5-2.7-1.8 1.2-2.9z" id="TWTNN" data-county="臺南市" name="Tainan City"></path>
+              <path class="rs-county-path" d="M596.8 682.8l-0.7-4.8-1-3.3 0.1-3.5 2.6-2.6 4.9 0.5 4.2-0.4 8.9-5.3 3.2-3.8 5.8-4.4 5.5-3.1 3.1-3.7 2.5-4.9 6.1-4.8 13.3-6.8 3.2 0.7 4.2 1.6 3 4.2 0.5 1.5 1.4 4.2-2.2 3.5-4 1.8-1 2.3 0.7 2.9 4 2.6 4.6 3.7 2 5.5 0.2 1.8-11.2 2.8-4.7 2.9-2.9 2.8-5.6 3.7-0.6 4.1 1.6 4.3-1.9 3.5-5.3 2.9-0.7 5 1.6 7.1-2.2 9.5 0 8.1-3.1 4.2-6.2 5.3-1.7 7 1 5.9 2.2 3.3 4.4 4.6 0.9 3.5-2.8 0.4-3.8-0.7-3.1 0.2-6.1 4.8-4.3-4-5.4-6.4-5.2 1.3-4.8 4.3-9.4-4.8-6.8 3.2-4.6 5.1-5.7 2.1-12.9-0.8-1.3 3.5-0.9 5.2-1.9 5.7 0.4 5-0.1 6.9-4 15.3-0.2 5.1 2 5.4 0.3 5.9-5.8 14.8-1.9-0.8-1.1 0-1.4 0.5-1.5 0.1-9.4-7.4-8.8-12.4 9.2 11.1-1-5.2-1.6-2.9-1.2-2.3-3.8-4.4-6.5-6-2.5-3.1-1.2-3.4 1.6-3.3 0.8-3-1.1-4.1-1.9-4.1-3.6-5.5-3.3-7.4-0.7-3.3 0-2.1 1.1-2.6 0.3-1.7-0.4-0.9-1-0.7-0.9-0.9-0.4-1.7-2.1-3.5-0.5-1.4-1.6-9.9 4.5-2.6 0.1 0.3 2.8 6.2 3.5 1.8 11.3 1.6 5.9-0.6 6.1 0.7 3-1.1 2.6-1.8 4.6-1.9 4.6-3.2 1.7-4 2.1-3.7 3.8-5.1 4.5-4.6 4.6-3.9 5.4-5.3 4.7-6 7.2-12.2 7.5-10.9 1.6-4.8z" id="TWKHH" data-county="高雄市" name="Kaohsiung City"></path>
+              <path class="rs-county-path" d="M551.1 836.2l5.8-14.8-0.3-5.9-2-5.4 0.2-5.1 4-15.3 0.1-6.9-0.4-5 1.9-5.7 0.9-5.2 1.3-3.5 12.9 0.8 5.7-2.1 4.6-5.1 6.8-3.2 9.4 4.8 4.8-4.3 5.2-1.3 5.4 6.4 4.3 4 6.1-4.8 3.1-0.2 3.8 0.7 2.5 4.7 0.5 3.5 3.9 1 4 2.6-2 9.9-0.1 3.8-1.5 3.5-7 3-3.5 2-5.5 1.2-3.9 3.2-1.7 4.7-2.6 4.8-2.2 5.4-0.6 10.6 0.9 4.7 1.4 4.4 0.8 5.1 0 3.8 1.9 3.7 3.3 4-1.8 2.7-3.8 2.3-1.5 2.8-0.4 3.3 2 2.8 2.4 1.2 2.3 3.2-0.1 4.1 0.4 4.4 2.3 4.3 3.3 3.5 7.4 3.4 3.2-0.3 0.6 37.2-1.1 5.3-1.8 4.3-2.4 1.8-2.9 2.7 0.1 6 1 6.6-0.2 4.2-3.3-4.9-4.9-3.7-5.7-2.5-5.7-1.4-0.2 4.7-1.7 1.7-2.4-0.6-2.7-2.2-0.1-1.7 0.9-5-4-6.7-0.3-1.8 0-1.4 0.3-2.4 0-7.7 0.4-2.3 1.8-2.5 0.4-2.2-14.4-37.2-1.1-2.1-4-4.9-3.2-7.1-1.4-2.1-5.9-4.6-2.3-1.3-0.8-0.3-0.8-0.6-0.7-2.6-0.5-1-3.1-2.1-7.3-3.4-3.2-2.3-3.5-3-1.6-1-0.2-0.1z" id="TWPIF" data-county="屏東縣" name="Pingtung"></path>
+              <path class="rs-county-path" d="M634.7 759.1l2.8-0.4-0.9-3.5-4.4-4.6-2.2-3.3-1-5.9 1.7-7 6.2-5.3 3.1-4.2 0-8.1 2.2-9.5-1.6-7.1 0.7-5 5.3-2.9 1.9-3.5-1.6-4.3 0.6-4.1 5.6-3.7 2.9-2.8 4.7-2.9 11.2-2.8 0.8 5.3 3.7 5.9 5.6 2 4.4 2.1 3.6 3.4 4.5 0.7 4.1 1.1 6.6 11.5 8.5 7 5.9 0.8 4.7-2.7 0.6-4.4 0-4.9 2.2-4.3 3.5-9.6 2.6-5.5 1.8-6.1 1.9-4.8 2.5-3.7 2.6-5-0.4-4.9-1.3-5 2.8-3.9 7.8-3.8 2.5 0.8-3.3 19-1.6 3.5-5.1 6.8-1.9 3.5-1.5 4.4-1 8.3 0.1 7.3-0.8 6.9-3.5 7.2-1.5 1.6-3.4 2.5-1.5 1.6-0.8 1.6-1.2 4.2-3.5 6.1-2.1 9.4-1.5 4.2-7.4 10.7-0.9 2-10 8.4-2.4 2.8-0.4 1.9 0.5 4.5-0.1 2-0.9 2.3-1.6 2.6-3.4 4.3-3.4 3.2-11.6 7.8-7.8 8.5-1.9 1-1.5 2-3.8 9.7-1.8 3.6-5.8 7.3-2.4 4.3-1.3 8.8-3.5 12.1-6.9 12.1-1 4.1-1.2 11.6 0.2 10.5-3.2 0.3-7.4-3.4-3.3-3.5-2.3-4.3-0.4-4.4 0.1-4.1-2.3-3.2-2.4-1.2-2-2.8 0.4-3.3 1.5-2.8 3.8-2.3 1.8-2.7-3.3-4-1.9-3.7 0-3.8-0.8-5.1-1.4-4.4-0.9-4.7 0.6-10.6 2.2-5.4 2.6-4.8 1.7-4.7 3.9-3.2 5.5-1.2 3.5-2 7-3 1.5-3.5 0.1-3.8 2-9.9-4-2.6-3.9-1-0.5-3.5-2.5-4.7z m134.6 166.8l3.3 2.6 1.5 1.7-0.2 2-3.9 1.3-5.3-2.2-4.9-3.4-2.8-2.7 0.8-1.9 0-1.9-0.7-1.6-1.3-1.5 14.1 0 0 1.2-0.4 0.8-0.6 1.7-0.2 2.1 0.6 1.8z m-19.5-125.9l-1-3 0.4-0.4 7.3-0.6 0.8 0.5 0.5 1.4-0.6 2.8-0.6 1.2-0.3 1.2 0.3 1.1-0.1 0.8-0.5-0.1-1.3 0-0.6-0.2-0.3-0.4-1.9-0.7-2.1-3.6z" id="TWTTT" data-county="臺東縣" name="Taitung"></path>
+              <path class="rs-county-path" d="M727.6 474.4l2-1.5 0.9-1.4 2.5-1.3 2.2-2.7 0.9-3.7 2.2-3.6 5.4-3.4 1.7-4.5 0.3-3 3.4-3.5 1.8 1.5 4.7 2.2 10.8 2.8 6 2.3 4.7 0 3.5-3.3 1.7-4.3 2.7-0.6 13.4 7.9 8 1.3 0.8 0 0.5 0.5 0.6 1.1 0.5 1.1 0.2 0.7-1 1.7-4.2 4.1-4.6 6.3-3.3 2.7-1 1.4 0.5 1.5-0.6 1.1-4.9 3.6-1.8 1.8-2 4.3-2 8.8-5.4 7.8-1.1 3.2 0.2 3.4 1.3 3.8 1.1 1.6 0.9 0.7 0.6 1 0.1 2.3-0.8 2.7-2.7 4.1-0.5 2.5-0.3 4.6-2.3 11.7-4.6 12.4-5.8 28.8-3.4 7.1-8 46.2-2.5-0.8-7.8 3.8-2.8 3.9 1.3 5 0.4 4.9-2.6 5-2.5 3.7-1.9 4.8-1.8 6.1-2.6 5.5-3.5 9.6-2.2 4.3 0 4.9-0.6 4.4-4.7 2.7-5.9-0.8-8.5-7-6.6-11.5-4.1-1.1-4.5-0.7-3.6-3.4-4.4-2.1-5.6-2-3.7-5.9-0.8-5.3-0.2-1.8-2-5.5-4.6-3.7-4-2.6-0.7-2.9 1-2.3 4-1.8 2.2-3.5-1.4-4.2 4.3-2.5 2.2-2.1-1.2-4.4 1.1-1.9 1.1-3 3.7-2.7 5.4-1.2 5.3-0.2 3.8-3.4 1-6.2 2.8-3.7 5.5-2 3.3-2.3 1.1-3.6 2.3-9.1 0.9-6-0.7-5.2-0.8-3.9-2.3-2.9-1.5-2.9 4.1-6.8 0.1-2.7 1.8-5.1 2.8-6.1 2.2-6.3 1.1-7.2 0.5-5.4-1.3-3.2-1.5-2.4 1.7-5.5 3.7-7.7 5.8-7.6 0.1-2.7-1-3.3-3.8-2.4-2-2.2-0.2-7.2 2.7-2.1 4.7-1.6 3.8-1.7-0.2-2.6-1-4.5z" id="TWHUA" data-county="花蓮縣" name="Hualien"></path>
+              <path class="rs-county-path" d="M740.7 399.4l0.3-1.1 2.9-1.1 2.3 0.5 2.5-1 1.6-2.7-2.3-9 3.9-2.8 2.2-0.6 4.2-1.2 3.5-1.3 2.7-2.4 3.6-2.5 4.8-2.3 2.8-2-0.3-1.4-0.7-2.3-0.1-3 1.4-3.6 3.4-2.9 2.7-1.6 9.4-3.8 9.7-5.9 4.5-1.3 3.6-2.6 2.3-3.7 2.3-2.9 2.7-1.4 2.5-0.9 3.3-2.1 1.2-2.8-1.8-2.5 1-2.2 8.1-1.6 2.6-1.8 6-3.2 4.3-0.9 2.4 1.4 0.6 0.8-8.6 4.3-4 3.4-13.5 16.4-2.1 3.5-1.7 4.8-1.1 5.6-0.4 5.5 0.2 5.3 2.4 11.2-0.2 2.9-1 2.8 0.2 5.8 2.4 4.5 4.7 2.9 5.5 1.1 0 1.2-2.3-0.2-2.2 0.2-1.9 0.6-1.3 1 1.9 3.6 0.9 4.7-0.6 4.1-4.3 2.4-0.3 1.8 0.6 2.1 1.2 2 0.4 2-1.8 1.7-4.5 2.6-5 5.8-0.2 2.3 0.3 5-0.8 2-1 1.6-0.6 2.3-0.3 4.6-0.4 1.2-0.7 0.9-0.4 1 0.7 1.2 0.2 0.2-0.8 0-8-1.3-13.4-7.9-2.7 0.6-1.7 4.3-3.5 3.3-4.7 0-6-2.3-10.8-2.8-4.7-2.2-1.8-1.5-4.2-3.4-3.6 0-3.4 1.7-2.8 0.4-2.7-1.8-3.2-1.9-3.5-0.8-1.1-2.6 0.5-4-2.6-0.8 3.1-7.5 10.1-10.2 2.7-4.2-0.4-3.2 1-3.4 1.7-4.7z" id="TWILA" data-county="宜蘭縣" name="Yilan"></path>
+              <path class="rs-county-path" d="M754.1 381.6l-1.8-4-6.4-6-1-4.1-0.6-3.7 2.3-2.7 1-3.8-6-8.9-3.7-1.4-5.3 0.3-3.7-2.1 1-4.8-0.8-3.7-3.8-3.7-0.8-3.7 0.8-4.1-0.2-4.5 2.7-2.9 9.4-2.8 2.4-2.5 0.7-3-0.3-2.9-3.7-5.4-3.1-1.6-2.9-0.7-2.3-2.1-3.4-2.2-4.6-2.2-3-3.3 8.1-1.5 3.4-1.3 4.5-3.7 1.3-0.7 1.6-0.3 2.2 0 2.6 0.8 1.3 1.9 0.9 2 1.1 1.1 2.5-1-2.6-4.1-4.2-4.2-2.2-1.4 0.7-1.9 1.3-1.1 1.3-0.7 0.6-0.6 1.5-3.8 2.3-4.2 4.7-4.3 7-3.5 7.9-1.8 7.8 0.9 3.2 2.5 7.3 10.1 2.5 5.4 0.9-0.3 1.9-0.6 2.3-0.2 1.5 0.4-0.1 0.7-0.7 0.9-0.7 1.3 0 1.5 0.8 0.9 1.6 1.2-3.1 2.1-5.2 2.3-2.3 1.5 0.4 2.1 2.1 2.7 1.2 2.5 2.1 2.5 2.6 2.5 2.2 1.6 7.6 3.1 3.7 0.5 2.9-1.1 1.8-1.3 0.3-1.8-2.7-2.8-0.1-2.2 0.2-8.6 24.9 6.1 2.4 1.5-1.2 2.6-0.3 2.1 0.5 3.8 1.7 6.2 1.9 3 1.6 0.7 5-0.8 2.6 0.3 3 0.8 2.7 1.3 1.5 1.9-6.3 3.1-0.6-0.8-2.4-1.4-4.3 0.9-6 3.2-2.6 1.8-8.1 1.6-1 2.2 1.8 2.5-1.2 2.8-3.3 2.1-2.5 0.9-2.7 1.4-2.3 2.9-2.3 3.7-3.6 2.6-4.5 1.3-9.7 5.9-9.4 3.8-2.7 1.6-3.4 2.9-1.4 3.6 0.1 3 0.7 2.3 0.3 1.4-2.8 2-4.8 2.3-3.6 2.5-2.7 2.4-3.5 1.3-4.2 1.2z m22.7-60.5l3-1.2 5.5-7 1.4-3-2.7-2.3-3.3-1.9-0.1-3.6 1.1-4.8-1.1-3.2-2.8-2.5-1.8-7.2-1.2-2.6-1.1-2.4-0.3-2.4 0.4-2.6-1.5-1.6-2.8-0.9-2.9 1.4-2.1 1.8-7.8 4.7-2.6 2.9-1.5 3.3-1.3 1.7-1.2 2.1 2.7 3.1 4.2 4 0.8 4.5-1.1 5.3 2.9 4.9 4.1 3.2 2.8 3.2 2.6 2.3 3.5 0.8 4.2 0z" id="TWNWT" data-county="新北市" name="New Taipei City"></path>
+              <path class="rs-county-path" d="M806.8 285.1l-0.2 8.6 0.1 2.2 2.7 2.8-0.3 1.8-1.8 1.3-2.9 1.1-3.7-0.5-7.6-3.1-2.2-1.6-2.6-2.5-2.1-2.5-1.2-2.5-2.1-2.7-0.4-2.1 2.3-1.5 5.2-2.3 3.1-2.1 1.1 0.7 0.5 0.8 1.2 1.1 2.8 1.1 8.1 1.9z" id="TWKEE" data-county="基隆市" name="Keelung City"></path>
+              <path class="rs-county-path" d="M599.5 519.1l3 0.1 13 1.8 3-0.5 3.6-3.4 5.4-10.4 2.7-6.1 4.6-2.2 7.3 1.1 4.3-0.2 4.2-5.5 2.2-1.4 6.4 4.8 2.5-0.7 1.9-3.9 3.4-2.8 4.8 0.1 3.6-1.4 5.7-5.5 3.6-2.1 3.2-0.6 6.4-3.3 4.4-0.2 4.5-0.7 8-3.2 3.4-0.2 3.4 0.8 9.6 0.9 1 4.5 0.2 2.6-3.8 1.7-4.7 1.6-2.7 2.1 0.2 7.2 2 2.2 3.8 2.4 1 3.3-0.1 2.7-5.8 7.6-3.7 7.7-1.7 5.5 1.5 2.4 1.3 3.2-0.5 5.4-1.1 7.2-2.2 6.3-2.8 6.1-1.8 5.1-0.1 2.7-4.1 6.8 1.5 2.9 2.3 2.9 0.8 3.9 0.7 5.2-0.9 6-2.3 9.1-1.1 3.6-3.3 2.3-5.5 2-2.8 3.7-1 6.2-3.8 3.4-5.3 0.2-5.4 1.2-3.7 2.7-1.1 3-1.1 1.9 1.2 4.4-2.2 2.1-4.3 2.5-0.5-1.5-3-4.2-4.2-1.6-3.2-0.7-0.6-0.2-18.4-0.1-5.5-1-0.8-2.8-0.3-4.2-1.9-4.7-0.9-3.4 2.1-3.7 0.3-3.8-3.7-2.1-3-0.8-4.8-1.9-4.4-0.5-1.9-2.5-6 0.6-4.9 1.5-4.2-1.8-2.8-3.4 0.7-4.2 1.3-3.7-0.7-5.5 0.7-5.2 1.5-3.4-1.4-5.2 1.7-1.1 1.8-1.7 2.8-1.1 0.7-2.5-4.1-2.1-2.8-1-2.6-2.4-1.5-4.5 0.7-9.7 0.8-4.7 0.1-4.1 1.2-3.9 1.4-3.3-0.4-2.9 0.9-2.1 3.1-1.1 0-2.6z" id="TWNAN" data-county="南投縣" name="Nantou"></path>
+              <path class="rs-county-path" d="M776.8 321.1l-4.2 0-3.5-0.8-2.6-2.3-2.8-3.2-4.1-3.2-2.9-4.9 1.1-5.3-0.8-4.5-4.2-4-2.7-3.1 1.2-2.1 1.3-1.7 1.5-3.3 2.6-2.9 7.8-4.7 2.1-1.8 2.9-1.4 2.8 0.9 1.5 1.6-0.4 2.6 0.3 2.4 1.1 2.4 1.2 2.6 1.8 7.2 2.8 2.5 1.1 3.2-1.1 4.8 0.1 3.6 3.3 1.9 2.7 2.3-1.4 3-5.5 7-3 1.2z" id="TWTPE" data-county="臺北市" name="Taipei City"></path>
+              <path class="rs-county-path" d="M559.2 638.1l-5.3-1.2-5.1-3.3-4.4-1.7-0.6-4.1 2.7-2.9 6.7-1.2 5.7-0.5 4 1.5 3 1.6 1.7 2.9 1.9 4.9-2.2 1.6-3.2 0.4-4.9 2z" id="TWCYI" data-county="嘉義市" name="Chiayi City"></path>
+            </g>
+
+            <g id="city-labels" class="pointer-events-none select-none fill-white font-bold" style="text-shadow: 0 1px 2.5px rgba(61,36,30,0.32);">
+              <text x="772" y="303" text-anchor="middle" style="writing-mode: vertical-rl; font-size: 9.5px; letter-spacing: 0.5px;">臺北市</text>
+              <text x="765" y="346" text-anchor="middle" style="font-size: 12px;">新北市</text>
+              <text x="615" y="486" text-anchor="middle" style="font-size: 13px;">臺中市</text>
+              <text x="598" y="644" text-anchor="middle" style="font-size: 12.5px;">嘉義縣</text>
+              <text x="536" y="704" text-anchor="middle" style="font-size: 13px;">臺南市</text>
+              <text x="605" y="728" text-anchor="middle" style="font-size: 13px;">高雄市</text>
+              <text x="588" y="826" text-anchor="middle" style="font-size: 13px;">屏東縣</text>
+            </g>
+
+            <g id="map-pins"></g>
+          </svg></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 左下角品牌拓展標語 -->
+        <div class="mt-8 pt-2 flex items-center">
+          <div class="relative inline-flex items-center group">
+            <div class="relative z-10 w-13 h-13 sm:w-14 sm:h-14 rounded-full bg-[#C48479] flex items-center justify-center shadow-sm shrink-0 transition-transform duration-300 group-hover:scale-105">
+              <svg class="w-6 h-6 sm:w-7 sm:h-7 text-white -rotate-12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M18 8a1 1 0 0 1 .993.883L19 9v6a1 1 0 0 1-1.993.117L17 15V9a1 1 0 0 1 1-1zm3.447-2.894a1 1 0 0 1 1.342.447l.058.134a9.01 9.01 0 0 1 0 6.626 1 1 0 0 1-1.84-.782 7.01 7.01 0 0 0 0-5.062 1 1 0 0 1 .44-1.363zM15 4.28a1 1 0 0 1 1 .999v13.442a1 1 0 0 1-1.522.853L9.366 16H6a3 3 0 0 1-2.995-2.824L3 13v-2a3 3 0 0 1 2.824-2.995L6 8h3.366l5.112-3.574A1 1 0 0 1 15 4.28zM7.5 16l.87 3.48A1.5 1.5 0 0 1 6.915 21.3l-.165.009a1.5 1.5 0 0 1-1.455-1.136L4.3 16h3.2z"></path>
+              </svg>
+            </div>
+            <div class="-ml-5 pl-8 pr-6 py-2.5 rounded-r-full border border-[#C48479] bg-white text-[#3E2723] font-bold text-sm sm:text-[15px] tracking-wider shadow-2xs">
+              銷售據點持續拓展中！
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 中欄（僅電腦版 lg:flex 顯示）：台灣向量互動地圖 -->
+      <div id="rs-desktop-map-col" class="hidden lg:flex lg:col-span-5 relative items-center justify-center p-4 overflow-hidden">
+        <div id="rs-desktop-map-host" class="w-full h-[640px] flex items-center justify-center relative select-none">
+          
+        </div>
+      </div>
+
+      <!-- 右欄（僅電腦版 lg:flex 顯示）：滑動據點選單（無背景圓弧） -->
+      <div class="hidden lg:flex lg:col-span-3 items-center justify-center px-4">
+        <div class="w-full max-w-[290px] flex flex-col">
+          <div class="rs-wheel-shell">
+            <div id="rs-desktop-wheel" class="rs-wheel-viewport" role="listbox" aria-label="銷售據點選單">
+              <div id="rs-desktop-wheel-track" class="px-3" style="padding-top: 158px; padding-bottom: 158px;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 手機版 / 平板專屬 Modal 彈窗（固定螢幕正中央 items-center） -->
+    <div id="rs-mobile-modal" class="rs-modal-backdrop fixed inset-0 z-50 flex items-center justify-center p-4 bg-[#3E2723]/60 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-labelledby="rs-modal-title">
+      <div id="rs-modal-panel" class="rs-modal-panel relative w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#EBC3BA] overflow-hidden max-h-[85vh] flex flex-col">
+        <button type="button" id="rs-modal-close-btn" aria-label="關閉視窗" class="rs-modal-close-circle absolute top-3.5 right-3.5 z-20 bg-white/95 hover:bg-white shadow-md border border-[#EBC3BA] text-[#5D4037] transition-colors cursor-pointer">
+          <svg class="w-4 h-4 block shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+
+        <div id="rs-modal-body" class="rs-modal-body-scroll overflow-y-auto"></div>
+
+        <div class="rs-modal-footer-bar py-3 px-4 text-center shrink-0">
+          <button type="button" id="rs-modal-bottom-close" class="text-xs text-[#8D6E63] hover:text-[#B85D52] transition-colors py-1 px-4 cursor-pointer">
+            點擊視窗外空白處或此處關閉視窗
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
+<script>
+(function bootstrapRueiSiangStoreLocator() {
+  const STORE_LOCATOR_API = 'https://platform.rueisiang.com/api/public/store-locator';
+
+  async function loadStoresDataFromAPI() {
+    const response = await fetch(STORE_LOCATOR_API, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error(`據點資料 API 回應 ${response.status}`);
+    const payload = await response.json();
+    if (!payload || !Array.isArray(payload.stores)) throw new Error('據點資料格式不正確');
+    return payload.stores;
+  }
+
+  async function initRueiSiangStoreLocator() {
+    let STORES_DATA;
+    try {
+      STORES_DATA = await loadStoresDataFromAPI();
+    } catch (err) {
+      console.error('[RS] Failed to load store locator API:', err);
+      STORES_DATA = null;
+    }
+    const initialWheelTrack = document.getElementById('rs-desktop-wheel-track');
+    const initialMobileSelect = document.getElementById('rs-mobile-store-select');
+    if (!Array.isArray(STORES_DATA) || STORES_DATA.length === 0) {
+      const message = Array.isArray(STORES_DATA) ? '目前沒有完成官網資料設定的營業中櫃點。' : '據點資料暫時無法載入，請稍後再試。';
+      if (initialWheelTrack) initialWheelTrack.innerHTML = `<p role="status" style="padding:24px;text-align:center;color:#76534B;">${message}</p>`;
+      if (initialMobileSelect) {
+        initialMobileSelect.innerHTML = `<option value="">${message}</option>`;
+        initialMobileSelect.disabled = true;
+      }
+      return;
+    }
+    let activeStoreId = null;
+    let isProgrammaticWheelScroll = false;
+    let wheelScrollEndTimer = null;
+    let wheelProgrammaticTimer = null;
+    let isPointerDraggingWheel = false;
+    let wheelDragStartY = 0;
+    let wheelDragStartScrollTop = 0;
+    let wheelDidDragMove = false;
+    let wheelClickLockTimer = null;
+
+    const desktopCardContainer = document.getElementById('rs-desktop-card-container');
+    const wheelViewport = document.getElementById('rs-desktop-wheel');
+    const wheelTrack = document.getElementById('rs-desktop-wheel-track');
+    const mobileSelect = document.getElementById('rs-mobile-store-select');
+
+    const desktopMapHost = document.getElementById('rs-desktop-map-host');
+    const mobileMapHost = document.getElementById('rs-mobile-map-host');
+    const mapSvg = document.getElementById('rs-taiwan-map');
+    const pinsLayer = document.getElementById('map-pins');
+    const countyPaths = document.querySelectorAll('.rs-county-path');
+
+    const modalBackdrop = document.getElementById('rs-mobile-modal');
+    const modalBody = document.getElementById('rs-modal-body');
+    const modalCloseBtn = document.getElementById('rs-modal-close-btn');
+    const modalBottomClose = document.getElementById('rs-modal-bottom-close');
+
+    const DEFAULT_VIEW_BOX = [475, 245, 365, 715];
+    const WHEEL_VIEWPORT_HEIGHT = 368;
+    const WHEEL_ITEM_HEIGHT = 52;
+    const WHEEL_PAD_Y = (WHEEL_VIEWPORT_HEIGHT - WHEEL_ITEM_HEIGHT) / 2;
+
+    function isMobileOrTablet() {
+      return window.innerWidth < 1024;
+    }
+
+    function escapeHTML(value) {
+      return String(value ?? '').replace(/[&<>\"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' })[char]);
+    }
+
+    function getFallbackImageUrl() {
+      return 'https://placehold.co/800x450/EBC3BA/5E3349?text=Ruei%20Siang';
+    }
+
+    function buildGoogleMapsButtonHTML(mapUrl, isFullWidth) {
+      const extraClass = isFullWidth ? 'rs-gmap-btn--full' : '';
+      return `
+        <a
+          href="${escapeHTML(mapUrl)}"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="rs-gmap-btn ${extraClass}"
+          style="background-color:#B85D52;color:#FFFFFF;"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polygon points="3 11 22 2 13 21 11 13 3 11"></polygon>
+          </svg>
+          <span>Google Maps 導航</span>
+        </a>
+      `;
+    }
+
+    function buildDesktopEmptyCardHTML() {
+      return `
+        <div class="rs-desktop-card-enter bg-white border border-[#EBC3BA] rounded-2xl p-6 shadow-sm">
+          <p class="text-sm text-[#5D4037] leading-relaxed">
+            點選地圖座標或點選列表的據點，即可查看門市詳細資訊。
+          </p>
+        </div>
+      `;
+    }
+
+    function buildDesktopStoreCardHTML(store) {
+      const fallbackUrl = getFallbackImageUrl();
+      return `
+        <div class="rs-desktop-card-enter relative bg-white border border-[#EBC3BA] rounded-2xl overflow-hidden shadow-sm">
+          <button
+            type="button"
+            id="rs-desktop-card-close-btn"
+            aria-label="關閉據點資訊"
+            class="rs-modal-close-circle absolute top-3.5 right-3.5 z-20 bg-white/95 hover:bg-white shadow-md border border-[#EBC3BA] text-[#5D4037] transition-colors cursor-pointer"
+          >
+            <svg class="w-4 h-4 block shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+
+          <div class="relative w-full h-44 overflow-hidden bg-[#F4E3DF]">
+            <img
+              src="${escapeHTML(store.image || fallbackUrl)}"
+              alt="${escapeHTML(store.name)} 櫃位照片"
+              loading="lazy"
+              onerror="this.onerror=null;this.src='${fallbackUrl}';"
+              class="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
+            />
+            <div class="absolute inset-0 bg-gradient-to-t from-[#3E2723]/55 via-transparent to-transparent"></div>
+            <div class="absolute bottom-3 left-3 flex items-center gap-1.5">
+              <span class="rs-pill-tag px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#B85D52] text-white shadow-2xs">
+                ${escapeHTML(store.county)}
+              </span>
+              <span class="rs-pill-tag px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/95 text-[#3E2723] shadow-2xs">
+                ${escapeHTML(store.category)}
+              </span>
+            </div>
+          </div>
+
+          <div class="p-5 space-y-2.5 text-[13.5px] text-[#4E342E]">
+            <h2 class="rs-serif text-lg font-bold text-[#3E2723] leading-snug pb-0.5">
+              ${escapeHTML(store.name)}
+            </h2>
+
+            ${store.floorNote ? `
+            <div class="flex items-start gap-2.5">
+              <svg class="w-4 h-4 text-[#B85D52] shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                <polyline points="9 22 9 12 15 12 15 22"></polyline>
+              </svg>
+              <span><strong class="text-[#3E2723]">櫃位位置：</strong>${escapeHTML(store.floorNote)}</span>
+            </div>` : ''}
+
+            <div class="flex items-start gap-2.5">
+              <svg class="w-4 h-4 text-[#B85D52] shrink-0 mt-0.5" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
+              </svg>
+              <span><strong class="text-[#3E2723]">門市地址：</strong>${escapeHTML(store.address)}</span>
+            </div>
+
+            <div class="flex items-start gap-2.5">
+              <svg class="w-4 h-4 text-[#B85D52] shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"></circle>
+                <polyline points="12 6 12 12 16 14"></polyline>
+              </svg>
+              <span><strong class="text-[#3E2723]">營業時間：</strong>${escapeHTML(store.hours)}</span>
+            </div>
+
+            ${store.phone ? `
+            <div class="flex items-start gap-2.5">
+              <svg class="w-4 h-4 text-[#B85D52] shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+              </svg>
+              <span><strong class="text-[#3E2723]">聯絡電話：</strong><a href="tel:${escapeHTML(store.phone)}" class="underline decoration-[#B85D52]/50 hover:text-[#B85D52]">${escapeHTML(store.phone)}</a></span>
+            </div>` : ''}
+
+            ${store.highlight ? `
+            <div class="mt-2 px-3.5 py-2 rounded-xl bg-[#EBC3BA]/25 text-xs text-[#5D4037] leading-relaxed">
+              ✦ ${escapeHTML(store.highlight)}
+            </div>` : ''}
+
+            <div class="pt-2.5 flex items-center justify-start">
+              ${buildGoogleMapsButtonHTML(store.mapUrl, false)}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderDesktopStoreCard() {
+      if (!desktopCardContainer) return;
+
+      if (!activeStoreId) {
+        desktopCardContainer.innerHTML = buildDesktopEmptyCardHTML();
+        return;
+      }
+
+      const store = STORES_DATA.find(s => s.id === activeStoreId);
+      if (!store) {
+        desktopCardContainer.innerHTML = buildDesktopEmptyCardHTML();
+        return;
+      }
+
+      desktopCardContainer.innerHTML = buildDesktopStoreCardHTML(store);
+      const closeBtn = document.getElementById('rs-desktop-card-close-btn');
+      if (closeBtn) {
+        const resetSelection = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          activeStoreId = null;
+          renderDesktopStoreCard();
+          syncMapPinsState();
+          highlightCounty(null);
+          updateWheelCurveStyles();
+        };
+        closeBtn.addEventListener('click', resetSelection);
+        closeBtn.addEventListener('pointerup', resetSelection);
+      }
+    }
+
+    function triggerWheelSelection(storeId, idx) {
+      const store = STORES_DATA[idx] || STORES_DATA.find(s => s.id === storeId);
+      if (!store) return;
+      const resolvedIdx = idx >= 0 ? idx : STORES_DATA.findIndex(s => s.id === store.id);
+
+      if (wheelScrollEndTimer) {
+        clearTimeout(wheelScrollEndTimer);
+        wheelScrollEndTimer = null;
+      }
+      if (wheelClickLockTimer) {
+        clearTimeout(wheelClickLockTimer);
+      }
+      wheelClickLockTimer = setTimeout(() => {
+        wheelClickLockTimer = null;
+      }, 500);
+
+      activeStoreId = store.id;
+      renderDesktopStoreCard();
+      syncMapPinsState();
+      highlightCounty(store.county);
+      if (mobileSelect && mobileSelect.value !== store.id) {
+        mobileSelect.value = store.id;
+      }
+      if (resolvedIdx >= 0) {
+        scrollWheelToIndex(resolvedIdx, true);
+      }
+      updateWheelCurveStyles();
+    }
+
+    function buildDesktopWheelOnce() {
+      if (!wheelTrack) return;
+      wheelTrack.style.paddingTop = `${WHEEL_PAD_Y}px`;
+      wheelTrack.style.paddingBottom = `${WHEEL_PAD_Y}px`;
+      wheelTrack.innerHTML = '';
+
+      STORES_DATA.forEach((store, idx) => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'rs-wheel-item w-full text-center cursor-pointer focus:outline-none';
+        btn.setAttribute('role', 'option');
+        btn.setAttribute('data-wheel-index', String(idx));
+        btn.setAttribute('data-store-id', store.id);
+        btn.innerHTML = `
+          <span class="rs-wheel-dot inline-block w-2.5 h-2.5 rounded-full bg-[#B85D52] mr-4 shrink-0 transition-opacity duration-200 opacity-0"></span>
+          <span class="rs-wheel-text text-sm leading-snug truncate">${escapeHTML(store.shortName || store.name)}</span>
+        `;
+
+        const selectWheelItem = (e) => {
+          if (wheelDidDragMove) return;
+          e.preventDefault();
+
+          if (typeof btn.focus === 'function') {
+            btn.focus({ preventScroll: true });
+          }
+          triggerWheelSelection(store.id, idx);
+        };
+        // 實際頁面可能在拖曳或捲動後不派發原生 click；指標操作改由 pointerup 選取。
+        btn.addEventListener('pointerup', selectWheelItem);
+        btn.addEventListener('click', (e) => {
+          if (e.detail !== 0) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          e.stopPropagation();
+          selectWheelItem(e);
+        });
+
+        wheelTrack.appendChild(btn);
+      });
+
+      updateWheelCurveStyles();
+    }
+
+    function getClosestWheelIndex() {
+      if (!wheelViewport) return 0;
+      const centerOffset = wheelViewport.scrollTop + WHEEL_VIEWPORT_HEIGHT / 2 - WHEEL_PAD_Y - WHEEL_ITEM_HEIGHT / 2;
+      const rawIndex = Math.round(centerOffset / WHEEL_ITEM_HEIGHT);
+      return Math.max(0, Math.min(STORES_DATA.length - 1, rawIndex));
+    }
+
+    function updateWheelCurveStyles() {
+      if (!wheelViewport || !wheelTrack) return;
+      const items = wheelTrack.querySelectorAll('.rs-wheel-item');
+      const viewportCenterY = wheelViewport.scrollTop + WHEEL_VIEWPORT_HEIGHT / 2;
+      const focusedStoreId = activeStoreId || (STORES_DATA[getClosestWheelIndex()] && STORES_DATA[getClosestWheelIndex()].id);
+
+      items.forEach((item, idx) => {
+        const itemCenterY = WHEEL_PAD_Y + idx * WHEEL_ITEM_HEIGHT + WHEEL_ITEM_HEIGHT / 2;
+        const distSteps = (itemCenterY - viewportCenterY) / WHEEL_ITEM_HEIGHT;
+        const absDist = Math.abs(distSteps);
+
+        const textEl = item.querySelector('.rs-wheel-text');
+        const dotEl = item.querySelector('.rs-wheel-dot');
+
+        if (absDist > 3.15) {
+          item.style.opacity = '0';
+          item.style.pointerEvents = 'none';
+          item.style.transform = `translateX(${(Math.min(absDist, 4) * 8).toFixed(1)}px) scale(0.84)`;
+          return;
+        }
+
+        item.style.pointerEvents = 'auto';
+        const normalized = Math.min(absDist / 3.15, 1);
+        const arcShiftX = Math.pow(absDist, 1.35) * 10;
+        const scaleVal = 1 - normalized * 0.14;
+        const opacityVal = Math.max(0.08, 1 - Math.pow(normalized, 1.25) * 0.92);
+
+        item.style.opacity = opacityVal.toFixed(3);
+        item.style.transform = `translateX(${arcShiftX.toFixed(1)}px) scale(${scaleVal.toFixed(3)})`;
+
+        const isSelected = item.getAttribute('data-store-id') === activeStoreId;
+        const isFocused = (isSelected && absDist < 2.2) || (!activeStoreId && item.getAttribute('data-store-id') === focusedStoreId && absDist < 1.35);
+        if (textEl) {
+          if (isFocused) {
+            textEl.style.color = '#24120E';
+            textEl.style.fontWeight = '700';
+            textEl.style.fontSize = '15.5px';
+          } else {
+            const lightFactor = Math.min(absDist / 2.8, 1);
+            const r = Math.round(92 + lightFactor * 96);
+            const g = Math.round(64 + lightFactor * 104);
+            const b = Math.round(55 + lightFactor * 107);
+            textEl.style.color = `rgb(${r}, ${g}, ${b})`;
+            textEl.style.fontWeight = absDist < 1.2 ? '600' : '400';
+            textEl.style.fontSize = '13.5px';
+          }
+        }
+        if (dotEl) {
+          dotEl.style.opacity = isFocused ? '1' : '0';
+        }
+        item.setAttribute('aria-selected', String(isFocused));
+      });
+    }
+
+    function scrollWheelToIndex(index, smooth = true) {
+      if (!wheelViewport || index < 0 || index >= STORES_DATA.length) return;
+      const targetScrollTop = WHEEL_PAD_Y + index * WHEEL_ITEM_HEIGHT + WHEEL_ITEM_HEIGHT / 2 - WHEEL_VIEWPORT_HEIGHT / 2;
+      isProgrammaticWheelScroll = true;
+      if (wheelProgrammaticTimer) {
+        clearTimeout(wheelProgrammaticTimer);
+      }
+      wheelViewport.scrollTo({
+        top: Math.max(0, targetScrollTop),
+        behavior: smooth ? 'smooth' : 'auto'
+      });
+      wheelProgrammaticTimer = setTimeout(() => {
+        isProgrammaticWheelScroll = false;
+        updateWheelCurveStyles();
+      }, smooth ? 460 : 50);
+    }
+
+    function syncWheelToStoreId(storeId, smooth = true) {
+      if (!storeId) return;
+      const idx = STORES_DATA.findIndex(s => s.id === storeId);
+      if (idx !== -1) {
+        scrollWheelToIndex(idx, smooth);
+      }
+    }
+
+    function scheduleWheelSnapAndSelect() {
+      if (wheelClickLockTimer) return;
+      if (wheelScrollEndTimer) {
+        clearTimeout(wheelScrollEndTimer);
+      }
+      wheelScrollEndTimer = setTimeout(() => {
+        const closestIdx = getClosestWheelIndex();
+        const targetStore = STORES_DATA[closestIdx];
+        scrollWheelToIndex(closestIdx, true);
+        if (targetStore) {
+          selectStore(targetStore.id, { toggleIfSame: false, openModalOnMobile: false, syncWheel: false });
+        }
+      }, 120);
+    }
+
+    if (wheelViewport) {
+      wheelViewport.addEventListener('pointerdown', (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        isPointerDraggingWheel = true;
+        wheelDidDragMove = false;
+        wheelDragStartY = e.clientY;
+        wheelDragStartScrollTop = wheelViewport.scrollTop;
+        if (wheelScrollEndTimer) {
+          clearTimeout(wheelScrollEndTimer);
+          wheelScrollEndTimer = null;
+        }
+        wheelViewport.classList.add('is-dragging');
+      });
+
+      window.addEventListener('pointermove', (e) => {
+        if (!isPointerDraggingWheel || !wheelViewport) return;
+        const deltaY = e.clientY - wheelDragStartY;
+        if (Math.abs(deltaY) > 8) {
+          wheelDidDragMove = true;
+          if (wheelClickLockTimer) {
+            clearTimeout(wheelClickLockTimer);
+            wheelClickLockTimer = null;
+          }
+        }
+        if (wheelDidDragMove) {
+          wheelViewport.scrollTop = wheelDragStartScrollTop - deltaY;
+        }
+        updateWheelCurveStyles();
+      }, { passive: true });
+
+      const finishWheelDrag = () => {
+        if (!isPointerDraggingWheel) return;
+        isPointerDraggingWheel = false;
+        if (wheelViewport) {
+          wheelViewport.classList.remove('is-dragging');
+        }
+        if (wheelDidDragMove) {
+          scheduleWheelSnapAndSelect();
+          setTimeout(() => {
+            wheelDidDragMove = false;
+          }, 60);
+        }
+      };
+
+      window.addEventListener('pointerup', finishWheelDrag);
+      window.addEventListener('pointercancel', finishWheelDrag);
+
+      wheelViewport.addEventListener('scroll', () => {
+        updateWheelCurveStyles();
+        if (isProgrammaticWheelScroll || isPointerDraggingWheel || wheelClickLockTimer) return;
+        scheduleWheelSnapAndSelect();
+      }, { passive: true });
+    }
+
+    function buildMobileSelectOptions() {
+      if (!mobileSelect) return;
+      mobileSelect.innerHTML = '<option value="" disabled selected>請選擇銷售據點...</option>';
+      STORES_DATA.forEach(store => {
+        const opt = document.createElement('option');
+        opt.value = store.id;
+        opt.textContent = `${store.county}｜${store.shortName || store.name}`;
+        mobileSelect.appendChild(opt);
+      });
+
+      mobileSelect.addEventListener('change', (e) => {
+        const selectedId = e.target.value;
+        if (selectedId) {
+          selectStore(selectedId, { toggleIfSame: false, openModalOnMobile: true, syncWheel: true });
+        }
+      });
+    }
+
+    function buildMobileModalHTML(store) {
+      const fallbackUrl = getFallbackImageUrl();
+      return `
+        <div>
+          <div class="relative w-full h-48 sm:h-52 bg-[#F4E3DF]">
+            <img
+              src="${escapeHTML(store.image || fallbackUrl)}"
+              alt="${escapeHTML(store.name)} 櫃位照片"
+              onerror="this.onerror=null;this.src='${fallbackUrl}';"
+              class="w-full h-full object-cover"
+            />
+            <div class="absolute inset-0 bg-gradient-to-t from-[#3E2723]/55 via-transparent to-black/15"></div>
+            <div class="absolute bottom-3 left-5 flex items-center gap-2">
+              <span class="rs-pill-tag px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#B85D52] text-white shadow-xs">
+                ${escapeHTML(store.category)}
+              </span>
+              <span class="rs-pill-tag px-2.5 py-0.5 rounded-full text-xs font-medium bg-white/95 text-[#3E2723] shadow-xs">
+                ${escapeHTML(store.county)}
+              </span>
+            </div>
+          </div>
+
+          <div class="p-6">
+            <h3 id="rs-modal-title" class="rs-serif text-xl font-bold text-[#3E2723] leading-snug mb-3.5">
+              ${escapeHTML(store.name)}
+            </h3>
+
+            <div class="space-y-2.5 text-sm text-[#4E342E]">
+              ${store.floorNote ? `
+              <div class="flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-[#B85D52] shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                  <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                </svg>
+                <div>
+                  <span class="font-semibold text-[#3E2723]">櫃位位置：</span>
+                  <span>${escapeHTML(store.floorNote)}</span>
+                </div>
+              </div>` : ''}
+
+              <div class="flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-[#B85D52] shrink-0 mt-1" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/>
+                </svg>
+                <div>
+                  <span class="font-semibold text-[#3E2723]">門市地址：</span>
+                  <span>${escapeHTML(store.address)}</span>
+                </div>
+              </div>
+
+              <div class="flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-[#B85D52] shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                <div>
+                  <span class="font-semibold text-[#3E2723]">營業時間：</span>
+                  <span>${escapeHTML(store.hours)}</span>
+                </div>
+              </div>
+
+              ${store.phone ? `
+              <div class="flex items-start gap-2.5">
+                <svg class="w-4 h-4 text-[#B85D52] shrink-0 mt-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
+                </svg>
+                <div>
+                  <span class="font-semibold text-[#3E2723]">聯絡電話：</span>
+                  <a href="tel:${escapeHTML(store.phone)}" class="underline decoration-[#B85D52]/50 hover:text-[#B85D52]">${escapeHTML(store.phone)}</a>
+                </div>
+              </div>` : ''}
+
+              ${store.highlight ? `
+              <div class="mt-3 px-3.5 py-2.5 rounded-xl bg-[#EBC3BA]/25 text-xs text-[#5D4037] leading-relaxed">
+                ✦ ${escapeHTML(store.highlight)}
+              </div>` : ''}
+            </div>
+
+            <div class="mt-5">
+              ${buildGoogleMapsButtonHTML(store.mapUrl, true)}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function buildMapPinsOnce() {
+      if (!pinsLayer) return;
+      pinsLayer.innerHTML = '';
+
+      STORES_DATA.forEach(store => {
+        const anchor = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        anchor.setAttribute('class', 'rs-pin-anchor');
+        anchor.setAttribute('data-pin-id', store.id);
+        anchor.setAttribute('data-pin-region', store.region);
+        anchor.setAttribute('transform', `translate(${store.pinX}, ${store.pinY})`);
+        anchor.setAttribute('role', 'button');
+        anchor.setAttribute('tabindex', '0');
+        anchor.setAttribute('aria-label', `${store.label} - 點擊查看詳情`);
+
+        const zoomComp = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        zoomComp.setAttribute('class', 'rs-pin-zoom-comp');
+
+        const hitCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        hitCircle.setAttribute('cx', '0');
+        hitCircle.setAttribute('cy', '-15');
+        hitCircle.setAttribute('r', '20');
+        hitCircle.setAttribute('fill', 'transparent');
+
+        const pulseCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        pulseCircle.setAttribute('class', 'rs-pin-pulse');
+        pulseCircle.setAttribute('cx', '0');
+        pulseCircle.setAttribute('cy', '-23');
+        pulseCircle.setAttribute('r', '14');
+        pulseCircle.setAttribute('fill', '#B85D52');
+
+        const visual = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        visual.setAttribute('class', 'rs-pin-visual');
+        visual.setAttribute('filter', 'url(#rsPinShadow)');
+        visual.innerHTML = `
+          <path class="rs-pin-body" d="M 0,0 C -8.5,-10.5 -12.5,-16.5 -12.5,-23 A 12.5,12.5 0 1,1 12.5,-23 C 12.5,-16.5 8.5,-10.5 0,0 Z"
+                fill="#B85D52"
+                stroke="#FFFFFF"
+                stroke-width="1.6" />
+          <circle cx="0" cy="-23" r="5" fill="#F6DFDA" />
+        `;
+
+        const labelText = store.shortName || store.name;
+        const pillWidth = Math.max(66, labelText.length * 10.5 + 16);
+        const tooltipGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        tooltipGroup.setAttribute('class', 'rs-pin-tooltip');
+        tooltipGroup.setAttribute('data-pin-tooltip', 'true');
+        tooltipGroup.setAttribute('transform', 'translate(0, -42)');
+        tooltipGroup.innerHTML = `
+          <rect x="${(-pillWidth / 2).toFixed(1)}" y="-17" width="${pillWidth.toFixed(1)}" height="21" rx="10.5"
+                fill="#3D241E" stroke="#FFFFFF" stroke-width="1.2" opacity="0.94" />
+          <polygon points="-4,4 4,4 0,8" fill="#3D241E" />
+          <text x="0" y="-3.5" text-anchor="middle" fill="#FFFFFF" font-size="10" font-weight="600" letter-spacing="0.3">
+            ${escapeHTML(labelText)}
+          </text>
+        `;
+
+        const titleEl = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+        titleEl.textContent = store.label;
+
+        zoomComp.appendChild(pulseCircle);
+        zoomComp.appendChild(visual);
+        zoomComp.appendChild(tooltipGroup);
+        zoomComp.appendChild(hitCircle);
+
+        anchor.appendChild(zoomComp);
+        anchor.appendChild(titleEl);
+
+        anchor.addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectStore(store.id, { toggleIfSame: false, openModalOnMobile: true, syncWheel: true });
+        });
+
+        anchor.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            selectStore(store.id, { toggleIfSame: false, openModalOnMobile: true, syncWheel: true });
+          }
+        });
+
+        pinsLayer.appendChild(anchor);
+      });
+    }
+
+    function syncMapPinsState() {
+      if (!pinsLayer) return;
+      const anchors = pinsLayer.querySelectorAll('.rs-pin-anchor');
+      anchors.forEach(anchor => {
+        const pinId = anchor.getAttribute('data-pin-id');
+        const pinBody = anchor.querySelector('.rs-pin-body');
+        const tooltipEl = anchor.querySelector('[data-pin-tooltip="true"]');
+        const isSelected = pinId === activeStoreId;
+
+        anchor.classList.toggle('is-selected', isSelected);
+        if (tooltipEl) {
+          tooltipEl.style.opacity = isSelected ? '1' : '0';
+          tooltipEl.style.transform = isSelected ? 'translateY(0px)' : 'translateY(4px)';
+        }
+        if (pinBody) {
+          pinBody.setAttribute('fill', isSelected ? '#9B3B30' : '#B85D52');
+        }
+        if (isSelected && anchor.parentNode === pinsLayer) {
+          pinsLayer.appendChild(anchor);
+        }
+      });
+    }
+
+    function highlightCounty(countyName) {
+      countyPaths.forEach(path => {
+        path.classList.toggle('is-county-active', Boolean(countyName) && path.dataset.county === countyName);
+      });
+    }
+
+    function selectStore(storeId, options = { toggleIfSame: false, openModalOnMobile: true, syncWheel: true }) {
+      const store = STORES_DATA.find(s => s.id === storeId);
+      if (!store) return;
+
+      if (mobileSelect && mobileSelect.value !== store.id) {
+        mobileSelect.value = store.id;
+      }
+
+      if (isMobileOrTablet()) {
+        activeStoreId = storeId;
+        syncMapPinsState();
+        highlightCounty(store.county);
+        if (options.openModalOnMobile) {
+          openMobileModal(store);
+        }
+        return;
+      }
+
+      if (options.toggleIfSame && activeStoreId === storeId) {
+        activeStoreId = null;
+        renderDesktopStoreCard();
+        syncMapPinsState();
+        highlightCounty(null);
+        updateWheelCurveStyles();
+        return;
+      }
+
+      activeStoreId = storeId;
+      renderDesktopStoreCard();
+      syncMapPinsState();
+      highlightCounty(store.county);
+      if (options.syncWheel !== false) {
+        syncWheelToStoreId(storeId, false);
+      }
+      updateWheelCurveStyles();
+    }
+
+    function openMobileModal(store) {
+      modalBody.innerHTML = buildMobileModalHTML(store);
+      requestAnimationFrame(() => {
+        modalBackdrop.classList.add('is-open');
+      });
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeMobileModal() {
+      modalBackdrop.classList.remove('is-open');
+      document.body.style.overflow = '';
+    }
+
+    function syncResponsiveMapPlacement() {
+      if (!mapSvg || !desktopMapHost || !mobileMapHost) return;
+      if (isMobileOrTablet()) {
+        mapSvg.classList.remove('max-w-[540px]');
+        mapSvg.classList.add('max-w-none', 'h-full', 'w-auto');
+        if (mapSvg.parentNode !== mobileMapHost) {
+          mobileMapHost.appendChild(mapSvg);
+        }
+      } else {
+        mapSvg.classList.remove('max-w-none', 'h-full', 'w-auto');
+        mapSvg.classList.add('w-full', 'h-full', 'max-w-[540px]');
+        if (mapSvg.parentNode !== desktopMapHost) {
+          desktopMapHost.appendChild(mapSvg);
+        }
+      }
+    }
+
+    window.addEventListener('resize', () => {
+      syncResponsiveMapPlacement();
+      updateWheelCurveStyles();
+    });
+
+    if (modalBackdrop) {
+      modalBackdrop.addEventListener('click', (e) => {
+        if (e.target === modalBackdrop) {
+          closeMobileModal();
+        }
+      });
+    }
+    if (modalCloseBtn) {
+      modalCloseBtn.addEventListener('click', closeMobileModal);
+    }
+    if (modalBottomClose) {
+      modalBottomClose.addEventListener('click', closeMobileModal);
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && modalBackdrop && modalBackdrop.classList.contains('is-open')) {
+        closeMobileModal();
+      }
+    });
+
+    if (mapSvg) {
+      mapSvg.setAttribute('viewBox', DEFAULT_VIEW_BOX.join(' '));
+    }
+    syncResponsiveMapPlacement();
+    buildMapPinsOnce();
+    buildDesktopWheelOnce();
+    buildMobileSelectOptions();
+    renderDesktopStoreCard();
+    syncMapPinsState();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initRueiSiangStoreLocator, { once: true });
+  } else {
+    initRueiSiangStoreLocator();
+  }
+})();
+</script>

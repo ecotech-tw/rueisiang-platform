@@ -11,6 +11,7 @@ import {
   insertReportSalesMonthly,
   countReportPayoutRecords,
   countReportSalesRecords,
+  listReportManagementScopes,
   listReportPayoutRecords,
   listReportSalesRecords,
   queryReportPayout,
@@ -35,6 +36,43 @@ beforeEach(async () => {
   d1 = createLocalD1(":memory:", { targetOnly: true });
   await upsertReportScope(db(), { id: SCOPE, scopeKind: "store", name: "人工測試據點" });
   await upsertReportScope(db(), { id: "cyberbiz:store:disabled", scopeKind: "store", name: "停用據點", active: false });
+});
+
+describe("官網據點欄位", () => {
+  it("通路管理可以儲存並更新官網 block 欄位", async () => {
+    const created = await createReportManagementScope(db(), {
+      id: "cyberbiz:store:locator-fields",
+      name: "官網測試櫃點",
+      scopeKind: "store",
+      storeLocatorCategory: "百貨櫃位",
+      storeLocatorLabel: "臺北市｜官網測試櫃點",
+      storeLocatorShortName: "測試櫃點",
+      storeLocatorCounty: "臺北市",
+      storeLocatorAddress: "臺北市中正區測試路 1 號",
+      storeLocatorHours: "每日 11:00–21:00",
+      storeLocatorPhone: "02-2345-6789",
+      storeLocatorMapUrl: "https://www.google.com/maps/search/?api=1&query=test",
+      storeLocatorPinX: 752.5,
+      storeLocatorPinY: 292,
+    });
+    expect(created.storeLocatorPinX).toBe(752.5);
+    expect(created.storeLocatorCounty).toBe("臺北市");
+
+    await updateReportManagementScope(db(), {
+      id: created.id,
+      storeLocatorHighlight: "新櫃點優惠",
+      storeLocatorPinY: 300,
+    });
+    const scopes = await listReportManagementScopes(db());
+    expect(scopes.find((scope) => scope.id === created.id)).toMatchObject({
+      storeLocatorCategory: "百貨櫃位",
+      storeLocatorShortName: "測試櫃點",
+      storeLocatorAddress: "臺北市中正區測試路 1 號",
+      storeLocatorHighlight: "新櫃點優惠",
+      storeLocatorPinX: 752.5,
+      storeLocatorPinY: 300,
+    });
+  });
 });
 
 describe("報表通路平台", () => {

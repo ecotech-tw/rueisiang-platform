@@ -11,6 +11,7 @@ import {
   isValidScopeId,
   findReportScope,
   listReportManagementScopes,
+  findMediaCdnImage,
   ReportManualError,
   type ScopeKind,
   updateReportManagementScope,
@@ -30,6 +31,7 @@ import { body, requireString } from "../request.js";
 import { forgetReportAnalytics } from "../report-cache.js";
 import { cacheClient } from "../upstash.js";
 import { createCyberbizReportIngestor, CyberbizReportIngestError } from "../cyberbiz-report-ingest.js";
+import { GoogleMapsSearchError, searchGooglePlaces } from "../google-maps.js";
 
 /** 只取字串欄位；沒帶就是 undefined（代表「這次不動它」），不是空字串。 */
 function text(input: Record<string, unknown>, field: string): string | undefined {
@@ -333,6 +335,20 @@ export const tools = new Hono<AppEnv>()
    * 篩選條件不同、刪除行為不同，卻寫同一個 active 欄位——在其中一邊關掉一家店，
    * 另一邊的執行頁也會跟著消失。合成這一組之後只有一個地方管。
    */
+  .get("/scopes/places", requirePermission("reports:cyberbiz:write"), async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    const query = c.req.query("query")?.trim() ?? "";
+    if (!query || query.length > 100) throw new HTTPException(400, { message: "請輸入 1～100 字的地點搜尋關鍵字。" });
+    const apiKey = c.env.GOOGLE_MAPS_API_KEY;
+    if (!apiKey) throw new HTTPException(503, { message: "尚未設定 Google Maps 搜尋服務，請聯絡管理者。" });
+    try {
+      return c.json({ places: await searchGooglePlaces(query, apiKey) });
+    } catch (error) {
+      if (error instanceof GoogleMapsSearchError) throw new HTTPException(502, { message: error.message });
+      throw error;
+    }
+  })
+
   .get("/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {
     const scopes = await listReportManagementScopes(c.get("db"));
     return c.json({ scopes: scopes.map((scope) => redactScope(scope, canConfigure(c))) });
@@ -343,6 +359,10 @@ export const tools = new Hono<AppEnv>()
     const name = requireString(input, "name", "通路名稱");
     try {
       const fields = scopeFields(input, canConfigure(c));
+      if (fields.storeLocatorImageId) {
+        const image = await findMediaCdnImage(c.get("db"), fields.storeLocatorImageId);
+        if (!image || image.deletedAt || !image.objectKey) throw new HTTPException(400, { message: "請選擇媒體庫中仍可使用的圖片。" });
+      }
       const sourceType = fields.sourceType ?? "cyberbiz";
       const scope = await createReportManagementScope(c.get("db"), {
         id: scopeIdFor({ ...input, sourceType }, name),
@@ -360,10 +380,15 @@ export const tools = new Hono<AppEnv>()
   .patch("/scopes/:id", requirePermission("reports:cyberbiz:write"), async (c) => {
     const input = await body(c);
     try {
+      const fields = scopeFields(input, canConfigure(c));
+      if (fields.storeLocatorImageId) {
+        const image = await findMediaCdnImage(c.get("db"), fields.storeLocatorImageId);
+        if (!image || image.deletedAt || !image.objectKey) throw new HTTPException(400, { message: "請選擇媒體庫中仍可使用的圖片。" });
+      }
       const scope = await updateReportManagementScope(c.get("db"), {
         id: c.req.param("id"),
         ...("name" in input ? { name: requireString(input, "name", "通路名稱") } : {}),
-        ...scopeFields(input, canConfigure(c)),
+        ...fields,
       });
       await forgetReportAnalytics(cacheClient(c.env));
       return c.json({ scope: redactScope(scope, canConfigure(c)) });
@@ -408,6 +433,11 @@ function scopeFields(input: Record<string, unknown>, configurable: boolean) {
   const fields: {
     externalName?: string; sourceType?: string; scopeKind?: ScopeKind;
     driveFolderUrl?: string; driveFolderName?: string; active?: boolean;
+    storeLocatorCategory?: string; storeLocatorLabel?: string; storeLocatorShortName?: string;
+    storeLocatorCounty?: string; storeLocatorAddress?: string; storeLocatorFloorNote?: string;
+    storeLocatorHours?: string; storeLocatorPhone?: string; storeLocatorHighlight?: string;
+    storeLocatorImageId?: string | null; storeLocatorImageUrl?: string; storeLocatorMapUrl?: string;
+    storeLocatorPinX?: number | null; storeLocatorPinY?: number | null;
   } = {};
   const configured = ["sourceType", "scopeKind", "driveFolderUrl", "driveFolderName", "externalName"]
     .filter((key) => key in input);
@@ -435,6 +465,52 @@ function scopeFields(input: Record<string, unknown>, configurable: boolean) {
   if ("active" in input) {
     if (typeof input.active !== "boolean") throw new HTTPException(400, { message: "啟用開關必須是布林值。" });
     fields.active = input.active;
+  }
+  const locatorTextFields = [
+    "storeLocatorCategory", "storeLocatorLabel", "storeLocatorShortName", "storeLocatorCounty",
+    "storeLocatorAddress", "storeLocatorFloorNote", "storeLocatorHours", "storeLocatorPhone",
+    "storeLocatorHighlight", "storeLocatorMapUrl",
+  ] as const;
+  for (const key of locatorTextFields) {
+    if (!(key in input)) continue;
+    if (typeof input[key] !== "string" || input[key].length > 500) throw new HTTPException(400, { message: `${key} 必須是 500 字以內的文字。` });
+    fields[key] = (input[key] as string).trim();
+  }
+  if ("storeLocatorImageId" in input) {
+    if (input.storeLocatorImageId !== null && typeof input.storeLocatorImageId !== "string") throw new HTTPException(400, { message: "圖片 ID 格式不正確。" });
+    fields.storeLocatorImageId = typeof input.storeLocatorImageId === "string" && input.storeLocatorImageId.trim() ? input.storeLocatorImageId.trim() : null;
+  }
+  if ("storeLocatorImageUrl" in input) {
+    if (typeof input.storeLocatorImageUrl !== "string" || input.storeLocatorImageUrl.length > 2048) throw new HTTPException(400, { message: "圖片網址需為 2048 字以內的文字。" });
+    const value = input.storeLocatorImageUrl.trim();
+    if (value) {
+      let imageUrl: URL;
+      try { imageUrl = new URL(value); } catch { throw new HTTPException(400, { message: "圖片網址格式不正確。" }); }
+      if (imageUrl.protocol !== "https:" || !imageUrl.hostname || imageUrl.username || imageUrl.password) throw new HTTPException(400, { message: "圖片網址僅支援不含帳密的 HTTPS 網址。" });
+      fields.storeLocatorImageUrl = imageUrl.toString();
+    } else fields.storeLocatorImageUrl = "";
+  }
+  if (fields.storeLocatorImageId && fields.storeLocatorImageUrl) throw new HTTPException(400, { message: "圖片只能選擇媒體庫或圖片網址其中一種來源。" });
+  if ("storeLocatorImageId" in input || "storeLocatorImageUrl" in input) {
+    if (fields.storeLocatorImageUrl) fields.storeLocatorImageId = null;
+    else fields.storeLocatorImageUrl = "";
+  }
+  if (fields.storeLocatorMapUrl) {
+    let mapUrl: URL;
+    try { mapUrl = new URL(fields.storeLocatorMapUrl); } catch { throw new HTTPException(400, { message: "地圖連結格式不正確。" }); }
+    if (mapUrl.protocol !== "https:" || !["www.google.com", "maps.google.com", "maps.app.goo.gl"].includes(mapUrl.hostname)) {
+      throw new HTTPException(400, { message: "地圖連結僅支援 Google Maps HTTPS 連結。" });
+    }
+    fields.storeLocatorMapUrl = mapUrl.toString();
+  }
+  for (const key of ["storeLocatorPinX", "storeLocatorPinY"] as const) {
+    if (!(key in input)) continue;
+    const value = input[key];
+    if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) throw new HTTPException(400, { message: "地圖圖釘座標格式不正確。" });
+    if (typeof value === "number" && (key.endsWith("PinX") ? value < 475 || value > 840 : value < 245 || value > 960)) {
+      throw new HTTPException(400, { message: "地圖圖釘座標超出 SVG 地圖範圍。" });
+    }
+    fields[key] = value as number | null;
   }
   return fields;
 }

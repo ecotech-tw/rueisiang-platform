@@ -37,7 +37,7 @@ export interface Env {
   AUTH_APP_ORIGINS?: string;
   GOOGLE_OAUTH_CLIENT_ID: string;
   GOOGLE_OAUTH_CLIENT_SECRET: string;
-  /** Google Places API (New) 與 Maps Static API 的後端金鑰；只供 HR 出勤功能使用。 */
+  /** Google Maps 搜尋後端金鑰；供 HR 出勤設定與通路管理查詢地點使用，不暴露給前端。 */
   GOOGLE_MAPS_API_KEY?: string;
 
   /** Pi Google provider 使用的 API key；Sandbox 與選用 Gemini 的正式 channel 共用。 */

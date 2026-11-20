@@ -1,10 +1,12 @@
 import { createMediaCdnImage, deleteMediaCdnImage, findMediaCdnImage, listMediaCdnImages, registerMediaCdnBlob, renameMediaCdnImage, replaceMediaCdnImage } from "@rueisiang/db";
 import { MEDIA_IMAGE_MAX_BYTES, MEDIA_IMAGE_MAX_PIXELS, MEDIA_IMAGE_MAX_SIDE, MEDIA_IMAGE_TYPES, isMediaImageSortField } from "@rueisiang/db/media-cdn-fields";
+import { eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { validateRasterImage } from "../image-validation.js";
+import { scopes, storeLocatorProfiles } from "@rueisiang/db/schema";
 import { mediaCdnConfig, mediaCdnView, purgeMediaCdnImage, requireMediaCdnStorage } from "../media-cdn.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
 
@@ -113,6 +115,10 @@ media.delete("/images/:id", requirePermission("media:image:delete"), jsonLimit, 
   requireMediaCdnStorage(c.env);
   const input = await readObject(c.req.raw);
   if (input.confirmedUnused !== true) throw new HTTPException(400, { message: "請先確認官網及其他頁面已不再使用此連結。" });
+  const [storeUsingImage] = await c.get("db").select({ name: scopes.name }).from(storeLocatorProfiles)
+    .innerJoin(scopes, eq(scopes.id, storeLocatorProfiles.scopeId))
+    .where(eq(storeLocatorProfiles.storeLocatorImageId, c.req.param("id"))).limit(1);
+  if (storeUsingImage) throw new HTTPException(409, { message: `圖片仍被官網據點「${storeUsingImage.name}」使用，請先在通路管理更換圖片。` });
   const image = conflict(await deleteMediaCdnImage(c.get("db"), c.req.param("id"), revision(input.revision)));
   return c.json({ image: mediaCdnView(c.env, await purgeMediaCdnImage(c.env, c.get("db"), image)) });
 });
