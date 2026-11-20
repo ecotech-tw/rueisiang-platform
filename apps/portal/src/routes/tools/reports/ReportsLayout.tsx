@@ -36,7 +36,7 @@ export function ReportsLayout() {
    * 外層不捲、內層又不是捲動區，內容超出視窗就直接被裁掉。由子頁面決定要不要 fills，這一層只負責讓它撐得開。
    */
   return (
-    <div className="flex w-full min-w-0 min-h-0 flex-col gap-5 has-[[data-page=fills]]:h-full has-[[data-page=fills]]:overflow-hidden [&>[data-page]]:w-full [&>[data-page=fills]]:h-auto [&>[data-page=fills]]:flex-[1_1_auto] [&>[data-page=fills]]:overflow-hidden">
+    <div className="flex w-full min-w-0 min-h-0 flex-col gap-5 min-[761px]:has-[[data-page=fills]]:h-full min-[761px]:has-[[data-page=fills]]:overflow-hidden [&>[data-page]]:w-full [&>[data-page=fills]]:h-auto min-[761px]:[&>[data-page=fills]]:flex-[1_1_auto] min-[761px]:[&>[data-page=fills]]:overflow-hidden">
       <PageTabs label="報表執行" tabs={tabs} />
       <Outlet />
     </div>

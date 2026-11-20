@@ -138,7 +138,7 @@ export function hrUserTriggerClass(open: boolean) {
   return `relative isolate grid size-[46px] cursor-pointer place-items-center rounded-full border-0 p-0 [box-shadow:var(--shadow-glass-rim)] transition-[background-color,scale] duration-150 ease-out hover:bg-brand/7 active:scale-96 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary ${BLUR} ${CHIP_LAYERS} ${open ? "bg-brand/7" : "bg-paper/22"}`;
 }
 
-/** 頁首底下的內容區。fills 的頁面只讓表格自己捲，內容區就不捲、高度吃滿。 */
+/** 頁首底下的內容區。桌機上 fills 的頁面只讓表格自己捲，內容區就不捲、高度吃滿；手機上照常整頁捲（見 AppShell）。 */
 export function HrMain({ compact = false, children }: { compact?: boolean; children: ReactNode }) {
   return (
     <div
@@ -146,7 +146,7 @@ export function HrMain({ compact = false, children }: { compact?: boolean; child
       className={`grid w-full min-w-0 min-h-0 grid-cols-[minmax(0,1fr)] gap-5 overscroll-y-contain [scrollbar-gutter:stable] ${compact
         ? "overflow-visible px-[18px] pt-3 pb-[18px]"
         // 手機的右內距留給頁首按鈕 24px 的外陰影，否則會被內容區切掉。
-        : "overflow-y-auto px-9 pt-7 pb-9 has-[[data-page=fills]]:h-full has-[[data-page=fills]]:overflow-hidden max-[900px]:px-6 max-[900px]:pt-5 max-[900px]:pb-7"}`}
+        : "overflow-y-auto px-9 pt-7 pb-9 min-[761px]:has-[[data-page=fills]]:h-full min-[761px]:has-[[data-page=fills]]:overflow-hidden max-[900px]:px-6 max-[900px]:pt-5 max-[900px]:pb-7"}`}
     >
       {children}
     </div>
