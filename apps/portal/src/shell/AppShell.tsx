@@ -69,7 +69,7 @@ export function AppShell() {
         * 「整頁不捲、只有表格自己捲」只在桌機成立。手機上表格變成卡片、沒有要釘住的表頭，
         * 篩選欄位又一欄一列往下排，鎖住高度會把表格區擠到 0；所以手機上 fills 頁面照內容長高、整頁捲。
         */}
-      <main className={`h-full min-h-0 min-w-0 overflow-y-auto ${content} min-[761px]:has-[[data-page=fills]]:overflow-y-hidden max-[760px]:[&_[data-page=fills]]:h-auto has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
+      <main className={`h-full min-h-0 min-w-0 overflow-y-auto ${content} min-[760px]:has-[[data-page=fills]]:overflow-y-hidden max-[760px]:[&_[data-page=fills]]:h-auto has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
         <Outlet />
       </main>
     </div>

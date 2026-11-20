@@ -11,6 +11,8 @@ import { useScheduleMonthTransition } from "./useScheduleMonthTransition.js";
 
 type ExitRequestRef = { current: (() => Promise<boolean>) | null };
 const noPersonOptionValue = "__no_person__";
+// 跟 Tailwind 的 max-[760px] 同一條線（width < 760px）。不用範圍語法，舊版 LINE 內建瀏覽器不認得。
+const MOBILE_QUERY = "not all and (min-width: 760px)";
 
 function currentMonth() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
@@ -24,10 +26,10 @@ function nextMonth(key: string, delta: number) {
 }
 
 function useMobileScheduleView() {
-  const [isMobile, setIsMobile] = useState(() => typeof window.matchMedia === "function" && window.matchMedia("(max-width: 760px)").matches);
+  const [isMobile, setIsMobile] = useState(() => typeof window.matchMedia === "function" && window.matchMedia(MOBILE_QUERY).matches);
   useEffect(() => {
     if (typeof window.matchMedia !== "function") return;
-    const media = window.matchMedia("(max-width: 760px)");
+    const media = window.matchMedia(MOBILE_QUERY);
     const update = () => setIsMobile(media.matches);
     update();
     media.addEventListener("change", update);

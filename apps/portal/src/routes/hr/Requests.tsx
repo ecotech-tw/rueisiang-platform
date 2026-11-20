@@ -62,7 +62,7 @@ const REQUEST_BULK_ACTIONS: TableBulkAction<RequestRow>[] = [
  * 桌機欄位不換行、內容與原因截斷到 280px，完整文字在 Tooltip。
  * 手機卡片的標題是「類型」那一格；批次模式時它排在勾選格後面，左右讓位由 TABLE_SELECT_COLUMN.corner 處理。
  */
-const REQUEST_TABLE = "min-[761px]:min-w-[1168px] min-[761px]:[&_th]:whitespace-nowrap min-[761px]:[&_td]:whitespace-nowrap max-[760px]:[&_tbody_tr>td[data-label=類型]]:font-semibold";
+const REQUEST_TABLE = "min-[760px]:min-w-[1168px] min-[760px]:[&_th]:whitespace-nowrap min-[760px]:[&_td]:whitespace-nowrap max-[760px]:[&_tbody_tr>td[data-label=類型]]:font-semibold";
 
 type RequestStatusFilter = "all" | RequestStatus;
 interface RequestFilters {
@@ -615,16 +615,16 @@ export function HrRequestCenter() {
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <FilterToolbar>
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />
-        <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[761px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選<FilterCount count={activeFilterCount} /></Button>
+        <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[760px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選<FilterCount count={activeFilterCount} /></Button>
         {activeFilterCount ? <Button variant="link" onClick={() => updateFilters({ kind: "all", status: "all" })}>清除篩選</Button> : null}
         <FilterFields open={showFilters}>
-          <FilterSelect label="申請類型" className="min-[761px]:flex-[0_1_190px] max-[760px]:flex-[1_1_100%] max-[760px]:w-full" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
-          <FilterSelect label="狀態" className="min-[761px]:flex-[0_1_190px] max-[760px]:flex-[1_1_100%] max-[760px]:w-full" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
+          <FilterSelect label="申請類型" className="min-[760px]:flex-[0_1_190px] max-[760px]:flex-[1_1_100%] max-[760px]:w-full" value={filters.kind} options={[{ value: "all", label: "全部類型" }, ...Object.entries(REQUEST_KIND_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ kind: event.target.value as HistoryKind })} />
+          <FilterSelect label="狀態" className="min-[760px]:flex-[0_1_190px] max-[760px]:flex-[1_1_100%] max-[760px]:w-full" value={filters.status} options={[{ value: "all", label: "全部狀態" }, ...Object.entries(REQUEST_STATUS_LABEL).map(([value, label]) => ({ value, label }))]} onChange={(event) => updateFilters({ status: event.target.value as RequestStatusFilter })} />
         </FilterFields>
       </FilterToolbar>
       {requests.isFetching ? <TableNote>更新中…</TableNote> : null}
       <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden max-[760px]:overflow-visible">
-        <div className="mb-2 flex justify-end min-[761px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending || approveRequests.isPending} onChange={(actionId) => { setApprovalErrors([]); actionId ? bulk.chooseAction(actionId) : bulk.cancel(); }} /></div>
+        <div className="mb-2 flex justify-end min-[760px]:hidden"><TableBulkActionMenu actionId={bulk.actionId} actions={requestBulkActionOptions} disabled={requests.isFetching || cancelOvertime.isPending || approveRequests.isPending} onChange={(actionId) => { setApprovalErrors([]); actionId ? bulk.chooseAction(actionId) : bulk.cancel(); }} /></div>
         {bulk.actionId === "cancel-approved-overtime" && cancellableOvertimeIds.length ? <TableMobileSelectAll variant="plain" checked={allVisibleOvertimeSelected} indeterminate={someVisibleOvertimeSelected} disabled={requests.isFetching || cancelOvertime.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisibleOvertimeSelected ? "取消全選本頁已核准加班" : "全選本頁已核准加班"}>{allVisibleOvertimeSelected ? "取消全選本頁" : "全選本頁已核准加班"}</TableMobileSelectAll> : null}
         {bulk.actionId === "approve-pending" && bulk.eligibleKeys.length ? <TableMobileSelectAll variant="plain" checked={allVisiblePendingSelected} indeterminate={someVisiblePendingSelected} disabled={requests.isFetching || approveRequests.isPending} onChange={(checked) => bulk.toggleAll(checked)} aria-label={allVisiblePendingSelected ? "取消全選本頁待審申請" : "全選本頁待審申請"}>{allVisiblePendingSelected ? "取消全選本頁" : "全選本頁待審申請"}</TableMobileSelectAll> : null}
       <DataTable className={`${REQUEST_TABLE} ${bulk.actionId ? TABLE_SELECT_COLUMN.corner : ""}`} containerClassName={`min-h-0 flex-auto overflow-y-auto ${ requests.isFetching ? REFRESHING : "" }`}>
@@ -639,10 +639,10 @@ export function HrRequestCenter() {
             <td data-label="類型">{REQUEST_KIND_LABEL[row.kind]}</td>
             <td data-label="員工"><span className="font-bold">{row.employeeName}</span> <span className="text-[12px] text-muted">{row.employeeNumber}</span></td>
             <td data-label="期間">{row.period}</td>
-            <td data-label="內容"><Tooltip label={row.detail} focusable={false} className="min-[761px]:block"><span className="min-[761px]:block min-[761px]:max-w-[280px] min-[761px]:truncate">{row.detail}</span></Tooltip></td>
-            <td data-label="原因"><Tooltip label={row.reason} focusable={false} className="min-[761px]:block"><span className="min-[761px]:block min-[761px]:max-w-[280px] min-[761px]:truncate">{row.reason}</span></Tooltip></td>
+            <td data-label="內容"><Tooltip label={row.detail} focusable={false} className="min-[760px]:block"><span className="min-[760px]:block min-[760px]:max-w-[280px] min-[760px]:truncate">{row.detail}</span></Tooltip></td>
+            <td data-label="原因"><Tooltip label={row.reason} focusable={false} className="min-[760px]:block"><span className="min-[760px]:block min-[760px]:max-w-[280px] min-[760px]:truncate">{row.reason}</span></Tooltip></td>
             <td data-label="狀態"><StatusBadge tone={statusTone(row.status)}>{statusLabel(row.status)}</StatusBadge>{row.payrollLocked ? <span className="text-[12px] text-muted">薪資已鎖定</span> : null}</td>
-            <td data-label="操作">{row.payrollLocked ? <span className="text-muted">薪資已鎖定</span> : row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false} className="min-[761px]:block"><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
+            <td data-label="操作">{row.payrollLocked ? <span className="text-muted">薪資已鎖定</span> : row.status === "pending" ? <Button variant="secondary" tone="info" onClick={() => setReviewing(row)}>審核</Button> : canBulkCancel || row.kind === "leave" && row.status === "approved" ? <Tooltip label={row.kind === "overtime" ? "取消並刪除已核准加班申請" : "取消已核准請假申請"} focusable={false} className="min-[760px]:block"><Button variant="icon" icon="trash" tone="danger" aria-label={`${row.kind === "overtime" ? "取消並刪除" : "取消"}${REQUEST_KIND_LABEL[row.kind]}・${row.employeeName}`} onClick={() => setReviewing(row)} /></Tooltip> : "—"}</td>
           </tr>;
         })}</tbody>
       </DataTable>

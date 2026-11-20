@@ -42,11 +42,11 @@ function pageWindow(current: number, total: number, size = 5): number[] {
  */
 function useWindowSize(): number {
   const [size, setSize] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia("(max-width: 620px)").matches ? 3 : 5,
+    typeof window !== "undefined" && window.matchMedia("not all and (min-width: 620px)").matches ? 3 : 5,
   );
 
   useEffect(() => {
-    const query = window.matchMedia("(max-width: 620px)");
+    const query = window.matchMedia("not all and (min-width: 620px)");
     const update = () => setSize(query.matches ? 3 : 5);
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
