@@ -26,20 +26,20 @@ export function TableSkin({ skin, children }: { skin: TableSkinName; children: R
  * - 手機卡片照欄位名稱的慣例（見 MOBILE_CARD）是 `tr>td[data-label=…]`：寫
  *   `[&_tbody_tr>td[data-label=狀態]]:…`，只寫 `[&_td]:` 在手機上會輸。
  *
- * 寬度 760px 以下的表格會變成一列一張卡片（MOBILE_CARD），所以格子的高度、內距、
+ * 寬度未滿 760px 的表格會變成一列一張卡片（MOBILE_CARD），所以格子的高度、內距、
  * 分隔線與 hover 只在桌機生效，兩邊不會互相蓋。
  */
 const TABLE_BASE = [
-  "min-[761px]:w-full",
+  "min-[760px]:w-full",
   "[&_:where(th)]:h-14 [&_:where(th)]:px-4 [&_:where(th)]:text-left [&_:where(th)]:align-middle [&_:where(th)]:text-[14px] [&_:where(th)]:font-medium [&_:where(th)]:whitespace-nowrap [&_:where(th)]:text-muted",
   "[&_:where(th):first-child]:pl-6 [&_:where(th):last-child]:pr-6",
-  "min-[761px]:[&_:where(td)]:text-[14px] min-[761px]:[&_:where(td)]:h-[52px] min-[761px]:[&_:where(td)]:px-4 min-[761px]:[&_:where(td)]:py-3.5 min-[761px]:[&_:where(td)]:border-t min-[761px]:[&_:where(td)]:border-soft-line min-[761px]:[&_:where(td)]:align-middle",
-  "min-[761px]:[&_:where(td):first-child]:pl-6 min-[761px]:[&_:where(td):last-child]:pr-6",
-  "min-[761px]:[&_:where(tbody_tr):first-child_:where(td)]:border-t-0",
+  "min-[760px]:[&_:where(td)]:text-[14px] min-[760px]:[&_:where(td)]:h-[52px] min-[760px]:[&_:where(td)]:px-4 min-[760px]:[&_:where(td)]:py-3.5 min-[760px]:[&_:where(td)]:border-t min-[760px]:[&_:where(td)]:border-soft-line min-[760px]:[&_:where(td)]:align-middle",
+  "min-[760px]:[&_:where(td):first-child]:pl-6 min-[760px]:[&_:where(td):last-child]:pr-6",
+  "min-[760px]:[&_:where(tbody_tr):first-child_:where(td)]:border-t-0",
   "[&_:where(tbody_tr)]:transition-[background-color] [&_:where(tbody_tr)]:duration-120 [&_:where(tbody_tr)]:ease-out motion-reduce:[&_:where(tbody_tr)]:transition-none",
-  "min-[761px]:[&_:where(tbody_tr):hover]:bg-brand/4",
+  "min-[760px]:[&_:where(tbody_tr):hover]:bg-brand/4",
   // 數字欄要贏過 th 的靠左，所以不包 :where()。
-  "[&_.numeric]:tabular-nums min-[761px]:[&_.numeric]:text-right",
+  "[&_.numeric]:tabular-nums min-[760px]:[&_.numeric]:text-right",
   // 表頭只有放在捲動外框裡才釘住；對話框裡沒有外框的表跟著對話框捲。
   "[[data-table-scroll]>&_:where(thead_th)]:sticky [[data-table-scroll]>&_:where(thead_th)]:top-0 [[data-table-scroll]>&_:where(thead_th)]:z-2",
 ].join(" ");

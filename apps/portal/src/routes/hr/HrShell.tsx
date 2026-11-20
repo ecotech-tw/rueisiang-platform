@@ -146,7 +146,7 @@ export function HrMain({ compact = false, children }: { compact?: boolean; child
       className={`grid w-full min-w-0 min-h-0 grid-cols-[minmax(0,1fr)] gap-5 overscroll-y-contain [scrollbar-gutter:stable] ${compact
         ? "overflow-visible px-[18px] pt-3 pb-[18px]"
         // 手機的右內距留給頁首按鈕 24px 的外陰影，否則會被內容區切掉。
-        : "overflow-y-auto px-9 pt-7 pb-9 min-[761px]:has-[[data-page=fills]]:h-full min-[761px]:has-[[data-page=fills]]:overflow-hidden max-[900px]:px-6 max-[900px]:pt-5 max-[900px]:pb-7"}`}
+        : "overflow-y-auto px-9 pt-7 pb-9 min-[760px]:has-[[data-page=fills]]:h-full min-[760px]:has-[[data-page=fills]]:overflow-hidden max-[900px]:px-6 max-[900px]:pt-5 max-[900px]:pb-7"}`}
     >
       {children}
     </div>

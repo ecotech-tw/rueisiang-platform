@@ -47,7 +47,7 @@ const IMPORT_TABLE_SCROLL = "w-full max-w-full min-w-0 max-h-[min(42vh,420px)] o
 // 選取操作列浮在表格右下角，所以外框是 relative，捲動交給裡面那一層。
 const TABLE_REGION = "relative flex min-h-0 min-w-0 flex-1 overflow-hidden";
 const REGION_SCROLL = `${TABLE_SCROLL} min-h-0 flex-auto overflow-y-auto`;
-const RECORD_TABLE = "min-[621px]:[&_td]:whitespace-nowrap";
+const RECORD_TABLE = "min-[620px]:[&_td]:whitespace-nowrap";
 const SELECTED_ROW = "[&>td]:bg-brand/8";
 
 type DialogState =

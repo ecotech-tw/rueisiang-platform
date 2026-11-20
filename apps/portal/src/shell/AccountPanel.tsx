@@ -93,19 +93,19 @@ export function AccountPanel({ user, collapsed, onLogout, onNavigate }: AccountP
     <div className="relative mt-2.5 min-w-0" ref={panelRef}>
       <button
         type="button"
-        className={`group/account grid w-full min-w-0 grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-[9px] rounded-card border border-line bg-white p-2 text-left text-ink hover:border-secondary hover:bg-[#fff9f8] aria-expanded:border-secondary aria-expanded:bg-[#fff9f8] ${collapsed ? "min-[901px]:flex min-[901px]:justify-center min-[901px]:gap-0 min-[901px]:p-1.5" : ""}`}
+        className={`group/account grid w-full min-w-0 grid-cols-[38px_minmax(0,1fr)_auto] items-center gap-[9px] rounded-card border border-line bg-white p-2 text-left text-ink hover:border-secondary hover:bg-[#fff9f8] aria-expanded:border-secondary aria-expanded:bg-[#fff9f8] ${collapsed ? "min-[900px]:flex min-[900px]:justify-center min-[900px]:gap-0 min-[900px]:p-1.5" : ""}`}
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen((value) => !value)}
         title={user.email}
       >
         <UserAvatar user={user} />
-        <span className={`grid min-w-0 ${collapsed ? "min-[901px]:hidden" : ""}`}>
+        <span className={`grid min-w-0 ${collapsed ? "min-[900px]:hidden" : ""}`}>
           <strong className="truncate text-[12px]">{displayName}</strong>
           <small className="truncate text-[10px] text-muted">{user.email}</small>
         </span>
         <span
-          className={`mr-[3px] size-2 border-r-2 border-b-2 border-muted [transform:rotate(45deg)] transition-[transform] duration-180 ease-out motion-reduce:transition-none group-aria-expanded/account:[transform:rotate(225deg)] ${collapsed ? "min-[901px]:hidden" : ""}`}
+          className={`mr-[3px] size-2 border-r-2 border-b-2 border-muted [transform:rotate(45deg)] transition-[transform] duration-180 ease-out motion-reduce:transition-none group-aria-expanded/account:[transform:rotate(225deg)] ${collapsed ? "min-[900px]:hidden" : ""}`}
           aria-hidden="true"
         />
       </button>
@@ -113,7 +113,7 @@ export function AccountPanel({ user, collapsed, onLogout, onNavigate }: AccountP
       {open ? (
         // 收合成窄欄時選單改從頭像右邊長出來，不然 232px 的選單會被擠成 60px 寬。
         <div
-          className={`absolute inset-x-0 bottom-[calc(100%+9px)] z-40 overflow-hidden rounded-card border border-line bg-white [box-shadow:0_16px_36px_rgba(64,30,30,.16)] ${collapsed ? "min-[901px]:right-auto min-[901px]:bottom-0 min-[901px]:left-[52px] min-[901px]:w-[232px]" : ""}`}
+          className={`absolute inset-x-0 bottom-[calc(100%+9px)] z-40 overflow-hidden rounded-card border border-line bg-white [box-shadow:0_16px_36px_rgba(64,30,30,.16)] ${collapsed ? "min-[900px]:right-auto min-[900px]:bottom-0 min-[900px]:left-[52px] min-[900px]:w-[232px]" : ""}`}
           role="menu"
         >
           <div className="grid gap-0.5 border-b border-soft-line p-3">

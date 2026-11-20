@@ -333,7 +333,7 @@ export function Inventory() {
           <Button
             variant="secondary"
             icon="filter"
-            size="lg" active={showFilters} className="flex-none min-[761px]:hidden"
+            size="lg" active={showFilters} className="flex-none min-[760px]:hidden"
             aria-expanded={showFilters}
             onClick={() => setShowFilters((open) => !open)}
           >

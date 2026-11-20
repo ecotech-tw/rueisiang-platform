@@ -33,11 +33,11 @@ interface SidebarProps {
  * 階層靠三件事表達：大項有 chevron、子項往內縮、以及兩者之間的分隔線。
  *
  * 收合成圖示欄只在桌機有意義；手機的 sidebar 是抽屜，靠位移開合。
- * 所以收合的樣式一律掛在 min-[901px]: 底下，手機自然回到展開的樣子。
+ * 所以收合的樣式一律掛在 min-[900px]: 底下，手機自然回到展開的樣子。
  */
 const ROW = "w-full items-center rounded-full border-0 text-left whitespace-nowrap transition-[background-color,color] duration-150 ease-out motion-reduce:transition-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary";
 // 只剩圖示就不需要那麼高的點擊區，壓縮一點讓整份選單在筆電上不用捲。
-const COLLAPSED_ROW = "min-[901px]:min-h-10 min-[901px]:grid-cols-[24px] min-[901px]:justify-center min-[901px]:gap-0 min-[901px]:p-0";
+const COLLAPSED_ROW = "min-[900px]:min-h-10 min-[900px]:grid-cols-[24px] min-[900px]:justify-center min-[900px]:gap-0 min-[900px]:p-0";
 const LABEL = "overflow-hidden text-ellipsis";
 
 /** 沒有權限的項目直接不畫出來；父項的子項也要一起過濾。陣列是「任一個」。 */
@@ -56,12 +56,12 @@ function Item({ item, nested, collapsed, onNavigate }: { item: NavItem; nested: 
   const expanded = children.length > 0 && active;
   // 子頁面再往內縮一階、圖示縮小一號；收合後只剩圖示，就跟大項一樣大。
   const size = nested
-    ? `min-h-10 grid-cols-[20px_minmax(0,1fr)] gap-3 text-[13.5px] ${collapsed ? "min-[901px]:grid-cols-[24px]" : ""}`
+    ? `min-h-10 grid-cols-[20px_minmax(0,1fr)] gap-3 text-[13.5px] ${collapsed ? "min-[900px]:grid-cols-[24px]" : ""}`
     : "min-h-11 grid-cols-[24px_minmax(0,1fr)] gap-3.5 text-[14px]";
   const tone = active
     ? "bg-brand-soft font-bold text-brand-dark hover:bg-[#f8ddd8]"
     : "bg-transparent text-[#6f5a58] hover:bg-brand/7 hover:text-brand-dark";
-  const iconSize = nested ? `size-5 ${collapsed ? "min-[901px]:size-6" : ""}` : "size-6";
+  const iconSize = nested ? `size-5 ${collapsed ? "min-[900px]:size-6" : ""}` : "size-6";
 
   return (
     <div>
@@ -69,15 +69,15 @@ function Item({ item, nested, collapsed, onNavigate }: { item: NavItem; nested: 
         to={item.to}
         end
         onClick={onNavigate}
-        className={`group/item grid overflow-hidden px-3.5 no-underline ${ROW} ${size} ${tone}${collapsed ? ` min-[901px]:justify-items-center ${COLLAPSED_ROW}` : ""}`}
+        className={`group/item grid overflow-hidden px-3.5 no-underline ${ROW} ${size} ${tone}${collapsed ? ` min-[900px]:justify-items-center ${COLLAPSED_ROW}` : ""}`}
         title={item.label}
       >
         <Icon name={item.icon} className={`flex-none ${iconSize} ${active ? "text-brand" : "text-[#9a807c] group-hover/item:text-brand"}`} />
-        <span className={`${LABEL}${collapsed ? " min-[901px]:hidden" : ""}`}>{item.label}</span>
+        <span className={`${LABEL}${collapsed ? " min-[900px]:hidden" : ""}`}>{item.label}</span>
       </GuardedNavLink>
 
       {expanded ? (
-        <div className={`my-0.5 ml-3.5 grid gap-0.5 ${collapsed ? "min-[901px]:ml-0" : ""}`}>
+        <div className={`my-0.5 ml-3.5 grid gap-0.5 ${collapsed ? "min-[900px]:ml-0" : ""}`}>
           {children.map((child) => (
             <Item key={child.to} item={child} nested collapsed={collapsed} onNavigate={onNavigate} />
           ))}
@@ -96,7 +96,7 @@ function HeadContent({ section, current, collapsed, children }: { section: NavSe
   return (
     <>
       <Icon name={section.icon} className={`size-6 flex-none ${current ? "text-brand" : "text-[#9a807c] group-hover/head:text-brand"}`} />
-      <span className={`${LABEL}${collapsed ? " min-[901px]:hidden" : ""}`}>{section.label}</span>
+      <span className={`${LABEL}${collapsed ? " min-[900px]:hidden" : ""}`}>{section.label}</span>
       {children}
     </>
   );
@@ -150,7 +150,7 @@ function Section({
       >
         <HeadContent section={section} current={open} collapsed={collapsed}>
           <span
-            className={`mr-0.5 size-[7px] border-r-2 border-b-2 border-current text-[#b39b97] transition-[transform] duration-200 ease-out motion-reduce:transition-none ${open ? "[transform:translateY(-2px)_rotate(45deg)]" : "[transform:translateY(-2px)_rotate(-45deg)]"}${collapsed ? " min-[901px]:hidden" : ""}`}
+            className={`mr-0.5 size-[7px] border-r-2 border-b-2 border-current text-[#b39b97] transition-[transform] duration-200 ease-out motion-reduce:transition-none ${open ? "[transform:translateY(-2px)_rotate(45deg)]" : "[transform:translateY(-2px)_rotate(-45deg)]"}${collapsed ? " min-[900px]:hidden" : ""}`}
             aria-hidden="true"
           />
         </HeadContent>
@@ -162,10 +162,10 @@ function Section({
         grid 這招不必知道內容多高，而且 0fr 時完全不佔空間。
       */}
       <div
-        className={`grid transition-[grid-template-rows,margin] duration-220 ease-out motion-reduce:transition-none ${open ? `mt-0.5 mb-1 grid-rows-[1fr] ${collapsed ? "min-[901px]:mb-0" : ""}` : "grid-rows-[0fr]"}`}
+        className={`grid transition-[grid-template-rows,margin] duration-220 ease-out motion-reduce:transition-none ${open ? `mt-0.5 mb-1 grid-rows-[1fr] ${collapsed ? "min-[900px]:mb-0" : ""}` : "grid-rows-[0fr]"}`}
         aria-hidden={!open}
       >
-        <div className={`grid gap-0.5 overflow-hidden pl-3.5 ${collapsed ? "min-[901px]:pl-0" : ""}`}>
+        <div className={`grid gap-0.5 overflow-hidden pl-3.5 ${collapsed ? "min-[900px]:pl-0" : ""}`}>
           {items.map((item) => (
             <Item key={item.to} item={item} nested={false} collapsed={collapsed} onNavigate={onNavigate} />
           ))}
@@ -231,14 +231,14 @@ export function Sidebar({ permissions, collapsed, mobileOpen, onToggle, user, on
 
   return (
     <aside
-      className={`sticky top-0 z-20 flex h-full min-h-0 flex-col border-r border-line bg-drawer px-4 pt-6 pb-[18px] max-[900px]:fixed max-[900px]:inset-y-0 max-[900px]:left-0 max-[900px]:w-[264px] max-[900px]:transition-[translate] max-[900px]:duration-220 max-[900px]:ease-out max-[900px]:motion-reduce:transition-none ${drawer}${collapsed ? " min-[901px]:px-2" : ""}`}
+      className={`sticky top-0 z-20 flex h-full min-h-0 flex-col border-r border-line bg-drawer px-4 pt-6 pb-[18px] max-[900px]:fixed max-[900px]:inset-y-0 max-[900px]:left-0 max-[900px]:w-[264px] max-[900px]:transition-[translate] max-[900px]:duration-220 max-[900px]:ease-out max-[900px]:motion-reduce:transition-none ${drawer}${collapsed ? " min-[900px]:px-2" : ""}`}
       id="portal-sidebar"
     >
       {/* 品牌列：展開時是完整字標，收合時換成只有圖記的方章。字標置中才能放大到接近欄寬——靠左時放大會撞到收合鈕。 */}
       <div className="flex h-[60px] items-center justify-center gap-2 overflow-hidden px-[5px] whitespace-nowrap">
         {/* 原圖 400×100（4:1），184px 寬＝46px 高，左右各留約 12px 呼吸空間。 */}
-        <img className={`h-auto w-[184px] flex-[0_1_auto] object-contain ${collapsed ? "min-[901px]:hidden" : ""}`} src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={184} height={46} />
-        <img className={`hidden size-[34px] object-contain ${collapsed ? "min-[901px]:block" : ""}`} src="/ruei-siang-icon.png" alt="RUEI SIANG" width={34} height={34} />
+        <img className={`h-auto w-[184px] flex-[0_1_auto] object-contain ${collapsed ? "min-[900px]:hidden" : ""}`} src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={184} height={46} />
+        <img className={`hidden size-[34px] object-contain ${collapsed ? "min-[900px]:block" : ""}`} src="/ruei-siang-icon.png" alt="RUEI SIANG" width={34} height={34} />
       </div>
 
       <button
@@ -258,7 +258,7 @@ export function Sidebar({ permissions, collapsed, mobileOpen, onToggle, user, on
           收合時把捲軸藏起來——那條灰槓橫在 40px 寬的欄位裡太搶戲，還會把圖示擠偏。
         */}
         <nav
-          className={`min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-color:var(--color-line)_transparent] [scrollbar-gutter:stable_both-edges] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-[3px] [&::-webkit-scrollbar-thumb]:bg-line [&::-webkit-scrollbar-thumb:hover]:bg-secondary [&>*+*]:mt-1.5 [&>*+*]:border-t [&>*+*]:border-soft-line [&>*+*]:pt-1.5 ${collapsed ? "min-[901px]:[scrollbar-width:none] min-[901px]:[&::-webkit-scrollbar]:hidden" : ""}`}
+          className={`min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-color:var(--color-line)_transparent] [scrollbar-gutter:stable_both-edges] [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:rounded-[3px] [&::-webkit-scrollbar-thumb]:bg-line [&::-webkit-scrollbar-thumb:hover]:bg-secondary [&>*+*]:mt-1.5 [&>*+*]:border-t [&>*+*]:border-soft-line [&>*+*]:pt-1.5 ${collapsed ? "min-[900px]:[scrollbar-width:none] min-[900px]:[&::-webkit-scrollbar]:hidden" : ""}`}
           aria-label="主要導覽"
           ref={navRef}
         >
@@ -279,7 +279,7 @@ export function Sidebar({ permissions, collapsed, mobileOpen, onToggle, user, on
         {collapsed && hasMoreBelow ? (
           <button
             type="button"
-            className="group/hint absolute inset-x-0 bottom-0 hidden h-[34px] items-end justify-center border-0 pb-1 [background:linear-gradient(to_bottom,transparent,var(--color-drawer)_62%)] min-[901px]:flex"
+            className="group/hint absolute inset-x-0 bottom-0 hidden h-[34px] items-end justify-center border-0 pb-1 [background:linear-gradient(to_bottom,transparent,var(--color-drawer)_62%)] min-[900px]:flex"
             aria-label="往下捲動看更多項目"
             onClick={() => navRef.current?.scrollBy({ top: 160, behavior: "smooth" })}
           >
