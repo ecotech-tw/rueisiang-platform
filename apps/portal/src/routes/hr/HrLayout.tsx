@@ -198,7 +198,11 @@ export function HrLayout() {
 
   return <HrSkins><div data-hr-shell="" className={HR_SHELL}>
     <HrGlassDefs />
-    <HrHeader ref={headerRef}>
+    <HrHeader
+      ref={headerRef}
+      // 鍵盤 Tab 出頁首就收起來，不然面板一直蓋在焦點所在的內容上面；點外面由 useDismiss 處理。
+      onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setMobileNavOpen(false); }}
+    >
       <HrBrand current={current} />
       <div className="hidden max-[900px]:col-[2] max-[900px]:row-[1] max-[900px]:block">
         <button
@@ -271,7 +275,8 @@ export function HrLayout() {
           </HrNavItem>;
         })}
       </HrNav>
-      <HrUserMenu />
+      {/* 頭像也在頁首裡，useDismiss 不會把它當成點外面；打開帳號選單時自己把導覽面板收掉，兩塊才不會疊在一起。 */}
+      <HrUserMenu onOpen={() => setMobileNavOpen(false)} />
     </HrHeader>
 
     <HrMain>

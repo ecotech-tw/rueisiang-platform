@@ -14,7 +14,7 @@ import { HR_USER_MENU, hrMenuItemClass, hrUserDropdownClass, hrUserTriggerClass 
  * 選單關著時仍留在 DOM、用 inert 擋掉焦點與點擊：開關才能用 transition 收放，
  * 快速連點時會從當下的位置反向，不會重播。
  */
-export function HrUserMenu() {
+export function HrUserMenu({ onOpen }: { onOpen?: () => void } = {}) {
   const { user } = useSession();
   const navigate = useNavigate();
   const guardedClick = useGuardedClick();
@@ -47,7 +47,7 @@ export function HrUserMenu() {
         aria-expanded={open}
         aria-controls="hr-user-dropdown"
         aria-label={`帳號選單：${displayName}`}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => { if (!open) onOpen?.(); setOpen(!open); }}
       >
         <UserAvatar user={user} variant="glass" />
       </button>

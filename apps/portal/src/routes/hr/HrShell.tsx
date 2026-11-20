@@ -1,4 +1,4 @@
-import type { ComponentProps, CSSProperties, ReactNode, Ref } from "react";
+import type { ComponentProps, CSSProperties, FocusEventHandler, ReactNode, Ref } from "react";
 
 /*
  * HRIS 頁首的玻璃外殼。HrLayout 與樣式指南的 Liquid Glass 範例共用同一組元件，
@@ -33,9 +33,9 @@ export function HrGlassDefs() {
   );
 }
 
-export function HrHeader({ compact = false, ref, children }: { compact?: boolean; ref?: Ref<HTMLElement>; children: ReactNode }) {
+export function HrHeader({ compact = false, ref, onBlur, children }: { compact?: boolean; ref?: Ref<HTMLElement>; onBlur?: FocusEventHandler<HTMLElement>; children: ReactNode }) {
   return (
-    <header ref={ref} className={`top-0 z-18 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[18px] bg-transparent ${compact ? "max-[900px]:grid-cols-[minmax(0,1fr)_auto] max-[900px]:items-start max-[900px]:gap-3" : "max-[900px]:grid-cols-[minmax(0,1fr)_auto_auto] max-[900px]:gap-2.5"} ${compact ? "relative px-[18px] pt-4 pb-3" : "sticky px-9 pt-4 pb-3 max-[900px]:px-4 max-[900px]:pt-3 max-[900px]:pb-3.5"}`}>
+    <header ref={ref} onBlur={onBlur} className={`top-0 z-18 grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-[18px] bg-transparent ${compact ? "max-[900px]:grid-cols-[minmax(0,1fr)_auto] max-[900px]:items-start max-[900px]:gap-3" : "max-[900px]:grid-cols-[minmax(0,1fr)_auto_auto] max-[900px]:gap-2.5"} ${compact ? "relative px-[18px] pt-4 pb-3" : "sticky px-9 pt-4 pb-3 max-[900px]:px-4 max-[900px]:pt-3 max-[900px]:pb-3.5"}`}>
       {children}
     </header>
   );
