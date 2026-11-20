@@ -8,6 +8,7 @@ const script = html.match(/<script>([\s\S]*?)<\/script>/)![1]!;
 const stores = [
   { id: "north", name: "北部櫃點", shortName: "北部櫃點", label: "臺北市｜北部櫃點", county: "臺北市", pinX: 750, pinY: 300 },
   { id: "south", name: "南部櫃點", shortName: "南部櫃點", label: "高雄市｜南部櫃點", county: "高雄市", pinX: 530, pinY: 800 },
+  { id: "east", name: "右界櫃點", shortName: "右界櫃點", label: "宜蘭縣｜右界櫃點", county: "宜蘭縣", pinX: 840, pinY: 500 },
 ].map((store) => ({ ...store, category: "百貨公司", address: "測試地址", hours: "11:00–22:00", image: "", mapUrl: "https://www.google.com/maps/", region: "north" }));
 let scrollTo: ReturnType<typeof vi.fn>;
 let listeners: Array<{ target: EventTarget; type: string; listener: EventListenerOrEventListenerObject; options?: boolean | AddEventListenerOptions }>;
@@ -48,6 +49,28 @@ it("圖釘以尖端為錨點，整層只向右平移一次，不改 API 原始�
   expect(document.querySelector("#map-pins")!.getAttribute("transform")).toBe("translate(30, 0)");
   expect(pin("south").getAttribute("transform")).toBe("translate(530, 800)");
   expect(pin("south").querySelector(".rs-pin-body")!.getAttribute("d")).toMatch(/^M 0,0 /);
+});
+
+it("合法右界 X=840 校正後仍在 viewBox 內，並保留圖釘與點擊區域的留白", () => {
+  const svg = document.querySelector("#rs-taiwan-map")!;
+  const [x, , width] = svg.getAttribute("viewBox")!.split(" ").map(Number);
+  expect(x! + width!).toBeGreaterThanOrEqual(840 + 30 + 20);
+  expect(pin("east").getAttribute("transform")).toBe("translate(840, 500)");
+  click(pin("east"));
+  expect(pin("east").classList.contains("is-selected")).toBe(true);
+  expect(card()?.textContent).toContain("右界櫃點");
+});
+
+it.each([320, 375, 768, 1280])("視窗寬度 %s 時 SVG 限制在容器寬度內，切換版型不移除限制", (width) => {
+  vi.stubGlobal("innerWidth", width);
+  window.dispatchEvent(new Event("resize"));
+  const svg = document.querySelector("#rs-taiwan-map")!;
+  expect(svg.classList.contains("min-w-0")).toBe(true);
+  expect(svg.classList.contains("max-w-none")).toBe(false);
+  expect(svg.classList.contains(width < 1024 ? "max-w-full" : "max-w-[540px]")).toBe(true);
+  expect(svg.parentElement?.id).toBe(width < 1024 ? "rs-mobile-map-host" : "rs-desktop-map-host");
+  const [x, , viewWidth] = svg.getAttribute("viewBox")!.split(" ").map(Number);
+  expect(x! + viewWidth!).toBeGreaterThanOrEqual(890);
 });
 
 it("點圖釘即時同步列表，不受 CSS smooth 影響；延後 scroll snap 不重建相同卡片", async () => {

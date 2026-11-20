@@ -303,7 +303,7 @@
             </div>
 
             <div class="relative rounded-2xl p-2 overflow-hidden">
-              <div id="rs-mobile-map-host" class="w-full h-[500px] sm:h-[580px] flex items-center justify-center relative select-none"><svg id="rs-taiwan-map" viewBox="475 245 365 715" class="w-full h-full overflow-visible max-w-none w-auto" role="img" aria-label="瑞香台灣銷售據點互動地圖">
+              <div id="rs-mobile-map-host" class="w-full h-[500px] sm:h-[580px] flex items-center justify-center relative select-none"><svg id="rs-taiwan-map" viewBox="475 245 425 715" class="min-w-0 w-auto h-full max-w-full overflow-visible" role="img" aria-label="瑞香台灣銷售據點互動地圖">
             <defs>
               <filter id="rsPinShadow" x="-40%" y="-30%" width="180%" height="180%">
                 <feDropShadow dx="0" dy="3" stdDeviation="2.5" flood-color="#3D241E" flood-opacity="0.25"></feDropShadow>
@@ -465,7 +465,6 @@
     const modalCloseBtn = document.getElementById('rs-modal-close-btn');
     const modalBottomClose = document.getElementById('rs-modal-bottom-close');
 
-    const DEFAULT_VIEW_BOX = [475, 245, 365, 715];
     const WHEEL_VIEWPORT_HEIGHT = 368;
     const WHEEL_ITEM_HEIGHT = 52;
     const WHEEL_PAD_Y = (WHEEL_VIEWPORT_HEIGHT - WHEEL_ITEM_HEIGHT) / 2;
@@ -1128,14 +1127,14 @@
     function syncResponsiveMapPlacement() {
       if (!mapSvg || !desktopMapHost || !mobileMapHost) return;
       if (isMobileOrTablet()) {
-        mapSvg.classList.remove('max-w-[540px]');
-        mapSvg.classList.add('max-w-none', 'h-full', 'w-auto');
+        mapSvg.classList.remove('max-w-[540px]', 'w-full');
+        mapSvg.classList.add('max-w-full', 'w-auto');
         if (mapSvg.parentNode !== mobileMapHost) {
           mobileMapHost.appendChild(mapSvg);
         }
       } else {
-        mapSvg.classList.remove('max-w-none', 'h-full', 'w-auto');
-        mapSvg.classList.add('w-full', 'h-full', 'max-w-[540px]');
+        mapSvg.classList.remove('max-w-full', 'w-auto');
+        mapSvg.classList.add('w-full', 'max-w-[540px]');
         if (mapSvg.parentNode !== desktopMapHost) {
           desktopMapHost.appendChild(mapSvg);
         }
@@ -1166,9 +1165,6 @@
       }
     });
 
-    if (mapSvg) {
-      mapSvg.setAttribute('viewBox', DEFAULT_VIEW_BOX.join(' '));
-    }
     syncResponsiveMapPlacement();
     buildMapPinsOnce();
     buildDesktopWheelOnce();
