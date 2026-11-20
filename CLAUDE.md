@@ -187,6 +187,10 @@ primary-container，`--color-muted` 當 on-surface-variant。
   位置）由外層用 utility 決定；元件的 `className` 只給這種用途，元件自己不帶外距。
 - **狀態與斷點用 variant 寫在同一處**（`hover:`、`focus-visible:`、`disabled:`、
   `active:`、`max-sm:`），不要拆到另一個檔案。
+- **手機與桌機的斷點用同一個數字**：`max-[760px]:` 配 `min-[760px]:`，不是 `min-[761px]:`。
+  Tailwind v4 的 `max-[N]` 是 `width < N`、`min-[N]` 是 `width >= N`，同一個數字剛好接上；
+  寫成 N+1 的話，N 那一格兩邊都不套，表格會變成半套。JS 的 `matchMedia` 要跟著寫
+  `not all and (min-width: N)`，不要寫 `max-width: N`（含等於，跟 CSS 差一格）。
 - **不新增語意化 class。** CSS 檔裡已經沒有任何元件 class，新畫面一律寫 utility；
   不要因為「好幾處長得一樣」就在 CSS 檔開一個 class，那是抽元件或抽常數的時機。
 - **留在 CSS 檔的只有 utility 寫不到的東西**：`@theme`、`@layer base` 的元素預設、
@@ -319,7 +323,7 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
 收合成窄欄時只剩圖示。外觀寫在 `shell/Sidebar.tsx`、`SystemSwitcher.tsx`、
 `AccountPanel.tsx` 裡，手機的上方列與遮罩在 `AppShell.tsx`；底色是 `@theme` 的 `--color-drawer`。
 
-收合狀態用 `collapsed` prop 往下傳，樣式一律掛在 `min-[901px]:` 底下。手機的 sidebar 是
+收合狀態用 `collapsed` prop 往下傳，樣式一律掛在 `min-[900px]:` 底下。手機的 sidebar 是
 抽屜、靠位移開合，收合窄欄在那裡沒有意義；寫成不分斷點的話，桌機收合過再縮成手機寬，
 抽屜就會帶著窄欄的排版打開。
 
