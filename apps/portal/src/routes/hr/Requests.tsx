@@ -62,7 +62,7 @@ const REQUEST_BULK_ACTIONS: TableBulkAction<RequestRow>[] = [
  * 桌機欄位不換行、內容與原因截斷到 280px，完整文字在 Tooltip。
  * 手機卡片的標題是「類型」那一格；批次模式時它排在勾選格後面，左右讓位由 TABLE_SELECT_COLUMN.corner 處理。
  */
-const REQUEST_TABLE = "min-[761px]:min-w-[1168px] min-[761px]:[&_th]:whitespace-nowrap min-[761px]:[&_td]:whitespace-nowrap [&_tr.selected_td]:bg-brand/7 max-[760px]:[&_tbody_tr>td[data-label=類型]]:font-semibold";
+const REQUEST_TABLE = "min-[761px]:min-w-[1168px] min-[761px]:[&_th]:whitespace-nowrap min-[761px]:[&_td]:whitespace-nowrap max-[760px]:[&_tbody_tr>td[data-label=類型]]:font-semibold";
 
 type RequestStatusFilter = "all" | RequestStatus;
 interface RequestFilters {

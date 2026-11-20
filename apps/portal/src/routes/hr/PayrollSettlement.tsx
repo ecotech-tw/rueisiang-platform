@@ -39,7 +39,7 @@ const NO_PAYROLL_WORKERS: PayrollWorkerCandidate[] = [];
 const PAYROLL_RECORD_STATUS_LABEL = { unsettled: "尚未結算", closed: "已確定發放", withdrawn: "已撤回" } as const;
 const PAYROLL_PERSON_KIND_LABEL = { employee: "正式員工", worker: "支援人員" } as const;
 const PAY_BASIS_LABEL: Record<string, string> = { monthly: "月薪", daily: "日薪", hourly: "時薪", mixed: "混合" };
-const PAYROLL_RECORD_TABLE = "min-w-[960px] max-[760px]:min-w-0 [&_.numeric]:whitespace-nowrap [&_tr.selected_td]:bg-brand/8";
+const PAYROLL_RECORD_TABLE = "min-w-[960px] max-[760px]:min-w-0 [&_.numeric]:whitespace-nowrap";
 
 function taipeiMonth() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(new Date());
