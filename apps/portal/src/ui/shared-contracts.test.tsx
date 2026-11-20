@@ -23,6 +23,13 @@ describe("shared HRIS UI contracts", () => {
     expect(desktopOnly).not.toContain("mb-0");
   });
 
+  it("PageHeader 的動作鈕放不下時換行，標題保留最小寬度，不會被擠成一字一行", () => {
+    const markup = renderToStaticMarkup(<PageHeader title="排班月曆" actions={<button type="button">儲存</button>} />);
+    // renderToStaticMarkup 會把 class 裡的 & 與 > 轉成實體字元，比對前先還原。
+    const classes = (markup.match(/^<header data-page-head="" class="([^"]*)"/)?.[1] ?? "").replaceAll("&amp;", "&").replaceAll("&gt;", ">").split(/\s+/);
+    expect(classes).toEqual(expect.arrayContaining(["flex-wrap", "[&>:first-child]:min-w-[min(100%,12rem)]", "[&>:last-child]:flex-none"]));
+  });
+
   it("描邊分段切換保留圖示、可存取名稱與持續的選中狀態", () => {
     const markup = renderToStaticMarkup(<SegmentedControl skin="outlined" iconOnly aria-label="圖片檢視方式" value="grid" onChange={() => {}} options={[{ value: "list", label: "列表檢視", icon: "list" }, { value: "grid", label: "縮圖檢視", icon: "grid" }]} />);
     expect(markup).toContain('aria-label="列表檢視"'); expect(markup).toContain('aria-label="縮圖檢視"');
