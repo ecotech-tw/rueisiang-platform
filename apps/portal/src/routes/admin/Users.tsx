@@ -423,18 +423,18 @@ function UserRow({
   return (
     <>
       <tr>
-        <td>
+        <td data-label="成員">
           <div className="font-bold">{displayNameOf(user)}</div>
           <div className="text-[12px] text-muted">{user.email}</div>
         </td>
 
-        <td>
+        <td data-label="狀態">
           <StatusBadge tone={USER_STATUS_TONE[user.status]}>{STATUS_LABEL[user.status]}</StatusBadge>
-          {isSelf ? <span className="text-[12px] text-muted">這是你自己</span> : null}
+          {isSelf ? <span className="ml-1.5 text-[12px] text-muted">這是你自己</span> : null}
         </td>
 
         {/* 表格只負責看，所有的改都在對話框裡——每列高度才會一致。 */}
-        <td>
+        <td data-label="角色">
           {user.assignments.length === 0 ? (
             <span className="text-[12px] text-muted">沒有任何角色</span>
           ) : (
@@ -446,9 +446,9 @@ function UserRow({
           )}
         </td>
 
-        <td className="text-muted">{formatTime(user.lastLoginAt)}</td>
+        <td data-label="最後登入" className="text-muted">{formatTime(user.lastLoginAt)}</td>
 
-        <td>
+        <td data-label="操作">
           <RowActions>
           <Button
             variant="icon"
