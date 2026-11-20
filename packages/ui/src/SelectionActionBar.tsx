@@ -10,6 +10,9 @@ export type SelectionActionBarProps = {
 /*
  * 桌機浮在表格區右下角（表格自己捲）。手機上整頁捲，改成黏在畫面底部、跟著列表走；
  * 放不下時按鈕換到下一行，不要把「已選取…」擠成一字一行。
+ * sticky 只在「從這裡到捲動區之間沒有 overflow-hidden」時黏得住，所以呼叫端在手機上要讓外層不裁切
+ * （包它的容器與 `<Panel grows>` 都加 `max-[760px]:overflow-visible`，見 HR 的薪資與申請頁）；
+ * 漏了不會壞，只是操作列排在列表最後、不黏在畫面底部。
  */
 export function SelectionActionBar({ count, children, countLabel = "項", className = "" }: SelectionActionBarProps) {
   return (
