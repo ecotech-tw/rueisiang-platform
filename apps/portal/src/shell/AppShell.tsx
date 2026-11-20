@@ -14,8 +14,10 @@ export function AppShell() {
   // 新畫面已經進 DOM、還沒上色：這時放行 View Transition 拍「新狀態」才拍得到。
   useLayoutEffect(() => settleHrTransition(isHrModule), [isHrModule]);
 
-  // 左欄寬度：HRIS 沒有 sidebar（自己有一套導覽），收合時只剩圖示欄。手機一律單欄，上面一條 topbar。
+  // 左欄寬度：HRIS 沒有 sidebar（自己有一套導覽），收合時只剩圖示欄。手機一律單欄；非 HRIS 上面另有一條 topbar。
   const columns = isHrModule ? "grid-cols-[minmax(0,1fr)]" : collapsed ? "grid-cols-[76px_minmax(0,1fr)]" : "grid-cols-[252px_minmax(0,1fr)]";
+  // 手機上方列只有非 HRIS 才有；HRIS 也切兩列的話，唯一的 main 會掉進 auto 那列，只撐到內容高，底下露出一塊空白。
+  const rows = isHrModule ? "grid-rows-[minmax(0,1fr)]" : "max-[900px]:grid-rows-[auto_minmax(0,1fr)]";
   /*
    * 內容區自己捲，整頁不捲（html/body 看 data-shell 鎖住）。
    * fills 的頁面只讓表格捲、bleed 的頁面（地圖）連內距都不要；小香測試台自己分兩欄各自捲。
@@ -26,7 +28,7 @@ export function AppShell() {
 
   return (
     <ToastProvider>
-    <div data-shell="" className={`grid h-screen min-h-screen overflow-hidden ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 max-[900px]:grid-rows-[auto_minmax(0,1fr)]`}>
+    <div data-shell="" className={`grid h-screen min-h-screen overflow-hidden ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 ${rows}`}>
       {!isHrModule ? <>
         {/* 手機上 sidebar 收成抽屜，靠這條上方列開關——沿用 CRM 的作法。 */}
         <header className="sticky top-0 z-30 hidden items-center justify-between gap-3 border-b border-line bg-drawer px-4 py-2.5 max-[900px]:flex">
