@@ -270,11 +270,11 @@ export function HrAttendanceSettings() {
             <tbody>
               {rows.map((office) => (
                 <tr key={office.id}>
-                  <td><strong>{office.name}</strong><small className="text-muted mt-1 block">{office.geolocationRequired ? (office.hasCoordinates ? "座標已設定" : "缺少座標") : "不使用定位座標"}</small></td>
-                  <td>{office.scopeName ?? "尚未對應"}</td>
-                  <td>{office.geolocationRequired ? "需要" : "不檢查"}</td>
-                  <td>{office.geolocationRequired ? `${office.radiusMeters} 公尺` : "—"}</td>
-                  {canWrite ? <td><Button variant="icon" icon="edit" tone="info" title={`編輯 ${office.name}`} aria-label={`編輯 ${office.name}`} onClick={() => setEditor(office)} /></td> : null}
+                  <td data-label="辦公位置"><strong>{office.name}</strong><small className="text-muted mt-1 block">{office.geolocationRequired ? (office.hasCoordinates ? "座標已設定" : "缺少座標") : "不使用定位座標"}</small></td>
+                  <td data-label="營運據點">{office.scopeName ?? "尚未對應"}</td>
+                  <td data-label="定位判斷">{office.geolocationRequired ? "需要" : "不檢查"}</td>
+                  <td data-label="半徑">{office.geolocationRequired ? `${office.radiusMeters} 公尺` : "—"}</td>
+                  {canWrite ? <td data-label="操作"><Button variant="icon" icon="edit" tone="info" title={`編輯 ${office.name}`} aria-label={`編輯 ${office.name}`} onClick={() => setEditor(office)} /></td> : null}
                 </tr>
               ))}
             </tbody>

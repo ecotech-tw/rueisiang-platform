@@ -70,11 +70,11 @@ function EmployeeLocationRow({ employee, canWrite, onEdit }: { employee: Employe
   const employment = currentEmployment(data.employments);
   const assignments = (data.attendanceAssignments ?? []).filter((assignment) => assignment.employmentId === employment?.id && activeAssignment(assignment, today()));
   return <tr>
-    <td><strong>{employee.legalName}</strong><br /><span className="text-muted">{employee.employeeNumber}</span></td>
-    <td>{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
-    <td>{employment?.attendanceMode === "scheduled" ? "排班" : employment ? "一般辦公" : "—"}</td>
-    <td><div className="grid min-w-[220px] gap-[7px]">{assignments.length ? assignments.map((assignment) => <span className="flex flex-wrap items-center gap-1.5" key={assignment.id}><span className="min-w-0">{assignment.locationName}</span></span>) : <span className="text-muted">尚未指派</span>}</div></td>
-    <td>{canWrite ? <RowActions spacing="wide" className="items-start"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></RowActions> : null}</td>
+    <td data-label="員工"><strong>{employee.legalName}</strong><br /><span className="text-muted">{employee.employeeNumber}</span></td>
+    <td data-label="目前任職">{employment ? `${employment.employeeNumber} · ${employment.position}` : "尚無任職"}</td>
+    <td data-label="出勤方式">{employment?.attendanceMode === "scheduled" ? "排班" : employment ? "一般辦公" : "—"}</td>
+    <td data-label="有效辦公位置"><div className="grid min-w-[220px] gap-[7px]">{assignments.length ? assignments.map((assignment) => <span className="flex flex-wrap items-center gap-1.5" key={assignment.id}><span className="min-w-0">{assignment.locationName}</span></span>) : <span className="text-muted">尚未指派</span>}</div></td>
+    <td data-label="操作">{canWrite ? <RowActions spacing="wide" className="items-start"><Tooltip label={`編輯 ${employee.legalName} 的出勤範圍`} focusable={false}><Button variant="icon" icon="edit" tone="info" aria-label={`編輯 ${employee.legalName} 的出勤範圍`} disabled={!employment} onClick={() => onEdit({ kind: "scope", profile: data })} /></Tooltip></RowActions> : null}</td>
   </tr>;
 }
 
