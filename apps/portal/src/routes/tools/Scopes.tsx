@@ -65,6 +65,13 @@ function storeCountyValue(value: string): string {
   return TAIWAN_COUNTIES.includes(normalized as typeof TAIWAN_COUNTIES[number]) ? normalized : "";
 }
 
+function countyFromAddress(address: string): string {
+  const normalized = address.trim().replace(/台/g, "臺")
+    .replace(/^(?:臺灣|中華民國)\s*/, "")
+    .replace(/^\d{3}(?:\d{2,3})?\s*/, "");
+  return TAIWAN_COUNTIES.find((county) => normalized.startsWith(county)) ?? "";
+}
+
 function validImageUrl(value: string): boolean {
   if (!value.trim()) return true;
   try {
@@ -79,7 +86,8 @@ const STORE_LOCATOR_GEO_BOUNDS = { lonMin: 120, lonMax: 122.1, latMin: 21.9, lat
 
 function calculateStoreLocatorPin(longitude: number, latitude: number) {
   const { lonMin, lonMax, latMin, latMax } = STORE_LOCATOR_GEO_BOUNDS;
-  if (longitude < lonMin || longitude > lonMax || latitude < latMin || latitude > latMax) return null;
+  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)
+    || longitude < lonMin || longitude > lonMax || latitude < latMin || latitude > latMax) return null;
   return {
     x: 475 + ((longitude - lonMin) / (lonMax - lonMin)) * 365,
     y: 245 + ((latMax - latitude) / (latMax - latMin)) * 715,
@@ -149,7 +157,14 @@ function ScopeDialog({
   function selectPlace(place: GoogleMapPlace) {
     setSelectedPlace(place);
     setPlaceQuery(place.name);
-    setStoreDetails((current) => ({ ...current, address: place.address }));
+    const pin = calculateStoreLocatorPin(place.longitude, place.latitude);
+    setStoreDetails((current) => ({
+      ...current,
+      address: place.address,
+      county: countyFromAddress(place.address),
+      pinX: pin?.x.toFixed(1) ?? "",
+      pinY: pin?.y.toFixed(1) ?? "",
+    }));
     placesSearch.reset();
   }
 
@@ -271,7 +286,7 @@ function ScopeDialog({
           <div className="grid gap-3">
             <div>
               <p className="m-0 text-sm font-medium text-ink">Google Maps 地點搜尋</p>
-              <p className="m-0 mt-1 text-xs text-muted">選取搜尋結果後可預覽經緯度與 X/Y 試算值；確認後再帶入欄位，儲存前仍可手動調整。</p>
+              <p className="m-0 mt-1 text-xs text-muted">選取地點後自動帶入地址、縣市與換算後的 X/Y；儲存前仍可手動調整。</p>
             </div>
             <div className="flex min-w-0 items-end gap-2.5 max-[760px]:flex-col max-[760px]:items-stretch">
               <TextField
@@ -285,7 +300,7 @@ function ScopeDialog({
                     searchPlaces();
                   }
                 }}
-                hint="輸入櫃點名稱或地址，選擇符合的搜尋結果以查看座標。"
+                hint="輸入櫃點名稱或地址，選取正確地點後自動填入據點資料。"
               />
               <Button size="lg" className="min-w-[86px] flex-none max-[760px]:w-full" type="button" variant="primary" icon="search" disabled={!placeQuery.trim() || placesSearch.isPending} onClick={searchPlaces}>搜尋</Button>
             </div>
@@ -294,7 +309,7 @@ function ScopeDialog({
             {placesSearch.data && !placesSearch.data.places.length ? <p className="m-0 text-sm text-muted">找不到地點，請換個關鍵字。</p> : null}
             {placesSearch.data && placesSearch.data.places.length > 0 ? (
               <div className="grid max-h-60 flex-none gap-1.5 overflow-y-auto" role="listbox" aria-label="Google Maps 搜尋結果">
-                <p className="m-0 text-xs text-muted">搜尋結果（{placesSearch.data.places.length} 筆），選取正確地點以查看座標：</p>
+                <p className="m-0 text-xs text-muted">搜尋結果（{placesSearch.data.places.length} 筆），選取正確地點以帶入資料：</p>
                 {placesSearch.data.places.map((place) => (
                   <button type="button" role="option" aria-selected={selectedPlace?.id === place.id} className="grid min-h-14 w-full cursor-pointer gap-[3px] rounded-field border border-line bg-paper px-3 py-2.5 text-left text-ink transition-[background-color,border-color,scale] duration-120 ease-out hover:border-secondary hover:bg-brand/7 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary active:scale-[.99] motion-reduce:transition-none [&_small]:text-muted" key={place.id} onClick={() => selectPlace(place)}>
                     <strong>{place.name}</strong>
@@ -309,12 +324,10 @@ function ScopeDialog({
                 <div><p className="m-0 text-sm font-semibold text-ink">{selectedPlace.name}</p><p className="m-0 mt-1 text-xs text-muted">{selectedPlace.address}</p></div>
                 <dl className="m-0 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs tabular-nums"><dt className="text-muted">緯度（lat）</dt><dd className="m-0">{selectedPlace.latitude.toFixed(6)}</dd><dt className="text-muted">經度（lon）</dt><dd className="m-0">{selectedPlace.longitude.toFixed(6)}</dd></dl>
                 {selectedPin ? (
-                  <div className="flex flex-wrap items-center gap-3 border-t border-soft-line pt-2">
-                    <output role="status" className="text-xs tabular-nums text-muted">X/Y 試算：X {selectedPin.x.toFixed(1)} · Y {selectedPin.y.toFixed(1)}</output>
-                    <Button type="button" variant="secondary" onClick={() => setStoreDetails((current) => ({ ...current, pinX: selectedPin.x.toFixed(1), pinY: selectedPin.y.toFixed(1) }))}>帶入 X/Y 欄位</Button>
-                  </div>
+                  <output role="status" className="border-t border-soft-line pt-2 text-xs tabular-nums text-muted">X/Y 換算結果：X {selectedPin.x.toFixed(1)} · Y {selectedPin.y.toFixed(1)}（已自動帶入）</output>
                 ) : <p className="m-0 text-xs text-muted">此座標超出台灣圖示的試算範圍，請手動設定 X/Y。</p>}
-                <p className="m-0 text-[11px] text-muted">試算範圍：經度 120–122.1、緯度 21.9–25.3；帶入後仍可編輯，按儲存才會保存。</p>
+                {!countyFromAddress(selectedPlace.address) ? <p className="m-0 text-xs text-muted">無法從此地址辨識縣市，請在下方選擇。</p> : null}
+                <p className="m-0 text-[11px] text-muted">換算範圍：經度 120–122.1、緯度 21.9–25.3；可在下方微調 X/Y，按儲存才會保存。</p>
               </div>
             ) : null}
             {storeDetails.address.trim() ? <ButtonLink variant="secondary" icon="external" href={googleMapsSearchUrl(storeDetails.address)} target="_blank" rel="noopener noreferrer">在 Google Maps 搜尋已填地址</ButtonLink> : null}
