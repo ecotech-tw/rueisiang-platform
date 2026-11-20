@@ -234,9 +234,10 @@ Google Drive 的 root 與各店別資料夾設定方式，沿用
 
 Codex 請求只有在 Worker 的 `PI_OPENAI_CODEX_RELAY_URL` 與
 `PI_OPENAI_CODEX_RELAY_TOKEN` 都有值時才會經 NAS relay；兩者都沒設定會直接連 ChatGPT backend，
-只設其中一項則會在送出前報設定錯誤。因此看到 GPT/Codex 模型名稱，不能單憑這點判定請求已走 NAS。
-URL 是 `apps/api/wrangler.toml` 的非機密變數；token 是 Worker secret，且必須與 NAS `.env` 的
-`CODEX_RELAY_TOKEN` 相同。勿將 token 放進 URL、log 或診斷訊息。
+只設其中一項則會在送出前報設定錯誤。`apps/api/wrangler.toml` 已設定 relay URL，因此正式環境必須
+另有相符的 Worker token secret；缺 token 時會 fail closed，不會回退直連 ChatGPT。因此看到 GPT/Codex
+模型名稱，不能單憑這點判定請求已走 NAS。URL 是非機密變數；token 是 Worker secret，且必須與 NAS
+`.env` 的 `CODEX_RELAY_TOKEN` 相同。勿將 token 放進 URL、log 或診斷訊息。
 
 資料路徑為 Worker → `PI_OPENAI_CODEX_RELAY_URL` 的 Cloudflare Tunnel hostname → Tunnel
 Public Hostname 設定的 origin → NAS 上的 relay `:8787` → `chatgpt.com`。Tunnel origin 必須填
@@ -255,9 +256,11 @@ NAS **目前的 LAN IP**（例如 `http://<NAS LAN IP>:8787`），不是 PPPoE �
    表示請求已到 Cloudflare Tunnel，但 connector 連不到設定的 origin port；relay 程式尚未收到請求，
    因此 NAS relay log 沒有新項目是預期結果。把 log 中的 IP 與 NAS 目前 LAN IP 比對，再檢查 origin、
    容器狀態及 port mapping。這不是 PPPoE 公網 IP 變更的直接證據。
-4. 在 PowerShell 開啟 `https://<relay hostname>/healthz`，應回 `ok`；再送一筆 Codex 請求，確認 NAS relay
-   有 `POST /codex/responses` log，並核對 status、duration。Tunnel connector 顯示 live 只代表 connector
-   連上 Cloudflare，不代表 connector 到 origin 的連線正常。
+4. 在未加 Cloudflare Access 的情況下，用 PowerShell 開啟 `https://<relay hostname>/healthz`；應回 JSON
+   `{"ok":true}`。再送一筆 Codex 請求，確認 NAS relay 有 `POST /codex/responses` log，並核對 status、duration。
+   Tunnel connector 顯示 live 只代表 connector 連上 Cloudflare，不代表 connector 到 origin 的連線正常。若要在
+   Tunnel hostname 前加 Access，須先讓 Worker 帶 Access service token；目前 Worker 只帶 relay token，未實作
+   Access service token，因此不可只靠瀏覽器健康檢查判定 Worker 請求能通過 Access。
 5. 若排查 PPPoE，分開記錄 NAS 的 LAN address、預設閘道與 NAS 實際公網出口；從 NAS 查公網出口並與 ISP
    核發的固定 IP 比對。`TERMREQ`／`LCP terminated by peer` 只表示對端終止 PPP session，不能單獨證明是
    AP、Hub 或某條支線造成。逐條隔離線路驗證前，不猜填 WAN 參數，也不要重設路由器。若用上游 DHCP 作備援，
