@@ -82,6 +82,12 @@ class_name = "AssistantCredentialVault"
 name = "PAYROLL_RUN_AGENT"
 class_name = "PayrollRunAgent"
 
+# Phase 1 只讓 Sandbox Codex 經 Cloudflare Gateway；LINE 保持 NAS relay，mode=relay 可讓兩者都回退。
+[[vpc_networks]]
+binding = "CODEX_EGRESS"
+network_id = "cf1:network"
+remote = true
+
 [[migrations]]
 tag = "v1_pi_agent_sqlite"
 new_sqlite_classes = ["AssistantChatAgent", "AssistantCredentialVault"]
@@ -111,6 +117,8 @@ PAYOUT_GITHUB_REF = "main"
 CYBERBIZ_SALES_WORKFLOW_FILE = "cyberbiz-sales-report.yml"
 CYBERBIZ_SALES_GITHUB_REF = "main"
 PI_AGENT_MODEL = "gpt-6-luna"
+# 需要回退時改為 relay；不要在同一請求中自動重試另一條 egress。
+PI_OPENAI_CODEX_EGRESS_MODE = "vpc"
 PI_OPENAI_CODEX_RELAY_URL = "https://codex-relay.rueisiang.com"
 CYBERBIZ_API_RELAY_URL = "https://cyberbiz-relay.rueisiang.com"
 NAS_STORAGE_URL = "https://storage.rueisiang.com"
@@ -129,7 +137,7 @@ SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 #   GEMINI_API_KEY              Pi Google provider；Sandbox／LINE 選 Gemini 模型時使用
 #   PI_OPENAI_CODEX_CREDENTIAL  舊版 bootstrap 用的 Pi／Codex OAuth credential JSON；匯入 vault 後可移除
 #   PI_CREDENTIAL_ENCRYPTION_KEY  至少 32 字元，vault 以 AES-GCM 加密 credential
-#   PI_OPENAI_CODEX_RELAY_TOKEN  可選；NAS Codex relay 的共享 secret，必須搭配 PI_OPENAI_CODEX_RELAY_URL
+#   PI_OPENAI_CODEX_RELAY_TOKEN  Codex egress mode=relay 時使用；NAS relay 的共享 secret，必須搭配 relay URL
 #   NAS_STORAGE_TOKEN            NAS storage gateway 的獨立 shared secret；必須搭配 NAS_STORAGE_URL
 #   LINE_CHANNEL_SECRET         LINE webhook 簽章驗證
 #   LINE_CHANNEL_ACCESS_TOKEN   LINE Messaging API Reply／Push 用 token

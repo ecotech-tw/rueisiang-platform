@@ -17,6 +17,8 @@ export interface Env {
   ASSISTANT_CHAT_AGENT?: DurableObjectNamespace;
   /** 全平台共用一個 credential vault，避免多個 chat 同時旋轉同一支 refresh token。 */
   ASSISTANT_CREDENTIAL_VAULT?: DurableObjectNamespace;
+  /** Codex ChatGPT OAuth 的 Cloudflare Gateway egress；只在 egress mode=vpc 時使用。 */
+  CODEX_EGRESS?: Fetcher;
   /**
    * 倉位現場照片。只存檔案，索引在 zone_images。
    *
@@ -48,7 +50,9 @@ export interface Env {
   PI_OPENAI_CODEX_CREDENTIAL?: string;
   /** vault 內 credential 的應用層 AES-GCM encryption key，至少 32 字元。 */
   PI_CREDENTIAL_ENCRYPTION_KEY?: string;
-  /** 可選的 NAS Codex relay origin；未設定時維持直接連線 ChatGPT backend。 */
+  /** Codex 模型出站路徑；vpc 僅讓 Sandbox 經 Gateway，LINE 維持 relay；relay mode 讓兩者都走 relay。 */
+  PI_OPENAI_CODEX_EGRESS_MODE?: "vpc" | "relay";
+  /** 可選的 NAS Codex relay origin；relay mode 才會使用。 */
   PI_OPENAI_CODEX_RELAY_URL?: string;
   /** NAS Codex relay 的共享 secret；必須與 relay 同時設定。 */
   PI_OPENAI_CODEX_RELAY_TOKEN?: string;

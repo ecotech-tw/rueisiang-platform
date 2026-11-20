@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createPiCodexRelayFetch,
+  createPiCodexVPCFetch,
   isPiAssistantModel,
   piAssistantModel,
   piCodexModel,
@@ -78,6 +79,26 @@ describe("Pi Codex model catalog", () => {
     expect(observed?.input.toString()).toBe("https://relay.example.test/codex/responses");
     expect(new Headers(observed?.init?.headers).get("authorization")).toBe("Bearer upstream-token");
     expect(new Headers(observed?.init?.headers).get("x-codex-relay-token")).toBe("relay-secret");
+  });
+
+  it("VPC egress 保留 Codex SSE request，且只允許固定 ChatGPT endpoint", async () => {
+    let observed: Request | undefined;
+    const vpcFetch = createPiCodexVPCFetch(async (input) => {
+      observed = input instanceof Request ? input : new Request(input);
+      return new Response("ok", { status: 200 });
+    });
+
+    const response = await vpcFetch("https://chatgpt.com/backend-api/codex/responses", {
+      method: "POST",
+      headers: { authorization: "Bearer oauth-token", "content-type": "application/json" },
+      body: "{\"stream\":true}",
+    });
+
+    expect(response.status).toBe(200);
+    expect(observed?.url).toBe("https://chatgpt.com/backend-api/codex/responses");
+    expect(observed?.headers.get("authorization")).toBe("Bearer oauth-token");
+    expect(await observed?.text()).toBe("{\"stream\":true}");
+    await expect(vpcFetch("https://example.test/backend-api/codex/responses")).rejects.toThrow("只允許連線至 chatgpt.com");
   });
 
   it("拒絕非 HTTPS 或非 chatgpt.com 的 relay 目的地", async () => {

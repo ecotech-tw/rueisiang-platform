@@ -650,6 +650,7 @@ describe("AI 助理 Sandbox", () => {
 
   it.each(["gpt-6-luna", "gpt-6.1-sol"])("新模型 %s 仍使用現有 NAS relay 的 POST／SSE contract", async (model) => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    env.PI_OPENAI_CODEX_EGRESS_MODE = "relay";
     env.PI_OPENAI_CODEX_RELAY_URL = "https://relay.example.test";
     env.PI_OPENAI_CODEX_RELAY_TOKEN = "relay-test-token";
     env.ASSISTANT_CREDENTIAL_VAULT = {
@@ -671,6 +672,36 @@ describe("AI 助理 Sandbox", () => {
     expect(bodies).toHaveLength(2);
     expect(JSON.parse(bodies[0]!).model).toBe(model);
     expect(bodies[1]).toContain("張三");
+  });
+
+  it("DO Pi Agent 可經 VPC binding 直接呼叫 Codex，保留 OAuth 與 SSE 回應", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    env.PI_OPENAI_CODEX_EGRESS_MODE = "vpc";
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
+    };
+    const requests: Request[] = [];
+    env.CODEX_EGRESS = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        requests.push(request.clone());
+        return asCodexStream({
+          candidates: [{ content: { parts: [{ text: "Pi 經 Cloudflare VPC 完成 Codex 推論。" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        });
+      },
+    };
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gpt-6-luna", toolKeys: [], input: "直接呼叫 Codex" }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ model: "gpt-6-luna", text: "Pi 經 Cloudflare VPC 完成 Codex 推論。" });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.url).toBe("https://chatgpt.com/backend-api/codex/responses");
+    expect(requests[0]?.headers.get("authorization")).toBe(`Bearer ${CODEX_ACCESS_TOKEN}`);
   });
 
   it("Sandbox 圖片會把 bytes 放在 NAS、metadata 留在 D1，並受使用者權限保護", async () => {
@@ -734,6 +765,38 @@ describe("AI 助理 Sandbox", () => {
         contentType: "image/png",
         size: bytes.byteLength,
       });
+
+      env.PI_OPENAI_CODEX_EGRESS_MODE = "vpc";
+      env.ASSISTANT_CREDENTIAL_VAULT = {
+        getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
+      };
+      let codexBody = "";
+      env.CODEX_EGRESS = {
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input, init);
+          const body = new Uint8Array(await request.arrayBuffer());
+          codexBody = request.headers.get("content-encoding") === "zstd"
+            ? zstdDecompressSync(body).toString("utf8")
+            : new TextDecoder().decode(body);
+          return asCodexStream({
+            candidates: [{ content: { parts: [{ text: "我看到了上傳的圖片。" }] } }],
+            usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+          });
+        },
+      };
+      const inference = await call("/api/assistant/sandbox/run", {
+        method: "POST",
+        headers: { Cookie: await cookieFor("admin", "admin@ecotech.tw"), "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: created.session.id,
+          model: "gpt-6-luna",
+          input: "請描述這張圖片。",
+          attachments: [{ key: body.attachment.key }],
+        }),
+      });
+      expect(inference.status).toBe(200);
+      expect(await inference.json()).toMatchObject({ text: "我看到了上傳的圖片。" });
+      expect(codexBody).toContain("iVBORw0KGgo=");
 
       const downloaded = await call(`/api/assistant/sandbox/attachments?key=${encodeURIComponent(body.attachment.key)}`, {
         headers: { Cookie: await cookieFor("admin", "admin@ecotech.tw") },
@@ -822,6 +885,68 @@ describe("AI 助理 Sandbox", () => {
       model: "gpt-6-luna",
       userText: "測試 Codex",
     });
+  });
+
+  it("VPC rollout keeps LINE Codex inference on NAS relay while Sandbox validates VPC", async () => {
+    await db().insert(assistantLineChannels).values({
+      channelKey: "rueisiang-xiaoxiang",
+      assistantKey: "rueisiang-xiaoxiang",
+      updatedBy: "test",
+      enabled: true,
+    });
+    await db().insert(assistantLineGroups).values({
+      id: "line-vpc-rollout-group",
+      channelKey: "rueisiang-xiaoxiang",
+      lineGroupId: "line-vpc-rollout-user",
+      sourceType: "user",
+      enabled: true,
+    });
+    env.PI_OPENAI_CODEX_EGRESS_MODE = "vpc";
+    env.PI_OPENAI_CODEX_RELAY_URL = "https://relay.example.test";
+    env.PI_OPENAI_CODEX_RELAY_TOKEN = "relay-test-token";
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({ fetch: async () => Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
+    };
+    const vpcRequests: Request[] = [];
+    env.CODEX_EGRESS = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        vpcRequests.push(new Request(input, init));
+        return asCodexStream({ candidates: [{ content: { parts: [{ text: "unexpected VPC response" }] } }] });
+      },
+    };
+    const relayFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      expect(String(input)).toBe("https://relay.example.test/codex/responses");
+      expect(new Headers(init?.headers).get("x-codex-relay-token")).toBe("relay-test-token");
+      return asCodexStream({
+        candidates: [{ content: { parts: [{ text: "LINE remains on the NAS relay." }] } }],
+        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+      });
+    });
+
+    const agent = assistantAgents!.getByName("rueisiang-xiaoxiang:rueisiang-xiaoxiang:user:line-vpc-rollout-user");
+    const response = await agent.fetch(new Request("https://assistant-agent.internal/run", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        assistantKey: "rueisiang-xiaoxiang",
+        channelKey: "rueisiang-xiaoxiang",
+        groupRowId: "line-vpc-rollout-group",
+        lineGroupId: "line-vpc-rollout-user",
+        sourceType: "user",
+        contextGeneration: "",
+        webhookEventId: "line-vpc-rollout-event",
+        runId: "line-vpc-rollout-run",
+        model: "gpt-6-luna",
+        systemPrompt: "你是 LINE 助理。",
+        userText: "測試 VPC rollout scope",
+        toolKeys: [],
+      }),
+    }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ result: { text: "LINE remains on the NAS relay." } });
+    expect(relayFetch).toHaveBeenCalledOnce();
+    expect(vpcRequests).toHaveLength(0);
   });
 
   it("LINE Pi Agent 首次使用會回填既有 D1 訊息，且排除目前 webhook", async () => {

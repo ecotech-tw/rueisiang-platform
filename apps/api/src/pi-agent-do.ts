@@ -12,6 +12,7 @@ import type {
   Api,
   AssistantMessage,
   Context,
+  FetchFunction,
   ImageContent,
   Model,
   Models,
@@ -56,6 +57,8 @@ import {
   PI_CODEX_PROVIDER_ID,
   isPiAssistantModel,
   piAssistantModel,
+  createPiCodexRelayFetch,
+  createPiCodexVPCFetch,
   type PiCodexRelayConfig,
   streamPiAssistantModelWithFallback,
 } from "./pi-agent-models.js";
@@ -868,6 +871,35 @@ export class AssistantChatAgent {
     return { baseUrl, token };
   }
 
+  private codexTransport(scope: "sandbox" | "line"): { mode: "vpc" | "relay" | "direct"; fetch?: FetchFunction } {
+    const configuredMode = this.env.PI_OPENAI_CODEX_EGRESS_MODE;
+    if (configuredMode === "vpc") {
+      // Phase 1 validates VPC through Sandbox only; keep production LINE traffic on its established relay.
+      if (scope === "line") {
+        const relay = this.codexRelay();
+        if (!relay) throw new Error("VPC rollout keeps LINE Codex traffic on NAS relay, but relay settings are incomplete.");
+        return { mode: "relay", fetch: createPiCodexRelayFetch(relay) };
+      }
+      const egress = this.env.CODEX_EGRESS;
+      if (!egress) throw new Error("Codex egress mode=vpc，但未綁定 CODEX_EGRESS VPC network。 ");
+      return {
+        mode: "vpc",
+        fetch: createPiCodexVPCFetch((input, init) => egress.fetch(input, init)),
+      };
+    }
+    if (configuredMode === "relay") {
+      const relay = this.codexRelay();
+      if (!relay) throw new Error("Codex egress mode=relay，但 NAS relay 設定不完整。 ");
+      return { mode: "relay", fetch: createPiCodexRelayFetch(relay) };
+    }
+    if (configuredMode !== undefined) throw new Error(`不支援的 Codex egress mode：${configuredMode}`);
+
+    const relay = this.codexRelay();
+    return relay
+      ? { mode: "relay", fetch: createPiCodexRelayFetch(relay) }
+      : { mode: "direct" };
+  }
+
   private streamModel(
     model: Model<Api>,
     context: Context,
@@ -875,6 +907,7 @@ export class AssistantChatAgent {
     diagnostics?: PiProviderExecutionDiagnostics,
     fallbackModel?: Model<Api>,
     privateHrRun?: () => boolean,
+    codexScope: "sandbox" | "line" = "sandbox",
   ) {
     const shared = {
       ...options,
@@ -901,11 +934,12 @@ export class AssistantChatAgent {
         ? { transport: "sse" as const, onPayload: payloadWithOutputLimit }
         : {}),
     });
+    const usesCodex = model.provider === PI_CODEX_PROVIDER_ID || fallbackModel?.provider === PI_CODEX_PROVIDER_ID;
+    const codexTransport = usesCodex ? this.codexTransport(codexScope) : undefined;
+    if (codexTransport) console.info("Pi Codex egress route", { mode: codexTransport.mode });
     const credentials = {
       resolveCodexAccessToken: async () => this.accessToken(),
-      codexRelay: model.provider === PI_CODEX_PROVIDER_ID || fallbackModel?.provider === PI_CODEX_PROVIDER_ID
-        ? this.codexRelay()
-        : undefined,
+      ...(codexTransport?.fetch ? { codexFetch: codexTransport.fetch } : {}),
       geminiApiKey: this.env.GEMINI_API_KEY,
     };
     return streamPiAssistantModelWithFallback(
@@ -927,13 +961,13 @@ export class AssistantChatAgent {
   }
 
   /** Pi compaction 只需要 Models.completeSimple；同一段 session 換 provider 後也由當下 model 建摘要。 */
-  private summaryModels(diagnostics?: PiProviderExecutionDiagnostics): Models {
+  private summaryModels(diagnostics?: PiProviderExecutionDiagnostics, codexScope: "sandbox" | "line" = "sandbox"): Models {
     return {
       completeSimple: async (model, context, options) => this.streamModel(model, context, {
         ...options,
         timeoutMs: COMPACTION_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
-      }, diagnostics, undefined, () => this.masksErrors()).result(),
+      }, diagnostics, undefined, () => this.masksErrors(), codexScope).result(),
     } as Models;
   }
 
@@ -1268,7 +1302,7 @@ export class AssistantChatAgent {
     const model = this.model(modelId);
     const summary = await generateSummaryWithUsage(
       toSummarize.map((row) => row.message),
-      this.summaryModels(diagnostics),
+      this.summaryModels(diagnostics, state.source_type === "sandbox" ? "sandbox" : "line"),
       model,
       4_096,
       "保留內部助理需要的確認事實、使用者意圖、決策、限制、未解問題與重要工具結果；使用繁體中文。",
@@ -1404,7 +1438,7 @@ export class AssistantChatAgent {
         timeoutMs: MODEL_REQUEST_TIMEOUT_MS,
         maxRetries: 0,
         maxTokens: MODEL_MAX_OUTPUT_TOKENS,
-      }, providerDiagnostics, fallbackModel, masked),
+      }, providerDiagnostics, fallbackModel, masked, isSandboxRunRequest(input) ? "sandbox" : "line"),
       sessionId: state.session_id,
       transport: "sse",
       maxRetryDelayMs: 1_000,
