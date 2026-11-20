@@ -22,6 +22,7 @@ import {
 } from "@rueisiang/db";
 import { can } from "@rueisiang/auth";
 import { isReportPlatform } from "@rueisiang/db/report-platforms";
+import { STORE_LOCATOR_PIN_BOUNDS } from "@rueisiang/db/store-locator-coordinates";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -507,7 +508,8 @@ function scopeFields(input: Record<string, unknown>, configurable: boolean) {
     if (!(key in input)) continue;
     const value = input[key];
     if (value !== null && (typeof value !== "number" || !Number.isFinite(value))) throw new HTTPException(400, { message: "地圖圖釘座標格式不正確。" });
-    if (typeof value === "number" && (key.endsWith("PinX") ? value < 475 || value > 840 : value < 245 || value > 960)) {
+    const bounds = key === "storeLocatorPinX" ? STORE_LOCATOR_PIN_BOUNDS.x : STORE_LOCATOR_PIN_BOUNDS.y;
+    if (typeof value === "number" && (value < bounds.min || value > bounds.max)) {
       throw new HTTPException(400, { message: "地圖圖釘座標超出 SVG 地圖範圍。" });
     }
     fields[key] = value as number | null;

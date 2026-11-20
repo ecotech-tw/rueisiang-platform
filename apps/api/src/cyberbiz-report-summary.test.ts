@@ -412,6 +412,20 @@ describe("報表統計 API", () => {
     );
     expect(invalidImageUrl.status).toBe(400);
 
+    const calibratedPin = await mutate(
+      `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`, "PATCH", admin,
+      "admin-scope-management@ecotech.tw", { storeLocatorPinX: 850, storeLocatorPinY: 300 },
+    );
+    expect(calibratedPin.status).toBe(200);
+    expect(await calibratedPin.json()).toMatchObject({ scope: { storeLocatorPinX: 850, storeLocatorPinY: 300 } });
+    for (const payload of [{ storeLocatorPinX: 881 }, { storeLocatorPinY: 961 }]) {
+      const outsidePin = await mutate(
+        `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`, "PATCH", admin,
+        "admin-scope-management@ecotech.tw", payload,
+      );
+      expect(outsidePin.status).toBe(400);
+    }
+
     const changedPlatform = await mutate(
       `/api/tools/scopes/${encodeURIComponent(createdBody.scope.id)}`,
       "PATCH",

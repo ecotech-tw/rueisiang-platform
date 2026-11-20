@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { REPORT_PLATFORM_OPTIONS, reportPlatformLabel } from "@rueisiang/db/report-platforms";
+import { projectStoreLocatorPin, STORE_LOCATOR_PIN_BOUNDS } from "@rueisiang/db/store-locator-coordinates";
 import { useArchiveScope, useSaveScope, useScopes, useSearchScopePlaces, type GoogleMapPlace, type ManagementScope } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useSession } from "../../auth/session.js";
@@ -82,18 +83,6 @@ function validImageUrl(value: string): boolean {
   }
 }
 
-const STORE_LOCATOR_GEO_BOUNDS = { lonMin: 120, lonMax: 122.1, latMin: 21.9, latMax: 25.3 };
-
-function calculateStoreLocatorPin(longitude: number, latitude: number) {
-  const { lonMin, lonMax, latMin, latMax } = STORE_LOCATOR_GEO_BOUNDS;
-  if (!Number.isFinite(longitude) || !Number.isFinite(latitude)
-    || longitude < lonMin || longitude > lonMax || latitude < latMin || latitude > latMax) return null;
-  return {
-    x: 475 + ((longitude - lonMin) / (lonMax - lonMin)) * 365,
-    y: 245 + ((latMax - latitude) / (latMax - latMin)) * 715,
-  };
-}
-
 function ScopeDialog({
   scope,
   canConfigure,
@@ -136,7 +125,7 @@ function ScopeDialog({
   const save = useSaveScope();
   const toast = useToast();
   const selectedImage = mediaImages.data?.images.find((image) => image.id === storeDetails.imageId);
-  const selectedPin = selectedPlace ? calculateStoreLocatorPin(selectedPlace.longitude, selectedPlace.latitude) : null;
+  const selectedPin = selectedPlace ? projectStoreLocatorPin(selectedPlace.longitude, selectedPlace.latitude) : null;
   const imageUrlIsValid = imageSource !== "url" || validImageUrl(storeDetails.imageUrl);
   const valid = name.trim() !== "" && imageUrlIsValid;
   const sourceOptions = REPORT_PLATFORM_OPTIONS.some((option) => option.value === sourceType)
@@ -157,7 +146,7 @@ function ScopeDialog({
   function selectPlace(place: GoogleMapPlace) {
     setSelectedPlace(place);
     setPlaceQuery(place.name);
-    const pin = calculateStoreLocatorPin(place.longitude, place.latitude);
+    const pin = projectStoreLocatorPin(place.longitude, place.latitude);
     setStoreDetails((current) => ({
       ...current,
       address: place.address,
@@ -281,7 +270,7 @@ function ScopeDialog({
         <section className="mt-5 grid gap-4 border-t border-subtle pt-4" aria-label="官網據點資料">
           <div>
             <h3 className="m-0 text-sm font-semibold text-ink">官網據點資料</h3>
-            <p className="mt-1 text-xs text-muted">櫃點且營業中、地址與地圖位置完整時才會公開。圖釘位置是台灣 SVG 的 X/Y，非經緯度。</p>
+            <p className="mt-1 text-xs text-muted">櫃點且營業中、地址與地圖位置完整時才會公開。圖釘位置是台灣 SVG 的 X/Y，非經緯度；已存位置不會自動重算，請重新選取地點並儲存以更新。</p>
           </div>
           <div className="grid gap-3">
             <div>
@@ -327,7 +316,7 @@ function ScopeDialog({
                   <output role="status" className="border-t border-soft-line pt-2 text-xs tabular-nums text-muted">X/Y 換算結果：X {selectedPin.x.toFixed(1)} · Y {selectedPin.y.toFixed(1)}（已自動帶入）</output>
                 ) : <p className="m-0 text-xs text-muted">此座標超出台灣圖示的試算範圍，請手動設定 X/Y。</p>}
                 {!countyFromAddress(selectedPlace.address) ? <p className="m-0 text-xs text-muted">無法從此地址辨識縣市，請在下方選擇。</p> : null}
-                <p className="m-0 text-[11px] text-muted">換算範圍：經度 120–122.1、緯度 21.9–25.3；可在下方微調 X/Y，按儲存才會保存。</p>
+                <p className="m-0 text-[11px] text-muted">依底圖的 Mercator 投影校準換算；可在下方微調 X/Y，按儲存才會保存。</p>
               </div>
             ) : null}
             {storeDetails.address.trim() ? <ButtonLink variant="secondary" icon="external" href={googleMapsSearchUrl(storeDetails.address)} target="_blank" rel="noopener noreferrer">在 Google Maps 搜尋已填地址</ButtonLink> : null}
@@ -424,8 +413,8 @@ function ScopeDialog({
             </div>
           )}
           <FieldGrid columns={2}>
-            <TextField label="台灣地圖 X" type="number" min="475" max="840" step="0.1" value={storeDetails.pinX} onChange={(event) => setStoreDetails((current) => ({ ...current, pinX: event.target.value }))} hint="SVG viewBox X：475–840" />
-            <TextField label="台灣地圖 Y" type="number" min="245" max="960" step="0.1" value={storeDetails.pinY} onChange={(event) => setStoreDetails((current) => ({ ...current, pinY: event.target.value }))} hint="SVG viewBox Y：245–960" />
+            <TextField label="台灣地圖 X" type="number" min={STORE_LOCATOR_PIN_BOUNDS.x.min} max={STORE_LOCATOR_PIN_BOUNDS.x.max} step="0.1" value={storeDetails.pinX} onChange={(event) => setStoreDetails((current) => ({ ...current, pinX: event.target.value }))} hint={`SVG X：${STORE_LOCATOR_PIN_BOUNDS.x.min}–${STORE_LOCATOR_PIN_BOUNDS.x.max}`} />
+            <TextField label="台灣地圖 Y" type="number" min={STORE_LOCATOR_PIN_BOUNDS.y.min} max={STORE_LOCATOR_PIN_BOUNDS.y.max} step="0.1" value={storeDetails.pinY} onChange={(event) => setStoreDetails((current) => ({ ...current, pinY: event.target.value }))} hint={`SVG Y：${STORE_LOCATOR_PIN_BOUNDS.y.min}–${STORE_LOCATOR_PIN_BOUNDS.y.max}`} />
           </FieldGrid>
 
         </section>
