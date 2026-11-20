@@ -28,6 +28,12 @@ export function TableSelectAllLabel({ children }: { children: ReactNode }) {
   return <label className="inline-flex cursor-pointer items-center gap-2">{children}</label>;
 }
 
+/*
+ * 勾選的列：桌機整列的格子上色。手機一列是一張卡片、格子寬度不一，照樣替格子上色會變成一條一條的斑馬紋，
+ * 所以改成整張卡片疊一層同樣的品牌色（疊在卡片原本的底色上，不是換掉它）。
+ */
+const SELECTED_ROW = "min-[761px]:[&_tr.selected_td]:bg-brand/8 max-[760px]:[&_tr.selected]:bg-linear-to-r max-[760px]:[&_tr.selected]:from-brand/8 max-[760px]:[&_tr.selected]:to-brand/8";
+
 const SELECT_COLUMN_FOCUS = "[&_tr>:first-child_input:focus-visible]:outline-2 [&_tr>:first-child_input:focus-visible]:outline-offset-2 [&_tr>:first-child_input:focus-visible]:outline-secondary";
 
 /*
@@ -39,8 +45,8 @@ const SELECT_COLUMN_FOCUS = "[&_tr>:first-child_input:focus-visible]:outline-2 [
  *   右邊照 DataTable 的標題讓出 84px 給操作鈕。桌機欄寬 48px，勾選框靠格子裡的 40px 點擊區置中。
  */
 export const TABLE_SELECT_COLUMN = {
-  inline: `[&_tr>:first-child]:text-center min-[761px]:[&_tr>:first-child]:w-16 min-[761px]:[&_tr>:first-child]:min-w-16 min-[761px]:[&_tr>:first-child]:p-0 min-[761px]:[&_tr>:first-child>input]:block min-[761px]:[&_tr>:first-child>input]:mx-auto max-[760px]:[&_tr>:first-child]:px-2.5 ${SELECT_COLUMN_FOCUS}`,
-  corner: `[&_tr>:first-child]:text-center [&_tr>:first-child]:w-12 min-[761px]:[&_tr>:first-child]:min-w-12 min-[761px]:[&_tr>:first-child]:p-0 ${SELECT_COLUMN_FOCUS} max-[760px]:[&_tbody_tr>td:first-child]:absolute max-[760px]:[&_tbody_tr>td:first-child]:top-2 max-[760px]:[&_tbody_tr>td:first-child]:left-2 max-[760px]:[&_tbody_tr>td:first-child]:block max-[760px]:[&_tbody_tr>td:first-child]:w-10 max-[760px]:[&_tbody_tr>td:first-child]:min-w-10 max-[760px]:[&_tbody_tr>td:first-child]:p-0 max-[760px]:[&_tbody_tr>td:first-child]:border-0 max-[760px]:[&_tbody_tr>td:first-child]:m-0 max-[760px]:[&_tbody_tr>td:nth-child(2)]:order-1 max-[760px]:[&_tbody_tr>td:nth-child(2)]:block max-[760px]:[&_tbody_tr>td:nth-child(2)]:w-full max-[760px]:[&_tbody_tr>td:nth-child(2)]:pt-0 max-[760px]:[&_tbody_tr>td:nth-child(2)]:pr-[84px] max-[760px]:[&_tbody_tr>td:nth-child(2)]:pb-2 max-[760px]:[&_tbody_tr>td:nth-child(2)]:pl-12 max-[760px]:[&_tbody_tr>td:nth-child(2)]:mb-1.5 max-[760px]:[&_tbody_tr>td:nth-child(2)]:border-b max-[760px]:[&_tbody_tr>td:nth-child(2)]:border-soft-line max-[760px]:[&_tbody_tr>td:nth-child(2)]:before:hidden`,
+  inline: `[&_tr>:first-child]:text-center min-[761px]:[&_tr>:first-child]:w-16 min-[761px]:[&_tr>:first-child]:min-w-16 min-[761px]:[&_tr>:first-child]:p-0 min-[761px]:[&_tr>:first-child>input]:block min-[761px]:[&_tr>:first-child>input]:mx-auto max-[760px]:[&_tr>:first-child]:px-2.5 ${SELECT_COLUMN_FOCUS} ${SELECTED_ROW}`,
+  corner: `[&_tr>:first-child]:text-center [&_tr>:first-child]:w-12 min-[761px]:[&_tr>:first-child]:min-w-12 min-[761px]:[&_tr>:first-child]:p-0 ${SELECT_COLUMN_FOCUS} ${SELECTED_ROW} max-[760px]:[&_tbody_tr>td:first-child]:absolute max-[760px]:[&_tbody_tr>td:first-child]:top-2 max-[760px]:[&_tbody_tr>td:first-child]:left-2 max-[760px]:[&_tbody_tr>td:first-child]:block max-[760px]:[&_tbody_tr>td:first-child]:w-10 max-[760px]:[&_tbody_tr>td:first-child]:min-w-10 max-[760px]:[&_tbody_tr>td:first-child]:p-0 max-[760px]:[&_tbody_tr>td:first-child]:border-0 max-[760px]:[&_tbody_tr>td:first-child]:m-0 max-[760px]:[&_tbody_tr>td:nth-child(2)]:order-1 max-[760px]:[&_tbody_tr>td:nth-child(2)]:block max-[760px]:[&_tbody_tr>td:nth-child(2)]:w-full max-[760px]:[&_tbody_tr>td:nth-child(2)]:pt-0 max-[760px]:[&_tbody_tr>td:nth-child(2)]:pr-[84px] max-[760px]:[&_tbody_tr>td:nth-child(2)]:pb-2 max-[760px]:[&_tbody_tr>td:nth-child(2)]:pl-12 max-[760px]:[&_tbody_tr>td:nth-child(2)]:mb-1.5 max-[760px]:[&_tbody_tr>td:nth-child(2)]:border-b max-[760px]:[&_tbody_tr>td:nth-child(2)]:border-soft-line max-[760px]:[&_tbody_tr>td:nth-child(2)]:before:hidden`,
 } as const;
 
 /*

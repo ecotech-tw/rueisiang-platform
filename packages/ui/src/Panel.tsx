@@ -116,7 +116,7 @@ interface PageHeaderProps {
 }
 
 /**
- * 頁面層級的標題；有 actions 時切成左右兩欄。手機上標題縮小、跟下面隔 12px，
+ * 頁面層級的標題；有 actions 時切成左右兩欄，放不下就讓動作鈕換到下一行靠右。手機上標題縮小、跟下面隔 12px，
  * 動作鈕與標題垂直置中（標題變一行，置中才不會看起來掉下去）。
  */
 export function PageHeader({ title, description, actions, className = "" }: PageHeaderProps) {
