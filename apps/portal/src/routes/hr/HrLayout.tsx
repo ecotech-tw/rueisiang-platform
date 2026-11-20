@@ -1,7 +1,7 @@
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
-import { ButtonSkin, InputSkin, PageDescriptions, PanelSkin, TableSkin } from "../../ui/index.js";
+import { HrSkins } from "../../shell/HrSkins.js";
 import { GuardedNavLink } from "../../shell/UnsavedChanges.js";
 import { useSession } from "../../auth/session.js";
 import { Icon, type IconName } from "../../shell/icons.js";
@@ -176,7 +176,7 @@ export function HrLayout() {
     return () => observer.disconnect();
   }, [placeThumb]);
 
-  return <ButtonSkin skin="glass"><InputSkin skin="glass"><TableSkin skin="glass"><PanelSkin skin="glass"><PageDescriptions visible={false}><div data-hr-shell="" className={HR_SHELL}>
+  return <HrSkins><div data-hr-shell="" className={HR_SHELL}>
     <HrGlassDefs />
     <HrHeader>
       <HrBrand current={current} />
@@ -240,7 +240,7 @@ export function HrLayout() {
     <HrMain>
       <HrPageTransition><Outlet /></HrPageTransition>
     </HrMain>
-  </div></PageDescriptions></PanelSkin></TableSkin></InputSkin></ButtonSkin>;
+  </div></HrSkins>;
 }
 
 export function HrLanding() {

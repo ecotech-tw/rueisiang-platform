@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useResolvedPath, type NavLinkProps } from "react-router";
 import { Button, Dialog } from "../ui/index.js";
+import { isHrPath } from "./hr-transition.js";
+import { HrSkins } from "./HrSkins.js";
 
 /**
  * 「有未儲存的變更就先問一聲」。
@@ -127,9 +129,7 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
     setPending(null);
   };
 
-  return <UnsavedChangesContext.Provider value={{ isDirty, setDirty, confirmLeave, beginLeaving }}>
-    {children}
-    {pending ? <Dialog manageFocus
+  const dialog = pending ? <Dialog manageFocus
       title="還有未儲存的變更"
       onClose={() => answer(false)}
       closeLabel="留在這一頁"
@@ -141,7 +141,12 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
       {/* 講清楚捨棄的是什麼，不要只說「有未儲存的變更」——那句話沒有幫使用者做決定。 */}
       <p>{pending.message}</p>
       <p className="text-muted">離開之後這些變更就找不回來了。</p>
-    </Dialog> : null}
+    </Dialog> : null;
+
+  // 視窗掛在路由外，拿不到 HrLayout 給的皮膚；在 HRIS 頁面上要自己包一層，按鈕才會是玻璃的。
+  return <UnsavedChangesContext.Provider value={{ isDirty, setDirty, confirmLeave, beginLeaving }}>
+    {children}
+    {dialog && isHrPath(location.pathname) ? <HrSkins>{dialog}</HrSkins> : dialog}
   </UnsavedChangesContext.Provider>;
 }
 
