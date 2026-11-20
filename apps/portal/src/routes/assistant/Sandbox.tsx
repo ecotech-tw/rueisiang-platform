@@ -274,8 +274,12 @@ export function Sandbox() {
   }
 
   return (
-    // data-sandbox-page 讓外框整個不捲：設定欄與對話各自捲，送出列才能一直留在畫面上。
-    <Page className="flex h-full min-h-0 flex-col" data-sandbox-page="">
+    /*
+     * data-sandbox-page 讓外框整個不捲：設定欄與對話各自捲，送出列才能一直留在畫面上。
+     * 只在桌機這樣做：手機上兩欄疊成一欄，鎖住高度的話對話欄的 min-h-[620px] 會把設定欄擠到 0，
+     * 模型選擇與「儲存並套用到小香」整塊看不到也按不到；所以手機上整頁照內容長高、整頁捲。
+     */
+    <Page className="flex min-h-0 flex-col min-[760px]:h-full" data-sandbox-page="">
       <PageHeader
         className="flex-none mb-3"
         title="小香助理 Sandbox"
