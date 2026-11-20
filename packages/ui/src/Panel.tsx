@@ -124,7 +124,8 @@ export function PageHeader({ title, description, actions, className = "" }: Page
   // defaultUnless 只認開頭或空白後面的字，所以 "mb-" 對不到 "max-[760px]:mb-"，兩個斷點各算各的。
   const margin = `${defaultUnless(className, "mb-", "mb-0")} ${defaultUnless(className, "max-\\[760px\\]:mb-", "max-[760px]:mb-3")}`;
   const align = `${defaultUnless(className, "items-", "items-start")} ${defaultUnless(className, "max-\\[760px\\]:items-", "max-[760px]:items-center")}`;
-  const row = actions ? `flex justify-between gap-4 max-[760px]:gap-3 ${align} [&>:last-child]:flex-none` : "";
+  // 動作鈕不縮，標題最少留 12rem；放不下就讓動作鈕換到標題下一行靠右，不要把標題擠成一字一行（排班月曆有五顆鈕）。
+  const row = actions ? `flex flex-wrap justify-between gap-4 max-[760px]:gap-3 ${align} [&>:first-child]:min-w-[min(100%,12rem)] [&>:first-child]:flex-[1_1_0%] [&>:last-child]:ml-auto [&>:last-child]:flex-none` : "";
   return (
     // data-page-head 讓頁面版面認得出頁首（fills 頁裡不伸縮、返回列底下的距離）。
     <header data-page-head="" className={`${margin} ${row} ${className}`.replace(/\s+/g, " ").trim()}>
