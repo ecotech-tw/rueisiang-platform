@@ -230,6 +230,43 @@ workflow 檔名與 branch 可用 `CYBERBIZ_SALES_WORKFLOW_FILE`、`CYBERBIZ_SALE
 Google Drive 的 root 與各店別資料夾設定方式，沿用
 [`cyberbiz-reports` skill](../cyberbiz-reports/SKILL.md)。
 
+### 2.3.2 Codex NAS relay 與網路故障排查
+
+Codex 請求只有在 Worker 的 `PI_OPENAI_CODEX_RELAY_URL` 與
+`PI_OPENAI_CODEX_RELAY_TOKEN` 都有值時才會經 NAS relay；兩者都沒設定會直接連 ChatGPT backend，
+只設其中一項則會在送出前報設定錯誤。因此看到 GPT/Codex 模型名稱，不能單憑這點判定請求已走 NAS。
+URL 是 `apps/api/wrangler.toml` 的非機密變數；token 是 Worker secret，且必須與 NAS `.env` 的
+`CODEX_RELAY_TOKEN` 相同。勿將 token 放進 URL、log 或診斷訊息。
+
+資料路徑為 Worker → `PI_OPENAI_CODEX_RELAY_URL` 的 Cloudflare Tunnel hostname → Tunnel
+Public Hostname 設定的 origin → NAS 上的 relay `:8787` → `chatgpt.com`。Tunnel origin 必須填
+NAS **目前的 LAN IP**（例如 `http://<NAS LAN IP>:8787`），不是 PPPoE 公網 IP；Tunnel 由
+`cloudflared` 對外建立連線，通常不因 PPPoE 公網 IP 改變而需要修改 origin。NAS 的 LAN IP 若會變，
+在 LAN 路由器替 NAS 做 DHCP reservation。不要為 relay 開 router port forwarding。
+
+排查順序：
+
+1. 在 NAS 確認 relay 容器運作，並從 NAS 本機測 `http://127.0.0.1:8787/healthz`；從同網段另一台裝置再測
+   `http://<NAS LAN IP>:8787/healthz`。PowerShell 可用 `Invoke-RestMethod` 測 HTTP endpoint。
+2. 在 Cloudflare Zero Trust → **Networks → Tunnels → Public Hostnames** 確認 relay hostname 的 service
+   指向 `http://<目前 NAS LAN IP>:8787`。若 `cloudflared` 在獨立容器，`localhost` 指的是該容器本身，
+   不一定是 NAS 或 relay 容器；使用該容器實際可到達的 LAN IP 或共用 Docker network service name。
+3. Tunnel log 若出現 `Unable to reach the origin service`、`dial tcp <IP>:8787: connect: connection refused`，
+   表示請求已到 Cloudflare Tunnel，但 connector 連不到設定的 origin port；relay 程式尚未收到請求，
+   因此 NAS relay log 沒有新項目是預期結果。把 log 中的 IP 與 NAS 目前 LAN IP 比對，再檢查 origin、
+   容器狀態及 port mapping。這不是 PPPoE 公網 IP 變更的直接證據。
+4. 在 PowerShell 開啟 `https://<relay hostname>/healthz`，應回 `ok`；再送一筆 Codex 請求，確認 NAS relay
+   有 `POST /codex/responses` log，並核對 status、duration。Tunnel connector 顯示 live 只代表 connector
+   連上 Cloudflare，不代表 connector 到 origin 的連線正常。
+5. 若排查 PPPoE，分開記錄 NAS 的 LAN address、預設閘道與 NAS 實際公網出口；從 NAS 查公網出口並與 ISP
+   核發的固定 IP 比對。`TERMREQ`／`LCP terminated by peer` 只表示對端終止 PPP session，不能單獨證明是
+   AP、Hub 或某條支線造成。逐條隔離線路驗證前，不猜填 WAN 參數，也不要重設路由器。若用上游 DHCP 作備援，
+   先確認該 DHCP 上游本身可上網，並留意公網出口可能改變、導致固定 IP allowlist 不再匹配。
+
+QuickConnect hostname 不是通用 SSH tunnel。`ssh user@<QuickConnect hostname>` 連到 22 埠並收到 SSH banner，
+不代表該端點就是內網 NAS；可比較該連線與內網 NAS 的 SSH host-key fingerprint。除非經確認且有明確需求，
+不要把 SSH port 22 轉發到外網，也不要把 QuickConnect 密碼當成 NAS 的 SSH 密碼。
+
 ### 2.4 部署
 
 **這一步不能在這台開發機做**——Windows on ARM 沒有 `workerd` 執行檔。用 GitHub Actions：
