@@ -34,6 +34,9 @@ function pageWindow(current: number, total: number, size = 5): number[] {
   return Array.from({ length: size }, (_, index) => start + index);
 }
 
+// 跟 Tailwind 的 max-[620px] 同一條線（width < 620px）。不用範圍語法，舊版 LINE 內建瀏覽器不認得。
+const NARROW_QUERY = "not all and (min-width: 620px)";
+
 /**
  * 中間顯示幾顆頁碼。手機放不下 5 顆（連同前後四顆箭頭要 346px，而畫面只有 375px 且面板還有內距），
  * 縮成 3 顆。
@@ -42,11 +45,11 @@ function pageWindow(current: number, total: number, size = 5): number[] {
  */
 function useWindowSize(): number {
   const [size, setSize] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia("not all and (min-width: 620px)").matches ? 3 : 5,
+    typeof window !== "undefined" && window.matchMedia(NARROW_QUERY).matches ? 3 : 5,
   );
 
   useEffect(() => {
-    const query = window.matchMedia("not all and (min-width: 620px)");
+    const query = window.matchMedia(NARROW_QUERY);
     const update = () => setSize(query.matches ? 3 : 5);
     query.addEventListener("change", update);
     return () => query.removeEventListener("change", update);
