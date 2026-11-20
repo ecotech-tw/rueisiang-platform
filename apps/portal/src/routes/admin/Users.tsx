@@ -438,7 +438,7 @@ function UserRow({
           {user.assignments.length === 0 ? (
             <span className="text-[12px] text-muted">沒有任何角色</span>
           ) : (
-            <TagList className="mt-1">
+            <TagList className="min-[760px]:mt-1">
               {user.assignments.map((assignment) => (
                 <Tag subtle key={assignment.roleKey}>{assignment.roleName}</Tag>
               ))}
