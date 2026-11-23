@@ -55,11 +55,11 @@ export function Pager({
 
   return (
     /*
-     * 手機上整頁捲，分頁列黏在捲動區底端，翻到哪裡都看得到總筆數、換得了頁。黏住的那一條要矮：
-     * 收成一列，頁碼換成「目前／總頁數」，每頁筆數收起來（手機上照預設值）。背景帶撐到畫面兩側（--bleed）。
+     * 手機上整頁捲，列表面板（Panel grows）裡的分頁列黏在捲動區底端，翻到哪裡都看得到總筆數、換得了頁。黏住的那一條要矮：
+     * 收成一列，頁碼換成「目前／總頁數」，每頁筆數收起來（手機上照預設值）。背景帶撐到畫面兩側（--bleed）；一般面板裡不黏也不換底色，理由同 FilterToolbar。
      * 頁面有浮動新增鈕時，右側留出它的位置，鈕就嵌在這一列的右端。
      */
-    <div data-pager="" className={`flex items-center justify-between gap-3 border-t border-t-soft-line pt-3.5 max-[760px]:sticky max-[760px]:bottom-[calc(var(--page-pad-bottom,0px)*-1)] max-[760px]:z-4 max-[760px]:mx-[calc(var(--bleed,0px)*-1)] max-[760px]:gap-2 max-[760px]:bg-canvas/90 max-[760px]:px-[var(--bleed,0px)] max-[760px]:py-2 max-[760px]:[-webkit-backdrop-filter:blur(12px)] max-[760px]:[backdrop-filter:blur(12px)] max-[760px]:[body:has([data-fab])_&]:pr-[calc(var(--bleed,0px)+56px)] ${className}`.trim()}>
+    <div data-pager="" className={`flex items-center justify-between gap-3 border-t border-t-soft-line pt-3.5 max-[760px]:gap-2 max-[760px]:[[data-grows]_&]:sticky max-[760px]:[[data-grows]_&]:bottom-[calc(var(--page-pad-bottom,0px)*-1)] max-[760px]:[[data-grows]_&]:z-4 max-[760px]:[[data-grows]_&]:mx-[calc(var(--bleed,0px)*-1)] max-[760px]:[[data-grows]_&]:bg-canvas/90 max-[760px]:[[data-grows]_&]:px-[var(--bleed,0px)] max-[760px]:[[data-grows]_&]:py-2 max-[760px]:[[data-grows]_&]:[-webkit-backdrop-filter:blur(12px)] max-[760px]:[[data-grows]_&]:[backdrop-filter:blur(12px)] max-[760px]:[body:has([data-fab])_[data-grows]_&]:pr-[calc(var(--bleed,0px)+56px)] ${className}`.trim()}>
       <div className="flex min-w-0 items-center gap-3.5">
         <span className="truncate text-muted">{totalLabel}</span>
         <label className="flex items-center gap-1.5 text-[13px] text-muted max-[760px]:hidden">

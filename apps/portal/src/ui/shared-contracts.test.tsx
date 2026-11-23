@@ -240,7 +240,9 @@ describe("shared HRIS UI contracts", () => {
     expect(root).not.toBe("");
     expect(root).not.toMatch(/(^|\s)m[tbxy]?-/);
     // 手機上黏在捲動區底端，頁碼收成「目前／總頁數」。
-    expect(root).toContain("max-[760px]:sticky");
+    // 只在列表面板裡黏住；一般面板裡不黏也不換底色。
+    expect(root).toContain("max-[760px]:[[data-grows]_&amp;]:sticky");
+    expect(root).not.toMatch(/(^| )max-\[760px\]:sticky/);
     expect(markup).toContain("4 / 8");
   });
 
