@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
-import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input, InputSkin, PageHeader, SearchCombobox, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, Textarea, TextField, Tooltip } from "@rueisiang/ui";
+import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input, InputSkin, MobilePageTitle, PageHeader, SearchCombobox, SegmentedControl, SelectField, SelectionActionBar, StatusBadge, Textarea, TextField, Tooltip } from "@rueisiang/ui";
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable, TableSkin } from "./DataTable";
@@ -21,6 +21,19 @@ describe("shared HRIS UI contracts", () => {
     const desktopOnly = classes(renderToStaticMarkup(<PageHeader title="分析" className="mb-4" />));
     expect(desktopOnly).toEqual(expect.arrayContaining(["mb-4", "max-[760px]:mb-3"]));
     expect(desktopOnly).not.toContain("mb-0");
+  });
+
+  it("PageHeader 的浮動新增鈕：桌機排在動作鈕裡、手機收起；伺服器端不輸出 portal", () => {
+    const markup = renderToStaticMarkup(<PageHeader title="申請與審核" fab={<button type="button">新增申請</button>} />);
+    expect(markup).toContain('<span class="max-[760px]:hidden"><button type="button">新增申請</button></span>');
+    expect(markup).not.toContain("data-fab");
+  });
+
+  it("MobilePageTitle 關掉時，手機上 h1 只是看不見，仍在 DOM 裡", () => {
+    const hidden = renderToStaticMarkup(<MobilePageTitle visible={false}><PageHeader title="人員列表" /></MobilePageTitle>);
+    expect(hidden).toMatch(/<h1 class="[^"]*max-\[760px\]:sr-only[^"]*">人員列表<\/h1>/);
+    const shown = renderToStaticMarkup(<PageHeader title="人員列表" />);
+    expect(shown).not.toContain("sr-only");
   });
 
   it("PageHeader 的動作鈕放不下時換行，標題保留最小寬度，不會被擠成一字一行", () => {
@@ -223,7 +236,12 @@ describe("shared HRIS UI contracts", () => {
     expect(current).toContain("bg-brand-soft");
     expect(current).not.toContain("hover:");
     // 外距由呼叫端決定。
-    expect(markup.match(/^<div class="([^"]*)"/)?.[1]).not.toMatch(/(^|\s)m[tbxy]?-/);
+    const root = markup.match(/^<div data-pager="" class="([^"]*)"/)?.[1] ?? "";
+    expect(root).not.toBe("");
+    expect(root).not.toMatch(/(^|\s)m[tbxy]?-/);
+    // 手機上黏在捲動區底端，頁碼收成「目前／總頁數」。
+    expect(root).toContain("max-[760px]:sticky");
+    expect(markup).toContain("4 / 8");
   });
 
   it("renders sortable headers with shared sort contracts", () => {

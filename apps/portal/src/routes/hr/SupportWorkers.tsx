@@ -88,7 +88,7 @@ export function HrSupportWorkers() {
   const update = (patch: Partial<Filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
   return <Page layout="fills">
-    <PageHeader title="支援人員" description="管理可排班、可計薪但不屬於平台員工的外部人力；停用取代刪除，以保留歷史排班與薪資快照。" actions={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditing(null)}>新增支援人員</Button> : null} />
+    <PageHeader title="支援人員" description="管理可排班、可計薪但不屬於平台員工的外部人力；停用取代刪除，以保留歷史排班與薪資快照。" fab={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditing(null)}>新增支援人員</Button> : null} />
     <Panel grows>
       <FilterToolbar>
         <SearchFilterInput label="搜尋" placeholder="搜尋支援人員姓名" value={filters.search} onSearch={(search) => update({ search })} />

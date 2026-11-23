@@ -441,12 +441,12 @@ export function HrPayrollSettlement() {
   const payrollJobList = visiblePayrollJobs(payrollJobs.data?.jobs ?? []);
 
   return <Page layout="fills" className="hr-payroll-page">
-    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各自管理試算版本與發放狀態；可刪除未發放的單筆結果、撤回個人發放，並選取多筆一次處理。" actions={canCalculate ? <Button tone="success" mobileIconOnly icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
+    <PageHeader title="薪資發放紀錄" description="每位員工與支援人員各自管理試算版本與發放狀態；可刪除未發放的單筆結果、撤回個人發放，並選取多筆一次處理。" fab={canCalculate ? <Button tone="success" mobileIconOnly icon="plus" onClick={() => setShowCalculationDialog(true)}>新增試算</Button> : null} />
     {approvePayroll.error ? <Alert tone="danger">{approvePayroll.error.message}</Alert> : null}
     {payrollJobs.error ? <Alert tone="danger">薪資試算進度載入失敗：{payrollJobs.error.message}</Alert> : null}
     <PayrollJobProgress jobs={payrollJobList} onRetry={retryJob} canRetry={canCalculate} />
 
-    <Panel grows className="grid gap-3.5 max-[760px]:[[data-page=fills]>&]:overflow-visible">
+    <Panel grows className="grid gap-3.5">
       <FilterToolbar>
         <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} className="min-w-[130px] flex-[1_1_220px] max-[760px]:min-w-0 max-[760px]:basis-full" />
         <FilterInput label="薪資月份" type="month" className="min-w-[130px] flex-[1_1_150px] max-[760px]:basis-full" value={recordFilters.periodKey} onChange={(event) => updateRecordFilters({ periodKey: event.target.value })} />

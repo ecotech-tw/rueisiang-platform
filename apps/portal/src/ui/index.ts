@@ -10,7 +10,7 @@ export { FilterCount, FilterFields, FilterInput, FilterLabel, FilterSelect, SEAR
 export { Field, FieldGrid, FieldGroup, FieldHint, FieldNote, FORM_ROW_SPACING, FormRow, Input, InputSkin, SelectField, StaticValue, Textarea, TextField } from "./Field.js";
 export { Alert, FormHint, StatusBadge, type StatusTone } from "./Feedback.js";
 export { LoginButton, LoginCard, LoginDivider, LoginError, LoginForm, LoginNote, Page, PageSpacing, PageStatus, type PageLayout, type PageSpacingName } from "@rueisiang/ui";
-export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
+export { MobilePageTitle, PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
 export { PageTabControl, PageTabs } from "./PageTabs.js";
 export { REFRESHING } from "./refreshing.js";
 export { ReportSummary } from "./ReportSummary.js";

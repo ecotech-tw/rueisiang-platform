@@ -208,7 +208,7 @@ export function HrBonusManagement() {
   }
 
   return <Page layout="fills">
-    <PageHeader title="獎金管理" actions={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={openCreate}>新增獎金</Button> : undefined} />
+    <PageHeader title="獎金管理" fab={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={openCreate}>新增獎金</Button> : undefined} />
     {/*
       * 業績沒匯入時薪資試算會提醒，但那是算完才看得到。規則是在這一頁設定的，所以
       * 先在這裡講清楚錢從哪裡來——不然設完規則的人不會知道還有一份出金表要先跑。
