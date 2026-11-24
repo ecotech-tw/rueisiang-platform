@@ -198,7 +198,7 @@ function ScopeDialog({
             } : {}),
           }, {
             onSuccess: (result) => {
-              toast.show(result.publication?.pending ? "通路資料已儲存，官網發布待重試。" : scope ? `已更新「${name.trim()}」` : `已新增通路「${name.trim()}」`);
+              toast.show(result.publication?.revision === null ? "通路資料已儲存，官網發布狀態待確認。" : result.publication?.pending ? "通路資料已儲存，官網發布待重試。" : scope ? `已更新「${name.trim()}」` : `已新增通路「${name.trim()}」`);
               onClose();
             },
           });

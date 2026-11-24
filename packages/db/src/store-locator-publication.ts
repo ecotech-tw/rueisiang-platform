@@ -3,7 +3,7 @@ import type { Database } from "./client.js";
 import { storeLocatorPublication } from "./schema/reports.js";
 
 import type { StoreLocatorPublicationStatus } from "./store-locator-publication-fields.js";
-export type { StoreLocatorPublicationStatus } from "./store-locator-publication-fields.js";
+export type { StoreLocatorPublicationStatus, StoreLocatorPublicationResult } from "./store-locator-publication-fields.js";
 
 /** 與據點異動放在同一個 batch，避免存檔成功卻遺失重試工作。 */
 export function dirtyStoreLocatorPublication(db: Database) {
@@ -20,7 +20,7 @@ export async function getStoreLocatorPublication(db: Database): Promise<StoreLoc
   return {
     revision: row?.revision ?? 0, publishedRevision: row?.publishedRevision ?? 0,
     publishedAt: row?.publishedAt ?? null, error: row?.error ?? null,
-    pending: !row?.publishedAt || row.revision !== row.publishedRevision,
+    pending: Boolean(row?.error) || !row?.publishedAt || row.revision !== row.publishedRevision,
   };
 }
 

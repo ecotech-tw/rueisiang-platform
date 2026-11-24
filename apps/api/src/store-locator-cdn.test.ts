@@ -67,6 +67,90 @@ it("新增、編輯、停業、還原、封存、解除封存與資料不完整�
   expect((await mutate(route, "PATCH", { active: true })).status).toBe(200); expect((await snapshot()).stores[0]?.name).toBe("新名稱");
 });
 
+it.each(["CREATE", "PATCH", "archive"] as const)("%s 已提交後，發布的 D1 初始化／查詢／settle 失敗不會變成存檔失敗", async (operation) => {
+  for (const phase of ["init", "status", "settle", "readback", "error-settle"] as const) {
+    const scope = await add(`${operation}-${phase}`); await publish();
+    const originalPrepare = d1.prepare.bind(d1), originalBatch = d1.batch.bind(d1);
+    let committed = false, settled = false;
+    const prepare = vi.spyOn(d1, "prepare").mockImplementation((query) => {
+      const sql = query.toLowerCase();
+      if (committed && sql.includes("store_locator_publication")) {
+        const update = sql.startsWith("update");
+        if ((phase === "init" && sql.startsWith("insert"))
+          || (phase === "status" && sql.startsWith("select"))
+          || (["settle", "error-settle"].includes(phase) && update)
+          || (phase === "readback" && settled && sql.startsWith("select"))) throw new Error("private-token publication DB failure");
+        if (update) settled = true;
+      }
+      return originalPrepare(query);
+    });
+    const batch = vi.spyOn(d1, "batch").mockImplementation(async (statements) => {
+      const result = await originalBatch(statements); committed = true; return result;
+    });
+    if (phase === "error-settle") purge.mockResolvedValueOnce(Response.json({ success: false }, { status: 429 }));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const route = `/scopes/${encodeURIComponent(scope.id)}`;
+    const name = `已儲存-${operation}-${phase}`;
+    const response = operation === "CREATE" ? await mutate("/scopes", "POST", { name })
+      : operation === "PATCH" ? await mutate(route, "PATCH", { name })
+      : await mutate(`${route}/archive`, "POST");
+    prepare.mockRestore(); batch.mockRestore();
+    expect(response.status, `${operation}/${phase}`).toBe(operation === "CREATE" ? 201 : 200);
+    const body = await response.json() as { scope: { id: string }; publication: unknown };
+    expect(body.publication).toMatchObject({ revision: null, publishedRevision: null, publishedAt: null, pending: true, error: expect.stringContaining("狀態") });
+    expect(JSON.stringify(body)).not.toContain("private-token");
+    const saved = d1.sqlite.prepare("SELECT name, active, archived_at FROM scopes WHERE id=?").get(body.scope.id) as { name: string; active: number; archived_at: string | null };
+    if (operation === "archive") { expect(saved.active).toBe(0); expect(saved.archived_at).toBeTruthy(); }
+    else expect(saved.name).toBe(name);
+    await maintainStoreLocatorCdn(env());
+    expect((await getStoreLocatorPublication(db())).pending).toBe(false);
+  }
+});
+
+it("已發布版本強制重發後 purge 失敗仍為 pending，排程真的會重試", async () => {
+  await add(); const original = await publish();
+  purge.mockResolvedValueOnce(Response.json({ success: false }, { status: 429 }));
+  const failed = await publishStoreLocatorCdn(env(), db(), true);
+  expect(failed.revision).toBeGreaterThan(original.revision);
+  expect(failed.pending).toBe(true); expect(failed.error).toContain("重試");
+  expect((await getStoreLocatorPublication(db())).pending).toBe(true);
+  const count = purge.mock.calls.length;
+  await maintainStoreLocatorCdn(env());
+  expect(purge).toHaveBeenCalledTimes(count + 1);
+  expect(await getStoreLocatorPublication(db())).toMatchObject({ pending: false, error: null });
+});
+
+it("已保存的發布錯誤不能被相同的已發布版號掩蓋，排程仍會重試", async () => {
+  await add(); const original = await publish();
+  await settleStoreLocatorPublication(db(), original.revision, "purge 待重試");
+  expect(await getStoreLocatorPublication(db())).toMatchObject({ publishedRevision: original.revision, pending: true, error: "purge 待重試" });
+  const count = purge.mock.calls.length;
+  await maintainStoreLocatorCdn(env());
+  expect(purge).toHaveBeenCalledTimes(count + 1);
+  expect(await getStoreLocatorPublication(db())).toMatchObject({ pending: false, error: null });
+});
+
+it("已發布的快照遺失後重建也建立新版本，purge 失敗可排程重試", async () => {
+  await add(); const original = await publish(); await bucket.delete(KEY);
+  purge.mockResolvedValueOnce(Response.json({ success: false }, { status: 429 }));
+  const failed = await publish();
+  expect(failed.revision).toBeGreaterThan(original.revision); expect(failed.pending).toBe(true);
+  await maintainStoreLocatorCdn(env()); expect((await getStoreLocatorPublication(db())).pending).toBe(false);
+});
+
+it.each([false, true])("舊強制重發的較晚完成不會覆蓋新強制重發狀態（舊成功：%s）", async (oldSuccess) => {
+  await add(); await publish();
+  let entered!: () => void, release!: () => void;
+  const waiting = new Promise<void>(r => entered = r), gate = new Promise<void>(r => release = r);
+  purge.mockImplementationOnce(async () => { entered(); await gate; return Response.json({ success: oldSuccess }, { status: oldSuccess ? 200 : 429 }); })
+    .mockResolvedValueOnce(Response.json({ success: !oldSuccess }, { status: oldSuccess ? 429 : 200 }));
+  const older = publishStoreLocatorCdn(env(), db(), true); await waiting;
+  const latest = await publishStoreLocatorCdn(env(), db(), true); release(); await older;
+  expect(latest.pending).toBe(oldSuccess);
+  expect(await getStoreLocatorPublication(db())).toEqual(latest);
+  expect((await snapshot()).revision).toBe(latest.revision);
+});
+
 it("R2 寫入失敗保留最後快照，重開狀態仍可重試最新完整資料", async () => {
   const scope = await add(); await publish(); const original = await snapshot();
   await updateReportManagementScope(db(), { id: scope.id, name: "更名" });

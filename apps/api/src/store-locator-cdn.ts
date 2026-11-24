@@ -1,4 +1,4 @@
-import { buildPublicStoreLocator, createDatabase, ensureStoreLocatorPublication, getStoreLocatorPublication, settleStoreLocatorPublication, type Database } from "@rueisiang/db";
+import { buildPublicStoreLocator, createDatabase, dirtyStoreLocatorPublication, ensureStoreLocatorPublication, getStoreLocatorPublication, settleStoreLocatorPublication, type Database, type StoreLocatorPublicationResult } from "@rueisiang/db";
 import type { Env } from "./env.js";
 import { mediaCdnConfig, mediaCdnUrl, purgeMediaCdnTag, requireMediaCdnStorage } from "./media-cdn.js";
 
@@ -8,6 +8,8 @@ const CACHE_TAG = "store-locator";
 
 export async function publishStoreLocatorCdn(env: Env, db: Database, force = false) {
   await ensureStoreLocatorPublication(db);
+  // 強制重發也是新的發布世代，不能沿用已結案的版本或抹掉後一次重發的結果。
+  if (force) await dirtyStoreLocatorPublication(db);
   let revision = (await getStoreLocatorPublication(db)).revision;
   try {
     const bucket = requireMediaCdnStorage(env);
@@ -16,7 +18,11 @@ export async function publishStoreLocatorCdn(env: Env, db: Database, force = fal
       const current = await bucket.head(OBJECT_KEY);
       const status = await getStoreLocatorPublication(db);
       revision = status.revision;
-      if (!force && !status.pending && current) return status;
+      if (!status.pending) {
+        if (current) return status;
+        await dirtyStoreLocatorPublication(db);
+        continue;
+      }
       const snapshot = await buildPublicStoreLocator(db, (id) => mediaCdnUrl(env, id));
       if ((await getStoreLocatorPublication(db)).revision !== revision) continue;
       const written = await bucket.put(OBJECT_KEY, JSON.stringify({ revision, ...snapshot }), {
@@ -33,6 +39,19 @@ export async function publishStoreLocatorCdn(env: Env, db: Database, force = fal
     console.warn(JSON.stringify({ event: "store_locator.publish_pending", revision }));
     await settleStoreLocatorPublication(db, revision, "官網據點發布待重試；資料已儲存，系統也會定時重試。");
     return getStoreLocatorPublication(db);
+  }
+}
+
+/** 只能在通路已提交後呼叫；連發布狀態的 D1 存取故障也不能變成存檔失敗。 */
+export async function publishStoreLocatorAfterSave(env: Env, db: Database): Promise<StoreLocatorPublicationResult> {
+  try {
+    return await publishStoreLocatorCdn(env, db);
+  } catch {
+    console.warn(JSON.stringify({ event: "store_locator.publish_status_unknown" }));
+    return {
+      revision: null, publishedRevision: null, publishedAt: null, pending: true,
+      error: "通路資料已儲存，但官網發布狀態暫時無法確認；請稍後重新查詢或重試。",
+    };
   }
 }
 

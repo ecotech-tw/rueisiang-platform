@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { StoreLocatorPublicationStatus } from "@rueisiang/db/store-locator-publication-fields";
+import type { StoreLocatorPublicationStatus, StoreLocatorPublicationResult } from "@rueisiang/db/store-locator-publication-fields";
 
 interface PayoutStoreSummary {
   name: string;
@@ -375,7 +375,7 @@ export function usePublishStoreLocator() {
   });
 }
 
-interface ScopeMutationResult { scope: ManagementScope; publication: StoreLocatorPublicationStatus }
+interface ScopeMutationResult { scope: ManagementScope; publication: StoreLocatorPublicationResult }
 
 export function useSaveScope() {
   const client = useQueryClient();

@@ -9,7 +9,8 @@ import type { GoogleMapPlace, ManagementScope } from "./api.js";
 import type { StoreLocatorPublicationStatus } from "@rueisiang/db/store-locator-publication-fields";
 
 vi.mock("../../auth/session.js", () => ({ useSession: () => ({ permissions: new Set(["reports:cyberbiz:write"]) }) }));
-vi.mock("../../shell/Toast.js", () => ({ useToast: () => ({ show: vi.fn() }) }));
+const toastShow = vi.hoisted(() => vi.fn());
+vi.mock("../../shell/Toast.js", () => ({ useToast: () => ({ show: toastShow }) }));
 vi.mock("../../shell/usePageTitle.js", () => ({ usePageTitle: vi.fn() }));
 
 const scope: ManagementScope = {
@@ -26,6 +27,7 @@ let publication: StoreLocatorPublicationStatus;
 let publishGate: Promise<void> | undefined;
 let publishFailure: boolean;
 let savePublishFailure: boolean;
+let savePublicationUnknown: boolean;
 let publishCount: number;
 let writes: Record<string, unknown>[];
 let client: QueryClient;
@@ -62,12 +64,14 @@ beforeEach(() => {
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   places = [{ ...place }]; writes = [];
   publication = { revision: 1, publishedRevision: 1, publishedAt: "2026-11-24T00:00:00Z", error: null, pending: false };
-  publishGate = undefined; publishFailure = false; savePublishFailure = false; publishCount = 0;
+  publishGate = undefined; publishFailure = false; savePublishFailure = false; savePublicationUnknown = false; publishCount = 0;
+  toastShow.mockClear();
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === "PATCH") {
       writes.push(JSON.parse(String(init.body)));
+      if (savePublicationUnknown) return Response.json({ scope, publication: { revision: null, publishedRevision: null, publishedAt: null, pending: true, error: "通路資料已儲存，但官網發布狀態暫時無法確認。" } });
       if (savePublishFailure) publication = { ...publication, revision: 2, pending: true, error: "官網據點發布待重試；資料已儲存。" };
       return Response.json({ scope, publication });
     }
@@ -158,4 +162,12 @@ it("通路儲存成功但 CDN 發布失敗，關閉表單後仍顯示待重試",
   expect(writes).toHaveLength(1); expect(document.querySelector('[role="dialog"]')).toBeNull();
   expect(document.body.textContent).toContain("官網據點發布待重試；資料已儲存");
   expect(button("重試發布據點")).toBeTruthy();
+});
+
+it("已儲存但無法確認發布狀態時關閉表單，不能誤報儲存失敗或官網已發布", async () => {
+  savePublicationUnknown = true;
+  await openDialog(); await click(button("儲存"));
+  expect(writes).toHaveLength(1); expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(toastShow).toHaveBeenCalledWith("通路資料已儲存，官網發布狀態待確認。");
+  expect(toastShow).not.toHaveBeenCalledWith(expect.stringContaining("官網據點已發布"));
 });
