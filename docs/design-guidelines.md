@@ -49,7 +49,7 @@ app `ui/*.tsx` 裡 re-export 共用元件的檔案是刻意保留的相容性入
 | 需求 | 必須使用 |
 |---|---|
 | 一般動作、危險動作、圖示動作、文字動作、loading | `packages/ui` 的 `Button`：`variant` 選種類、`tone` 選語意色（`brand`／`success`／`info`／`danger`）、`size="lg"` 是 44px 高度（手機動作列、跟輸入框同列）、`active` 是 secondary 的開啟狀態、`mobileIconOnly` 讓頁首新增鈕在手機收成圓形圖示鈕；外觀寫在元件內，`className` 只給版面用 |
-| HRIS 管理介面的玻璃樣式按鈕 | 同一個 `Button`，由外層的 `<ButtonSkin skin="glass">` 決定皮膚（`HrLayout` 已包好）；頁面不必也不可以自己指定。皮膚用 context 傳，portal 出去的對話框也跟得到。輸入框、表格、面板同理，用 `InputSkin`、`TableSkin`、`PanelSkin` |
+| portal 的玻璃樣式按鈕 | 同一個 `Button`，由外層的 `<ButtonSkin skin="glass">` 決定皮膚（`AppShell` 用 `shell/GlassSkins` 替所有模組包好）；頁面不必也不可以自己指定。皮膚用 context 傳，portal 出去的對話框也跟得到。輸入框、表格、面板同理，用 `InputSkin`、`TableSkin`、`PanelSkin` |
 | 按鈕放在有底色的區塊或圖片上 | 外層包 `<ButtonSkin skin="paper">`，透明底的 secondary／icon 會改成紙色底 |
 | 浮在地圖這類內容上的按鈕 | 外層包 `<ButtonSkin skin="floating">`，紙色底再加陰影 |
 | 長得像按鈕、但會換頁的連結 | `ButtonLink`（輸出 `<a>`），不要在 `<a>` 上寫按鈕的 class |
@@ -71,7 +71,7 @@ app `ui/*.tsx` 裡 re-export 共用元件的檔案是刻意保留的相容性入
 
 ### Button
 
-- `primary`：完成、建立、送出等主要動作。**預設 `tone="brand"` 的 `primary` 顏色隨皮膚不同**：HRIS 管理介面（`glass` 皮膚）是資訊藍，員工 HR 站與其他頁面（`solid`）是品牌紅。品牌紅與 `danger` 的深紅只差一點深淺，所以 `solid` 皮膚底下不可以把預設 tone 的 `primary` 跟 `danger` 並排——給 `primary` 一個語意 tone。
+- `primary`：完成、建立、送出等主要動作。**預設 `tone="brand"` 的 `primary` 顏色隨皮膚不同**：portal（`glass` 皮膚）是資訊藍，員工 HR 站（`solid`）是品牌紅。portal 的新增鈕用 `tone="success"`（綠）。品牌紅與 `danger` 的深紅只差一點深淺，所以 `solid` 皮膚底下不可以把預設 tone 的 `primary` 跟 `danger` 並排——給 `primary` 一個語意 tone。
 - `secondary`：取消、返回、次要導覽或不具破壞性的輔助動作。
 - `danger`：刪除、撤回、停用等不可逆或高風險動作。等同 `primary` 加 `tone="danger"`。
 - `icon`：表格列操作或純圖示控制；一定要有 `aria-label`，需要說明時包 `Tooltip`。

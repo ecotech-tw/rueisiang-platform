@@ -126,8 +126,8 @@ export function Roles() {
             管理員角色受系統保護，其餘角色都能自訂、調整與刪除，再指派給同仁。
           </>
         }
-        actions={<Button onClick={() => setEditor(blankEditor())}>
-          ＋ 新增角色
+        actions={<Button icon="plus" tone="success" onClick={() => setEditor(blankEditor())}>
+          新增角色
         </Button>}
       />
 

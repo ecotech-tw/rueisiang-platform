@@ -11,7 +11,7 @@ export type TableSkinName = "solid" | "glass";
 
 const TableSkinContext = createContext<TableSkinName>("solid");
 
-/** 釘住的表頭要用哪一種底，跟 ButtonSkin、InputSkin 一樣由外層決定。HRIS 用 glass。 */
+/** 釘住的表頭要用哪一種底，跟 ButtonSkin、InputSkin 一樣由外層決定。portal 用 glass，員工 HR 站用 solid。 */
 export function TableSkin({ skin, children }: { skin: TableSkinName; children: ReactNode }) {
   return <TableSkinContext value={skin}>{children}</TableSkinContext>;
 }

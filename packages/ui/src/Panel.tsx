@@ -6,7 +6,7 @@ export type PanelSkinName = "solid" | "glass";
 
 const PanelSkinContext = createContext<PanelSkinName>("solid");
 
-/** 面板的表面，跟 ButtonSkin、InputSkin、TableSkin 一樣由外層決定。HRIS 用 glass。 */
+/** 面板的表面，跟 ButtonSkin、InputSkin、TableSkin 一樣由外層決定。portal 用 glass，員工 HR 站用 solid。 */
 export function PanelSkin({ skin, children }: { skin: PanelSkinName; children: ReactNode }) {
   return <PanelSkinContext value={skin}>{children}</PanelSkinContext>;
 }

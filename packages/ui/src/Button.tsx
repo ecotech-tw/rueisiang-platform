@@ -11,7 +11,7 @@ const ButtonSkinContext = createContext<ButtonSkinName>("solid");
 
 /**
  * 這個範圍裡的按鈕換一層皮膚：
- * - glass：HRIS 管理介面的半透明玻璃樣式。
+ * - glass：portal 的半透明玻璃樣式（AppShell 替所有模組包好）。
  * - paper：按鈕放在有底色的區塊或圖片上，透明底的 secondary／icon 改成紙色底才看得清楚。
  * - floating：浮在地圖這類內容上面，紙色底再加陰影。
  * 用 context 而不是祖先選擇器：皮膚的每一條樣式仍然寫在 Button 裡，portal 出去的對話框也跟得到。

@@ -310,7 +310,7 @@ export function Inventory() {
           </Button>
         ) : null}
         fab={canWrite ? (
-          <Button icon="plus" mobileIconOnly onClick={() => setAdding(true)}>
+          <Button icon="plus" tone="success" mobileIconOnly onClick={() => setAdding(true)}>
             新增入庫
           </Button>
         ) : null}

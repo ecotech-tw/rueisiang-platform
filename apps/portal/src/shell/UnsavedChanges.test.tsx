@@ -32,11 +32,8 @@ async function openDialogAt(path: string) {
 }
 
 describe("未儲存變更的確認視窗", () => {
-  it("在 HRIS 頁面上跟其他 HRIS 按鈕一樣是玻璃皮膚", async () => {
-    expect(await openDialogAt("/hr/scheduling")).toContain("backdrop-filter");
-  });
-
-  it("在其他頁面維持預設的實色皮膚", async () => {
-    expect(await openDialogAt("/crm/customers")).not.toContain("backdrop-filter");
+  // 視窗掛在路由外，拿不到 AppShell 的皮膚；全平台統一玻璃之後，每個模組都要跟頁面上的按鈕一樣是玻璃的。
+  it.each(["/hr/scheduling", "/crm/customers", "/wms/inventory"])("在 %s 跟頁面上的按鈕一樣是玻璃皮膚", async (path) => {
+    expect(await openDialogAt(path)).toContain("backdrop-filter");
   });
 });

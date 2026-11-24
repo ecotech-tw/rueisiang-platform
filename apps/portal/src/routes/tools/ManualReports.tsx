@@ -915,6 +915,7 @@ export function ManualReports() {
               <Button variant="secondary" icon="attachment" className="max-[620px]:flex-[1_1_0]" disabled={busy} onClick={() => setImportDialog({ kind })}>匯入報表</Button>
               <Button
                 icon="plus"
+                tone="success"
                 className="whitespace-nowrap max-[620px]:flex-[1_1_0] max-[620px]:justify-center"
                 disabled={!scopes.length || busy}
                 onClick={() => setDialog({ kind })}

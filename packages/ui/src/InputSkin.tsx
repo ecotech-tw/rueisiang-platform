@@ -7,7 +7,7 @@ const InputSkinContext = createContext<InputSkinName>("solid");
 /**
  * 輸入框與下拉的整體風格，跟 ButtonSkin 一樣由外層決定，不靠祖先 class 從外面蓋。
  * - solid：預設的實心底。
- * - glass：HRIS 管理介面的半透明玻璃；只套在日期類欄位、下拉按鈕與彈出選單，文字欄位維持實心才讀得清楚。
+ * - glass：portal 的半透明玻璃（AppShell 替所有模組包好）；只套在日期類欄位、下拉按鈕與彈出選單，文字欄位維持實心才讀得清楚。
  */
 export function InputSkin({ skin, children }: { skin: InputSkinName; children: ReactNode }) {
   return <InputSkinContext value={skin}>{children}</InputSkinContext>;
