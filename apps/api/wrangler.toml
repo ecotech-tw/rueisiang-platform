@@ -82,7 +82,7 @@ class_name = "AssistantCredentialVault"
 name = "PAYROLL_RUN_AGENT"
 class_name = "PayrollRunAgent"
 
-# Phase 1 只讓 Sandbox Codex 經 Cloudflare Gateway；LINE 保持 NAS relay，mode=relay 可讓兩者都回退。
+# VPC mode 讓 Sandbox 與 LINE Codex 都經 Cloudflare Gateway；mode=relay 可讓兩者切回 NAS。
 [[vpc_networks]]
 binding = "CODEX_EGRESS"
 network_id = "cf1:network"

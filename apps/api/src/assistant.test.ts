@@ -887,7 +887,7 @@ describe("AI 助理 Sandbox", () => {
     });
   });
 
-  it("VPC rollout keeps LINE Codex inference on NAS relay while Sandbox validates VPC", async () => {
+  it("VPC 模式下 LINE Codex 請求也經 VPC，不走 NAS Relay", async () => {
     await db().insert(assistantLineChannels).values({
       channelKey: "rueisiang-xiaoxiang",
       assistantKey: "rueisiang-xiaoxiang",
@@ -910,17 +910,16 @@ describe("AI 助理 Sandbox", () => {
     const vpcRequests: Request[] = [];
     env.CODEX_EGRESS = {
       fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
-        vpcRequests.push(new Request(input, init));
-        return asCodexStream({ candidates: [{ content: { parts: [{ text: "unexpected VPC response" }] } }] });
+        const request = new Request(input, init);
+        vpcRequests.push(request.clone());
+        return asCodexStream({
+          candidates: [{ content: { parts: [{ text: "LINE 經 VPC 完成 Codex 推論。" }] } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        });
       },
     };
-    const relayFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      expect(String(input)).toBe("https://relay.example.test/codex/responses");
-      expect(new Headers(init?.headers).get("x-codex-relay-token")).toBe("relay-test-token");
-      return asCodexStream({
-        candidates: [{ content: { parts: [{ text: "LINE remains on the NAS relay." }] } }],
-        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
-      });
+    const globalFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      throw new Error("LINE Codex 不應呼叫全域 fetch。");
     });
 
     const agent = assistantAgents!.getByName("rueisiang-xiaoxiang:rueisiang-xiaoxiang:user:line-vpc-rollout-user");
@@ -944,9 +943,11 @@ describe("AI 助理 Sandbox", () => {
     }));
 
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ result: { text: "LINE remains on the NAS relay." } });
-    expect(relayFetch).toHaveBeenCalledOnce();
-    expect(vpcRequests).toHaveLength(0);
+    expect(await response.json()).toMatchObject({ result: { text: "LINE 經 VPC 完成 Codex 推論。" } });
+    expect(vpcRequests).toHaveLength(1);
+    expect(vpcRequests[0]?.url).toBe("https://chatgpt.com/backend-api/codex/responses");
+    expect(vpcRequests[0]?.headers.get("authorization")).toBe(`Bearer ${CODEX_ACCESS_TOKEN}`);
+    expect(globalFetch).not.toHaveBeenCalled();
   });
 
   it("LINE Pi Agent 首次使用會回填既有 D1 訊息，且排除目前 webhook", async () => {
