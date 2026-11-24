@@ -1,6 +1,6 @@
 import { createDatabase, createReportManagementScope } from "@rueisiang/db";
 import { Hono } from "hono";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppEnv } from "./env.js";
 import { createLocalD1, type LocalD1 } from "./local-d1/d1.js";
 import { storeLocator } from "./routes/store-locator.js";
@@ -14,6 +14,7 @@ app.route("/api/public/store-locator", storeLocator);
 beforeEach(() => {
   d1 = createLocalD1(":memory:", { targetOnly: true });
 });
+afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); });
 
 async function addScope(input: {
   id: string; name: string; scopeKind?: "store" | "channel" | "company"; active?: boolean;
@@ -36,6 +37,14 @@ async function addScope(input: {
 }
 
 describe("公開據點列表 API", () => {
+  it("即時 API 查詢失敗不回傳成功快取標頭", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(d1, "prepare").mockImplementation(() => { throw new Error("D1 unavailable"); });
+    const response = await app.request("https://platform.rueisiang.com/api/public/store-locator");
+    expect(response.status).toBe(500);
+    expect(response.headers.get("Cache-Control") ?? "").not.toContain("max-age=60");
+  });
+
   it("只公開營業中的櫃點且地址與地圖座標完整，並依地圖 Y 由北到南排序", async () => {
     await addScope({ id: "cyberbiz:store:south", name: "南部店", county: "高雄市", pinY: 780 });
     await addScope({ id: "cyberbiz:store:north", name: "北部店", pinY: 290, imageUrl: "https://images.example.com/north.jpg" });
