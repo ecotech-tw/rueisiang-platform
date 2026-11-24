@@ -26,7 +26,7 @@ export interface Env {
    * 物件儲存就一起停擺。
    */
   UPLOADS?: R2Bucket;
-  /** 公開圖片專用 bucket，與私有人事／NAS 媒體分離。 */
+  /** 官網公開圖片與據點快照的 bucket，與私有人事／NAS 媒體分離。 */
   MEDIA?: R2Bucket;
   MEDIA_CDN_URL?: string;
   MEDIA_CDN_ZONE_ID?: string;

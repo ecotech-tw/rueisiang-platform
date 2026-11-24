@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { REPORT_PLATFORM_OPTIONS, reportPlatformLabel } from "@rueisiang/db/report-platforms";
 import { projectStoreLocatorPin, STORE_LOCATOR_PIN_BOUNDS } from "@rueisiang/db/store-locator-coordinates";
-import { useArchiveScope, useSaveScope, useScopes, useSearchScopePlaces, type GoogleMapPlace, type ManagementScope } from "./api.js";
+import { useArchiveScope, useSaveScope, useScopes, useSearchScopePlaces, usePublishStoreLocator, type GoogleMapPlace, type ManagementScope } from "./api.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useSession } from "../../auth/session.js";
 import { Switch } from "../../shell/Switch.js";
@@ -197,8 +197,8 @@ function ScopeDialog({
               storeLocatorPinY: storeDetails.pinY === "" ? null : Number(storeDetails.pinY),
             } : {}),
           }, {
-            onSuccess: () => {
-              toast.show(scope ? `已更新「${name.trim()}」` : `已新增通路「${name.trim()}」`);
+            onSuccess: (result) => {
+              toast.show(result.publication?.pending ? "通路資料已儲存，官網發布待重試。" : scope ? `已更新「${name.trim()}」` : `已新增通路「${name.trim()}」`);
               onClose();
             },
           });
@@ -432,6 +432,7 @@ export function Scopes() {
   const query = useScopes();
   const archiveScope = useArchiveScope();
   const saveScope = useSaveScope();
+  const publish = usePublishStoreLocator();
   const toast = useToast();
 
   const [editing, setEditing] = useState<{ scope: ManagementScope | null } | null>(null);
@@ -509,6 +510,18 @@ export function Scopes() {
         description="出金表、商品銷售報表與營運統計都掛在通路底下。停業與封存都不會刪掉已經匯入的歷史資料。"
         actions={<Button icon="plus" onClick={() => setEditing({ scope: null })}>新增通路</Button>}
       />
+
+      {query.data?.publication?.pending ? (
+        <Alert tone="warning">
+          <div className="flex flex-wrap items-center gap-3">
+            <p className="m-0">{query.data.publication.error || "官網據點尚有未發布的更新。"} CDN 仍可能顯示上一版資料。</p>
+            <Button variant="secondary" loading={publish.isPending} onClick={() => publish.mutate(undefined, {
+              onSuccess: (result) => { if (!result.publication.pending) toast.show("官網據點已發布，快取最長約 60 秒更新。"); },
+            })}>重試發布據點</Button>
+          </div>
+        </Alert>
+      ) : null}
+      {publish.error ? <Alert tone="danger">{publish.error.message}</Alert> : null}
 
       <Panel grows>
         <FilterToolbar>

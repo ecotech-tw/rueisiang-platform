@@ -22,7 +22,7 @@ tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm work
   shopee-sales-report-export/ 蝦皮銷售報表直接上傳、整理與 Drive 上傳服務（純 JS）
 ```
 
-**platform 與 CDN 共用一個 Worker**：`apps/api/wrangler.toml` 的 `[assets]` 指向 `../portal/dist`，`run_worker_first = true` 先依 hostname 分流。CDN 只提供公開圖片，platform 的 `/api/*` 進 Hono，其餘交給 Static Assets。多媒體的儲存、快取與設定契約見 [`docs/media-cdn.md`](./docs/media-cdn.md)。`apps/hr` 是獨立的靜態前端部署單位，透過 `VITE_API_BASE_URL` 呼叫共用 API。
+**platform 與 CDN 共用一個 Worker**：`apps/api/wrangler.toml` 的 `[assets]` 指向 `../portal/dist`，`run_worker_first = true` 先依 hostname 分流。CDN 只提供公開圖片與自動產生的[官網據點 JSON 快照](./tools/cyberbiz-blocks/store-locator/README.md)，platform 的 `/api/*` 進 Hono，其餘交給 Static Assets。多媒體的儲存、快取與設定契約見 [`docs/media-cdn.md`](./docs/media-cdn.md)。`apps/hr` 是獨立的靜態前端部署單位，透過 `VITE_API_BASE_URL` 呼叫共用 API。
 
 **安全性全部在 API。** 前端的權限判斷（sidebar 顯示哪些項目、按鈕要不要出現）純粹是外觀——SPA 的 JavaScript 全在使用者手上，藏起來的按鈕不是安全機制。每一條 API 路由都必須自己驗權限。
 
@@ -92,6 +92,7 @@ smoke test 的功能只能標記為「可合併」，不能標記為「已上線
 
 ### 多媒體：正式 CDN 開通與驗收
 
+- [ ] 正式環境驗證據點 JSON 的首次發布、存檔後更新、停用／封存移除與發布失敗重試；確認 CDN 回應後再將新版 block 匯入 Cyberbiz。
 - [ ] 確認 `media` bucket、CDN hostname 與 zone 專用 Cache Purge 憑證，依權限目錄重新同步並授權同仁；用正式 CDN 與 CYBERBIZ 外部圖片連結驗證首次顯示、相同 URL 換圖、瀏覽器重新驗證、刪除與 purge 失敗重試。設定契約與回滾邊界見 [`docs/media-cdn.md`](./docs/media-cdn.md)。
 
 ### HR：排班、出勤與薪資

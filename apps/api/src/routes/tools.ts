@@ -23,6 +23,8 @@ import {
 import { can } from "@rueisiang/auth";
 import { isReportPlatform } from "@rueisiang/db/report-platforms";
 import { STORE_LOCATOR_PIN_BOUNDS } from "@rueisiang/db/store-locator-coordinates";
+import { getStoreLocatorPublication } from "@rueisiang/db";
+import { publishStoreLocatorCdn } from "../store-locator-cdn.js";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -352,7 +354,13 @@ export const tools = new Hono<AppEnv>()
 
   .get("/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {
     const scopes = await listReportManagementScopes(c.get("db"));
-    return c.json({ scopes: scopes.map((scope) => redactScope(scope, canConfigure(c))) });
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ scopes: scopes.map((scope) => redactScope(scope, canConfigure(c))), publication: await getStoreLocatorPublication(c.get("db")) });
+  })
+
+  .post("/scopes/store-locator/publish", requirePermission("reports:cyberbiz:write"), async (c) => {
+    c.header("Cache-Control", "private, no-store");
+    return c.json({ publication: await publishStoreLocatorCdn(c.env, c.get("db"), true) });
   })
 
   .post("/scopes", requirePermission("reports:cyberbiz:write"), async (c) => {
@@ -372,7 +380,7 @@ export const tools = new Hono<AppEnv>()
         sourceType,
       });
       await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ scope: redactScope(scope, canConfigure(c)) }, 201);
+      return c.json({ scope: redactScope(scope, canConfigure(c)), publication: await publishStoreLocatorCdn(c.env, c.get("db")) }, 201);
     } catch (error) {
       throw scopeError(error);
     }
@@ -392,7 +400,7 @@ export const tools = new Hono<AppEnv>()
         ...fields,
       });
       await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ scope: redactScope(scope, canConfigure(c)) });
+      return c.json({ scope: redactScope(scope, canConfigure(c)), publication: await publishStoreLocatorCdn(c.env, c.get("db")) });
     } catch (error) {
       throw scopeError(error);
     }
@@ -403,7 +411,7 @@ export const tools = new Hono<AppEnv>()
     try {
       const scope = await archiveReportManagementScope(c.get("db"), c.req.param("id"));
       await forgetReportAnalytics(cacheClient(c.env));
-      return c.json({ scope: redactScope(scope, canConfigure(c)) });
+      return c.json({ scope: redactScope(scope, canConfigure(c)), publication: await publishStoreLocatorCdn(c.env, c.get("db")) });
     } catch (error) {
       throw scopeError(error);
     }

@@ -20,7 +20,7 @@ function click(element: Element) { element.dispatchEvent(new MouseEvent("click",
 beforeEach(async () => {
   vi.useFakeTimers();
   vi.stubGlobal("innerWidth", 1280);
-  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ stores })));
+  vi.stubGlobal("fetch", vi.fn(async () => Response.json({ revision: 7, stores })));
   vi.spyOn(document, "readyState", "get").mockReturnValue("complete");
   listeners = [];
   for (const target of [window, document] as EventTarget[]) {
@@ -43,6 +43,12 @@ afterEach(() => {
   for (const { target, type, listener, options } of listeners) target.removeEventListener(type, listener, options);
   vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.unstubAllGlobals();
   document.body.innerHTML = ""; document.body.style.overflow = "";
+});
+
+it("從 CDN 讀取快照，不再依賴即時管理 API，且接受 revision 欄位", () => {
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch).toHaveBeenCalledWith("https://cdn.rueisiang.com/store-locator/stores.json", { headers: { Accept: "application/json" } });
+  expect(document.querySelectorAll("[data-pin-id]")).toHaveLength(stores.length);
 });
 
 it.each(stores)("$name 的尖端直接使用 API X/Y，不受祖先圖層的額外位移影響", (store) => {

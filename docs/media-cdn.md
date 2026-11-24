@@ -10,7 +10,7 @@
 `media:image:read`、`media:image:write`、`media:image:delete`；既有角色不自動獲得新權限，
 管理者仍經權限目錄同步取得完整授權。
 
-CDN origin 的 `/images/<id>` 不需登入，只提供 D1 仍有效的公開圖片。其他 CDN 路徑不會進入
+CDN origin 的 `/images/<id>` 不需登入，只提供 D1 仍有效的公開圖片；`/store-locator/stores.json` 則讀取不依賴 D1 的公開據點快照，契約見[據點 block](../tools/cyberbiz-blocks/store-locator/README.md)。其他 CDN 路徑不會進入
 平台 API 或 SPA；正式 CDN 的 HTTP 或不同 port 請求先依 hostname 隔離，再轉向設定的 HTTPS origin。
 公開 URL 不含檔名與版本；改名、格式改變與取代檔案都不改變 URL。
 目前接受 JPEG、PNG、WebP 靜態圖片；限制由 `media-cdn-fields.ts` 共用，完整解碼沿用人事照片
@@ -32,7 +32,7 @@ revision 防止並行覆蓋；名稱草稿也綁定開啟時的版本，背景�
 狀態。管理頁可手動重試，既有每 15 分鐘的 cron 也會補跑，包含已刪除的圖片。
 
 CDN cache 使用固定的 canonical URL，忽略 query string，避免同一張圖衍生無法清除的版本。
-每次公開請求仍查 D1，比對 cache entry 的 ETag 與目前 revision；purge 失敗或舊請求晚回填快取時，
+每次圖片公開請求仍查 D1，比對 cache entry 的 ETag 與目前 revision；purge 失敗或舊請求晚回填快取時，
 不會把舊 entry 當成目前版本。這個一致性選擇會增加 D1 讀取，不能把圖片流量估算成完全不經 Worker／D1。
 
 Edge cache 保留一天，回給瀏覽器的標頭另設 `public, no-cache, must-revalidate`，支援 ETag／304。

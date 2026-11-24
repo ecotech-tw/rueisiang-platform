@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Scopes } from "./Scopes.js";
 import type { GoogleMapPlace, ManagementScope } from "./api.js";
+import type { StoreLocatorPublicationStatus } from "@rueisiang/db/store-locator-publication-fields";
 
 vi.mock("../../auth/session.js", () => ({ useSession: () => ({ permissions: new Set(["reports:cyberbiz:write"]) }) }));
 vi.mock("../../shell/Toast.js", () => ({ useToast: () => ({ show: vi.fn() }) }));
@@ -21,6 +22,11 @@ const scope: ManagementScope = {
 };
 const place: GoogleMapPlace = { id: "place-1", name: "環球購物中心 新北中和", address: "235新北市中和區中山路三段122號", latitude: 25.007169, longitude: 121.474806 };
 let places: GoogleMapPlace[];
+let publication: StoreLocatorPublicationStatus;
+let publishGate: Promise<void> | undefined;
+let publishFailure: boolean;
+let savePublishFailure: boolean;
+let publishCount: number;
 let writes: Record<string, unknown>[];
 let client: QueryClient;
 let root: Root;
@@ -37,8 +43,11 @@ async function change(label: string, value: string) {
     element.dispatchEvent(new Event("input", { bubbles: true }));
   });
 }
-async function openDialog() {
+async function renderPage() {
   await act(async () => root.render(<MemoryRouter><QueryClientProvider client={client}><Scopes /></QueryClientProvider></MemoryRouter>));
+}
+async function openDialog() {
+  await renderPage();
   await click(document.querySelector<HTMLElement>('[aria-label="編輯 測試櫃點"]')!);
 }
 async function selectFirstPlace() {
@@ -52,15 +61,24 @@ beforeEach(() => {
   notifyManager.setScheduler(queueMicrotask);
   vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
   places = [{ ...place }]; writes = [];
+  publication = { revision: 1, publishedRevision: 1, publishedAt: "2026-11-24T00:00:00Z", error: null, pending: false };
+  publishGate = undefined; publishFailure = false; savePublishFailure = false; publishCount = 0;
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   vi.stubGlobal("fetch", async (url: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === "PATCH") {
       writes.push(JSON.parse(String(init.body)));
-      return Response.json({ scope });
+      if (savePublishFailure) publication = { ...publication, revision: 2, pending: true, error: "官網據點發布待重試；資料已儲存。" };
+      return Response.json({ scope, publication });
+    }
+    if (String(url) === "/api/tools/scopes/store-locator/publish") {
+      publishCount++; await publishGate;
+      if (publishFailure) return Response.json({ error: "發布服務暫時無法回應" }, { status: 503 });
+      publication = { ...publication, publishedRevision: publication.revision, pending: false, error: null };
+      return Response.json({ publication });
     }
     if (String(url).startsWith("/api/tools/scopes/places?")) return Response.json({ places });
-    if (String(url) === "/api/tools/scopes") return Response.json({ scopes: [scope] });
+    if (String(url) === "/api/tools/scopes") return Response.json({ scopes: [scope], publication });
     throw new Error(`未預期的請求：${String(url)}`);
   });
 });
@@ -113,4 +131,31 @@ it("自動帶入後仍可微調，清除座標顯示不會重設已填欄位", a
   expect(input("台灣地圖 X").value).toBe("732.5"); expect(input("台灣地圖 Y").value).toBe("307.2");
   await click(button("儲存"));
   expect(writes[0]).toMatchObject({ storeLocatorCounty: "新北市", storeLocatorPinX: 732.5, storeLocatorPinY: 307.2 });
+});
+
+it("重開頁面仍顯示待發布，重試期間不能重複按，成功後清除警告", async () => {
+  publication.pending = true; publication.error = "官網據點發布待重試";
+  let release!: () => void; publishGate = new Promise<void>(r => release = r);
+  await renderPage(); expect(document.body.textContent).toContain("CDN 仍可能顯示上一版資料");
+  const retry = button("重試發布據點");
+  await click(retry);
+  expect(retry.disabled).toBe(true); expect(publishCount).toBe(1);
+  await act(async () => { release(); });
+  expect(document.body.textContent).not.toContain("CDN 仍可能顯示上一版資料");
+});
+
+it("重試失敗顯示持續錯誤與可重試按鈕，不誤報已同步", async () => {
+  publication.pending = true; publishFailure = true;
+  await renderPage(); await click(button("重試發布據點"));
+  expect(document.body.textContent).toContain("發布服務暫時無法回應");
+  expect(document.body.textContent).toContain("CDN 仍可能顯示上一版資料");
+  expect(button("重試發布據點").disabled).toBe(false);
+});
+
+it("通路儲存成功但 CDN 發布失敗，關閉表單後仍顯示待重試", async () => {
+  savePublishFailure = true;
+  await openDialog(); await click(button("儲存"));
+  expect(writes).toHaveLength(1); expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.body.textContent).toContain("官網據點發布待重試；資料已儲存");
+  expect(button("重試發布據點")).toBeTruthy();
 });

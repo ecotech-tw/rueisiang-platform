@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { StoreLocatorPublicationStatus } from "@rueisiang/db/store-locator-publication-fields";
 
 interface PayoutStoreSummary {
   name: string;
@@ -347,7 +348,7 @@ export interface ManagementScope {
 export function useScopes() {
   return useQuery({
     queryKey: ["tools", "scopes"],
-    queryFn: () => call<{ scopes: ManagementScope[] }>("/api/tools/scopes"),
+    queryFn: () => call<{ scopes: ManagementScope[]; publication: StoreLocatorPublicationStatus }>("/api/tools/scopes"),
   });
 }
 
@@ -366,12 +367,22 @@ export function useSearchScopePlaces() {
   });
 }
 
+export function usePublishStoreLocator() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: () => call<{ publication: StoreLocatorPublicationStatus }>("/api/tools/scopes/store-locator/publish", { method: "POST" }),
+    onSuccess: () => { void client.invalidateQueries({ queryKey: ["tools", "scopes"] }); },
+  });
+}
+
+interface ScopeMutationResult { scope: ManagementScope; publication: StoreLocatorPublicationStatus }
+
 export function useSaveScope() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (scope: Partial<ManagementScope> & { id?: string; name: string }) => {
       const { id, archivedAt: _archivedAt, ...payload } = scope;
-      return call<{ scope: ManagementScope }>(
+      return call<ScopeMutationResult>(
         id ? `/api/tools/scopes/${encodeURIComponent(id)}` : "/api/tools/scopes",
         { method: id ? "PATCH" : "POST", body: JSON.stringify(payload) },
       );
@@ -387,7 +398,7 @@ export function useArchiveScope() {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      call<{ scope: ManagementScope }>(`/api/tools/scopes/${encodeURIComponent(id)}/archive`, { method: "POST" }),
+      call<ScopeMutationResult>(`/api/tools/scopes/${encodeURIComponent(id)}/archive`, { method: "POST" }),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["tools"] });
       void client.invalidateQueries({ queryKey: ["reports"] });

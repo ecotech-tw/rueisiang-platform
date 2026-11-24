@@ -1,4 +1,6 @@
 export { createDatabase, type Database } from "./client.js";
+export { buildPublicStoreLocator } from "./store-locator.js";
+export { ensureStoreLocatorPublication, getStoreLocatorPublication, settleStoreLocatorPublication, type StoreLocatorPublicationStatus } from "./store-locator-publication.js";
 export { createMediaCdnImage, deleteMediaCdnImage, findMediaCdnImage, forgetMediaCdnBlob, listMediaCdnImages, listPendingMediaCdnPurges, listUnusedMediaCdnBlobs, registerMediaCdnBlob, renameMediaCdnImage, replaceMediaCdnImage, settleMediaCdnPurge, type MediaCdnFileInput } from "./media-cdn.js";
 export type { MediaCdnImage } from "./schema/media-cdn.js";
 export { formatTaipeiDate, taipeiDateFromUtcWallClock, taipeiMidnightUtc, taipeiWallClockToUtc } from "./taipei-time.js";

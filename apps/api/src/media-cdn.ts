@@ -27,21 +27,23 @@ export function mediaCdnView(env: Env, image: MediaCdnImage) {
   return { ...view, url: mediaCdnUrl(env, image.id), previewUrl: `/api/media/images/${image.id}/preview?revision=${image.revision}` };
 }
 
+export async function purgeMediaCdnTag(env: Env, tag: string) {
+  if (mediaCdnConfig(env).local) return;
+  requireMediaCdnStorage(env);
+  const response = await fetch(`https://api.cloudflare.com/client/v4/zones/${env.MEDIA_CDN_ZONE_ID}/purge_cache`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.MEDIA_CDN_PURGE_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ tags: [tag] }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const result = await response.json() as { success?: boolean };
+  if (!response.ok || result.success !== true) throw new Error("CDN 快取清除失敗。");
+}
+
 export async function purgeMediaCdnImage(env: Env, db: Database, image: MediaCdnImage) {
   let message: string | null = null;
   try {
-    const config = mediaCdnConfig(env);
-    if (!config.local) {
-      requireMediaCdnStorage(env);
-      const response = await fetch(`https://api.cloudflare.com/client/v4/zones/${env.MEDIA_CDN_ZONE_ID}/purge_cache`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${env.MEDIA_CDN_PURGE_TOKEN}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ tags: [`media-image-${image.id}`] }),
-        signal: AbortSignal.timeout(10_000),
-      });
-      const result = await response.json() as { success?: boolean };
-      if (!response.ok || result.success !== true) throw new Error("purge rejected");
-    }
+    await purgeMediaCdnTag(env, `media-image-${image.id}`);
   } catch {
     // 不把上游回應或 token 印進 UI；pending 與 revision 保存在 D1，重開頁面或排程都能續跑。
     message = "CDN 快取清除失敗，請重試同步；系統也會定時重試。";

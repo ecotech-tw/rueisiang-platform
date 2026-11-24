@@ -59,6 +59,18 @@ export const storeLocatorProfiles = sqliteTable("store_locator_profiles", {
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 });
 
+/** 公開快照的版本與持久化重試狀態；不另存一份據點資料。 */
+export const storeLocatorPublication = sqliteTable("store_locator_publication", {
+  id: text("id").primaryKey(),
+  revision: integer("revision").notNull().default(1),
+  publishedRevision: integer("published_revision").notNull().default(0),
+  publishedAt: text("published_at"),
+  error: text("error"),
+}, (table) => [
+  check("ck_store_locator_publication_singleton", sql`${table.id} = 'public'`),
+  check("ck_store_locator_publication_revision", sql`${table.revision} >= ${table.publishedRevision} AND ${table.publishedRevision} >= 0`),
+]);
+
 /** 外部通路商品的對應或忽略設定。 */
 export const reportExternalProducts = sqliteTable("report_external_products", {
   id: text("id").primaryKey(),
