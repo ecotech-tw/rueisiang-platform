@@ -293,7 +293,6 @@ export function Inventory() {
         description={
           <>
               倉庫裡有什麼、放在哪、還剩多少。
-              {lowCount ? `目前有 ${lowCount} 項需要補貨。` : null}
               {canSync ? " 可從 CYBERBIZ 同步數量與安全庫存。" : null}
           </>
         }
@@ -333,6 +332,12 @@ export function Inventory() {
               onClick={() => update({ category: "all", zone: "all", stock: "all" })}
             >
               清除篩選
+            </Button>
+          ) : null}
+          {/* 頁首說明不顯示，補貨數寫在這裡；點了直接篩出要補貨的品項。 */}
+          {lowCount && filters.stock !== "low" ? (
+            <Button variant="link" onClick={() => update({ stock: "low" })}>
+              {lowCount} 項需要補貨
             </Button>
           ) : null}
 

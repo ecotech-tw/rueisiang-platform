@@ -106,7 +106,8 @@ export function Panel({ title, description, actions, className = "", headerClass
 const PageDescriptionsContext = createContext(true);
 
 /**
- * 頁首要不要顯示說明文字，由 app 決定：HRIS 管理介面的頁首只留標題，說明藏起來（仍在 DOM 裡）。
+ * 頁首要不要顯示說明文字，由 app 決定：portal 的頁首只留標題，說明藏起來（仍在 DOM 裡），AppShell 統一關掉；
+ * 會跟著資料變、或使用者必須知道的資訊要寫在頁面上，不能只放在說明裡。
  */
 export function PageDescriptions({ visible, children }: { visible: boolean; children: ReactNode }) {
   return <PageDescriptionsContext value={visible}>{children}</PageDescriptionsContext>;

@@ -129,7 +129,8 @@ export function Tags() {
             <Button type="submit" tone="success" loading={create.isPending} loadingLabel="新增中…" disabled={!newTag.trim()}>
               新增標籤
             </Button>
-            {busy ? <FormHint as="span">{busy}</FormHint> : null}
+            {/* 移除沒有確認視窗，頁首說明又不顯示：會影響客戶與官網這件事要寫在按鈕旁邊。 */}
+            {busy ? <FormHint as="span">{busy}</FormHint> : <span className="text-[13px] text-muted">改名或移除會一併更新客戶，並推回官網。</span>}
           </FilterToolbar>
         ) : null}
 

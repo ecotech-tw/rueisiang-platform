@@ -62,7 +62,7 @@ app `ui/*.tsx` 裡 re-export 共用元件的檔案是刻意保留的相容性入
 | 表格排序 | `SortableHeader`；排序欄位、方向與 query state 仍由 route 管理 |
 | 欄位 label、必填、hint、error | `Field`、`TextField`、`SelectField` |
 | 成功／資訊／警告／錯誤 | `StatusBadge` 或 `Alert` |
-| 頁面標題、卡片 surface | `PageHeader`、`Panel`；面板標題列用 `Panel` 的 `title`／`description`／`actions`，不要在 `Panel` 裡自己寫 `data-panel-head` 那一層；props 真的表達不了時才用匯出的 `PANEL_HEAD` |
+| 頁面標題、卡片 surface | `PageHeader`、`Panel`；面板標題列用 `Panel` 的 `title`／`description`／`actions`，不要在 `Panel` 裡自己寫 `data-panel-head` 那一層；props 真的表達不了時才用匯出的 `PANEL_HEAD`。`PageHeader` 的 `description` 在 portal 不顯示（`AppShell` 用 `PageDescriptions` 統一關掉），會跟著資料變、或使用者必須知道的資訊要寫在頁面上 |
 | 補充提示 | `Tooltip`；不要使用原生 `title` |
 | icon | `packages/ui/src/icons.tsx` 的共用 `Icon` registry，SVG 使用 `currentColor`；不要引入 icon font 或單頁 SVG 資產 |
 | table wrapper | `DataTable`；欄位與 domain row 仍由 route 負責。不要在 route 自己寫 `<table>`；格子的預設值寫在 `className`，外框的版面寫在 `containerClassName`；外框裡還要放別的東西時才用 `scroll={false}` 自己包 `data-table-scroll` ＋ `TABLE_SCROLL`，保留可讀的 domain markup |
