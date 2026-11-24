@@ -200,11 +200,11 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 
 ### 小香：Relay 與用量
 
-- [ ] 評估 [Workers VPC `cf1:network`](https://developers.cloudflare.com/workers-vpc/configuration/vpc-networks/)
-      經 Cloudflare Gateway 的 public egress，確認是否能避開 Workers direct egress restriction
-      與 `CF-Worker` header；目前 smoke test 因 CI token 沒有 Connectivity Directory 權限而
-      回傳 code `10196`，尚未驗證 ChatGPT HTTP／SSE。**完成權限、VPC／Gateway policy 與
-      真實 Codex SSE 驗收前，不得移除 NAS relay。**
+- [ ] 第一階段只在 Sandbox 觀察 [Workers VPC `cf1:network`](https://developers.cloudflare.com/workers-vpc/configuration/vpc-networks/)
+      的 ChatGPT OAuth HTTP／SSE、token refresh、取消與錯誤率；LINE Codex 仍走 NAS relay。保留
+      `PI_OPENAI_CODEX_EGRESS_MODE=relay` 回退能力，直到確認 Sandbox 推論穩定，再規劃切換 LINE 與移除 NAS
+      relay。驗收 Sandbox 圖片上傳後的視覺提問與後續引用同圖追問，確認 DO 能從現有 NAS storage 取回圖片、
+      納入 context 並完成 Codex 推論；此階段只移除 Sandbox 的模型 relay 依賴，不代表圖片儲存已脫離 NAS。
 - [ ] 新增 LINE Push API 用量分析，至少顯示 fixed-window 用量、剩餘額度、查詢時間區間
       與群組／事件明細。
 - [ ] 建立日／週／月與自訂 duration 的群組、模型、tool 用量分析頁。
