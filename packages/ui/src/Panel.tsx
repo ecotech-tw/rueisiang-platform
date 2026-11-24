@@ -167,11 +167,12 @@ export function PageHeader({ title, description, actions, fab, className = "" }:
       {inlineActions ? <div>{inlineActions}</div> : null}
       {/*
         * 固定在右下角，分頁列在有浮動鈕的頁面右側留出它的位置（Material 的「FAB 嵌在底部列」）：內容短、分頁列
-        * 停在中間時也不會跟它疊到。批次選取時底部是「已選取…」的操作列，浮動鈕先收起來。
+        * 停在中間時也不會跟它疊到。批次選取時底部是「已選取…」的操作列，浮動鈕先收起來；
+        * 開著對話框時也收起來，不然會從玻璃對話框後面透出來、疊在按鈕旁邊。
         * 位置照員工 HR 站：右緣與底緣都避開 iPhone 的安全區。
         */}
       {fab && mounted ? createPortal(
-        <div data-fab="" className="pointer-events-none fixed inset-0 z-21 hidden max-[760px]:block max-[760px]:[body:has([data-selection-bar])_&]:hidden">
+        <div data-fab="" className="pointer-events-none fixed inset-0 z-21 hidden max-[760px]:block max-[760px]:[body:has([data-selection-bar])_&]:hidden max-[760px]:[body:has([aria-modal=true])_&]:hidden">
           <div className="pointer-events-auto absolute right-[max(16px,env(safe-area-inset-right))] bottom-[calc(8px+env(safe-area-inset-bottom))]">{fab}</div>
         </div>,
         document.body,
