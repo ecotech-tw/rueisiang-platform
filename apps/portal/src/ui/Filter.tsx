@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Button } from "./Button.js";
 
 export { FilterInput, FilterSelect, SEARCH_INPUT_WIDTH } from "@rueisiang/ui";
 export type { FilterInputProps, FilterSelectOption, FilterSelectProps } from "@rueisiang/ui";
@@ -9,9 +10,20 @@ export function FilterLabel({ children }: { children: ReactNode }) {
 }
 
 /** 「篩選」按鈕上生效中的條件數。按鈕上有數字，收起來也知道自己在篩；沒有條件就不顯示。 */
-export function FilterCount({ count }: { count: number }) {
+function FilterCount({ count }: { count: number }) {
   if (!count) return null;
   return <span className="inline-grid h-[18px] min-w-[18px] place-items-center rounded-full bg-brand px-[5px] text-[11px] font-bold text-white tabular-nums">{count}</span>;
+}
+
+/**
+ * 手機上的「篩選」按鈕，跟 FilterFields 一組用：同一個 open state 傳給兩邊。
+ *
+ * 只在手機出現（桌機的下拉直接攤開，不需要這一步）。收起來時用數字標出「現在有幾個條件生效中」
+ * ——那才是收合狀態下最重要的資訊，不是每個篩選的當前值。count 只算收在裡面的條件，
+ * 不算搜尋：搜尋框一直看得到。
+ */
+export function FilterToggle({ open, count, onToggle }: { open: boolean; count: number; onToggle: () => void }) {
+  return <Button variant="secondary" icon="filter" size="lg" active={open} className="flex-none min-[760px]:hidden" aria-expanded={open} onClick={onToggle}>篩選<FilterCount count={count} /></Button>;
 }
 
 /**

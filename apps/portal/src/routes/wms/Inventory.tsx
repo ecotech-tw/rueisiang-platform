@@ -5,7 +5,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, RowActions, SEARCH_INPUT_WIDTH, StatusBadge, TableNote, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterFields, FilterInput, FilterSelect, FilterToggle, FilterToolbar, Page, PageHeader, Panel, RowActions, SEARCH_INPUT_WIDTH, StatusBadge, TableNote, Tooltip } from "../../ui/index.js";
 import {
   useDeleteItem,
   useSyncCyberbiz,
@@ -326,16 +326,7 @@ export function Inventory() {
             value={filters.search}
             onChange={(event) => update({ search: event.target.value })}
           />
-          <Button
-            variant="secondary"
-            icon="filter"
-            size="lg" active={showFilters} className="flex-none min-[760px]:hidden"
-            aria-expanded={showFilters}
-            onClick={() => setShowFilters((open) => !open)}
-          >
-            篩選
-            <FilterCount count={activeFilterCount} />
-          </Button>
+          <FilterToggle open={showFilters} count={activeFilterCount} onToggle={() => setShowFilters((open) => !open)} />
           {activeFilterCount ? (
             <Button
               variant="link"

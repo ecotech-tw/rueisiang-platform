@@ -5,7 +5,8 @@ import { Alert, ConfirmDialog, Dialog, DropdownSelect, EmptyState, Field, Input,
 import { Pager } from "../shell/Pager.js";
 import { SortableHeader } from "../shell/SortableHeader.js";
 import { DataTable, TableSkin } from "./DataTable";
-import { FilterInput, FilterSelect, FilterToolbar, PageTabControl, SEARCH_INPUT_WIDTH, SearchFilterInput } from "./index.js";
+import { HrMain } from "../routes/hr/HrShell.js";
+import { FilterFields, FilterInput, FilterSelect, FilterToggle, FilterToolbar, PageTabControl, SEARCH_INPUT_WIDTH, SearchFilterInput } from "./index.js";
 
 describe("shared HRIS UI contracts", () => {
   it("PageHeader 的下距與對齊依斷點分開取代，只改手機不會拿掉桌機的預設值", () => {
@@ -27,6 +28,11 @@ describe("shared HRIS UI contracts", () => {
     const markup = renderToStaticMarkup(<PageHeader title="申請與審核" fab={<button type="button">新增申請</button>} />);
     expect(markup).toContain('<span class="max-[760px]:hidden"><button type="button">新增申請</button></span>');
     expect(markup).not.toContain("data-fab");
+  });
+
+  it("PageHeader 同時有動作鈕與浮動新增鈕時，桌機排在同一個留間距的容器裡", () => {
+    const markup = renderToStaticMarkup(<PageHeader title="品項庫存" actions={<button type="button">全部同步</button>} fab={<button type="button">新增入庫</button>} />);
+    expect(markup).toContain('<div class="flex flex-wrap items-center justify-end gap-2"><button type="button">全部同步</button><span class="max-[760px]:hidden"><button type="button">新增入庫</button></span></div>');
   });
 
   it("MobilePageTitle 關掉時，手機上 h1 只是看不見，仍在 DOM 裡", () => {
@@ -363,5 +369,40 @@ describe("shared HRIS UI contracts", () => {
     expect(markup).toContain('<form aria-label="員工篩選" class="');
     expect(markup).toContain("border-b border-line");
     expect(markup).toContain('name="query"');
+  });
+
+  it("FilterToolbar 只在列表面板裡黏住、換底色；一般面板裡維持原樣", () => {
+    const root = renderToStaticMarkup(<FilterToolbar><input aria-label="搜尋" /></FilterToolbar>).match(/^<form class="([^"]*)"/)?.[1]?.replaceAll("&amp;", "&") ?? "";
+    expect(root).toContain("max-[760px]:[[data-grows]_&]:sticky");
+    expect(root).toContain("max-[760px]:[[data-grows]_&]:bg-canvas/90");
+    expect(root).not.toMatch(/(^| )max-\[760px\]:(sticky|bg-canvas)/);
+  });
+
+  it("FilterToggle 只在手機出現，數字只在有條件生效時顯示，跟 FilterFields 共用同一個開關", () => {
+    const closed = renderToStaticMarkup(<FilterToolbar><FilterToggle open={false} count={0} onToggle={() => {}} /><FilterFields open={false}><input aria-label="狀態" /></FilterFields></FilterToolbar>);
+    expect(closed).toMatch(/<button aria-expanded="false"[^>]*class="[^"]*min-\[760px\]:hidden[^"]*"/);
+    expect(closed).toContain('<div class="contents max-[760px]:hidden"><input aria-label="狀態"/></div>');
+    expect(closed).not.toContain("tabular-nums");
+
+    const open = renderToStaticMarkup(<FilterToggle open count={2} onToggle={() => {}} />);
+    expect(open).toContain('aria-expanded="true"');
+    expect(open).toMatch(/<span class="[^"]*tabular-nums[^"]*">2<\/span>/);
+  });
+
+  it("Dialog 的最大高度用 dvh：iOS Safari 的 vh 把工具列底下也算進去，視窗會超出畫面", () => {
+    const card = (markup: string) => markup.match(/class="(flex origin-center[^"]*)"/)?.[1] ?? "";
+    const regular = card(renderToStaticMarkup(<Dialog title="新增申請"><p>內容</p></Dialog>));
+    const compact = card(renderToStaticMarkup(<Dialog compact title="確認"><p>內容</p></Dialog>));
+    for (const classes of [regular, compact]) {
+      expect(classes).toContain("dvh");
+      expect(classes).not.toContain("100vh");
+    }
+  });
+
+  it("HrMain 在手機上不准左右捲；列表有分頁列時拿掉下內距，捲到底不會多一塊空白", () => {
+    const markup = renderToStaticMarkup(<HrMain><p>內容</p></HrMain>);
+    expect(markup).toContain("max-[760px]:overflow-x-hidden");
+    expect(markup).toContain("max-[760px]:has-[[data-grows]_[data-pager]]:pb-0");
+    expect(markup).toContain("max-[760px]:has-[[data-grows]_[data-pager]]:[--page-pad-bottom:0px]");
   });
 });
