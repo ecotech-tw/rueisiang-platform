@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, DataTable, EmptyState, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type AttendanceEvent } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -38,6 +38,9 @@ export function HrAttendanceRecords() {
   const query = `/attendance-events?page=${filters.page}&pageSize=${filters.pageSize}&search=${encodeURIComponent(filters.search)}&eventKind=${filters.eventKind}&sourceKind=${filters.sourceKind}&startDate=${filters.startDate}&endDate=${filters.endDate}&sortField=${filters.sortField}&sortDirection=${filters.sortDirection}`;
   const events = useHrQuery<AttendanceEventsResponse>(query, canRead && isHrAdministrator);
   const update = (patch: Partial<typeof filters>) => setFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
+  // 手機上類型、來源、日期收在「篩選」按鈕後面，不然四個欄位會把搜尋列撐到三排。
+  const [showFilters, setShowFilters] = useState(false);
+  const hiddenFilterCount = [filters.eventKind !== "all", filters.sourceKind !== "all", filters.startDate !== "", filters.endDate !== ""].filter(Boolean).length;
 
   if (!canRead || !isHrAdministrator) return <Alert tone="danger">出勤明細僅限全平台 HR 管理者查看。</Alert>;
   if (events.isPending) return <HrPageSkeleton variant="table" />;
@@ -50,10 +53,14 @@ export function HrAttendanceRecords() {
     <Panel grows>
       <FilterToolbar>
         <FilterInput label="搜尋員工" type="search" className={SEARCH_INPUT_WIDTH} placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => update({ search: event.target.value })} />
+        <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[760px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選<FilterCount count={hiddenFilterCount} /></Button>
+        {hiddenFilterCount ? <Button variant="link" className="min-[760px]:hidden" onClick={() => update({ eventKind: "all", sourceKind: "all", startDate: "", endDate: "" })}>清除篩選</Button> : null}
+        <FilterFields open={showFilters}>
         <FilterSelect label="打卡類型" value={filters.eventKind} options={[{ value: "all", label: "全部類型" }, { value: "clock_in", label: "上班" }, { value: "clock_out", label: "下班" }]} onChange={(event) => update({ eventKind: event.target.value })} />
         <FilterSelect label="來源" value={filters.sourceKind} options={[{ value: "all", label: "全部來源" }, { value: "portal", label: "本人打卡" }, { value: "manual", label: "手動補登" }, { value: "rfid", label: "RFID" }, { value: "line", label: "LINE" }]} onChange={(event) => update({ sourceKind: event.target.value })} />
         <FilterInput label="開始日期" type="date" className="min-w-[150px]" value={filters.startDate} onChange={(event) => update({ startDate: event.target.value })} />
         <FilterInput label="結束日期（不含）" type="date" className="min-w-[150px]" value={filters.endDate} onChange={(event) => update({ endDate: event.target.value })} />
+        </FilterFields>
       </FilterToolbar>
       {events.isFetching ? <FormHint>更新中…</FormHint> : null}
       <DataTable className="[&_td:first-child]:whitespace-nowrap [&_td:first-child]:tabular-nums"><thead><tr><SortableHeader label="打卡時間" field="occurredAt" active={filters.sortField} direction={filters.sortDirection} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} /><SortableHeader label="員工" field="employee" active={filters.sortField} direction={filters.sortDirection} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} /><SortableHeader label="來源" field="source" active={filters.sortField} direction={filters.sortDirection} onSort={(sortField, sortDirection) => update({ sortField, sortDirection })} /><th>類型</th><th>營運據點／辦公位置</th><th className="numeric">距離（公尺）</th></tr></thead><tbody>{rows.map((row) => <tr key={row.id}><td data-label="打卡時間">{dateTime(row.occurredAt)}</td><td data-label="員工"><div className="font-bold">{row.employeeName}</div><div className="text-[12px] text-muted">{row.employeeNumber}</div></td><td data-label="來源"><StatusBadge tone="neutral">{row.sourceKind ? (SOURCE_LABEL[row.sourceKind] ?? row.sourceKind) : "未知來源"}</StatusBadge></td><td data-label="類型">{row.eventKind ? <StatusBadge tone="neutral">{row.eventKind === "clock_in" ? "上班" : "下班"}</StatusBadge> : "—"}</td><td data-label="營運據點／辦公位置"><div>{row.scopeName ?? "—"}</div><div className="text-[12px] text-muted">{row.locationName ?? "未指定位置"}</div>{row.manualReason ? <div className="text-[12px] text-muted">原因：{row.manualReason}</div> : null}</td><td data-label="距離（公尺）" className="numeric">{row.distanceMeters ?? "—"}</td></tr>)}</tbody></DataTable>

@@ -297,26 +297,22 @@ export function Inventory() {
               {canSync ? " 可從 CYBERBIZ 同步數量與安全庫存。" : null}
           </>
         }
-        actions={canSync || canWrite ? (
-          <div className="flex gap-2">
-            {canSync ? (
-              <Button
-                variant="secondary"
-                icon="sync"
-                loading={syncTarget === "all"}
-                loadingLabel="同步中…"
-                disabled={sync.isPending || linkedCount === 0}
-                onClick={() => runSync()}
-              >
-                全部同步
-              </Button>
-            ) : null}
-            {canWrite ? (
-              <Button icon="plus" mobileIconOnly onClick={() => setAdding(true)} aria-label="新增入庫">
-                新增入庫
-              </Button>
-            ) : null}
-          </div>
+        actions={canSync ? (
+          <Button
+            variant="secondary"
+            icon="sync"
+            loading={syncTarget === "all"}
+            loadingLabel="同步中…"
+            disabled={sync.isPending || linkedCount === 0}
+            onClick={() => runSync()}
+          >
+            全部同步
+          </Button>
+        ) : null}
+        fab={canWrite ? (
+          <Button icon="plus" mobileIconOnly onClick={() => setAdding(true)}>
+            新增入庫
+          </Button>
         ) : null}
       />
 

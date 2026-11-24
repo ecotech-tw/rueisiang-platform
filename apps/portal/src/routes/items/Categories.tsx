@@ -181,7 +181,7 @@ export function ItemCategories() {
 
   return (
     <Page layout="fills">
-      <PageHeader title="品項分類管理" description="這裡管理 item_categories；它是報表與品項列表分類，不再與倉儲分類同步。" actions={canWrite ? <Button icon="plus" onClick={() => setCreating(true)}>新增分類</Button> : null} />
+      <PageHeader title="品項分類管理" description="這裡管理 item_categories；它是報表與品項列表分類，不再與倉儲分類同步。" fab={canWrite ? <Button icon="plus" mobileIconOnly onClick={() => setCreating(true)}>新增分類</Button> : null} />
 
       <Panel grows>
         {error ? <Alert tone="danger">{error.message}</Alert> : null}

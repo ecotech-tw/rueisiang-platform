@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, RowActions, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableNote, TableSelectAllLabel, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, RowActions, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableNote, TableSelectAllLabel, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -1072,6 +1072,11 @@ function hasSalesFilters(filters: ManualSalesQuery): boolean {
   return Boolean(filters.search || filters.scopeId || filters.source !== "all" || filters.startMonth || filters.endMonth);
 }
 
+/** 手機上據點、來源、日期收在這顆按鈕後面：四個欄位一欄一列會把搜尋列撐到三排。數字不算搜尋。 */
+function FilterToggle({ open, count, onToggle }: { open: boolean; count: number; onToggle: () => void }) {
+  return <Button variant="secondary" icon="filter" size="lg" active={open} className="flex-none min-[760px]:hidden" aria-expanded={open} onClick={onToggle}>篩選<FilterCount count={count} /></Button>;
+}
+
 function PayoutFilters({
   filters,
   scopes,
@@ -1082,6 +1087,8 @@ function PayoutFilters({
   onChange: (patch: Partial<ManualPayoutQuery>) => void;
 }) {
   const active = hasPayoutFilters(filters);
+  const [open, setOpen] = useState(false);
+  const hiddenCount = [filters.scopeId, filters.source !== "all", filters.startDate, filters.endDate].filter(Boolean).length;
   return (
     <FilterToolbar>
       <SearchFilterInput
@@ -1090,6 +1097,9 @@ function PayoutFilters({
         value={filters.search}
         onSearch={(search) => onChange({ search })}
       />
+      <FilterToggle open={open} count={hiddenCount} onToggle={() => setOpen((current) => !current)} />
+      {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_PAYOUT_FILTERS })}>清除篩選</Button> : null}
+      <FilterFields open={open}>
       <FilterSelect
         label="出金據點"
         value={filters.scopeId}
@@ -1116,7 +1126,7 @@ function PayoutFilters({
         value={filters.endDate}
         onChange={(event) => onChange({ endDate: event.target.value })}
       />
-      {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_PAYOUT_FILTERS })}>清除篩選</Button> : null}
+      </FilterFields>
     </FilterToolbar>
   );
 }
@@ -1131,6 +1141,8 @@ function SalesFilters({
   onChange: (patch: Partial<ManualSalesQuery>) => void;
 }) {
   const active = hasSalesFilters(filters);
+  const [open, setOpen] = useState(false);
+  const hiddenCount = [filters.scopeId, filters.source !== "all", filters.startMonth, filters.endMonth].filter(Boolean).length;
   return (
     <FilterToolbar>
       <SearchFilterInput
@@ -1139,6 +1151,9 @@ function SalesFilters({
         value={filters.search}
         onSearch={(search) => onChange({ search })}
       />
+      <FilterToggle open={open} count={hiddenCount} onToggle={() => setOpen((current) => !current)} />
+      {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_SALES_FILTERS })}>清除篩選</Button> : null}
+      <FilterFields open={open}>
       <FilterSelect
         label="商品銷售據點"
         value={filters.scopeId}
@@ -1165,7 +1180,7 @@ function SalesFilters({
         value={filters.endMonth}
         onChange={(event) => onChange({ endMonth: event.target.value })}
       />
-      {active ? <Button variant="link" onClick={() => onChange({ ...DEFAULT_SALES_FILTERS })}>清除篩選</Button> : null}
+      </FilterFields>
     </FilterToolbar>
   );
 }

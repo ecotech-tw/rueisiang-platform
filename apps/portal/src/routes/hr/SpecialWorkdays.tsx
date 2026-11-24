@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, RowActions, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, RowActions, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { useHrEmployeeRoster, useHrQuery, useHrWrite, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";
@@ -431,6 +431,9 @@ export function HrSpecialWorkdays() {
   const assignmentRows = useMemo(() => assignments.data?.assignments ?? [], [assignments.data?.assignments]);
   const visibleAssignments = useMemo(() => filterSpecialWorkdayAssignments(assignmentRows, assignmentFilters), [assignmentFilters, assignmentRows]);
   const assignableRules = useMemo(() => rows.filter((item) => item.rule.active && item.versions.some((version) => !version.voidedAt)), [rows]);
+  // 手機上日期與薪資狀態收在「篩選」按鈕後面；按鈕上的數字不算搜尋，搜尋框一直看得到。
+  const [showAssignmentFilters, setShowAssignmentFilters] = useState(false);
+  const hiddenAssignmentFilterCount = [assignmentFilters.startDate, assignmentFilters.endDate, assignmentFilters.payrollStatus === "all" ? "" : assignmentFilters.payrollStatus].filter(Boolean).length;
   const activeAssignmentFilterCount = [assignmentFilters.search.trim(), assignmentFilters.startDate, assignmentFilters.endDate, assignmentFilters.payrollStatus === "all" ? "" : assignmentFilters.payrollStatus].filter(Boolean).length;
   const assignmentDateError = assignmentFilters.startDate && assignmentFilters.endDate && assignmentFilters.endDate < assignmentFilters.startDate ? "結束日期不可早於開始日期。" : null;
   const updateAssignmentFilters = (patch: Partial<SpecialWorkdayAssignmentFilters>) => setAssignmentFilters((current) => ({ ...current, ...patch }));
@@ -459,7 +462,7 @@ export function HrSpecialWorkdays() {
   };
   if (!canRead) return <Alert tone="danger">你沒有檢視特殊上班日規則的權限。</Alert>;
   if (rules.isPending || assignments.isPending) return <HrPageSkeleton variant="table" />;
-  return <Page layout="fills"><PageHeader title="特殊上班日" description="先建立可重複使用的規則，再一次套用到多位人員的日期區間；套用不等於打卡，也不等於加班核准。" actions={canWrite ? <div className="flex flex-wrap items-center justify-end gap-2"><Button variant="secondary" tone="info" onClick={() => setEditor("assign")} disabled={!assignableRules.length}>套用到人員日期</Button><Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditor("new")}>新增規則</Button></div> : undefined} />
+  return <Page layout="fills"><PageHeader title="特殊上班日" description="先建立可重複使用的規則，再一次套用到多位人員的日期區間；套用不等於打卡，也不等於加班核准。" actions={canWrite ? <Button variant="secondary" tone="info" onClick={() => setEditor("assign")} disabled={!assignableRules.length}>套用到人員日期</Button> : undefined} fab={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditor("new")}>新增規則</Button> : undefined} />
     {rules.error || assignments.error || toggleRule.error ? <Alert tone="danger">{rules.error?.message ?? assignments.error?.message ?? toggleRule.error?.message}</Alert> : null}<Alert tone="info">月薪／日薪的特殊日倍率依套用日期計薪，不要求月度工時；固定特殊薪資與時薪制倍率才需要工時資料。重新試算會使用目前規則設定，已結算薪資明細不會被改寫。加班仍須另行申請與核准。</Alert>
     <Panel><div data-panel-head="" className={PANEL_HEAD}><div><h2>規則主檔</h2><p className={PANEL_DESCRIPTION}>建立新版本不覆寫歷史；解除最新版本會回到建立它之前的狀態。尚未納入薪資試算的日期套用可隨規則刪除，已納入的規則請停用。</p></div></div><DataTable><thead><tr><th>規則</th><th>版本／期間</th><th>薪資方式</th><th>特殊日加班</th><th>狀態</th><th>操作</th></tr></thead><tbody>{rows.map((item) => {
       const version = latestActiveVersion(item);
@@ -471,10 +474,13 @@ export function HrSpecialWorkdays() {
     <Panel grows><div data-panel-head="" className={PANEL_HEAD}><div><h2>日期套用紀錄</h2><p className={PANEL_DESCRIPTION}>日期套用紀錄可以調整規則、人員、日期與補貼數量；納入薪資試算後仍保留來源，已結算薪資明細不會被改寫。</p></div></div>
       <FilterToolbar>
         <SearchFilterInput label="搜尋套用紀錄" placeholder="搜尋人員、員工編號、規則或日期" value={assignmentFilters.search} onSearch={(search) => updateAssignmentFilters({ search })} />
+        <Button variant="secondary" icon="filter" size="lg" active={showAssignmentFilters} className="flex-none min-[760px]:hidden" aria-expanded={showAssignmentFilters} onClick={() => setShowAssignmentFilters((open) => !open)}>篩選<FilterCount count={hiddenAssignmentFilterCount} /></Button>
+        {activeAssignmentFilterCount ? <Button variant="link" onClick={() => setAssignmentFilters({ search: "", startDate: "", endDate: "", payrollStatus: "all" })}>清除篩選</Button> : null}
+        <FilterFields open={showAssignmentFilters}>
         <FilterInput label="開始日期" type="date" value={assignmentFilters.startDate} onChange={(event) => updateAssignmentFilters({ startDate: event.target.value })} />
         <FilterInput label="結束日期" type="date" value={assignmentFilters.endDate} onChange={(event) => updateAssignmentFilters({ endDate: event.target.value })} />
         <FilterSelect label="薪資計算狀態" value={assignmentFilters.payrollStatus} options={[{ value: "all", label: "全部薪資狀態" }, { value: "not_included", label: "尚未納入試算" }, { value: "included", label: "已納入試算" }]} onChange={(event) => updateAssignmentFilters({ payrollStatus: event.target.value as SpecialWorkdayAssignmentPayrollFilter })} />
-        {activeAssignmentFilterCount ? <Button variant="link" onClick={() => setAssignmentFilters({ search: "", startDate: "", endDate: "", payrollStatus: "all" })}>清除篩選</Button> : null}
+        </FilterFields>
       </FilterToolbar>
       {assignmentDateError ? <Alert tone="warning">{assignmentDateError}</Alert> : null}
       <DataTable><thead><tr><th>人員</th><th>日期</th><th>規則</th><th>目前薪資方式</th><th>補貼數量</th><th>套用時間</th><th>薪資狀態</th><th>操作</th></tr></thead><tbody>{visibleAssignments.map((item) => <tr key={item.assignment.id}><td>{item.employeeName ?? item.workerName ?? "—"}</td><td>{item.assignment.workDate}</td><td>{item.ruleName}{item.currentVersionNumber ? <><br /><span className="text-muted">目前設定 v{item.currentVersionNumber}{item.currentVersionVoidedAt ? "（已解除）" : ""}</span></> : null}</td><td>{item.currentWageKind === "fixed_hourly" ? "固定每小時" : item.currentWageKind === "multiplier" ? "總倍率" : "無目前設定"}</td><td>{allowanceSummary(item)}</td><td>{item.assignment.appliedAt}</td><td><StatusBadge tone={item.includedInPayroll ? "neutral" : "info"}>{item.includedInPayroll ? "已納入試算" : "尚未納入"}</StatusBadge></td><td>{canWrite ? <RowActions spacing="wide"><Tooltip label={`編輯 ${item.employeeName ?? item.workerName ?? "這筆套用"} 的特殊上班日`} focusable={false}><Button variant="icon" icon="edit" aria-label={`編輯${item.employeeName ?? item.workerName ?? "這筆套用"} ${item.assignment.workDate} 的特殊上班日`} onClick={() => setEditingAssignment(item)} /></Tooltip><Tooltip label={item.includedInPayroll ? "已納入薪資試算版本，不能刪除" : `刪除 ${item.employeeName ?? item.workerName ?? "這筆套用"} 的特殊上班日`} focusable={false}><Button variant="icon" icon="trash" tone="danger" aria-label={`刪除${item.employeeName ?? item.workerName ?? "這筆套用"} ${item.assignment.workDate} 的特殊上班日`} disabled={deleteAssignment.isPending || item.includedInPayroll} onClick={() => { deleteAssignment.reset(); setDeletingAssignment(item); }} /></Tooltip></RowActions> : <span className="text-muted">—</span>}</td></tr>)}</tbody></DataTable>{!assignmentRows.length ? <EmptyState className="mt-[18px]">尚未有日期套用紀錄。</EmptyState> : assignmentRows.length && !visibleAssignments.length ? <EmptyState className="mt-[18px]">沒有符合條件的套用紀錄，請調整篩選。</EmptyState> : null}</Panel>
