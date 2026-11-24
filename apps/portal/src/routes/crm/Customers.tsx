@@ -162,7 +162,7 @@ export function Customers() {
       <PageHeader
         title="客戶列表"
         description="查看、搜尋 CYBERBIZ 與人工建立的客戶資料。"
-        actions={canWrite ? (
+        fab={canWrite ? (
             <Button
               icon="plus"
               mobileIconOnly

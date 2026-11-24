@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, REFRESHING, SearchFilterInput, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, TextField, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, REFRESHING, SearchFilterInput, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, TextField, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { PeoplePickerEmpty, PeoplePickerHeading } from "./PickerList.js";
@@ -368,6 +368,8 @@ export function HrPayrollSettlement() {
   const formalEmployees = (employees.data?.employees ?? []).filter(isHrFormalEmployee);
   const records = useHrQuery<PayrollRecordsResponse>(`/payroll/records?page=${recordFilters.page}&pageSize=${recordFilters.pageSize}&search=${encodeURIComponent(recordFilters.search)}&periodKey=${encodeURIComponent(recordFilters.periodKey || "all")}&status=${recordFilters.status}&personKind=${recordFilters.personKind}&payBasis=${recordFilters.payBasis}`, canRead);
   const [pollPayrollJobs, setPollPayrollJobs] = useState(true);
+  // 手機上篩選收在「篩選」按鈕後面：五個欄位一欄一列會佔掉快 1/3 畫面。
+  const [showFilters, setShowFilters] = useState(false);
   const payrollJobs = useHrQuery<PayrollJobsResponse>("/payroll/jobs", canRead, { keepPreviousData: false, refetchInterval: pollPayrollJobs ? 3000 : false });
   const approvePayroll = useHrWrite<{ approved: number }>();
   const deletePayrollRecord = useHrWrite<{ deleted: true }>({ invalidate: false });
@@ -402,6 +404,7 @@ export function HrPayrollSettlement() {
   if (!canRead) return <Alert tone="danger">薪資資料僅限全平台 HR 管理者查看。</Alert>;
   if (records.isPending) return <HrPageSkeleton variant="table" />;
 
+  const activeFilterCount = [recordFilters.periodKey !== "", recordFilters.status !== "all", recordFilters.personKind !== "all", recordFilters.payBasis !== "all"].filter(Boolean).length;
   function updateRecordFilters(patch: Partial<PayrollRecordFilters>) {
     setRecordFilters((current) => ({ ...current, ...patch, page: patch.page ?? 1 }));
     bulk.cancel();
@@ -448,11 +451,15 @@ export function HrPayrollSettlement() {
 
     <Panel grows className="grid gap-3.5">
       <FilterToolbar>
-        <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} className="min-w-[130px] flex-[1_1_220px] max-[760px]:min-w-0 max-[760px]:basis-full" />
+        <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} className="min-w-[130px] flex-[1_1_220px] max-[760px]:min-w-0 max-[760px]:flex-1" />
+        <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[760px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選<FilterCount count={activeFilterCount} /></Button>
+        {activeFilterCount ? <Button variant="link" className="min-[760px]:hidden" onClick={() => updateRecordFilters({ periodKey: "", status: "all", personKind: "all", payBasis: "all" })}>清除篩選</Button> : null}
+        <FilterFields open={showFilters}>
         <FilterInput label="薪資月份" type="month" className="min-w-[130px] flex-[1_1_150px] max-[760px]:basis-full" value={recordFilters.periodKey} onChange={(event) => updateRecordFilters({ periodKey: event.target.value })} />
         <FilterSelect label="狀態" className="min-w-[130px] flex-[1_1_150px] max-[760px]:basis-full" value={recordFilters.status} options={[{ value: "all", label: "全部狀態" }, { value: "unsettled", label: "尚未結算" }, { value: "closed", label: "已確定發放" }, { value: "withdrawn", label: "已撤回" }]} onChange={(event) => updateRecordFilters({ status: event.target.value as PayrollRecordFilters["status"] })} />
         <FilterSelect label="人員類型" className="min-w-[130px] flex-[1_1_150px] max-[760px]:basis-full" value={recordFilters.personKind} options={[{ value: "all", label: "全部人員" }, { value: "employee", label: "正式員工" }, { value: "worker", label: "支援人員" }]} onChange={(event) => updateRecordFilters({ personKind: event.target.value as PayrollRecordFilters["personKind"] })} />
         <FilterSelect label="計薪方式" className="min-w-[130px] flex-[1_1_150px] max-[760px]:basis-full" value={recordFilters.payBasis} options={[{ value: "all", label: "全部計薪方式" }, { value: "monthly", label: "月薪" }, { value: "daily", label: "日薪" }, { value: "hourly", label: "時薪" }, { value: "mixed", label: "混合" }]} onChange={(event) => updateRecordFilters({ payBasis: event.target.value as PayrollRecordFilters["payBasis"] })} />
+        </FilterFields>
       </FilterToolbar>
       {records.error ? <Alert tone="danger">薪資紀錄載入失敗：{records.error.message}</Alert> : null}
       <div className="relative flex min-h-0 min-w-0 flex-auto flex-col overflow-hidden max-[760px]:overflow-visible">

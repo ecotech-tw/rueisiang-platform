@@ -242,7 +242,7 @@ export function Items() {
       <PageHeader
         title="品項列表"
         description="集中維護可被倉儲、SKU 對應與報表共用的品項；庫存盤點仍留在倉儲頁處理。"
-        actions={canWrite ? <Button icon="plus" onClick={() => setEditing("new")}>新增自訂品項</Button> : null}
+        fab={canWrite ? <Button icon="plus" mobileIconOnly onClick={() => setEditing("new")}>新增自訂品項</Button> : null}
       />
 
       <StatRow aria-label="品項列表摘要">
