@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect } from "react";
 
 /** 全站共用的前綴。分頁標題只有前面幾個字看得到，品牌要排在前面。 */
 const TITLE_PREFIX = "瑞香 Ruei Siang";
@@ -15,6 +15,9 @@ export function usePageTitle(title?: string): void {
   const publish = useContext(PageTitleContext);
   useEffect(() => {
     document.title = title ? `${TITLE_PREFIX} | ${title}` : TITLE_PREFIX;
+  }, [title]);
+  // 上方列的頁名要在畫面畫出來之前換好：useEffect 會晚一個畫面，換頁那一瞬間上方列還寫著上一頁、這頁的 h1 卻已經藏起來。
+  useLayoutEffect(() => {
     publish?.(title);
   }, [title, publish]);
 }

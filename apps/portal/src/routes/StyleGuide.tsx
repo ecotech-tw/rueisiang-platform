@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { UserAvatar } from "../shell/AccountPanel.js";
-import { HR_SHELL, HR_USER_MENU, HrBrand, HrGlassDefs, HrHeader, HrMain, HrNav, HrNavItem, hrNavIconClass, hrNavLinkClass, hrUserTriggerClass } from "./hr/HrShell.js";
+import { HR_SHELL, HR_USER_MENU, HrBrand, HrHeader, HrMain, HrNav, HrNavItem, hrNavIconClass, hrNavLinkClass, hrUserTriggerClass } from "./hr/HrShell.js";
 import { DateRangePicker } from "../shell/DateRangePicker.js";
 import { Switch } from "../shell/Switch.js";
 import { usePageTitle } from "../shell/usePageTitle.js";
@@ -83,7 +83,6 @@ function LiquidGlassPreview() {
   return (
     <div className="relative min-h-[430px] overflow-hidden border border-soft-line rounded-[16px] [background:radial-gradient(circle_at_8%_0%,color-mix(in_oklab,var(--color-brand)_18%,transparent),transparent_34%),radial-gradient(circle_at_96%_86%,color-mix(in_oklab,var(--color-info)_12%,transparent),transparent_38%),linear-gradient(135deg,color-mix(in_oklab,var(--color-paper)_60%,transparent),color-mix(in_oklab,var(--color-canvas)_90%,transparent))]">
       <ButtonSkin skin="glass"><PanelSkin skin="glass"><div className={HR_SHELL}>
-        <HrGlassDefs />
         <HrHeader compact>
           <HrBrand current="元件展示" compact />
           <HrNav label="Liquid Glass 範例導覽" style={navStyle}>
