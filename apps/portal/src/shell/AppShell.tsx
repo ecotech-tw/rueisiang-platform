@@ -3,7 +3,7 @@ import { Outlet, useLocation } from "react-router";
 import { logout, useSession } from "../auth/session.js";
 import { isHrPath, settleHrTransition } from "./hr-transition.js";
 import { Sidebar } from "./Sidebar.js";
-import { MobilePageTitle } from "../ui/index.js";
+import { MobilePageTitle, PageDescriptions } from "../ui/index.js";
 import { GlassSkins } from "./GlassSkins.js";
 import { GLASS_BRAND_CHIP, GlassDefs, glassCircleButtonClass } from "./glass.js";
 import { Icon } from "./icons.js";
@@ -89,7 +89,11 @@ export function AppShell() {
         * 不該讓整頁被手指拖得左右晃（HrMain 同理）。
         */}
       <main className={`h-full min-h-0 min-w-0 overflow-y-auto max-[760px]:overflow-x-hidden ${content} min-[760px]:has-[[data-page=fills]]:overflow-y-hidden max-[760px]:[&_[data-page=fills]]:h-auto min-[760px]:has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
-        <GlassSkins><MobilePageTitle visible={!pageTitle}><Outlet /></MobilePageTitle></GlassSkins>
+        {/*
+          * 頁首一律不顯示說明（跟 HRIS 一樣）：固定的介紹句每次進來都要讀過一遍，佔掉的高度比它帶來的資訊多。
+          * 會跟著資料變、或使用者需要知道的資訊不能只放在說明裡，要寫在頁面上（例如品項庫存的補貨數）。
+          */}
+        <GlassSkins><PageDescriptions visible={false}><MobilePageTitle visible={!pageTitle}><Outlet /></MobilePageTitle></PageDescriptions></GlassSkins>
       </main>
     </div>
     </PageTitleContext>

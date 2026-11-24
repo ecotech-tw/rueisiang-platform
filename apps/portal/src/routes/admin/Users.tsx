@@ -548,7 +548,7 @@ export function AdminUsers() {
 
       {syncRoles.error ? <Alert tone="danger">{syncRoles.error.message}</Alert> : null}
 
-      <Panel title="邀請新帳號">
+      <Panel title="邀請新帳號" description="帳號要先出現在這份名單，對方才能用 Google 登入。">
         <InviteForm catalog={catalogData} onInviteUrl={(email, url) => setInviteLink({ email, url })} />
         {/*
           * 連結放在表單下面而不是跳一個對話框：管理者常常要連續邀好幾個人，
