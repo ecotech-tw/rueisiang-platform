@@ -26,7 +26,7 @@ wms/zones/<zone-id>/<yyyy>/<mm>/<uuid>.<ext>
 
 `GET /healthz` 只回傳健康狀態，不讀取檔案。
 
-其餘 endpoint 都需要獨立的 `x-storage-token`，不可重用 Codex relay token。
+其餘 endpoint 都需要獨立的 `x-storage-token`，不可重用其他服務的 token。
 
 ### Upload
 
@@ -74,7 +74,7 @@ node --check src/server.mjs
 只存在 NAS 的 `.env`：
 
 ```dotenv
-STORAGE_ACCESS_TOKEN=<與 Codex relay 不同的高熵字串>
+STORAGE_ACCESS_TOKEN=<此 gateway 專用的高熵字串>
 ```
 
 再用 Container Manager 或 Docker Compose 建立：
@@ -89,4 +89,4 @@ curl http://127.0.0.1:8790/healthz
 `storage.rueisiang.com` 指向 `http://192.168.0.6:8790`，並保留 `x-storage-token`
 驗證；不要把 8790 做 router port forwarding。
 
-storage token 必須設成 NAS gateway 與 Worker 兩端的獨立 secret，不能重用 Codex relay token。
+storage token 必須設成 NAS gateway 與 Worker 兩端的獨立 secret，不能重用其他服務的 token。

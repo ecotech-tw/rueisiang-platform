@@ -20,81 +20,8 @@ const PI_GEMINI_PROVIDER_ID = "google";
 
 type PiCodexAccessTokenResolver = (signal: AbortSignal | undefined) => Promise<string>;
 
-export interface PiCodexRelayConfig {
-  /** NAS relay 的 HTTPS origin；本機測試可使用 localhost／loopback 的 HTTP。 */
-  baseUrl: string;
-  /** Worker 與 NAS relay 之間的共享 secret，不會轉送給上游 provider。 */
-  token: string;
-}
-
 const CODEX_UPSTREAM_HOST = "chatgpt.com";
 const CODEX_UPSTREAM_PATH = "/backend-api/codex/responses";
-const CODEX_RELAY_PATH = "/codex/responses";
-const CODEX_RELAY_TOKEN_HEADER = "x-codex-relay-token";
-
-function normalizeCodexRelayBaseUrl(value: string): URL {
-  const raw = value.trim();
-  if (!raw) throw new Error("Codex relay URL 不可為空。 ");
-
-  const url = new URL(raw);
-  const isLoopback = url.hostname === "localhost"
-    || url.hostname === "127.0.0.1"
-    || url.hostname === "[::1]"
-    || url.hostname === "::1";
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback)) {
-    throw new Error("Codex relay URL 必須使用 HTTPS；只有本機 loopback 可以使用 HTTP。 ");
-  }
-  if (url.username || url.password || url.search || url.hash) {
-    throw new Error("Codex relay URL 不可包含帳密、query 或 fragment。 ");
-  }
-  if (url.pathname !== "/" && url.pathname !== "") {
-    throw new Error("Codex relay URL 必須是 origin，不可包含 path。 ");
-  }
-  url.pathname = "";
-  return url;
-}
-
-/**
- * 將 Pi 的 Codex SSE 請求送到固定的 NAS relay。
- *
- * 這裡刻意驗證上游 URL，避免 relay 設定意外變成任意目的地的 proxy。
- * Pi 目前只會使用 SSE，所以不會改寫 WebSocket transport。
- */
-export function createPiCodexRelayFetch(
-  config: PiCodexRelayConfig,
-  fetchImpl: FetchFunction = globalThis.fetch,
-): FetchFunction {
-  const relayBaseUrl = normalizeCodexRelayBaseUrl(config.baseUrl);
-  const relayToken = config.token.trim();
-  if (!relayToken) throw new Error("Codex relay token 不可為空。 ");
-
-  return async (input, init) => {
-    const source = new Request(input, init);
-    const upstreamUrl = new URL(source.url);
-    if (upstreamUrl.protocol !== "https:" || upstreamUrl.hostname !== CODEX_UPSTREAM_HOST) {
-      throw new Error("Codex relay 只允許轉送 chatgpt.com 的 HTTPS 請求。 ");
-    }
-    if (upstreamUrl.pathname !== CODEX_UPSTREAM_PATH) {
-      throw new Error(`Codex relay 不支援上游 path：${upstreamUrl.pathname}`);
-    }
-
-    const targetUrl = new URL(relayBaseUrl.toString());
-    targetUrl.pathname = CODEX_RELAY_PATH;
-    targetUrl.search = upstreamUrl.search;
-
-    const headers = new Headers(source.headers);
-    headers.set(CODEX_RELAY_TOKEN_HEADER, relayToken);
-    const requestInit = {
-      method: source.method,
-      headers,
-      body: source.method === "GET" || source.method === "HEAD" ? undefined : source.body,
-      signal: source.signal,
-      // Node 的 fetch 將 ReadableStream 當 request body 時需要此欄位；Cloudflare Fetch 會忽略它。
-      duplex: "half" as const,
-    } as RequestInit;
-    return fetchImpl(targetUrl, requestInit);
-  };
-}
 
 export function createPiCodexVPCFetch(fetchImpl: FetchFunction): FetchFunction {
   return async (input, init) => {

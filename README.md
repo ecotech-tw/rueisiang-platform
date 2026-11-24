@@ -167,7 +167,7 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 
 ### 小香：模型目錄與退役設定驗證
 
-- [ ] 部署後確認 Sandbox 顯示 GPT-6／GPT-6.1、Gemini 3.8；用正式帳號測工具呼叫、圖片輸入及跨 provider fallback，驗證帳號權限與實際用量。Codex 需經現有 NAS relay；模型更新不代表正式帳號一定可用。
+- [ ] 部署後確認 Sandbox 顯示 GPT-6／GPT-6.1、Gemini 3.8；用正式帳號測工具呼叫、圖片輸入及跨 provider fallback，驗證帳號權限與實際用量。Codex 使用 Workers VPC；模型更新不代表正式帳號一定可用。
 - [ ] 確認仍可用的 active model／fallback 不被改寫；退役主模型的回落與退役 fallback 的暫停都有提示，可在 Sandbox 重新儲存。若需回滾，先選擇該版 SDK 仍收錄且 provider 實際可用的模型，再回退 Worker；不要回到已退役的 GPT-5.4 mini。
 
 ### 小香：HR 本人查詢上線開通
@@ -199,13 +199,12 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 接外部 MCP 工具的限制與風險見
 [`docs/assistant-multi-account-design.md`](./docs/assistant-multi-account-design.md)。
 
-### 小香：Relay 與用量
+### 小香：VPC egress 與用量
 
-- [ ] 觀察 Sandbox 與 LINE 經 [Workers VPC `cf1:network`](https://developers.cloudflare.com/workers-vpc/configuration/vpc-networks/)
-      的 ChatGPT OAuth HTTP／SSE、token refresh、取消與錯誤率；保留 `PI_OPENAI_CODEX_EGRESS_MODE=relay`
-      作為兩者共用的回退能力，直到確認推論穩定，再考慮移除 NAS relay。驗收 Sandbox 圖片上傳後的視覺提問與
-      後續引用同圖追問，確認 DO 能從現有 NAS storage 取回圖片、納入 context 並完成 Codex 推論；VPC 只改模型
-      request 的出口，不代表圖片儲存已脫離 NAS。
+- [ ] 持續觀察 Sandbox 與 LINE 經 [Workers VPC `cf1:network`](https://developers.cloudflare.com/workers-vpc/configuration/vpc-networks/)
+      的 ChatGPT OAuth HTTP／SSE、token refresh、取消與錯誤率。驗收 Sandbox 圖片上傳後的視覺提問與後續引用同圖追問，
+      確認 DO 能從現有 NAS storage 取回圖片、納入 context 並完成 Codex 推論；VPC 只改模型 request 的出口，
+      不代表圖片儲存已脫離 NAS。
 - [ ] 新增 LINE Push API 用量分析，至少顯示 fixed-window 用量、剩餘額度、查詢時間區間
       與群組／事件明細。
 - [ ] 建立日／週／月與自訂 duration 的群組、模型、tool 用量分析頁。

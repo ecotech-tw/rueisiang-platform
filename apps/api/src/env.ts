@@ -50,12 +50,6 @@ export interface Env {
   PI_OPENAI_CODEX_CREDENTIAL?: string;
   /** vault 內 credential 的應用層 AES-GCM encryption key，至少 32 字元。 */
   PI_CREDENTIAL_ENCRYPTION_KEY?: string;
-  /** Codex 模型出站路徑；vpc 讓 Sandbox 與 LINE 經 Gateway，relay mode 讓兩者都走 NAS relay。 */
-  PI_OPENAI_CODEX_EGRESS_MODE?: "vpc" | "relay";
-  /** 可選的 NAS Codex relay origin；relay mode 才會使用。 */
-  PI_OPENAI_CODEX_RELAY_URL?: string;
-  /** NAS Codex relay 的共享 secret；必須與 relay 同時設定。 */
-  PI_OPENAI_CODEX_RELAY_TOKEN?: string;
   /** RFID Gateway 將刷卡封包送入 HR 綁卡流程的 shared secret。 */
   RFID_GATEWAY_TOKEN?: string;
   /** 私有 NAS storage gateway 的 HTTPS origin；未設定時 WMS 使用既有 R2。 */

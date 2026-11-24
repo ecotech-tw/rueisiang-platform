@@ -21,7 +21,6 @@ describe("Pi provider diagnostics", () => {
         "content-type": "text/html",
         "cf-ray": "ray-123",
         "x-request-id": "request-123",
-        "x-codex-relay-request-id": "relay-request-123",
         "retry-after": "30",
         server: "cloudflare",
         authorization: "不要記錄",
@@ -34,7 +33,6 @@ describe("Pi provider diagnostics", () => {
       contentType: "text/html",
       cfRay: "ray-123",
       requestId: "request-123",
-      relayRequestId: "relay-request-123",
       retryAfter: "30",
       server: "cloudflare",
     });
