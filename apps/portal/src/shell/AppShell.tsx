@@ -3,12 +3,17 @@ import { Outlet, useLocation } from "react-router";
 import { logout, useSession } from "../auth/session.js";
 import { isHrPath, settleHrTransition } from "./hr-transition.js";
 import { Sidebar } from "./Sidebar.js";
+import { MobilePageTitle } from "../ui/index.js";
 import { GlassSkins } from "./GlassSkins.js";
+import { GLASS_BRAND_CHIP, GlassDefs, glassCircleButtonClass } from "./glass.js";
+import { Icon } from "./icons.js";
+import { PageTitleContext } from "./usePageTitle.js";
 import { ToastProvider } from "./Toast.js";
 
 export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [pageTitle, setPageTitle] = useState<string>();
   const { user, permissions } = useSession();
   const isHrModule = isHrPath(useLocation().pathname);
 
@@ -29,28 +34,33 @@ export function AppShell() {
 
   return (
     <ToastProvider>
+    <PageTitleContext value={setPageTitle}>
     {/*
+      * 玻璃要透得出東西：外框底下鋪一層淡淡的品牌色漸層，側欄、上方列與內容區都疊在它上面。
       * 手機用 dvh：iOS Safari 的 100vh 把底部工具列底下那段也算進去，外框又鎖住不捲，
       * 最底下的分頁列會被工具列蓋住而且捲不到。員工 HR 站的外框也是這樣寫。
       */}
-    <div data-shell="" className={`grid h-screen min-h-screen overflow-hidden max-[760px]:h-dvh max-[760px]:min-h-dvh ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 ${rows}`}>
+    <div data-shell="" className={`grid h-screen [background:radial-gradient(circle_at_top_left,--alpha(var(--color-brand)/8%),transparent_34rem),var(--color-canvas)] min-h-screen overflow-hidden max-[760px]:h-dvh max-[760px]:min-h-dvh ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 ${rows}`}>
       {!isHrModule ? <>
-        {/* 手機上 sidebar 收成抽屜，靠這條上方列開關——沿用 CRM 的作法。 */}
-        <header className="sticky top-0 z-30 hidden items-center justify-between gap-3 border-b border-line bg-drawer px-4 py-2.5 max-[900px]:flex">
-          <div className="flex min-w-0 items-center gap-3">
-            <img className="h-auto w-[118px]" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" />
+        <GlassDefs />
+        {/*
+          * 手機上 sidebar 收成抽屜，靠這條上方列開關。長得跟 HRIS 的頁首一樣：品牌膠囊＋圓形選單鈕。
+          * 760 以下頁面不顯示 h1（下面的 MobilePageTitle），頁名改寫在膠囊裡；760–900 的平板 h1 還在，膠囊只放 logo。
+          */}
+        <header className="sticky top-0 z-30 hidden grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 px-4 pt-3 pb-3.5 max-[900px]:grid">
+          <div className={`${GLASS_BRAND_CHIP} justify-self-start`}>
+            <img className="h-auto w-[92px] flex-none object-contain" src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={150} height={38} />
+            {pageTitle ? <strong className="hidden min-w-0 truncate border-l border-l-ink/6 pl-3 text-[15px] font-black text-ink max-[760px]:block">{pageTitle}</strong> : null}
           </div>
           <button
             type="button"
-            className="grid w-10 gap-1 rounded-[11px] border border-line bg-paper p-[9px]"
+            className={glassCircleButtonClass(mobileMenuOpen)}
             onClick={() => setMobileMenuOpen((open) => !open)}
             aria-expanded={mobileMenuOpen}
             aria-controls="portal-sidebar"
             aria-label={mobileMenuOpen ? "關閉選單" : "開啟選單"}
           >
-            <span className="h-0.5 rounded-[2px] bg-brand" />
-            <span className="h-0.5 rounded-[2px] bg-brand" />
-            <span className="h-0.5 rounded-[2px] bg-brand" />
+            <Icon name={mobileMenuOpen ? "close" : "menu"} className="size-[22px] text-brand-dark" />
           </button>
         </header>
 
@@ -78,11 +88,11 @@ export function AppShell() {
         * 手機上整頁不准左右捲：要橫捲的東西（寬表格、膠囊列）都有自己的捲動容器，多出幾 px 的元素
         * 不該讓整頁被手指拖得左右晃（HrMain 同理）。
         */}
-      {/* 玻璃要透得出東西：內容區底下鋪一層淡淡的品牌色漸層，所有模組共用。 */}
-      <main className={`h-full min-h-0 min-w-0 overflow-y-auto max-[760px]:overflow-x-hidden [background:radial-gradient(circle_at_top_left,--alpha(var(--color-brand)/8%),transparent_34rem),var(--color-canvas)] ${content} min-[760px]:has-[[data-page=fills]]:overflow-y-hidden max-[760px]:[&_[data-page=fills]]:h-auto min-[760px]:has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
-        <GlassSkins><Outlet /></GlassSkins>
+      <main className={`h-full min-h-0 min-w-0 overflow-y-auto max-[760px]:overflow-x-hidden ${content} min-[760px]:has-[[data-page=fills]]:overflow-y-hidden max-[760px]:[&_[data-page=fills]]:h-auto min-[760px]:has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
+        <GlassSkins><MobilePageTitle visible={!pageTitle}><Outlet /></MobilePageTitle></GlassSkins>
       </main>
     </div>
+    </PageTitleContext>
     </ToastProvider>
   );
 }

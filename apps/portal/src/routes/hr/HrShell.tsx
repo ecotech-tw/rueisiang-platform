@@ -1,14 +1,11 @@
 import type { ComponentProps, CSSProperties, FocusEventHandler, ReactNode, Ref } from "react";
+import { GLASS_BLUR, GLASS_BRAND_CHIP, GLASS_CHIP_LAYERS, GlassDefs, glassCircleButtonClass } from "../../shell/glass.js";
 
 /*
  * HRIS 頁首的玻璃外殼。HrLayout 與樣式指南的 Liquid Glass 範例共用同一組元件，
  * 範例只是 compact：塞在一張卡片裡，所以內距小、導覽格子固定寬，也不跟著視窗捲。
- *
- * 每一塊玻璃都是三層：本體的 backdrop-filter、::before 的光澤（再疊 SVG 扭曲，濾鏡定義在
- * HrGlassDefs）、::after 的內緣光暈。數值都是 theme.css 的 token。
+ * 玻璃的三層材質（模糊、光澤、內緣光暈）在 shell/glass.tsx，其他模組的手機上方列也用它。
  */
-const BLUR = "[-webkit-backdrop-filter:blur(7px)_saturate(150%)_contrast(102%)] [backdrop-filter:blur(7px)_saturate(150%)_contrast(102%)]";
-const CHIP_LAYERS = "before:pointer-events-none before:absolute before:inset-px before:-z-1 before:rounded-[inherit] before:[background:var(--glass-chip-sheen)] before:[filter:url(#hr-liquid-glass-soft)] after:pointer-events-none after:absolute after:inset-0 after:-z-1 after:rounded-[inherit] after:[box-shadow:var(--shadow-glass-chip-glow)]";
 const DROPDOWN_LAYERS = "before:pointer-events-none before:absolute before:inset-px before:-z-1 before:rounded-[inherit] before:[background:var(--glass-dropdown-sheen)] before:[filter:url(#hr-liquid-glass-menu)] after:pointer-events-none after:absolute after:inset-0 after:-z-1 after:rounded-[inherit] after:[box-shadow:var(--shadow-glass-chip-glow)]";
 const DROPDOWN = "absolute isolate top-[calc(100%+10px)] z-30 grid w-max max-w-[min(360px,calc(100vw-32px))] gap-[3px] rounded-[18px] border border-transparent bg-paper/84 p-2 [box-shadow:var(--shadow-glass-dropdown)] [-webkit-backdrop-filter:blur(28px)_saturate(205%)_contrast(110%)] [backdrop-filter:blur(28px)_saturate(205%)_contrast(110%)] transition-[opacity,transform,visibility] duration-150 ease-out";
 const DROPDOWN_CLOSED = "pointer-events-none invisible opacity-0";
@@ -17,21 +14,8 @@ const DROPDOWN_OPEN = "pointer-events-auto visible opacity-100";
 /** 頁首與內容區疊在同一個 grid 裡：頁首固定高度，內容區吃掉剩下的高度並自己捲。 */
 export const HR_SHELL = "grid h-full min-h-0 w-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] content-stretch gap-0";
 
-/** 玻璃光澤用的 SVG 扭曲。一頁只要一份，id 被 ::before 的 filter: url(#…) 指著。 */
-export function HrGlassDefs() {
-  return (
-    <svg className="pointer-events-none absolute size-0 overflow-hidden" aria-hidden="true" focusable="false">
-      <filter id="hr-liquid-glass-soft" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.018 0.024" numOctaves="2" seed="7" result="noise" />
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="4" xChannelSelector="R" yChannelSelector="G" />
-      </filter>
-      <filter id="hr-liquid-glass-menu" x="-20%" y="-20%" width="140%" height="140%" colorInterpolationFilters="sRGB">
-        <feTurbulence type="fractalNoise" baseFrequency="0.014 0.02" numOctaves="2" seed="11" result="noise" />
-        <feDisplacementMap in="SourceGraphic" in2="noise" scale="7" xChannelSelector="R" yChannelSelector="G" />
-      </filter>
-    </svg>
-  );
-}
+/** 玻璃光澤用的 SVG 扭曲，跟其他模組的手機上方列共用（shell/glass.tsx）。 */
+export const HrGlassDefs = GlassDefs;
 
 export function HrHeader({ compact = false, ref, onBlur, children }: { compact?: boolean; ref?: Ref<HTMLElement>; onBlur?: FocusEventHandler<HTMLElement>; children: ReactNode }) {
   return (
@@ -51,7 +35,7 @@ export function HrHeader({ compact = false, ref, onBlur, children }: { compact?:
  */
 export function HrBrand({ current, page, compact = false }: { current: string; page?: string; compact?: boolean }) {
   return (
-    <div className={`relative isolate inline-flex min-h-[46px] min-w-0 items-center gap-3 overflow-hidden rounded-full border border-transparent bg-paper/22 px-3.5 py-1.5 [box-shadow:var(--shadow-glass-rim)] ${BLUR} ${CHIP_LAYERS} max-[900px]:col-[1] [:root[data-hr-transition]_&]:[view-transition-name:hr-brand]`}>
+    <div className={`${GLASS_BRAND_CHIP} max-[900px]:col-[1] [:root[data-hr-transition]_&]:[view-transition-name:hr-brand]`}>
       <img className={`h-auto flex-none object-contain ${compact ? "w-[min(142px,25vw)]" : "w-[142px] max-[760px]:w-[92px]"}`} src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={150} height={38} />
       <span className={`inline-grid min-h-[30px] place-items-center border-l border-l-ink/6 pr-[11px] pl-[13px] text-[15px] font-black tracking-[.12em] text-brand-dark ${compact || !page ? "" : "max-[760px]:hidden"}`.trim()}>HRIS</span>
       <strong className={`truncate text-[12px] font-extrabold text-muted ${compact ? "max-[720px]:hidden" : "max-[760px]:hidden"}`}>{current}</strong>
@@ -79,7 +63,7 @@ export function HrNav({ label, ref, thumbRef, style, id, mobileOpen, children }:
       id={id}
       aria-label={label}
       style={style}
-      className={`relative isolate inline-flex min-w-0 max-w-full justify-self-center gap-1 overflow-visible rounded-full border border-transparent bg-paper/20 p-1.5 [box-shadow:var(--shadow-glass-rim)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${BLUR} ${CHIP_LAYERS} ${mobile} [:root[data-hr-transition]_&]:[view-transition-name:hr-nav]`}
+      className={`relative isolate inline-flex min-w-0 max-w-full justify-self-center gap-1 overflow-visible rounded-full border border-transparent bg-paper/20 p-1.5 [box-shadow:var(--shadow-glass-rim)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${GLASS_BLUR} ${GLASS_CHIP_LAYERS} ${mobile} [:root[data-hr-transition]_&]:[view-transition-name:hr-nav]`}
     >
       <span
         ref={thumbRef}
@@ -146,10 +130,8 @@ export function hrMenuItemClass({ active = false, danger = false, button = false
 /** 右上角帳號選單的外框；手機上跟品牌、選單鈕排同一列、靠右。 */
 export const HR_USER_MENU = "relative justify-self-end max-[900px]:col-[-2] max-[900px]:row-[1] [:root[data-hr-transition]_&]:[view-transition-name:hr-user]";
 
-/** 46px 對齊左邊品牌膠囊的高度；頭像 36px ＋ 4px 玻璃邊，內外圓角同心。 */
-export function hrUserTriggerClass(open: boolean) {
-  return `relative isolate grid size-[46px] cursor-pointer place-items-center rounded-full border-0 p-0 [box-shadow:var(--shadow-glass-rim)] transition-[background-color,scale] duration-150 ease-out hover:bg-brand/7 active:scale-96 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary ${BLUR} ${CHIP_LAYERS} ${open ? "bg-brand/7" : "bg-paper/22"}`;
-}
+/** 46px 的圓形玻璃按鈕，跟其他模組的手機選單鈕共用（shell/glass.tsx）。 */
+export const hrUserTriggerClass = glassCircleButtonClass;
 
 /** 頁首底下的內容區。桌機上 fills 的頁面只讓表格自己捲，內容區就不捲、高度吃滿；手機上照常整頁捲（見 AppShell）。 */
 export function HrMain({ compact = false, children }: { compact?: boolean; children: ReactNode }) {
