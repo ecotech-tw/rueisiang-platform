@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { Pager } from "../../shell/Pager.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, REFRESHING, SearchFilterInput, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, TextField, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterFields, FilterInput, FilterSelect, FilterToggle, FilterToolbar, Page, PageHeader, Panel, REFRESHING, SearchFilterInput, SelectionActionBar, StatusBadge, TABLE_SELECT_COLUMN, TableBulkActionMenu, TableCheckbox, TableMobileSelectAll, TextField, useTableBulkSelection, type TableBulkAction } from "../../ui/index.js";
 import { hrEmployeeLabel, isHrFormalEmployee, useHrEmployeeRoster, useHrQuery, useHrWrite, type HrFormalEmployee, type PayrollCandidateExclusions, type PayrollJob, type PayrollJobsResponse, type PayrollRecord, type PayrollRun, type PayrollWorkerCandidate } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 import { PeoplePickerEmpty, PeoplePickerHeading } from "./PickerList.js";
@@ -452,7 +452,7 @@ export function HrPayrollSettlement() {
     <Panel grows className="grid gap-3.5">
       <FilterToolbar>
         <SearchFilterInput label="搜尋人員" placeholder="姓名或員工編號" value={recordFilters.search} onSearch={(search) => updateRecordFilters({ search })} className="min-w-[130px] flex-[1_1_220px] max-[760px]:min-w-0 max-[760px]:flex-1" />
-        <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[760px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選<FilterCount count={activeFilterCount} /></Button>
+        <FilterToggle open={showFilters} count={activeFilterCount} onToggle={() => setShowFilters((open) => !open)} />
         {activeFilterCount ? <Button variant="link" className="min-[760px]:hidden" onClick={() => updateRecordFilters({ periodKey: "", status: "all", personKind: "all", payBasis: "all" })}>清除篩選</Button> : null}
         <FilterFields open={showFilters}>
         <FilterInput label="薪資月份" type="month" className="min-w-[130px] flex-[1_1_150px] max-[760px]:basis-full" value={recordFilters.periodKey} onChange={(event) => updateRecordFilters({ periodKey: event.target.value })} />

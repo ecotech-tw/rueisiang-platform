@@ -14,7 +14,7 @@ import {
 import { CustomerForm } from "./CustomerForm.js";
 import { SavedViewBar } from "./SavedViewBar.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, FilterCount, FilterFields, FilterSelect, FilterToolbar, Page, PageHeader, Panel, RowActions, SearchFilterInput, StatusBadge, type StatusTone, TableNote, Tag, TagList } from "../../ui/index.js";
+import { Alert, Button, DataTable, FilterFields, FilterSelect, FilterToggle, FilterToolbar, Page, PageHeader, Panel, RowActions, SearchFilterInput, StatusBadge, type StatusTone, TableNote, Tag, TagList } from "../../ui/index.js";
 
 const SYNC_TONE: Record<string, StatusTone> = {
   synced: "success",
@@ -186,21 +186,7 @@ export function Customers() {
             value={filters.search}
             onSearch={(search) => update({ search })}
           />
-          {/*
-            * 這顆按鈕只在手機出現（CSS 控制）。窄螢幕放不下三個下拉，收起來時用
-            * 數字標出「現在有幾個條件生效中」——那才是收合狀態下最重要的資訊，
-            * 不是每個篩選的當前值。桌機直接把下拉攤開，不需要這一步。
-            */}
-          <Button
-            variant="secondary"
-            icon="filter"
-            size="lg" active={showFilters} className="flex-none min-[760px]:hidden"
-            aria-expanded={showFilters}
-            onClick={() => setShowFilters((open) => !open)}
-          >
-            篩選
-            <FilterCount count={activeFilterCount} />
-          </Button>
+          <FilterToggle open={showFilters} count={activeFilterCount} onToggle={() => setShowFilters((open) => !open)} />
           {activeFilterCount ? (
             <Button
               variant="link"

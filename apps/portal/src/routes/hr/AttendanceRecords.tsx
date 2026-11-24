@@ -3,7 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, EmptyState, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge } from "../../ui/index.js";
+import { Alert, Button, DataTable, EmptyState, FilterFields, FilterInput, FilterSelect, FilterToggle, FilterToolbar, FormHint, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge } from "../../ui/index.js";
 import { useHrQuery, type AttendanceEvent } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
 
@@ -53,7 +53,7 @@ export function HrAttendanceRecords() {
     <Panel grows>
       <FilterToolbar>
         <FilterInput label="搜尋員工" type="search" className={SEARCH_INPUT_WIDTH} placeholder="姓名、員工編號或 Email" value={filters.search} onChange={(event) => update({ search: event.target.value })} />
-        <Button variant="secondary" icon="filter" size="lg" active={showFilters} className="flex-none min-[760px]:hidden" aria-expanded={showFilters} onClick={() => setShowFilters((open) => !open)}>篩選<FilterCount count={hiddenFilterCount} /></Button>
+        <FilterToggle open={showFilters} count={hiddenFilterCount} onToggle={() => setShowFilters((open) => !open)} />
         {hiddenFilterCount ? <Button variant="link" className="min-[760px]:hidden" onClick={() => update({ eventKind: "all", sourceKind: "all", startDate: "", endDate: "" })}>清除篩選</Button> : null}
         <FilterFields open={showFilters}>
         <FilterSelect label="打卡類型" value={filters.eventKind} options={[{ value: "all", label: "全部類型" }, { value: "clock_in", label: "上班" }, { value: "clock_out", label: "下班" }]} onChange={(event) => update({ eventKind: event.target.value })} />

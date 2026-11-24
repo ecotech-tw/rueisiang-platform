@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, RowActions, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterFields, FilterInput, FilterSelect, FilterToggle, FilterToolbar, FormHint, Page, PageHeader, Panel, PANEL_DESCRIPTION, PANEL_HEAD, RowActions, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { useHrEmployeeRoster, useHrQuery, useHrWrite, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";
@@ -474,7 +474,7 @@ export function HrSpecialWorkdays() {
     <Panel grows><div data-panel-head="" className={PANEL_HEAD}><div><h2>日期套用紀錄</h2><p className={PANEL_DESCRIPTION}>日期套用紀錄可以調整規則、人員、日期與補貼數量；納入薪資試算後仍保留來源，已結算薪資明細不會被改寫。</p></div></div>
       <FilterToolbar>
         <SearchFilterInput label="搜尋套用紀錄" placeholder="搜尋人員、員工編號、規則或日期" value={assignmentFilters.search} onSearch={(search) => updateAssignmentFilters({ search })} />
-        <Button variant="secondary" icon="filter" size="lg" active={showAssignmentFilters} className="flex-none min-[760px]:hidden" aria-expanded={showAssignmentFilters} onClick={() => setShowAssignmentFilters((open) => !open)}>篩選<FilterCount count={hiddenAssignmentFilterCount} /></Button>
+        <FilterToggle open={showAssignmentFilters} count={hiddenAssignmentFilterCount} onToggle={() => setShowAssignmentFilters((open) => !open)} />
         {activeAssignmentFilterCount ? <Button variant="link" onClick={() => setAssignmentFilters({ search: "", startDate: "", endDate: "", payrollStatus: "all" })}>清除篩選</Button> : null}
         <FilterFields open={showAssignmentFilters}>
         <FilterInput label="開始日期" type="date" value={assignmentFilters.startDate} onChange={(event) => updateAssignmentFilters({ startDate: event.target.value })} />

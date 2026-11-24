@@ -6,7 +6,7 @@ import { Pager } from "../../shell/Pager.js";
 import { SortableHeader } from "../../shell/SortableHeader.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { useToast } from "../../shell/Toast.js";
-import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterCount, FilterFields, FilterInput, FilterSelect, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, RowActions, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableNote, TableSelectAllLabel, TextField } from "../../ui/index.js";
+import { Alert, Button, Chip, DataTable, Dialog, Field, FieldGrid, FilterFields, FilterInput, FilterSelect, FilterToggle, FilterToolbar, FormHint, Page, PageHeader, PageStatus, Panel, RowActions, SearchCombobox, SearchFilterInput, SelectField, TABLE_SCROLL, TableCheckbox, TableNote, TableSelectAllLabel, TextField } from "../../ui/index.js";
 import {
   useCreateManualPayout,
   useCreateManualSales,
@@ -1070,11 +1070,6 @@ function hasPayoutFilters(filters: ManualPayoutQuery): boolean {
 
 function hasSalesFilters(filters: ManualSalesQuery): boolean {
   return Boolean(filters.search || filters.scopeId || filters.source !== "all" || filters.startMonth || filters.endMonth);
-}
-
-/** 手機上據點、來源、日期收在這顆按鈕後面：四個欄位一欄一列會把搜尋列撐到三排。數字不算搜尋。 */
-function FilterToggle({ open, count, onToggle }: { open: boolean; count: number; onToggle: () => void }) {
-  return <Button variant="secondary" icon="filter" size="lg" active={open} className="flex-none min-[760px]:hidden" aria-expanded={open} onClick={onToggle}>篩選<FilterCount count={count} /></Button>;
 }
 
 function PayoutFilters({
