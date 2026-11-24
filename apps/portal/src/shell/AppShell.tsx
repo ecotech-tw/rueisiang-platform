@@ -24,7 +24,7 @@ export function AppShell() {
    */
   const content = isHrModule
     ? "p-0 [background:radial-gradient(circle_at_top_left,--alpha(var(--color-brand)/8%),transparent_34rem),var(--color-canvas)]"
-    : "px-9 py-8 max-[900px]:px-4 max-[900px]:py-5 max-[760px]:[--page-gutter:16px] max-[760px]:[--page-pad-top:20px] max-[760px]:[--page-pad-bottom:20px]";
+    : "px-9 py-8 max-[900px]:px-4 max-[900px]:py-5 max-[760px]:[--page-gutter:16px] max-[760px]:[--page-pad-top:20px] max-[760px]:[--page-pad-bottom:20px] max-[760px]:has-[[data-grows]_[data-pager]]:pb-0 max-[760px]:has-[[data-grows]_[data-pager]]:[--page-pad-bottom:0px]";
 
   return (
     <ToastProvider>
