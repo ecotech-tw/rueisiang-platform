@@ -169,7 +169,7 @@ export function Dialog({
         }}
       >
         <div
-          className={`flex origin-center flex-col overflow-hidden rounded-[28px] bg-paper shadow-dialog ${DIALOG_WIDTH[width]} ${compact ? "max-h-[calc(100dvh-32px)] max-[620px]:max-h-[calc(100dvh-16px)]" : "max-h-[calc(100vh-48px)]"} motion-reduce:animate-none ${closing ? "animate-dialog-card-exit" : "animate-dialog-card-enter"} ${className}`.trim()}
+          className={`flex origin-center flex-col overflow-hidden rounded-[28px] bg-paper shadow-dialog ${DIALOG_WIDTH[width]} ${compact ? "max-h-[calc(100dvh-32px)] max-[620px]:max-h-[calc(100dvh-16px)]" : "max-h-[calc(100dvh-48px)]"} motion-reduce:animate-none ${closing ? "animate-dialog-card-exit" : "animate-dialog-card-enter"} ${className}`.trim()}
           ref={cardRef}
           tabIndex={manageFocus ? -1 : undefined}
           role={role}

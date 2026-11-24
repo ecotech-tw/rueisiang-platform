@@ -24,7 +24,7 @@ export function AppShell() {
    */
   const content = isHrModule
     ? "p-0 [background:radial-gradient(circle_at_top_left,--alpha(var(--color-brand)/8%),transparent_34rem),var(--color-canvas)]"
-    : "px-9 py-8 max-[900px]:px-4 max-[900px]:py-5 max-[760px]:[--page-gutter:16px] max-[760px]:[--page-pad-top:20px] max-[760px]:[--page-pad-bottom:20px]";
+    : "px-9 py-8 max-[900px]:px-4 max-[900px]:py-5 max-[760px]:[--page-gutter:16px] max-[760px]:[--page-pad-top:20px] max-[760px]:[--page-pad-bottom:20px] max-[760px]:has-[[data-grows]_[data-pager]]:pb-0 max-[760px]:has-[[data-grows]_[data-pager]]:[--page-pad-bottom:0px]";
 
   return (
     <ToastProvider>
@@ -74,8 +74,10 @@ export function AppShell() {
       {/*
         * 「整頁不捲、只有表格自己捲」只在桌機成立。手機上表格變成卡片、沒有要釘住的表頭，
         * 篩選欄位又一欄一列往下排，鎖住高度會把表格區擠到 0；所以手機上 fills 頁面照內容長高、整頁捲。
+        * 手機上整頁不准左右捲：要橫捲的東西（寬表格、膠囊列）都有自己的捲動容器，多出幾 px 的元素
+        * 不該讓整頁被手指拖得左右晃（HrMain 同理）。
         */}
-      <main className={`h-full min-h-0 min-w-0 overflow-y-auto ${content} min-[760px]:has-[[data-page=fills]]:overflow-y-hidden max-[760px]:[&_[data-page=fills]]:h-auto min-[760px]:has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
+      <main className={`h-full min-h-0 min-w-0 overflow-y-auto max-[760px]:overflow-x-hidden ${content} min-[760px]:has-[[data-page=fills]]:overflow-y-hidden max-[760px]:[&_[data-page=fills]]:h-auto min-[760px]:has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
         <Outlet />
       </main>
     </div>
