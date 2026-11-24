@@ -122,7 +122,10 @@ export function HrLayout() {
       children: visibleChildren(item.children, permissions, isHrAdministrator),
     }))
     .filter((item) => (item.permissions.some((permission) => permissions.has(permission)) || item.children.length > 0) && (!item.adminOnly || isHrAdministrator));
-  const activeLabel = visiblePrimaryNav.find((item) => isActive(item.activePaths ?? [item.to], pathname))?.label ?? null;
+  const activeItem = visiblePrimaryNav.find((item) => isActive(item.activePaths ?? [item.to], pathname));
+  const activeLabel = activeItem?.label ?? null;
+  // 手機頁首寫的頁名：子選單裡選中的那一項（人員列表、敘薪管理…），沒有子選單就是大項本身。
+  const pageLabel = activeItem?.children.find((child) => isActiveChild(activeItem.children, child, pathname))?.label ?? activeItem?.label ?? current;
 
   /*
    * 手機上導覽收在選單鈕後面。打開時順便展開目前所在的大項，要換到同一組的另一頁少點一下；
@@ -139,7 +142,6 @@ export function HrLayout() {
   const toggleMobileNav = () => {
     const next = !mobileNavOpen;
     setMobileNavOpen(next);
-    const activeItem = visiblePrimaryNav.find((item) => item.label === activeLabel);
     setOpenMenu(next && activeItem?.children.length ? activeItem.label : null);
   };
 
@@ -203,7 +205,7 @@ export function HrLayout() {
       // 鍵盤 Tab 出頁首就收起來，不然面板一直蓋在焦點所在的內容上面；點外面由 useDismiss 處理。
       onBlur={(event) => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget)) setMobileNavOpen(false); }}
     >
-      <HrBrand current={current} />
+      <HrBrand current={current} page={pageLabel} />
       <div className="hidden max-[900px]:col-[2] max-[900px]:row-[1] max-[900px]:block">
         <button
           ref={menuButtonRef}

@@ -28,7 +28,7 @@ export { Pager, type PagerProps } from "./Pager.js";
 export { SortableHeader, type SortableHeaderProps } from "./SortableHeader.js";
 export { Page, PageSpacing, type PageLayout, type PageSpacingName } from "./Page.js";
 export { PageStatus } from "./PageStatus.js";
-export { PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
+export { MobilePageTitle, PANEL_DESCRIPTION, PANEL_HEAD, PANEL_SURFACE, PageDescriptions, PageHeader, Panel, PanelSkin, type PanelSkinName } from "./Panel.js";
 export { SegmentedControl, type SegmentedControlOption } from "./SegmentedControl.js";
 export { Tooltip } from "./Tooltip.js";
 export { useModalFocus } from "./useModalFocus.js";

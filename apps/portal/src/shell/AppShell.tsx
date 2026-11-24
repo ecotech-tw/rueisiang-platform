@@ -24,11 +24,15 @@ export function AppShell() {
    */
   const content = isHrModule
     ? "p-0 [background:radial-gradient(circle_at_top_left,--alpha(var(--color-brand)/8%),transparent_34rem),var(--color-canvas)]"
-    : "px-9 py-8 max-[900px]:px-4 max-[900px]:py-5";
+    : "px-9 py-8 max-[900px]:px-4 max-[900px]:py-5 max-[760px]:[--page-gutter:16px] max-[760px]:[--page-pad-top:20px] max-[760px]:[--page-pad-bottom:20px]";
 
   return (
     <ToastProvider>
-    <div data-shell="" className={`grid h-screen min-h-screen overflow-hidden ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 ${rows}`}>
+    {/*
+      * 手機用 dvh：iOS Safari 的 100vh 把底部工具列底下那段也算進去，外框又鎖住不捲，
+      * 最底下的分頁列會被工具列蓋住而且捲不到。員工 HR 站的外框也是這樣寫。
+      */}
+    <div data-shell="" className={`grid h-screen min-h-screen overflow-hidden max-[760px]:h-dvh max-[760px]:min-h-dvh ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 ${rows}`}>
       {!isHrModule ? <>
         {/* 手機上 sidebar 收成抽屜，靠這條上方列開關——沿用 CRM 的作法。 */}
         <header className="sticky top-0 z-30 hidden items-center justify-between gap-3 border-b border-line bg-drawer px-4 py-2.5 max-[900px]:flex">

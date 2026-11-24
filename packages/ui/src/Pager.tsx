@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { Button } from "./Button.js";
 import { GLASS_FIELD, useInputSkin, type InputSkinName } from "./InputSkin.js";
 
@@ -34,30 +33,6 @@ function pageWindow(current: number, total: number, size = 5): number[] {
   return Array.from({ length: size }, (_, index) => start + index);
 }
 
-// 跟 Tailwind 的 max-[620px] 同一條線（width < 620px）。不用範圍語法，舊版 LINE 內建瀏覽器不認得。
-const NARROW_QUERY = "not all and (min-width: 620px)";
-
-/**
- * 中間顯示幾顆頁碼。手機放不下 5 顆（連同前後四顆箭頭要 346px，而畫面只有 375px 且面板還有內距），
- * 縮成 3 顆。
- *
- * 用 matchMedia 而不是 CSS 隱藏多餘的：藏起來的按鈕仍然佔著 tab 順序，鍵盤操作的人會按到看不見的東西。
- */
-function useWindowSize(): number {
-  const [size, setSize] = useState(() =>
-    typeof window !== "undefined" && window.matchMedia(NARROW_QUERY).matches ? 3 : 5,
-  );
-
-  useEffect(() => {
-    const query = window.matchMedia(NARROW_QUERY);
-    const update = () => setSize(query.matches ? 3 : 5);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-
-  return size;
-}
-
 /**
  * 分頁器。`|<  <  4 5 6 7 8  >  >|` ＋ 每頁筆數。
  *
@@ -73,17 +48,21 @@ export function Pager({
   onPageSize,
   className = "",
 }: PagerProps) {
-  const pages = pageWindow(page, Math.max(totalPages, 1), useWindowSize());
+  const pages = pageWindow(page, Math.max(totalPages, 1));
   const skin = useInputSkin();
   const atFirst = page <= 1;
   const atLast = page >= totalPages;
 
   return (
-    // 手機上疊成兩列，導覽才不會被推出畫面右緣。
-    <div className={`flex items-center justify-between gap-3 border-t border-t-soft-line pt-3.5 max-[760px]:flex-col max-[760px]:items-stretch max-[760px]:gap-2.5 ${className}`.trim()}>
-      <div className="flex items-center gap-3.5 max-[760px]:justify-between">
-        <span className="text-muted">{totalLabel}</span>
-        <label className="flex items-center gap-1.5 text-[13px] text-muted">
+    /*
+     * 手機上整頁捲，列表面板（Panel grows）裡的分頁列黏在捲動區底端，翻到哪裡都看得到總筆數、換得了頁。黏住的那一條要矮：
+     * 收成一列，頁碼換成「目前／總頁數」，每頁筆數收起來（手機上照預設值）。背景帶撐到畫面兩側（--bleed）；一般面板裡不黏也不換底色，理由同 FilterToolbar。
+     * 頁面有浮動新增鈕時，右側留出它的位置，鈕就嵌在這一列的右端。
+     */
+    <div data-pager="" className={`flex items-center justify-between gap-3 border-t border-t-soft-line pt-3.5 max-[760px]:gap-2 max-[760px]:[[data-grows]_&]:sticky max-[760px]:[[data-grows]_&]:bottom-[calc(var(--page-pad-bottom,0px)*-1)] max-[760px]:[[data-grows]_&]:z-4 max-[760px]:[[data-grows]_&]:mx-[calc(var(--bleed,0px)*-1)] max-[760px]:[[data-grows]_&]:bg-canvas/90 max-[760px]:[[data-grows]_&]:px-[var(--bleed,0px)] max-[760px]:[[data-grows]_&]:py-2 max-[760px]:[[data-grows]_&]:[-webkit-backdrop-filter:blur(12px)] max-[760px]:[[data-grows]_&]:[backdrop-filter:blur(12px)] max-[760px]:[body:has([data-fab])_[data-grows]_&]:pr-[calc(var(--bleed,0px)+56px)] ${className}`.trim()}>
+      <div className="flex min-w-0 items-center gap-3.5">
+        <span className="truncate text-muted">{totalLabel}</span>
+        <label className="flex items-center gap-1.5 text-[13px] text-muted max-[760px]:hidden">
           每頁
           {/* 比一般表單欄位窄，footer 在小螢幕才不會被這個 select 撐寬。 */}
           <span className="relative inline-flex w-max min-w-0 after:pointer-events-none after:absolute after:top-[calc(50%-4px)] after:right-2.5 after:h-1.5 after:w-1.5 after:border-r-2 after:border-b-2 after:border-muted after:[transform:rotate(45deg)]">
@@ -102,7 +81,7 @@ export function Pager({
         </label>
       </div>
 
-      <nav className="flex items-center gap-0.5 max-[760px]:justify-center" aria-label="分頁">
+      <nav className="flex items-center gap-0.5" aria-label="分頁">
         <Button variant="icon" icon="pageFirst" disabled={atFirst} onClick={() => onPage(1)} title="第一頁" aria-label="第一頁" />
         <Button variant="icon" icon="chevronLeft" disabled={atFirst} onClick={() => onPage(page - 1)} title="上一頁" aria-label="上一頁" />
 
@@ -111,13 +90,14 @@ export function Pager({
             key={value}
             type="button"
             // 目前頁不疊 hover：選中的色調容器本身就是狀態，滑過時不該再變色。
-            className={`h-[34px] min-w-[34px] rounded-[999px] border-none px-2 text-[13px] tabular-nums focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary ${value === page ? "bg-brand-soft font-bold text-brand-dark" : "bg-transparent text-ink hover:bg-brand/7"}`}
+            className={`h-[34px] min-w-[34px] rounded-[999px] border-none px-2 text-[13px] tabular-nums max-[760px]:hidden focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-secondary ${value === page ? "bg-brand-soft font-bold text-brand-dark" : "bg-transparent text-ink hover:bg-brand/7"}`}
             aria-current={value === page ? "page" : undefined}
             onClick={() => onPage(value)}
           >
             {value}
           </button>
         ))}
+        <span className="hidden min-w-[52px] text-center text-[13px] tabular-nums text-ink max-[760px]:inline">{page} / {Math.max(totalPages, 1)}</span>
 
         <Button variant="icon" icon="chevronRight" disabled={atLast} onClick={() => onPage(page + 1)} title="下一頁" aria-label="下一頁" />
         <Button variant="icon" icon="pageLast" disabled={atLast} onClick={() => onPage(totalPages)} title="最後一頁" aria-label="最後一頁" />

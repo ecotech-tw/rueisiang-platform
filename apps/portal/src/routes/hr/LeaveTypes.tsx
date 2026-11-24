@@ -66,7 +66,7 @@ export function HrLeaveTypes() {
     <PageHeader
       title="假別管理"
       description="管理請假申請與月度假勤登記共用的假別主檔；停用假別會保留歷史資料，不再出現在新的申請與登記中。"
-      actions={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditor("new")}>新增假別</Button> : undefined}
+      fab={canWrite ? <Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditor("new")}>新增假別</Button> : undefined}
     />
     <Alert tone="info">請假申請在「申請與審核」處理；特休假別會扣除週年制額度，其他假別維持獨立規則。個別申請仍可保存當次核定比例。</Alert>
     {leaveTypes.error || toggle.error ? <Alert tone="danger">{leaveTypes.error?.message ?? toggle.error?.message}</Alert> : null}

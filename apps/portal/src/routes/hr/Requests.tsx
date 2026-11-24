@@ -608,10 +608,10 @@ export function HrRequestCenter() {
   }
 
   return <Page layout="fills">
-    <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" actions={<Button icon="plus" tone="success" mobileIconOnly onClick={() => setCreateOpen(true)}>新增申請</Button>} />
+    <PageHeader title="申請與審核" description="申請紀錄與待審核項目集中在同一張表格；新增申請請使用右上角按鈕。" fab={<Button icon="plus" tone="success" mobileIconOnly onClick={() => setCreateOpen(true)}>新增申請</Button>} />
     {employees.error || leaveTypes.error || workers.error ? <Alert tone="danger">{employees.error?.message ?? leaveTypes.error?.message ?? workers.error?.message}</Alert> : null}
     {approvalErrors.length ? <Alert tone="warning"><strong>部分申請未能核准：</strong>{approvalErrors.map(({ id, kind, error }) => <p key={`${kind}:${id}`}>{REQUEST_KIND_LABEL[kind as RequestKind]}・{id}：{error}</p>)}</Alert> : null}
-    <Panel grows title="申請紀錄" className="max-[760px]:[[data-page=fills]>&]:overflow-visible">
+    <Panel grows title="申請紀錄">
       {requests.error ? <Alert tone="danger">{requests.error.message}</Alert> : null}
       <FilterToolbar>
         <SearchFilterInput label="搜尋申請" placeholder="搜尋員工、員工編號、內容或原因" value={filters.search} onSearch={(search) => updateFilters({ search })} />

@@ -173,7 +173,7 @@ export function HrPayrollAdjustments() {
   }
 
   return <Page layout="fills" className="hr-payroll-page">
-    <PageHeader title="薪資加扣項" description="登記指定薪資月份的補發與扣款，於試算時自動帶入。" actions={canCalculate ? <Button icon="plus" tone="success" mobileIconOnly onClick={openCreate}>新增薪資加扣項</Button> : null} />
+    <PageHeader title="薪資加扣項" description="登記指定薪資月份的補發與扣款，於試算時自動帶入。" fab={canCalculate ? <Button icon="plus" tone="success" mobileIconOnly onClick={openCreate}>新增薪資加扣項</Button> : null} />
     {!canCalculate ? <Alert tone="info">目前只有薪資檢視權限；新增、編輯與刪除需要「執行薪資試算」權限。</Alert> : null}
     <Panel grows className="gap-[14px]">
       <FilterToolbar>

@@ -1,4 +1,5 @@
-import { createContext, useContext, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { defaultUnless } from "./class-defaults.js";
 
 export type PanelSkinName = "solid" | "glass";
@@ -42,6 +43,14 @@ const GROWS = "[[data-page=fills]>&]:flex [[data-page=fills]>&]:min-h-0 [[data-p
  */
 const ADJACENT_GAP = "[:where(:not([data-page])>[data-panel]+&)]:mt-5";
 
+/*
+ * 手機上列表面板拿掉自己的外框：頁面留邊、面板內距、卡片內距三層疊在一起，卡片只剩畫面的四分之三寬。
+ * 面板的內容直接排在頁面上，搜尋列與分頁才能黏在畫面頂端／底端（overflow 不能裁切，sticky 才黏得住）。
+ * --bleed 給搜尋列與分頁的背景帶撐到畫面兩側用，等於頁面的左右留邊；--page-pad-top／bottom 是捲動區的上下內距，
+ * 黏住時抵掉它才貼齊畫面頂端與底端（三個變數都由 AppShell 的 main 與 HrMain 在手機上設定）。
+ */
+const GROWS_MOBILE = "max-[760px]:rounded-none max-[760px]:border-0 max-[760px]:bg-transparent max-[760px]:p-0 max-[760px]:[box-shadow:none] max-[760px]:[-webkit-backdrop-filter:none] max-[760px]:[backdrop-filter:none] max-[760px]:before:hidden max-[760px]:after:hidden max-[760px]:overflow-visible max-[760px]:[[data-page=fills]>&]:overflow-visible max-[760px]:[&>[data-table-scroll]]:mx-0 max-[760px]:[&>[data-panel-head]]:mb-3 max-[760px]:[--bleed:var(--page-gutter,16px)]";
+
 const BORDER: Record<PanelSkinName, string> = { solid: "border-line", glass: "border-transparent" };
 
 interface PanelProps {
@@ -79,7 +88,7 @@ export function Panel({ title, description, actions, className = "", headerClass
   // 最後一個子元素不帶下外距，面板的下內距才是看得到的那一段。
   return (
     // data-panel 讓外層的版面規則認得出 Panel（fills 頁面的捲動、相鄰面板的間距、表格貼齊面板）。
-    <section id={id} aria-label={ariaLabel} data-panel="" data-grows={grows ? "" : undefined} className={`${grows ? `${GROWS} ${defaultUnless(className, "overflow-", "[[data-page=fills]>&]:overflow-hidden")}` : ""} ${SURFACE[skin]} ${tone === "attention" ? "border-secondary" : BORDER[skin]} ${padding} ${ADJACENT_GAP} [&>:last-child]:mb-0 ${className}`.trim()}>
+    <section id={id} aria-label={ariaLabel} data-panel="" data-grows={grows ? "" : undefined} className={`${grows ? `${GROWS} ${GROWS_MOBILE} ${defaultUnless(className, "overflow-", "[[data-page=fills]>&]:overflow-hidden")}` : ""} ${SURFACE[skin]} ${tone === "attention" ? "border-secondary" : BORDER[skin]} ${padding} ${ADJACENT_GAP} [&>:last-child]:mb-0 ${className}`.trim()}>
       {hasHeader ? (
         <div data-panel-head="" className={`flex justify-between gap-4 ${defaultUnless(headerClassName, "items-", HEAD_ITEMS)} ${defaultUnless(headerClassName, "mb-", HEAD_MARGIN)} ${headerClassName}`.trim()}>
           <div>
@@ -103,10 +112,25 @@ export function PageDescriptions({ visible, children }: { visible: boolean; chil
   return <PageDescriptionsContext value={visible}>{children}</PageDescriptionsContext>;
 }
 
+const MobilePageTitleContext = createContext(true);
+
+/**
+ * 手機上要不要顯示頁首的大標題。HRIS 的頁首已經寫了目前在哪一頁，手機上再一行 h1 只是佔掉內容的高度；
+ * 關掉時 h1 只是看不見（sr-only），讀螢幕的人仍然聽得到這頁叫什麼。
+ */
+export function MobilePageTitle({ visible, children }: { visible: boolean; children: ReactNode }) {
+  return <MobilePageTitleContext value={visible}>{children}</MobilePageTitleContext>;
+}
+
 interface PageHeaderProps {
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
+  /**
+   * 這頁的主要新增鈕。桌機排在 actions 後面；手機改成浮在右下角（跟員工 HR 站的申請鈕一樣），
+   * 不佔頁首一列，捲到哪裡都按得到。用 portal 掛到 body：頁面轉場的 transform 會讓 fixed 失效。
+   */
+  fab?: ReactNode;
   /**
    * 只放版面用途。標題與說明的字級用 `[&_h1]:…`、`[&_p]:…` 調整。
    * 下距與對齊的預設值依斷點分開取代：給了 mb-／items- 只換掉桌機的，
@@ -119,21 +143,39 @@ interface PageHeaderProps {
  * 頁面層級的標題；有 actions 時切成左右兩欄，放不下就讓動作鈕換到下一行靠右。手機上標題縮小、跟下面隔 12px，
  * 動作鈕與標題垂直置中（標題變一行，置中才不會看起來掉下去）。
  */
-export function PageHeader({ title, description, actions, className = "" }: PageHeaderProps) {
+export function PageHeader({ title, description, actions, fab, className = "" }: PageHeaderProps) {
   const showDescription = useContext(PageDescriptionsContext);
+  const showMobileTitle = useContext(MobilePageTitleContext);
+  // portal 只在瀏覽器掛：伺服器端（測試的 renderToStaticMarkup）不支援 portal。
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  const inlineActions = fab ? <>{actions}<span className="max-[760px]:hidden">{fab}</span></> : actions;
+  // 手機上沒有大標題、動作鈕也只有浮動的那顆時，整個頁首只剩讀螢幕用的標題，不佔版面。
+  const mobileEmpty = !showMobileTitle && !actions;
   // defaultUnless 只認開頭或空白後面的字，所以 "mb-" 對不到 "max-[760px]:mb-"，兩個斷點各算各的。
   const margin = `${defaultUnless(className, "mb-", "mb-0")} ${defaultUnless(className, "max-\\[760px\\]:mb-", "max-[760px]:mb-3")}`;
   const align = `${defaultUnless(className, "items-", "items-start")} ${defaultUnless(className, "max-\\[760px\\]:items-", "max-[760px]:items-center")}`;
   // 動作鈕不縮，標題最少留 12rem；放不下就讓動作鈕換到標題下一行靠右，不要把標題擠成一字一行（排班月曆有五顆鈕）。
-  const row = actions ? `flex flex-wrap justify-between gap-4 max-[760px]:gap-3 ${align} [&>:first-child]:min-w-[min(100%,12rem)] [&>:first-child]:flex-[1_1_0%] [&>:last-child]:ml-auto [&>:last-child]:flex-none` : "";
+  const row = inlineActions ? `flex flex-wrap justify-between gap-4 max-[760px]:gap-3 ${align} [&>:first-child]:min-w-[min(100%,12rem)] [&>:first-child]:flex-[1_1_0%] [&>:last-child]:ml-auto [&>:last-child]:flex-none` : "";
   return (
     // data-page-head 讓頁面版面認得出頁首（fills 頁裡不伸縮、返回列底下的距離）。
-    <header data-page-head="" className={`${margin} ${row} ${className}`.replace(/\s+/g, " ").trim()}>
+    <header data-page-head="" className={`${margin} ${row} ${mobileEmpty ? "max-[760px]:sr-only" : ""} ${className}`.replace(/\s+/g, " ").trim()}>
       <div>
-        <h1 className="mt-0 mx-0 mb-1 text-[24px] max-[760px]:text-[20px]">{title}</h1>
+        <h1 className={`mt-0 mx-0 mb-1 text-[24px] max-[760px]:text-[20px] ${showMobileTitle ? "" : "max-[760px]:sr-only"}`.trim()}>{title}</h1>
         {description ? <p className={`m-0 text-muted ${showDescription ? "" : "hidden"}`.trim()}>{description}</p> : null}
       </div>
-      {actions ? <div>{actions}</div> : null}
+      {inlineActions ? <div>{inlineActions}</div> : null}
+      {/*
+        * 固定在右下角，分頁列在有浮動鈕的頁面右側留出它的位置（Material 的「FAB 嵌在底部列」）：內容短、分頁列
+        * 停在中間時也不會跟它疊到。批次選取時底部是「已選取…」的操作列，浮動鈕先收起來。
+        * 位置照員工 HR 站：右緣與底緣都避開 iPhone 的安全區。
+        */}
+      {fab && mounted ? createPortal(
+        <div data-fab="" className="pointer-events-none fixed inset-0 z-21 hidden max-[760px]:block max-[760px]:[body:has([data-selection-bar])_&]:hidden">
+          <div className="pointer-events-auto absolute right-[max(16px,env(safe-area-inset-right))] bottom-[calc(8px+env(safe-area-inset-bottom))]">{fab}</div>
+        </div>,
+        document.body,
+      ) : null}
     </header>
   );
 }
