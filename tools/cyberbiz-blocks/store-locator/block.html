@@ -408,10 +408,10 @@
 
 <script>
 (function bootstrapRueiSiangStoreLocator() {
-  const STORE_LOCATOR_API = 'https://platform.rueisiang.com/api/public/store-locator';
+  const STORE_LOCATOR_URL = 'https://cdn.rueisiang.com/store-locator/stores.json';
 
   async function loadStoresDataFromAPI() {
-    const response = await fetch(STORE_LOCATOR_API, { headers: { Accept: 'application/json' } });
+    const response = await fetch(STORE_LOCATOR_URL, { headers: { Accept: 'application/json' } });
     if (!response.ok) throw new Error(`據點資料 API 回應 ${response.status}`);
     const payload = await response.json();
     if (!payload || !Array.isArray(payload.stores)) throw new Error('據點資料格式不正確');

@@ -1,6 +1,7 @@
 import { and, asc, eq, sql, sum } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { chunks, inJsonArray } from "./sql-lists.js";
+import { dirtyStoreLocatorPublication } from "./store-locator-publication.js";
 import {
   reportBundleSalesMonthly,
   reportItemSalesMonthly,
@@ -613,21 +614,24 @@ export async function upsertReportScope(db: Database, input: ReportScopeInput): 
   const normalizedName = normalizeReportScopeName(name);
   const active = input.active === false ? 0 : 1;
   const sourceType = input.sourceType?.trim().toLowerCase() || scopeSourceTypeFromId(input.id);
-  await db.insert(targetScopes).values({
-    id: input.id,
-    sourceType,
-    scopeKind: input.scopeKind,
-    name,
-    normalizedName,
-    active,
-    driveFolderUrl: "",
-    driveFolderName: "",
-    sortOrder: 0,
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: targetScopes.id,
-    set: { sourceType, scopeKind: input.scopeKind, name, normalizedName, active, updatedAt: now },
-  });
+  await db.batch([
+    db.insert(targetScopes).values({
+      id: input.id,
+      sourceType,
+      scopeKind: input.scopeKind,
+      name,
+      normalizedName,
+      active,
+      driveFolderUrl: "",
+      driveFolderName: "",
+      sortOrder: 0,
+      updatedAt: now,
+    }).onConflictDoUpdate({
+      target: targetScopes.id,
+      set: { sourceType, scopeKind: input.scopeKind, name, normalizedName, active, updatedAt: now },
+    }),
+    dirtyStoreLocatorPublication(db),
+  ]);
   const [scope] = await db.select().from(targetScopes).where(eq(targetScopes.id, input.id)).limit(1);
   if (!scope) throw new Error("寫入 target 報表 scope 後找不到資料。");
   return asReportScope(scope);

@@ -40,6 +40,7 @@ import { cyberbizReportsMcp } from "./routes/cyberbiz-reports-mcp.js";
 import { wms } from "./routes/wms.js";
 import { media } from "./routes/media.js";
 import { storeLocator } from "./routes/store-locator.js";
+import { maintainStoreLocatorCdn, serveStoreLocatorCdn, STORE_LOCATOR_CDN_PATH } from "./store-locator-cdn.js";
 import { rfidInternal } from "./routes/rfid-internal.js";
 import { maintainMediaCdn, mediaCdnConfig, serveMediaCdn } from "./media-cdn.js";
 import type { LineAssistantQueueMessage } from "./line-queue.js";
@@ -253,6 +254,7 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
   const db = createDatabase(env.DB);
 
   ctx.waitUntil(maintainMediaCdn(env).catch(() => console.error(JSON.stringify({ event: "media.cdn.maintenance_failed" }))));
+  ctx.waitUntil(maintainStoreLocatorCdn(env).catch(() => console.error(JSON.stringify({ event: "store_locator.maintenance_failed" }))));
 
   ctx.waitUntil(
     cleanupExpiredMedia(env, db)
@@ -442,9 +444,12 @@ async function fetchHandler(request: Request, env: Env, ctx?: ExecutionContext) 
       target.search = url.search;
       return Response.redirect(target.toString(), 308);
     }
-    return serveMediaCdn(request, env);
+    return url.pathname === STORE_LOCATOR_CDN_PATH ? serveStoreLocatorCdn(request, env) : serveMediaCdn(request, env);
   }
-  if (cdn?.local && url.origin === cdn.origin && url.pathname.startsWith("/images/")) return serveMediaCdn(request, env);
+  if (cdn?.local && url.origin === cdn.origin) {
+    if (url.pathname === STORE_LOCATOR_CDN_PATH) return serveStoreLocatorCdn(request, env);
+    if (url.pathname.startsWith("/images/")) return serveMediaCdn(request, env);
+  }
   if (url.pathname === "/api" || url.pathname.startsWith("/api/")) return app.fetch(request, env, ctx);
   return env.ASSETS ? env.ASSETS.fetch(request) : new Response("Not found", { status: 404 });
 }

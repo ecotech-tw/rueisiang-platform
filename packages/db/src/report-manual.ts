@@ -15,6 +15,7 @@ import {
 import { itemCategories, cyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { normalizeExternalSku } from "./product-sku-mappings.js";
 import { isValidScopeId } from "./scope-id.js";
+import { dirtyStoreLocatorPublication } from "./store-locator-publication.js";
 
 function targetPayoutRecordId(scopeId: string, businessDate: string): string {
   return `target:${scopeId}:${businessDate}`;
@@ -320,12 +321,15 @@ export async function createReportManagementScope(db: Database, input: ReportMan
   const driveFolderName = (input.driveFolderName ?? "").trim();
   const storeLocator = storeLocatorInput(input);
   const now = new Date().toISOString();
-  await db.insert(targetScopes).values({
-    id, sourceType, scopeKind, name, normalizedName, externalName,
-    driveFolderUrl, driveFolderName, sortOrder: 0, active: input.active === false ? 0 : 1,
-    createdAt: now, updatedAt: now,
-  });
-  if (hasStoreLocatorInput(input)) await db.insert(storeLocatorProfiles).values({ scopeId: id, ...storeLocator });
+  await db.batch([
+    db.insert(targetScopes).values({
+      id, sourceType, scopeKind, name, normalizedName, externalName,
+      driveFolderUrl, driveFolderName, sortOrder: 0, active: input.active === false ? 0 : 1,
+      createdAt: now, updatedAt: now,
+    }),
+    ...(hasStoreLocatorInput(input) ? [db.insert(storeLocatorProfiles).values({ scopeId: id, ...storeLocator })] : []),
+    dirtyStoreLocatorPublication(db),
+  ]);
   return {
     id, name, externalName, sourceType, scopeKind, driveFolderUrl, driveFolderName,
     ...storeLocator, active: input.active !== false, archivedAt: null,
@@ -377,14 +381,15 @@ export async function updateReportManagementScope(
   // 封存的通路要先還原才能重新啟用；不然「停用」與「封存」會互相打架。
   const archivedAt = active && existing.archivedAt ? null : existing.archivedAt;
   const now = new Date().toISOString();
-  await db.update(targetScopes).set({
-    name, normalizedName: normalizeReportScopeName(name), externalName, sourceType, scopeKind,
-    driveFolderUrl, driveFolderName, active: active ? 1 : 0, archivedAt, updatedAt: now,
-  }).where(eq(targetScopes.id, id));
-  if (hasStoreLocatorInput(input)) {
-    await db.insert(storeLocatorProfiles).values({ scopeId: id, ...storeLocator, updatedAt: now })
-      .onConflictDoUpdate({ target: storeLocatorProfiles.scopeId, set: { ...storeLocator, updatedAt: now } });
-  }
+  await db.batch([
+    db.update(targetScopes).set({
+      name, normalizedName: normalizeReportScopeName(name), externalName, sourceType, scopeKind,
+      driveFolderUrl, driveFolderName, active: active ? 1 : 0, archivedAt, updatedAt: now,
+    }).where(eq(targetScopes.id, id)),
+    ...(hasStoreLocatorInput(input) ? [db.insert(storeLocatorProfiles).values({ scopeId: id, ...storeLocator, updatedAt: now })
+      .onConflictDoUpdate({ target: storeLocatorProfiles.scopeId, set: { ...storeLocator, updatedAt: now } })] : []),
+    dirtyStoreLocatorPublication(db),
+  ]);
   return { id, name, externalName, sourceType, scopeKind, driveFolderUrl, driveFolderName, ...storeLocator, active, archivedAt };
 }
 
@@ -405,7 +410,10 @@ export async function archiveReportManagementScope(db: Database, scopeId: string
   }).from(targetScopes).where(eq(targetScopes.id, id)).limit(1);
   if (!existing) throw new ReportManualError("not_found", "找不到這個通路。");
   const now = new Date().toISOString();
-  await db.update(targetScopes).set({ active: 0, archivedAt: now, updatedAt: now }).where(eq(targetScopes.id, id));
+  await db.batch([
+    db.update(targetScopes).set({ active: 0, archivedAt: now, updatedAt: now }).where(eq(targetScopes.id, id)),
+    dirtyStoreLocatorPublication(db),
+  ]);
   return {
     id, name: existing.name, externalName: existing.externalName, sourceType: existing.sourceType,
     scopeKind: existing.scopeKind as ScopeKind, driveFolderUrl: existing.driveFolderUrl,

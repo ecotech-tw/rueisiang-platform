@@ -1625,6 +1625,13 @@
       "when": 1795163904121,
       "tag": "0255_perfect_anita_blake",
       "breakpoints": true
+    },
+    {
+      "idx": 256,
+      "version": "6",
+      "when": 1795499111851,
+      "tag": "0256_bitter_terrax",
+      "breakpoints": true
     }
   ]
 }

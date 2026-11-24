@@ -6,7 +6,7 @@ keep_vars = true
 
 # 靜態檔與 API 同一個 Worker、同一個網域。
 # 這組設定沿用出金表工具 worker/wrangler.toml 已驗證可行的做法：
-# 所有 hostname 先進 Worker：CDN 只提供公開圖片，platform 的非 API 路徑再交給 ASSETS。
+# 所有 hostname 先進 Worker：CDN 只提供公開圖片與據點快照，platform 的非 API 路徑再交給 ASSETS。
 # not_found_handling 讓 React Router 的 client-side 路由重新整理時不會 404。
 [assets]
 directory = "../portal/dist"
@@ -28,7 +28,7 @@ migrations_dir = "../../packages/db/migrations"
 binding = "UPLOADS"
 bucket_name = "rueisiang-platform-uploads"
 
-# media bucket 保持私有，由同一 Worker 的 CDN hostname 提供公開圖片。
+# media bucket 保持私有，由同一 Worker 的 CDN hostname 提供公開圖片與據點快照。
 [[r2_buckets]]
 binding = "MEDIA"
 bucket_name = "media"
