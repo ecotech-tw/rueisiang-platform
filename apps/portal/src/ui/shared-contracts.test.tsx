@@ -42,6 +42,15 @@ describe("shared HRIS UI contracts", () => {
     expect(shown).not.toContain("sr-only");
   });
 
+  it("手機上不顯示 h1 時，頁面說明還要顯示的話，頁首不能整個收成 sr-only", () => {
+    const header = (markup: string) => markup.match(/^<header data-page-head="" class="([^"]*)"/)?.[1] ?? "";
+    const withDescription = renderToStaticMarkup(<MobilePageTitle visible={false}><PageHeader title="客戶列表" description="查看、搜尋客戶資料。" /></MobilePageTitle>);
+    expect(header(withDescription)).not.toContain("sr-only");
+    expect(withDescription).toMatch(/<h1 class="[^"]*max-\[760px\]:sr-only[^"]*">客戶列表<\/h1>/);
+    const titleOnly = renderToStaticMarkup(<MobilePageTitle visible={false}><PageHeader title="客戶列表" /></MobilePageTitle>);
+    expect(header(titleOnly)).toContain("max-[760px]:sr-only");
+  });
+
   it("PageHeader 的動作鈕放不下時換行，標題保留最小寬度，不會被擠成一字一行", () => {
     const markup = renderToStaticMarkup(<PageHeader title="排班月曆" actions={<button type="button">儲存</button>} />);
     // renderToStaticMarkup 會把 class 裡的 & 與 > 轉成實體字元，比對前先還原。

@@ -151,8 +151,8 @@ export function PageHeader({ title, description, actions, fab, className = "" }:
   useEffect(() => setMounted(true), []);
   // 同時有 actions 時排成一列並留間距（呼叫端的 actions 不一定自帶容器）；手機上 fab 那格藏起來，只剩 actions。
   const inlineActions = fab ? <div className="flex flex-wrap items-center justify-end gap-2">{actions}<span className="max-[760px]:hidden">{fab}</span></div> : actions;
-  // 手機上沒有大標題、動作鈕也只有浮動的那顆時，整個頁首只剩讀螢幕用的標題，不佔版面。
-  const mobileEmpty = !showMobileTitle && !actions;
+  // 手機上沒有大標題、說明也不顯示、動作鈕也只有浮動的那顆時，整個頁首只剩讀螢幕用的標題，不佔版面。
+  const mobileEmpty = !showMobileTitle && !actions && !(description && showDescription);
   // defaultUnless 只認開頭或空白後面的字，所以 "mb-" 對不到 "max-[760px]:mb-"，兩個斷點各算各的。
   const margin = `${defaultUnless(className, "mb-", "mb-0")} ${defaultUnless(className, "max-\\[760px\\]:mb-", "max-[760px]:mb-3")}`;
   const align = `${defaultUnless(className, "items-", "items-start")} ${defaultUnless(className, "max-\\[760px\\]:items-", "max-[760px]:items-center")}`;

@@ -5,6 +5,7 @@ import { GuardedNavLink } from "./UnsavedChanges.js";
 import type { SessionUser } from "../auth/session.js";
 import { AccountPanel } from "./AccountPanel.js";
 import { SystemSwitcher } from "./SystemSwitcher.js";
+import { GLASS_BLUR } from "./glass.js";
 import { Icon } from "./icons.js";
 import {
   NAV_SECTIONS,
@@ -231,7 +232,7 @@ export function Sidebar({ permissions, collapsed, mobileOpen, onToggle, user, on
 
   return (
     <aside
-      className={`sticky top-0 z-20 flex h-full min-h-0 flex-col border-r border-line bg-drawer px-4 pt-6 pb-[18px] max-[900px]:fixed max-[900px]:inset-y-0 max-[900px]:left-0 max-[900px]:w-[264px] max-[900px]:transition-[translate] max-[900px]:duration-220 max-[900px]:ease-out max-[900px]:motion-reduce:transition-none ${drawer}${collapsed ? " min-[900px]:px-2" : ""}`}
+      className={`sticky top-0 z-20 flex h-full min-h-0 flex-col border-r border-r-paper/70 bg-drawer/30 ${GLASS_BLUR} px-4 pt-6 pb-[18px] max-[900px]:fixed max-[900px]:bg-drawer/86 max-[900px]:[-webkit-backdrop-filter:blur(28px)_saturate(205%)] max-[900px]:[backdrop-filter:blur(28px)_saturate(205%)] max-[900px]:inset-y-0 max-[900px]:left-0 max-[900px]:w-[264px] max-[900px]:transition-[translate] max-[900px]:duration-220 max-[900px]:ease-out max-[900px]:motion-reduce:transition-none ${drawer}${collapsed ? " min-[900px]:px-2" : ""}`}
       id="portal-sidebar"
     >
       {/* 品牌列：展開時是完整字標，收合時換成只有圖記的方章。字標置中才能放大到接近欄寬——靠左時放大會撞到收合鈕。 */}
@@ -279,7 +280,7 @@ export function Sidebar({ permissions, collapsed, mobileOpen, onToggle, user, on
         {collapsed && hasMoreBelow ? (
           <button
             type="button"
-            className="group/hint absolute inset-x-0 bottom-0 hidden h-[34px] items-end justify-center border-0 pb-1 [background:linear-gradient(to_bottom,transparent,var(--color-drawer)_62%)] min-[900px]:flex"
+            className="group/hint absolute inset-x-0 bottom-0 hidden h-[34px] items-end justify-center border-0 pb-1 [background:linear-gradient(to_bottom,transparent,--alpha(var(--color-drawer)/92%)_62%)] min-[900px]:flex"
             aria-label="往下捲動看更多項目"
             onClick={() => navRef.current?.scrollBy({ top: 160, behavior: "smooth" })}
           >

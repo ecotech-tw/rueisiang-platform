@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { createContext, useContext, useEffect, useLayoutEffect } from "react";
 
 /** 全站共用的前綴。分頁標題只有前面幾個字看得到，品牌要排在前面。 */
 const TITLE_PREFIX = "瑞香 Ruei Siang";
@@ -12,7 +12,18 @@ const TITLE_PREFIX = "瑞香 Ruei Siang";
  * 刻意不在離開時還原：下一頁自己會設，中間那一瞬間的閃動反而更難看。
  */
 export function usePageTitle(title?: string): void {
+  const publish = useContext(PageTitleContext);
   useEffect(() => {
     document.title = title ? `${TITLE_PREFIX} | ${title}` : TITLE_PREFIX;
   }, [title]);
+  // 上方列的頁名要在畫面畫出來之前換好：useEffect 會晚一個畫面，換頁那一瞬間上方列還寫著上一頁、這頁的 h1 卻已經藏起來。
+  useLayoutEffect(() => {
+    publish?.(title);
+  }, [title, publish]);
 }
+
+/**
+ * 頁名也要寫在手機的上方列（AppShell）：每一頁本來就用 usePageTitle 報自己叫什麼，
+ * 上方列從這裡拿，不必另外對照導覽表。登入頁不在 AppShell 裡，拿到的是 null，只設分頁標題。
+ */
+export const PageTitleContext = createContext<((title: string | undefined) => void) | null>(null);
