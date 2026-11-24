@@ -88,7 +88,7 @@ export function Categories() {
               value={newName}
               onChange={(event) => setNewName(event.target.value)}
             />
-            <Button type="submit" loading={create.isPending} loadingLabel="新增中…" disabled={!newName.trim()}>
+            <Button type="submit" tone="success" loading={create.isPending} loadingLabel="新增中…" disabled={!newName.trim()}>
               新增分類
             </Button>
           </FilterToolbar>

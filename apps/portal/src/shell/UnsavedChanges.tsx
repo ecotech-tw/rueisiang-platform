@@ -1,8 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useId, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { NavLink, useLocation, useNavigate, useResolvedPath, type NavLinkProps } from "react-router";
 import { Button, Dialog } from "../ui/index.js";
-import { isHrPath } from "./hr-transition.js";
-import { HrSkins } from "./HrSkins.js";
+import { GlassSkins } from "./GlassSkins.js";
 
 /**
  * 「有未儲存的變更就先問一聲」。
@@ -143,10 +142,10 @@ export function UnsavedChangesProvider({ children }: { children: ReactNode }) {
       <p className="text-muted">離開之後這些變更就找不回來了。</p>
     </Dialog> : null;
 
-  // 視窗掛在路由外，拿不到 HrLayout 給的皮膚；在 HRIS 頁面上要自己包一層，按鈕才會是玻璃的。
+  // 視窗掛在路由外，拿不到 AppShell 給的皮膚，要自己包一層，按鈕才會是玻璃的。
   return <UnsavedChangesContext.Provider value={{ isDirty, setDirty, confirmLeave, beginLeaving }}>
     {children}
-    {dialog && isHrPath(location.pathname) ? <HrSkins>{dialog}</HrSkins> : dialog}
+    {dialog ? <GlassSkins>{dialog}</GlassSkins> : null}
   </UnsavedChangesContext.Provider>;
 }
 

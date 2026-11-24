@@ -114,8 +114,8 @@ export function SkuMappings() {
       <PageHeader
         title="SKU 對應"
         description="在品項管理集中設定通路商品要扣哪些品項；不同通路指到同一個用料，報表就會統計成同一個商品。"
-        actions={canWrite ? (
-          <Button icon="plus" mobileIconOnly onClick={() => setMappingDialog("new")} aria-label="新增對應">
+        fab={canWrite ? (
+          <Button icon="plus" tone="success" mobileIconOnly onClick={() => setMappingDialog("new")} aria-label="新增對應">
             <span>新增對應</span>
           </Button>
         ) : null}

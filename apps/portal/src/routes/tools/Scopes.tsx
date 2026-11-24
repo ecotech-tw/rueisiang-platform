@@ -508,7 +508,7 @@ export function Scopes() {
       <PageHeader
         title="通路管理"
         description="出金表、商品銷售報表與營運統計都掛在通路底下。停業與封存都不會刪掉已經匯入的歷史資料。"
-        fab={<Button icon="plus" mobileIconOnly onClick={() => setEditing({ scope: null })}>新增通路</Button>}
+        fab={<Button icon="plus" tone="success" mobileIconOnly onClick={() => setEditing({ scope: null })}>新增通路</Button>}
       />
 
       {query.data?.publication?.pending ? (

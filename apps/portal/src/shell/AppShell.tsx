@@ -3,6 +3,7 @@ import { Outlet, useLocation } from "react-router";
 import { logout, useSession } from "../auth/session.js";
 import { isHrPath, settleHrTransition } from "./hr-transition.js";
 import { Sidebar } from "./Sidebar.js";
+import { GlassSkins } from "./GlassSkins.js";
 import { ToastProvider } from "./Toast.js";
 
 export function AppShell() {
@@ -23,7 +24,7 @@ export function AppShell() {
    * fills 的頁面只讓表格捲、bleed 的頁面（地圖）連內距都不要；小香測試台自己分兩欄各自捲。
    */
   const content = isHrModule
-    ? "p-0 [background:radial-gradient(circle_at_top_left,--alpha(var(--color-brand)/8%),transparent_34rem),var(--color-canvas)]"
+    ? "p-0"
     : "px-9 py-8 max-[900px]:px-4 max-[900px]:py-5 max-[760px]:[--page-gutter:16px] max-[760px]:[--page-pad-top:20px] max-[760px]:[--page-pad-bottom:20px] max-[760px]:has-[[data-grows]_[data-pager]]:pb-0 max-[760px]:has-[[data-grows]_[data-pager]]:[--page-pad-bottom:0px]";
 
   return (
@@ -77,8 +78,9 @@ export function AppShell() {
         * 手機上整頁不准左右捲：要橫捲的東西（寬表格、膠囊列）都有自己的捲動容器，多出幾 px 的元素
         * 不該讓整頁被手指拖得左右晃（HrMain 同理）。
         */}
-      <main className={`h-full min-h-0 min-w-0 overflow-y-auto max-[760px]:overflow-x-hidden ${content} min-[760px]:has-[[data-page=fills]]:overflow-y-hidden max-[760px]:[&_[data-page=fills]]:h-auto min-[760px]:has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
-        <Outlet />
+      {/* 玻璃要透得出東西：內容區底下鋪一層淡淡的品牌色漸層，所有模組共用。 */}
+      <main className={`h-full min-h-0 min-w-0 overflow-y-auto max-[760px]:overflow-x-hidden [background:radial-gradient(circle_at_top_left,--alpha(var(--color-brand)/8%),transparent_34rem),var(--color-canvas)] ${content} min-[760px]:has-[[data-page=fills]]:overflow-y-hidden max-[760px]:[&_[data-page=fills]]:h-auto min-[760px]:has-[[data-sandbox-page]]:overflow-hidden has-[[data-page=bleed]]:overflow-hidden has-[[data-page=bleed]]:p-0`}>
+        <GlassSkins><Outlet /></GlassSkins>
       </main>
     </div>
     </ToastProvider>

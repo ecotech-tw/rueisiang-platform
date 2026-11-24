@@ -165,6 +165,7 @@ export function Customers() {
         fab={canWrite ? (
             <Button
               icon="plus"
+              tone="success"
               mobileIconOnly
               onClick={() => setEditing("new")}
               aria-label="新增客人"
