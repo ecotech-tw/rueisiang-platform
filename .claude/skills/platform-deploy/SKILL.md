@@ -139,7 +139,9 @@ DO instance。
 Codex CLI 取得最小 credential JSON、vault 如何加密／refresh，以及 session／compact／reset
 行為，完整說明見 [`docs/line-pi-agent.md`](../../../docs/line-pi-agent.md)。Codex 路徑不使用
 `OPENAI_API_KEY`；要開 Gemini 模型才需要 `GEMINI_API_KEY`。兩個 provider 可只設定其中一個，
-但目前 active model 對應的 credential 必須存在。
+但目前 active model 對應的 credential 必須存在。GPT／Codex 模型的請求固定經 Cloudflare Workers VPC
+`CODEX_EGRESS`；binding 與 `cf1:network` 設定在 `apps/api/wrangler.toml`，不需另設 egress mode 或
+NAS relay credential。缺少 binding 時請求會 fail closed。
 
 ### 2.1.4 設定 NAS 媒體儲存（可選）
 
@@ -149,8 +151,8 @@ Codex CLI 取得最小 credential JSON、vault 如何加密／refresh，以及 s
 先做小範圍 smoke test，再安排舊檔案 migration。
 
 Worker 端必須同時設定 `NAS_STORAGE_URL` 與 `NAS_STORAGE_TOKEN`；只設定其中一個會以設定錯誤
-拒絕圖片操作。token 要和 Codex relay 使用不同的值。gateway 的 NAS 建置、權限、Tunnel
-hostname 與回滾步驟見 [`tools/nas-storage/README.md`](../../../tools/nas-storage/README.md)。
+拒絕圖片操作。token 必須是此 gateway 專用的值，不可與其他服務共用。gateway 的 NAS 建置、權限、
+Tunnel hostname 與回滾步驟見 [`tools/nas-storage/README.md`](../../../tools/nas-storage/README.md)。
 
 `NAS_STORAGE_URL` 只填 gateway 的 HTTPS origin，不要加 API path：
 
@@ -184,7 +186,6 @@ Cloudflare 儀表板 → **Compute (Workers)** → `rueisiang-platform` →
 | `GEMINI_API_KEY` | Pi Google provider 的 Gemini API key；Sandbox 與 LINE 選 Gemini 模型時使用 |
 | `PI_OPENAI_CODEX_CREDENTIAL` | Codex CLI 或 Pi 的 ChatGPT OAuth credential JSON；不是 OpenAI API key |
 | `PI_CREDENTIAL_ENCRYPTION_KEY` | 至少 32 字元；加密 credential-vault 內的 access／refresh token |
-| `PI_OPENAI_CODEX_RELAY_TOKEN` | 可選；NAS Codex relay 的 shared token，搭配 `wrangler.toml` 裡的 `PI_OPENAI_CODEX_RELAY_URL` 使用 |
 | `NAS_STORAGE_TOKEN` | NAS storage gateway 的獨立 shared token；搭配 `NAS_STORAGE_URL` 使用 |
 | `CYBERBIZ_REPORT_INGEST_TOKEN` | GitHub Actions runner 將驗證後的 CYBERBIZ 商品銷售月資料與出金日資料寫入 D1 的獨立 shared token |
 | `CYBERBIZ_REPORT_MCP_TOKEN` | 只讀 CYBERBIZ reports MCP endpoint 的獨立 bearer token；不要與 NAS 或 ingest token 共用 |
@@ -202,8 +203,8 @@ node -e "console.log(crypto.randomUUID() + crypto.randomUUID())"
 
 這把金鑰換掉會讓所有人的登入狀態失效（cookie 驗不過），所以之後不要隨手換。
 
-secret 存進去就立即生效，不必重新部署；之後的部署也不會把它們洗掉。非機密的 relay URL 與
-`NAS_STORAGE_URL` 則寫在 `apps/api/wrangler.toml` 的 `[vars]`，避免只存在 Dashboard 而被
+secret 存進去就立即生效，不必重新部署；之後的部署也不會把它們洗掉。非機密的 CyberBiz API relay URL
+與 `NAS_STORAGE_URL` 則寫在 `apps/api/wrangler.toml` 的 `[vars]`，避免只存在 Dashboard 而被
 下一次 Wrangler 部署覆蓋；目前正式 hostname 為 `https://storage.rueisiang.com`。
 
 （等價指令：`cd apps/api && npx wrangler secret put <名稱>`）
@@ -230,45 +231,34 @@ workflow 檔名與 branch 可用 `CYBERBIZ_SALES_WORKFLOW_FILE`、`CYBERBIZ_SALE
 Google Drive 的 root 與各店別資料夾設定方式，沿用
 [`cyberbiz-reports` skill](../cyberbiz-reports/SKILL.md)。
 
-### 2.3.2 Codex NAS relay 與網路故障排查
+### 2.3.2 Pi Codex VPC 驗收與 Relay 退役
 
-Codex 請求只有在 Worker 的 `PI_OPENAI_CODEX_RELAY_URL` 與
-`PI_OPENAI_CODEX_RELAY_TOKEN` 都有值時才會經 NAS relay；兩者都沒設定會直接連 ChatGPT backend，
-只設其中一項則會在送出前報設定錯誤。`apps/api/wrangler.toml` 已設定 relay URL，因此正式環境必須
-另有相符的 Worker token secret；缺 token 時會 fail closed，不會回退直連 ChatGPT。因此看到 GPT/Codex
-模型名稱，不能單憑這點判定請求已走 NAS。URL 是非機密變數；token 是 Worker secret，且必須與 NAS
-`.env` 的 `CODEX_RELAY_TOKEN` 相同。勿將 token 放進 URL、log 或診斷訊息。
+Sandbox 與 LINE 的 Pi Codex 模型請求都經 Worker binding `CODEX_EGRESS`，連線至固定的
+`https://chatgpt.com/backend-api/codex/responses`。目前 binding 指向 `cf1:network`；部署設定見
+`apps/api/wrangler.toml`。這條路徑沒有 NAS relay、全域 `fetch()` 或自動回退；binding 缺失或上游失敗時，
+請求會失敗。Codex OAuth credential 與 VPC egress 是彼此獨立的設定，不要為了切換路由而重設或強制使
+OAuth credential 過期。
 
-資料路徑為 Worker → `PI_OPENAI_CODEX_RELAY_URL` 的 Cloudflare Tunnel hostname → Tunnel
-Public Hostname 設定的 origin → NAS 上的 relay `:8787` → `chatgpt.com`。Tunnel origin 必須填
-NAS **目前的 LAN IP**（例如 `http://<NAS LAN IP>:8787`），不是 PPPoE 公網 IP；Tunnel 由
-`cloudflared` 對外建立連線，通常不因 PPPoE 公網 IP 改變而需要修改 origin。NAS 的 LAN IP 若會變，
-在 LAN 路由器替 NAS 做 DHCP reservation。不要為 relay 開 router port forwarding。
+驗收時要分別從 Sandbox 與 LINE 發出 Codex 請求，並核對三項證據：
 
-排查順序：
+1. Worker log 的 `Pi Codex egress route` 顯示 `mode: "vpc"`。這只證明選中了路由，不代表上游成功。
+2. 同一請求的 `Pi provider response` 顯示 Codex provider HTTP 200，且 Cloudflare Gateway logs 有對應的
+   `chatgpt.com` 流量。
+3. Sandbox 收到模型回答，LINE 收到成功回覆。將時間與 Worker／Gateway 記錄對齊，確認是同一筆操作。
 
-1. 在 NAS 確認 relay 容器運作，並從 NAS 本機測 `http://127.0.0.1:8787/healthz`；從同網段另一台裝置再測
-   `http://<NAS LAN IP>:8787/healthz`。PowerShell 可用 `Invoke-RestMethod` 測 HTTP endpoint。
-2. 在 Cloudflare Zero Trust → **Networks → Tunnels → Public Hostnames** 確認 relay hostname 的 service
-   指向 `http://<目前 NAS LAN IP>:8787`。若 `cloudflared` 在獨立容器，`localhost` 指的是該容器本身，
-   不一定是 NAS 或 relay 容器；使用該容器實際可到達的 LAN IP 或共用 Docker network service name。
-3. Tunnel log 若出現 `Unable to reach the origin service`、`dial tcp <IP>:8787: connect: connection refused`，
-   表示請求已到 Cloudflare Tunnel，但 connector 連不到設定的 origin port；relay 程式尚未收到請求，
-   因此 NAS relay log 沒有新項目是預期結果。把 log 中的 IP 與 NAS 目前 LAN IP 比對，再檢查 origin、
-   容器狀態及 port mapping。這不是 PPPoE 公網 IP 變更的直接證據。
-4. 在未加 Cloudflare Access 的情況下，用 PowerShell 開啟 `https://<relay hostname>/healthz`；應回 JSON
-   `{"ok":true}`。再送一筆 Codex 請求，確認 NAS relay 有 `POST /codex/responses` log，並核對 status、duration。
-   Tunnel connector 顯示 live 只代表 connector 連上 Cloudflare，不代表 connector 到 origin 的連線正常。若要在
-   Tunnel hostname 前加 Access，須先讓 Worker 帶 Access service token；目前 Worker 只帶 relay token，未實作
-   Access service token，因此不可只靠瀏覽器健康檢查判定 Worker 請求能通過 Access。
-5. 若排查 PPPoE，分開記錄 NAS 的 LAN address、預設閘道與 NAS 實際公網出口；從 NAS 查公網出口並與 ISP
-   核發的固定 IP 比對。`TERMREQ`／`LCP terminated by peer` 只表示對端終止 PPP session，不能單獨證明是
-   AP、Hub 或某條支線造成。逐條隔離線路驗證前，不猜填 WAN 參數，也不要重設路由器。若用上游 DHCP 作備援，
-   先確認該 DHCP 上游本身可上網，並留意公網出口可能改變、導致固定 IP allowlist 不再匹配。
+若缺少 binding，先檢查 Worker 的 VPC binding 與 `cf1:network` 設定；不要以 NAS relay 或全域 fetch 作為回退。
+僅看到 Gateway 流量或路由選擇 log，都不足以證明一次模型請求完成。
 
-QuickConnect hostname 不是通用 SSH tunnel。`ssh user@<QuickConnect hostname>` 連到 22 埠並收到 SSH banner，
-不代表該端點就是內網 NAS；可比較該連線與內網 NAS 的 SSH host-key fingerprint。除非經確認且有明確需求，
-不要把 SSH port 22 轉發到外網，也不要把 QuickConnect 密碼當成 NAS 的 SSH 密碼。
+退役 NAS Codex relay 前，先完成上述 Sandbox 與 LINE 驗收，並確認 Worker 已部署不再引用 relay。接著：
+
+1. 在 Cloudflare Workers 設定中移除舊的 `PI_OPENAI_CODEX_RELAY_TOKEN` secret；若 Dashboard 曾手動建立
+   `PI_OPENAI_CODEX_RELAY_URL` variable，也一併移除。不要刪除 Codex OAuth credential 或 encryption key。
+2. 確認 Cloudflare Tunnel 的 `codex-relay.rueisiang.com` hostname 專供 Codex relay 使用後，移除該 hostname；
+   保留共用 Tunnel、`storage.rueisiang.com`、CyberBiz relay hostname 與其他 NAS 服務。
+3. 在 NAS 停止並移除專用的 Codex relay container／project，然後刪除該服務的 `CODEX_RELAY_TOKEN` 與部署檔案。
+   不要停用 NAS storage 或 CyberBiz API relay。
+
+NAS 圖片儲存與 Pi Codex 模型 egress 是不同路徑；退役 Codex relay 不代表可以移除 NAS storage gateway。
 
 ### 2.4 部署
 
