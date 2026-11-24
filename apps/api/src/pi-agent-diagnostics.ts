@@ -11,7 +11,6 @@ export interface PiProviderResponseDiagnostic {
   contentType?: string;
   cfRay?: string;
   requestId?: string;
-  relayRequestId?: string;
   retryAfter?: string;
   server?: string;
 }
@@ -64,7 +63,6 @@ export function providerResponseDiagnostic(
   const contentType = header(response, "content-type");
   const cfRay = header(response, "cf-ray");
   const requestId = header(response, "x-request-id") ?? header(response, "x-openai-request-id");
-  const relayRequestId = header(response, "x-codex-relay-request-id");
   const retryAfter = header(response, "retry-after");
   const server = header(response, "server");
   return {
@@ -75,7 +73,6 @@ export function providerResponseDiagnostic(
     ...(contentType ? { contentType } : {}),
     ...(cfRay ? { cfRay } : {}),
     ...(requestId ? { requestId } : {}),
-    ...(relayRequestId ? { relayRequestId } : {}),
     ...(retryAfter ? { retryAfter } : {}),
     ...(server ? { server } : {}),
   };

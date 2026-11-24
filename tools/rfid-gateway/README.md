@@ -29,7 +29,7 @@ RFID_ATTENDANCE_LOCATION_NAME=瑞香雲林總部
 RFID_TCP_BIND=192.168.0.6
 ```
 
-`RFID_GATEWAY_TOKEN` 必須與 HR API Worker 的 secret 同值，且不可重用 storage、Codex relay 或其他 gateway 的 token。產生方式可用 `openssl rand -hex 32`；將同一結果分別設為 Worker secret `RFID_GATEWAY_TOKEN` 與 NAS `.env` 的 `RFID_GATEWAY_TOKEN`。NAS `.env` 不可 commit 或提供給瀏覽器。
+`RFID_GATEWAY_TOKEN` 必須與 HR API Worker 的 secret 同值，且不可重用 storage 或其他 gateway 的 token。產生方式可用 `openssl rand -hex 32`；將同一結果分別設為 Worker secret `RFID_GATEWAY_TOKEN` 與 NAS `.env` 的 `RFID_GATEWAY_TOKEN`。NAS `.env` 不可 commit 或提供給瀏覽器。
 
 使用 SSH 登入 NAS 後：
 

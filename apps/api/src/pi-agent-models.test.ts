@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  createPiCodexRelayFetch,
   createPiCodexVPCFetch,
   isPiAssistantModel,
   piAssistantModel,
@@ -56,31 +55,6 @@ describe("Pi Codex model catalog", () => {
     expect(resolvePiAssistantModelId("removed-model", "gpt-6-luna")).toBe("gpt-6-luna");
   });
 
-  it("只把 Codex SSE 請求改送到固定 relay path 並加入 relay token", async () => {
-    let observed: { input: RequestInfo | URL; init?: RequestInit } | undefined;
-    const relayFetch = createPiCodexRelayFetch(
-      { baseUrl: "https://relay.example.test", token: "relay-secret" },
-      async (input, init) => {
-        observed = { input, init };
-        return new Response("ok", { status: 200 });
-      },
-    );
-
-    const response = await relayFetch("https://chatgpt.com/backend-api/codex/responses", {
-      method: "POST",
-      headers: {
-        authorization: "Bearer upstream-token",
-        "content-type": "application/json",
-      },
-      body: "{\"stream\":true}",
-    });
-
-    expect(response.status).toBe(200);
-    expect(observed?.input.toString()).toBe("https://relay.example.test/codex/responses");
-    expect(new Headers(observed?.init?.headers).get("authorization")).toBe("Bearer upstream-token");
-    expect(new Headers(observed?.init?.headers).get("x-codex-relay-token")).toBe("relay-secret");
-  });
-
   it("VPC egress 保留 Codex SSE request，且只允許固定 ChatGPT endpoint", async () => {
     let observed: Request | undefined;
     const vpcFetch = createPiCodexVPCFetch(async (input) => {
@@ -101,16 +75,4 @@ describe("Pi Codex model catalog", () => {
     await expect(vpcFetch("https://example.test/backend-api/codex/responses")).rejects.toThrow("只允許連線至 chatgpt.com");
   });
 
-  it("拒絕非 HTTPS 或非 chatgpt.com 的 relay 目的地", async () => {
-    expect(() => createPiCodexRelayFetch({
-      baseUrl: "http://relay.example.test",
-      token: "relay-secret",
-    })).toThrow("必須使用 HTTPS");
-
-    const relayFetch = createPiCodexRelayFetch({
-      baseUrl: "https://relay.example.test",
-      token: "relay-secret",
-    }, async () => new Response("ok"));
-    await expect(relayFetch("https://example.test/codex/responses")).rejects.toThrow("只允許");
-  });
 });

@@ -21,7 +21,7 @@ docker compose up -d --build
 curl http://127.0.0.1:8791/healthz
 ```
 
-Cloudflare Tunnel 新增專用 hostname，例如 `cyberbiz-relay.rueisiang.com`，origin 指向 `http://192.168.0.6:8791`。不要開 router port forwarding。不要把 hostname 指到 storage gateway 或 Codex relay。
+Cloudflare Tunnel 新增專用 hostname，例如 `cyberbiz-relay.rueisiang.com`，origin 指向 `http://192.168.0.6:8791`。不要開 router port forwarding。不要把 hostname 指到 storage gateway。
 
 ## Worker 設定
 

@@ -45,7 +45,7 @@ GPT／Codex 路徑不使用 `OPENAI_API_KEY`，因此不走 OpenAI API 的 usage
 Queue、DO 與 session generation 邊界，不另建 durable harness。Pi 1.0 已移除 agent-core 的
 compaction helpers；升級到該介面需要另行遷移，因此單純更新模型目錄仍採相容的 SDK 系列。
 Pi SDK 打包在 Worker 執行，不在 NAS；Pi CLI 本身依賴 filesystem/process，不適合直接塞進
-Workers runtime。NAS Codex relay 只是 HTTP／SSE 轉送服務，不因模型目錄更新而需要安裝 Pi。
+Workers runtime。Pi SDK 在 Worker 執行，模型請求直接經 Workers VPC egress。
 
 SQLite Durable Objects 可使用 Cloudflare Workers Free plan；部署時的 DO migration 會建立
 class，不需要到 Dashboard 手動建立 instance。限制與計價以
@@ -87,47 +87,19 @@ Queue retry、LINE reply deadline 與每月 200 位收件者的 Push fixed windo
 處理。Pi 推論若進入 reply token 的十秒安全緩衝區，使用者先收到「系統繁忙，請稍後再試。」；
 完整結果完成後才嘗試受限 Push，否則保存在 D1 並關聯原 chat ID。
 
-## Optional NAS Codex relay
+## Codex egress
 
-若 production 的 Worker 直接連線 `chatgpt.com/backend-api` 持續收到 Cloudflare HTML 403，
-可以先依 [`tools/codex-relay/README.md`](../tools/codex-relay/README.md) 在 NAS 啟動固定目的地的 relay。
-它不使用 `OPENAI_API_KEY`，只轉送既有的 ChatGPT OAuth access token；relay 本身不會增加 OpenAI API
-usage-based 費用，但仍受 ChatGPT／Codex 方案的使用限制約束。
+Pi Codex 的互動推論與背景摘要一律使用 Cloudflare Workers VPC `CODEX_EGRESS` binding，經 Gateway
+連線至固定的 `https://chatgpt.com/backend-api/codex/responses` endpoint。Worker 不會直接使用全域
+`fetch()`，也沒有 NAS relay 或其他路由的自動回退；VPC binding 缺失或上游失敗時，請求會失敗，避免
+同一個模型請求被送出兩次。
 
-Workers TCP Sockets 不是這個 relay 的替代方案。我們在 Cloudflare remote runtime 實際以
-`connect({ hostname: "chatgpt.com", port: 443, secureTransport: "on" })` 探測，收到
-`cannot connect to the specified address`；Cloudflare 也明確限制 outbound TCP 連到 Cloudflare IP
-range。因此不能只因 TCP socket API 存在就移除 NAS relay。
+部署設定使用 `cf1:network` VPC network。Network 出口驗證需同時核對 Worker 的 Codex provider response
+與 Cloudflare Gateway logs；route selection log 本身不足以證明上游推論成功。Codex OAuth refresh 由
+credential vault 管理，與 egress route 獨立。
 
-Pi Codex transport 可選擇經 Workers VPC `cf1:network` binding 的 Gateway egress，或切回既有 NAS relay。
-DO 使用 VPC binding 的 `fetch()`，不是全域 `fetch()`；Cloudflare 對該路徑是否能讓 ChatGPT 接受 OAuth
-request 與 SSE，仍須以正式環境實測。VPC 目前為 beta，需帳號 Connectivity Directory 權限與 VPC／Gateway
-設定；本 repo 曾因 CI token 權限不足收到 authorization code `10196`。VPC 與 relay 間以
-`PI_OPENAI_CODEX_EGRESS_MODE` 明確切換，不在同一個模型 request 失敗後自動重送，避免不確定請求是否
-已被上游接受時重複執行。
-
-設定 `vpc` 時，Sandbox 與 LINE 的 Codex request 都經 VPC binding；將 mode 改成 `relay` 時，兩者都走既有
-NAS relay，且 relay URL 與 token 必須成對設定。未設定 mode 的本機相容路徑會沿用舊行為：有 relay 設定
-就使用 relay，否則使用 Worker 全域 `fetch()`。
-
-| 設定 | 類型 | 說明 |
-|---|---|---|
-| `PI_OPENAI_CODEX_EGRESS_MODE` | variable | `vpc` 讓 Sandbox 與 LINE 經 Cloudflare Gateway；`relay` 讓兩者走 NAS relay |
-| `PI_OPENAI_CODEX_RELAY_URL` | variable | relay 回退用的 HTTPS origin，例如 `https://codex-relay.example.com` |
-| `PI_OPENAI_CODEX_RELAY_TOKEN` | secret | 與 NAS `CODEX_RELAY_TOKEN` 相同的高熵字串 |
-
-`vpc` 模式需要 `CODEX_EGRESS` binding（`cf1:network`）。NAS relay URL 與 token 保留作為明確回退；若要讓
-Sandbox 與 LINE 都切回 relay，將 mode 設為 `relay` 並保留以下設定：
-
-```text
-PI_OPENAI_CODEX_EGRESS_MODE=relay
-PI_OPENAI_CODEX_RELAY_URL=http://127.0.0.1:8787
-PI_OPENAI_CODEX_RELAY_TOKEN=<與本機 relay 相同的 token>
-```
-
-只有在未設定 egress mode 的本機相容路徑中，兩個 relay 設定都未設定才會維持 Worker 直連；只設定一個時
-Codex request 會 fail closed。VPC 驗收需分別確認 Sandbox 與 LINE 的 Codex OAuth／SSE；若切回 NAS relay
-仍收到 HTML 403，就停止修改 header，改回頭確認 credential 與上游服務的允許條件。
+VPC 只承載模型 request。Sandbox／LINE 圖片仍依既有 NAS storage 設定讀寫；移除 Codex egress relay
+不會停用 NAS 圖片儲存或其他獨立整合。
 
 ## Credential setup
 

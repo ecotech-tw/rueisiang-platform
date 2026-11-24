@@ -648,35 +648,40 @@ describe("AI 助理 Sandbox", () => {
     expect(config.modelNotice).not.toContain("原備援模型");
   });
 
-  it.each(["gpt-6-luna", "gpt-6.1-sol"])("新模型 %s 仍使用現有 NAS relay 的 POST／SSE contract", async (model) => {
+  it.each(["gpt-6-luna", "gpt-6.1-sol"])("新模型 %s 經 VPC 完成 Codex 工具呼叫", async (model) => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    env.PI_OPENAI_CODEX_EGRESS_MODE = "relay";
-    env.PI_OPENAI_CODEX_RELAY_URL = "https://relay.example.test";
-    env.PI_OPENAI_CODEX_RELAY_TOKEN = "relay-test-token";
     env.ASSISTANT_CREDENTIAL_VAULT = {
       getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
     };
-    const bodies: string[] = [];
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
-      expect(String(input)).toBe("https://relay.example.test/codex/responses");
-      expect(init?.method).toBe("POST");
-      expect(new Headers(init?.headers).get("x-codex-relay-token")).toBe("relay-test-token");
-      expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${CODEX_ACCESS_TOKEN}`);
-      bodies.push(await new Response(init?.body as BodyInit).text());
-      const parts = bodies.length === 1 ? [{ functionCall: { name: "crm_search_customers", args: { search: "張三" } } }] : [{ text: "新 GPT 經既有 relay 完成工具查詢。" }];
-      return Response.json({ candidates: [{ content: { parts } }], usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 } });
+    const requests: Request[] = [];
+    env.CODEX_EGRESS = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        requests.push(request.clone());
+        expect(request.headers.get("authorization")).toBe(`Bearer ${CODEX_ACCESS_TOKEN}`);
+        const parts = requests.length === 1
+          ? [{ functionCall: { name: "crm_search_customers", args: { search: "張三" } } }]
+          : [{ text: "新 GPT 經 VPC 完成工具查詢。" }];
+        return asCodexStream({
+          candidates: [{ content: { parts } }],
+          usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+        });
+      },
+    };
+    const globalFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      throw new Error("Codex 請求不得使用全域 fetch。");
     });
+
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", { method: "POST", body: JSON.stringify({ model, toolKeys: ["crm_search_customers"], input: "查張三" }) });
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ model, text: "新 GPT 經既有 relay 完成工具查詢。", toolCalls: [{ toolKey: "crm_search_customers", status: "success" }] });
-    expect(bodies).toHaveLength(2);
-    expect(JSON.parse(bodies[0]!).model).toBe(model);
-    expect(bodies[1]).toContain("張三");
+    expect(await response.json()).toMatchObject({ model, text: "新 GPT 經 VPC 完成工具查詢。", toolCalls: [{ toolKey: "crm_search_customers", status: "success" }] });
+    expect(requests).toHaveLength(2);
+    expect(requests.every((request) => request.url === "https://chatgpt.com/backend-api/codex/responses")).toBe(true);
+    expect(globalFetch).not.toHaveBeenCalled();
   });
 
-  it("DO Pi Agent 可經 VPC binding 直接呼叫 Codex，保留 OAuth 與 SSE 回應", async () => {
+  it("DO Pi Agent 可經 VPC binding 呼叫 Codex，保留 OAuth 與 SSE 回應", async () => {
     await seedUser("admin", "admin@ecotech.tw", "role-admin");
-    env.PI_OPENAI_CODEX_EGRESS_MODE = "vpc";
     env.ASSISTANT_CREDENTIAL_VAULT = {
       getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
     };
@@ -702,6 +707,24 @@ describe("AI 助理 Sandbox", () => {
     expect(requests).toHaveLength(1);
     expect(requests[0]?.url).toBe("https://chatgpt.com/backend-api/codex/responses");
     expect(requests[0]?.headers.get("authorization")).toBe(`Bearer ${CODEX_ACCESS_TOKEN}`);
+  });
+
+  it("Codex 沒有 VPC binding 時 fail closed，不使用全域 fetch", async () => {
+    await seedUser("admin", "admin@ecotech.tw", "role-admin");
+    env.ASSISTANT_CREDENTIAL_VAULT = {
+      getByName: () => ({ fetch: async () => Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
+    };
+    const globalFetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+      throw new Error("Codex 不得走 Worker 全域 fetch。");
+    });
+
+    const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
+      method: "POST",
+      body: JSON.stringify({ model: "gpt-6-luna", toolKeys: [], input: "測試 fail closed" }),
+    });
+
+    expect(response.status).not.toBe(200);
+    expect(globalFetch).not.toHaveBeenCalled();
   });
 
   it("Sandbox 圖片會把 bytes 放在 NAS、metadata 留在 D1，並受使用者權限保護", async () => {
@@ -766,7 +789,6 @@ describe("AI 助理 Sandbox", () => {
         size: bytes.byteLength,
       });
 
-      env.PI_OPENAI_CODEX_EGRESS_MODE = "vpc";
       env.ASSISTANT_CREDENTIAL_VAULT = {
         getByName: () => ({ fetch: async (request: Request) => request.url.endsWith("/status") ? Response.json({ configured: true }) : Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
       };
@@ -887,7 +909,7 @@ describe("AI 助理 Sandbox", () => {
     });
   });
 
-  it("VPC 模式下 LINE Codex 請求也經 VPC，不走 NAS Relay", async () => {
+  it("LINE Codex request 經 VPC egress", async () => {
     await db().insert(assistantLineChannels).values({
       channelKey: "rueisiang-xiaoxiang",
       assistantKey: "rueisiang-xiaoxiang",
@@ -901,9 +923,6 @@ describe("AI 助理 Sandbox", () => {
       sourceType: "user",
       enabled: true,
     });
-    env.PI_OPENAI_CODEX_EGRESS_MODE = "vpc";
-    env.PI_OPENAI_CODEX_RELAY_URL = "https://relay.example.test";
-    env.PI_OPENAI_CODEX_RELAY_TOKEN = "relay-test-token";
     env.ASSISTANT_CREDENTIAL_VAULT = {
       getByName: () => ({ fetch: async () => Response.json({ accessToken: CODEX_ACCESS_TOKEN }) }),
     };
@@ -1204,6 +1223,17 @@ describe("AI 助理 Sandbox", () => {
     });
 
     const requests: string[] = [];
+    const codexRequests: Request[] = [];
+    env.CODEX_EGRESS = {
+      fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        codexRequests.push(request.clone());
+        return asCodexStream({
+          candidates: [{ content: { parts: [{ text: "GPT fallback 回覆" }] } }],
+          usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 },
+        });
+      },
+    };
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url = String(input);
       requests.push(url);
@@ -1212,12 +1242,6 @@ describe("AI 助理 Sandbox", () => {
           status: 503,
           headers: { "Content-Type": "application/json" },
         });
-      }
-      if (url.includes("/codex/responses")) {
-        return new Response(JSON.stringify({
-          candidates: [{ content: { parts: [{ text: "GPT fallback 回覆" }] } }],
-          usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 },
-        }), { status: 200, headers: { "Content-Type": "application/json" } });
       }
       return new Response(JSON.stringify({ error: { message: "unexpected provider" } }), { status: 500 });
     });
@@ -1232,7 +1256,8 @@ describe("AI 助理 Sandbox", () => {
       text: "GPT fallback 回覆",
     });
     expect(requests.some((url) => url.includes("generativelanguage"))).toBe(true);
-    expect(requests.some((url) => url.includes("/codex/responses"))).toBe(true);
+    expect(codexRequests).toHaveLength(1);
+    expect(codexRequests[0]?.url).toBe("https://chatgpt.com/backend-api/codex/responses");
   });
 
   it("只有具備設定權限的人可以匯入 Codex credential，而且回應不包含原文", async () => {
@@ -2309,14 +2334,11 @@ describe("AI 助理 Sandbox", () => {
       method: "POST",
       body: JSON.stringify({ model: "gpt-6-luna", promptRevisionId: config.activePrompt.id }),
     })).json() as { session: { id: string } };
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
-      const requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
-      return new Response(JSON.stringify({
-        candidates: [{ content: { parts: [{ text: "初始化回答" }] } }],
-        usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
-        ...requestBody,
-      }), { status: 200, headers: { "Content-Type": "application/json" } });
-    });
+    const codexFetch = vi.fn<typeof fetch>(async () => asCodexStream({
+      candidates: [{ content: { parts: [{ text: "初始化回答" }] } }],
+      usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 2, totalTokenCount: 3 },
+    }));
+    env.CODEX_EGRESS = { fetch: codexFetch };
 
     const response = await as("admin", "admin@ecotech.tw", "/api/assistant/sandbox/run", {
       method: "POST",
@@ -2332,7 +2354,7 @@ describe("AI 助理 Sandbox", () => {
 
     const agentName = `rueisiang-xiaoxiang:sandbox:admin:${created.session.id}`;
     assistantAgents!.seedLegacyCompactionState(agentName, "gemini-1.5-pro");
-    fetchMock.mockResolvedValue(asCodexStream({
+    codexFetch.mockResolvedValue(asCodexStream({
       candidates: [{ content: { parts: [{ text: "legacy history summary" }] } }],
     }));
 
@@ -2497,15 +2519,31 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     const sessionId = await openSession(model);
     let stage = 0;
     const requests: string[] = [];
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
-      expect(String(url)).not.toContain("api.line.me");
-      requests.push(String(init?.body));
+    const nextProviderResponse = () => {
       const parts = stage === 0 ? [{ functionCall: { name: "hr_authorize", args: {} } }]
         : stage === 1 ? [{ functionCall: { name: "hr_get_my_leave_requests", args: { status: "pending" } } }]
         : stage === 2 ? [{ functionCall: { name: "hr_get_my_annual_leave", args: {} } }]
         : [{ text: "員工本人回答" }];
       stage++;
-      return Response.json({ candidates: [{ content: { parts } }], usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 } });
+      return { candidates: [{ content: { parts } }], usageMetadata: { promptTokenCount: 2, candidatesTokenCount: 3, totalTokenCount: 5 } };
+    };
+    if (model.startsWith("gpt-")) {
+      env.CODEX_EGRESS = {
+        fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
+          const request = new Request(input, init);
+          expect(request.url).toBe("https://chatgpt.com/backend-api/codex/responses");
+          const body = new Uint8Array(await request.clone().arrayBuffer());
+          requests.push(request.headers.get("content-encoding") === "zstd"
+            ? zstdDecompressSync(body).toString("utf8")
+            : new TextDecoder().decode(body));
+          return asCodexStream(nextProviderResponse());
+        },
+      };
+    }
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
+      expect(String(url)).not.toContain("api.line.me");
+      requests.push(String(init?.body));
+      return Response.json(nextProviderResponse());
     });
     const response = await runHr({ model, sessionId, toolKeys: ["crm_search_customers", ...keys] });
     expect(response.status).toBe(200);
