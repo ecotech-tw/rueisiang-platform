@@ -1,5 +1,6 @@
 import { and, asc, eq, sql, sum } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { chunks, inJsonArray } from "./sql-lists.js";
 import { dirtyStoreLocatorPublication } from "./store-locator-publication.js";
 import {
@@ -609,7 +610,7 @@ export function scopeSourceTypeFromId(scopeId: string): string {
 }
 
 export async function upsertReportScope(db: Database, input: ReportScopeInput): Promise<ReportScope> {
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const name = input.name.trim();
   const normalizedName = normalizeReportScopeName(name);
   const active = input.active === false ? 0 : 1;

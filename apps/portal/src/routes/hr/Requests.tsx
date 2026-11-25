@@ -1,4 +1,5 @@
-import { parseDbDate, parseDbTimestamp } from "@rueisiang/db/db-timestamp";
+import { parseDbTimestamp } from "@rueisiang/db/db-timestamp";
+import { taipeiMinuteFromUtcWallClock } from "@rueisiang/db/taipei-time";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
@@ -96,21 +97,13 @@ function taipeiToday() {
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
 
-function taipeiDisplayValue(value: string) {
-  const parsed = parseDbDate(value);
-  if (!parsed) return value;
-  const parts = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(parsed);
-  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
-}
-
 function taipeiInputValue(value: string) {
-  const display = taipeiDisplayValue(value);
+  const display = taipeiMinuteFromUtcWallClock(value);
   return display.includes(" ") ? display.replace(" ", "T") : "";
 }
 
 function leaveDisplayValue(value: string, fallbackDate: string) {
-  return value ? taipeiDisplayValue(value) : `${fallbackDate} 00:00`;
+  return value ? taipeiMinuteFromUtcWallClock(value) : `${fallbackDate} 00:00`;
 }
 
 function overtimeDetail(settlementKind: string | null | undefined, requestedStart: string | null | undefined, requestedEnd: string | null | undefined) {
@@ -144,7 +137,7 @@ function toRequestRow(row: HrRequestCenterRow): RequestRow {
       kind: row.kind,
       employeeName: row.employeeName ?? "未命名員工",
       employeeNumber: row.employeeNumber ?? "—",
-      period: `${taipeiDisplayValue(row.requestedStart ?? "")}～${taipeiDisplayValue(row.requestedEnd ?? "")}`,
+      period: `${taipeiMinuteFromUtcWallClock(row.requestedStart ?? "")}～${taipeiMinuteFromUtcWallClock(row.requestedEnd ?? "")}`,
       detail: overtimeDetail(row.settlementKind, row.requestedStart, row.requestedEnd),
       reason: row.reason || "—",
       status: row.status,
@@ -161,7 +154,7 @@ function toRequestRow(row: HrRequestCenterRow): RequestRow {
     employeeName: row.employeeName ?? "未命名員工",
     employeeNumber: row.employeeNumber ?? "—",
     period: row.correctionDate ?? "—",
-    detail: row.requestedEventKind === "clock_in" ? `補上班 ${taipeiDisplayValue(row.requestedAt ?? "")}` : `補下班 ${taipeiDisplayValue(row.requestedAt ?? "")}`,
+    detail: row.requestedEventKind === "clock_in" ? `補上班 ${taipeiMinuteFromUtcWallClock(row.requestedAt ?? "")}` : `補下班 ${taipeiMinuteFromUtcWallClock(row.requestedAt ?? "")}`,
     reason: row.reason || "—",
     status: row.status,
     createdAt: row.createdAt,
@@ -188,7 +181,7 @@ function toRequestRows(data: HrRequestCenterResponse | undefined): RequestRow[] 
     kind: "overtime" as const,
     employeeName: employeeName ?? "未命名員工",
     employeeNumber: employeeNumber ?? "—",
-    period: `${taipeiDisplayValue(request.requestedStart)}～${taipeiDisplayValue(request.requestedEnd)}`,
+    period: `${taipeiMinuteFromUtcWallClock(request.requestedStart)}～${taipeiMinuteFromUtcWallClock(request.requestedEnd)}`,
     detail: overtimeDetail(request.settlementKind, request.requestedStart, request.requestedEnd),
     reason: request.reason || "—",
     status: request.status,
@@ -203,7 +196,7 @@ function toRequestRows(data: HrRequestCenterResponse | undefined): RequestRow[] 
     employeeName: request.requesterName ?? "未命名員工",
     employeeNumber: "—",
     period: request.correctionDate,
-    detail: request.requestedEventKind === "clock_in" ? `補上班 ${taipeiDisplayValue(request.requestedAt)}` : `補下班 ${taipeiDisplayValue(request.requestedAt)}`,
+    detail: request.requestedEventKind === "clock_in" ? `補上班 ${taipeiMinuteFromUtcWallClock(request.requestedAt)}` : `補下班 ${taipeiMinuteFromUtcWallClock(request.requestedAt)}`,
     reason: request.reason || "—",
     status: request.status,
     createdAt: request.createdAt,

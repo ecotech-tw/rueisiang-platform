@@ -7,6 +7,7 @@ import {
   type Database,
   type StoredMediaAttachment,
   parseDbTimestamp,
+  toDbTimestamp,
 } from "@rueisiang/db";
 import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import { fetchLineMessageContent, LineContentError, LINE_IMAGE_MAX_BYTES, type LineLogContext } from "./line.js";
@@ -164,7 +165,7 @@ export async function storeLineImage(input: {
     contentType: object.contentType,
     size: object.size,
     checksum: object.checksum || checksum,
-    expiresAt: new Date(Date.now() + LINE_ATTACHMENT_TTL_MS).toISOString(),
+    expiresAt: toDbTimestamp(Date.now() + LINE_ATTACHMENT_TTL_MS),
   };
   let metadataRecorded = false;
   try {

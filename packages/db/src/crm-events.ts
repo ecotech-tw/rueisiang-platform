@@ -1,7 +1,8 @@
-import { and, desc, eq, like, or, type SQL } from "drizzle-orm";
+import { and, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 import { crmCustomers } from "./schema/crm.js";
+import { julian } from "./db-time-sql.js";
 
 /**
  * CRM 的操作紀錄。
@@ -107,7 +108,7 @@ export async function listCustomerEvents(
      */
     .leftJoin(crmCustomers, eq(crmCustomers.id, activityEvents.entityId))
     .where(where)
-    .orderBy(desc(activityEvents.createdAt), desc(activityEvents.id))
+    .orderBy(desc(julian(activityEvents.createdAt)), desc(sql`activity_events.rowid`))
     .limit(query.pageSize + 1)
     .offset((query.page - 1) * query.pageSize);
 

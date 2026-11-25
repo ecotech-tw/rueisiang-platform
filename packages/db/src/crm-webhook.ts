@@ -7,6 +7,7 @@ import {
 } from "@rueisiang/cyberbiz";
 import { and, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { inJsonArray } from "./sql-lists.js";
 import { syncCyberbizCustomer, type CyberbizSyncResult } from "./crm-sync.js";
 import { crmCustomers, cyberbizWebhookEvents } from "./schema/crm.js";
@@ -15,6 +16,7 @@ import {
   claimFailedCyberbizWebhookEvent,
   requeueStaleCyberbizWebhookEvents,
 } from "./webhook-events.js";
+import { julian } from "./db-time-sql.js";
 
 /**
  * 收到的 webhook 先落地再處理。
@@ -383,12 +385,12 @@ export async function purgeSettledWebhookEvents(
   options: { retentionDays?: number } = {},
 ): Promise<{ deleted: number }> {
   const days = Math.max(1, Math.trunc(options.retentionDays ?? WEBHOOK_EVENT_RETENTION_DAYS));
-  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const cutoff = toDbTimestamp(Date.now() - days * 24 * 60 * 60 * 1000);
   const stale = await db.select({ id: cyberbizWebhookEvents.id })
     .from(cyberbizWebhookEvents)
     .where(and(
       inArray(cyberbizWebhookEvents.status, ["processed", "ignored"]),
-      lt(cyberbizWebhookEvents.receivedAt, cutoff),
+      lt(julian(cyberbizWebhookEvents.receivedAt), julian(cutoff)),
     ));
   if (!stale.length) return { deleted: 0 };
   // 幾千個 id 也是一句：inJsonArray 把整份清單當成一個綁定參數，不會碰到 D1 單一語句 100 個的上限。

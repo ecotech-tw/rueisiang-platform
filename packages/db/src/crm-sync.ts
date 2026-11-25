@@ -1,12 +1,15 @@
 import type { CyberbizCustomer } from "@rueisiang/cyberbiz";
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { normalizeDbTimestamp, sameDbTimestamp, toDbTimestamp } from "./db-timestamp.js";
 import { inJsonArray } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { replaceCustomerTags } from "./crm-tags.js";
 import { normalizePhone } from "./phone.js";
 import { activityEvents } from "./schema/activity.js";
 import { crmCustomers } from "./schema/crm.js";
+
+const CUSTOMER_TIME_FIELDS = new Set(["cyberbizUpdatedAt", "blockedAt", "createdAt", "updatedAt"]);
 
 /**
  * 把 CYBERBIZ 的會員資料寫進本地客戶表。
@@ -51,7 +54,7 @@ export async function syncCyberbizCustomer(
     };
   }
 
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const fromWebhook = Boolean(context.eventId);
   const [existing] = await db
     .select()
@@ -73,13 +76,13 @@ export async function syncCyberbizCustomer(
         status: incoming.blocked ? "blocked" : "active",
         cyberbizCustomerId: incoming.externalId,
         cyberbizUid: incoming.uid || null,
-        cyberbizUpdatedAt: incoming.updatedAt || null,
+        cyberbizUpdatedAt: normalizeDbTimestamp(incoming.updatedAt) || null,
         rawJson: JSON.stringify(incoming.raw),
         syncStatus: "synced",
         syncedAt: now,
         blockedAt: incoming.blocked ? now : null,
-        createdAt: incoming.createdAt || now,
-        updatedAt: incoming.updatedAt || incoming.createdAt || now,
+        createdAt: normalizeDbTimestamp(incoming.createdAt) || now,
+        updatedAt: normalizeDbTimestamp(incoming.updatedAt || incoming.createdAt) || now,
       })
       .onConflictDoNothing();
 
@@ -130,17 +133,23 @@ export async function syncCyberbizCustomer(
     status: incoming.blocked ? "blocked" : existing.status,
     cyberbizCustomerId: incoming.externalId || existing.cyberbizCustomerId,
     cyberbizUid: incoming.uid || existing.cyberbizUid,
-    cyberbizUpdatedAt: incoming.updatedAt || existing.cyberbizUpdatedAt,
+    cyberbizUpdatedAt: normalizeDbTimestamp(incoming.updatedAt) || existing.cyberbizUpdatedAt,
     rawJson: JSON.stringify(incoming.raw),
     syncStatus: "synced",
     blockedAt: incoming.blocked ? existing.blockedAt || now : existing.blockedAt,
-    createdAt: incoming.createdAt || existing.createdAt,
-    updatedAt: incoming.updatedAt || existing.updatedAt,
+    createdAt: normalizeDbTimestamp(incoming.createdAt) || existing.createdAt,
+    updatedAt: normalizeDbTimestamp(incoming.updatedAt) || existing.updatedAt,
   };
 
-  const changed = Object.entries(next as Record<string, unknown>).some(
-    ([key, value]) => value !== (existing as Record<string, unknown>)[key],
-  );
+  /*
+   * 時間欄位比的是時間點、不是字串：舊資料還有 ISO，新寫入的是資料庫格式，
+   * 逐字比的話每一次同步都會把每個客戶判成「有變動」，操作紀錄被灌滿。
+   */
+  const changed = Object.entries(next as Record<string, unknown>).some(([key, value]) => {
+    const before = (existing as Record<string, unknown>)[key];
+    if (CUSTOMER_TIME_FIELDS.has(key)) return !sameDbTimestamp(value as string | null, before as string | null);
+    return value !== before;
+  });
 
   if (!changed) {
     // 沒有實質變化就只更新「什麼時候確認過」，不要在操作紀錄裡灌一堆雜訊。
@@ -245,9 +254,9 @@ export async function upsertCyberbizCustomers(
     return { received: incoming.length, written: 0, skipped: incoming.length };
   }
 
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const statements = usable.map((customer) => {
-    const createdAt = customer.createdAt || now;
+    const createdAt = normalizeDbTimestamp(customer.createdAt) || now;
     return db
       .insert(crmCustomers)
       .values({
@@ -260,13 +269,13 @@ export async function upsertCyberbizCustomers(
         status: customer.blocked ? "blocked" : "active",
         cyberbizCustomerId: customer.externalId,
         cyberbizUid: customer.uid || null,
-        cyberbizUpdatedAt: customer.updatedAt || null,
+        cyberbizUpdatedAt: normalizeDbTimestamp(customer.updatedAt) || null,
         rawJson: JSON.stringify(customer.raw),
         syncStatus: "synced",
         syncedAt: now,
         blockedAt: customer.blocked ? now : null,
         createdAt,
-        updatedAt: customer.updatedAt || createdAt,
+        updatedAt: normalizeDbTimestamp(customer.updatedAt) || createdAt,
       })
       .onConflictDoUpdate({
         target: crmCustomers.cyberbizCustomerId,

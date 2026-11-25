@@ -121,6 +121,18 @@ describe("列表內容", () => {
   });
 
   /*
+   * 舊資料同一欄混著 CURRENT_TIMESTAMP 與 ISO。直接比字串時空白排在 `T` 前面，
+   * 同一天裡較晚的空白格式會被排到較早的 ISO 後面。
+   */
+  it("同一天裡兩種時間格式混在一起也照時間排序", async () => {
+    await seedEvent({ id: "e4", customerId: "c1", summary: "ISO、比較早", createdAt: "2026-08-04T09:00:00.000Z" });
+    await seedEvent({ id: "e5", customerId: "c1", summary: "資料庫格式、比較晚", createdAt: "2026-08-04 10:00:00" });
+    const id = await seedUser("staff@ecotech.tw", "role-staff");
+    const result = await body(id, "staff@ecotech.tw");
+    expect(result.events.map((event) => event.id)).toEqual(["e5", "e4", "e3", "e2", "e1"]);
+  });
+
+  /*
    * 姓名現在讀 entityLabel（寫入當下的快照），不是 join customers。
    * 客戶改名或被刪掉之後，這一頁仍然顯示「當時」的名字——那才是稽核要的。
    */

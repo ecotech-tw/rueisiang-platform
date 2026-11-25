@@ -1,7 +1,9 @@
 import { and, asc, count, desc, eq, isNotNull, isNull, lte, notInArray, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import type { MediaImageSortField } from "./media-cdn-fields.js";
 import { mediaCdnBlobs, mediaCdnImages, type MediaCdnImage } from "./schema/media-cdn.js";
+import { julian } from "./db-time-sql.js";
 
 export interface MediaCdnFileInput {
   objectKey: string;
@@ -13,11 +15,11 @@ export interface MediaCdnFileInput {
 }
 
 export async function registerMediaCdnBlob(db: Database, objectKey: string) {
-  await db.insert(mediaCdnBlobs).values({ objectKey, createdAt: new Date().toISOString() });
+  await db.insert(mediaCdnBlobs).values({ objectKey, createdAt: toDbTimestamp() });
 }
 
 export async function createMediaCdnImage(db: Database, input: MediaCdnFileInput & { id: string; name: string; createdBy: string }) {
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const [image] = await db.insert(mediaCdnImages).values({ ...input, createdAt: now, updatedAt: now }).returning();
   return image!;
 }
@@ -51,19 +53,19 @@ export async function listMediaCdnImages(db: Database, query: { search?: string;
 }
 
 export async function replaceMediaCdnImage(db: Database, id: string, revision: number, file: MediaCdnFileInput) {
-  const [image] = await db.update(mediaCdnImages).set({ ...file, revision: revision + 1, updatedAt: new Date().toISOString(), purgePending: true, purgeError: null })
+  const [image] = await db.update(mediaCdnImages).set({ ...file, revision: revision + 1, updatedAt: toDbTimestamp(), purgePending: true, purgeError: null })
     .where(and(eq(mediaCdnImages.id, id), eq(mediaCdnImages.revision, revision), isNull(mediaCdnImages.deletedAt))).returning();
   return image ?? null;
 }
 
 export async function renameMediaCdnImage(db: Database, id: string, revision: number, name: string) {
-  const [image] = await db.update(mediaCdnImages).set({ name, revision: revision + 1, updatedAt: new Date().toISOString(), purgePending: true })
+  const [image] = await db.update(mediaCdnImages).set({ name, revision: revision + 1, updatedAt: toDbTimestamp(), purgePending: true })
     .where(and(eq(mediaCdnImages.id, id), eq(mediaCdnImages.revision, revision), isNull(mediaCdnImages.deletedAt))).returning();
   return image ?? null;
 }
 
 export async function deleteMediaCdnImage(db: Database, id: string, revision: number) {
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const [image] = await db.update(mediaCdnImages).set({ objectKey: null, deletedAt: now, updatedAt: now, revision: revision + 1, purgePending: true, purgeError: null })
     .where(and(eq(mediaCdnImages.id, id), eq(mediaCdnImages.revision, revision), isNull(mediaCdnImages.deletedAt))).returning();
   return image ?? null;
@@ -79,8 +81,8 @@ export async function listPendingMediaCdnPurges(db: Database) {
   return db.select().from(mediaCdnImages).where(eq(mediaCdnImages.purgePending, true)).orderBy(mediaCdnImages.updatedAt).limit(30);
 }
 
-export async function listUnusedMediaCdnBlobs(db: Database, before = new Date(Date.now() - 86_400_000).toISOString()) {
-  return db.select().from(mediaCdnBlobs).where(and(lte(mediaCdnBlobs.createdAt, before), notInArray(mediaCdnBlobs.objectKey,
+export async function listUnusedMediaCdnBlobs(db: Database, before = toDbTimestamp(Date.now() - 86_400_000)) {
+  return db.select().from(mediaCdnBlobs).where(and(lte(julian(mediaCdnBlobs.createdAt), julian(before)), notInArray(mediaCdnBlobs.objectKey,
     db.select({ key: mediaCdnImages.objectKey }).from(mediaCdnImages).where(isNotNull(mediaCdnImages.objectKey)),
   ))).limit(100);
 }

@@ -15,6 +15,7 @@
  */
 import { and, eq, gt, isNull, lte, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { parseDbTimestamp, toDbTimestamp } from "./db-timestamp.js";
 import { cancelHrLeaveRequest, checkHrSelfLeaveRequest, createHrLeaveRequest, listHrSelfLeaveTypeOptions, type HrLeaveDurationInput } from "./hr-leave.js";
 import { cancelHrOvertimeRequest, checkHrSelfOvertimeRequest, createHrOvertimeRequest, type HrOvertimeInput } from "./hr-overtime.js";
 import { HrError, type HrActor } from "./hr-people.js";
@@ -24,6 +25,7 @@ import { hrLeaveRequests } from "./schema/hr-payroll.js";
 import { hrFormRequests } from "./schema/hr-requests.js";
 import { hrOvertimeRequests } from "./schema/hr-scheduling.js";
 import { formatTaipeiDate, taipeiMinuteFromUtcWallClock, taipeiWallClockToUtc } from "./taipei-time.js";
+import { julian } from "./db-time-sql.js";
 
 export type HrRequestDraftKind = (typeof ASSISTANT_HR_REQUEST_DRAFT_KINDS)[number];
 
@@ -129,15 +131,15 @@ function inConversation(scope: HrRequestDraftConversation) {
 
 async function activeDraft(db: Database, scope: HrRequestDraftConversation, now: number) {
   const [row] = await db.select().from(assistantHrRequestDrafts)
-    .where(and(inConversation(scope), gt(assistantHrRequestDrafts.expiresAt, new Date(now).toISOString()))).limit(1);
+    .where(and(inConversation(scope), gt(julian(assistantHrRequestDrafts.expiresAt), julian(toDbTimestamp(now))))).limit(1);
   return row ?? null;
 }
 
 /** 過期的草稿還佔著「進行中」的唯一索引；開新的之前先把它們收掉。 */
 async function retireExpired(db: Database, scope: HrRequestDraftConversation, now: number) {
-  const nowIso = new Date(now).toISOString();
-  await db.update(assistantHrRequestDrafts).set({ status: "cancelled", updatedAt: nowIso })
-    .where(and(inConversation(scope), lte(assistantHrRequestDrafts.expiresAt, nowIso)));
+  const nowText = toDbTimestamp(now);
+  await db.update(assistantHrRequestDrafts).set({ status: "cancelled", updatedAt: nowText })
+    .where(and(inConversation(scope), lte(julian(assistantHrRequestDrafts.expiresAt), julian(nowText))));
 }
 
 /**
@@ -154,7 +156,7 @@ async function ownDraft(db: Database, scope: HrRequestDraftScope, now: number) {
 /** 把這段對話所有還開著的草稿收掉，不管是誰的。重設對話、或對話換了人要開新草稿時用。 */
 export async function discardHrRequestDrafts(db: Database, scope: HrRequestDraftConversation, now = Date.now()): Promise<void> {
   await db.update(assistantHrRequestDrafts)
-    .set({ status: "cancelled", updatedAt: new Date(now).toISOString(), revision: sql`${assistantHrRequestDrafts.revision} + 1` })
+    .set({ status: "cancelled", updatedAt: toDbTimestamp(now), revision: sql`${assistantHrRequestDrafts.revision} + 1` })
     .where(inConversation(scope));
 }
 
@@ -477,14 +479,14 @@ export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScop
     throw new HrError(409, `已經有一張還沒完成的${KIND_LABELS[current.kind]}草稿。請先問員工要繼續那一張，還是取消它；取消後才能開始新的${KIND_LABELS[kind]}申請。`);
   }
 
-  const nowIso = new Date(now).toISOString();
-  const expiresAt = new Date(now + DRAFT_TTL_MS).toISOString();
+  const nowText = toDbTimestamp(now);
+  const expiresAt = toDbTimestamp(now + DRAFT_TTL_MS);
   const write = async (fields: HrRequestDraftFields) => {
     const payloadJson = JSON.stringify(fields);
     if (current) {
       // 用 revision 守門：同一段對話的兩輪並行時，後到的不會靜靜蓋掉先到的。
       const updated = await db.update(assistantHrRequestDrafts)
-        .set({ payloadJson, expiresAt, updatedAt: nowIso, revision: sql`${assistantHrRequestDrafts.revision} + 1` })
+        .set({ payloadJson, expiresAt, updatedAt: nowText, revision: sql`${assistantHrRequestDrafts.revision} + 1` })
         .where(and(eq(assistantHrRequestDrafts.id, current.id), eq(assistantHrRequestDrafts.revision, current.revision), eq(assistantHrRequestDrafts.status, "open")))
         .returning({ id: assistantHrRequestDrafts.id });
       if (!updated.length) throw new HrError(409, "草稿剛剛被更新或取消了，請重新讀取草稿再繼續。");
@@ -494,7 +496,7 @@ export async function saveHrRequestDraft(db: Database, scope: HrRequestDraftScop
       await db.insert(assistantHrRequestDrafts).values({
         id: crypto.randomUUID(), assistantKey: scope.assistantKey, channelKey: scope.channelKey, surface: scope.surface,
         conversationKey: scope.conversationKey, userId: scope.userId, actorUserId: scope.actorUserId ?? null,
-        kind, payloadJson, expiresAt, createdAt: nowIso, updatedAt: nowIso,
+        kind, payloadJson, expiresAt, createdAt: nowText, updatedAt: nowText,
       });
     } catch (error) {
       if (error instanceof Error && /UNIQUE constraint failed/.test(error.message)) throw new HrError(409, "這段對話已經有一張進行中的草稿，請重新讀取草稿再繼續。");
@@ -532,7 +534,7 @@ export async function cancelHrRequestDraft(db: Database, scope: HrRequestDraftSc
   const current = await ownDraft(db, scope, now);
   if (!current) return { cancelled: false, kindLabel: null };
   const updated = await db.update(assistantHrRequestDrafts)
-    .set({ status: "cancelled", updatedAt: new Date(now).toISOString(), revision: sql`${assistantHrRequestDrafts.revision} + 1` })
+    .set({ status: "cancelled", updatedAt: toDbTimestamp(now), revision: sql`${assistantHrRequestDrafts.revision} + 1` })
     .where(and(eq(assistantHrRequestDrafts.id, current.id), eq(assistantHrRequestDrafts.status, "open")))
     .returning({ id: assistantHrRequestDrafts.id });
   return { cancelled: updated.length > 0, kindLabel: KIND_LABELS[current.kind] };
@@ -581,15 +583,15 @@ export async function confirmHrRequestDraft(
   now = Date.now(),
 ): Promise<HrRequestDraftConfirmation> {
   const row = await pressedDraft(db, input);
-  const nowIso = new Date(now).toISOString();
+  const nowText = toDbTimestamp(now);
   if (!row) return { outcome: "gone" };
   const kindLabel = KIND_LABELS[row.kind];
   if (row.status === "submitted") return { outcome: "already_submitted", kindLabel };
-  if (row.status !== "open" || row.expiresAt <= nowIso) return { outcome: "gone" };
+  if (row.status !== "open" || (parseDbTimestamp(row.expiresAt) ?? 0) <= now) return { outcome: "gone" };
   if (row.revision !== input.revision) return { outcome: "changed", kindLabel };
 
   const claim = (status: "submitted" | "cancelled") => db.update(assistantHrRequestDrafts)
-    .set({ status, updatedAt: nowIso, revision: sql`${assistantHrRequestDrafts.revision} + 1` })
+    .set({ status, updatedAt: nowText, revision: sql`${assistantHrRequestDrafts.revision} + 1` })
     .where(and(eq(assistantHrRequestDrafts.id, row.id), eq(assistantHrRequestDrafts.status, "open"), eq(assistantHrRequestDrafts.revision, row.revision)))
     .returning({ id: assistantHrRequestDrafts.id });
 
@@ -609,7 +611,7 @@ export async function confirmHrRequestDraft(
   } catch (error) {
     // 退回 open 並把期限往後延：員工要有時間改。revision 已經在搶的時候加過，舊卡片上的按鈕因此失效。
     await db.update(assistantHrRequestDrafts)
-      .set({ status: "open", expiresAt: new Date(now + DRAFT_TTL_MS).toISOString(), updatedAt: nowIso })
+      .set({ status: "open", expiresAt: toDbTimestamp(now + DRAFT_TTL_MS), updatedAt: nowText })
       .where(and(eq(assistantHrRequestDrafts.id, row.id), eq(assistantHrRequestDrafts.status, "submitted"), isNull(assistantHrRequestDrafts.submittedRequestId)));
     if (error instanceof HrError) return { outcome: "rejected", kindLabel, message: error.message.trim() };
     throw error;

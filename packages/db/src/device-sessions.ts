@@ -9,7 +9,7 @@ import {
 } from "@rueisiang/auth";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { parseDbTimestamp } from "./db-timestamp.js";
+import { parseDbTimestamp, toDbTimestamp } from "./db-timestamp.js";
 import type { LineAccountIdentity } from "./line-liff.js";
 import { authDeviceSessions } from "./schema/auth.js";
 
@@ -18,7 +18,7 @@ const USER_AGENT_MAX_LENGTH = 200;
 export type DeviceSessionAuthMethod = "device" | "line_liff";
 
 function secondsLater(now: Date, seconds: number): string {
-  return new Date(now.getTime() + seconds * 1000).toISOString();
+  return toDbTimestamp(now.getTime() + seconds * 1000);
 }
 
 /** 發一台新裝置。回傳的 token 只有這一次拿得到明文，資料庫只留雜湊。 */
@@ -36,7 +36,7 @@ export async function createDeviceSession(
     tokenHash: await hashDeviceSecret(token.secret),
     userAgent: userAgent.slice(0, USER_AGENT_MAX_LENGTH),
     authMethod: "device",
-    rotatedAt: now.toISOString(),
+    rotatedAt: toDbTimestamp(now),
     expiresAt: secondsLater(now, DEVICE_SESSION_IDLE_SECONDS),
   });
   return token;
@@ -55,7 +55,7 @@ export async function createLineLiffSession(
   const rows = await db.all<{ id: string }>(sql`INSERT INTO auth_device_sessions
     (id, user_id, token_hash, user_agent, auth_method, rotated_at, expires_at)
     SELECT ${token.id}, ${userId}, ${tokenHash}, ${userAgent.slice(0, USER_AGENT_MAX_LENGTH)}, 'line_liff',
-      ${now.toISOString()}, ${secondsLater(now, DEVICE_SESSION_IDLE_SECONDS)}
+      ${toDbTimestamp(now)}, ${secondsLater(now, DEVICE_SESSION_IDLE_SECONDS)}
     WHERE EXISTS (SELECT 1 FROM auth_line_account_links
       WHERE user_id = ${userId} AND channel_id = ${identity.channelId} AND line_user_id = ${identity.lineUserId})
     RETURNING id`);
@@ -72,7 +72,7 @@ export interface DeviceSessionUse {
 async function revokeById(db: Database, id: string, now: Date): Promise<void> {
   await db
     .update(authDeviceSessions)
-    .set({ revokedAt: now.toISOString() })
+    .set({ revokedAt: toDbTimestamp(now) })
     .where(and(eq(authDeviceSessions.id, id), isNull(authDeviceSessions.revokedAt)));
 }
 
@@ -109,7 +109,7 @@ export async function useDeviceSession(
       .set({
         tokenHash: await hashDeviceSecret(renewed.secret),
         previousTokenHash: hash,
-        rotatedAt: now.toISOString(),
+        rotatedAt: toDbTimestamp(now),
         expiresAt: secondsLater(now, DEVICE_SESSION_IDLE_SECONDS),
       })
       .where(and(eq(authDeviceSessions.id, row.id), eq(authDeviceSessions.tokenHash, hash)))
@@ -136,6 +136,6 @@ export async function revokeDeviceSession(db: Database, raw: string | undefined,
 export async function revokeUserDeviceSessions(db: Database, userId: string, now = new Date()): Promise<void> {
   await db
     .update(authDeviceSessions)
-    .set({ revokedAt: now.toISOString() })
+    .set({ revokedAt: toDbTimestamp(now) })
     .where(and(eq(authDeviceSessions.userId, userId), isNull(authDeviceSessions.revokedAt)));
 }

@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
+import { toDbTimestamp } from "../db-timestamp.js";
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-const isoNow = () => new Date().toISOString();
+const dbNow = () => toDbTimestamp();
 
 /**
  * 物件儲存的 metadata。
@@ -19,7 +20,7 @@ export const mediaObjects = sqliteTable("media_objects", {
   checksum: text("checksum").notNull(),
   storageProvider: text("storage_provider").notNull().default("nas"),
   createdBy: text("created_by"),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
   expiresAt: text("expires_at"),
 }, (table) => [
   index("idx_media_objects_expires_at").on(table.expiresAt).where(sql`${table.expiresAt} IS NOT NULL`),

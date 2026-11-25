@@ -44,6 +44,7 @@ import {
   type ReportSalesFilters,
   type ReportSalesListQuery,
   type ReportSalesRecordDeleteInput,
+  toDbTimestamp,
 } from "@rueisiang/db";
 import type { AppEnv } from "../env.js";
 import { requireAuth, requirePermission } from "../middleware/auth.js";
@@ -465,7 +466,7 @@ function importSalesInput(input: Record<string, unknown>): ManualSalesImportInpu
         returnQuantity: safeIntegerInput(value, "returnQuantity", "退回數量"),
         netQuantity: safeIntegerInput(value, "netQuantity", "淨銷售數量"),
         salesAmount: safeIntegerInput(value, "salesAmount", "銷售金額"),
-        updatedAt: new Date().toISOString(),
+        updatedAt: toDbTimestamp(),
       };
       rows.set(key, previous ? {
         ...next,
@@ -515,7 +516,7 @@ function importSalesInput(input: Record<string, unknown>): ManualSalesImportInpu
       returnQuantity: safeIntegerInput(value, "returnQuantity", "退回數量"),
       netQuantity: safeIntegerInput(value, "netQuantity", "淨銷售數量"),
       salesAmount: safeIntegerInput(value, "salesAmount", "銷售金額"),
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
     };
     rows.set(sku, previous ? {
       ...next,

@@ -1,6 +1,8 @@
 /*
  * 資料庫時間欄位的格式是 UTC 的 `YYYY-MM-DD HH:MM:SS`——跟 D1 的 CURRENT_TIMESTAMP 一樣，
- * 也是 taipei-time.ts 換算出來的格式。
+ * 也是 taipei-time.ts 換算出來的格式。程式寫入的用 `toDbTimestamp`，多帶毫秒 `.SSS`：
+ * 小香 Sandbox 這類同一秒內連寫好幾筆的地方要靠毫秒排順序。沒有小數的 CURRENT_TIMESTAMP
+ * 剛好是同一秒的最前面，所以兩者直接拿字串比大小仍然對。
  *
  * 舊資料裡還混著 JS `toISOString()` 寫進來的 `YYYY-MM-DDTHH:MM:SS.sssZ`，所以讀的時候兩種都要吃。
  * 沒有時區標記的字串不能直接丟給 `Date`：瀏覽器與 Node 會把它當成執行環境的本地時間。
@@ -8,6 +10,11 @@
  *
  * 這個檔不 import 任何東西，前端也從 `@rueisiang/db/db-timestamp` 拿同一份。
  */
+
+/** 寫進資料庫的時間一律用這個產生，不要寫 `toISOString()`。 */
+export function toDbTimestamp(value: Date | number = Date.now()): string {
+  return new Date(value).toISOString().slice(0, 23).replace("T", " ");
+}
 
 const TIMESTAMP = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3})\d*)?)?(Z|[+-]\d{2}:\d{2})?)?$/i;
 
@@ -34,6 +41,24 @@ export function parseDbTimestamp(value: string | null | undefined): number | nul
   if (offsetHours > 23 || offsetMinutes > 59) return null;
   const offset = (zone[0] === "-" ? -1 : 1) * (offsetHours * 60 + offsetMinutes) * 60_000;
   return wallClock - offset;
+}
+
+/**
+ * 外部來源（CYBERBIZ）給的時間轉成資料庫格式。認不得的原樣回傳，空字串還是空字串——
+ * 呼叫端靠 `||` 決定要不要沿用舊值，這裡不能把空值變成別的東西。
+ */
+export function normalizeDbTimestamp(value: string): string;
+export function normalizeDbTimestamp(value: string | null): string | null;
+export function normalizeDbTimestamp(value: string | null): string | null {
+  const timestamp = parseDbTimestamp(value);
+  return timestamp === null ? value : toDbTimestamp(timestamp);
+}
+
+/** 兩個時間字串是不是同一個時間點；格式不同（舊資料的 ISO）也算同一個。認不得的就比字串。 */
+export function sameDbTimestamp(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (a === b) return true;
+  const left = parseDbTimestamp(a);
+  return left !== null && left === parseDbTimestamp(b);
 }
 
 /** 同 `parseDbTimestamp`，但給要 `Date` 物件的呼叫端（格式化顯示）。 */

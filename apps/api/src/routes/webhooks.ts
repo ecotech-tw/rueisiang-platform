@@ -49,6 +49,7 @@ import {
   waitAssistantLineQueueJob,
   type StoredMediaAttachment,
   parseDbTimestamp,
+  toDbTimestamp,
 } from "@rueisiang/db";
 import {
   ASSISTANT_KEY,
@@ -918,7 +919,7 @@ async function resumeWaitingLineImageJobs(
     lineMessageId: input.messageId,
   });
   const followUpMessages = imageMessage
-    && (!input.contextResetAt || imageMessage.createdAt > input.contextResetAt)
+    && (!input.contextResetAt || (parseDbTimestamp(imageMessage.createdAt) ?? 0) > (parseDbTimestamp(input.contextResetAt) ?? 0))
     ? await listAssistantLineImageFollowUpMessages(db, {
       channelKey: input.channelKey,
       lineGroupId: input.lineGroupId,
@@ -967,7 +968,7 @@ export async function drainLineAssistantQueueOutbox(
   db: AppEnv["Variables"]["db"],
   env: AppEnv["Bindings"],
 ): Promise<void> {
-  const waitingBefore = new Date(Date.now() - LINE_QUOTE_WAIT_TIMEOUT_MS).toISOString();
+  const waitingBefore = toDbTimestamp(Date.now() - LINE_QUOTE_WAIT_TIMEOUT_MS);
   const quoteWaitReleased = await requeueExpiredAssistantLineQuoteJobs(db, { olderThan: waitingBefore });
   if (quoteWaitReleased > 0) {
     assistantLog("warn", "line.queue.quote_wait_expired", {
@@ -975,7 +976,7 @@ export async function drainLineAssistantQueueOutbox(
       olderThan: waitingBefore,
     });
   }
-  const staleBefore = new Date(Date.now() - 2 * 60_000).toISOString();
+  const staleBefore = toDbTimestamp(Date.now() - 2 * 60_000);
   const requeuedCount = await requeueStaleAssistantLineQueueJobs(db, { olderThan: staleBefore });
   if (requeuedCount > 0) {
     assistantLog("warn", "line.queue.outbox_stale_requeued", {

@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { normalizeReportScopeName } from "./report-data.js";
 import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
 
@@ -94,7 +95,7 @@ export async function recordShopReportRun(
     actorEmail: input.actor.email,
     driveFolderUrl: input.driveFolderUrl,
     driveFolderName: input.driveFolderName,
-    createdAt: new Date().toISOString(),
+    createdAt: toDbTimestamp(),
   };
 }
 
@@ -108,7 +109,7 @@ export async function recordShopReportRun(
  */
 export async function failShopReportRun(db: Database, requestId: string, message: string): Promise<void> {
   await db.update(reportRuns)
-    .set({ status: "failed", lastError: message.slice(0, 500), updatedAt: new Date().toISOString() })
+    .set({ status: "failed", lastError: message.slice(0, 500), updatedAt: toDbTimestamp() })
     .where(eq(reportRuns.requestId, requestId));
 }
 

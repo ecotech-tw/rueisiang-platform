@@ -1,5 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { activityRow } from "./activity.js";
 import { activityEvents } from "./schema/activity.js";
 import { itemComponents, items as itemMasters } from "./schema/items.js";
@@ -51,7 +52,7 @@ export async function resolveReportExternalProduct(
   const product = await findProduct(db, id);
   await requireItem(db, itemId);
   await db.batch([
-    db.update(reportExternalProducts).set({ resolution: "mapped", itemId, ignoredReason: "", updatedAt: new Date().toISOString() }).where(eq(reportExternalProducts.id, id)),
+    db.update(reportExternalProducts).set({ resolution: "mapped", itemId, ignoredReason: "", updatedAt: toDbTimestamp() }).where(eq(reportExternalProducts.id, id)),
     db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: product.externalName || product.externalKey, eventType: "report_external_product_resolved", summary: `將外部商品「${product.externalName || product.externalKey}」對應到品項`, field: "itemId", newValue: itemId, actor: input.actor, source: "reports" })),
   ] as never);
   const [updated] = await db.select().from(reportExternalProducts).where(eq(reportExternalProducts.id, id));
@@ -74,11 +75,11 @@ export async function ignoreReportExternalProduct(
       .limit(1)
     : [];
   await db.batch([
-    db.update(reportExternalProducts).set({ resolution: "ignored", itemId: null, ignoredReason: reason, updatedAt: new Date().toISOString() }).where(eq(reportExternalProducts.id, id)),
+    db.update(reportExternalProducts).set({ resolution: "ignored", itemId: null, ignoredReason: reason, updatedAt: toDbTimestamp() }).where(eq(reportExternalProducts.id, id)),
     ...(generatedBundleId && bundleHistory
       ? [
         db.delete(itemComponents).where(eq(itemComponents.parentItemId, generatedBundleId)),
-        db.update(itemMasters).set({ active: 0, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, generatedBundleId)),
+        db.update(itemMasters).set({ active: 0, updatedAt: toDbTimestamp() }).where(eq(itemMasters.id, generatedBundleId)),
       ]
       : generatedBundleId ? [db.delete(itemMasters).where(eq(itemMasters.id, generatedBundleId))] : []),
     db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: product.externalName || product.externalKey, eventType: "report_external_product_ignored", summary: `忽略外部商品「${product.externalName || product.externalKey}」`, field: "ignoredReason", newValue: reason, actor: input.actor, source: "reports" })),

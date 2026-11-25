@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
+import { toDbTimestamp } from "../db-timestamp.js";
 import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
-const isoNow = () => new Date().toISOString();
+const dbNow = () => toDbTimestamp();
 
 /** AI 助理 Sandbox 與後續 LINE channel 共用的設定與執行紀錄。 */
 export const assistantConfigs = sqliteTable("assistant_configs", {
@@ -10,7 +11,7 @@ export const assistantConfigs = sqliteTable("assistant_configs", {
   /** 主要模型失敗時使用的備援模型；null 代表不啟用 fallback。 */
   fallbackModel: text("fallback_model"),
   updatedBy: text("updated_by").notNull(),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 });
 
 export const assistantPromptRevisions = sqliteTable("assistant_prompt_revisions", {
@@ -20,7 +21,7 @@ export const assistantPromptRevisions = sqliteTable("assistant_prompt_revisions"
   systemPrompt: text("system_prompt").notNull(),
   isActive: integer("is_active", { mode: "boolean" }).notNull().default(false),
   createdBy: text("created_by").notNull(),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   uniqueIndex("idx_assistant_prompt_key_revision").on(table.assistantKey, table.revision),
   index("idx_assistant_prompt_active").on(table.assistantKey, table.isActive),
@@ -31,7 +32,7 @@ export const assistantToolConfigs = sqliteTable("assistant_tool_configs", {
   key: text("key").primaryKey(),
   status: text("status").notNull().default("development"),
   updatedBy: text("updated_by").notNull(),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 });
 
 /**
@@ -57,7 +58,7 @@ export const assistantRuns = sqliteTable("assistant_runs", {
   durationMs: integer("duration_ms").notNull(),
   actorId: text("actor_id"),
   errorMessage: text("error_message"),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   index("idx_assistant_runs_channel_created_at").on(table.channel, table.createdAt),
   index("idx_assistant_runs_session_created_at").on(table.sessionId, table.createdAt),
@@ -71,7 +72,7 @@ export const assistantToolCalls = sqliteTable("assistant_tool_calls", {
   status: text("status").notNull(),
   durationMs: integer("duration_ms").notNull(),
   errorMessage: text("error_message"),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   index("idx_assistant_tool_calls_run_id").on(table.runId),
   index("idx_assistant_tool_calls_tool_created_at").on(table.toolKey, table.createdAt),
@@ -87,8 +88,8 @@ export const assistantSandboxSessions = sqliteTable("assistant_sandbox_sessions"
   status: text("status").notNull().default("open"),
   contextSummary: text("context_summary").notNull().default(""),
   contextSummaryMessageCount: integer("context_summary_message_count").notNull().default(0),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
   closedAt: text("closed_at"),
 }, (table) => [
   index("idx_assistant_sandbox_sessions_owner_updated_at").on(table.assistantKey, table.createdBy, table.updatedAt),
@@ -105,7 +106,7 @@ export const assistantSandboxMessages = sqliteTable("assistant_sandbox_messages"
   toolCalls: text("tool_calls").notNull().default("[]"),
   attachments: text("attachments").notNull().default("[]"),
   durationMs: integer("duration_ms").notNull().default(0),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   index("idx_assistant_sandbox_messages_session_created_at").on(table.sessionId, table.createdAt),
 ]);
@@ -129,8 +130,8 @@ export const assistantLineChannels = sqliteTable("assistant_line_channels", {
   displayName: text("display_name").notNull().default("Rueisiang 小香"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
   updatedBy: text("updated_by").notNull(),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   /**
    * 後台目前只管小香一個 assistant，所以先把「一個 assistant 一個 channel」寫死在這裡。
@@ -176,8 +177,8 @@ export const assistantLineGroups = sqliteTable("assistant_line_groups", {
    * 就有 `enabled` 那道閘擋著，真正的上限永遠在 channel 層。
    */
   toolMode: text("tool_mode").notNull().default("inherit"),
-  discoveredAt: text("discovered_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  discoveredAt: text("discovered_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   uniqueIndex("idx_assistant_line_groups_key_group").on(table.channelKey, table.lineGroupId),
   index("idx_assistant_line_groups_enabled").on(table.channelKey, table.enabled),
@@ -204,7 +205,7 @@ export const assistantLineMessages = sqliteTable("assistant_line_messages", {
   sequence: integer("sequence").notNull().default(0),
   /** 沒有這個旗標就代表當時沒有建立 assistant Queue 工作，不應阻塞後續訊息。 */
   queueRequired: integer("queue_required", { mode: "boolean" }).notNull().default(false),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   uniqueIndex("idx_assistant_line_messages_event").on(table.channelKey, table.webhookEventId),
   index("idx_assistant_line_messages_group_created_at").on(table.channelKey, table.lineGroupId, table.createdAt),
@@ -229,7 +230,7 @@ export const assistantLineReplyBackups = sqliteTable("assistant_line_reply_backu
   status: text("status").notNull().default("ready"),
   reason: text("reason").notNull().default("reply_token_deadline"),
   errorMessage: text("error_message"),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   uniqueIndex("idx_assistant_line_reply_backups_run").on(table.runId),
   index("idx_assistant_line_reply_backups_group_created_at").on(table.groupId, table.createdAt),
@@ -254,8 +255,8 @@ export const assistantLinePushDeliveries = sqliteTable("assistant_line_push_deli
   reservedThrough: integer("reserved_through").notNull(),
   status: text("status").notNull(),
   reason: text("reason").notNull().default(""),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   uniqueIndex("idx_assistant_line_push_deliveries_run").on(table.runId),
   index("idx_assistant_line_push_deliveries_window_status").on(table.channelKey, table.windowKey, table.status),
@@ -280,8 +281,8 @@ export const assistantLineQueueJobs = sqliteTable("assistant_line_queue_jobs", {
   claimToken: text("claim_token"),
   lockedUntil: text("locked_until"),
   lastError: text("last_error"),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   uniqueIndex("idx_assistant_line_queue_jobs_channel_event").on(table.channelKey, table.webhookEventId),
   index("idx_assistant_line_queue_jobs_status_updated_at").on(table.status, table.updatedAt),
@@ -300,7 +301,7 @@ export const assistantChannelTools = sqliteTable("assistant_channel_tools", {
   channelKey: text("channel_key").notNull().references(() => assistantLineChannels.channelKey, { onDelete: "cascade" }),
   toolKey: text("tool_key").notNull(),
   createdBy: text("created_by").notNull(),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   uniqueIndex("idx_assistant_channel_tools_channel_tool").on(table.channelKey, table.toolKey),
 ]);
@@ -318,7 +319,7 @@ export const assistantChatTools = sqliteTable("assistant_chat_tools", {
   groupId: text("group_id").notNull().references(() => assistantLineGroups.id, { onDelete: "cascade" }),
   channelToolId: text("channel_tool_id").notNull().references(() => assistantChannelTools.id, { onDelete: "cascade" }),
   createdBy: text("created_by").notNull(),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   uniqueIndex("idx_assistant_chat_tools_group_tool").on(table.groupId, table.channelToolId),
 ]);
@@ -384,8 +385,8 @@ export const assistantHrRequestDrafts = sqliteTable("assistant_hr_request_drafts
   /** 過了這個時間沒有動就當作不存在；避免幾天前講到一半的東西突然被當成現在的意思。 */
   expiresAt: text("expires_at").notNull(),
   revision: integer("revision").notNull().default(1),
-  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
-  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(isoNow),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`).$defaultFn(dbNow),
 }, (table) => [
   // 一段對話同時只有一張進行中的草稿：模型不用猜「上午」是在回哪一張。
   uniqueIndex("idx_assistant_hr_request_drafts_open").on(table.assistantKey, table.surface, table.conversationKey).where(sql`${table.status} = 'open'`),

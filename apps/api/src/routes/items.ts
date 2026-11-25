@@ -1,5 +1,5 @@
 import { can } from "@rueisiang/auth";
-import { loadWarehouse, recordActivity, type Database } from "@rueisiang/db";
+import { loadWarehouse, recordActivity, toDbTimestamp, type Database } from "@rueisiang/db";
 import { and, asc, count, eq, inArray, ne } from "drizzle-orm";
 import { Hono, type Context } from "hono";
 import { HTTPException } from "hono/http-exception";
@@ -105,7 +105,7 @@ export const items = new Hono<AppEnv>()
     const parentIds = ids.map((id) => typeof parents[id] === "string" && parents[id] ? parents[id] as string : null);
     const rootIds = new Set(ids.filter((_id, index) => parentIds[index] === null));
     if (parentIds.some((parentId, index) => parentId !== null && (parentId === ids[index] || !rootIds.has(parentId)))) throw new HTTPException(400, { message: "分類階層不正確；子分類只能放在大分類底下。" });
-    await c.get("db").batch(ids.map((id, sortOrder) => c.get("db").update(itemCategories).set({ sortOrder, parentId: parentIds[sortOrder], parentDepth: parentIds[sortOrder] ? 0 : null, depth: parentIds[sortOrder] ? 1 : 0, updatedAt: new Date().toISOString() }).where(eq(itemCategories.id, id))) as never);
+    await c.get("db").batch(ids.map((id, sortOrder) => c.get("db").update(itemCategories).set({ sortOrder, parentId: parentIds[sortOrder], parentDepth: parentIds[sortOrder] ? 0 : null, depth: parentIds[sortOrder] ? 1 : 0, updatedAt: toDbTimestamp() }).where(eq(itemCategories.id, id))) as never);
     return c.json({ ok: true });
   })
   .patch("/categories/:id", requirePermission("items:category:write"), async (c) => {
@@ -129,7 +129,7 @@ export const items = new Hono<AppEnv>()
       parentId,
       parentDepth: parentId ? 0 : null,
       depth,
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
     };
     await c.get("db").update(itemCategories).set(patch).where(eq(itemCategories.id, id));
     await recordActivity(c.get("db"), {
@@ -233,7 +233,7 @@ export const items = new Hono<AppEnv>()
     const input = await body(c);
     const db = c.get("db");
     const categoryId = await findCategoryId(db, input.categoryId ?? input.category);
-    const now = new Date().toISOString();
+    const now = toDbTimestamp();
 
     // SKU 留白＝包材或半成品（淋膜紙、護髮素軟管這些本來就沒有 SKU）。自動編一組
     // WMS- 開頭的號碼，並把 kind 設成 supply；有填 SKU 的就是拿去賣的東西。
@@ -294,7 +294,7 @@ export const items = new Hono<AppEnv>()
         sku = requestedSku;
       }
     }
-    await db.update(itemMasters).set({ name, sku, kind, categoryId, active, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, id));
+    await db.update(itemMasters).set({ name, sku, kind, categoryId, active, updatedAt: toDbTimestamp() }).where(eq(itemMasters.id, id));
     // 換分類會改到報表的分類佔比，所以要留紀錄也要讓快取失效。cyberbiz 品項沿用
     // 原本 tools 那一側的 entityType，異動紀錄頁的「商品分類」篩選才接得上。
     if (categoryId !== current.categoryId) {
@@ -366,8 +366,8 @@ export const items = new Hono<AppEnv>()
           name: typeof input.shelfName === "string" && input.shelfName.trim() ? input.shelfName.trim() : shelfCode,
           sortOrder: 0,
           active: 1,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
+          createdAt: toDbTimestamp(),
+          updatedAt: toDbTimestamp(),
         });
       }
     }
@@ -380,8 +380,8 @@ export const items = new Hono<AppEnv>()
       unit: typeof input.unit === "string" && input.unit.trim() ? input.unit.trim() : "件",
       minStock: Math.max(0, Math.round(Number(input.minStock ?? 5) || 0)),
       notes: typeof input.notes === "string" ? input.notes.trim() : "",
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: toDbTimestamp(),
+      updatedAt: toDbTimestamp(),
     });
     return c.json({ ok: true });
   });

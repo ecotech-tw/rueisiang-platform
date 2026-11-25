@@ -13,6 +13,7 @@ import {
   type Database,
   type NewReportBundleSalesMonthly,
   type ReportScopeKind,
+  toDbTimestamp,
 } from "@rueisiang/db";
 import { items as itemMasters } from "@rueisiang/db/schema";
 import { momoReportPayoutSnapshots, momoReportSalesSnapshots, reportExternalProducts, reportIngestIssues, reportPayoutDaily, reportRunScopes, reportRuns, scopes } from "@rueisiang/db/schema";
@@ -316,7 +317,7 @@ async function normalizeSalesRows(
         returnQuantity: total((previous?.returnQuantity ?? 0) + row.returnQuantity * component.quantity),
         netQuantity: total((previous?.netQuantity ?? 0) + row.netQuantity * component.quantity),
         salesAmount: total((previous?.salesAmount ?? 0) + (index === 0 ? row.salesAmount : 0)),
-        updatedAt: new Date().toISOString(),
+        updatedAt: toDbTimestamp(),
       });
     }
   }
@@ -444,7 +445,7 @@ function payoutRows(input: CyberbizReportIngestInput) {
       scopeId: input.scopeId,
       businessDate,
       payoutAmount: total((previous?.payoutAmount ?? 0) + payoutAmount),
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
     });
   }
   return [...rows.values()];
@@ -652,7 +653,7 @@ export function createCyberbizReportIngestor(db: Database) {
         await recordMappedProducts(db, dataChannel, sales.mappedProducts);
         await recordIgnoredProducts(db, dataChannel, sales.ignoredProducts);
         await writeSalesRows(db, salesInput, scope.id, runId, sales);
-        if (runId) await db.update(reportRuns).set({ status: "succeeded", importedSalesRows: sales.rows.length, importedPayoutRows: payout.length, skippedRows: sales.skippedSkus.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
+        if (runId) await db.update(reportRuns).set({ status: "succeeded", importedSalesRows: sales.rows.length, importedPayoutRows: payout.length, skippedRows: sales.skippedSkus.length, updatedAt: toDbTimestamp() }).where(eq(reportRuns.id, runId));
         return {
           kind: input.kind,
           scopeId: scope.id,
@@ -679,7 +680,7 @@ export function createCyberbizReportIngestor(db: Database) {
         await recordMappedProducts(db, dataChannel, sales.mappedProducts);
         await recordIgnoredProducts(db, dataChannel, sales.ignoredProducts);
         await writeSalesRows(db, salesInput, scope.id, runId, sales);
-        if (runId) await db.update(reportRuns).set({ status: "succeeded", importedSalesRows: sales.rows.length, skippedRows: sales.skippedSkus.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
+        if (runId) await db.update(reportRuns).set({ status: "succeeded", importedSalesRows: sales.rows.length, skippedRows: sales.skippedSkus.length, updatedAt: toDbTimestamp() }).where(eq(reportRuns.id, runId));
         return {
           kind: input.kind,
           scopeId: scope.id,
@@ -691,10 +692,10 @@ export function createCyberbizReportIngestor(db: Database) {
       }
       const rows = payoutRows(scopedInput);
       await insertReportPayoutDaily(db, rows, runId ?? undefined);
-      if (runId) await db.update(reportRuns).set({ status: "succeeded", importedPayoutRows: rows.length, updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
+      if (runId) await db.update(reportRuns).set({ status: "succeeded", importedPayoutRows: rows.length, updatedAt: toDbTimestamp() }).where(eq(reportRuns.id, runId));
       return { kind: input.kind, scopeId: scope.id, rowCount: rows.length };
       } catch (error) {
-        if (runId) await db.update(reportRuns).set({ status: "failed", lastError: error instanceof Error ? error.message : String(error), updatedAt: new Date().toISOString() }).where(eq(reportRuns.id, runId));
+        if (runId) await db.update(reportRuns).set({ status: "failed", lastError: error instanceof Error ? error.message : String(error), updatedAt: toDbTimestamp() }).where(eq(reportRuns.id, runId));
         throw error;
       }
     },

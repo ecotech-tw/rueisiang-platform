@@ -1,6 +1,8 @@
 import { and, eq, isNotNull, lte } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { mediaObjects, type MediaObject } from "./schema/media.js";
+import { julian } from "./db-time-sql.js";
 
 export interface MediaObjectInput {
   objectKey: string;
@@ -42,12 +44,12 @@ export async function deleteMediaObject(db: Database, objectKey: string): Promis
 
 export async function listExpiredMediaObjects(
   db: Database,
-  now = new Date().toISOString(),
+  now = toDbTimestamp(),
   limit = 100,
 ): Promise<MediaObject[]> {
   return db
     .select()
     .from(mediaObjects)
-    .where(and(isNotNull(mediaObjects.expiresAt), lte(mediaObjects.expiresAt, now)))
+    .where(and(isNotNull(mediaObjects.expiresAt), lte(julian(mediaObjects.expiresAt), julian(now))))
     .limit(Math.min(Math.max(Math.floor(limit), 1), 500));
 }

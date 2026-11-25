@@ -5,7 +5,7 @@ import type {
   AssistantUsage,
 } from "@rueisiang/assistant";
 import type { Database } from "./client.js";
-import { parseDbTimestamp } from "./db-timestamp.js";
+import { parseDbTimestamp, toDbTimestamp } from "./db-timestamp.js";
 import { inJsonArray, chunks } from "./sql-lists.js";
 import {
   assistantPromptRevisions,
@@ -36,6 +36,7 @@ import {
   type AssistantSandboxSession,
   type AssistantToolConfig,
 } from "./schema/assistant.js";
+import { julian } from "./db-time-sql.js";
 
 export type AssistantChannel = "sandbox" | "line";
 export type AssistantRunStatus = "success" | "failed";
@@ -79,7 +80,7 @@ export async function ensureAssistantLineChannel(
     .limit(1);
   if (existing) return existing;
 
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.insert(assistantLineChannels).values({
     channelKey: input.assistantKey,
     assistantKey: input.assistantKey,
@@ -100,7 +101,7 @@ export async function ensureAssistantLineChannel(
 
   const defaultToolKeys = [...new Set(input.defaultToolKeys ?? [])];
   if (defaultToolKeys.length) {
-    const now = new Date().toISOString();
+    const now = toDbTimestamp();
     for (const batch of chunks(defaultToolKeys, TOOL_GRANT_BATCH_SIZE)) {
       await db.insert(assistantChannelTools).values(batch.map((toolKey) => ({
         id: crypto.randomUUID(),
@@ -149,7 +150,7 @@ export async function updateAssistantLineChannel(
     displayName: input.displayName,
     enabled: input.enabled,
     updatedBy: input.updatedBy,
-    updatedAt: new Date().toISOString(),
+    updatedAt: toDbTimestamp(),
   };
   if (input.channelSecretEncrypted !== undefined) values.channelSecretEncrypted = input.channelSecretEncrypted;
   if (input.accessTokenEncrypted !== undefined) values.accessTokenEncrypted = input.accessTokenEncrypted;
@@ -168,7 +169,7 @@ export async function listAssistantLineGroups(db: Database, channelKey: string):
     .from(assistantLineGroups)
     .where(eq(assistantLineGroups.channelKey, channelKey))
     .orderBy(
-      sql`CASE WHEN instr(${assistantLineGroups.discoveredAt}, 'T') > 0 THEN ${assistantLineGroups.discoveredAt} ELSE replace(${assistantLineGroups.discoveredAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(julian(assistantLineGroups.discoveredAt)),
       desc(assistantLineGroups.id),
     );
 }
@@ -187,7 +188,7 @@ export async function upsertAssistantLineGroup(
   input: { channelKey: string; lineGroupId: string; sourceType?: AssistantLineSourceType; displayName?: string },
 ): Promise<AssistantLineGroup> {
   const id = crypto.randomUUID();
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.insert(assistantLineGroups).values({
     id,
     channelKey: input.channelKey,
@@ -212,7 +213,7 @@ export async function upsertAssistantLineGroup(
       .set({
         ...(input.displayName && input.displayName !== created.displayName ? { displayName: input.displayName } : {}),
         ...(sourceTypeChanged ? { sourceType: input.sourceType } : {}),
-        updatedAt: new Date().toISOString(),
+        updatedAt: toDbTimestamp(),
       })
       .where(eq(assistantLineGroups.id, created.id));
     return (await findAssistantLineGroup(db, { channelKey: input.channelKey, id: created.id })) ?? created;
@@ -230,7 +231,7 @@ export async function resetAssistantLineContext(
   db: Database,
   input: { channelKey: string; id: string },
 ): Promise<AssistantLineGroup | null> {
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.update(assistantLineGroups)
     .set({ contextResetAt: now, updatedAt: now })
     .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
@@ -247,7 +248,7 @@ export async function updateAssistantLineGroup(
       displayName: input.displayName,
       enabled: input.enabled,
       ...(input.displayNameManual ? { displayNameManual: true } : {}),
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
     })
     .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
   return findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.id });
@@ -265,7 +266,7 @@ export async function updateAssistantLineGroupProfile(
   db: Database,
   input: { channelKey: string; id: string; groupName: string; pictureUrl: string },
 ): Promise<void> {
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.update(assistantLineGroups)
     .set({
       displayName: sql`CASE WHEN ${assistantLineGroups.displayNameManual} = 0 AND ${input.groupName} != '' THEN ${input.groupName} ELSE ${assistantLineGroups.displayName} END`,
@@ -321,7 +322,7 @@ export async function recordAssistantLineMessage(
   if (existing) return { message: existing, inserted: false };
 
   const id = crypto.randomUUID();
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.batch([
     db.update(assistantLineGroups)
       .set({
@@ -446,7 +447,7 @@ export async function listAssistantLineImageContext(
     eq(assistantLineMessages.lineGroupId, input.lineGroupId),
     lt(assistantLineMessages.sequence, input.beforeSequence),
   ];
-  if (input.contextResetAt) baseConditions.push(gt(assistantLineMessages.createdAt, input.contextResetAt));
+  if (input.contextResetAt) baseConditions.push(gt(julian(assistantLineMessages.createdAt), julian(input.contextResetAt)));
 
   const [lastText] = await db
     .select({ sequence: assistantLineMessages.sequence })
@@ -492,7 +493,7 @@ export async function listAssistantLineImageFollowUpMessages(
     isNull(assistantLineMessages.quotedMessageId),
     gt(assistantLineMessages.sequence, input.imageSequence),
   ];
-  if (input.contextResetAt) conditions.push(gt(assistantLineMessages.createdAt, input.contextResetAt));
+  if (input.contextResetAt) conditions.push(gt(julian(assistantLineMessages.createdAt), julian(input.contextResetAt)));
   return db
     .select()
     .from(assistantLineMessages)
@@ -549,7 +550,7 @@ export async function recordAssistantLineReplyBackup(
     status: input.status ?? "ready",
     reason: input.reason ?? "reply_token_deadline",
     ...(input.errorMessage ? { errorMessage: input.errorMessage } : {}),
-    createdAt: new Date().toISOString(),
+    createdAt: toDbTimestamp(),
   }).onConflictDoNothing();
   const [backup] = await db
     .select()
@@ -609,7 +610,7 @@ export async function upsertAssistantLineQueueJob(
     if (existing.status !== "pending") return { job: existing, shouldEnqueue: false };
     await db
       .update(assistantLineQueueJobs)
-      .set({ payloadEncrypted: input.payloadEncrypted, updatedAt: new Date().toISOString(), lastError: null })
+      .set({ payloadEncrypted: input.payloadEncrypted, updatedAt: toDbTimestamp(), lastError: null })
       .where(eq(assistantLineQueueJobs.id, existing.id));
     const [updated] = await db.select().from(assistantLineQueueJobs).where(eq(assistantLineQueueJobs.id, existing.id)).limit(1);
     if (!updated) throw new Error("更新 LINE Queue outbox 後找不到資料。");
@@ -617,7 +618,7 @@ export async function upsertAssistantLineQueueJob(
   }
 
   const id = crypto.randomUUID();
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.insert(assistantLineQueueJobs).values({
     id,
     channelKey: input.channelKey,
@@ -647,7 +648,7 @@ export async function upsertAssistantLineQueueJob(
 export async function markAssistantLineQueueJobEnqueued(db: Database, id: string): Promise<void> {
   await db
     .update(assistantLineQueueJobs)
-    .set({ status: "enqueued", updatedAt: new Date().toISOString(), lastError: null })
+    .set({ status: "enqueued", updatedAt: toDbTimestamp(), lastError: null })
     .where(and(eq(assistantLineQueueJobs.id, id), eq(assistantLineQueueJobs.status, "pending")));
 }
 
@@ -688,8 +689,8 @@ export async function claimAssistantLineQueueJob(
   if (current.status === "ambiguous") return { done: true, terminal: "ambiguous" };
 
   const now = new Date();
-  const nowText = now.toISOString();
-  const lockedUntil = new Date(now.getTime() + ASSISTANT_LINE_QUEUE_LOCK_MS).toISOString();
+  const nowText = toDbTimestamp(now);
+  const lockedUntil = toDbTimestamp(now.getTime() + ASSISTANT_LINE_QUEUE_LOCK_MS);
   const claimToken = crypto.randomUUID();
   const result = await db
     .update(assistantLineQueueJobs)
@@ -707,7 +708,7 @@ export async function claimAssistantLineQueueJob(
         eq(assistantLineQueueJobs.status, "enqueued"),
         and(
           eq(assistantLineQueueJobs.status, "processing"),
-          or(isNull(assistantLineQueueJobs.lockedUntil), lt(assistantLineQueueJobs.lockedUntil, nowText)),
+          or(isNull(assistantLineQueueJobs.lockedUntil), lt(julian(assistantLineQueueJobs.lockedUntil), julian(nowText))),
         ),
       ),
     ));
@@ -721,7 +722,7 @@ export async function claimAssistantLineQueueJob(
 export async function completeAssistantLineQueueJob(db: Database, input: { id: string; claimToken: string }): Promise<void> {
   await db
     .update(assistantLineQueueJobs)
-    .set({ status: "completed", claimToken: null, lockedUntil: null, updatedAt: new Date().toISOString(), lastError: null })
+    .set({ status: "completed", claimToken: null, lockedUntil: null, updatedAt: toDbTimestamp(), lastError: null })
     .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
 }
 
@@ -737,7 +738,7 @@ export async function releaseAssistantLineQueueJob(
       status: "enqueued",
       claimToken: null,
       lockedUntil: null,
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
       lastError: input.error?.slice(0, 1_000) ?? "line_queue_processing_failed",
     })
     .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
@@ -754,7 +755,7 @@ export async function waitAssistantLineQueueJob(
       status: "waiting",
       claimToken: null,
       lockedUntil: null,
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
       lastError: input.error?.slice(0, 1_000) ?? ASSISTANT_LINE_QUEUE_WAITING_ERROR,
     })
     .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
@@ -765,7 +766,7 @@ export async function resumeAssistantLineQueueJob(db: Database, id: string): Pro
     .update(assistantLineQueueJobs)
     .set({
       status: "pending",
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
       lastError: null,
     })
     .where(and(eq(assistantLineQueueJobs.id, id), eq(assistantLineQueueJobs.status, "waiting")));
@@ -782,24 +783,24 @@ export async function requeueExpiredAssistantLineQuoteJobs(
       status: "failed",
       claimToken: null,
       lockedUntil: null,
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
       lastError: "line_quote_wait_timeout_retry_exhausted",
     })
     .where(and(
       eq(assistantLineQueueJobs.status, "waiting"),
-      lt(assistantLineQueueJobs.updatedAt, input.olderThan),
+      lt(julian(assistantLineQueueJobs.updatedAt), julian(input.olderThan)),
       gt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS - 1),
     ));
   const released = await db
     .update(assistantLineQueueJobs)
     .set({
       status: "pending",
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
       lastError: ASSISTANT_LINE_QUEUE_WAITING_TIMEOUT_ERROR,
     })
     .where(and(
       eq(assistantLineQueueJobs.status, "waiting"),
-      lt(assistantLineQueueJobs.updatedAt, input.olderThan),
+      lt(julian(assistantLineQueueJobs.updatedAt), julian(input.olderThan)),
       lt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS),
     ));
   return Number(expired.meta?.changes ?? 0) + Number(released.meta?.changes ?? 0);
@@ -816,7 +817,7 @@ export async function failAssistantLineQueueJob(
       status: "failed",
       claimToken: null,
       lockedUntil: null,
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
       lastError: input.error?.slice(0, 1_000) ?? "line_queue_retry_limit_exhausted",
     })
     .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
@@ -833,7 +834,7 @@ export async function markAssistantLineQueueJobAmbiguous(
       status: "ambiguous",
       claimToken: null,
       lockedUntil: null,
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
       lastError: input.error?.slice(0, 1_000) ?? "line_push_retry_key_expired_ambiguous",
     })
     .where(and(eq(assistantLineQueueJobs.id, input.id), eq(assistantLineQueueJobs.claimToken, input.claimToken)));
@@ -844,13 +845,13 @@ export async function requeueStaleAssistantLineQueueJobs(
   db: Database,
   input: { olderThan: string },
 ): Promise<number> {
-  const nowText = new Date().toISOString();
+  const nowText = toDbTimestamp();
   const staleProcessing = and(
     eq(assistantLineQueueJobs.status, "processing"),
-    or(isNull(assistantLineQueueJobs.lockedUntil), lt(assistantLineQueueJobs.lockedUntil, nowText)),
+    or(isNull(assistantLineQueueJobs.lockedUntil), lt(julian(assistantLineQueueJobs.lockedUntil), julian(nowText))),
   );
   const staleJob = and(
-    lt(assistantLineQueueJobs.updatedAt, input.olderThan),
+    lt(julian(assistantLineQueueJobs.updatedAt), julian(input.olderThan)),
     or(
       // attempts = 0 代表只寫入 D1、Queue.send 尚未被 consumer claim，才需要 outbox 補送。
       and(eq(assistantLineQueueJobs.status, "enqueued"), eq(assistantLineQueueJobs.attempts, 0)),
@@ -891,7 +892,7 @@ export async function listPendingAssistantLineQueueJobs(
       eq(assistantLineQueueJobs.status, "pending"),
       lt(assistantLineQueueJobs.attempts, ASSISTANT_LINE_QUEUE_MAX_ATTEMPTS),
     ))
-    .orderBy(asc(assistantLineQueueJobs.updatedAt))
+    .orderBy(asc(julian(assistantLineQueueJobs.updatedAt)))
     .limit(Math.min(Math.max(limit, 1), 100));
 }
 
@@ -948,7 +949,7 @@ export async function reserveAssistantLinePushDelivery(
     };
   }
 
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const id = crypto.randomUUID();
   const canReserve = input.denyReason ? 0 : 1;
   const denyReason = input.denyReason ?? "monthly_fixed_window_limit";
@@ -1012,7 +1013,7 @@ export async function markAssistantLinePushDelivery(
 ): Promise<void> {
   await db
     .update(assistantLinePushDeliveries)
-    .set({ status: input.status, reason: input.reason ?? "", updatedAt: new Date().toISOString() })
+    .set({ status: input.status, reason: input.reason ?? "", updatedAt: toDbTimestamp() })
     .where(and(
       eq(assistantLinePushDeliveries.runId, input.runId),
       eq(assistantLinePushDeliveries.status, "reserved"),
@@ -1028,14 +1029,14 @@ export async function listAssistantLineMessages(
     eq(assistantLineMessages.channelKey, input.channelKey),
     eq(assistantLineMessages.lineGroupId, input.lineGroupId),
   ];
-  if (input.contextResetAt) conditions.push(gt(assistantLineMessages.createdAt, input.contextResetAt));
+  if (input.contextResetAt) conditions.push(gt(julian(assistantLineMessages.createdAt), julian(input.contextResetAt)));
   const rows = await db
     .select()
     .from(assistantLineMessages)
     .where(and(...conditions))
     .orderBy(
       desc(assistantLineMessages.sequence),
-      sql`CASE WHEN instr(${assistantLineMessages.createdAt}, 'T') > 0 THEN ${assistantLineMessages.createdAt} ELSE replace(${assistantLineMessages.createdAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(julian(assistantLineMessages.createdAt)),
       desc(assistantLineMessages.id),
     )
     .limit(limit);
@@ -1086,7 +1087,7 @@ export async function createAssistantSandboxSession(
   input: { assistantKey: string; createdBy: string; model: string; promptRevisionId: string },
 ): Promise<AssistantSandboxSession> {
   const id = crypto.randomUUID();
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.insert(assistantSandboxSessions).values({
     id,
     assistantKey: input.assistantKey,
@@ -1115,7 +1116,7 @@ export async function listAssistantSandboxSessions(
       eq(assistantSandboxSessions.createdBy, input.createdBy),
     ))
     .orderBy(
-      sql`CASE WHEN instr(${assistantSandboxSessions.updatedAt}, 'T') > 0 THEN ${assistantSandboxSessions.updatedAt} ELSE replace(${assistantSandboxSessions.updatedAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(julian(assistantSandboxSessions.updatedAt)),
       desc(assistantSandboxSessions.id),
     )
     .limit(limit);
@@ -1142,7 +1143,7 @@ export async function updateAssistantSandboxSessionModel(
   input: { assistantKey: string; createdBy: string; id: string; model: string },
 ): Promise<AssistantSandboxSession | null> {
   await db.update(assistantSandboxSessions)
-    .set({ model: input.model, updatedAt: new Date().toISOString() })
+    .set({ model: input.model, updatedAt: toDbTimestamp() })
     .where(and(
       eq(assistantSandboxSessions.assistantKey, input.assistantKey),
       eq(assistantSandboxSessions.createdBy, input.createdBy),
@@ -1156,7 +1157,7 @@ export async function updateAssistantSandboxSessionPromptRevision(
   input: { assistantKey: string; createdBy: string; id: string; promptRevisionId: string },
 ): Promise<AssistantSandboxSession | null> {
   await db.update(assistantSandboxSessions)
-    .set({ promptRevisionId: input.promptRevisionId, updatedAt: new Date().toISOString() })
+    .set({ promptRevisionId: input.promptRevisionId, updatedAt: toDbTimestamp() })
     .where(and(
       eq(assistantSandboxSessions.assistantKey, input.assistantKey),
       eq(assistantSandboxSessions.createdBy, input.createdBy),
@@ -1179,7 +1180,7 @@ export async function updateAssistantSandboxContext(
     .set({
       contextSummary: input.contextSummary,
       contextSummaryMessageCount: input.contextSummaryMessageCount,
-      updatedAt: new Date().toISOString(),
+      updatedAt: toDbTimestamp(),
     })
     .where(and(
       eq(assistantSandboxSessions.assistantKey, input.assistantKey),
@@ -1194,7 +1195,7 @@ export async function closeAssistantSandboxSession(
   input: { assistantKey: string; createdBy: string; id: string },
 ): Promise<AssistantSandboxSession | null> {
   await db.update(assistantSandboxSessions)
-    .set({ status: "closed", closedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+    .set({ status: "closed", closedAt: toDbTimestamp(), updatedAt: toDbTimestamp() })
     .where(and(
       eq(assistantSandboxSessions.assistantKey, input.assistantKey),
       eq(assistantSandboxSessions.createdBy, input.createdBy),
@@ -1213,7 +1214,7 @@ export async function listAssistantSandboxMessages(
     .from(assistantSandboxMessages)
     .where(eq(assistantSandboxMessages.sessionId, sessionId))
     .orderBy(
-      sql`CASE WHEN instr(${assistantSandboxMessages.createdAt}, 'T') > 0 THEN ${assistantSandboxMessages.createdAt} ELSE replace(${assistantSandboxMessages.createdAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(julian(assistantSandboxMessages.createdAt)),
       desc(assistantSandboxMessages.id),
     )
     .limit(Math.min(Math.max(limit, 1), 200))
@@ -1230,7 +1231,7 @@ export async function listAllAssistantSandboxMessages(
     .from(assistantSandboxMessages)
     .where(eq(assistantSandboxMessages.sessionId, sessionId))
     .orderBy(
-      sql`CASE WHEN instr(${assistantSandboxMessages.createdAt}, 'T') > 0 THEN ${assistantSandboxMessages.createdAt} ELSE replace(${assistantSandboxMessages.createdAt}, ' ', 'T') || '.000Z' END ASC`,
+      asc(julian(assistantSandboxMessages.createdAt)),
       asc(assistantSandboxMessages.id),
     );
 }
@@ -1254,12 +1255,12 @@ export async function appendAssistantSandboxMessage(
     .from(assistantSandboxMessages)
     .where(eq(assistantSandboxMessages.sessionId, input.sessionId))
     .orderBy(
-      sql`CASE WHEN instr(${assistantSandboxMessages.createdAt}, 'T') > 0 THEN ${assistantSandboxMessages.createdAt} ELSE replace(${assistantSandboxMessages.createdAt}, ' ', 'T') || '.000Z' END DESC`,
+      desc(julian(assistantSandboxMessages.createdAt)),
       desc(assistantSandboxMessages.id),
     )
     .limit(1);
   const latestTime = parseDbTimestamp(latest?.createdAt);
-  const createdAt = new Date(Math.max(Date.now(), latestTime === null ? 0 : latestTime + 1)).toISOString();
+  const createdAt = toDbTimestamp(Math.max(Date.now(), latestTime === null ? 0 : latestTime + 1));
   await db.batch([
     db.insert(assistantSandboxMessages).values({
       id,
@@ -1273,7 +1274,7 @@ export async function appendAssistantSandboxMessage(
       durationMs: Math.max(0, Math.round(input.durationMs ?? 0)),
       createdAt,
     }),
-    db.update(assistantSandboxSessions).set({ updatedAt: new Date().toISOString() }).where(eq(assistantSandboxSessions.id, input.sessionId)),
+    db.update(assistantSandboxSessions).set({ updatedAt: toDbTimestamp() }).where(eq(assistantSandboxSessions.id, input.sessionId)),
   ]);
   const [message] = await db.select().from(assistantSandboxMessages).where(eq(assistantSandboxMessages.id, id)).limit(1);
   if (!message) throw new Error("保存 Sandbox 對話訊息後找不到資料。");
@@ -1288,7 +1289,7 @@ export async function ensureAssistantDefaults(
     toolDefaultStatuses?: Readonly<Record<string, "enabled" | "development" | "disabled">>;
   },
 ): Promise<void> {
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const [config] = await db
     .select({ assistantKey: assistantConfigs.assistantKey })
     .from(assistantConfigs)
@@ -1354,7 +1355,7 @@ export async function setAssistantModelConfig(
     ...(input.activeModel === undefined ? {} : { activeModel: input.activeModel }),
     ...(input.fallbackModel === undefined ? {} : { fallbackModel: input.fallbackModel }),
     updatedBy: input.updatedBy,
-    updatedAt: new Date().toISOString(),
+    updatedAt: toDbTimestamp(),
   };
   await db
     .update(assistantConfigs)
@@ -1371,7 +1372,7 @@ export async function setAssistantToolStatus(
 ): Promise<AssistantToolConfig> {
   await db
     .update(assistantToolConfigs)
-    .set({ status: input.status, updatedBy: input.updatedBy, updatedAt: new Date().toISOString() })
+    .set({ status: input.status, updatedBy: input.updatedBy, updatedAt: toDbTimestamp() })
     .where(eq(assistantToolConfigs.key, input.key));
   const [config] = await db.select().from(assistantToolConfigs).where(eq(assistantToolConfigs.key, input.key)).limit(1);
   if (!config) throw new Error("更新 tool 狀態後找不到設定。");
@@ -1423,7 +1424,7 @@ export async function createAssistantPromptRevision(
       systemPrompt: input.systemPrompt,
       isActive: false,
       createdBy: input.createdBy,
-      createdAt: new Date().toISOString(),
+      createdAt: toDbTimestamp(),
     }).onConflictDoNothing();
     const created = await findAssistantPromptRevision(db, id);
     if (!created) continue;
@@ -1583,7 +1584,7 @@ export async function setAssistantChannelTools(
     await db.delete(assistantChannelTools).where(inJsonArray(assistantChannelTools.id, removed.map((row) => row.id)));
   }
   if (added.length) {
-    const now = new Date().toISOString();
+    const now = toDbTimestamp();
     for (const batch of chunks(added, TOOL_GRANT_BATCH_SIZE)) {
       await db.insert(assistantChannelTools).values(batch.map((toolKey) => ({
         id: crypto.randomUUID(),
@@ -1624,7 +1625,7 @@ export async function setAssistantChatTools(
 
   await db.delete(assistantChatTools).where(eq(assistantChatTools.groupId, input.groupId));
   if (wanted.length) {
-    const now = new Date().toISOString();
+    const now = toDbTimestamp();
     for (const batch of chunks(wanted, TOOL_GRANT_BATCH_SIZE)) {
       await db.insert(assistantChatTools).values(batch.map((grant) => ({
         id: crypto.randomUUID(),
@@ -1643,7 +1644,7 @@ export async function setAssistantGroupToolMode(
   input: { channelKey: string; id: string; toolMode: AssistantGroupToolMode },
 ): Promise<AssistantLineGroup | null> {
   await db.update(assistantLineGroups)
-    .set({ toolMode: input.toolMode, updatedAt: new Date().toISOString() })
+    .set({ toolMode: input.toolMode, updatedAt: toDbTimestamp() })
     .where(and(eq(assistantLineGroups.channelKey, input.channelKey), eq(assistantLineGroups.id, input.id)));
   return findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.id });
 }

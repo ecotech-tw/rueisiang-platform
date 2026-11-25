@@ -1,5 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { HrError, type HrActor } from "./hr-people.js";
 import { assertHrPayrollSelectionAvailable, HR_PAYROLL_CALCULATION_INPUT_JSON_MAX_LENGTH, type HrPayrollCalculationInput } from "./hr-payroll-calculation.js";
 import { hrPayrollJobs, type HrPayrollJob } from "./schema/hr-payroll-runs.js";
@@ -213,7 +214,7 @@ export async function beginHrPayrollJob(db: Database, jobId: string): Promise<Hr
     status: "calculating" as const,
     phase: "preparing" as const,
     attemptCount: job.attemptCount + 1,
-    startedAt: job.startedAt ?? new Date().toISOString(),
+    startedAt: job.startedAt ?? toDbTimestamp(),
     lastError: "",
     updatedAt: sql`CURRENT_TIMESTAMP`,
   };

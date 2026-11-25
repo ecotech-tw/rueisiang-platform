@@ -1,5 +1,6 @@
 import { and, eq, isNull, ne, notExists, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { authDeviceSessions, authLineAccountLinks } from "./schema/auth.js";
 
 export interface LineAccountIdentity {
@@ -62,7 +63,7 @@ export async function linkLineAccount(db: Database, userId: string, identity: Li
 
 function lineSessionRevocation(db: Database, userId: string, guard?: SQL) {
   return db.update(authDeviceSessions)
-    .set({ revokedAt: new Date().toISOString() })
+    .set({ revokedAt: toDbTimestamp() })
     .where(and(
       eq(authDeviceSessions.userId, userId),
       eq(authDeviceSessions.authMethod, "line_liff"),

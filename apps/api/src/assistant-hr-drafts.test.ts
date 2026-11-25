@@ -423,6 +423,14 @@ describe("小香 HR 申請草稿：員工按下確認", () => {
     expect(await leaves()).toHaveLength(0);
   });
 
+  // 舊資料的到期時間是 ISO；逐字跟資料庫格式比的話 `T` 比空白大，同一天過期的草稿會被當成還開著。
+  it("到期時間是舊的 ISO 格式時，同一天過期的草稿一樣不能送出", async () => {
+    const draft = await saveHrRequestDraft(db(), line, complete, NOW);
+    await db().update(assistantHrRequestDrafts).set({ expiresAt: new Date(NOW + HOUR).toISOString() }).where(eq(assistantHrRequestDrafts.id, draft.id));
+    expect(await press(draft, {}, NOW + 2 * HOUR)).toEqual({ outcome: "gone" });
+    expect(await leaves()).toHaveLength(0);
+  });
+
   it("不是草稿主人、不是那段對話、actor 與本人不一致、或 id 不存在：一律當作不在了，什麼都不建立", async () => {
     const draft = await saveHrRequestDraft(db(), line, complete, NOW);
     const bob = { id: "bob", email: "bob@example.test" };

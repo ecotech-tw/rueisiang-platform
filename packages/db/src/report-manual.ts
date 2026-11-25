@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { isReportPlatform } from "./report-platforms.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
 import { isValidReportDate, normalizeReportScopeName, scopeSourceTypeFromId, type ReportManualSkuSource } from "./report-data.js";
@@ -320,7 +321,7 @@ export async function createReportManagementScope(db: Database, input: ReportMan
   const driveFolderUrl = (input.driveFolderUrl ?? "").trim();
   const driveFolderName = (input.driveFolderName ?? "").trim();
   const storeLocator = storeLocatorInput(input);
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.batch([
     db.insert(targetScopes).values({
       id, sourceType, scopeKind, name, normalizedName, externalName,
@@ -380,7 +381,7 @@ export async function updateReportManagementScope(
   const storeLocator = hasStoreLocatorInput(input) ? storeLocatorInput({ ...profile, ...input }) : profile;
   // 封存的通路要先還原才能重新啟用；不然「停用」與「封存」會互相打架。
   const archivedAt = active && existing.archivedAt ? null : existing.archivedAt;
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.batch([
     db.update(targetScopes).set({
       name, normalizedName: normalizeReportScopeName(name), externalName, sourceType, scopeKind,
@@ -409,7 +410,7 @@ export async function archiveReportManagementScope(db: Database, scopeId: string
     active: targetScopes.active, archivedAt: targetScopes.archivedAt,
   }).from(targetScopes).where(eq(targetScopes.id, id)).limit(1);
   if (!existing) throw new ReportManualError("not_found", "找不到這個通路。");
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.batch([
     db.update(targetScopes).set({ active: 0, archivedAt: now, updatedAt: now }).where(eq(targetScopes.id, id)),
     dirtyStoreLocatorPublication(db),
@@ -668,7 +669,7 @@ async function createTargetManualPayout(db: Database, input: ReportManualPayoutI
   const [existing] = await db.select().from(reportPayoutDaily).where(and(eq(reportPayoutDaily.scopeId, prepared.scopeId), eq(reportPayoutDaily.businessDate, prepared.businessDate), eq(reportPayoutDaily.recordOrigin, "manual"))).limit(1);
   if (existing) throw new ReportManualError("conflict", "這個據點在這個日期已經有人工出金資料，請改用編輯。");
   const id = targetPayoutRecordId(prepared.scopeId, prepared.businessDate);
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db.batch([
     db.insert(reportPayoutDaily).values({ scopeId: prepared.scopeId, businessDate: prepared.businessDate, recordOrigin: "manual", reportRunId: null, payoutAmount: prepared.payoutAmount, updatedByEmail: input.actor.email, createdAt: now, updatedAt: now }),
     db.insert(activityEvents).values(activityRow({ entityType: "report_manual_entry", entityId: id, entityLabel: payoutLabel(prepared.scope.name, prepared.businessDate), eventType: "report_manual_payout_created", summary: `新增人工出金資料：${prepared.scope.name} ${prepared.businessDate}`, field: "payoutAmount", newValue: String(prepared.payoutAmount), payload: payoutPayload(prepared), actor: input.actor, source: "reports" })),
@@ -687,7 +688,7 @@ async function updateTargetManualPayout(db: Database, input: ReportManualPayoutI
     sql`NOT (${reportPayoutDaily.scopeId} = ${existing.scopeId} AND ${reportPayoutDaily.businessDate} = ${existing.businessDate})`,
   )).limit(1);
   if (conflict) throw new ReportManualError("conflict", "這個據點在這個日期已經有另一筆人工出金資料。");
-  const updatedAt = new Date().toISOString();
+  const updatedAt = toDbTimestamp();
   const id = targetPayoutRecordId(prepared.scopeId, prepared.businessDate);
   await db.batch([
     db.delete(reportPayoutDaily).where(and(eq(reportPayoutDaily.scopeId, existing.scopeId), eq(reportPayoutDaily.businessDate, existing.businessDate), eq(reportPayoutDaily.recordOrigin, "manual"))),
@@ -739,7 +740,7 @@ export async function deleteReportPayoutRecords(db: Database, inputs: readonly R
 
 async function createTargetManualSales(db: Database, input: ReportManualSalesInput): Promise<ReportManualSalesRow> {
   const prepared = await prepareSales(db, input);
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const matchedItem = await ensureTargetSalesItem(db, prepared, now);
   const [existing] = await db.select({ itemId: reportItemSalesMonthly.itemId }).from(reportItemSalesMonthly).where(and(eq(reportItemSalesMonthly.scopeId, prepared.scopeId), eq(reportItemSalesMonthly.reportMonth, prepared.reportMonth), eq(reportItemSalesMonthly.itemId, matchedItem.id), eq(reportItemSalesMonthly.recordOrigin, "manual"))).limit(1);
   if (existing) throw new ReportManualError("conflict", "這個據點、月份與 SKU 已經有人工商品銷售資料，請改用編輯。");
@@ -758,7 +759,7 @@ export async function updateReportManualSales(db: Database, input: ReportManualS
   const existing = await findTargetManualSales(db, input.id);
   if (!existing) throw new ReportManualError("not_found", "找不到這筆人工商品銷售資料。");
   const prepared = await prepareSales(db, input);
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const matchedItem = await ensureTargetSalesItem(db, prepared, now);
   const [conflict] = await db.select({ itemId: reportItemSalesMonthly.itemId }).from(reportItemSalesMonthly).where(and(
     eq(reportItemSalesMonthly.scopeId, prepared.scopeId), eq(reportItemSalesMonthly.reportMonth, prepared.reportMonth), eq(reportItemSalesMonthly.itemId, matchedItem.id), eq(reportItemSalesMonthly.recordOrigin, "manual"),

@@ -1,3 +1,4 @@
+import { taipeiMinuteFromUtcWallClock } from "@rueisiang/db/taipei-time";
 import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -10,7 +11,7 @@ function payRateLabel(ratePpm: number) {
 }
 
 function timestampLabel(value: string) {
-  return value.replace("T", " ").slice(0, 16) || "—";
+  return value ? taipeiMinuteFromUtcWallClock(value) : "—";
 }
 
 function LeaveTypeDialog({ leaveType, onClose }: { leaveType?: HrLeaveType; onClose: () => void }) {
