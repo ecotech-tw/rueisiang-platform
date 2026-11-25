@@ -135,6 +135,8 @@ PI_AGENT_MODEL = "gpt-6-luna"
 CYBERBIZ_API_RELAY_URL = "https://cyberbiz-relay.rueisiang.com"
 NAS_STORAGE_URL = "https://storage.rueisiang.com"
 SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
+# OAuth Client ID 是公開識別值；client secret 與 refresh token 仍以 Worker secret 儲存。
+GOOGLE_REPORTS_OAUTH_CLIENT_ID = "197522052194-kkdqsfiumiqgg0n8qtnhr5os5rgndf7i.apps.googleusercontent.com"
 
 # 需要的 secret（值不進版控，在 Cloudflare 儀表板或用指令設）：
 #   MEDIA_CDN_PURGE_TOKEN      限 rueisiang.com zone 的 Cache Purge 權限
@@ -153,8 +155,7 @@ SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 #   CYBERBIZ_API_RELAY_TOKEN   Worker 與 NAS relay 共用的獨立 secret；需搭配 Worker variable CYBERBIZ_API_RELAY_URL
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
 #   REPORT_RUNNER_TOKEN                    Worker 與報表 Container 之間的獨立 bearer token
-#   GOOGLE_REPORTS_OAUTH_CLIENT_ID         報表 OAuth 用戶端（與平台登入用戶端分開）
-#   GOOGLE_REPORTS_OAUTH_CLIENT_SECRET
+#   GOOGLE_REPORTS_OAUTH_CLIENT_SECRET     報表 OAuth 用戶端密鑰（與平台登入用戶端分開）
 #   GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN     報表 Google Drive 帳號授權
 #   CYBERBIZ_REPORT_INGEST_TOKEN           共用報表匯入 API；完整月份 Shopee 寫入 D1 會用到
 #   GITHUB_TOKEN                           暫時保留給尚未遷移的 CYBERBIZ runner
