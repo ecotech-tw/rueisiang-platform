@@ -116,11 +116,13 @@ const migrationsDir = path.resolve(here, "../../../../packages/db/migrations");
  * 0088 刪 legacy 表，那個模式的存在意義就是「legacy 還在」的世界，所以不能跑。
  * 而**任何預設 0088 已經跑過的後續 migration 也要一起跳過**：0100 要把
  * report_payout_daily_target 改名回 report_payout_daily，但在這個模式下那個名字
- * 還被沒被刪掉的 legacy 表佔著，改名會直接撞名。
+ * 還被沒被刪掉的 legacy 表佔著，改名會直接撞名。0258 轉換 report_payout_daily 的時間欄位，
+ * 在這個模式下那個名字是沒有 created_at 的 legacy 表。
  */
 const LEGACY_MODE_SKIPS = new Set([
   "0088_drop_migrated_legacy_schema.sql",
   "0100_rename_payout_daily.sql",
+  "0258_normalize_timestamps.sql",
 ]);
 
 type Migration = { name: string; sql: string };

@@ -4,7 +4,8 @@
  * 小香 Sandbox 這類同一秒內連寫好幾筆的地方要靠毫秒排順序。沒有小數的 CURRENT_TIMESTAMP
  * 剛好是同一秒的最前面，所以兩者直接拿字串比大小仍然對。
  *
- * 舊資料裡還混著 JS `toISOString()` 寫進來的 `YYYY-MM-DDTHH:MM:SS.sssZ`，所以讀的時候兩種都要吃。
+ * 讀的時候兩種格式都要吃：0258 只轉了沒有 UPDATE trigger 的表，外部帶進來的字串（CYBERBIZ、
+ * 佇列裡排隊時帶的 generation）也可能是 JS `toISOString()` 的 `YYYY-MM-DDTHH:MM:SS.sssZ`。
  * 沒有時區標記的字串不能直接丟給 `Date`：瀏覽器與 Node 會把它當成執行環境的本地時間。
  * Worker 跑在 UTC 所以看不出來，台北的瀏覽器與本機測試就差 8 小時。
  *
