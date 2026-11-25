@@ -1,5 +1,5 @@
 import { Container } from "@cloudflare/containers";
-import { createDatabase, updateShopeeSalesRun } from "@rueisiang/db";
+import { createDatabase, toDbTimestamp, updateShopeeSalesRun } from "@rueisiang/db";
 import type { Env } from "./env.js";
 
 const RUNNER_PORT = 8080;
@@ -100,7 +100,7 @@ export class ReportRunner extends Container<Env> {
           ...job,
           status: "failed",
           error: "報表執行環境重新啟動，工作狀態遺失。",
-          finishedAt: new Date().toISOString(),
+          finishedAt: toDbTimestamp(),
         };
         await this.persistTerminal(requestId, failedJob);
         await this.durableState.storage.put(key, failedJob);
