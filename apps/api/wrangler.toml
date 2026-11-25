@@ -136,7 +136,7 @@ CYBERBIZ_API_RELAY_URL = "https://cyberbiz-relay.rueisiang.com"
 NAS_STORAGE_URL = "https://storage.rueisiang.com"
 SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 # OAuth Client ID 是公開識別值；client secret 與 refresh token 仍以 Worker secret 儲存。
-GOOGLE_REPORTS_OAUTH_CLIENT_ID = "197522052194-kkdqsfiumiqgg0n8qtnhr5os5rgndf7i.apps.googleusercontent.com"
+GOOGLE_REPORTS_OAUTH_CLIENT_ID = "757056407078-6c0nqglhi8gib6ge7bkh7hup3rq1mses.apps.googleusercontent.com"
 
 # 需要的 secret（值不進版控，在 Cloudflare 儀表板或用指令設）：
 #   MEDIA_CDN_PURGE_TOKEN      限 rueisiang.com zone 的 Cache Purge 權限
