@@ -1,4 +1,4 @@
-import { parseDbDate } from "@rueisiang/db/db-timestamp";
+import { taipeiMinuteFromUtcWallClock } from "@rueisiang/db/taipei-time";
 import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { useSession } from "../../auth/session.js";
@@ -17,14 +17,6 @@ function today() {
   const parts = new Intl.DateTimeFormat("en-US", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")}`;
-}
-
-function taipeiDateTime(value: string) {
-  const parsed = parseDbDate(value);
-  if (!parsed) return value;
-  const parts = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(parsed);
-  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
-  return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
 }
 
 function hours(halfHours: number) {
@@ -165,14 +157,14 @@ function EntitlementDetailDialog({ row, onClose }: { row: HrAnnualLeaveEntitleme
     <DetailSection title="什麼時候發放">
       <DetailList>
         <DetailRow term="額度生效日">{entitlement.periodStart}</DetailRow>
-        <DetailRow term="台帳發放時間">{grant ? `${taipeiDateTime(grant.createdAt)}（台北）` : "—"}</DetailRow>
+        <DetailRow term="台帳發放時間">{grant ? `${taipeiMinuteFromUtcWallClock(grant.createdAt)}（台北）` : "—"}</DetailRow>
         <DetailRow term="發放紀錄">{grant ? annualGrantNote(entitlement) : "找不到政策發放紀錄"}</DetailRow>
       </DetailList>
       <FormHint>「額度生效日」代表員工取得這期特休的法律／政策日期；「台帳發放時間」是系統實際寫入 grant 紀錄的時間，回溯補建時兩者可能不同。</FormHint>
     </DetailSection>
     <DetailSection title="額度台帳">
       <DataTable className="compact [&_td]:whitespace-nowrap [&_td:last-child]:min-w-[220px] [&_td:last-child]:whitespace-normal [&_td.numeric]:text-right"><thead><tr><th>寫入時間</th><th>類型</th><th className="numeric">變化</th><th>說明</th></tr></thead><tbody>
-        {entitlement.ledger.map((entry) => <tr key={entry.id}><td>{taipeiDateTime(entry.createdAt)}<small>台北時間</small></td><td>{ledgerKindLabel(entry.entryKind)}</td><td className="numeric">{signedHours(entry.deltaHalfHours)}</td><td>{ledgerDisplayNote(entry, entitlement)}</td></tr>)}
+        {entitlement.ledger.map((entry) => <tr key={entry.id}><td>{taipeiMinuteFromUtcWallClock(entry.createdAt)}<small>台北時間</small></td><td>{ledgerKindLabel(entry.entryKind)}</td><td className="numeric">{signedHours(entry.deltaHalfHours)}</td><td>{ledgerDisplayNote(entry, entitlement)}</td></tr>)}
         {!entitlement.ledger.length ? <tr><td colSpan={4}><EmptyState>目前沒有台帳紀錄。</EmptyState></td></tr> : null}
       </tbody></DataTable>
     </DetailSection>

@@ -919,7 +919,7 @@ async function resumeWaitingLineImageJobs(
     lineMessageId: input.messageId,
   });
   const followUpMessages = imageMessage
-    && (!input.contextResetAt || imageMessage.createdAt > input.contextResetAt)
+    && (!input.contextResetAt || (parseDbTimestamp(imageMessage.createdAt) ?? 0) > (parseDbTimestamp(input.contextResetAt) ?? 0))
     ? await listAssistantLineImageFollowUpMessages(db, {
       channelKey: input.channelKey,
       lineGroupId: input.lineGroupId,
