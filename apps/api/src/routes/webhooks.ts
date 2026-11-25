@@ -49,6 +49,7 @@ import {
   waitAssistantLineQueueJob,
   type StoredMediaAttachment,
   parseDbTimestamp,
+  sameDbTimestamp,
   toDbTimestamp,
 } from "@rueisiang/db";
 import {
@@ -553,7 +554,7 @@ async function runLineAssistant(input: {
     const group = await findAssistantLineGroup(input.db, { channelKey: input.channelKey, id: input.groupRowId });
     if (!group) throw new Error("找不到這個 LINE 對話的設定。");
     if (!group.enabled) throw new Error("這個 LINE 對話已經被取消授權。");
-    if ((group.contextResetAt ?? "") !== input.contextGeneration) {
+    if (!sameDbTimestamp(group.contextResetAt ?? "", input.contextGeneration)) {
       throw new PiAgentStaleSessionError("這則工作屬於已重設的舊 session，已略過。");
     }
 
@@ -1127,7 +1128,7 @@ export async function processLineAssistantQueueMessage(message: unknown, env: Ap
       return;
     }
 
-    if ((group.contextResetAt ?? "") !== contextGeneration) {
+    if (!sameDbTimestamp(group.contextResetAt ?? "", contextGeneration)) {
       assistantLog("info", "line.queue.skipped", {
         ...trace,
         kind: message.kind,

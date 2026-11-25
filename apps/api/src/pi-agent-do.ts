@@ -34,7 +34,9 @@ import {
   createDatabase,
   HrError,
   type Database,
+  compareDbTimestamp,
   parseDbTimestamp,
+  sameDbTimestamp,
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
 import { isHrToolKey, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
@@ -517,6 +519,16 @@ function payloadWithOutputLimit(payload: unknown): unknown {
 }
 
 /**
+ * generation 是重置時間（或 Sandbox 的建立時間），要比時間點、不能比字串：同一個時間點
+ * 換了格式（舊的 ISO 轉成資料庫格式）時，逐字比會把空白排在 `T` 前面，新的重置被當成
+ * 舊的，整個對話的訊息都被略過。
+ */
+export function generationChange(next: string, current: string): "same" | "stale" | "newer" {
+  const order = compareDbTimestamp(next, current);
+  return order === 0 ? "same" : order < 0 ? "stale" : "newer";
+}
+
+/**
  * 沿用 Cloudflare 的 Queue／DO persistence 與 session generation 邊界，不另建 durable harness。
  * transcript 由 chat 專屬 SQLite DO 保存，工具迴圈、訊息格式與 compaction 則沿用 Pi Agent。
  */
@@ -634,8 +646,9 @@ export class AssistantChatAgent {
   private requireGeneration(generation: string): { state: AgentStateRow; rotated: boolean } {
     const current = this.currentState();
     if (!current) return { state: this.rotateGeneration(generation), rotated: true };
-    if (generation === current.generation) return { state: current, rotated: false };
-    if (generation < current.generation) throw new Error("這則工作屬於已重設的舊 session，已略過。");
+    const change = generationChange(generation, current.generation);
+    if (change === "same") return { state: current, rotated: false };
+    if (change === "stale") throw new Error("這則工作屬於已重設的舊 session，已略過。");
     return { state: this.rotateGeneration(generation), rotated: true };
   }
 
@@ -955,7 +968,7 @@ export class AssistantChatAgent {
     if (!group
       || group.lineGroupId !== input.lineGroupId
       || group.sourceType !== input.sourceType
-      || (group.contextResetAt ?? "") !== input.contextGeneration
+      || !sameDbTimestamp(group.contextResetAt ?? "", input.contextGeneration)
       || !group.enabled) {
       throw new Error("LINE 對話目前沒有啟用，或 session 已被重設。");
     }
@@ -993,7 +1006,7 @@ export class AssistantChatAgent {
     if (!user || !can(user, "assistant:sandbox:write")) throw new Error("Sandbox 使用者已停權、撤銷執行權限或不存在。");
     if (input.sandboxSessionId && (!session
       || session.status !== "open"
-      || session.createdAt !== input.contextGeneration)) {
+      || !sameDbTimestamp(session.createdAt, input.contextGeneration))) {
       throw new Error("Sandbox session 已關閉、已更換，或不屬於這位使用者。");
     }
     const status = configuredTools.find((configured) => configured.key === toolKey)?.status ?? "disabled";
@@ -1105,7 +1118,7 @@ export class AssistantChatAgent {
     });
     if (!session
       || session.status !== "open"
-      || session.createdAt !== input.contextGeneration) {
+      || !sameDbTimestamp(session.createdAt, input.contextGeneration)) {
       throw new Error("Sandbox session 已關閉、已更換，或不屬於這位使用者。");
     }
     // 摘要筆數是對完整升冪 D1 transcript 計算；先取完整序列再切掉摘要涵蓋的 prefix，

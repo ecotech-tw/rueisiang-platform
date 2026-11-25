@@ -54,11 +54,24 @@ export function normalizeDbTimestamp(value: string | null): string | null {
   return timestamp === null ? value : toDbTimestamp(timestamp);
 }
 
-/** 兩個時間字串是不是同一個時間點；格式不同（舊資料的 ISO）也算同一個。認不得的就比字串。 */
+/** 兩個時間字串是不是同一個時間點；格式不同（舊資料的 ISO）也算同一個。規則跟 `compareDbTimestamp` 同一套。 */
 export function sameDbTimestamp(a: string | null | undefined, b: string | null | undefined): boolean {
-  if (a === b) return true;
+  return compareDbTimestamp(a, b) === 0;
+}
+
+/**
+ * 兩個時間字串誰先誰後：負數是 a 比較早、0 是同一個時間點、正數是 a 比較晚。
+ * 空值與認不得的排在所有時間之前（小香拿空字串代表「從來沒重置過」）；兩邊都認不得才比字串。
+ */
+export function compareDbTimestamp(a: string | null | undefined, b: string | null | undefined): number {
   const left = parseDbTimestamp(a);
-  return left !== null && left === parseDbTimestamp(b);
+  const right = parseDbTimestamp(b);
+  if (left !== null && right !== null) return Math.sign(left - right);
+  if (left !== null) return 1;
+  if (right !== null) return -1;
+  const leftText = a ?? "";
+  const rightText = b ?? "";
+  return leftText === rightText ? 0 : leftText < rightText ? -1 : 1;
 }
 
 /** 同 `parseDbTimestamp`，但給要 `Date` 物件的呼叫端（格式化顯示）。 */
