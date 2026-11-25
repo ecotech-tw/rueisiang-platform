@@ -2,6 +2,7 @@ import { PERMISSIONS, SYSTEM_ROLES } from "@rueisiang/auth";
 import { eq } from "drizzle-orm";
 import { writeRolePermissions } from "./admin.js";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { chunks } from "./sql-lists.js";
 import { permissions, roles } from "./schema/auth.js";
 
@@ -23,7 +24,7 @@ export async function syncSystemRoles(db: Database): Promise<void> {
   const isFirstInitialization = !anyRole;
 
   // 每列一個綁定參數再加一個 syncedAt；權限長到一百個之前就要分批，不然整句會被 D1 拒絕。
-  const syncedAt = new Date().toISOString();
+  const syncedAt = toDbTimestamp();
   await db.batch(chunks(Object.keys(PERMISSIONS), PERMISSION_MIRROR_BATCH_SIZE).map((batch) => db.insert(permissions).values(
     batch.map((permission) => ({ permission })),
   ).onConflictDoUpdate({

@@ -1,6 +1,7 @@
 import { and, desc, eq, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { inJsonArray } from "./sql-lists.js";
 import { HrError, writeHrMutation, type HrActor } from "./hr-people.js";
 import { hrCompensationVersions, hrInsuranceContributionRules, hrInsuranceRateTables, hrInsuranceVersions } from "./schema/hr-payroll.js";
@@ -73,7 +74,7 @@ function parseLaborRows(value: unknown, sourceUrl: string, year: number): HrInsu
     : generalBrackets
   ).map((bracket, index) => ({ ...bracket, level: index + 1 }));
   if (!brackets.length) throw new HrInsuranceRateError(`勞動部沒有民國 ${year - 1911} 年一般勞工級距資料。`);
-  return { scheme: "labor", year, sourceUrl, fetchedAt: new Date().toISOString(), brackets };
+  return { scheme: "labor", year, sourceUrl, fetchedAt: toDbTimestamp(), brackets };
 }
 
 function csvRows(value: string): string[][] {
@@ -112,7 +113,7 @@ function parseHealthCsv(value: string, sourceUrl: string, year: number): HrInsur
     insuredAmount: numberValue(row[insuredIndex] ?? ""),
   }));
   if (!brackets.length) throw new HrInsuranceRateError("健保署級距資料沒有級距。");
-  return { scheme: "health", year, sourceUrl, fetchedAt: new Date().toISOString(), brackets };
+  return { scheme: "health", year, sourceUrl, fetchedAt: toDbTimestamp(), brackets };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -561,7 +562,7 @@ export async function createHrManualInsuranceRateTable(db: Database, input: HrMa
   const contentHash = await manualRateHash(dataJson);
   return writeHrMutation(db, sql`INSERT INTO hr_insurance_rate_tables
     (id, scheme, year, status, source_url, fetched_at, data_json, content_hash, created_by)
-    VALUES (${id}, ${input.scheme}, ${input.year}, 'draft', ${sourceUrl}, ${new Date().toISOString()}, ${dataJson}, ${contentHash}, ${actor.id})
+    VALUES (${id}, ${input.scheme}, ${input.year}, 'draft', ${sourceUrl}, ${toDbTimestamp()}, ${dataJson}, ${contentHash}, ${actor.id})
     RETURNING id`, id, actor, "insurance_rate_table_created", "該年度已有待審閱級距版本，請重新整理後再試。 ");
 }
 
@@ -575,7 +576,7 @@ export async function updateHrInsuranceRateTable(db: Database, id: string, input
   const dataJson = rateTableJson(brackets, "manual", input.note);
   const contentHash = await manualRateHash(dataJson);
   const expected = input.expectedContentHash ? sql` AND content_hash=${input.expectedContentHash}` : sql``;
-  return writeHrMutation(db, sql`UPDATE hr_insurance_rate_tables SET source_url=${sourceUrl}, fetched_at=${new Date().toISOString()}, data_json=${dataJson}, content_hash=${contentHash}
+  return writeHrMutation(db, sql`UPDATE hr_insurance_rate_tables SET source_url=${sourceUrl}, fetched_at=${toDbTimestamp()}, data_json=${dataJson}, content_hash=${contentHash}
     WHERE id=${id} AND status='draft'${expected} RETURNING id`, id, actor, "insurance_rate_table_updated", "級距版本已被其他人變更，請重新整理後再試。 ");
 }
 

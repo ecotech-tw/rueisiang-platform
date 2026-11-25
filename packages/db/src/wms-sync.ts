@@ -2,6 +2,7 @@ import type { CyberbizInventoryClient, CyberbizInventoryItem } from "@rueisiang/
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { normalizeDbTimestamp, toDbTimestamp } from "./db-timestamp.js";
 import { cyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { activityEvents } from "./schema/activity.js";
 import { cyberbizSyncLocks, wmsItems } from "./schema/wms.js";
@@ -448,9 +449,9 @@ export async function repairCyberbizItemLink(
         productName: remote.productName,
         variantName: remote.variantName,
         published: remote.published ? 1 : 0,
-        cyberbizUpdatedAt: remote.updatedAt,
+        cyberbizUpdatedAt: normalizeDbTimestamp(remote.updatedAt),
         syncStatus: "synced",
-        syncedAt: new Date().toISOString(),
+        syncedAt: toDbTimestamp(),
       }).where(and(
         eq(cyberbizProducts.itemId, candidate.itemId),
         eq(cyberbizProducts.cyberbizProductId, input.expectedProductId),
@@ -513,7 +514,7 @@ export async function linkItemToCyberbiz(
     .limit(1);
   if (duplicate) throw new WmsError("conflict", "這個 CYBERBIZ 款式已經連到其他品項。");
 
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   try {
     // 不使用 onConflictDoUpdate：兩個並行 link request 不能把既有外部身分改掉。
     await db.batch([

@@ -1,6 +1,7 @@
 import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { isReportPlatform } from "./report-platforms.js";
 import { inJsonArray } from "./sql-lists.js";
 import { formatCyberbizProductName } from "./cyberbiz-product-name.js";
@@ -481,7 +482,7 @@ async function addTargetProductSkuMapping(
   if (existing?.resolution === "mapped") throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經存在，請改用編輯功能。`);
 
   const id = existing?.id ?? crypto.randomUUID();
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const componentItemIds = await prepareTargetComponentItems(db, components);
   const useBundle = components.length !== 1 || components[0]!.quantity !== 1;
   const itemId = useBundle ? await ensureTargetBundleItem(db, id, externalName, now) : componentItemIds[0]!;
@@ -538,7 +539,7 @@ async function updateTargetProductSkuMapping(
   )).limit(1);
   if (existing) throw new WmsError("conflict", `通路「${channel}」的外部 SKU「${externalSku}」已經對應到其他商品。`);
 
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const componentItemIds = await prepareTargetComponentItems(db, components);
   const useBundle = components.length !== 1 || components[0]!.quantity !== 1;
   const itemId = useBundle ? await ensureTargetBundleItem(db, input.id, externalName, now) : componentItemIds[0]!;
@@ -595,7 +596,7 @@ export async function deleteProductSkuMapping(db: Database, id: string, actor: A
     ...(bundle && bundleHistory
       ? [
         db.delete(itemComponents).where(eq(itemComponents.parentItemId, bundleId)),
-        db.update(itemMasters).set({ active: 0, updatedAt: new Date().toISOString() }).where(eq(itemMasters.id, bundleId)),
+        db.update(itemMasters).set({ active: 0, updatedAt: toDbTimestamp() }).where(eq(itemMasters.id, bundleId)),
       ]
       : bundle ? [db.delete(itemMasters).where(eq(itemMasters.id, bundleId))] : []),
     db.insert(activityEvents).values(activityRow({

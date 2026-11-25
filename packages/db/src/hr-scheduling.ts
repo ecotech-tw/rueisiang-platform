@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, like, sql, type 
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { inJsonArray } from "./sql-lists.js";
 import { hrShiftDayKeyForDate } from "./schedule-draft.js";
 import { listHrCalendarMonth, resolveDayTypes } from "./hr-calendar.js";
@@ -478,9 +479,9 @@ export async function setHrScheduleScopeLock(db: Database, periodKey: string, sc
     AND EXISTS (SELECT 1 FROM hr_schedule_versions WHERE id=${version.id} AND locked_at IS NULL)`;
   const write = input.revision === 0
     ? sql`INSERT INTO hr_schedule_scope_locks (period_start, scope_id, locked_at, locked_by, updated_by, revision)
-        SELECT ${period.start}, ${scopeId}, ${input.locked ? new Date().toISOString() : null}, ${input.locked ? actor.id : null}, ${actor.id}, 1 WHERE ${managerGuard}
+        SELECT ${period.start}, ${scopeId}, ${input.locked ? toDbTimestamp() : null}, ${input.locked ? actor.id : null}, ${actor.id}, 1 WHERE ${managerGuard}
         ON CONFLICT (period_start, scope_id) DO NOTHING RETURNING revision`
-    : sql`UPDATE hr_schedule_scope_locks SET locked_at=${input.locked ? new Date().toISOString() : null}, locked_by=${input.locked ? actor.id : null}, updated_by=${actor.id}, updated_at=CURRENT_TIMESTAMP, revision=revision+1
+    : sql`UPDATE hr_schedule_scope_locks SET locked_at=${input.locked ? toDbTimestamp() : null}, locked_by=${input.locked ? actor.id : null}, updated_by=${actor.id}, updated_at=CURRENT_TIMESTAMP, revision=revision+1
         WHERE period_start=${period.start} AND scope_id=${scopeId} AND revision=${input.revision} AND ${managerGuard} RETURNING revision`;
   const result = await runRawBatch(db, compileStatements([
     write,
@@ -499,7 +500,7 @@ export async function setHrScheduleLock(db: Database, periodKey: string, input: 
   if (!version) throw new HrError(404, "指定月份尚未建立排班。 ");
   const row = activityRow({ entityType: "hr_schedule", entityId: version.id, source: "hr", eventType: input.locked ? "schedule_locked" : "schedule_unlocked", summary: input.locked ? "排班已鎖定" : "排班已開鎖", actor });
   await runRawBatch(db, compileStatements([
-    sql`UPDATE hr_schedule_versions SET locked_at=${input.locked ? new Date().toISOString() : null}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${version.id} AND revision=${input.revision} RETURNING id`,
+    sql`UPDATE hr_schedule_versions SET locked_at=${input.locked ? toDbTimestamp() : null}, revision=revision+1, updated_at=CURRENT_TIMESTAMP WHERE id=${version.id} AND revision=${input.revision} RETURNING id`,
     sql`INSERT INTO activity_events (id, entity_type, entity_id, event_type, summary, source, actor_type, actor_id, actor_email)
       SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail} WHERE changes() = 1`,
   ]), true);

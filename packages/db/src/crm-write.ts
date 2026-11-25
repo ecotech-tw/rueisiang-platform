@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { normalizePhone } from "./phone.js";
 import { activityRow } from "./activity.js";
 import { customerTagNames, replaceCustomerTags } from "./crm-tags.js";
@@ -94,7 +95,7 @@ export async function createCustomer(
     actor: Actor;
   },
 ): Promise<{ id: string }> {
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   const id = crypto.randomUUID();
   const linked = input.remote;
   const syncStatus = input.syncStatus ?? (linked ? "synced" : "failed");
@@ -155,7 +156,7 @@ export async function updateCustomer(
         email: input.email,
         address: input.address,
         syncStatus: input.syncStatus,
-        ...(input.syncStatus === "synced" ? { syncedAt: new Date().toISOString() } : {}),
+        ...(input.syncStatus === "synced" ? { syncedAt: toDbTimestamp() } : {}),
         updatedAt: sql`CURRENT_TIMESTAMP`,
       })
       .where(eq(crmCustomers.id, id)),

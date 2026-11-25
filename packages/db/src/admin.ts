@@ -10,7 +10,7 @@ import {
 } from "@rueisiang/auth";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { parseDbTimestamp } from "./db-timestamp.js";
+import { parseDbTimestamp, toDbTimestamp } from "./db-timestamp.js";
 import { chunks } from "./sql-lists.js";
 import { revokeUserDeviceSessions } from "./device-sessions.js";
 import { hrEmployments } from "./schema/hr-people.js";
@@ -230,7 +230,7 @@ export async function acceptInvitation(
   const found = await findInvitation(db, input.token);
   if (found.kind !== "ok") return found;
 
-  const now = new Date().toISOString();
+  const now = toDbTimestamp();
   await db
     .update(users)
     .set({
@@ -283,7 +283,7 @@ export async function authenticateWithPassword(
    */
   await db
     .update(users)
-    .set({ lastLoginAt: new Date().toISOString(), updatedAt: sql`CURRENT_TIMESTAMP` })
+    .set({ lastLoginAt: toDbTimestamp(), updatedAt: sql`CURRENT_TIMESTAMP` })
     .where(eq(users.id, row.id));
 
   return { id: row.id, email: row.email };

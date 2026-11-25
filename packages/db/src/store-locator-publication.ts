@@ -1,5 +1,6 @@
 import { eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { toDbTimestamp } from "./db-timestamp.js";
 import { storeLocatorPublication } from "./schema/reports.js";
 
 import type { StoreLocatorPublicationStatus } from "./store-locator-publication-fields.js";
@@ -26,7 +27,7 @@ export async function getStoreLocatorPublication(db: Database): Promise<StoreLoc
 
 export async function settleStoreLocatorPublication(db: Database, revision: number, error: string | null) {
   await db.update(storeLocatorPublication).set(error === null
-    ? { publishedRevision: revision, publishedAt: new Date().toISOString(), error: null }
+    ? { publishedRevision: revision, publishedAt: toDbTimestamp(), error: null }
     : { error })
     .where(sql`${storeLocatorPublication.id} = 'public' AND ${storeLocatorPublication.revision} = ${revision}`);
 }

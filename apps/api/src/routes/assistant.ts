@@ -56,6 +56,7 @@ import {
   type AssistantLineSourceType,
   type StoredMediaAttachment,
   parseDbTimestamp,
+  toDbTimestamp,
 } from "@rueisiang/db";
 import { can, type AuthUser, type Permission } from "@rueisiang/auth";
 import { Hono } from "hono";
@@ -525,7 +526,7 @@ export const assistant = new Hono<AppEnv>()
       body: bytes,
     });
     const filename = file.name.trim().slice(0, 200) || "image";
-    const expiresAt = new Date(Date.now() + SANDBOX_ATTACHMENT_TTL_MS).toISOString();
+    const expiresAt = toDbTimestamp(Date.now() + SANDBOX_ATTACHMENT_TTL_MS);
     let media;
     try {
       media = await recordMediaObject(c.get("db"), {
