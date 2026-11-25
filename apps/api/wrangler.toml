@@ -152,11 +152,12 @@ SHOPEE_SOURCE_BASE_URL = "https://platform.rueisiang.com"
 #   CYBERBIZ_API_TOKEN         客戶與商品 API token
 #   CYBERBIZ_API_RELAY_TOKEN   Worker 與 NAS relay 共用的獨立 secret；需搭配 Worker variable CYBERBIZ_API_RELAY_URL
 #   CYBERBIZ_WEBHOOK_SECRET    驗 webhook 簽章
-#   REPORT_RUNNER_TOKEN        Worker 與報表 Container 之間的獨立 bearer token
-#   GOOGLE_CLIENT_ID           報表 Container 用來取得 Google access token
-#   GOOGLE_CLIENT_SECRET
-#   GOOGLE_REFRESH_TOKEN
-#   GITHUB_TOKEN               暫時保留給尚未遷移的 CYBERBIZ runner
+#   REPORT_RUNNER_TOKEN                    Worker 與報表 Container 之間的獨立 bearer token
+#   GOOGLE_REPORTS_OAUTH_CLIENT_ID         報表 OAuth 用戶端（與平台登入用戶端分開）
+#   GOOGLE_REPORTS_OAUTH_CLIENT_SECRET
+#   GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN     報表 Google Drive 帳號授權
+#   CYBERBIZ_REPORT_INGEST_TOKEN           共用報表匯入 API；完整月份 Shopee 寫入 D1 會用到
+#   GITHUB_TOKEN                           暫時保留給尚未遷移的 CYBERBIZ runner
 #   UPSTASH_REDIS_REST_URL     商品目錄與營運報表查詢的快取，沿用舊 WMS 的同一個實例
 #   UPSTASH_REDIS_REST_TOKEN   （沒設定時改成直接查資料來源，只是比較慢）
 #

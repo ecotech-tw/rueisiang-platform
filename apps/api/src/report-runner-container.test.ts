@@ -35,12 +35,20 @@ describe("ReportRunner Durable Object", () => {
     let containerCalls = 0;
     const runner = new ReportRunner({ storage: durable.storage } as never, {
       REPORT_RUNNER_TOKEN: "runner-secret",
+      GOOGLE_REPORTS_OAUTH_CLIENT_ID: "reports-client-id",
+      GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-client-secret",
+      GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh-token",
       DB: {},
       containerFetch: async () => {
         containerCalls += 1;
         return Response.json(remoteJob);
       },
     } as never);
+    expect(runner.envVars).toMatchObject({
+      GOOGLE_REPORTS_OAUTH_CLIENT_ID: "reports-client-id",
+      GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-client-secret",
+      GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh-token",
+    });
     const requestId = "request-1234567890";
 
     const accepted = await runner.fetch(new Request("https://runner/jobs", {

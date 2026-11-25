@@ -16,9 +16,9 @@ export interface Env {
   /** 每次報表工作一個 Container-backed DO，執行 Python／Playwright driver。 */
   REPORT_RUNNER?: DurableObjectNamespace;
   REPORT_RUNNER_TOKEN?: string;
-  GOOGLE_CLIENT_ID?: string;
-  GOOGLE_CLIENT_SECRET?: string;
-  GOOGLE_REFRESH_TOKEN?: string;
+  GOOGLE_REPORTS_OAUTH_CLIENT_ID?: string;
+  GOOGLE_REPORTS_OAUTH_CLIENT_SECRET?: string;
+  GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN?: string;
   /** 正式環境一定會綁定；本機 Node server 與不碰 LINE 的測試可以省略。 */
   ASSISTANT_CHAT_AGENT?: DurableObjectNamespace;
   /** 全平台共用一個 credential vault，避免多個 chat 同時旋轉同一支 refresh token。 */

@@ -58,9 +58,10 @@ async function processWorkbook(payload, { previewOnly = false } = {}) {
     await writeFile(inputPath, source.bytes);
     const config = await loadConfig();
     const env = {
-      GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID ?? "",
-      GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET ?? "",
-      GOOGLE_REFRESH_TOKEN: process.env.GOOGLE_REFRESH_TOKEN ?? "",
+      // Driver 仍沿用 GitHub Actions 的通用環境名稱；Cloudflare bindings 使用報表專用名稱。
+      GOOGLE_CLIENT_ID: process.env.GOOGLE_REPORTS_OAUTH_CLIENT_ID ?? "",
+      GOOGLE_CLIENT_SECRET: process.env.GOOGLE_REPORTS_OAUTH_CLIENT_SECRET ?? "",
+      GOOGLE_REFRESH_TOKEN: process.env.GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN ?? "",
       PLATFORM_API_URL: process.env.PLATFORM_API_URL ?? "https://platform.rueisiang.com",
       CYBERBIZ_REPORT_INGEST_TOKEN: process.env.CYBERBIZ_REPORT_INGEST_TOKEN ?? "",
     };
