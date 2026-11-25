@@ -8,12 +8,13 @@ const repo = fileURLToPath(new URL("../../../", import.meta.url));
 
 /*
  * 這幾個檔的 toISOString() 不寫進資料庫：健康檢查與 CYBERBIZ 目錄是 API 回應，
- * db-timestamp.ts 本身就是轉換的地方。
+ * ReportRunner 的 finishedAt 是 Container job metadata；db-timestamp.ts 本身就是轉換的地方。
  */
 const NOT_STORED = new Set([
   "packages/db/src/db-timestamp.ts",
   "apps/api/src/routes/health.ts",
   "apps/api/src/cyberbiz-catalog.ts",
+  "apps/api/src/report-runner-container.ts",
 ]);
 
 function sources(dir: string): string[] {

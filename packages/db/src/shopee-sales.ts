@@ -1,4 +1,5 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { toDbTimestamp } from "./db-timestamp.js";
 import type { Database } from "./client.js";
 import { reportRunScopes, reportRuns, scopes, type ReportRunStatus } from "./schema/reports.js";
 
@@ -100,7 +101,7 @@ export async function updateShopeeSalesRun(
     lastError: input.lastError?.slice(0, 2_000) ?? "",
     ...(input.importedSalesRows === undefined ? {} : { importedSalesRows: input.importedSalesRows }),
     ...(input.importedPayoutRows === undefined ? {} : { importedPayoutRows: input.importedPayoutRows }),
-    updatedAt: new Date().toISOString(),
+    updatedAt: toDbTimestamp(),
   }).where(eq(reportRuns.requestId, input.requestId));
 }
 
