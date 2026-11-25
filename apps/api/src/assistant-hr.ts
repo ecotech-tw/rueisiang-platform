@@ -4,6 +4,7 @@ import {
   isHrAdministrator, isHrEmployee, listAssistantToolConfigs, listHrSelfToolLeaveRequests, listHrSelfToolOvertimeRequests, listHrSelfToolSchedule,
   loadAuthUser, resolveLineToolKeys, saveHrRequestDraft,
   type Database, type HrRequestDraftConfirmation, type HrRequestWithdrawal, type HrRequestDraftInput, type HrRequestDraftScope, type HrSelfLeaveQuery, type HrSelfOvertimeQuery, type HrSelfScheduleQuery,
+  sameDbTimestamp,
 } from "@rueisiang/db";
 import { isHrToolKey, type HrSelfToolService } from "@rueisiang/tools";
 import type { Env } from "./env.js";
@@ -44,7 +45,7 @@ async function authorizedIdentity(db: Database, env: Env, input: PiLineAgentCont
   if (!channel?.enabled || channel.channelKey !== input.channelKey
     || !conversation?.enabled || conversation.sourceType !== "user"
     || conversation.lineGroupId !== input.lineGroupId
-    || (conversation.contextResetAt ?? "") !== input.contextGeneration) {
+    || !sameDbTimestamp(conversation.contextResetAt ?? "", input.contextGeneration)) {
     throw new HrSelfToolError("HR 私訊授權已失效，請重新查詢。" );
   }
   const allowed = await resolveLineToolKeys(db, { channelKey: input.channelKey, groupId: input.groupRowId, toolMode: conversation.toolMode });

@@ -61,6 +61,21 @@ export function sameDbTimestamp(a: string | null | undefined, b: string | null |
   return left !== null && left === parseDbTimestamp(b);
 }
 
+/**
+ * 兩個時間字串誰先誰後：負數是 a 比較早、0 是同一個時間點、正數是 a 比較晚。
+ * 空值與認不得的排在所有時間之前（小香拿空字串代表「從來沒重置過」）；兩邊都認不得才比字串。
+ */
+export function compareDbTimestamp(a: string | null | undefined, b: string | null | undefined): number {
+  const left = parseDbTimestamp(a);
+  const right = parseDbTimestamp(b);
+  if (left !== null && right !== null) return Math.sign(left - right);
+  if (left !== null) return 1;
+  if (right !== null) return -1;
+  const leftText = a ?? "";
+  const rightText = b ?? "";
+  return leftText === rightText ? 0 : leftText < rightText ? -1 : 1;
+}
+
 /** 同 `parseDbTimestamp`，但給要 `Date` 物件的呼叫端（格式化顯示）。 */
 export function parseDbDate(value: string | null | undefined): Date | null {
   const timestamp = parseDbTimestamp(value);
