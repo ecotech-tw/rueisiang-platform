@@ -1,3 +1,5 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
+
 /** 把 YYYY-MM-DD（或以它開頭的時間字串）顯示成 YYYY/M/D；沒有值時顯示 emptyLabel。 */
 export function dateLabel(value: string | null | undefined, emptyLabel = "—") {
   if (!value) return emptyLabel;
@@ -20,9 +22,9 @@ export function dateBefore(value: string) {
 const taipeiDayFormat = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium" });
 const taipeiTimeFormat = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", timeStyle: "short" });
 
-/** API 的時間戳是沒有時區標記的 UTC（`YYYY-MM-DD HH:mm:ss`）；直接丟給 Date 會被當成裝置的本地時間。 */
+/** API 的時間戳轉成 Date；格式與時區的規則見 `@rueisiang/db/db-timestamp`。 */
 export function utcStampDate(value: string) {
-  return new Date(`${value.replace(" ", "T")}Z`);
+  return parseDbDate(value) ?? new Date(Number.NaN);
 }
 
 /** 台北的日期。日期與時間各用一個 formatter，不去切在地化字串——不同 ICU 版本的分隔方式不一樣。 */

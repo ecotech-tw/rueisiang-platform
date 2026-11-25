@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useNavigate } from "react-router";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -6,8 +7,8 @@ import { useHrQuery, useHrWrite, type HrNotification, type HrNotificationsRespon
 import { notificationTarget } from "./notification-link.js";
 
 function formatTaipei(value: string) {
-  const date = new Date(`${value.replace(" ", "T")}Z`);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDbDate(value);
+  if (!date) return value;
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 

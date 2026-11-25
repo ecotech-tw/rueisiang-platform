@@ -34,6 +34,7 @@ import {
   createDatabase,
   HrError,
   type Database,
+  parseDbTimestamp,
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
 import { isHrToolKey, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
@@ -818,8 +819,8 @@ export class AssistantChatAgent {
     if (!nas) throw new PermanentImageAttachmentError("平台尚未設定 NAS storage，無法讀取圖片附件。");
     return Promise.all(attachments.map(async (attachment) => {
       if (attachment.expiresAt) {
-        const expiresAt = Date.parse(attachment.expiresAt);
-        if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) {
+        const expiresAt = parseDbTimestamp(attachment.expiresAt);
+        if (expiresAt === null || expiresAt <= Date.now()) {
           throw new PermanentImageAttachmentError(`圖片附件 ${attachment.filename} 已不存在或已過期。`);
         }
       }

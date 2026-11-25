@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useEffect, useRef, useState } from "react";
@@ -14,15 +15,15 @@ const MAP_STYLE_URL = import.meta.env.VITE_MAPLIBRE_STYLE_URL?.trim() || "https:
 
 function formatTaipei(value: string | null) {
   if (!value) return "—";
-  const date = new Date(`${value.replace(" ", "T")}Z`);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDbDate(value);
+  if (!date) return value;
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 function formatTaipeiTime(value: string | null) {
   if (!value) return "—";
-  const date = new Date(`${value.replace(" ", "T")}Z`);
-  if (Number.isNaN(date.getTime())) return value.slice(11, 16);
+  const date = parseDbDate(value);
+  if (!date) return value.slice(11, 16);
   return new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
 }
 

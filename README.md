@@ -221,6 +221,15 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
 兩種儲存都沒設定時，上傳照片會回「尚未設定照片儲存空間」，地圖與庫存不受影響。
 開通步驟見 `platform-deploy` skill 的 5.1。
 
+### 資料庫：時間欄位統一成一種格式
+
+目標格式是 UTC 的 `YYYY-MM-DD HH:MM:SS`（D1 的 `CURRENT_TIMESTAMP`）。讀時間一律走
+`packages/db/src/db-timestamp.ts`，它兩種格式都吃；但 SQL 裡直接拿字串排序或比較的地方，
+要等下面兩步做完、同一欄只剩一種格式才會對。
+
+- [ ] 寫入一律用同一個 helper 產生目標格式，包含小香、媒體、裝置登入與 CYBERBIZ 同步進來的時間；SQL 裡跟時間欄位比較的參數一起改。
+- [ ] 加一支資料 migration 把既有的 ISO 值轉成目標格式（先用正式庫備份重播驗證），順便刪掉跟唯一索引重複的 `idx_hr_annual_leave_bracket_policy`；再加測試擋住新的 ISO 寫入。
+
 ### Production smoke 與 CYBERBIZ webhook
 
 下列驗收需要正式帳號或 CYBERBIZ 後台權限，不能用本機 fixture 取代；完成後把結果留在

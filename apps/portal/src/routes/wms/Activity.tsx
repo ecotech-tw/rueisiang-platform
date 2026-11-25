@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -105,10 +106,8 @@ function readable(value: string | null): string | null {
 
 function formatTime(value: string): string {
   if (!value) return "—";
-  // D1 的 CURRENT_TIMESTAMP 沒有時區；同步寫進來的是帶 Z 的 ISO。
-  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
-  const parsed = new Date(normalized);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+  const parsed = parseDbDate(value);
+  return parsed ? parsed.toLocaleString("zh-TW", { hour12: false }) : value;
 }
 
 /** 欄位級的變更。兩邊都不是可讀的值（例如整包 JSON 快照）就整格留白。 */

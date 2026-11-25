@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
@@ -31,14 +32,8 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function formatDate(value: string): string {
   if (!value) return "—";
-  /*
-   * 這一欄有兩種格式：D1 的 CURRENT_TIMESTAMP 是「YYYY-MM-DD HH:MM:SS」而且沒有
-   * 時區標記，CYBERBIZ 同步進來的則已經是帶 Z 的 ISO。先前一律補一個 Z，
-   * 結果 ISO 那種變成兩個 Z、解析失敗，畫面就直接印出原始字串。
-   */
-  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
-  const parsed = new Date(normalized);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+  const parsed = parseDbDate(value);
+  return parsed ? parsed.toLocaleString("zh-TW", { hour12: false }) : value;
 }
 
 function CustomerRow({

@@ -6,6 +6,7 @@ import {
   updateAssistantLineMessageImageDownloadStatus,
   type Database,
   type StoredMediaAttachment,
+  parseDbTimestamp,
 } from "@rueisiang/db";
 import { assistantErrorDetails, assistantLog } from "@rueisiang/assistant";
 import { fetchLineMessageContent, LineContentError, LINE_IMAGE_MAX_BYTES, type LineLogContext } from "./line.js";
@@ -73,8 +74,8 @@ function imageExtension(contentType: string): string {
 
 export function isExpiredLineImageAttachment(attachment: StoredMediaAttachment): boolean {
   if (!attachment.expiresAt) return false;
-  const expiresAt = Date.parse(attachment.expiresAt);
-  return !Number.isFinite(expiresAt) || expiresAt <= Date.now();
+  const expiresAt = parseDbTimestamp(attachment.expiresAt);
+  return expiresAt === null || expiresAt <= Date.now();
 }
 
 function asRetryableStorageError(error: unknown): LineImageStorageError {

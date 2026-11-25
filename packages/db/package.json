@@ -11,7 +11,8 @@
     "./hr-profile-fields": "./src/hr-profile-fields.ts",
     "./report-platforms": "./src/report-platforms.ts",
     "./store-locator-coordinates": "./src/store-locator-coordinates.ts",
-    "./store-locator-publication-fields": "./src/store-locator-publication-fields.ts"
+    "./store-locator-publication-fields": "./src/store-locator-publication-fields.ts",
+    "./db-timestamp": "./src/db-timestamp.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",

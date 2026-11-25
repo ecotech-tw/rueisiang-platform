@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useState } from "react";
 import { isMediaImageSortField, type MediaImageSortField } from "@rueisiang/db/media-cdn-fields";
 import { Icon } from "../../shell/icons.js";
@@ -18,7 +19,7 @@ export type MediaViewMode = "grid" | "list";
 export interface MediaSort { field: MediaImageSortField; direction: "asc" | "desc" }
 export const imageLook = "h-full w-full object-contain outline outline-1 -outline-offset-1 outline-black/10 dark:outline-white/10";
 export function sizeLabel(size: number) { return size < 1024 * 1024 ? `${Math.ceil(size / 1024)} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`; }
-export function dateLabel(value: string) { return new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Taipei" }).format(new Date(value)); }
+export function dateLabel(value: string) { const date = parseDbDate(value); return date ? new Intl.DateTimeFormat("zh-TW", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Taipei" }).format(date) : value; }
 
 export function ImagePreview({ image, compact = false }: { image: MediaImage; compact?: boolean }) {
   const [failed, setFailed] = useState(false);

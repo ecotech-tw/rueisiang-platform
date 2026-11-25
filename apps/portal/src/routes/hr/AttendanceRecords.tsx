@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { Pager } from "../../shell/Pager.js";
@@ -24,9 +25,8 @@ interface AttendanceEventsResponse {
 const SOURCE_LABEL: Record<string, string> = { portal: "本人打卡", manual: "手動補登", rfid: "RFID", line: "LINE" };
 
 function dateTime(value: string): string {
-  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
-  const parsed = new Date(normalized);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" });
+  const parsed = parseDbDate(value);
+  return parsed ? parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" }) : value;
 }
 
 export function HrAttendanceRecords() {

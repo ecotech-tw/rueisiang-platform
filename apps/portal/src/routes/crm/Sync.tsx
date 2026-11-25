@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -68,8 +69,8 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 function formatTime(value: string | null): string {
   if (!value) return "—";
-  const parsed = new Date(value.includes("T") ? value : value.replace(" ", "T") + "Z");
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+  const parsed = parseDbDate(value);
+  return parsed ? parsed.toLocaleString("zh-TW", { hour12: false }) : value;
 }
 
 export function Sync() {

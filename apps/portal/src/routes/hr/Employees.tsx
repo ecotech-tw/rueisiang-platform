@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useRef, useState, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router";
 import { useSession } from "../../auth/session.js";
@@ -28,9 +29,8 @@ function statusLabel(status: Employee["userStatus"]): string {
 }
 function money(minor: number): string { return `NT$ ${Math.round(minor / 100).toLocaleString("zh-TW")}`; }
 function dateTime(value: string): string {
-  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
-  const parsed = new Date(normalized);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" });
+  const parsed = parseDbDate(value);
+  return parsed ? parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" }) : value;
 }
 export function HrLineBindingStatus({ employee }: { employee: Pick<Employee, "personKind" | "userId" | "email" | "lineLinkedAt"> }) {
   if (employee.userId === null && !employee.email) return <span className="text-muted">不適用</span>;

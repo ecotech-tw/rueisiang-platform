@@ -9,6 +9,7 @@ import {
 } from "@rueisiang/auth";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { parseDbTimestamp } from "./db-timestamp.js";
 import type { LineAccountIdentity } from "./line-liff.js";
 import { authDeviceSessions } from "./schema/auth.js";
 
@@ -89,10 +90,10 @@ export async function useDeviceSession(
   if (!token) return null;
 
   const [row] = await db.select().from(authDeviceSessions).where(eq(authDeviceSessions.id, token.id)).limit(1);
-  if (!row || row.revokedAt || Date.parse(row.expiresAt) <= now.getTime()) return null;
+  if (!row || row.revokedAt || (parseDbTimestamp(row.expiresAt) ?? 0) <= now.getTime()) return null;
 
   const hash = await hashDeviceSecret(token.secret);
-  const sinceRotation = (now.getTime() - Date.parse(row.rotatedAt)) / 1000;
+  const sinceRotation = (now.getTime() - (parseDbTimestamp(row.rotatedAt) ?? 0)) / 1000;
 
   if (hash === row.tokenHash) {
     if (sinceRotation < DEVICE_SESSION_ROTATE_SECONDS) return { userId: row.userId, authMethod: row.authMethod, renewed: null };

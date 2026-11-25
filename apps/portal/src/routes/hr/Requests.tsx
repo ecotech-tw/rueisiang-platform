@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
@@ -96,8 +97,8 @@ function taipeiToday() {
 }
 
 function taipeiDisplayValue(value: string) {
-  const parsed = new Date(`${value.replace(" ", "T")}Z`);
-  if (Number.isNaN(parsed.getTime())) return value;
+  const parsed = parseDbDate(value);
+  if (!parsed) return value;
   const parts = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(parsed);
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;

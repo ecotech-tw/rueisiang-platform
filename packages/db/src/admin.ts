@@ -10,6 +10,7 @@ import {
 } from "@rueisiang/auth";
 import { and, asc, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { parseDbTimestamp } from "./db-timestamp.js";
 import { chunks } from "./sql-lists.js";
 import { revokeUserDeviceSessions } from "./device-sessions.js";
 import { hrEmployments } from "./schema/hr-people.js";
@@ -214,7 +215,7 @@ export async function findInvitation(db: Database, token: string): Promise<Invit
     .limit(1);
 
   if (!row || row.status === "disabled") return { kind: "invalid" };
-  if (!row.expiresAt || new Date(row.expiresAt).getTime() <= Date.now()) return { kind: "invalid" };
+  if ((parseDbTimestamp(row.expiresAt) ?? 0) <= Date.now()) return { kind: "invalid" };
   return { kind: "ok", id: row.id, email: row.email };
 }
 

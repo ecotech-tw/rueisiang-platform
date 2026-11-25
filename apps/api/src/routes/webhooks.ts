@@ -48,6 +48,7 @@ import {
   updateAssistantLineMessageImageDownloadStatus,
   waitAssistantLineQueueJob,
   type StoredMediaAttachment,
+  parseDbTimestamp,
 } from "@rueisiang/db";
 import {
   ASSISTANT_KEY,
@@ -293,8 +294,8 @@ async function deliverLinePush(input: {
     groupRowId: input.groupRowId,
     ...(input.messageId ? { messageId: input.messageId } : {}),
   };
-  const queueCreatedAtMs = input.queueCreatedAt ? Date.parse(input.queueCreatedAt) : Number.NaN;
-  if (Number.isFinite(queueCreatedAtMs)) {
+  const queueCreatedAtMs = parseDbTimestamp(input.queueCreatedAt);
+  if (queueCreatedAtMs !== null) {
     const retryKeyAgeMs = Date.now() - queueCreatedAtMs;
     if (retryKeyAgeMs >= LINE_PUSH_RETRY_KEY_TTL_MS) {
       assistantLog("warn", "line.push.skipped", {
