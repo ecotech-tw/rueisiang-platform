@@ -519,10 +519,6 @@ function payloadWithOutputLimit(payload: unknown): unknown {
 }
 
 /**
- * 沿用 Cloudflare 的 Queue／DO persistence 與 session generation 邊界，不另建 durable harness。
- * transcript 由 chat 專屬 SQLite DO 保存，工具迴圈、訊息格式與 compaction 則沿用 Pi Agent。
- */
-/**
  * generation 是重置時間（或 Sandbox 的建立時間），要比時間點、不能比字串：同一個時間點
  * 換了格式（舊的 ISO 轉成資料庫格式）時，逐字比會把空白排在 `T` 前面，新的重置被當成
  * 舊的，整個對話的訊息都被略過。
@@ -532,6 +528,10 @@ export function generationChange(next: string, current: string): "same" | "stale
   return order === 0 ? "same" : order < 0 ? "stale" : "newer";
 }
 
+/**
+ * 沿用 Cloudflare 的 Queue／DO persistence 與 session generation 邊界，不另建 durable harness。
+ * transcript 由 chat 專屬 SQLite DO 保存，工具迴圈、訊息格式與 compaction 則沿用 Pi Agent。
+ */
 export class AssistantChatAgent {
   private readonly sql: SqlStorage;
   private chain: Promise<void> = Promise.resolve();

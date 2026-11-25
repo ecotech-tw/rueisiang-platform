@@ -54,11 +54,9 @@ export function normalizeDbTimestamp(value: string | null): string | null {
   return timestamp === null ? value : toDbTimestamp(timestamp);
 }
 
-/** 兩個時間字串是不是同一個時間點；格式不同（舊資料的 ISO）也算同一個。認不得的就比字串。 */
+/** 兩個時間字串是不是同一個時間點；格式不同（舊資料的 ISO）也算同一個。規則跟 `compareDbTimestamp` 同一套。 */
 export function sameDbTimestamp(a: string | null | undefined, b: string | null | undefined): boolean {
-  if (a === b) return true;
-  const left = parseDbTimestamp(a);
-  return left !== null && left === parseDbTimestamp(b);
+  return compareDbTimestamp(a, b) === 0;
 }
 
 /**

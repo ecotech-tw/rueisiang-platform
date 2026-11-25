@@ -28,9 +28,14 @@ describe("對話 generation 的新舊判斷", () => {
     expect(generationChange("", "2026-11-25 05:00:00.000")).toBe("stale");
   });
 
-  it("compareDbTimestamp 與 sameDbTimestamp 對兩種格式一致", () => {
+  it("sameDbTimestamp 就是 compareDbTimestamp 等於 0，空值、認不得的值也一樣", () => {
+    const pairs: Array<[string | null | undefined, string | null | undefined]> = [
+      ["2026-11-25 05:00:00", "2026-11-25T03:00:00Z"],
+      ["2026-11-25 03:00:00.000", "2026-11-25T03:00:00Z"],
+      [null, ""], [null, undefined], ["", ""], ["bad", "bad"], ["bad", "worse"], ["", "2026-11-25 03:00:00"],
+    ];
+    for (const [a, b] of pairs) expect(sameDbTimestamp(a, b)).toBe(compareDbTimestamp(a, b) === 0);
     expect(compareDbTimestamp("2026-11-25 05:00:00", "2026-11-25T03:00:00Z")).toBe(1);
-    expect(compareDbTimestamp(null, undefined)).toBe(0);
-    expect(sameDbTimestamp("", "")).toBe(true);
+    expect(sameDbTimestamp(null, "")).toBe(true);
   });
 });
