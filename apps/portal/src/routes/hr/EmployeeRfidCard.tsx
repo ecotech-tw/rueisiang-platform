@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useState } from "react";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
@@ -8,8 +9,8 @@ interface RfidCard { id: string; cardCode: string; protocolCode: string; linkedA
 interface Enrollment { id: string; status: "listening" | "captured" | "confirmed" | "cancelled" | "expired"; candidateCardCode: string | null; candidateProtocolCode: string | null; scannedAt: string | null }
 
 function dateTime(value: string) {
-  const parsed = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" });
+  const parsed = parseDbDate(value);
+  return parsed ? parsed.toLocaleString("zh-TW", { hour12: false, timeZone: "Asia/Taipei" }) : value;
 }
 
 export function EmployeeRfidCard({ employmentId, active, canRead, canWrite }: { employmentId: string; active: boolean; canRead: boolean; canWrite: boolean }) {

@@ -5,6 +5,7 @@ import type {
   AssistantUsage,
 } from "@rueisiang/assistant";
 import type { Database } from "./client.js";
+import { parseDbTimestamp } from "./db-timestamp.js";
 import { inJsonArray, chunks } from "./sql-lists.js";
 import {
   assistantPromptRevisions,
@@ -291,8 +292,8 @@ export function shouldSyncLineGroupProfile(
 ): boolean {
   if (!group.displayName) return true;
   if (!group.profileSyncedAt) return true;
-  const synced = new Date(group.profileSyncedAt).getTime();
-  return !Number.isFinite(synced) || now - synced > maxAgeMs;
+  const synced = parseDbTimestamp(group.profileSyncedAt);
+  return synced === null || now - synced > maxAgeMs;
 }
 
 export async function recordAssistantLineMessage(
@@ -1257,10 +1258,8 @@ export async function appendAssistantSandboxMessage(
       desc(assistantSandboxMessages.id),
     )
     .limit(1);
-  const latestTime = latest?.createdAt
-    ? Date.parse(latest.createdAt.includes("T") ? latest.createdAt : `${latest.createdAt.replace(" ", "T")}Z`)
-    : Number.NaN;
-  const createdAt = new Date(Math.max(Date.now(), Number.isNaN(latestTime) ? 0 : latestTime + 1)).toISOString();
+  const latestTime = parseDbTimestamp(latest?.createdAt);
+  const createdAt = new Date(Math.max(Date.now(), latestTime === null ? 0 : latestTime + 1)).toISOString();
   await db.batch([
     db.insert(assistantSandboxMessages).values({
       id,

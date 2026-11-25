@@ -1,3 +1,4 @@
+import { parseDbDate, parseDbTimestamp } from "@rueisiang/db/db-timestamp";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
@@ -96,8 +97,8 @@ function taipeiToday() {
 }
 
 function taipeiDisplayValue(value: string) {
-  const parsed = new Date(`${value.replace(" ", "T")}Z`);
-  if (Number.isNaN(parsed.getTime())) return value;
+  const parsed = parseDbDate(value);
+  if (!parsed) return value;
   const parts = new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(parsed);
   const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
   return `${part("year")}-${part("month")}-${part("day")} ${part("hour")}:${part("minute")}`;
@@ -114,7 +115,7 @@ function leaveDisplayValue(value: string, fallbackDate: string) {
 
 function overtimeDetail(settlementKind: string | null | undefined, requestedStart: string | null | undefined, requestedEnd: string | null | undefined) {
   const settlement = settlementKind === "pay" ? "付薪" : "補休";
-  const minutes = (Date.parse(`${(requestedEnd ?? "").replace(" ", "T")}Z`) - Date.parse(`${(requestedStart ?? "").replace(" ", "T")}Z`)) / 60_000;
+  const minutes = ((parseDbTimestamp(requestedEnd) ?? Number.NaN) - (parseDbTimestamp(requestedStart) ?? Number.NaN)) / 60_000;
   return Number.isFinite(minutes) && minutes > 0 ? `${settlement}・${(minutes / 60).toFixed(1)} 小時` : settlement;
 }
 

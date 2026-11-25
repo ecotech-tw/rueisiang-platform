@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useEffect, useRef, useState } from "react";
 import { HrImpersonation } from "./HrImpersonation.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -23,8 +24,8 @@ import {
 } from "./api.js";
 
 function formatDate(value: string): string {
-  const date = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-TW", { hour12: false });
+  const date = parseDbDate(value);
+  return date ? date.toLocaleString("zh-TW", { hour12: false }) : value;
 }
 
 function formatToolArgs(args: Record<string, unknown>): string {

@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useEffect, useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Switch } from "../../shell/Switch.js";
@@ -35,8 +36,8 @@ function blockedReason(tool: AssistantTool): string | null {
 }
 
 function formatDate(value: string): string {
-  const date = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString("zh-TW", { hour12: false });
+  const date = parseDbDate(value);
+  return date ? date.toLocaleString("zh-TW", { hour12: false }) : value;
 }
 
 function sourceTypeLabel(sourceType: AssistantLineSourceType): string {

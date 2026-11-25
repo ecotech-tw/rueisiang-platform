@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, like, or, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { parseDbTimestamp } from "./db-timestamp.js";
 import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
 import { activityRow } from "./activity.js";
 import { buildHrAnnualLeaveSettlementMutations, buildHrAnnualLeaveSettlementReversalMutations, ensureHrAnnualLeaveEntitlements, listHrAnnualLeaveSettlementCandidates } from "./hr-annual-leave.js";
@@ -54,7 +55,7 @@ import { hrEmploymentServicePeriods, hrEmployments, hrWorkerAccountLinks } from 
 import { hrEmploymentAttendanceSettings } from "./schema/hr-attendance.js";
 import { hrCalendarDayScopes, hrCalendarDays, hrOvertimeRequests, hrScheduleEntries, hrScheduleVersions, hrScheduleWorkerEntries, hrScheduleWorkers, hrShiftVersions, hrSpecialWorkdayAssignments, hrSpecialWorkdayRules, hrWorkerOvertimeRequests } from "./schema/hr-scheduling.js";
 import { users } from "./schema/auth.js";
-import { formatTaipeiDate, taipeiMidnightUtc } from "./taipei-time.js";
+import { taipeiDateFromUtcWallClock, taipeiMidnightUtc } from "./taipei-time.js";
 import { scopes } from "./schema/reports.js";
 
 const PPM = 1_000_000;
@@ -414,11 +415,11 @@ function scaleLeaveWorkdayBreakdown(breakdown: Map<string, HrLeaveWorkdayBreakdo
 }
 
 function secondsBetween(start: string, end: string): number {
-  const seconds = Math.round((Date.parse(end.replace(" ", "T") + (end.endsWith("Z") ? "" : "Z")) - Date.parse(start.replace(" ", "T") + (start.endsWith("Z") ? "" : "Z"))) / 1000);
+  const seconds = Math.round(((parseDbTimestamp(end) ?? Number.NaN) - (parseDbTimestamp(start) ?? Number.NaN)) / 1000);
   return Number.isSafeInteger(seconds) && seconds > 0 ? seconds : 0;
 }
 function utcWallClockMilliseconds(value: string): number {
-  return Date.parse(value.replace(" ", "T") + (value.endsWith("Z") ? "" : "Z"));
+  return parseDbTimestamp(value) ?? Number.NaN;
 }
 function canonicalUtcWallClock(milliseconds: number): string {
   return new Date(milliseconds).toISOString().slice(0, 19).replace("T", " ");
@@ -468,7 +469,7 @@ function splitOvertimeByTaipeiDate(start: string, end: string): Array<{ date: st
   let cursor = startMilliseconds;
   while (cursor < endMilliseconds) {
     const cursorValue = canonicalUtcWallClock(cursor);
-    const date = taipeiDate(cursorValue);
+    const date = taipeiDateFromUtcWallClock(cursorValue);
     const nextMidnight = utcWallClockMilliseconds(taipeiMidnightUtc(nextDateOnly(date)));
     const segmentEnd = Math.min(endMilliseconds, Number.isFinite(nextMidnight) && nextMidnight > cursor ? nextMidnight : endMilliseconds);
     result.push({ date, seconds: Math.round((segmentEnd - cursor) / 1000) });
@@ -596,12 +597,6 @@ function roundScheduleAllocationGroupAmounts(entries: Array<{ allocation: Schedu
     amounts.set(share.rowId, share.amountMinor + 1);
   }
   return amounts;
-}
-
-function taipeiDate(value: string): string {
-  const normalized = value.replace(" ", "T");
-  const timestamp = Date.parse(normalized.endsWith("Z") ? normalized : `${normalized}Z`);
-  return Number.isNaN(timestamp) ? value.slice(0, 10) : formatTaipeiDate(timestamp);
 }
 
 function covering<T extends { validFrom: string; validTo: string | null }>(rows: T[], date: string): T | undefined {
@@ -1461,7 +1456,7 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
   const workdayDates = new Set(calendarDays.filter((date) => dayTypes.get(date) === "weekday"));
   const statementRows: Array<{ employee: HrPayrollEmployeeResult; payslipId: string; lines: HrPayrollLineResult[]; compensationIds: string[]; insuranceIds: string[] }> = [];
   const calculationWarnings = new Set<string>();
-  const clockedEmployeeDates = new Set(clocks.filter((row) => row.employmentId).map((row) => `${row.employmentId}:${taipeiDate(row.occurredAt)}`));
+  const clockedEmployeeDates = new Set(clocks.filter((row) => row.employmentId).map((row) => `${row.employmentId}:${taipeiDateFromUtcWallClock(row.occurredAt)}`));
   // 分配資格直接採第一份來源快照，避免 preparing 回呼後把舊資格／封存狀態算進新快照的結果。
   const allocationSnapshot = JSON.parse(sourceSnapshotBeforeCalculation) as {
     allocationEmploymentStates: Array<{ employmentId: string; archivedAt: string | null; userStatus: string }>;
@@ -2406,8 +2401,8 @@ export async function calculateHrPayroll(db: Database, input: HrPayrollCalculati
     } });
 
     const employeeClocks = clocks.filter((row) => row.employmentId === employee.employmentId);
-    const attendanceDays = new Set(employeeClocks.map((row) => taipeiDate(row.occurredAt)).filter((day) => employmentDaySet.has(day)));
-    const missingPunchDays = employmentDays.filter((day) => employeeClocks.filter((row) => taipeiDate(row.occurredAt) === day).length === 1);
+    const attendanceDays = new Set(employeeClocks.map((row) => taipeiDateFromUtcWallClock(row.occurredAt)).filter((day) => employmentDaySet.has(day)));
+    const missingPunchDays = employmentDays.filter((day) => employeeClocks.filter((row) => taipeiDateFromUtcWallClock(row.occurredAt) === day).length === 1);
     const compensationIds = employeeCompensations.filter((row) => row.validFrom < period.end && (row.validTo === null || row.validTo > period.start)).map((row) => row.id);
     const insuranceIds = insurance.filter((row) => row.employmentId === employee.employmentId).map((row) => row.id);
     const employeeInsurance = insurance.filter((row) => row.employmentId === employee.employmentId);

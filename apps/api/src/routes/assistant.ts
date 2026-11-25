@@ -55,6 +55,7 @@ import {
   upsertAssistantLineGroup,
   type AssistantLineSourceType,
   type StoredMediaAttachment,
+  parseDbTimestamp,
 } from "@rueisiang/db";
 import { can, type AuthUser, type Permission } from "@rueisiang/auth";
 import { Hono } from "hono";
@@ -443,7 +444,7 @@ async function sandboxAttachments(
     if (!media || media.namespace !== "assistant" || media.createdBy !== userId) {
       throw new HTTPException(403, { message: "沒有使用這張圖片附件的權限。" });
     }
-    if (media.expiresAt && Date.parse(media.expiresAt) <= Date.now()) {
+    if (media.expiresAt && (parseDbTimestamp(media.expiresAt) ?? 0) <= Date.now()) {
       throw new HTTPException(400, { message: `圖片附件「${media.filename}」已過期，請重新上傳。` });
     }
     if (!SANDBOX_IMAGE_TYPES.has(media.contentType)) {
@@ -479,7 +480,7 @@ export const assistant = new Hono<AppEnv>()
     if (!media || media.namespace !== "assistant" || media.createdBy !== c.get("user").id) {
       throw new HTTPException(404, { message: "找不到這張圖片附件。" });
     }
-    if (media.expiresAt && Date.parse(media.expiresAt) <= Date.now()) {
+    if (media.expiresAt && (parseDbTimestamp(media.expiresAt) ?? 0) <= Date.now()) {
       throw new HTTPException(404, { message: "這張圖片附件已過期。" });
     }
     const nas = nasStorageClient(c.env);

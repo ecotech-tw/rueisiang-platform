@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useMemo, useState } from "react";
 import { useSession } from "../../auth/session.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
@@ -23,9 +24,8 @@ type MappingDialogState = ProductSkuMapping | "new" | { kind: "new"; product: Un
 type SkuTab = "pending" | "mapped" | "ignored";
 
 function formatTime(value: string): string {
-  const normalized = value.includes("T") ? value : `${value.replace(" ", "T")}Z`;
-  const parsed = new Date(normalized);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+  const parsed = parseDbDate(value);
+  return parsed ? parsed.toLocaleString("zh-TW", { hour12: false }) : value;
 }
 
 function matchesValues(values: string[], search: string): boolean {

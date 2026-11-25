@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import type { Permission } from "@rueisiang/auth/permissions";
 import { useState } from "react";
 import { useSession } from "../../auth/session.js";
@@ -48,9 +49,8 @@ function displayNameOf(user: AdminUser): string {
 
 function formatTime(value: string | null): string {
   if (!value) return "—";
-  // D1 存的是 UTC 的 CURRENT_TIMESTAMP（YYYY-MM-DD HH:MM:SS），沒有時區標記。
-  const parsed = new Date(value.replace(" ", "T") + "Z");
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+  const parsed = parseDbDate(value);
+  return parsed ? parsed.toLocaleString("zh-TW", { hour12: false }) : value;
 }
 
 /**

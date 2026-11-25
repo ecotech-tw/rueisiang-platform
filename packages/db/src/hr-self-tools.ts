@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, gt, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { parseDbTimestamp } from "./db-timestamp.js";
 import { HrError, listHrEmployees } from "./hr-people.js";
 import { authLineAccountLinks } from "./schema/auth.js";
 import { listHrAnnualLeaveEntitlements } from "./hr-annual-leave.js";
@@ -164,7 +165,7 @@ export interface HrSelfOvertimeQuery {
 }
 
 function minutesBetween(start: string, end: string) {
-  return Math.round((Date.parse(`${end.replace(" ", "T")}Z`) - Date.parse(`${start.replace(" ", "T")}Z`)) / 60_000);
+  return Math.round(((parseDbTimestamp(end) ?? Number.NaN) - (parseDbTimestamp(start) ?? Number.NaN)) / 60_000);
 }
 
 /**

@@ -1,3 +1,4 @@
+import { parseDbDate } from "@rueisiang/db/db-timestamp";
 import { useMemo, useState } from "react";
 import { Pager } from "../../../shell/Pager.js";
 import { SortableHeader } from "../../../shell/SortableHeader.js";
@@ -18,8 +19,8 @@ const PAGE_SIZES = [10, 25, 50] as const;
 type SortField = "createdAt" | "kind" | "startDate";
 
 function formatTime(value: string): string {
-  const parsed = new Date(value.includes("T") ? value : `${value.replace(" ", "T")}Z`);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString("zh-TW", { hour12: false });
+  const parsed = parseDbDate(value);
+  return parsed ? parsed.toLocaleString("zh-TW", { hour12: false }) : value;
 }
 
 /** 官網是半月一期，用月份表示比起訖日好讀；其他報表照原本的起訖日顯示。 */
