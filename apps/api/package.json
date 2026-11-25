@@ -12,6 +12,7 @@
     "dry-run": "wrangler deploy --dry-run"
   },
   "dependencies": {
+    "@cloudflare/containers": "^0.3.7",
     "@earendil-works/pi-agent-core": "0.99.2",
     "@earendil-works/pi-ai": "0.99.2",
     "@rueisiang/assistant": "workspace:*",

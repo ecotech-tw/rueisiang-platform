@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
-import { reportRunScopes, reportRuns, scopes } from "./schema/reports.js";
+import { reportRunScopes, reportRuns, scopes, type ReportRunStatus } from "./schema/reports.js";
 
 const SHOPEE_SCOPE_ID = "shopee:store:default";
 
@@ -89,6 +89,19 @@ export async function recordShopeeSalesRun(
       driveFolderName: input.driveFolderName ?? "",
     }),
   ] as never);
+}
+
+export async function updateShopeeSalesRun(
+  db: Database,
+  input: { requestId: string; status: ReportRunStatus; lastError?: string; importedSalesRows?: number; importedPayoutRows?: number },
+): Promise<void> {
+  await db.update(reportRuns).set({
+    status: input.status,
+    lastError: input.lastError?.slice(0, 2_000) ?? "",
+    ...(input.importedSalesRows === undefined ? {} : { importedSalesRows: input.importedSalesRows }),
+    ...(input.importedPayoutRows === undefined ? {} : { importedPayoutRows: input.importedPayoutRows }),
+    updatedAt: new Date().toISOString(),
+  }).where(eq(reportRuns.requestId, input.requestId));
 }
 
 export async function listShopeeSalesRuns(db: Database, limit = 10): Promise<ShopeeSalesRun[]> {
