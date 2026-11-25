@@ -92,6 +92,7 @@ remote = true
 name = "REPORT_RUNNER"
 class_name = "ReportRunner"
 
+# Shopee 工作共用單一 ReportRunner DO，依序使用可重用的 Container；保留 2 個 instance 上限供舊工作遷移期間使用。
 [[containers]]
 class_name = "ReportRunner"
 image = "../../tools/report-runner/Dockerfile"

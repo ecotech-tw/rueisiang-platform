@@ -304,8 +304,9 @@ node setup.mjs mail  eli-lin@ecotech.tw         # → GMAIL_REFRESH_TOKEN
 ## 蝦皮銷售報表
 
 蝦皮報表工具位在營運工具底下的「蝦皮銷售報表」。使用者直接上傳從蝦皮下載的加密
-xlsx，平台會暫存後交給 GitHub Actions 解密、整理並上傳到設定好的 Google Drive；目前不會自動登入蝦皮，
-需要共用的 `GITHUB_TOKEN`，只用來觸發 GitHub Actions workflow。
+xlsx；Worker 先暫存檔案，再交給共用的 ReportRunner Durable Object 佇列，依序重用 Cloudflare
+Container 解密、整理並上傳到設定好的 Google Drive，完整月份也會匯入 D1。GitHub Actions
+workflow 保留為手動備援。目前不會自動登入蝦皮。
 報表工具也可以獨立使用：`node tools/shopee-sales-report-export/driver.mjs --input
 <檔案> --password <密碼> --drive-folder-url <Drive資料夾連結>`。
 
