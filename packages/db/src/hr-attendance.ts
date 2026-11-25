@@ -1,5 +1,6 @@
 import { and, asc, count, desc, eq, isNull, like, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
+import { parseDbTimestamp } from "./db-timestamp.js";
 import { inJsonArray, jsonArrayValues } from "./sql-lists.js";
 import { classifyDailyClockEvents, dailyClockEventKindSql } from "./hr-attendance-kind.js";
 import { calendarSpecialAppliesToScope, resolveCalendarSpecials, resolveDayTypes } from "./hr-calendar.js";
@@ -300,8 +301,8 @@ function wallClockMinutes(value: string) {
 }
 
 function taipeiClockMinutes(value: string) {
-  const timestamp = Date.parse(`${value.replace(" ", "T")}Z`);
-  if (Number.isNaN(timestamp)) return null;
+  const timestamp = parseDbTimestamp(value);
+  if (timestamp === null) return null;
   const parts = TAIPEI_CLOCK_FORMATTER.formatToParts(new Date(timestamp));
   const hour = Number(parts.find((part) => part.type === "hour")?.value);
   const minute = Number(parts.find((part) => part.type === "minute")?.value);

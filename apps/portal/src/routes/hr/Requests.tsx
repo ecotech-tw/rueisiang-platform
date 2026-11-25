@@ -1,4 +1,4 @@
-import { parseDbDate } from "@rueisiang/db/db-timestamp";
+import { parseDbDate, parseDbTimestamp } from "@rueisiang/db/db-timestamp";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
@@ -115,7 +115,7 @@ function leaveDisplayValue(value: string, fallbackDate: string) {
 
 function overtimeDetail(settlementKind: string | null | undefined, requestedStart: string | null | undefined, requestedEnd: string | null | undefined) {
   const settlement = settlementKind === "pay" ? "付薪" : "補休";
-  const minutes = (Date.parse(`${(requestedEnd ?? "").replace(" ", "T")}Z`) - Date.parse(`${(requestedStart ?? "").replace(" ", "T")}Z`)) / 60_000;
+  const minutes = ((parseDbTimestamp(requestedEnd) ?? Number.NaN) - (parseDbTimestamp(requestedStart) ?? Number.NaN)) / 60_000;
   return Number.isFinite(minutes) && minutes > 0 ? `${settlement}・${(minutes / 60).toFixed(1)} 小時` : settlement;
 }
 
