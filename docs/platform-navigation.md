@@ -9,7 +9,7 @@
 
 | 入口 | 網址 | 給誰 | 怎麼進 |
 |---|---|---|---|
-| 營運平台 | `platform.rueisiang.com` | 總部同仁：客服、倉管、營運、管理者 | Google 登入，側邊選單 |
+| 營運平台 | `platform.rueisiang.com` | 總部同仁：客服、倉管、營運、管理者 | Google 帳號或邀請時設定的 email／密碼（都是邀請制），側邊選單 |
 | HRIS | 同一個 portal 的 `/hr` | 人資與管理者 | 側邊選單左下角的 HRIS 入口（`SystemSwitcher`），有任一 HR 讀取權限才出現 |
 | 員工自助 | `hr.rueisiang.com`（`apps/hr`） | 每一位員工與支援人員 | 手機、LINE 內建瀏覽器 |
 
@@ -31,7 +31,7 @@ HRIS 是每月、員工自助是每個人自己的事。HRIS 從側邊選單拆�
 系統管理       權限管理 · 角色管理
 ```
 
-報表執行底下另有出金表、商品銷售、官網、上傳報表與執行紀錄五個分頁，用頁內的 header bar
+報表執行底下另有出金表、商品銷售、官網對帳單、上傳報表與執行紀錄五個分頁，用頁內的 header bar
 切換，不佔側邊選單。
 
 ### HRIS（6 大項、約 20 個子頁）
@@ -106,7 +106,9 @@ HRIS 是每月、員工自助是每個人自己的事。HRIS 從側邊選單拆�
 
 - 時間照 [`database-conventions.md`](./database-conventions.md)；帳期用「台北的日期」切，換成 UTC
   起訖用 `taipeiMidnightUtc`。
-- 金額存 INTEGER（元），跟既有報表與薪資一致。
+- 金額存 INTEGER，但**既有的兩邊單位不同**：報表（`report_payout_daily.payout_amount` 等）存元，
+  薪資（`*_minor` 欄位）存分，也就是元 × 100；`hr-payroll-calculation.ts` 讀出金時就是乘 100 換成分。
+  會計表建議跟薪資一樣存分、欄位名稱帶 `_minor`，因為代扣勞健保會有小數；從報表讀進來時乘 100。
 - 會計表的外鍵用 `ON DELETE RESTRICT`。既有的表有 27 個 CASCADE（父表包含 `users`、`items`、
   `report_runs`），會計的分錄不能因為刪了一筆來源就跟著消失。
 - 已結帳的帳期用 trigger 擋修改，作法照薪資結算的守門 trigger。
