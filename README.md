@@ -17,7 +17,7 @@ packages/
   db/         drizzle schema（D1）＋ migrations
   cyberbiz/   CYBERBIZ API client 與 webhook 驗證
   config/     共用 tsconfig
-tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm workspace 裡
+tools/        報表 driver，供 GitHub Actions 或共用 Cloudflare Container 執行；刻意不在 pnpm workspace 裡
   cyberbiz-reports/          CYBERBIZ 出金表與商品銷售報表 driver（純 JS ＋ npm lockfile）
   shopee-sales-report-export/ 蝦皮銷售報表直接上傳、整理與 Drive 上傳服務（純 JS）
 ```
@@ -244,18 +244,22 @@ R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要�
 - [ ] WMS：登入正式站完成單一 CYBERBIZ 品項同步與全部同步，確認數量、安全庫存與操作紀錄。
 - [ ] CRM：登入正式站完成客戶列表、標籤與核准的測試客戶寫入 smoke test，確認 target tables 與 CYBERBIZ 回應一致。
 - [ ] CYBERBIZ：在後台確認實際啟用的會員、商品／庫存 Webhook Events、endpoint 與驗證設定；再以 production event log 對照是否有漏送。
+- [ ] CYBERBIZ 報表 Container runner：先由 Linux CI 建置並驗證 image；取得操作授權後，配置 Cloudflare 報表 secrets，以指定店別與期間驗證登入、2FA、Drive、D1 與 Portal 終態，再決定是否切換 `CYBERBIZ_REPORT_RUNNER_MODE`。切換前保留 GitHub Actions 備援，回滾方式是切回 `github`。
 
 ## 出金表：它跑在哪、憑證從哪來
 
-出金表**不在 Worker 裡跑**。Worker 有執行時間上限，而這個流程要開瀏覽器登
-CYBERBIZ、等 2FA 驗證信、下載 xlsx、寫欄位、上傳 Drive——一趟三分半。
+出金表**不在 Worker request 裡跑**。Worker 有執行時間上限，而這個流程要開瀏覽器登
+CYBERBIZ、等 2FA 驗證信、下載 xlsx、寫欄位、上傳 Drive——一趟三分半。平台可透過 GitHub
+Actions 執行，或在明確啟用後交給共用 ReportRunner DO／Container 序列執行。
 
-所以分成兩邊：
+目前 `CYBERBIZ_REPORT_RUNNER_MODE` 預設為 `github`；GitHub Actions 是未切換前的執行路徑與備援。
+Container 模式需先由管理者配置 Cloudflare secrets 並完成受控 smoke test，不會因部署程式碼自動啟用。
 
 | 誰 | 做什麼 | 碰得到憑證嗎 |
 |---|---|---|
-| 平台（Worker） | 記「有哪些店」「誰按了執行」，`workflow_dispatch` 觸發 | ❌ 只有一顆 GitHub PAT |
-| GitHub Actions runner | 真正跑 `tools/cyberbiz-reports/payout/driver.mjs` 或 `sales/driver.mjs` | ✅ 全部 |
+| 平台（Worker） | 記「有哪些店」「誰按了執行」；依模式觸發 GitHub workflow 或共用 DO | GitHub 模式使用 PAT；Container 模式只把必要報表憑證注入 Container |
+| GitHub Actions runner | fallback，真正跑 `tools/cyberbiz-reports/payout/driver.mjs` 或 `sales/driver.mjs` | ✅ GitHub repository secrets |
+| ReportRunner DO／Container | Container 模式下序列化執行報表 driver | ✅ Cloudflare Worker secrets 注入；與平台登入 OAuth 分開 |
 
 `tools/` 刻意留在 pnpm workspace 之外（`pnpm-workspace.yaml` 只 glob `apps/*`
 與 `packages/*`）：它相依 Playwright，拉進來會讓每個人的 `pnpm install` 都扛一份
@@ -276,8 +280,9 @@ scope ID 與 Drive 設定放進 `stores_json`，runner 以這次執行的輸入�
 | `GOOGLE_REFRESH_TOKEN` | Drive ＋ Sheets 讀寫 |
 | `GMAIL_REFRESH_TOKEN` | Gmail 唯讀（收 2FA 驗證信與報表附件） |
 
-另外 Worker 端需要共用的 `GITHUB_TOKEN`：fine-grained PAT，需給出金與蝦皮所使用 repo 的
-**Actions 讀寫**（觸發與查狀態）。
+另外 Worker 端的 `GITHUB_TOKEN` 是 GitHub 模式的 fallback 憑證：fine-grained PAT，需給出金與蝦皮所使用 repo 的
+**Actions 讀寫**（觸發與查狀態）。目前 `cyberbiz-reports` skill 記錄 GitHub Actions 模式；Container 模式的 Cloudflare secret
+開通步驟尚未寫入操作指南，因此不能只靠部署此程式碼啟用。完成獨立的憑證開通與受控 smoke test 前，保留 GitHub Actions secrets 與 workflow。
 
 ### 這些憑證掛在哪個 Google 帳號
 

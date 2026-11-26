@@ -1,4 +1,4 @@
-import { listCyberbizReportRuns, listPayoutStores, recordCyberbizReportRun } from "@rueisiang/db";
+import { listCyberbizReportRuns, listPayoutStores, recordCyberbizReportRun, updateReportRun } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -6,6 +6,16 @@ import { requirePermission } from "../middleware/auth.js";
 import { body } from "../request.js";
 import { cyberbizSalesGithub } from "../cyberbiz-sales/github.js";
 import { runnerStores } from "../cyberbiz-scope.js";
+import {
+  containerJobStatus,
+  containerRunnerConfigured,
+  cyberbizRunnerConfigured,
+  isContainerRequestId,
+  newContainerRequestId,
+  readContainerJob,
+  submitContainerJob,
+  usesContainerRunner,
+} from "../report-runner.js";
 
 function isValidDate(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -53,14 +63,20 @@ export const cyberbizSales = new Hono<AppEnv>()
       stores: stores.map((store) => ({ name: store.name, scopeId: store.id, folder: store.driveFolderName, folderUrl: store.driveFolderUrl })),
       defaultStart: range.start,
       defaultEnd: range.end,
-      configured: Boolean(cyberbizSalesGithub(c.env)),
-      latestRequestId: runs[0]?.requestId ?? null,
+      configured: cyberbizRunnerConfigured(c.env, Boolean(cyberbizSalesGithub(c.env))),
+      runnerMode: usesContainerRunner(c.env) ? "container" : "github",
+      latestRequestId: runs.find((run) => isContainerRequestId(run.requestId) === usesContainerRunner(c.env))?.requestId ?? null,
       runs,
     });
   })
   .post("/run", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
     const github = cyberbizSalesGithub(c.env);
-    if (!github) throw new HTTPException(503, { message: "平台還沒設定商品銷售報表的 GitHub workflow，無法觸發執行。" });
+    const containerMode = usesContainerRunner(c.env);
+    if (containerMode ? !containerRunnerConfigured(c.env) : !github) {
+      throw new HTTPException(503, { message: containerMode
+        ? "報表 Container 或 CYBERBIZ／Google 報表憑證尚未設定，無法觸發執行。"
+        : "平台還沒設定商品銷售報表的 GitHub workflow，無法觸發執行。" });
+    }
     const input = await body(c);
     const configuredStores = await listPayoutStores(c.get("db"));
     const known = configuredStores.filter((store) => store.enabled).map((store) => store.name);
@@ -78,29 +94,40 @@ export const cyberbizSales = new Hono<AppEnv>()
       : stores.length === 1
         ? stores[0]!
         : JSON.stringify(stores);
-    const requestId = crypto.randomUUID();
-    await github.dispatch({
-      store,
-      // 店別設定跟著這一次執行傳給 runner；D1 是唯一來源，見 tools.ts 的 runnerStores。
-      stores: runnerStores(configuredStores.filter((item) => stores.includes(item.name))),
-      start,
-      end,
+    const runnerStoreList = runnerStores(configuredStores.filter((item) => stores.includes(item.name)));
+    const requestId = containerMode ? newContainerRequestId() : crypto.randomUUID();
+    const runInput = {
       requestId,
-    });
-    const run = await recordCyberbizReportRun(c.get("db"), {
-      requestId,
-      reportKind: "sales",
+      reportKind: "sales" as const,
       periodKind: periodKind(start, end),
       stores,
       scopeIds: configuredStores.filter((store) => stores.includes(store.name)).map((store) => store.id),
       startDate: start,
       endDate: end,
       actor: c.get("user"),
-    });
+    };
+    let run;
+    if (containerMode) {
+      // Container 可能在 HTTP response 後立即開始執行；先寫 run row，避免它的狀態更新搶在 insert 前。
+      run = await recordCyberbizReportRun(c.get("db"), runInput);
+      try {
+        await submitContainerJob(c.env, { kind: "cyberbiz-sales", requestId, stores: runnerStoreList, start, end });
+      } catch (error) {
+        await updateReportRun(c.get("db"), { requestId, status: "failed", lastError: "報表 Container 無法接受工作。" });
+        throw error;
+      }
+    } else {
+      await github!.dispatch({ store, stores: runnerStoreList, start, end, requestId });
+      run = await recordCyberbizReportRun(c.get("db"), runInput);
+    }
     return c.json({ requestId, run, store, start, end }, 202);
   })
   .get("/status", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
+    const requestId = c.req.query("requestId") ?? undefined;
+    if (requestId && isContainerRequestId(requestId)) {
+      return c.json(containerJobStatus(await readContainerJob(c.env, requestId), requestId));
+    }
     const github = cyberbizSalesGithub(c.env);
     if (!github) throw new HTTPException(503, { message: "平台還沒設定 GitHub workflow。" });
-    return c.json(await github.listRuns(c.req.query("requestId") ?? undefined));
+    return c.json(await github.listRuns(requestId));
   });

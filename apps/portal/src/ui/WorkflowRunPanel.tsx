@@ -1,12 +1,14 @@
 import type { ReactNode } from "react";
 import { TableNote } from "./DataTable.js";
 import { Panel } from "./Panel.js";
-import { StatusBadge } from "./Feedback.js";
+import { Alert, StatusBadge } from "./Feedback.js";
 
 interface WorkflowRunSummary {
   status: string;
   conclusion: string | null;
   url?: string;
+  reportMarkdown?: string;
+  error?: string;
 }
 
 interface WorkflowStepSummary {
@@ -37,7 +39,7 @@ function stepClass(step: WorkflowStepSummary): string {
   return `${base} text-muted`;
 }
 
-/** GitHub Actions 執行狀態的共用呈現，讓不同營運工具的追蹤體驗保持一致。 */
+/** 背景報表工作的共用狀態呈現，讓不同營運工具的追蹤體驗保持一致。 */
 export function WorkflowRunPanel({
   tracking,
   latest,
@@ -46,7 +48,7 @@ export function WorkflowRunPanel({
   runningLabel = "執行中",
   successLabel = "完成",
   failureLabel = "未完成",
-  waitingLabel = "等待 GitHub 建立工作…",
+  waitingLabel = "等待執行環境建立工作…",
   artifactNote,
 }: WorkflowRunPanelProps) {
   const completed = latest?.status === "completed";
@@ -79,10 +81,19 @@ export function WorkflowRunPanel({
         </ol>
       ) : null}
 
-      {latest?.url ? (
+      {latest?.error ? <Alert className="mt-3" tone="danger">{latest.error}</Alert> : null}
+
+      {latest?.reportMarkdown ? (
+        <details className="mt-3">
+          <summary className="cursor-pointer text-sm font-medium">查看執行摘要</summary>
+          <pre className="mt-2 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-field bg-canvas p-3 text-[12px]">{latest.reportMarkdown}</pre>
+        </details>
+      ) : null}
+
+      {latest && (latest.url || artifactNote) ? (
         <TableNote>
-          <a href={latest.url} target="_blank" rel="noopener noreferrer">在 GitHub 看完整紀錄</a>
-          {artifactNote ? <>　{artifactNote}</> : null}
+          {latest.url ? <a href={latest.url} target="_blank" rel="noopener noreferrer">在 GitHub 看完整紀錄</a> : null}
+          {artifactNote ? <>{latest.url ? "　" : null}{artifactNote}</> : null}
         </TableNote>
       ) : null}
     </Panel>

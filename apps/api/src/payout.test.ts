@@ -116,6 +116,59 @@ describe("店別種子", () => {
 });
 
 describe("執行", () => {
+  it("Container mode 將出金表工作送入共享 DO 並回報執行階段", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    let requestId = "";
+    let runExistsBeforeEnqueue = false;
+    const runnerFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (init?.method === "POST") {
+        const payload = JSON.parse(String(init.body)) as { requestId: string };
+        requestId = payload.requestId;
+        runExistsBeforeEnqueue = (await listPayoutRuns(db())).some((run) => run.requestId === requestId);
+        return Response.json({ requestId, status: "queued" }, { status: 202 });
+      }
+      return Response.json({ requestId, status: "running", progress: "匯出已送出，等信…" });
+    });
+    env = {
+      ...env,
+      CYBERBIZ_REPORT_RUNNER_MODE: "container",
+      REPORT_RUNNER_TOKEN: "runner-token",
+      REPORT_RUNNER: { idFromName: () => "shared", get: () => ({ fetch: runnerFetch }) },
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
+      GOOGLE_REPORTS_OAUTH_CLIENT_ID: "reports-client",
+      GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-secret",
+      GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh",
+      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "gmail-refresh",
+    };
+    const id = await seedUser("manager-container@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-container@ecotech.tw", "/api/tools/payout/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: ["宏匯廣場1F"], ...RANGE }),
+    });
+
+    expect(response.status).toBe(202);
+    const accepted = (await response.json()) as { requestId: string };
+    expect(accepted.requestId).toMatch(/^cf-/);
+    expect(runExistsBeforeEnqueue).toBe(true);
+    expect(calls[0]?.url).toBe("https://report-runner/jobs");
+    expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({
+      kind: "cyberbiz-payout",
+      requestId: accepted.requestId,
+      stores: [{ name: "宏匯廣場1F", scopeId: cyberbizScopeIdFromStoreName("宏匯廣場1F") }],
+      start: RANGE.start,
+      end: RANGE.end,
+    });
+
+    const status = await as(id, "manager-container@ecotech.tw", `/api/tools/payout/status?requestId=${accepted.requestId}`);
+    expect(await status.json()).toMatchObject({
+      runs: [{ status: "in_progress", title: accepted.requestId }],
+      steps: [{ name: "匯出已送出，等信…", status: "in_progress" }],
+    });
+    expect(calls).toHaveLength(2);
+  });
+
   it("全部店別送出 store=全部，並帶上識別碼", async () => {
     const calls = stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");

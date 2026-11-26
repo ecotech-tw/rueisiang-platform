@@ -11,6 +11,7 @@
  *   node payout/driver.mjs --headless           # 不開視窗（2FA 或登入卡住時會看不到畫面）
  */
 import path from "node:path";
+import fs from "node:fs/promises";
 import {
   dateRange,
   ensureDir,
@@ -208,6 +209,7 @@ async function main() {
         });
         result.steps.verify = "ok";
         result.total = verified.total;
+        result.rows = verified.rows;
         log(`  驗證通過：${verified.rows} 列，出金合計 ${verified.total.toLocaleString("zh-TW")}`);
 
         // 欄位直接寫進 xlsx（維持與 Drive 上既有檔案相同的格式）
@@ -275,7 +277,7 @@ async function main() {
             end: range.end,
             firstDataRow: config.firstDataRow,
           });
-          await ingestCyberbizReport({
+          const ingested = await ingestCyberbizReport({
             apiUrl: ingestConfig.apiUrl,
             ingestToken: env.CYBERBIZ_REPORT_INGEST_TOKEN,
             kind: "payout",
@@ -283,6 +285,7 @@ async function main() {
             scopeName: store.name,
             rows: payoutIngestRows(parsed.rows),
           });
+          result.rows = ingested?.payoutRowCount ?? parsed.rows.length;
           result.steps.ingest = "ok";
         } else {
           result.steps.ingest = "skip";
@@ -316,6 +319,9 @@ async function main() {
         ? path.join(config.reportsDir, "payout")
         : skillPath(config.reportsDir, "payout");
       run.reportPath = await writeMarkdown(run, reportsDir);
+      if (process.env.REPORT_RUNNER_RESULT_PATH) {
+        await fs.writeFile(process.env.REPORT_RUNNER_RESULT_PATH, JSON.stringify(run), "utf8");
+      }
       log(terminalSummary(run));
     }
     await context.close();
@@ -324,7 +330,8 @@ async function main() {
   if (run.stores.some((store) => !store.done)) process.exitCode = 1;
 }
 
-main().catch((error) => {
-  log(`執行失敗：${error.message}`);
+main().catch(async (error) => {
+  const env = await loadEnv();
+  log(`執行失敗：${redact(error.message, env)}`);
   process.exitCode = 1;
 });

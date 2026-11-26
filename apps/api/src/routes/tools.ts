@@ -18,6 +18,7 @@ import {
   listPayoutRuns,
   listPayoutStores,
   recordPayoutRun,
+  updateReportRun,
   type ProductBundleComponentInput,
 } from "@rueisiang/db";
 import { can } from "@rueisiang/auth";
@@ -72,6 +73,16 @@ function isValidDate(value: string): boolean {
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 import { cyberbizSales } from "./cyberbiz-sales.js";
+import {
+  containerJobStatus,
+  containerRunnerConfigured,
+  cyberbizRunnerConfigured,
+  isContainerRequestId,
+  newContainerRequestId,
+  readContainerJob,
+  submitContainerJob,
+  usesContainerRunner,
+} from "../report-runner.js";
 import { shopeeSales } from "./shopee-sales.js";
 import { shopReport } from "./shop-report.js";
 import { reportRuns } from "./report-runs.js";
@@ -79,8 +90,8 @@ import { reportRuns } from "./report-runs.js";
 /**
  * 營運工具。出金表與 CYBERBIZ 商品銷售報表都由這裡統一掛載。
  *
- * 執行模式跟舊的 Worker 一模一樣：按下去就 workflow_dispatch 一個 GitHub Actions
- * 工作，再輪詢狀態。平台不開瀏覽器、不碰 CYBERBIZ 或 Google 的憑證。
+ * GitHub Actions fallback 與 Container 模式都由平台送出工作並追蹤狀態；Worker 本身
+ * 不開瀏覽器，報表憑證只在選用 Container runner 時傳給 ReportRunner。
  *
  * 換掉的只有入口。舊版是一個誰拿到網址都能按的公開頁面；現在要登入、要
  * tools:payout:run，而且每次執行都留下是誰按的——出金表會動到正式帳務的 Drive
@@ -236,7 +247,7 @@ export const tools = new Hono<AppEnv>()
     }
   })
 
-  /** 執行頁一開始要的東西：店別、預設區間、以及後端到底有沒有接上 GitHub。 */
+  /** 執行頁一開始要的東西：店別、預設區間，以及目前選用的 runner 是否已設定。 */
   .get("/payout/state", requirePermission("tools:payout:run"), async (c) => {
     const stores = await listPayoutStores(c.get("db"), { enabledOnly: true });
     const range = previousMonthRange();
@@ -252,12 +263,13 @@ export const tools = new Hono<AppEnv>()
       defaultStart: range.start,
       defaultEnd: range.end,
       // 沒設定 token 時要讓畫面說得出原因，而不是等按下去才報錯。
-      configured: Boolean(payoutGithub(c.env)),
+      configured: cyberbizRunnerConfigured(c.env, Boolean(payoutGithub(c.env))),
+      runnerMode: usesContainerRunner(c.env) ? "container" : "github",
       /*
        * 最近一次執行的識別碼。重新整理或離開再回來時，畫面要能自己接回去問
        * 狀態——不然人會不知道上一次到底跑完了沒，只好再按一次。
        */
-      latestRequestId: runs[0]?.requestId ?? null,
+      latestRequestId: runs.find((run) => isContainerRequestId(run.requestId) === usesContainerRunner(c.env))?.requestId ?? null,
       runs,
     });
   })
@@ -265,8 +277,11 @@ export const tools = new Hono<AppEnv>()
   .post("/payout/run", requirePermission("tools:payout:run"), async (c) => {
     const input = await body(c);
     const github = payoutGithub(c.env);
-    if (!github) {
-      throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN，無法觸發執行。" });
+    const containerMode = usesContainerRunner(c.env);
+    if (containerMode ? !containerRunnerConfigured(c.env) : !github) {
+      throw new HTTPException(503, { message: containerMode
+        ? "報表 Container 或 CYBERBIZ／Google 報表憑證尚未設定，無法觸發執行。"
+        : "平台還沒設定 GITHUB_TOKEN，無法觸發執行。" });
     }
 
     const requested = Array.isArray(input.stores) ? input.stores.map(String) : [];
@@ -289,8 +304,8 @@ export const tools = new Hono<AppEnv>()
 
     const isAll = requested.length === known.length && known.every((name) => requested.includes(name));
     /*
-     * workflow 的輸入仍保留「全部」給完整清單；多家店則傳 JSON 陣列，由 workflow
-     * 拆成多個 --store。店別開關關掉時不能傳「全部」，不然 runner 會把被隱藏的店也跑下去。
+     * GitHub workflow 的輸入仍保留「全部」給完整清單；多家店則傳 JSON 陣列。
+     * 店別開關關掉時不能傳「全部」，不然 runner 會把被隱藏的店也跑下去。
      */
     const store = isAll && requested.length === configuredStores.length
       ? "全部"
@@ -298,35 +313,43 @@ export const tools = new Hono<AppEnv>()
         ? requested[0]!
         : JSON.stringify(requested);
 
-    const requestId = crypto.randomUUID();
-    await github.dispatch({
-      store,
-      stores: runnerStores(configuredStores.filter((item) => requested.includes(item.name))),
-      start,
-      end,
-      requestId,
-    });
-
-    // 先觸發再記錄：GitHub 沒收下的話，這裡不該留下一筆看起來跑過的紀錄。
+    const stores = runnerStores(configuredStores.filter((item) => requested.includes(item.name)));
+    const requestId = containerMode ? newContainerRequestId() : crypto.randomUUID();
     const user = c.get("user");
-    await recordPayoutRun(c.get("db"), {
+    const run = {
       requestId,
       stores: requested,
       scopeIds: configuredStores.filter((store) => requested.includes(store.name)).map((store) => store.id),
-      periodKind: isCompleteMonth(start, end) ? "month" : "custom",
+      periodKind: isCompleteMonth(start, end) ? "month" as const : "custom" as const,
       startDate: start,
       endDate: end,
       actor: { id: user.id, email: user.email },
-    });
+    };
+    if (containerMode) {
+      // Container 可能在 HTTP response 後立即開始執行；先寫 run row，避免它的 running/succeeded 更新搶在 insert 前。
+      await recordPayoutRun(c.get("db"), run);
+      try {
+        await submitContainerJob(c.env, { kind: "cyberbiz-payout", requestId, stores, start, end });
+      } catch (error) {
+        await updateReportRun(c.get("db"), { requestId, status: "failed", lastError: "報表 Container 無法接受工作。" });
+        throw error;
+      }
+    } else {
+      // GitHub 沒收下時不留一筆看起來已排程的紀錄。
+      await github!.dispatch({ store, stores, start, end, requestId });
+      await recordPayoutRun(c.get("db"), run);
+    }
 
     return c.json({ requestId, store, start, end }, 202);
   })
 
   .get("/payout/status", requirePermission("tools:payout:run"), async (c) => {
+    const requestId = c.req.query("requestId") ?? undefined;
+    if (requestId && isContainerRequestId(requestId)) {
+      return c.json(containerJobStatus(await readContainerJob(c.env, requestId), requestId));
+    }
     const github = payoutGithub(c.env);
     if (!github) throw new HTTPException(503, { message: "平台還沒設定 GITHUB_TOKEN。" });
-
-    const requestId = c.req.query("requestId") ?? undefined;
     return c.json(await github.listRuns(requestId));
   })
 

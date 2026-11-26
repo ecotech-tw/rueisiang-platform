@@ -82,6 +82,62 @@ beforeEach(async () => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("CYBERBIZ 商品銷售報表執行", () => {
+  it("Container mode 會送到共享 DO，並用相同 requestId 查詢執行狀態", async () => {
+    const calls: { url: string; init?: RequestInit }[] = [];
+    let requestId = "";
+    let runExistsBeforeEnqueue = false;
+    const runnerFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (init?.method === "POST") {
+        const payload = JSON.parse(String(init.body)) as { requestId: string };
+        requestId = payload.requestId;
+        runExistsBeforeEnqueue = (await listCyberbizReportRuns(db(), "sales")).some((run) => run.requestId === requestId);
+        return Response.json({ requestId, status: "queued" }, { status: 202 });
+      }
+      return Response.json({ requestId, status: "running", progress: "登入 CYBERBIZ…" });
+    });
+    env = {
+      ...env,
+      CYBERBIZ_REPORT_RUNNER_MODE: "container",
+      REPORT_RUNNER_TOKEN: "runner-token",
+      REPORT_RUNNER: { idFromName: () => "shared", get: () => ({ fetch: runnerFetch }) },
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
+      GOOGLE_REPORTS_OAUTH_CLIENT_ID: "reports-client",
+      GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-secret",
+      GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh",
+      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "gmail-refresh",
+    };
+    const id = await seedUser("manager-container@ecotech.tw", "role-manager");
+    const store = (await listPayoutStores(db()))[0]!;
+    const response = await as(id, "manager-container@ecotech.tw", "/api/tools/cyberbiz-sales/run", {
+      method: "POST",
+      body: JSON.stringify({ stores: [store.name], ...RANGE }),
+    });
+
+    expect(response.status).toBe(202);
+    const accepted = (await response.json()) as { requestId: string };
+    expect(accepted.requestId).toMatch(/^cf-/);
+    expect(runExistsBeforeEnqueue).toBe(true);
+    expect(calls[0]?.url).toBe("https://report-runner/jobs");
+    expect(calls[0]?.init?.headers).toMatchObject({
+      Authorization: "Bearer runner-token",
+      "x-report-runner-mode": "shared",
+    });
+    expect(JSON.parse(String(calls[0]?.init?.body))).toMatchObject({
+      kind: "cyberbiz-sales",
+      requestId: accepted.requestId,
+      stores: [{ name: store.externalName, scopeId: store.id, driveFolderUrl: store.driveFolderUrl }],
+    });
+
+    const status = await as(id, "manager-container@ecotech.tw", `/api/tools/cyberbiz-sales/status?requestId=${accepted.requestId}`);
+    expect(await status.json()).toMatchObject({
+      runs: [{ status: "in_progress", title: accepted.requestId }],
+      steps: [{ name: "登入 CYBERBIZ…", status: "in_progress" }],
+    });
+    expect(calls).toHaveLength(2);
+  });
+
   it("完整月份可由主管執行，並留下可匯入 D1 的 audit record", async () => {
     const calls = stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");

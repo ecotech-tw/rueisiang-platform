@@ -1,5 +1,5 @@
 import { Container } from "@cloudflare/containers";
-import { createDatabase, updateShopeeSalesRun } from "@rueisiang/db";
+import { createDatabase, updateReportRun } from "@rueisiang/db";
 import type { Env } from "./env.js";
 
 const RUNNER_PORT = 8080;
@@ -55,12 +55,18 @@ export class ReportRunner extends Container<Env> {
       new URL(env.SHOPEE_SOURCE_BASE_URL ?? env.PUBLIC_APP_URL ?? "https://platform.rueisiang.com").hostname,
       "oauth2.googleapis.com",
       "www.googleapis.com",
+      "gmail.googleapis.com",
+      "drive.google.com",
+      "*.cyberbiz.co",
     ];
     this.envVars = {
       REPORT_RUNNER_TOKEN: env.REPORT_RUNNER_TOKEN ?? "",
       GOOGLE_REPORTS_OAUTH_CLIENT_ID: env.GOOGLE_REPORTS_OAUTH_CLIENT_ID ?? "",
       GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: env.GOOGLE_REPORTS_OAUTH_CLIENT_SECRET ?? "",
       GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: env.GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN ?? "",
+      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: env.GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN ?? "",
+      CYBERBIZ_USERNAME: env.CYBERBIZ_USERNAME ?? "",
+      CYBERBIZ_PASSWORD: env.CYBERBIZ_PASSWORD ?? "",
       CYBERBIZ_REPORT_INGEST_TOKEN: env.CYBERBIZ_REPORT_INGEST_TOKEN ?? "",
       PLATFORM_API_URL: env.PUBLIC_APP_URL ?? "https://platform.rueisiang.com",
     };
@@ -386,7 +392,7 @@ export class ReportRunner extends Container<Env> {
   private async persistRunningSafely(requestId: string): Promise<void> {
     if (!this.env.DB) return;
     try {
-      await updateShopeeSalesRun(createDatabase(this.env.DB), { requestId, status: "running" });
+      await updateReportRun(createDatabase(this.env.DB), { requestId, status: "running" });
     } catch (error) {
       console.error("report runner running status persistence failed", { errorName: error instanceof Error ? error.name : "unknown" });
     }
@@ -395,7 +401,7 @@ export class ReportRunner extends Container<Env> {
   private async persistTerminal(requestId: string, job: RunnerJob): Promise<void> {
     if (!this.env.DB) return;
     const result = job.result as { salesRows?: number; payoutRows?: number } | null;
-    await updateShopeeSalesRun(createDatabase(this.env.DB), {
+    await updateReportRun(createDatabase(this.env.DB), {
       requestId,
       status: job.status === "succeeded" ? "succeeded" : "failed",
       lastError: typeof job.error === "string" ? job.error : "",

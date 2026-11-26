@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@rueisiang/db", () => ({
   createDatabase: vi.fn((db) => db),
-  updateShopeeSalesRun: vi.fn().mockResolvedValue(undefined),
+  updateReportRun: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { updateShopeeSalesRun } from "@rueisiang/db";
+import { updateReportRun } from "@rueisiang/db";
 import { ReportRunner } from "./report-runner-container.js";
 
 const RUNNER_TOKEN = "runner-secret";
@@ -62,7 +62,7 @@ function runnerRequest(path: string, method = "GET", body?: unknown, shared = fa
 
 describe("ReportRunner Durable Object", () => {
   beforeEach(() => {
-    vi.mocked(updateShopeeSalesRun).mockReset().mockResolvedValue(undefined);
+    vi.mocked(updateReportRun).mockReset().mockResolvedValue(undefined);
   });
 
   it("將舊版 requestId 專屬工作的狀態持久化，並由 alarm 保存終態", async () => {
@@ -74,6 +74,9 @@ describe("ReportRunner Durable Object", () => {
       GOOGLE_REPORTS_OAUTH_CLIENT_ID: "reports-client-id",
       GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-client-secret",
       GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh-token",
+      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "gmail-refresh-token",
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
       DB: {},
       containerFetch: async () => {
         containerCalls += 1;
@@ -84,6 +87,9 @@ describe("ReportRunner Durable Object", () => {
       GOOGLE_REPORTS_OAUTH_CLIENT_ID: "reports-client-id",
       GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-client-secret",
       GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh-token",
+      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "gmail-refresh-token",
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
     });
     const requestId = "request-1234567890";
 
@@ -252,7 +258,7 @@ describe("ReportRunner Durable Object", () => {
     await runner.fetch(runnerRequest("/jobs", "POST", { requestId }, true));
     await runner.processQueuedJobs();
     remoteJobs.set(requestId, { requestId, status: "succeeded", result: { salesRows: 3 } });
-    vi.mocked(updateShopeeSalesRun).mockRejectedValueOnce(new Error("temporary D1 failure"));
+    vi.mocked(updateReportRun).mockRejectedValueOnce(new Error("temporary D1 failure"));
 
     await runner.processQueuedJobs();
     expect(durable.values.get(`job:${requestId}`)).toMatchObject({ status: "succeeded" });
@@ -262,7 +268,7 @@ describe("ReportRunner Durable Object", () => {
     await runner.processQueuedJobs();
     expect(durable.values.get(`job:${requestId}`)).toMatchObject({ status: "succeeded" });
     expect(durable.values.get("report-runner:active-job")).toBeUndefined();
-    expect(vi.mocked(updateShopeeSalesRun)).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(updateReportRun)).toHaveBeenCalledTimes(3);
   });
 
   it("未知工作的狀態查詢不啟動 Container", async () => {

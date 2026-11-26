@@ -19,6 +19,11 @@ export interface Env {
   GOOGLE_REPORTS_OAUTH_CLIENT_ID?: string;
   GOOGLE_REPORTS_OAUTH_CLIENT_SECRET?: string;
   GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN?: string;
+  GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN?: string;
+  CYBERBIZ_USERNAME?: string;
+  CYBERBIZ_PASSWORD?: string;
+  /** cyberbiz runner rollout selector; keep GitHub Actions until the Container path is verified. */
+  CYBERBIZ_REPORT_RUNNER_MODE?: "github" | "container";
   /** 正式環境一定會綁定；本機 Node server 與不碰 LINE 的測試可以省略。 */
   ASSISTANT_CHAT_AGENT?: DurableObjectNamespace;
   /** 全平台共用一個 credential vault，避免多個 chat 同時旋轉同一支 refresh token。 */
@@ -95,8 +100,8 @@ export interface Env {
   UPSTASH_REDIS_REST_TOKEN?: string;
 
   /*
-   * 出金表與尚未遷移的 CYBERBIZ 報表由 GitHub Actions 執行；它們的 CYBERBIZ 帳密、
-   * Gmail 與 Drive 憑證只存在 Actions secrets。這裡的 fine-grained PAT 供這些 runner 觸發 workflow。
+   * CYBERBIZ 的 GitHub Actions fallback 由 PAT 觸發；切到 Container 時，CYBERBIZ 帳密與
+   * Gmail 報表 OAuth 憑證改由下列獨立 secrets 傳入 ReportRunner，不共用平台登入 OAuth。
    */
   GITHUB_TOKEN?: string;
   PAYOUT_GITHUB_REPO?: string;

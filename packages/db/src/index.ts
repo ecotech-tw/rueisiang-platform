@@ -452,6 +452,7 @@ export {
 export {
   REPORT_RUN_KINDS,
   listReportRuns,
+  updateReportRun,
   type ReportRunKind,
   type ReportRunListRow,
 } from "./report-runs.js";

@@ -10,6 +10,13 @@ RUN apt-get update \
     && python3 -m pip install --break-system-packages --no-cache-dir msoffcrypto-tool
 
 COPY tools/shopee-sales-report-export ./tools/shopee-sales-report-export
+COPY tools/cyberbiz-reports/package.json tools/cyberbiz-reports/package-lock.json ./tools/cyberbiz-reports/
+WORKDIR /app/tools/cyberbiz-reports
+RUN npm ci --omit=dev \
+    && npx playwright install --with-deps chromium
+COPY tools/cyberbiz-reports ./
+
+WORKDIR /app
 COPY tools/cyberbiz-reports/lib/report-ingest.mjs ./tools/cyberbiz-reports/lib/report-ingest.mjs
 COPY tools/report-runner ./tools/report-runner
 

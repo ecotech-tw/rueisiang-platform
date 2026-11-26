@@ -7,6 +7,7 @@
  * 商品銷售以月份為最小粒度，因此每家店每月只匯出並解析一份 XLSX。
  */
 import path from "node:path";
+import fs from "node:fs/promises";
 import {
   accessToken,
   uploadXlsx,
@@ -172,7 +173,10 @@ async function main() {
           })
           : null;
         result.steps.verify = "ok";
-        if (document) result.total = document.totals;
+        if (document) {
+          result.total = document.totals;
+          result.rows = document.rows.length;
+        }
 
         if (token) {
           const uploaded = await uploadXlsx(token, { filePath: localPath, name: path.basename(localPath), folderId: store.driveFolderId });
@@ -197,6 +201,7 @@ async function main() {
            * 對不到對應的 SKU 是略過而不是整份失敗，所以這裡要把它們講出來。
            * 不講的話那些營收會安靜地少掉，而且沒有人知道要回來補對應。
            */
+          result.rows = ingested?.salesRowCount ?? 0;
           const skipped = ingested?.skippedSkus ?? [];
           if (skipped.length) {
             result.steps.ingest = "partial";
@@ -242,6 +247,9 @@ async function main() {
     if (run.stores.length) {
       const reportsDir = path.isAbsolute(config.reportsDir) ? path.join(config.reportsDir, "sales") : skillPath(config.reportsDir, "sales");
       run.reportPath = await writeMarkdown(run, reportsDir, { kind: "sales" });
+      if (process.env.REPORT_RUNNER_RESULT_PATH) {
+        await fs.writeFile(process.env.REPORT_RUNNER_RESULT_PATH, JSON.stringify(run), "utf8");
+      }
       log(terminalSummary(run, { kind: "sales" }));
     }
     await context.close();
@@ -250,7 +258,7 @@ async function main() {
   if (run.stores.some((store) => !store.done)) process.exitCode = 1;
 }
 
-main().catch((error) => {
-  log(`執行失敗：${redact(error.message, {})}`);
+main().catch(async (error) => {
+  log(`執行失敗：${redact(error.message, await loadEnv())}`);
   process.exitCode = 1;
 });
