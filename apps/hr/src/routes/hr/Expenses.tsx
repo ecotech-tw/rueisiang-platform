@@ -3,6 +3,7 @@ import {
   EXPENSE_DESCRIPTION_MAX,
   EXPENSE_RECEIPT_MAX_FILES,
   EXPENSE_STATUS_LABELS,
+  earliestExpenseDate,
   INVOICE_NUMBER_PATTERN,
   SELLER_TAX_ID_PATTERN,
   normalizeInvoiceNumber,
@@ -107,7 +108,8 @@ export function HrExpenses() {
       closeRequestRef={closeCancel}
       onCancel={() => setCancelling(null)}
       onConfirm={() => cancel.mutate({ path: `/me/expenses/${encodeURIComponent(cancelling.id)}/cancel`, method: "POST", values: { revision: cancelling.revision } }, {
-        onSettled: () => closeCancel.current?.(() => setCancelling(null)),
+        // ref 還沒掛上時也要關得掉，跟大頭貼的移除對話框同一種寫法。
+        onSettled: () => (closeCancel.current ?? ((afterClose?: () => void) => afterClose?.()))(() => setCancelling(null)),
       })}
     >
       <p className="m-0">{dollars(cancelling.amountMinor)}・{cancelling.description}</p>
@@ -123,6 +125,7 @@ export function HrExpenseForm() {
   const navigate = useNavigate();
   const options = useHrQuery<ExpenseOptionsResponse>("/me/expense-options");
   const today = formatTaipeiDate(new Date());
+  const earliest = earliestExpenseDate(today);
   // 每次打開表單一個識別碼：連按兩下、或網路斷掉重送，伺服器都只會留一張。
   const [clientRequestId] = useState(randomId);
   const [categoryId, setCategoryId] = useState("");
@@ -181,6 +184,7 @@ export function HrExpenseForm() {
     const amountDollars = Number(amount);
     if (!/^\d+$/.test(amount) || amountDollars < 1 || amountDollars > EXPENSE_AMOUNT_MAX_DOLLARS) return `金額請填 1～${EXPENSE_AMOUNT_MAX_DOLLARS.toLocaleString("zh-TW")} 的整數元。`;
     if (!spentOn || spentOn > today) return "消費日期不能晚於今天。";
+    if (spentOn < earliest) return `消費日期只能是一年內（${earliest} 以後）；更早的單據請直接找會計。`;
     if (!categoryId) return "請選擇支出類別。";
     const invoice = normalizeInvoiceNumber(invoiceNumber);
     if (invoice && !INVOICE_NUMBER_PATTERN.test(invoice)) return "發票號碼應為兩個英文字母加八位數字，例如 AB12345678。";
@@ -232,7 +236,7 @@ export function HrExpenseForm() {
         </Field>
         <div className={FORM_FIELD_ROW}>
           <TextField label="金額（元）" required inputMode="numeric" pattern="[0-9]*" value={amount} disabled={pending} placeholder="例如 350" onChange={(event) => setAmount(event.target.value.replace(/[^\d]/g, ""))} />
-          <TextField label="消費日期" required type="date" max={today} value={spentOn} disabled={pending} onChange={(event) => setSpentOn(event.target.value)} />
+          <TextField label="消費日期" required type="date" min={earliest} max={today} value={spentOn} disabled={pending} onChange={(event) => setSpentOn(event.target.value)} />
         </div>
         <div className={FORM_FIELD_ROW}>
           <SelectField label="支出類別" required value={categoryId} disabled={pending || options.isPending} onChange={(event) => setCategoryId(event.target.value)} options={categoryOptions} />

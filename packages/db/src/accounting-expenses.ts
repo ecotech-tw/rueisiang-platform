@@ -4,8 +4,10 @@ import {
   EXPENSE_AMOUNT_MAX_DOLLARS,
   EXPENSE_DESCRIPTION_MAX,
   EXPENSE_RECEIPT_MAX_FILES,
+  EXPENSE_SPENT_ON_MAX_AGE_DAYS,
   INVOICE_NUMBER_PATTERN,
   SELLER_TAX_ID_PATTERN,
+  earliestExpenseDate,
   normalizeInvoiceNumber,
   type ExpenseReceiptType,
   type ExpenseStatus,
@@ -96,7 +98,10 @@ export async function prepareMyExpense(db: Database, userId: string, input: MyEx
   if (input.receiptCount < 1) throw new AccountingError(400, "請至少附上一張單據照片。");
   if (input.receiptCount > EXPENSE_RECEIPT_MAX_FILES) throw new AccountingError(400, `單據照片最多 ${EXPENSE_RECEIPT_MAX_FILES} 張。`);
   if (!validCalendarDate(input.spentOn)) throw new AccountingError(400, "請選擇有效的消費日期。");
-  if (input.spentOn > formatTaipeiDate(now)) throw new AccountingError(400, "消費日期不能晚於今天。");
+  const today = formatTaipeiDate(now);
+  if (input.spentOn > today) throw new AccountingError(400, "消費日期不能晚於今天。");
+  const earliest = earliestExpenseDate(today);
+  if (input.spentOn < earliest) throw new AccountingError(400, `消費日期只能是 ${EXPENSE_SPENT_ON_MAX_AGE_DAYS} 天內（${earliest} 以後）；更早的單據請直接找會計。`);
   if (!Number.isSafeInteger(input.amountDollars) || input.amountDollars < 1 || input.amountDollars > EXPENSE_AMOUNT_MAX_DOLLARS) {
     throw new AccountingError(400, `金額必須是 1～${EXPENSE_AMOUNT_MAX_DOLLARS.toLocaleString("zh-TW")} 的整數元。`);
   }

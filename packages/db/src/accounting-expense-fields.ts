@@ -17,6 +17,15 @@ export const EXPENSE_RECEIPT_MAX_FILES = 5;
 export const EXPENSE_AMOUNT_MAX_DOLLARS = 1_000_000;
 export const EXPENSE_DESCRIPTION_MAX = 500;
 
+/** 消費日期最早只收一年內；年份打錯（2016）通常是手滑，擋下來比讓會計事後發現好。 */
+export const EXPENSE_SPENT_ON_MAX_AGE_DAYS = 365;
+
+/** 給台北的今天 `YYYY-MM-DD`，回傳最早可以報的消費日期。只做日期運算，不碰時區。 */
+export function earliestExpenseDate(today: string): string {
+  const [year, month, day] = today.split("-").map(Number) as [number, number, number];
+  return new Date(Date.UTC(year, month - 1, day - EXPENSE_SPENT_ON_MAX_AGE_DAYS)).toISOString().slice(0, 10);
+}
+
 /** 統一發票（含電子發票）號碼：兩個英文字母加八位數字。 */
 export const INVOICE_NUMBER_PATTERN = /^[A-Z]{2}\d{8}$/;
 export const SELLER_TAX_ID_PATTERN = /^\d{8}$/;
