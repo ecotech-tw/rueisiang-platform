@@ -50,14 +50,21 @@ export function pickInvoiceFields(texts: readonly string[]): InvoiceQrFields | n
  *
  *   1. 整張讀到的 QR code 告訴我們 QR 在照片的哪一段高度，切出那一條（左右兩個 QR 一定在同一列）。
  *   2. 那一條換幾種縮放、兩種黑白切法輪流讀，讀到左邊那個就停。條狀圖很小，每次只要幾十毫秒。
+ *
+ * 整張一個 QR 都沒找到時（收據、拍到別的東西）只多試幾種縮放就放棄：沒有條狀圖可切，每一輪都是整張，
+ * 全部試完在舊手機上要好幾秒，而這種照片多半本來就沒有 QR code。
  */
 const BASE_SIDE = 2000;
 const BAND_SCALES = [1, 0.75, 0.6, 0.85, 1.25, 1.5, 0.5];
 const BINARIZERS = ["LocalAverage", "FixedThreshold"] as const;
+const WHOLE_IMAGE_RETRY_SCALES = [0.75, 0.6, 1.25];
 /** 放大後的條狀圖最多這麼多像素，避免舊手機記憶體不夠。 */
 const MAX_ATTEMPT_PIXELS = 6_000_000;
 
 interface Rect { x: number; y: number; width: number; height: number }
+
+/** 拍到的是別種 QR code（店家 LINE、網址），不是讀取失敗；畫面上要講成「拍錯了」。 */
+export class NotInvoiceQrError extends Error {}
 
 function drawRegion(bitmap: ImageBitmap, rect: Rect, scale: number): ImageData | null {
   const fit = Math.min(scale, Math.sqrt(MAX_ATTEMPT_PIXELS / (rect.width * rect.height)));
@@ -95,21 +102,19 @@ export async function scanInvoiceQr(file: Blob): Promise<InvoiceQrFields | null>
       const y = Math.max(0, Math.floor(top - margin));
       band = { x: 0, y, width: bitmap.width, height: Math.min(bitmap.height, Math.ceil(bottom + margin)) - y };
     }
-    for (const scale of BAND_SCALES) {
-      for (const binarizer of BINARIZERS) {
-        // 整張用預設切法讀過了；沒找到任何 QR 時，條狀圖就是整張，這一輪不必重讀。
-        if (!first.length && scale === 1 && binarizer === "LocalAverage") continue;
-        const image = drawRegion(bitmap, band, base * scale);
-        if (!image) return null;
-        const codes = await readQrCodes(image, binarizer);
-        seen.push(...codes.map((code) => code.text));
-        fields = pickInvoiceFields(codes.map((code) => code.text));
-        if (fields) return fields;
-      }
+    const attempts = first.length
+      ? BAND_SCALES.flatMap((scale) => BINARIZERS.map((binarizer) => [scale, binarizer] as const))
+      : WHOLE_IMAGE_RETRY_SCALES.map((scale) => [scale, "LocalAverage"] as const);
+    for (const [scale, binarizer] of attempts) {
+      const image = drawRegion(bitmap, band, base * scale);
+      if (!image) return null;
+      const codes = await readQrCodes(image, binarizer);
+      seen.push(...codes.map((code) => code.text));
+      fields = pickInvoiceFields(codes.map((code) => code.text));
+      if (fields) return fields;
     }
-    // 只讀到右邊（**）那個就當作沒讀到；讀到別種 QR code 才把開頭講出來，回報時知道是格式問題。
-    const others = [...new Set(seen.filter((text) => !text.startsWith("**")))];
-    if (others.length) throw new Error(`讀到 QR code 但不是電子發票格式：${others.map((text) => text.slice(0, 20)).join("／")}`);
+    // 只讀到右邊（**）那個就當作沒讀到；讀到的全是別種 QR code 才說拍錯了。
+    if (seen.some((text) => !text.startsWith("**"))) throw new NotInvoiceQrError();
     return null;
   } finally {
     bitmap.close();

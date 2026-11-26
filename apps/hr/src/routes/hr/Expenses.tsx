@@ -18,7 +18,7 @@ import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, ConfirmDialog, Dialog, EmptyRecords, Field, Input, Page, PageHeader, Panel, SelectField, StatusBadge, Textarea, TextField } from "../../ui/index.js";
 import { HrApiError, useHrQuery, useHrWrite, type ExpenseOptionsResponse, type MyExpense } from "./api.js";
 import { FORM_FIELD_ROW, FORM_FIELDS, FORM_PANEL, FormActions, FormPage, FormPageHeader, MOBILE_CARD } from "./Forms.js";
-import { scanInvoiceQr } from "./invoice-qr.js";
+import { NotInvoiceQrError, scanInvoiceQr } from "./invoice-qr.js";
 import { prepareReceiptImage } from "./receipt-image.js";
 
 /*
@@ -272,6 +272,10 @@ export function HrExpenseForm() {
       setSpentOn(fields.spentOn);
       setDuplicateWarning("");
     } catch (error) {
+      if (error instanceof NotInvoiceQrError) {
+        setQrNotice("這不是電子發票的 QR code，請拍證明聯左邊那個或手填。");
+        return;
+      }
       // 解碼器載入或執行失敗跟「照片裡找不到」要分開講：前者重拍幾次都不會好，回報時也才看得出是哪一種。
       setQrNotice(`讀取失敗（${(error instanceof Error ? error.message : String(error)).slice(0, 80)}），請手填。`);
     } finally {

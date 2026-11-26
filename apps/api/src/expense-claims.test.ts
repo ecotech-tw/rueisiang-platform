@@ -64,12 +64,12 @@ beforeEach(async () => {
 afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); rmSync(directory, { recursive: true, force: true }); });
 
 describe("報公帳：員工送件", () => {
-  it("表單選項帶預設類別與店別", async () => {
+  it("表單選項只帶預設類別，不帶店別", async () => {
     const response = await requestSelf("/expense-options");
     expect(response.status).toBe(200);
-    const options = await response.json() as { categories: Array<{ name: string }>; scopes: Array<{ id: string }> };
+    const options = await response.json() as { categories: Array<{ name: string }>; scopes?: unknown };
     expect(options.categories.map((category) => category.name)).toEqual(["通路進貨", "日常備品", "交通運輸", "餐費", "郵寄物流", "其他"]);
-    expect(options.scopes.map((scope) => scope.id)).toEqual(["scope-ximen"]);
+    expect(options.scopes).toBeUndefined();
   });
 
   it("送出後金額存分、發票號碼統一格式，照片只有本人讀得到，列表不暴露儲存 key", async () => {

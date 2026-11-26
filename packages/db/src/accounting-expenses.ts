@@ -46,14 +46,12 @@ export async function resolveExpenseSubmitter(db: Database, userId: string): Pro
   throw new AccountingError(403, "只有在職員工與支援人員可以報帳。");
 }
 
+/** 員工報帳的表單只問類別；店別給會計登記公司支出用，不在這裡給。 */
 export async function listExpenseFormOptions(db: Database) {
-  const [categories, stores] = await Promise.all([
-    db.select({ id: accountingExpenseCategories.id, name: accountingExpenseCategories.name }).from(accountingExpenseCategories)
-      .where(isNull(accountingExpenseCategories.archivedAt))
-      .orderBy(asc(accountingExpenseCategories.sortOrder), asc(accountingExpenseCategories.name)),
-    listHrScopes(db),
-  ]);
-  return { categories, scopes: stores };
+  const categories = await db.select({ id: accountingExpenseCategories.id, name: accountingExpenseCategories.name }).from(accountingExpenseCategories)
+    .where(isNull(accountingExpenseCategories.archivedAt))
+    .orderBy(asc(accountingExpenseCategories.sortOrder), asc(accountingExpenseCategories.name));
+  return { categories };
 }
 
 export interface MyExpenseInput {
