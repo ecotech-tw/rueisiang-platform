@@ -21,7 +21,10 @@ function db() {
 }
 
 function stubRunner() {
-  const calls: { url: string; body: Record<string, unknown> }[] = [];
+  const calls = Object.assign([] as { url: string; body: Record<string, unknown> }[], {
+    runnerNames: [] as string[],
+    runnerModes: [] as (string | null)[],
+  });
   const jobs = new Map<string, Record<string, unknown>>();
   const preview = {
     reportMonths: ["2025-02"], dailyPayoutRows: [{ businessDate: "2025-02-14", payoutAmount: 280 }], sourceRowCount: 3, rowCount: 1,
@@ -29,9 +32,12 @@ function stubRunner() {
     uniqueOrders: 2, uniqueProducts: 1, totalPerformance: 280, totalQuantity: 3, totalSalesAmount: 300,
     duplicateRowsExcluded: 1, warnings: [],
   };
-  env.REPORT_RUNNER = { getByName: () => ({ fetch: async (request: Request) => {
+  env.REPORT_RUNNER = { getByName: (name: string) => {
+    calls.runnerNames.push(name);
+    return { fetch: async (request: Request) => {
     const url = new URL(request.url);
     const body = request.method === "POST" ? await request.json() as Record<string, unknown> : {};
+    calls.runnerModes.push(request.headers.get("X-Report-Runner-Mode"));
     calls.push({ url: `${url.pathname}${url.search}`, body });
     if (url.pathname === "/preview" || url.pathname === "/jobs") {
       const requestId = String(body.requestId);
@@ -41,7 +47,8 @@ function stubRunner() {
     const requestId = url.pathname.split("/").at(-1) ?? "";
     const job = jobs.get(requestId);
     return job ? Response.json(job) : Response.json({ error: "job_not_found" }, { status: 404 });
-  } }) };
+  } };
+  } };
   return calls;
 }
 
@@ -192,6 +199,8 @@ describe("蝦皮銷售報表", () => {
     const { requestId, previewToken } = await started.json() as { requestId: string; previewToken: string };
     const previewInputs = calls[0]?.body ?? {};
     expect(calls[0]?.url).toBe("/preview");
+    expect(calls.runnerNames[0]).toBe("shopee-sales-report-runner");
+    expect(calls.runnerModes[0]).toBe("shared");
     expect(previewInputs.requestId).toBe(requestId);
     expect(await listShopeeSalesRuns(db())).toEqual([]);
 

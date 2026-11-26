@@ -6,6 +6,8 @@ import { requirePermission } from "../middleware/auth.js";
 import { shopeePreviewKey } from "../shopee-sales/preview.js";
 
 const MAX_REPORT_BYTES = 25 * 1024 * 1024;
+const SHOPEE_REPORT_UPLOAD_TTL_MS = 25 * 60 * 60 * 1000;
+const SHARED_REPORT_RUNNER_NAME = "shopee-sales-report-runner";
 
 async function sha256Hex(value: ArrayBuffer): Promise<string> {
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", value));
@@ -57,13 +59,22 @@ function runnerConfigured(env: AppEnv["Bindings"]): boolean {
 }
 
 async function runnerRequest(env: AppEnv["Bindings"], requestId: string, pathname: string, body?: unknown): Promise<Response> {
-  const runner = env.REPORT_RUNNER?.getByName(requestId);
-  if (!runner || !env.REPORT_RUNNER_TOKEN) throw new HTTPException(503, { message: "報表背景執行環境尚未設定。" });
-  return runner.fetch(new Request(`https://report-runner${pathname}`, {
+  const namespace = env.REPORT_RUNNER;
+  if (!namespace || !env.REPORT_RUNNER_TOKEN) throw new HTTPException(503, { message: "報表背景執行環境尚未設定。" });
+  const makeRequest = (shared: boolean) => new Request(`https://report-runner${pathname}`, {
     method: body === undefined ? "GET" : "POST",
-    headers: { Authorization: `Bearer ${env.REPORT_RUNNER_TOKEN}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+    headers: {
+      Authorization: `Bearer ${env.REPORT_RUNNER_TOKEN}`,
+      ...(body === undefined ? {} : { "Content-Type": "application/json", ...(shared ? { "X-Report-Runner-Mode": "shared" } : {}) }),
+    },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  }));
+  });
+  const sharedResponse = await namespace.getByName(SHARED_REPORT_RUNNER_NAME).fetch(makeRequest(body !== undefined));
+  if (body === undefined && pathname.startsWith("/jobs/") && sharedResponse.status === 404 && requestId !== SHARED_REPORT_RUNNER_NAME) {
+    // 舊版每個 requestId 各自使用一個 DO；部署切換期間允許既有工作繼續查狀態。
+    return namespace.getByName(requestId).fetch(makeRequest(false));
+  }
+  return sharedResponse;
 }
 
 async function runnerJson<T>(response: Response): Promise<T> {
@@ -117,7 +128,7 @@ export const shopeeSales = new Hono<AppEnv>()
     const passwordHash = await sha256Hex(new TextEncoder().encode(password).buffer as ArrayBuffer);
     const objectKey = `shopee-sales/${requestId}/${sourceToken}.xlsx`;
     const previewKey = shopeePreviewKey(requestId, previewToken);
-    const expiresAt = String(Date.now() + 60 * 60 * 1000);
+    const expiresAt = String(Date.now() + SHOPEE_REPORT_UPLOAD_TTL_MS);
     const baseUrl = c.env.SHOPEE_SOURCE_BASE_URL?.replace(/\/+$/, "") || new URL(c.req.url).origin;
     const sourceUrl = `${baseUrl}/api/internal/shopee-sales/source/${requestId}?token=${sourceToken}`;
     try {
@@ -233,7 +244,7 @@ export const shopeeSales = new Hono<AppEnv>()
     try {
       await uploads.put(objectKey, fileBytes, {
         httpMetadata: { contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-        customMetadata: { filename: file.name, password, expiresAt: String(Date.now() + 60 * 60 * 1000) },
+        customMetadata: { filename: file.name, password, expiresAt: String(Date.now() + SHOPEE_REPORT_UPLOAD_TTL_MS) },
       });
     } catch (error) {
       await uploads.delete(objectKey);
@@ -291,7 +302,7 @@ export const shopeeSales = new Hono<AppEnv>()
     const objectKey = `shopee-sales/${requestId}/${sourceToken}.xlsx`;
     await uploads.put(objectKey, await file.arrayBuffer(), {
       httpMetadata: { contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" },
-      customMetadata: { filename: file.name, password, expiresAt: String(Date.now() + 60 * 60 * 1000) },
+      customMetadata: { filename: file.name, password, expiresAt: String(Date.now() + SHOPEE_REPORT_UPLOAD_TTL_MS) },
     });
 
     const baseUrl = c.env.SHOPEE_SOURCE_BASE_URL?.replace(/\/+$/, "") || new URL(c.req.url).origin;

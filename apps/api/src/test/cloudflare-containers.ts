@@ -15,5 +15,12 @@ export class Container<Env extends { containerFetch?: (request: Request) => Prom
     return this.env.containerFetch(request);
   }
 
+  async schedule(when: Date | number, _callback: string, _payload?: unknown): Promise<void> {
+    const storage = this.ctx.storage as { setAlarm?: (time: number) => Promise<void> };
+    await storage.setAlarm?.(when instanceof Date ? when.getTime() : when);
+  }
+
+  deleteSchedules(_callback: string): void {}
+
   async alarm(_alarmProps?: unknown): Promise<void> {}
 }
