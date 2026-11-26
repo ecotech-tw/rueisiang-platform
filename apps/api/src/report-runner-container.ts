@@ -64,9 +64,6 @@ export class ReportRunner extends Container<Env> {
       GOOGLE_REPORTS_OAUTH_CLIENT_ID: env.GOOGLE_REPORTS_OAUTH_CLIENT_ID ?? "",
       GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: env.GOOGLE_REPORTS_OAUTH_CLIENT_SECRET ?? "",
       GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: env.GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN ?? "",
-      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: env.GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN ?? "",
-      CYBERBIZ_USERNAME: env.CYBERBIZ_USERNAME ?? "",
-      CYBERBIZ_PASSWORD: env.CYBERBIZ_PASSWORD ?? "",
       CYBERBIZ_REPORT_INGEST_TOKEN: env.CYBERBIZ_REPORT_INGEST_TOKEN ?? "",
       PLATFORM_API_URL: env.PUBLIC_APP_URL ?? "https://platform.rueisiang.com",
     };
@@ -218,13 +215,24 @@ export class ReportRunner extends Container<Env> {
   private async startQueuedJob(queueKey: string, item: QueueItem, active: ActiveJob): Promise<void> {
     try {
       await this.startAndWaitForPorts();
+      const isCyberbizJob = item.payload.kind === "cyberbiz-payout" || item.payload.kind === "cyberbiz-sales";
+      const containerPayload = isCyberbizJob
+        ? {
+          ...item.payload,
+          credentials: {
+            cyberbizUsername: this.env.CYBERBIZ_USERNAME ?? "",
+            cyberbizPassword: this.env.CYBERBIZ_PASSWORD ?? "",
+            gmailRefreshToken: this.env.GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN ?? "",
+          },
+        }
+        : item.payload;
       const response = await this.containerFetch(new Request(`http://report-runner${item.pathname}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.env.REPORT_RUNNER_TOKEN ?? ""}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(item.payload),
+        body: JSON.stringify(containerPayload),
       }));
       if (!response.ok) {
         const result = await response.json().catch(() => null) as { error?: string; message?: string } | null;

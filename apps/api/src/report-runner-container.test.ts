@@ -87,10 +87,10 @@ describe("ReportRunner Durable Object", () => {
       GOOGLE_REPORTS_OAUTH_CLIENT_ID: "reports-client-id",
       GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-client-secret",
       GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh-token",
-      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "gmail-refresh-token",
-      CYBERBIZ_USERNAME: "cyberbiz-user",
-      CYBERBIZ_PASSWORD: "cyberbiz-password",
     });
+    expect(runner.envVars).not.toHaveProperty("GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN");
+    expect(runner.envVars).not.toHaveProperty("CYBERBIZ_USERNAME");
+    expect(runner.envVars).not.toHaveProperty("CYBERBIZ_PASSWORD");
     const requestId = "request-1234567890";
 
     const accepted = await runner.fetch(runnerRequest("/jobs", "POST", { requestId }));
@@ -152,6 +152,42 @@ describe("ReportRunner Durable Object", () => {
     await runner.processQueuedJobs();
     expect(calls).toEqual([`start:${firstId}`, `poll:${firstId}`, `start:${secondId}`]);
     expect(durable.values.get("report-runner:active-job")).toMatchObject({ requestId: secondId, phase: "running" });
+  });
+
+  it("只對 CYBERBIZ job 短暫注入帳密與 Gmail token，且不持久化在 DO queue", async () => {
+    const durable = fakeStorage();
+    const sentPayloads: Record<string, unknown>[] = [];
+    const runner = new ReportRunner({ storage: durable.storage } as never, {
+      REPORT_RUNNER_TOKEN: RUNNER_TOKEN,
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
+      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "gmail-refresh-token",
+      DB: {},
+      containerFetch: async (request: Request) => {
+        if (request.method === "POST") sentPayloads.push(await request.json() as Record<string, unknown>);
+        return Response.json({ requestId: "cyberbiz-request-123", status: "running" }, { status: 202 });
+      },
+    } as never);
+    const payload = {
+      kind: "cyberbiz-sales",
+      requestId: "cyberbiz-request-123",
+      stores: [{ scopeId: "scope-1", name: "測試店", driveFolderUrl: "https://drive.google.com/drive/folders/id", driveFolderName: "測試" }],
+      start: "2026-07-01",
+      end: "2026-07-31",
+    };
+
+    await runner.fetch(runnerRequest("/jobs", "POST", payload, true));
+    const queued = [...durable.values.entries()].find(([key]) => key.startsWith("queue:"))?.[1] as { payload?: Record<string, unknown> } | undefined;
+    expect(queued?.payload).not.toHaveProperty("credentials");
+
+    await runner.processQueuedJobs();
+    expect(sentPayloads[0]?.credentials).toEqual({
+      cyberbizUsername: "cyberbiz-user",
+      cyberbizPassword: "cyberbiz-password",
+      gmailRefreshToken: "gmail-refresh-token",
+    });
+    expect(JSON.stringify([...durable.values.values()])).not.toContain("cyberbiz-password");
+    expect(JSON.stringify([...durable.values.values()])).not.toContain("gmail-refresh-token");
   });
 
   it("重疊的排程回呼不會重複啟動同一筆工作", async () => {

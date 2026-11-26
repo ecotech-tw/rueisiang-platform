@@ -20,11 +20,14 @@ const SECRET_ENV_NAMES = [
   "CYBERBIZ_REPORT_INGEST_TOKEN",
 ];
 
-function safeErrorMessage(error) {
+function safeErrorMessage(error, additionalSecrets = {}) {
   let message = error instanceof Error ? error.message : "報表處理失敗。";
-  for (const key of SECRET_ENV_NAMES) {
-    const value = process.env[key];
-    if (value && value.length > 3) message = message.split(value).join(`«${key}»`);
+  const secrets = [
+    ...SECRET_ENV_NAMES.map((key) => [key, process.env[key]]),
+    ...Object.entries(additionalSecrets),
+  ];
+  for (const [key, value] of secrets) {
+    if (typeof value === "string" && value.length > 3) message = message.split(value).join(`«${key}»`);
   }
   return message.replace(/\b\d{6}\b/g, "«otp»").slice(0, 2_000);
 }
@@ -47,6 +50,10 @@ async function readJson(request) {
 
 function validCyberbizRequest(value) {
   return ["cyberbiz-payout", "cyberbiz-sales"].includes(value.kind)
+    && value.credentials && typeof value.credentials === "object"
+    && typeof value.credentials.cyberbizUsername === "string"
+    && typeof value.credentials.cyberbizPassword === "string"
+    && typeof value.credentials.gmailRefreshToken === "string"
     && typeof value.start === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.start)
     && typeof value.end === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.end)
     && value.start <= value.end
@@ -153,13 +160,14 @@ function updateCyberbizProgress(job, line) {
 }
 
 async function runCyberbizJob(payload, job) {
+  const credentials = payload.credentials;
   const required = [
-    ["CYBERBIZ_USERNAME", process.env.CYBERBIZ_USERNAME],
-    ["CYBERBIZ_PASSWORD", process.env.CYBERBIZ_PASSWORD],
+    ["CYBERBIZ_USERNAME", credentials?.cyberbizUsername],
+    ["CYBERBIZ_PASSWORD", credentials?.cyberbizPassword],
     ["GOOGLE_REPORTS_OAUTH_CLIENT_ID", process.env.GOOGLE_REPORTS_OAUTH_CLIENT_ID],
     ["GOOGLE_REPORTS_OAUTH_CLIENT_SECRET", process.env.GOOGLE_REPORTS_OAUTH_CLIENT_SECRET],
     ["GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN", process.env.GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN],
-    ["GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN", process.env.GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN],
+    ["GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN", credentials?.gmailRefreshToken],
   ];
   const missing = required.filter(([, value]) => !value).map(([key]) => key);
   if (missing.length) throw new Error(`報表 Container 尚未設定必要憑證：${missing.join("、")}`);
@@ -181,7 +189,9 @@ async function runCyberbizJob(payload, job) {
         GOOGLE_CLIENT_ID: process.env.GOOGLE_REPORTS_OAUTH_CLIENT_ID,
         GOOGLE_CLIENT_SECRET: process.env.GOOGLE_REPORTS_OAUTH_CLIENT_SECRET,
         GOOGLE_REFRESH_TOKEN: process.env.GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN,
-        GMAIL_REFRESH_TOKEN: process.env.GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN,
+        GMAIL_REFRESH_TOKEN: credentials?.gmailRefreshToken,
+        CYBERBIZ_USERNAME: credentials?.cyberbizUsername,
+        CYBERBIZ_PASSWORD: credentials?.cyberbizPassword,
         PLATFORM_API_URL: process.env.PLATFORM_API_URL ?? "https://platform.rueisiang.com",
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -263,7 +273,7 @@ async function runJob(payload, { previewOnly = false } = {}) {
   jobs.set(payload.requestId, job);
   void processJob(payload, job, { previewOnly }).catch((error) => {
     job.status = "failed";
-    job.error = safeErrorMessage(error);
+    job.error = safeErrorMessage(error, payload.credentials);
     job.finishedAt = new Date().toISOString();
     console.error(JSON.stringify({ event: "report_runner.job_failed", errorName: error instanceof Error ? error.name : "unknown" }));
   });
