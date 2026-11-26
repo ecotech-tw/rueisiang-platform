@@ -10,13 +10,15 @@ import {
 } from "@rueisiang/db/accounting-expense-fields";
 import { formatTaipeiDate } from "@rueisiang/db/taipei-time";
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router";
 import { API_BASE_URL } from "../../config.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ConfirmDialog, Dialog, EmptyRecords, Field, Page, PageHeader, Panel, SelectField, StatusBadge, Textarea, TextField } from "../../ui/index.js";
+import { Alert, Button, ConfirmDialog, Dialog, EmptyRecords, Field, Input, Page, PageHeader, Panel, SelectField, StatusBadge, Textarea, TextField } from "../../ui/index.js";
 import { HrApiError, useHrQuery, useHrWrite, type ExpenseOptionsResponse, type MyExpense } from "./api.js";
 import { FORM_FIELD_ROW, FORM_FIELDS, FORM_PANEL, FormActions, FormPage, FormPageHeader, MOBILE_CARD } from "./Forms.js";
+import { NotInvoiceQrError, scanInvoiceQr } from "./invoice-qr.js";
 import { prepareReceiptImage } from "./receipt-image.js";
 
 /*
@@ -176,6 +178,20 @@ export function HrExpenses() {
   </Page>;
 }
 
+/*
+ * 處理照片與讀 QR code 要一兩秒，期間整個表單都不能動（照片還沒加進來就送出、或又按一次掃描都會亂）。
+ * 用全螢幕遮罩擋住並說明在做什麼：手機上欄位旁邊的一行小字很容易被鍵盤或捲動蓋掉，看起來像當掉。
+ * 掛到 body 底下：頁面切換的進場動畫有 transform，fixed 放在裡面會跟著頁面位移。
+ */
+function BusyOverlay({ label }: { label: string }) {
+  return createPortal(<div role="status" aria-live="polite" className="fixed inset-0 z-50 grid place-items-center bg-ink/45 backdrop-blur-[2px]">
+    <div className="grid justify-items-center gap-3 rounded-[20px] bg-paper px-7 py-6 [box-shadow:0_12px_32px_--alpha(var(--color-ink)/18%)]">
+      <span aria-hidden="true" className="size-9 animate-spin rounded-full border-[3px] border-brand/20 border-t-brand motion-reduce:animate-none" />
+      <span className="text-[15px] font-semibold text-ink">{label}</span>
+    </div>
+  </div>, document.body);
+}
+
 interface PendingReceipt { key: string; file: File; preview: string }
 
 export function HrExpenseForm() {
@@ -187,8 +203,7 @@ export function HrExpenseForm() {
   // 每次打開表單一個識別碼：連按兩下、或網路斷掉重送，伺服器都只會留一張。
   const [clientRequestId] = useState(randomId);
   const [categoryId, setCategoryId] = useState("");
-  const [scopeId, setScopeId] = useState("");
-  const [spentOn, setSpentOn] = useState(today);
+  const [spentOn, setSpentOn] = useState("");
   const [amount, setAmount] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [sellerTaxId, setSellerTaxId] = useState("");
@@ -197,7 +212,10 @@ export function HrExpenseForm() {
   const [preparing, setPreparing] = useState(false);
   const [localError, setLocalError] = useState("");
   const [duplicateWarning, setDuplicateWarning] = useState("");
+  const [scanning, setScanning] = useState(false);
+  const [qrNotice, setQrNotice] = useState("");
   const input = useRef<HTMLInputElement>(null);
+  const scanInput = useRef<HTMLInputElement>(null);
   const save = useHrWrite();
   const receiptsRef = useRef(receipts);
   receiptsRef.current = receipts;
@@ -231,6 +249,40 @@ export function HrExpenseForm() {
     }
   }
 
+  /*
+   * 發票號碼旁的掃描鈕：只讀 QR code 帶入欄位，那張照片不會變成單據（單據照片是選填的補充資料，
+   * 加照片時也不順手讀，免得每加一張補充照片就被讀取遮罩擋一兩秒）。
+   * 讀到就整組帶入（重拍可以修正上一次），欄位填好就是回饋；讀不到才講，不擋送出、讓使用者手填。
+   */
+  async function scanInvoice(list: FileList | null) {
+    const file = list?.[0];
+    if (scanInput.current) scanInput.current.value = "";
+    if (!file) return;
+    setQrNotice("");
+    setScanning(true);
+    try {
+      const fields = await scanInvoiceQr(file);
+      if (!fields) {
+        setQrNotice("沒讀到 QR code，請再拍一次或手填。");
+        return;
+      }
+      setInvoiceNumber(fields.invoiceNumber);
+      setSellerTaxId(fields.sellerTaxId);
+      setAmount(String(fields.amountDollars));
+      setSpentOn(fields.spentOn);
+      setDuplicateWarning("");
+    } catch (error) {
+      if (error instanceof NotInvoiceQrError) {
+        setQrNotice("這不是電子發票的 QR code，請拍證明聯左邊那個或手填。");
+        return;
+      }
+      // 解碼器載入或執行失敗跟「照片裡找不到」要分開講：前者重拍幾次都不會好，回報時也才看得出是哪一種。
+      setQrNotice(`讀取失敗（${(error instanceof Error ? error.message : String(error)).slice(0, 80)}），請手填。`);
+    } finally {
+      setScanning(false);
+    }
+  }
+
   function removeReceipt(key: string) {
     setReceipts((current) => current.filter((receipt) => {
       if (receipt.key === key) URL.revokeObjectURL(receipt.preview);
@@ -241,14 +293,15 @@ export function HrExpenseForm() {
   function validate() {
     const amountDollars = Number(amount);
     if (!/^\d+$/.test(amount) || amountDollars < 1 || amountDollars > EXPENSE_AMOUNT_MAX_DOLLARS) return `金額請填 1～${EXPENSE_AMOUNT_MAX_DOLLARS.toLocaleString("zh-TW")} 的整數元。`;
-    if (!spentOn || spentOn > today) return "消費日期不能晚於今天。";
+    if (!spentOn) return "請選擇消費日期。";
+    if (spentOn > today) return "消費日期不能晚於今天。";
     if (spentOn < earliest) return `消費日期只能是一年內（${earliest} 以後）；更早的單據請直接找會計。`;
     if (!categoryId) return "請選擇支出類別。";
     const invoice = normalizeInvoiceNumber(invoiceNumber);
     if (invoice && !INVOICE_NUMBER_PATTERN.test(invoice)) return "發票號碼應為兩個英文字母加八位數字，例如 AB12345678。";
     if (sellerTaxId.trim() && !SELLER_TAX_ID_PATTERN.test(sellerTaxId.trim())) return "賣方統編應為八位數字。";
     if (!description.trim()) return "請填寫用途。";
-    if (!receipts.length) return "請至少附上一張單據照片。";
+    if (!invoice && !receipts.length) return "沒有發票號碼時，請附上收據照片。";
     return "";
   }
 
@@ -257,7 +310,7 @@ export function HrExpenseForm() {
     setLocalError(problem);
     if (problem) return;
     const formData = new FormData();
-    const values: Record<string, string> = { clientRequestId, categoryId, scopeId, spentOn, amountDollars: amount, invoiceNumber, sellerTaxId, description, confirmDuplicate: String(confirmDuplicate) };
+    const values: Record<string, string> = { clientRequestId, categoryId, spentOn, amountDollars: amount, invoiceNumber, sellerTaxId, description, confirmDuplicate: String(confirmDuplicate) };
     for (const [key, value] of Object.entries(values)) formData.set(key, value);
     for (const receipt of receipts) formData.append("receipts", receipt.file, receipt.file.name);
     save.mutate({ path: "/me/expenses", method: "POST", formData }, {
@@ -268,16 +321,42 @@ export function HrExpenseForm() {
     });
   }
 
-  const pending = save.isPending || preparing;
+  const pending = save.isPending || preparing || scanning;
   const categoryOptions = (options.data?.categories ?? []).map((category) => ({ label: category.name, value: category.id }));
-  const scopeOptions = [{ label: "不指定", value: "" }, ...(options.data?.scopes ?? []).map((scope) => ({ label: scope.name, value: scope.id }))];
   const saveError = save.error && !(save.error instanceof HrApiError && save.error.code === "duplicate_invoice") ? save.error.message : "";
   return <FormPage>
+    {scanning ? <BusyOverlay label="讀取發票中…" /> : preparing ? <BusyOverlay label="處理照片中…" /> : null}
     <FormPageHeader title="新增報帳" description="送出後由會計審核，結果會顯示在報帳紀錄。" returnTo="/expenses" backLabel="返回報帳" />
     {options.error ? <Alert tone="danger">{options.error.message}</Alert> : null}
     <Panel className={FORM_PANEL}>
       <div className={FORM_FIELDS}>
-        <Field label="單據照片" required hint={`發票或收據，最多 ${EXPENSE_RECEIPT_MAX_FILES} 張；照片會先縮小再上傳。`}>
+        {/*
+          * 掃得到的四欄排在最前面：先掃發票，剩下要自己填的（類別、用途）接在後面，
+          * 不用在已經填好的欄位之間跳來跳去。中間一條分隔線把「發票上的資料」和「這筆錢的用途」分開。
+          */}
+        <div className={FORM_FIELD_ROW}>
+          {/* 掃描鈕放在發票號碼欄位裡：掃 QR code 是為了填發票這幾欄，跟單據照片無關。 */}
+          <Field label="發票號碼" hint="電子發票按右邊的圖示掃描，自動帶入號碼、統編、金額與日期；收據可以留空。">
+            <div className="relative min-w-0">
+              <Input className="w-full pr-11" value={invoiceNumber} disabled={pending} placeholder="AB12345678" autoCapitalize="characters" aria-label="發票號碼" onChange={(event) => { setInvoiceNumber(event.target.value); setDuplicateWarning(""); }} />
+              <Button variant="icon" icon="qrScan" className="absolute inset-y-0 right-0.5 my-auto" aria-label="掃描電子發票 QR code" disabled={pending || scanning} onClick={() => scanInput.current?.click()} />
+              <input ref={scanInput} type="file" accept="image/*" capture="environment" hidden aria-label="拍攝電子發票 QR code" onChange={(event) => { void scanInvoice(event.target.files); }} />
+            </div>
+          </Field>
+          <TextField label="賣方統編" inputMode="numeric" value={sellerTaxId} disabled={pending} placeholder="選填" onChange={(event) => setSellerTaxId(event.target.value.replace(/[^\d]/g, "").slice(0, 8))} />
+        </div>
+        {qrNotice ? <Alert tone="warning">{qrNotice}</Alert> : null}
+        <div className={FORM_FIELD_ROW}>
+          <TextField label="金額（元）" required inputMode="numeric" pattern="[0-9]*" value={amount} disabled={pending} placeholder="例如 350" onChange={(event) => setAmount(event.target.value.replace(/[^\d]/g, ""))} />
+          <TextField label="消費日期" required type="date" min={earliest} max={today} value={spentOn} disabled={pending} onChange={(event) => setSpentOn(event.target.value)} />
+        </div>
+        <hr className="m-0 border-0 border-t border-soft-line" />
+        <SelectField label="支出類別" required value={categoryId} disabled={pending || options.isPending} onChange={(event) => setCategoryId(event.target.value)} options={categoryOptions} />
+        <Field label="用途" required hint={`最多 ${EXPENSE_DESCRIPTION_MAX} 字。`}>
+          <Textarea required maxLength={EXPENSE_DESCRIPTION_MAX} rows={3} value={description} disabled={pending} placeholder="例如：西門店清潔用品" onChange={(event) => setDescription(event.target.value)} />
+        </Field>
+        {/* 有發票號碼時照片是補充資料；收據沒有號碼，照片是唯一的憑證，所以這時候才必填。 */}
+        <Field label="單據照片" required={!invoiceNumber.trim()} hint={`最多 ${EXPENSE_RECEIPT_MAX_FILES} 張，可以拍照或從相簿選。收據（沒有發票號碼）一定要附；有發票號碼時選填。`}>
           <div className="flex flex-wrap gap-2">
             {receipts.map((receipt, index) => <div key={receipt.key} className="relative size-20">
               <img src={receipt.preview} alt={`第 ${index + 1} 張單據`} className="size-full rounded-[12px] object-cover outline outline-1 -outline-offset-1 outline-black/10" />
@@ -287,25 +366,10 @@ export function HrExpenseForm() {
             </div>)}
             {receipts.length < EXPENSE_RECEIPT_MAX_FILES ? <button type="button" disabled={pending} onClick={() => input.current?.click()} className="grid size-20 place-items-center content-center gap-1 rounded-[12px] border border-dashed border-line bg-canvas text-[12px] text-muted transition-[background-color,scale] duration-150 ease-out hover:bg-brand/4 active:scale-96 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary">
               <Icon name="camera" className="size-6" />
-              {preparing ? "處理中…" : "拍照或選圖"}
+              拍照或選圖
             </button> : null}
           </div>
           <input ref={input} type="file" accept="image/*" multiple hidden aria-label="選擇單據照片" onChange={(event) => { void addFiles(event.target.files); }} />
-        </Field>
-        <div className={FORM_FIELD_ROW}>
-          <TextField label="金額（元）" required inputMode="numeric" pattern="[0-9]*" value={amount} disabled={pending} placeholder="例如 350" onChange={(event) => setAmount(event.target.value.replace(/[^\d]/g, ""))} />
-          <TextField label="消費日期" required type="date" min={earliest} max={today} value={spentOn} disabled={pending} onChange={(event) => setSpentOn(event.target.value)} />
-        </div>
-        <div className={FORM_FIELD_ROW}>
-          <SelectField label="支出類別" required value={categoryId} disabled={pending || options.isPending} onChange={(event) => setCategoryId(event.target.value)} options={categoryOptions} />
-          <SelectField label="店別" value={scopeId} disabled={pending || options.isPending} onChange={(event) => setScopeId(event.target.value)} options={scopeOptions} hint="這筆錢是為哪家店花的；不確定就不指定。" />
-        </div>
-        <div className={FORM_FIELD_ROW}>
-          <TextField label="發票號碼" value={invoiceNumber} disabled={pending} placeholder="AB12345678" autoCapitalize="characters" onChange={(event) => { setInvoiceNumber(event.target.value); setDuplicateWarning(""); }} hint="收據沒有號碼可以留空。" />
-          <TextField label="賣方統編" inputMode="numeric" value={sellerTaxId} disabled={pending} placeholder="選填" onChange={(event) => setSellerTaxId(event.target.value.replace(/[^\d]/g, "").slice(0, 8))} />
-        </div>
-        <Field label="用途" required hint={`最多 ${EXPENSE_DESCRIPTION_MAX} 字。`}>
-          <Textarea required maxLength={EXPENSE_DESCRIPTION_MAX} rows={3} value={description} disabled={pending} placeholder="例如：西門店清潔用品" onChange={(event) => setDescription(event.target.value)} />
         </Field>
       </div>
       {duplicateWarning ? <Alert tone="warning">{duplicateWarning}</Alert> : null}

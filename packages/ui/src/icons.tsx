@@ -16,6 +16,7 @@ export type IconName =
   | "list"
   | "personAdd"
   | "camera"
+  | "qrScan"
   | "tag"
   | "history"
   | "notifications"
@@ -176,6 +177,15 @@ const PATHS: Record<IconName, React.ReactNode> = {
       <circle cx="10" cy="8.4" r="3.3" />
       <path d="M3.8 19.2c0-3.1 2.8-4.9 6.2-4.9.9 0 1.7.12 2.5.37" />
       <path d="M17.6 13.8v6.2M14.5 16.9h6.2" />
+    </>
+  ),
+  qrScan: (
+    <>
+      <path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5" />
+      <rect x="7.8" y="7.8" width="3.2" height="3.2" rx=".6" />
+      <rect x="13" y="7.8" width="3.2" height="3.2" rx=".6" />
+      <rect x="7.8" y="13" width="3.2" height="3.2" rx=".6" />
+      <path d="M13 13h1.6v1.6M16.2 13v3.2H13" />
     </>
   ),
   camera: (

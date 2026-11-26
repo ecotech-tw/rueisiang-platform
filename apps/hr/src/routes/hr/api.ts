@@ -243,7 +243,7 @@ export class HrApiError extends Error {
   constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
 }
 
-export interface ExpenseOptionsResponse { categories: Array<{ id: string; name: string }>; scopes: Array<{ id: string; name: string }> }
+export interface ExpenseOptionsResponse { categories: Array<{ id: string; name: string }> }
 export interface MyExpense {
   id: string;
   status: "pending" | "approved" | "rejected" | "cancelled" | "paid";

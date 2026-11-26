@@ -64,12 +64,12 @@ beforeEach(async () => {
 afterEach(() => { vi.restoreAllMocks(); d1.sqlite.close(); rmSync(directory, { recursive: true, force: true }); });
 
 describe("報公帳：員工送件", () => {
-  it("表單選項帶預設類別與店別", async () => {
+  it("表單選項只帶預設類別，不帶店別", async () => {
     const response = await requestSelf("/expense-options");
     expect(response.status).toBe(200);
-    const options = await response.json() as { categories: Array<{ name: string }>; scopes: Array<{ id: string }> };
+    const options = await response.json() as { categories: Array<{ name: string }>; scopes?: unknown };
     expect(options.categories.map((category) => category.name)).toEqual(["通路進貨", "日常備品", "交通運輸", "餐費", "郵寄物流", "其他"]);
-    expect(options.scopes.map((scope) => scope.id)).toEqual(["scope-ximen"]);
+    expect(options.scopes).toBeUndefined();
   });
 
   it("送出後金額存分、發票號碼統一格式，照片只有本人讀得到，列表不暴露儲存 key", async () => {
@@ -122,8 +122,24 @@ describe("報公帳：員工送件", () => {
     expect(storedObjects()).toBe(0);
   });
 
-  it("沒有照片、照片超過五張、或照片不是有效圖片都擋下", async () => {
-    expect((await submit(expenseForm({}, []))).status).toBe(400);
+  it("收據（沒有發票號碼）一定要附照片", async () => {
+    const response = await submit(expenseForm({ invoiceNumber: "" }, []));
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: "沒有發票號碼時，請附上收據照片。" });
+    expect(expenseRows()).toHaveLength(0);
+  });
+
+  it("有發票號碼時照片是選填的補充資料：沒有照片也能送出", async () => {
+    const response = await submit(expenseForm({ invoiceNumber: "EF12345678" }, []));
+    expect(response.status, await response.clone().text()).toBe(201);
+    expect(expenseRows()).toHaveLength(1);
+    expect(d1.sqlite.prepare("SELECT count(*) AS n FROM accounting_expense_receipts").get()).toEqual({ n: 0 });
+    const { expenses } = await (await requestSelf("/expenses")).json() as { expenses: Array<{ receiptIds: string[] }> };
+    expect(expenses[0]!.receiptIds).toEqual([]);
+    expect(storedObjects()).toBe(0);
+  });
+
+  it("照片超過五張、或照片不是有效圖片都擋下", async () => {
     expect((await submit(expenseForm({}, Array.from({ length: 6 }, () => ({ bytes: png, type: "image/png" }))))).status).toBe(400);
     expect((await submit(expenseForm({}, [{ bytes: Buffer.from("<svg onload=alert(1) />"), type: "image/svg+xml" }]))).status).toBe(400);
     expect((await submit(expenseForm({}, [{ bytes: Buffer.from("<html>fake</html>"), type: "image/png" }]))).status).toBe(400);

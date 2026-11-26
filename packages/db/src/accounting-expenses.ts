@@ -46,14 +46,12 @@ export async function resolveExpenseSubmitter(db: Database, userId: string): Pro
   throw new AccountingError(403, "只有在職員工與支援人員可以報帳。");
 }
 
+/** 員工報帳的表單只問類別；店別給會計登記公司支出用，不在這裡給。 */
 export async function listExpenseFormOptions(db: Database) {
-  const [categories, stores] = await Promise.all([
-    db.select({ id: accountingExpenseCategories.id, name: accountingExpenseCategories.name }).from(accountingExpenseCategories)
-      .where(isNull(accountingExpenseCategories.archivedAt))
-      .orderBy(asc(accountingExpenseCategories.sortOrder), asc(accountingExpenseCategories.name)),
-    listHrScopes(db),
-  ]);
-  return { categories, scopes: stores };
+  const categories = await db.select({ id: accountingExpenseCategories.id, name: accountingExpenseCategories.name }).from(accountingExpenseCategories)
+    .where(isNull(accountingExpenseCategories.archivedAt))
+    .orderBy(asc(accountingExpenseCategories.sortOrder), asc(accountingExpenseCategories.name));
+  return { categories };
 }
 
 export interface MyExpenseInput {
@@ -95,7 +93,6 @@ function validCalendarDate(value: string) {
 export async function prepareMyExpense(db: Database, userId: string, input: MyExpenseInput, now: Date = new Date()): Promise<PreparedExpense> {
   const submitter = await resolveExpenseSubmitter(db, userId);
   if (!/^[A-Za-z0-9-]{8,100}$/.test(input.clientRequestId)) throw new AccountingError(400, "送件識別碼格式不正確，請重新整理後再送一次。");
-  if (input.receiptCount < 1) throw new AccountingError(400, "請至少附上一張單據照片。");
   if (input.receiptCount > EXPENSE_RECEIPT_MAX_FILES) throw new AccountingError(400, `單據照片最多 ${EXPENSE_RECEIPT_MAX_FILES} 張。`);
   if (!validCalendarDate(input.spentOn)) throw new AccountingError(400, "請選擇有效的消費日期。");
   const today = formatTaipeiDate(now);
@@ -107,6 +104,8 @@ export async function prepareMyExpense(db: Database, userId: string, input: MyEx
   }
   const invoiceNumber = normalizeInvoiceNumber(input.invoiceNumber);
   if (invoiceNumber && !INVOICE_NUMBER_PATTERN.test(invoiceNumber)) throw new AccountingError(400, "發票號碼應為兩個英文字母加八位數字，例如 AB12345678。");
+  // 有發票號碼的會計查得到；收據沒有號碼，照片是唯一的憑證，所以一定要附。
+  if (!invoiceNumber && input.receiptCount < 1) throw new AccountingError(400, "沒有發票號碼時，請附上收據照片。");
   const sellerTaxId = input.sellerTaxId.trim();
   if (sellerTaxId && !SELLER_TAX_ID_PATTERN.test(sellerTaxId)) throw new AccountingError(400, "賣方統編應為八位數字。");
   const description = input.description.trim();
@@ -148,27 +147,32 @@ export async function findMyExpenseByClientRequest(db: Database, userId: string,
 
 export interface StoredReceipt { id: string; objectKey: string; contentType: ExpenseReceiptType; byteSize: number }
 
-/** 支出單與照片索引在同一個 batch 寫入；任何一筆失敗整批不留。 */
+/** 支出單與照片索引在同一個 batch 寫入；任何一筆失敗整批不留。有發票號碼時照片是選填的補充資料，可以一張都沒有。 */
 export async function createMyExpense(db: Database, prepared: PreparedExpense, receipts: StoredReceipt[]) {
   const id = crypto.randomUUID();
   const now = toDbTimestamp();
+  const expense = db.insert(accountingExpenses).values({
+    id,
+    payerKind: "employee_advance",
+    submitterUserId: prepared.submitter.userId,
+    employmentId: prepared.submitter.employmentId,
+    clientRequestId: prepared.clientRequestId,
+    categoryId: prepared.categoryId,
+    scopeId: prepared.scopeId,
+    spentOn: prepared.spentOn,
+    amountMinor: prepared.amountMinor,
+    invoiceNumber: prepared.invoiceNumber,
+    sellerTaxId: prepared.sellerTaxId,
+    description: prepared.description,
+    createdAt: now,
+    updatedAt: now,
+  });
+  if (!receipts.length) {
+    await expense;
+    return { id };
+  }
   await db.batch([
-    db.insert(accountingExpenses).values({
-      id,
-      payerKind: "employee_advance",
-      submitterUserId: prepared.submitter.userId,
-      employmentId: prepared.submitter.employmentId,
-      clientRequestId: prepared.clientRequestId,
-      categoryId: prepared.categoryId,
-      scopeId: prepared.scopeId,
-      spentOn: prepared.spentOn,
-      amountMinor: prepared.amountMinor,
-      invoiceNumber: prepared.invoiceNumber,
-      sellerTaxId: prepared.sellerTaxId,
-      description: prepared.description,
-      createdAt: now,
-      updatedAt: now,
-    }),
+    expense,
     db.insert(accountingExpenseReceipts).values(receipts.map((receipt, index) => ({
       id: receipt.id,
       expenseId: id,
