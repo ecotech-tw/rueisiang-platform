@@ -1,7 +1,7 @@
 import { useLayoutEffect, useState } from "react";
 import { Outlet, useLocation } from "react-router";
 import { logout, useSession } from "../auth/session.js";
-import { isHrPath, settleHrTransition } from "./hr-transition.js";
+import { isSystemPath, settleSystemTransition } from "./system-transition.js";
 import { Sidebar } from "./Sidebar.js";
 import { MobilePageTitle, PageDescriptions } from "../ui/index.js";
 import { GlassSkins } from "./GlassSkins.js";
@@ -15,10 +15,10 @@ export function AppShell() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pageTitle, setPageTitle] = useState<string>();
   const { user, permissions } = useSession();
-  const isHrModule = isHrPath(useLocation().pathname);
+  const isHrModule = isSystemPath(useLocation().pathname);
 
   // 新畫面已經進 DOM、還沒上色：這時放行 View Transition 拍「新狀態」才拍得到。
-  useLayoutEffect(() => settleHrTransition(isHrModule), [isHrModule]);
+  useLayoutEffect(() => settleSystemTransition(isHrModule), [isHrModule]);
 
   // 左欄寬度：HRIS 沒有 sidebar（自己有一套導覽），收合時只剩圖示欄。手機一律單欄；非 HRIS 上面另有一條 topbar。
   const columns = isHrModule ? "grid-cols-[minmax(0,1fr)]" : collapsed ? "grid-cols-[76px_minmax(0,1fr)]" : "grid-cols-[252px_minmax(0,1fr)]";

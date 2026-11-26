@@ -16,6 +16,9 @@ import { Login } from "./routes/Login.js";
 import { Profile } from "./routes/me/Profile.js";
 import { HrEmployeeDetail, HrEmployees } from "./routes/hr/Employees.js";
 import { HrLanding, HrLayout } from "./routes/hr/HrLayout.js";
+import { AccountingLanding, AccountingLayout } from "./routes/accounting/AccountingLayout.js";
+import { AccountingCategories } from "./routes/accounting/Categories.js";
+import { AccountingExpenses } from "./routes/accounting/Expenses.js";
 import { HrAttendanceSettings } from "./routes/hr/AttendanceSettings.js";
 import { HrAttendanceScopeManagement } from "./routes/hr/Locations.js";
 import { HrInsuranceManagement } from "./routes/hr/InsuranceManagement.js";
@@ -176,6 +179,12 @@ export function App() {
           <Route path="sandbox" element={<Sandbox />} />
           <Route path="settings" element={<AssistantSettings />} />
           <Route path="line" element={<LineSettings />} />
+        </Route>
+
+        <Route path="accounting" element={<AccountingLayout />}>
+          <Route index element={<AccountingLanding />} />
+          <Route path="expenses" element={<AccountingExpenses />} />
+          <Route path="categories" element={<AccountingCategories />} />
         </Route>
 
         <Route path="hr" element={<HrLayout />}>

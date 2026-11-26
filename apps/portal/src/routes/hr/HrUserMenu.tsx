@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { logout, useSession } from "../../auth/session.js";
 import { UserAvatar, useDismiss } from "../../shell/AccountPanel.js";
-import { navigateAcrossHr } from "../../shell/hr-transition.js";
+import { navigateAcrossSystem } from "../../shell/system-transition.js";
 import { useGuardedAction, useGuardedClick } from "../../shell/UnsavedChanges.js";
 import { Icon } from "../../shell/icons.js";
 import { HR_USER_MENU, hrMenuItemClass, hrUserDropdownClass, hrUserTriggerClass } from "./HrShell.js";
@@ -64,7 +64,7 @@ export function HrUserMenu({ onOpen }: { onOpen?: () => void } = {}) {
           className={hrMenuItemClass({})}
           onClick={(event) => guardedClick(event, "/", () => {
             setOpen(false);
-            navigateAcrossHr(event, navigate, "/");
+            navigateAcrossSystem(event, navigate, "/");
           })}
         >
           <Icon name="apps" />

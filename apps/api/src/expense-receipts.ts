@@ -1,5 +1,6 @@
 import {
   createMyExpense,
+  findExpenseReceiptForReview,
   findMyExpenseByClientRequest,
   findMyExpenseReceipt,
   prepareMyExpense,
@@ -104,7 +105,15 @@ export async function submitMyExpense(c: Context<AppEnv>) {
 }
 
 export async function readMyExpenseReceipt(c: Context<AppEnv>, expenseId: string, receiptId: string) {
-  const receipt = await findMyExpenseReceipt(c.get("db"), c.get("user").id, expenseId, receiptId);
+  return streamReceipt(c, await findMyExpenseReceipt(c.get("db"), c.get("user").id, expenseId, receiptId));
+}
+
+/** 會計看任何一張報帳的單據；權限由路由的 accounting:expense:read 把關。 */
+export async function readExpenseReceiptForReview(c: Context<AppEnv>, expenseId: string, receiptId: string) {
+  return streamReceipt(c, await findExpenseReceiptForReview(c.get("db"), expenseId, receiptId));
+}
+
+async function streamReceipt(c: Context<AppEnv>, receipt: { objectKey: string; contentType: string } | null) {
   if (!receipt) throw new HTTPException(404, { message: "找不到這張單據照片。" });
   const object = await requireBucket(c).get(receipt.objectKey);
   if (!object) throw new HTTPException(404, { message: "單據照片檔案遺失，請聯絡會計。" });
