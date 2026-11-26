@@ -259,6 +259,13 @@ async function runCyberbizJob(payload, job) {
         };
         const errors = stores.filter((item) => !item.done && item.error?.message)
           .map((item) => `${item.store}：${item.error.message}`);
+        const failureCode = typeof report?.failure?.code === "string"
+          && /^[A-Z][A-Z0-9_]{0,63}$/.test(report.failure.code)
+          ? `[${report.failure.code}] `
+          : "";
+        const driverFailure = typeof report?.failure?.message === "string"
+          ? `${failureCode}${safeErrorMessage(new Error(report.failure.message), credentials)}`
+          : "";
         if (!timedOut && code === 0) {
           job.status = "succeeded";
           job.error = "";
@@ -266,7 +273,7 @@ async function runCyberbizJob(payload, job) {
           job.status = "failed";
           job.error = timedOut
             ? "CYBERBIZ 報表執行超過 55 分鐘，已停止；請查看摘要、分批或重新提交。"
-            : errors.join("；").slice(0, 2_000) || "報表未完成，請查看執行摘要並重新提交。";
+            : errors.join("；").slice(0, 2_000) || driverFailure || "報表未完成，請查看執行摘要並重新提交。";
         }
         job.finishedAt = new Date().toISOString();
         resolve(job);

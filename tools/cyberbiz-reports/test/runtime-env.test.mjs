@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { loadEnv, redact } from "../lib/common.mjs";
+import { loadEnv, redact, writeRunnerFailureResult } from "../lib/common.mjs";
 
 test("runner environment overrides .env values", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "cyberbiz-env-test-"));
@@ -42,6 +42,29 @@ test("uses injected runner secrets when the local .env file is absent", async (t
   process.env[key] = "injected-secret";
 
   assert.equal((await loadEnv(path.join(directory, ".env")))[key], "injected-secret");
+});
+
+test("writes a redacted driver failure while preserving any existing report result", async (t) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "cyberbiz-runner-failure-test-"));
+  const resultPath = path.join(directory, "result.json");
+  const previousResultPath = process.env.REPORT_RUNNER_RESULT_PATH;
+  t.after(async () => {
+    if (previousResultPath === undefined) delete process.env.REPORT_RUNNER_RESULT_PATH;
+    else process.env.REPORT_RUNNER_RESULT_PATH = previousResultPath;
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  process.env.REPORT_RUNNER_RESULT_PATH = resultPath;
+  await writeFile(resultPath, JSON.stringify({ stores: [{ store: "測試店" }] }), "utf8");
+  const error = Object.assign(new Error("token=mail-secret OTP=123456"), { code: "GMAIL_API_ERROR" });
+  await writeRunnerFailureResult(error, { GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "mail-secret" });
+
+  const result = JSON.parse(await readFile(resultPath, "utf8"));
+  assert.deepEqual(result.stores, [{ store: "測試店" }]);
+  assert.deepEqual(result.failure, {
+    code: "GMAIL_API_ERROR",
+    message: "token=«GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN» OTP=«otp»",
+  });
 });
 
 test("redacts both legacy and Cloudflare report credential names", () => {

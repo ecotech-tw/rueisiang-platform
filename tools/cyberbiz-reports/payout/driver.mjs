@@ -29,6 +29,7 @@ import {
   selectStores,
   storeScopeId,
   skillPath,
+  writeRunnerFailureResult,
 } from "../lib/common.mjs";
 import { newPage, openBrowser, screenshot } from "../lib/browser.mjs";
 import { exportPayoutReport, listStores, login, loginOptions, resolveStore } from "../lib/cyberbiz.mjs";
@@ -331,7 +332,6 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  const env = await loadEnv();
-  log(`執行失敗：${redact(error.message, env)}`);
+  await writeRunnerFailureResult(error, await loadEnv());
   process.exitCode = 1;
 });

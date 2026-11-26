@@ -24,6 +24,7 @@ import {
   reportIngestConfig,
   redact,
   requireEnv,
+  writeRunnerFailureResult,
   salesFilename,
   parseStoresInput,
   selectStores,
@@ -259,6 +260,6 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  log(`執行失敗：${redact(error.message, await loadEnv())}`);
+  await writeRunnerFailureResult(error, await loadEnv());
   process.exitCode = 1;
 });
