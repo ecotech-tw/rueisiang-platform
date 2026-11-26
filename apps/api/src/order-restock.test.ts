@@ -22,6 +22,7 @@ let writes: Record<string, unknown>[];
 let postFailure: boolean;
 let readFailure: boolean;
 let beforeSecondRead: (() => Promise<void>) | undefined;
+let beforeFirstRead: (() => Promise<void>) | undefined;
 let productReads: number;
 let onPost: (() => void) | undefined;
 
@@ -59,7 +60,7 @@ beforeEach(async () => {
   await db.insert(wmsItems).values({ itemId: "soap", quantity: 12742, updatedAt: new Date(Date.now() - 60_000).toISOString() });
   await db.insert(cyberbizProducts).values({ itemId: "soap", cyberbizProductId: "100", cyberbizVariantId: "200" });
   quantity = 12737; remotePosId = null; managed = true; postFailure = false; readFailure = false;
-  writes = []; productReads = 0; beforeSecondRead = undefined; onPost = undefined; currentOrder = orderPayload();
+  writes = []; productReads = 0; beforeSecondRead = undefined; beforeFirstRead = undefined; onPost = undefined; currentOrder = orderPayload();
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.pathname.startsWith("/v1/orders/")) {
@@ -68,6 +69,7 @@ beforeEach(async () => {
     }
     if (url.pathname === "/v1/products/100") {
       productReads += 1;
+      if (productReads === 1) await beforeFirstRead?.();
       if (productReads === 2) await beforeSecondRead?.();
       return Response.json({ id: 100, title: "香皂", pos_shop: remotePosId ? { id: remotePosId } : null,
         product_variants: [{ id: 200, sku: "SOAP", inventory_management: managed, inventory_quantity: quantity, safety_inventory_quantity: 5 }],
@@ -158,6 +160,27 @@ describe("官網下單回補", () => {
     expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
   });
 
+  it("明細驗證失敗仍保留精確品項，官網快照與盤點不得繞過待確認保護", async () => {
+    currentOrder = orderPayload({ line_items: [{ product_id: 100, product_variant_id: 200, sku: "SOAP", quantity: 5, related_items: [{ quantity: 2 }] }] });
+    await receive();
+    expect(await job()).toMatchObject({ state: "review", itemId: "soap", variantId: "200" });
+    expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+    const links = await listCompanyLinks(db);
+    await applySyncPlan(db, buildSyncPlan(links, [{ productId: "100", variantId: "200", sku: "SOAP", quantity: 12737, safetyQuantity: 5 }]), null);
+    expect((await db.select().from(wmsItems))[0]?.quantity).toBe(12742);
+    await expect(countItem(db, "soap", 12737, { id: "admin", email: "admin@example.test" })).rejects.toThrow("訂單回補");
+    expect(writes).toHaveLength(0);
+  });
+
+  it("其他明細不合法也不遺失整單中可辨識的商品身分", async () => {
+    currentOrder = orderPayload({ line_items: [
+      { product_id: 100, product_variant_id: 200, sku: "SOAP", quantity: 5 },
+      { product_id: 300, sku: "MISSING-VARIANT", quantity: 1 },
+    ] });
+    await receive(); expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+  });
+
   it("一般贈品仍依實際明細納入，不因零元漏回補", async () => {
     currentOrder = orderPayload({ line_items: [{ product_id: 100, product_variant_id: 200, sku: "SOAP", quantity: 5, price: 0, item_type: "gift" }] });
     await receive(); await run(); expect(writes).toHaveLength(1);
@@ -208,6 +231,16 @@ describe("官網下單回補", () => {
   it("WMS 在訂單成立後已更新，不把可能受污染的基準推回官網", async () => {
     await db.update(wmsItems).set({ updatedAt: new Date().toISOString() });
     await receive(); await run(); expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+  });
+
+  it("SQL 秒精度基準與訂單在同一秒，即使盤點數量未變也不能自動回補", async () => {
+    const second = new Date().toISOString().slice(0, 19);
+    vi.spyOn(Date, "now").mockReturnValue(new Date(`${second}.500Z`).getTime());
+    currentOrder = orderPayload({ created_at: `${second}.100Z` });
+    // 實際盤點於該秒後半更新，但 CURRENT_TIMESTAMP 只留下秒精度。
+    await db.update(wmsItems).set({ updatedAt: second.replace("T", " ") });
+    await receive(); await run();
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
   });
 
   it("寫入已套用但回應遺失：保留待確認，不讓重送或 cron 再加一次", async () => {
@@ -280,6 +313,19 @@ describe("取消與其他庫存路徑", () => {
     await db.insert(activityEvents).values({ id: "failed-push", entityType: "item", entityId: "soap", eventType: "cyberbiz_sync_failed", summary: "推送失敗", field: "quantity", source: "cyberbiz_sync" });
     await retryFailedCyberbizPushes(db, clients().inventoryClient);
     expect(writes).toHaveLength(0);
+  });
+
+  it("舊盤點補推讀取途中收到新訂單，POST 前會攔住，不冒充下單回補", async () => {
+    await db.insert(activityEvents).values({ id: "old-push", entityType: "item", entityId: "soap", eventType: "cyberbiz_sync_failed", summary: "舊盤點推送失敗", field: "quantity", source: "cyberbiz_sync" });
+    beforeFirstRead = async () => { await receive(); };
+    await retryFailedCyberbizPushes(db, clients().inventoryClient);
+    expect(writes).toHaveLength(0); expect(quantity).toBe(12737);
+    expect((await job()).state).toBe("pending");
+    await run(); expect((await job()).state).toBe("applied");
+    quantity += 5;
+    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unfulfilled" }, timings: { cancelled_at: new Date().toISOString() } });
+    await receive("apply", currentOrder, "orders/cancelled"); await run();
+    expect(quantity).toBe(12742); expect(writes).toHaveLength(2);
   });
 
   it("lease 忙碌保留工作，釋放後才處理", async () => {

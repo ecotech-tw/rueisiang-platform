@@ -1,5 +1,5 @@
 import { parseDbDate } from "@rueisiang/db/db-timestamp";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, CellError, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, type StatusTone, TableNote } from "../../ui/index.js";
@@ -134,6 +134,7 @@ function renderChange(event: ActivityRow) {
 export function Activity() {
   usePageTitle("倉儲操作紀錄");
   const [filters, setFilters] = useState<Filters>(DEFAULTS);
+  const cache = useQueryClient();
 
   const query = useQuery({
     queryKey: ["wms", "activity", filters],
@@ -203,7 +204,10 @@ export function Activity() {
             onChange={(event) => update({ pageSize: Number(event.target.value) })}
             options={[25, 50, 100].map((size) => ({ value: String(size), label: `每頁 ${size} 筆` }))}
           />
-          <Button variant="secondary" disabled={query.isFetching} onClick={() => { void query.refetch(); }}>
+          <Button variant="secondary" disabled={query.isFetching} onClick={() => {
+            void query.refetch();
+            void cache.invalidateQueries({ queryKey: ["wms", "order-restock"] });
+          }}>
             {query.isFetching ? "更新中…" : "重新整理"}
           </Button>
         </FilterToolbar>

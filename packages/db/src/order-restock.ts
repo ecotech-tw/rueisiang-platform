@@ -107,7 +107,20 @@ export async function receiveOrderRestock(db: Database, input: {
       ? "POS 訂單不回補，公司倉與門市庫存不得混用。" : "訂單來源未列入官網白名單，不自動回補。";
   } else {
     try { lines = orderLines(order); }
-    catch (error) { state = "review"; reason = error instanceof Error ? error.message : "訂單明細無法解析。"; }
+    catch (error) {
+      state = "review";
+      reason = error instanceof Error ? error.message : "訂單明細無法解析。";
+      // 不自動調整整單，但保留可精確辨識的品項，避免快照／盤點繞過待確認保護。
+      const knownLinks = await listCompanyLinks(db);
+      const identities = new Map<string, { productId: string; variantId: string; sku: string; quantity: number }>();
+      for (const line of order.lineItems) {
+        if (!line.productId || !line.productVariantId || !line.sku.trim()) continue;
+        const identity = { productId: line.productId, variantId: line.productVariantId, sku: line.sku.trim(), quantity: Number.isSafeInteger(line.quantity) && line.quantity > 0 ? line.quantity : 0 };
+        const linked = knownLinks.some((link) => link.cyberbizProductId === identity.productId && link.cyberbizVariantId === identity.variantId && link.linkedSku.trim().toUpperCase() === identity.sku.toUpperCase());
+        if (!identities.has(identity.variantId) || linked) identities.set(identity.variantId, identity);
+      }
+      lines = [...identities.values()];
+    }
   }
 
   let queued = 0;
@@ -197,7 +210,9 @@ async function runRestock(db: Database, initial: CyberbizOrderRestock, clients: 
       throw new ReviewRequired("WMS 連結已變更或不屬於訂單原款式。");
     }
     const baselineTime = link.updatedAt ? parseDbDate(link.updatedAt)?.getTime() : undefined;
-    if (row.mode === "apply" && (baselineTime === undefined || !Number.isFinite(time) || baselineTime > time)) {
+    const secondPrecision = !/\.\d+(?:Z|[+-]\d{2}:\d{2})?$/.test(link.updatedAt ?? "");
+    const ambiguousSecond = baselineTime !== undefined && secondPrecision && Math.floor(baselineTime / 1000) === Math.floor(time / 1000);
+    if (row.mode === "apply" && (baselineTime === undefined || !Number.isFinite(time) || baselineTime >= time || ambiguousSecond)) {
       throw new ReviewRequired("WMS 在事件後已被更新，無法確認是否混入訂單扣減或實體異動，不使用此數量覆蓋官網。");
     }
     if (!Number.isSafeInteger(link.quantity) || link.quantity < 0) throw new ReviewRequired("WMS 數量不是非負安全整數。");

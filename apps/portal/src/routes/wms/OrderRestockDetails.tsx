@@ -70,7 +70,7 @@ export function OrderRestockDetails({ id }: { id: string }) {
             </Field>
             <div className="flex flex-wrap gap-2">
               {row.mode === "apply" && row.itemId && row.targetQuantity !== null ? <Button variant="secondary" disabled={reason.trim().length < 5 || mutation.isPending} onClick={() => { mutation.reset(); setResolution("applied"); }}>確認回補已完成</Button> : null}
-              <Button variant="secondary" disabled={reason.trim().length < 5 || mutation.isPending} onClick={() => { mutation.reset(); setResolution("skipped"); }}>確認未執行／已另行處理</Button>
+              <Button variant="secondary" disabled={reason.trim().length < 5 || mutation.isPending} onClick={() => { mutation.reset(); setResolution("skipped"); }}>確認未回補且不再執行</Button>
             </div>
           </> : null}
         </> : null}
@@ -83,7 +83,7 @@ export function OrderRestockDetails({ id }: { id: string }) {
         onCancel={() => setResolution(null)}
         onConfirm={() => mutation.mutate(resolution)}
       >
-        <p>{resolution === "applied" ? "確認原訂單回補已實際完成。之後若訂單取消，系統可能依這筆已完成紀錄進行反向校正。" : "確認不再自動執行這筆工作；若遠端曾有不明調整，請先完成實際庫存核對與必要的人工處理。"}</p>
+        <p>{resolution === "applied" ? "確認原訂單回補已實際完成。之後若訂單取消，系統可能依這筆已完成紀錄進行反向校正。" : "確認本單未回補且不再執行；之後取消訂單也不會依本筆反向校正。若你已人工完成相同回補，應選擇『確認回補已完成』，不要標記為未執行。"}</p>
         <p>這裡不會呼叫庫存 API，查核人與說明會寫入操作紀錄。</p>
         {mutation.error ? <Alert tone="danger">{mutation.error.message}</Alert> : null}
       </ConfirmDialog> : null}

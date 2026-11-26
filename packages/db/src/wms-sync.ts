@@ -666,6 +666,13 @@ export async function retryFailedCyberbizPushes(
         variantId: link.cyberbizVariantId,
         sku: link.linkedSku,
         targetQuantity: link.quantity,
+        beforeAdjust: async () => {
+          const [current] = await listCompanyLinks(db, { inventoryItemId: itemId });
+          if (await hasUnresolvedOrderRestock(db, itemId)) throw new Error("讀取官網期間有新訂單回補入帳，未送出盤點補推。");
+          if (!current || current.quantity !== link.quantity || current.updatedAt !== link.updatedAt || current.cyberbizProductId !== link.cyberbizProductId || current.cyberbizVariantId !== link.cyberbizVariantId) {
+            throw new Error("送出前 WMS 數量或連結已變更，未送出舊盤點補推。");
+          }
+        },
       });
       await setCyberbizProductSyncStatus(db, itemId, "synced");
       await recordCyberbizSyncSucceeded(db, {

@@ -62,12 +62,12 @@ describe("回補明細的靜態介面狀態", () => {
     expect(html).toContain("人工查核說明");
     expect(html).toContain("不會調整庫存或重新回補");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>確認回補已完成<\/button>/);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>確認未執行／已另行處理<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>確認未回補且不再執行<\/button>/);
   });
 
   it("觀察模式的待確認工作不提供已完成調整按鈕", () => {
     view.data = { ...view.data, state: "review" }; view.canResolve = true;
     expect(render()).not.toContain("確認回補已完成");
-    expect(render()).toContain("確認未執行／已另行處理");
+    expect(render()).toContain("確認未回補且不再執行");
   });
 });
