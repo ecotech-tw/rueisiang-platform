@@ -46,7 +46,9 @@ export function Payout() {
   const { selectedNames, allSelected, toggle, toggleAll } = useStoreSelection(stores);
   const latest = status.data?.runs[0];
   const followed = tracking ?? state.data?.latestRequestId ?? null;
-  const running = Boolean(latest) && latest!.status !== "completed";
+  // GitHub 建立 run 需要幾秒，Container 的狀態查詢也可能晚於送出回應；這段時間不能再送第二次。
+  const awaitingRegistration = Boolean(tracking && !status.data?.runs.length);
+  const running = awaitingRegistration || (Boolean(latest) && latest!.status !== "completed");
   const rangeError = start && end && start > end ? "起日不能晚於迄日。" : "";
   const blocked = running || run.isPending || !start || !end || Boolean(rangeError) || !state.data?.configured;
 
