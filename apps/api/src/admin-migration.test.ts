@@ -219,9 +219,9 @@ describe("bootstrap 管理員權限 migration", () => {
       }
     }
 
-    // HR 與多媒體權限由角色同步入口加入，不回頭改寫歷史 migration。
+    // HR、多媒體與會計權限由角色同步入口加入，不回頭改寫歷史 migration。
     const historical = await db.select().from(rolePermissionGrants);
-    const historicalPermissions = ALL_PERMISSIONS.filter((permission) => !permission.startsWith("hr:") && !permission.startsWith("media:"));
+    const historicalPermissions = ALL_PERMISSIONS.filter((permission) => !permission.startsWith("hr:") && !permission.startsWith("media:") && !permission.startsWith("accounting:"));
     expect(historical).toHaveLength(historicalPermissions.length);
     expect(new Set(historical.map((row) => row.permission))).toEqual(new Set(historicalPermissions));
     await syncSystemRoles(db);
