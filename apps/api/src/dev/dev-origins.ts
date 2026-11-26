@@ -9,17 +9,17 @@ import type { NetworkInterfaceInfo } from "node:os";
  *
  * 想自己指定就寫在 apps/api/.dev.vars 的 AUTH_APP_ORIGINS；從外面設環境變數沒有用，
  * turbo 只會轉傳 passThroughEnv 列出的變數。
+ *
+ * 網卡清單只在 dev server 啟動時讀一次：換 Wi-Fi 或 DHCP 換了 IP，要重開 dev server 才會放行新的位址。
  */
 export function devAppOrigins(
   interfaces: NodeJS.Dict<NetworkInterfaceInfo[]>,
-  ports: readonly (number | string)[],
+  ports: readonly number[],
 ): string[] {
   const hosts = ["localhost", "127.0.0.1"];
   for (const addresses of Object.values(interfaces)) {
     for (const address of addresses ?? []) {
-      // Node 18 起 family 是字串；較舊版本是數字 4。
-      const ipv4 = address.family === "IPv4" || (address.family as unknown) === 4;
-      if (ipv4 && !address.internal && !hosts.includes(address.address)) hosts.push(address.address);
+      if (address.family === "IPv4" && !address.internal && !hosts.includes(address.address)) hosts.push(address.address);
     }
   }
   return ports.flatMap((port) => hosts.map((host) => `http://${host}:${port}`));

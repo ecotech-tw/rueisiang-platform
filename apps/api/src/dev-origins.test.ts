@@ -18,15 +18,16 @@ describe("本機 dev server 的前端 origin 白名單", () => {
     const origins = devAppOrigins({
       "Wi-Fi": [address("192.168.0.27", "IPv4"), address("fe80::1", "IPv6")],
       "vEthernet (WSL)": [address("172.19.48.1", "IPv4")],
-    }, [5173, "5176"]);
+    }, [5173, 5176]);
     expect(origins).toContain("http://192.168.0.27:5173");
     expect(origins).toContain("http://192.168.0.27:5176");
     expect(origins).toContain("http://172.19.48.1:5176");
   });
 
-  it("不放 loopback、IPv6，也不重複", () => {
+  it("不放 internal 網卡、IPv6，也不重複", () => {
     const origins = devAppOrigins({
-      Loopback: [address("127.0.0.1", "IPv4", true), address("::1", "IPv6", true)],
+      // 10.255.255.254 是 internal 但不是 127.0.0.1：少了 internal 的判斷它就會混進來。
+      Loopback: [address("127.0.0.1", "IPv4", true), address("10.255.255.254", "IPv4", true), address("::1", "IPv6", true)],
       "Wi-Fi": [address("192.168.0.27", "IPv4"), address("fe80::1", "IPv6")],
       Bridge: [address("192.168.0.27", "IPv4")],
     }, [5176]);
