@@ -31,6 +31,15 @@ const STATUS_TONE: Record<MyExpense["status"], "info" | "success" | "danger" | "
   paid: "success",
 };
 
+/*
+ * crypto.randomUUID 只在安全連線（HTTPS、localhost）存在；用區網 IP 開 dev server 或某些 App 內建瀏覽器會拿不到，
+ * 而這頁一打開就要產生送件識別碼。getRandomValues 沒有這個限制。
+ */
+function randomId() {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function dollars(amountMinor: number) {
   return `NT$ ${(amountMinor / 100).toLocaleString("zh-TW")}`;
 }
@@ -115,7 +124,7 @@ export function HrExpenseForm() {
   const options = useHrQuery<ExpenseOptionsResponse>("/me/expense-options");
   const today = formatTaipeiDate(new Date());
   // 每次打開表單一個識別碼：連按兩下、或網路斷掉重送，伺服器都只會留一張。
-  const [clientRequestId] = useState(() => crypto.randomUUID());
+  const [clientRequestId] = useState(randomId);
   const [categoryId, setCategoryId] = useState("");
   const [scopeId, setScopeId] = useState("");
   const [spentOn, setSpentOn] = useState(today);
@@ -149,7 +158,7 @@ export function HrExpenseForm() {
       for (const file of chosen) {
         try {
           const resized = await prepareReceiptImage(file);
-          prepared.push({ key: crypto.randomUUID(), file: resized, preview: URL.createObjectURL(resized) });
+          prepared.push({ key: randomId(), file: resized, preview: URL.createObjectURL(resized) });
         } catch {
           setLocalError(`「${file.name}」無法讀取，請換一張照片。`);
         }
