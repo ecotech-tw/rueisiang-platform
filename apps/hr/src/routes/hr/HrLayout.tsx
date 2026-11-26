@@ -14,13 +14,14 @@ const personalLinks: { to: string; label: string; icon: IconName; center?: boole
 ];
 
 /*
- * 支援人員只開打卡、薪資袋與報帳（API 端的白名單在 apps/api/src/routes/hr.ts）。
+ * 支援人員只開打卡、薪資袋、報帳與報帳通知（API 端的白名單在 apps/api/src/routes/hr.ts）。
  * 他們沒有「工作」頁，報帳直接放進導覽；正式員工從「工作」進去。
  */
 const workerLinks: typeof personalLinks = [
   { to: "/payroll", label: "薪資袋", icon: "payments" },
   { to: "/clock", label: "打卡", icon: "clock" },
   { to: "/expenses", label: "報帳", icon: "attachment" },
+  { to: "/notifications", label: "通知", icon: "notifications" },
 ];
 
 function navigationPath(pathname: string) {
@@ -57,7 +58,7 @@ function PersonalNav({ variant }: { variant: NavVariant }) {
   const worker = user?.hrSelfServiceKind === "worker";
   // 正式員工的報帳、表單掛在「工作」底下；支援人員沒有「工作」頁，報帳本身就是導覽的一項。
   const pathname = worker ? location.pathname.toLowerCase() : navigationPath(location.pathname);
-  const notifications = useHrQuery<HrNotificationsResponse>("/me/notifications", !worker);
+  const notifications = useHrQuery<HrNotificationsResponse>("/me/notifications");
   const links = worker ? workerLinks : personalLinks;
   return <nav className={NAV[variant]} data-nav={variant} style={worker ? { gridTemplateColumns: `repeat(${workerLinks.length}, minmax(0, 1fr))` } : undefined} aria-label="本人 HR 功能">
     {links.map((link) => {

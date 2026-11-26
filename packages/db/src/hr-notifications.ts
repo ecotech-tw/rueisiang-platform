@@ -1,10 +1,10 @@
-import { and, count, desc, eq, isNull, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { HrError } from "./hr-people.js";
 import { HR_NOTIFICATION_BODY_LIMIT, hrNotifications } from "./schema/hr-requests.js";
 
 export type HrNotificationKind = "request_submitted" | "request_reviewed" | "request_cancelled";
-export type HrNotificationEntityKind = "leave" | "overtime" | "clock_correction";
+export type HrNotificationEntityKind = "leave" | "overtime" | "clock_correction" | "expense";
 
 export interface HrNotificationInsert {
   userId: string;
@@ -78,8 +78,12 @@ export function appendHrNotification(input: HrNotificationInsert) {
     RETURNING id`;
 }
 
-export async function listHrNotifications(db: Database, userId: string, limit = 50) {
+/**
+ * entityKinds 給支援人員用：他們的員工自助只開報帳，通知也只看報帳的，不讓其他種類的通知從這裡漏出去。
+ */
+export async function listHrNotifications(db: Database, userId: string, limit = 50, entityKinds?: readonly HrNotificationEntityKind[]) {
   const safeLimit = Math.min(100, Math.max(1, Math.floor(limit)));
+  const scope = entityKinds ? inArray(hrNotifications.entityKind, [...entityKinds]) : undefined;
   const [notifications, [unread]] = await Promise.all([
     db.select({
       id: hrNotifications.id,
@@ -93,11 +97,11 @@ export async function listHrNotifications(db: Database, userId: string, limit = 
       readAt: hrNotifications.readAt,
       createdAt: hrNotifications.createdAt,
     }).from(hrNotifications)
-      .where(eq(hrNotifications.userId, userId))
+      .where(and(eq(hrNotifications.userId, userId), scope))
       .orderBy(desc(hrNotifications.createdAt), desc(hrNotifications.id))
       .limit(safeLimit),
     db.select({ count: count() }).from(hrNotifications)
-      .where(and(eq(hrNotifications.userId, userId), isNull(hrNotifications.readAt))),
+      .where(and(eq(hrNotifications.userId, userId), isNull(hrNotifications.readAt), scope)),
   ]);
   return { notifications, unreadCount: unread?.count ?? 0 };
 }

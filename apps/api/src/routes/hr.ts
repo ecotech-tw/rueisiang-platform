@@ -602,10 +602,10 @@ export const hr = new Hono<AppEnv>()
     const path = c.req.path.replace(/^\/api\/hr/, "");
     const logout = path === "/me/device" && c.req.method === "DELETE";
     if (worker.archivedAt !== null && !logout) throw new HTTPException(403, { message: "支援人員已停用，無法使用本人功能。" });
-    const allowed = c.req.method === "GET" && /^\/me\/(session|clock-events|attendance-calendar|attendance-map(?:\/locations)?|payroll-history(?:\/[^/]+\/[^/]+)?|my-schedules|expense-options|expenses|expenses\/[^/]+\/receipts\/[^/]+)$/.test(path)
-      || c.req.method === "POST" && (["/me/device", "/me/clock-events", "/me/attendance-location/check", "/me/expenses"].includes(path) || /^\/me\/expenses\/[^/]+\/cancel$/.test(path))
+    const allowed = c.req.method === "GET" && /^\/me\/(session|clock-events|attendance-calendar|attendance-map(?:\/locations)?|payroll-history(?:\/[^/]+\/[^/]+)?|my-schedules|expense-options|expenses|expenses\/[^/]+\/receipts\/[^/]+|notifications)$/.test(path)
+      || c.req.method === "POST" && (["/me/device", "/me/clock-events", "/me/attendance-location/check", "/me/expenses", "/me/notifications/read-all"].includes(path) || /^\/me\/(expenses\/[^/]+\/cancel|notifications\/[^/]+\/read)$/.test(path))
       || c.req.method === "DELETE" && ["/me/device", "/me/liff-link"].includes(path);
-    if (!allowed) throw new HTTPException(403, { message: "支援人員目前僅開放打卡、已發放薪資袋與報帳。" });
+    if (!allowed) throw new HTTPException(403, { message: "支援人員目前僅開放打卡、已發放薪資袋、報帳與報帳通知。" });
     return next();
   })
   .onError((error, c) => {
@@ -694,7 +694,9 @@ export const hr = new Hono<AppEnv>()
   .get("/me/session", async (c) => c.json({ ...await sessionUserPayload(c.get("db"), c.get("user")), deviceRemembered: c.get("deviceSession"), lineLiffAuthenticated: c.get("lineLiffSession") }))
   .get("/me/notifications", async (c) => {
     const limit = c.req.query("limit") === undefined ? 50 : calendarNumber(c.req.query("limit"), 50, "通知筆數", 1, 100);
-    return c.json(await listHrNotifications(c.get("db"), c.get("user").id, limit));
+    // 支援人員只開報帳，通知也只給報帳的；其他種類就算有也不從這裡漏出去。
+    const worker = await getHrWorkerAccount(c.get("db"), c.get("user").id);
+    return c.json(await listHrNotifications(c.get("db"), c.get("user").id, limit, worker ? ["expense"] : undefined));
   })
   .post("/me/notifications/:id/read", async (c) => c.json(await markHrNotificationRead(c.get("db"), c.req.param("id"), c.get("user").id)))
   .post("/me/notifications/read-all", async (c) => c.json(await markAllHrNotificationsRead(c.get("db"), c.get("user").id)))

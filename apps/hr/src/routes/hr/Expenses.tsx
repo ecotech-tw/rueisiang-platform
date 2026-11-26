@@ -11,7 +11,7 @@ import {
 import { formatTaipeiDate } from "@rueisiang/db/taipei-time";
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { API_BASE_URL } from "../../config.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
@@ -137,6 +137,15 @@ export function HrExpenses() {
   const navigate = useNavigate();
   const query = useHrQuery<{ expenses: MyExpense[] }>("/me/expenses");
   const [viewing, setViewing] = useState<MyExpense | null>(null);
+  const [params, setParams] = useSearchParams();
+  // 從通知點進來（?focus=報帳單 ID）：資料到了就打開那一張的明細，參數用完就拿掉，關掉後不會再自己彈出來。
+  const focus = params.get("focus");
+  useEffect(() => {
+    if (!focus || !query.data) return;
+    const target = query.data.expenses.find((expense) => expense.id === focus);
+    if (target) setViewing(target);
+    setParams((current) => { const next = new URLSearchParams(current); next.delete("focus"); return next; }, { replace: true });
+  }, [focus, query.data, setParams]);
   const [cancelling, setCancelling] = useState<MyExpense | null>(null);
   const closeDetail: CloseRef = useRef(null);
   const closeCancel: CloseRef = useRef(null);

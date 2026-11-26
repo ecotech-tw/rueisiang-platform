@@ -26,8 +26,11 @@ const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
  * 一句 UPDATE 加一筆操作紀錄放同一個 D1 batch；紀錄用 `WHERE changes() > 0` 只在 UPDATE 真的改到列時才寫，
  * 沒改到（版本過期、狀態不對、自己的單）就什麼都不留。drizzle 的 batch 收不了這種手寫 SQL，所以直接用 D1 的
  * prepare／batch，跟 HR 的 writeHrMutation 同一種作法。回傳 UPDATE 改到的列數。
+ *
+ * followUps 接在紀錄後面（例如通知送件人）；changes() 這時已經是上一句 INSERT 的結果，所以它們要自己帶條件，
+ * 用「轉換後的狀態與版本」確認 UPDATE 成功了才寫。
  */
-async function guardedWrite(db: Database, mutation: { toSQL(): { sql: string; params: unknown[] } }, event: ReturnType<typeof activityRow>, now: string) {
+async function guardedWrite(db: Database, mutation: { toSQL(): { sql: string; params: unknown[] } }, event: ReturnType<typeof activityRow>, now: string, followUps: ReturnType<typeof sql>[] = []) {
   const update = mutation.toSQL();
   const log = dialect.sqlToQuery(sql`INSERT INTO activity_events (id, entity_type, entity_id, entity_label, event_type, summary, source, actor_type, actor_id, actor_email, payload_json, created_at)
     SELECT ${event.id}, ${event.entityType}, ${event.entityId}, ${event.entityLabel}, ${event.eventType}, ${event.summary}, ${event.source}, ${event.actorType}, ${event.actorId}, ${event.actorEmail}, ${event.payloadJson}, ${now}
@@ -35,6 +38,10 @@ async function guardedWrite(db: Database, mutation: { toSQL(): { sql: string; pa
   const [result] = await db.$client.batch([
     db.$client.prepare(update.sql).bind(...update.params),
     db.$client.prepare(log.sql).bind(...log.params),
+    ...followUps.map((followUp) => {
+      const query = dialect.sqlToQuery(followUp);
+      return db.$client.prepare(query.sql).bind(...query.params);
+    }),
   ]);
   return result?.results?.length ?? 0;
 }
@@ -133,6 +140,8 @@ async function transition(db: Database, input: {
   extraWhere?: ReturnType<typeof eq>;
   eventType: string;
   summary: string;
+  /** 通知送件人：標題，以及接在「金額・用途」後面的一句話。 */
+  notify: { event: string; title: string; detail: string };
 }) {
   const now = toDbTimestamp();
   const conditions = [
@@ -143,8 +152,15 @@ async function transition(db: Database, input: {
     ...(input.extraWhere ? [input.extraWhere] : []),
   ];
   const event = activityRow({ entityType: "accounting_expense", entityId: input.id, source: "accounting", eventType: input.eventType, summary: input.summary, actor: input.actor });
+  const nextStatus = input.set.status ?? input.from;
+  // 通知在員工自助的「通知」裡；內文的金額與用途在 SQL 裡從支出單組出來，不必先讀一次。
+  const notification = sql`INSERT INTO hr_notifications (id, user_id, source_key, kind, entity_kind, entity_id, title, body)
+    SELECT ${crypto.randomUUID()}, submitter_user_id, ${`expense:${input.id}:${input.notify.event}`}, 'request_reviewed', 'expense', id, ${input.notify.title},
+      substr('NT$ ' || printf('%,d', amount_minor / 100) || '・' || description || char(10) || ${input.notify.detail}, 1, 1000)
+    FROM accounting_expenses WHERE id = ${input.id} AND revision = ${input.expectedRevision + 1} AND status = ${nextStatus}
+    ON CONFLICT(source_key) DO NOTHING`;
   const changed = await guardedWrite(db, db.update(accountingExpenses).set({ ...input.set, revision: input.expectedRevision + 1, updatedAt: now })
-    .where(and(...conditions)).returning({ id: accountingExpenses.id }), event, now);
+    .where(and(...conditions)).returning({ id: accountingExpenses.id }), event, now, [notification]);
   if (changed) return { id: input.id };
   const [current] = await db.select({ status: accountingExpenses.status, revision: accountingExpenses.revision, submitterUserId: accountingExpenses.submitterUserId })
     .from(accountingExpenses).where(eq(accountingExpenses.id, input.id)).limit(1);
@@ -160,6 +176,7 @@ export async function approveExpense(db: Database, id: string, expectedRevision:
     id, expectedRevision, actor, from: "pending",
     set: { status: "approved", payoutMethod: "direct", reviewerUserId: actor.id, reviewedAt: toDbTimestamp(), reviewNote: "" },
     eventType: "expense_approved", summary: "報帳核准（直接撥款）",
+    notify: { event: "approved", title: "報帳已核准", detail: "會計審核通過，等待撥款。" },
   });
 }
 
@@ -170,6 +187,7 @@ export async function rejectExpense(db: Database, id: string, expectedRevision: 
     id, expectedRevision, actor, from: "pending",
     set: { status: "rejected", reviewerUserId: actor.id, reviewedAt: toDbTimestamp(), reviewNote: reason },
     eventType: "expense_rejected", summary: "報帳退回",
+    notify: { event: "rejected", title: "報帳已退回", detail: `退回原因：${reason}` },
   });
 }
 
@@ -183,6 +201,7 @@ export async function markExpensePaid(db: Database, id: string, expectedRevision
     set: { status: "paid", paidAt: toDbTimestamp() },
     extraWhere: eq(accountingExpenses.payoutMethod, "direct"),
     eventType: "expense_paid", summary: "報帳已撥款",
+    notify: { event: "paid", title: "報帳已撥款", detail: "會計已經轉帳，請留意帳戶。" },
   });
 }
 
