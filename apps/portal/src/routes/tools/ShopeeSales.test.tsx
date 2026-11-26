@@ -5,8 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   toastShow: vi.fn(),
-  previewPending: false,
-  confirmPending: false,
   run: {
     id: 1,
     status: "completed",
@@ -36,8 +34,8 @@ vi.mock("./api.js", () => ({
       latestRequestId: "request-id",
     },
   }),
-  usePreviewShopeeSales: () => ({ isPending: mocks.previewPending, error: null, mutate: vi.fn() }),
-  useConfirmShopeeSales: () => ({ isPending: mocks.confirmPending, error: null, mutate: vi.fn() }),
+  usePreviewShopeeSales: () => ({ isPending: false, error: null, mutate: vi.fn() }),
+  useConfirmShopeeSales: () => ({ isPending: false, error: null, mutate: vi.fn() }),
   useDiscardShopeePreview: () => ({ error: null, mutateAsync: vi.fn() }),
   useShopeePreview: () => ({ data: null, error: null }),
   useShopeeSalesStatus: () => ({ data: { runs: [mocks.run], steps: [] }, error: null }),
@@ -52,8 +50,6 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   sessionStorage.clear();
   mocks.toastShow.mockClear();
-  mocks.previewPending = false;
-  mocks.confirmPending = false;
   mocks.run.status = "completed";
   mocks.run.conclusion = "success";
   mocks.run.driveUrl = "https://drive.google.com/file/d/file-id/view";
@@ -74,6 +70,12 @@ afterEach(async () => {
 
 async function mountImportRun() {
   sessionStorage.setItem("shopee-sales-tracking", JSON.stringify({ requestId: "request-id", mode: "import" }));
+  root = createRoot(host);
+  await act(async () => root!.render(<ShopeeSales />));
+}
+
+async function mountPreviewRun() {
+  sessionStorage.setItem("shopee-sales-tracking", JSON.stringify({ requestId: "request-id", mode: "preview", previewToken: "preview-token" }));
   root = createRoot(host);
   await act(async () => root!.render(<ShopeeSales />));
 }
@@ -102,17 +104,25 @@ describe("蝦皮報表完成通知", () => {
     );
   });
 
-  it("以解析中與匯入中呈現處理狀態", async () => {
-    mocks.previewPending = true;
-    await mountImportRun();
-    expect(host.textContent).toContain("解析中…");
+  it("解析與匯入時在狀態文字旁顯示動畫，按鈕只停用變灰", async () => {
+    mocks.run.status = "in_progress";
+    mocks.run.conclusion = null;
+    await mountPreviewRun();
+
+    const previewStatus = host.querySelector('[role="status"]');
+    const submitButton = host.querySelector<HTMLButtonElement>('button[type="submit"]');
+    expect(previewStatus?.textContent).toBe("解析中…可以關閉這一頁");
+    expect(previewStatus?.querySelector(".animate-spin")).not.toBeNull();
+    expect(submitButton?.disabled).toBe(true);
+    expect(submitButton?.getAttribute("aria-busy")).toBeNull();
 
     await act(async () => root?.unmount());
     root = null;
-    mocks.previewPending = false;
-    mocks.confirmPending = true;
+    sessionStorage.clear();
     await mountImportRun();
-    expect(host.textContent).toContain("匯入中…");
+    const importStatus = host.querySelector('[role="status"]');
+    expect(importStatus?.textContent).toBe("匯入中…可以關閉這一頁");
+    expect(importStatus?.querySelector(".animate-spin")).not.toBeNull();
   });
 
   it("舊版工作沒有回報匯入欄位時不臆測 D1 結果", async () => {

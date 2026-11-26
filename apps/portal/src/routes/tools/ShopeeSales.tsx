@@ -296,13 +296,16 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
             type="submit"
             size="lg"
             icon={preview ? "download" : "analytics"}
-            loading={previewRun.isPending || confirmRun.isPending}
-            loadingLabel={confirmRun.isPending ? "匯入中…" : "解析中…"}
             disabled={blocked}
           >
             {preview ? "確認匯入" : "解析並預覽"}
           </Button>
-          {trackingRunning ? <FormHint as="span">{tracking?.mode === "preview" ? "解析中…" : "匯入中…"}可以關閉這一頁</FormHint> : null}
+          {trackingRunning ? (
+            <div role="status" aria-live="polite" className="inline-flex items-center gap-2 text-ok">
+              <span aria-hidden="true" className="size-4 animate-spin rounded-full border-2 border-current border-r-transparent motion-reduce:animate-none" />
+              <FormHint as="span" className="mt-0">{tracking?.mode === "preview" ? "解析中…" : "匯入中…"}可以關閉這一頁</FormHint>
+            </div>
+          ) : null}
         </FormRow>
         <div className={`mt-4 flex min-w-0 flex-col gap-3 ${embedded ? "min-h-0 flex-1 overflow-y-auto" : ""}`}>
           {fileTooLarge ? <Alert tone="danger">檔案不能超過 25 MB。</Alert> : null}
