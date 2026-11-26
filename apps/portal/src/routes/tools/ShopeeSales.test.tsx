@@ -12,8 +12,8 @@ const mocks = vi.hoisted(() => ({
     url: "",
     title: "request-id",
     driveUrl: "https://drive.google.com/file/d/file-id/view" as string | undefined,
-    driveFileAlreadyExisted: false,
-    ingested: true,
+    driveFileAlreadyExisted: false as boolean | undefined,
+    ingested: true as boolean | undefined,
     salesRows: 12 as number | undefined,
     payoutRows: 3 as number | undefined,
     error: undefined as string | undefined,
@@ -93,6 +93,17 @@ describe("蝦皮報表完成通知", () => {
     await mountImportRun();
     expect(mocks.toastShow).toHaveBeenCalledWith(
       "蝦皮報表完成：Drive 已有同名檔案，未重複上傳；此自訂區間未匯入 D1",
+      "success",
+      expect.objectContaining({ label: "開啟 Drive" }),
+    );
+  });
+
+  it("舊版工作沒有回報匯入欄位時不臆測 D1 結果", async () => {
+    mocks.run.driveFileAlreadyExisted = undefined;
+    mocks.run.ingested = undefined;
+    await mountImportRun();
+    expect(mocks.toastShow).toHaveBeenCalledWith(
+      "蝦皮報表完成：Drive 處理完成；D1 匯入狀態未回報",
       "success",
       expect.objectContaining({ label: "開啟 Drive" }),
     );

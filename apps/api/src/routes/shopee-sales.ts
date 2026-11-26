@@ -362,8 +362,8 @@ export const shopeeSales = new Hono<AppEnv>()
         ...(result.status === "failed" && typeof result.error === "string" ? { error: result.error.slice(0, 1_200) } : {}),
         ...(result.status === "succeeded" ? {
           driveUrl,
-          driveFileAlreadyExisted: result.result?.driveFileAlreadyExisted ?? false,
-          ingested: result.result?.ingested ?? false,
+          ...(typeof result.result?.driveFileAlreadyExisted === "boolean" ? { driveFileAlreadyExisted: result.result.driveFileAlreadyExisted } : {}),
+          ...(typeof result.result?.ingested === "boolean" ? { ingested: result.result.ingested } : {}),
           salesRows: result.result?.salesRows ?? 0,
           payoutRows: result.result?.payoutRows ?? 0,
         } : {}),

@@ -156,14 +156,16 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
 
     notifiedTerminalRun.current = tracking.requestId;
     if (latest.conclusion === "success") {
-      const driveStatus = latest.driveFileAlreadyExisted ? "Drive 已有同名檔案，未重複上傳" : "已上傳到 Drive";
+      const driveStatus = latest.driveFileAlreadyExisted === true
+        ? "Drive 已有同名檔案，未重複上傳"
+        : latest.driveFileAlreadyExisted === false ? "已上傳到 Drive" : "Drive 處理完成";
       const counts = [
         typeof latest.salesRows === "number" ? `商品 ${number(latest.salesRows)} 筆` : "",
         typeof latest.payoutRows === "number" ? `出金 ${number(latest.payoutRows)} 筆` : "",
       ].filter(Boolean).join("、");
-      const importStatus = latest.ingested
+      const importStatus = latest.ingested === true
         ? `，並匯入 D1${counts ? `（${counts}）` : ""}`
-        : "；此自訂區間未匯入 D1";
+        : latest.ingested === false ? "；此自訂區間未匯入 D1" : "；D1 匯入狀態未回報";
       const action = latest.driveUrl ? {
         label: "開啟 Drive",
         onClick: () => window.open(latest.driveUrl, "_blank", "noopener,noreferrer"),

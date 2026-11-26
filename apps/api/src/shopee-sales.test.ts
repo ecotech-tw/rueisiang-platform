@@ -173,6 +173,12 @@ describe("蝦皮銷售報表", () => {
       status: "completed", conclusion: "success", driveUrl: "https://drive.google.com/file/d/file-id/view",
       driveFileAlreadyExisted: false, ingested: true, salesRows: 1, payoutRows: 1,
     }] });
+    const requestId = String(inputs.requestId);
+    calls.jobs.set(requestId, { requestId, status: "succeeded", result: { driveUrl: "https://drive.google.com/file/d/file-id/view", salesRows: 1, payoutRows: 1 } });
+    const legacyStatus = await as(manager, "manager@ecotech.tw", `/api/tools/shopee-sales/status?requestId=${encodeURIComponent(requestId)}`);
+    const legacyRun = ((await legacyStatus.json()) as { runs: Record<string, unknown>[] }).runs[0]!;
+    expect(legacyRun).not.toHaveProperty("driveFileAlreadyExisted");
+    expect(legacyRun).not.toHaveProperty("ingested");
 
     const source = await app.fetch(new Request(sourceUrl), env as never);
     expect(source.status).toBe(200);
