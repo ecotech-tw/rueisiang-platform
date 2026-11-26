@@ -26,6 +26,8 @@ tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm work
 
 **時間欄位一律存 UTC 的 `YYYY-MM-DD HH:MM:SS`**，寫入、讀取與比較各有固定的工具，見 [`docs/database-conventions.md`](./docs/database-conventions.md)。
 
+三個入口（營運平台、HRIS、員工自助）各自服務誰、頁面怎麼分層、新系統放哪裡，見 [`docs/platform-navigation.md`](./docs/platform-navigation.md)。
+
 **安全性全部在 API。** 前端的權限判斷（sidebar 顯示哪些項目、按鈕要不要出現）純粹是外觀——SPA 的 JavaScript 全在使用者手上，藏起來的按鈕不是安全機制。每一條 API 路由都必須自己驗權限。
 
 ## 開發
