@@ -254,6 +254,8 @@ export function redact(text, env = {}) {
       output = output.split(value).join(`«${key}»`);
     }
   }
+  output = output.replace(/["']?\b(request[_ -]?id)["']?\s*[:=]\s*["']?[^"'&\s,;]+["']?/gi, "$1=«request-id»");
+  output = output.replace(/\b(?:cf-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "«request-id»");
   return output.replace(/\b\d{6}\b/g, "«otp»");
 }
 

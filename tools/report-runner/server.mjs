@@ -31,6 +31,8 @@ function safeErrorMessage(error, additionalSecrets = {}) {
   for (const [key, value] of secrets) {
     if (typeof value === "string" && value.length > 3) message = message.split(value).join(`«${key}»`);
   }
+  message = message.replace(/["']?\b(request[_ -]?id)["']?\s*[:=]\s*["']?[^"'&\s,;]+["']?/gi, "$1=«request-id»");
+  message = message.replace(/\b(?:cf-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "«request-id»");
   return message.replace(/\b\d{6}\b/g, "«otp»").slice(0, 2_000);
 }
 

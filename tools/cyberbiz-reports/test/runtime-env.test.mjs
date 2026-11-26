@@ -56,14 +56,14 @@ test("writes a redacted driver failure while preserving any existing report resu
 
   process.env.REPORT_RUNNER_RESULT_PATH = resultPath;
   await writeFile(resultPath, JSON.stringify({ stores: [{ store: "測試店" }] }), "utf8");
-  const error = Object.assign(new Error("token=mail-secret OTP=123456"), { code: "GMAIL_API_ERROR" });
+  const error = Object.assign(new Error('token=mail-secret OTP=123456 "requestId":"cf-123e4567-e89b-12d3-a456-426614174000"'), { code: "GMAIL_API_ERROR" });
   await writeRunnerFailureResult(error, { GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "mail-secret" });
 
   const result = JSON.parse(await readFile(resultPath, "utf8"));
   assert.deepEqual(result.stores, [{ store: "測試店" }]);
   assert.deepEqual(result.failure, {
     code: "GMAIL_API_ERROR",
-    message: "token=«GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN» OTP=«otp»",
+    message: "token=«GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN» OTP=«otp» requestId=«request-id»",
   });
 });
 
