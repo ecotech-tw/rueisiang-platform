@@ -9,12 +9,12 @@ import {
   normalizeInvoiceNumber,
 } from "@rueisiang/db/accounting-expense-fields";
 import { formatTaipeiDate } from "@rueisiang/db/taipei-time";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { useNavigate } from "react-router";
 import { API_BASE_URL } from "../../config.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, ConfirmDialog, EmptyRecords, Field, Page, PageHeader, Panel, SelectField, StatusBadge, Textarea, TextField } from "../../ui/index.js";
+import { Alert, Button, ConfirmDialog, Dialog, EmptyRecords, Field, Page, PageHeader, Panel, SelectField, StatusBadge, Textarea, TextField } from "../../ui/index.js";
 import { HrApiError, useHrQuery, useHrWrite, type ExpenseOptionsResponse, type MyExpense } from "./api.js";
 import { FORM_FIELD_ROW, FORM_FIELDS, FORM_PANEL, FormActions, FormPage, FormPageHeader, MOBILE_CARD } from "./Forms.js";
 import { prepareReceiptImage } from "./receipt-image.js";
@@ -55,55 +55,89 @@ function payoutNote(expense: MyExpense) {
   return null;
 }
 
-// 單據縮圖：圖片外框用純黑 10%，不用帶色的灰，才不會像邊緣髒掉。
-const RECEIPT_THUMB = "relative block shrink-0 overflow-hidden outline outline-1 -outline-offset-1 outline-black/10 transition-[scale] duration-150 ease-out active:scale-96 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary";
+// 圖片外框用純黑 10%，不用帶色的灰，才不會像邊緣髒掉。
+const RECEIPT_OUTLINE = "outline outline-1 -outline-offset-1 outline-black/10";
+
+type CloseRef = MutableRefObject<((afterClose?: () => void) => void) | null>;
+
+/** Dialog 的 ref 還沒掛上時也要關得掉，跟大頭貼的移除對話框同一種寫法。 */
+function requestClose(ref: CloseRef, afterClose: () => void) {
+  (ref.current ?? ((after?: () => void) => after?.()))(afterClose);
+}
+
+function expenseMeta(expense: MyExpense) {
+  return [expense.spentOn, expense.categoryName, expense.scopeName].filter(Boolean).join("・");
+}
 
 /*
- * Material 的清單列：前面是單據縮圖，中間是「買了什麼」，右邊是金額與狀態。
- * 列與列之間只用分隔線，不再每筆包一張有框的卡片——卡片疊在 Panel 裡會變成兩層框、兩種圓角。
+ * Material 的清單列：前面是單據縮圖，中間是「買了什麼」，右邊是金額與狀態。整列是一顆按鈕，點了看明細。
+ * 列上不放撤回之類的動作：只有待審核的列才有，放上去會讓每列高度不一、按鈕孤零零掛在角落；動作集中在明細裡。
  */
-function ExpenseRow({ expense, onCancel }: { expense: MyExpense; onCancel: (expense: MyExpense) => void }) {
-  const note = payoutNote(expense);
-  const [first, ...rest] = expense.receiptIds;
-  const meta = [expense.spentOn, expense.categoryName, expense.scopeName].filter(Boolean).join("・");
-  const rejected = expense.status === "rejected" && expense.reviewNote;
-  const footer = rejected || note || rest.length || expense.status === "pending";
-  return <li className="grid grid-cols-[56px_minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 py-4 first:pt-0 last:pb-0">
-    {first ? <a href={receiptUrl(expense.id, first)} target="_blank" rel="noreferrer" aria-label="查看單據" className={`${RECEIPT_THUMB} size-14 rounded-[12px]`}>
-      <img src={receiptUrl(expense.id, first)} alt="" loading="lazy" className="size-full object-cover" />
-      {rest.length ? <span className="absolute right-1 bottom-1 rounded-full bg-ink/72 px-1.5 text-[11px] leading-[18px] font-semibold text-canvas tabular-nums">{expense.receiptIds.length}</span> : null}
-    </a> : <span className="grid size-14 place-items-center rounded-[12px] bg-canvas text-muted"><Icon name="attachment" className="size-6" /></span>}
-    <div className="grid min-w-0 gap-1">
-      <strong className="line-clamp-2 text-[15px] leading-[1.4] font-semibold wrap-anywhere">{expense.description}</strong>
-      <span className="text-[13px] leading-[1.45] text-muted">{meta}</span>
-      {expense.invoiceNumber ? <span className="text-[12px] leading-[1.45] text-muted tabular-nums">發票 {expense.invoiceNumber}{expense.sellerTaxId ? `・統編 ${expense.sellerTaxId}` : ""}</span> : null}
-    </div>
-    <div className="grid justify-items-end gap-1.5">
-      <strong className="text-[15px] leading-[1.4] font-semibold whitespace-nowrap tabular-nums">{dollars(expense.amountMinor)}</strong>
-      <StatusBadge tone={STATUS_TONE[expense.status]}>{EXPENSE_STATUS_LABELS[expense.status]}</StatusBadge>
-    </div>
-    {footer ? <div className="col-span-2 col-start-2 grid gap-2">
-      {rest.length ? <div className="flex flex-wrap gap-1.5">
-        {rest.map((receiptId, index) => <a key={receiptId} href={receiptUrl(expense.id, receiptId)} target="_blank" rel="noreferrer" aria-label={`查看第 ${index + 2} 張單據`} className={`${RECEIPT_THUMB} size-10 rounded-[9px]`}>
-          <img src={receiptUrl(expense.id, receiptId)} alt="" loading="lazy" className="size-full object-cover" />
-        </a>)}
-      </div> : null}
-      {rejected ? <Alert tone="danger">{`退回原因：${expense.reviewNote}`}</Alert> : null}
-      {note ? <span className="text-[13px] text-muted">{note}</span> : null}
-      {/* 「待審核」已經寫在狀態標記上，這一列只放撤回，不再重複一句說明。 */}
-      {expense.status === "pending" ? <div className="-my-1.5 flex justify-end">
-        <Button variant="text" icon="close" onClick={() => onCancel(expense)}>撤回</Button>
-      </div> : null}
-    </div> : null}
+function ExpenseRow({ expense, onOpen }: { expense: MyExpense; onOpen: (expense: MyExpense) => void }) {
+  const first = expense.receiptIds[0];
+  return <li>
+    <button type="button" onClick={() => onOpen(expense)} className="-mx-2 grid w-[calc(100%+16px)] grid-cols-[56px_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border-0 bg-transparent px-2 py-3 text-left text-ink transition-[background-color] duration-150 ease-out hover:bg-brand/4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary">
+      {first ? <span className={`relative block size-14 overflow-hidden rounded-[12px] ${RECEIPT_OUTLINE}`}>
+        <img src={receiptUrl(expense.id, first)} alt="" loading="lazy" className="size-full object-cover" />
+        {expense.receiptIds.length > 1 ? <span className="absolute right-1 bottom-1 rounded-full bg-ink/72 px-1.5 text-[11px] leading-[18px] font-semibold text-canvas tabular-nums">{expense.receiptIds.length}</span> : null}
+      </span> : <span className="grid size-14 place-items-center rounded-[12px] bg-canvas text-muted"><Icon name="attachment" className="size-6" /></span>}
+      <span className="grid min-w-0 gap-1">
+        <strong className="line-clamp-2 text-[15px] leading-[1.4] font-semibold wrap-anywhere">{expense.description}</strong>
+        <span className="truncate text-[13px] leading-[1.45] text-muted">{expenseMeta(expense)}</span>
+      </span>
+      <span className="grid justify-items-end gap-1.5">
+        <strong className="text-[15px] leading-[1.4] font-semibold whitespace-nowrap tabular-nums">{dollars(expense.amountMinor)}</strong>
+        <StatusBadge tone={STATUS_TONE[expense.status]}>{EXPENSE_STATUS_LABELS[expense.status]}</StatusBadge>
+      </span>
+    </button>
   </li>;
+}
+
+function DetailRow({ label, children }: { label: string; children: ReactNode }) {
+  return <div className="flex items-baseline justify-between gap-4 py-2.5">
+    <dt className="shrink-0 text-[13px] text-muted">{label}</dt>
+    <dd className="m-0 min-w-0 text-right text-[14px] wrap-anywhere">{children}</dd>
+  </div>;
+}
+
+function ExpenseDetail({ expense, onClose, onCancel, closeRequestRef }: { expense: MyExpense; onClose: () => void; onCancel: () => void; closeRequestRef: CloseRef }) {
+  const note = payoutNote(expense);
+  return <Dialog
+    title={dollars(expense.amountMinor)}
+    titleMeta={<StatusBadge tone={STATUS_TONE[expense.status]}>{EXPENSE_STATUS_LABELS[expense.status]}</StatusBadge>}
+    onClose={onClose}
+    closeRequestRef={closeRequestRef}
+    actions={<>
+      {expense.status === "pending" ? <Button variant="danger" onClick={onCancel}>撤回</Button> : null}
+      <Button variant="secondary" onClick={() => requestClose(closeRequestRef, onClose)}>關閉</Button>
+    </>}
+  >
+    <p className="m-0 text-[15px] font-semibold wrap-anywhere">{expense.description}</p>
+    {expense.status === "rejected" && expense.reviewNote ? <Alert tone="danger">{`退回原因：${expense.reviewNote}`}</Alert> : null}
+    {note ? <Alert tone="info">{note}</Alert> : null}
+    {expense.receiptIds.length ? <div className="grid grid-cols-3 gap-2">
+      {expense.receiptIds.map((receiptId, index) => <a key={receiptId} href={receiptUrl(expense.id, receiptId)} target="_blank" rel="noreferrer" aria-label={`開啟第 ${index + 1} 張單據`} className={`block aspect-square overflow-hidden rounded-[12px] transition-[scale] duration-150 ease-out active:scale-96 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary ${RECEIPT_OUTLINE}`}>
+        <img src={receiptUrl(expense.id, receiptId)} alt="" loading="lazy" className="size-full object-cover" />
+      </a>)}
+    </div> : null}
+    <dl className="m-0 grid divide-y divide-soft-line">
+      <DetailRow label="消費日期">{expense.spentOn}</DetailRow>
+      <DetailRow label="類別">{expense.categoryName}</DetailRow>
+      {expense.scopeName ? <DetailRow label="店別">{expense.scopeName}</DetailRow> : null}
+      {expense.invoiceNumber ? <DetailRow label="發票號碼"><span className="tabular-nums">{expense.invoiceNumber}</span></DetailRow> : null}
+      {expense.sellerTaxId ? <DetailRow label="賣方統編"><span className="tabular-nums">{expense.sellerTaxId}</span></DetailRow> : null}
+    </dl>
+  </Dialog>;
 }
 
 export function HrExpenses() {
   usePageTitle("報帳");
   const navigate = useNavigate();
   const query = useHrQuery<{ expenses: MyExpense[] }>("/me/expenses");
+  const [viewing, setViewing] = useState<MyExpense | null>(null);
   const [cancelling, setCancelling] = useState<MyExpense | null>(null);
-  const closeCancel = useRef<((afterClose?: () => void) => void) | null>(null);
+  const closeDetail: CloseRef = useRef(null);
+  const closeCancel: CloseRef = useRef(null);
   const cancel = useHrWrite();
   const expenses = query.data?.expenses ?? [];
   return <Page className="grid gap-3 [&>*+*]:!mt-0">
@@ -117,8 +151,15 @@ export function HrExpenses() {
     <Panel className={MOBILE_CARD}>
       {query.isPending ? <p className="text-muted">載入報帳紀錄…</p>
         : expenses.length === 0 ? <EmptyRecords title="還沒有報帳紀錄" hint="按「新增報帳」，拍下發票就能送出。" />
-        : <ul className="m-0 grid list-none divide-y divide-soft-line p-0">{expenses.map((expense) => <ExpenseRow key={expense.id} expense={expense} onCancel={(target) => { cancel.reset(); setCancelling(target); }} />)}</ul>}
+        : <ul className="m-0 grid list-none divide-y divide-soft-line p-0">{expenses.map((expense) => <ExpenseRow key={expense.id} expense={expense} onOpen={setViewing} />)}</ul>}
     </Panel>
+    {viewing ? <ExpenseDetail
+      expense={viewing}
+      closeRequestRef={closeDetail}
+      onClose={() => setViewing(null)}
+      // 先讓明細走完退場再開確認框；兩個 Dialog 同時疊著，焦點與背景遮罩都會亂。
+      onCancel={() => requestClose(closeDetail, () => { setViewing(null); cancel.reset(); setCancelling(viewing); })}
+    /> : null}
     {cancelling ? <ConfirmDialog
       title="撤回這張報帳單？"
       confirmLabel="撤回"
@@ -126,8 +167,7 @@ export function HrExpenses() {
       closeRequestRef={closeCancel}
       onCancel={() => setCancelling(null)}
       onConfirm={() => cancel.mutate({ path: `/me/expenses/${encodeURIComponent(cancelling.id)}/cancel`, method: "POST", values: { revision: cancelling.revision } }, {
-        // ref 還沒掛上時也要關得掉，跟大頭貼的移除對話框同一種寫法。
-        onSettled: () => (closeCancel.current ?? ((afterClose?: () => void) => afterClose?.()))(() => setCancelling(null)),
+        onSettled: () => requestClose(closeCancel, () => setCancelling(null)),
       })}
     >
       <p className="m-0">{dollars(cancelling.amountMinor)}・{cancelling.description}</p>
