@@ -163,14 +163,18 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
         typeof latest.salesRows === "number" ? `商品 ${number(latest.salesRows)} 筆` : "",
         typeof latest.payoutRows === "number" ? `出金 ${number(latest.payoutRows)} 筆` : "",
       ].filter(Boolean).join("、");
-      const importStatus = latest.ingested === true
+      const importStatus = latest.ingested
         ? `，並匯入 D1${counts ? `（${counts}）` : ""}`
-        : latest.ingested === false ? "；此自訂區間未匯入 D1" : "；D1 匯入狀態未回報";
+        : "；此自訂區間未匯入 D1";
+      const d1OutcomeUnknown = latest.ingested === undefined;
+      const message = d1OutcomeUnknown
+        ? `蝦皮報表處理完成：${driveStatus}；無法確認是否已匯入 D1，請檢查報表資料。`
+        : `蝦皮報表完成：${driveStatus}${importStatus}`;
       const action = latest.driveUrl ? {
         label: "開啟 Drive",
         onClick: () => window.open(latest.driveUrl, "_blank", "noopener,noreferrer"),
       } : undefined;
-      toast.show(`蝦皮報表完成：${driveStatus}${importStatus}`, "success", action);
+      toast.show(message, d1OutcomeUnknown ? "info" : "success", action);
     } else {
       toast.show(`蝦皮報表${tracking.mode === "preview" ? "解析" : "匯入"}失敗：${latest.error ?? "請查看執行狀態。"}`, "danger");
     }
@@ -293,12 +297,12 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
             size="lg"
             icon={preview ? "download" : "analytics"}
             loading={previewRun.isPending || confirmRun.isPending}
-            loadingLabel={confirmRun.isPending ? "啟動中…" : "送出中…"}
+            loadingLabel={confirmRun.isPending ? "匯入中…" : "解析中…"}
             disabled={blocked}
           >
             {preview ? "確認匯入" : "解析並預覽"}
           </Button>
-          {trackingRunning ? <FormHint as="span">{tracking?.mode === "preview" ? "正在解密並解析報表…" : "背景整理中…"}可以關閉這一頁</FormHint> : null}
+          {trackingRunning ? <FormHint as="span">{tracking?.mode === "preview" ? "解析中…" : "匯入中…"}可以關閉這一頁</FormHint> : null}
         </FormRow>
         <div className={`mt-4 flex min-w-0 flex-col gap-3 ${embedded ? "min-h-0 flex-1 overflow-y-auto" : ""}`}>
           {fileTooLarge ? <Alert tone="danger">檔案不能超過 25 MB。</Alert> : null}

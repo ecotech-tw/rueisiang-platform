@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   toastShow: vi.fn(),
+  previewPending: false,
+  confirmPending: false,
   run: {
     id: 1,
     status: "completed",
@@ -34,8 +36,8 @@ vi.mock("./api.js", () => ({
       latestRequestId: "request-id",
     },
   }),
-  usePreviewShopeeSales: () => ({ isPending: false, error: null, mutate: vi.fn() }),
-  useConfirmShopeeSales: () => ({ isPending: false, error: null, mutate: vi.fn() }),
+  usePreviewShopeeSales: () => ({ isPending: mocks.previewPending, error: null, mutate: vi.fn() }),
+  useConfirmShopeeSales: () => ({ isPending: mocks.confirmPending, error: null, mutate: vi.fn() }),
   useDiscardShopeePreview: () => ({ error: null, mutateAsync: vi.fn() }),
   useShopeePreview: () => ({ data: null, error: null }),
   useShopeeSalesStatus: () => ({ data: { runs: [mocks.run], steps: [] }, error: null }),
@@ -50,6 +52,8 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
   sessionStorage.clear();
   mocks.toastShow.mockClear();
+  mocks.previewPending = false;
+  mocks.confirmPending = false;
   mocks.run.status = "completed";
   mocks.run.conclusion = "success";
   mocks.run.driveUrl = "https://drive.google.com/file/d/file-id/view";
@@ -98,13 +102,26 @@ describe("蝦皮報表完成通知", () => {
     );
   });
 
+  it("以解析中與匯入中呈現處理狀態", async () => {
+    mocks.previewPending = true;
+    await mountImportRun();
+    expect(host.textContent).toContain("解析中…");
+
+    await act(async () => root?.unmount());
+    root = null;
+    mocks.previewPending = false;
+    mocks.confirmPending = true;
+    await mountImportRun();
+    expect(host.textContent).toContain("匯入中…");
+  });
+
   it("舊版工作沒有回報匯入欄位時不臆測 D1 結果", async () => {
     mocks.run.driveFileAlreadyExisted = undefined;
     mocks.run.ingested = undefined;
     await mountImportRun();
     expect(mocks.toastShow).toHaveBeenCalledWith(
-      "蝦皮報表完成：Drive 處理完成；D1 匯入狀態未回報",
-      "success",
+      "蝦皮報表處理完成：Drive 處理完成；無法確認是否已匯入 D1，請檢查報表資料。",
+      "info",
       expect.objectContaining({ label: "開啟 Drive" }),
     );
   });
