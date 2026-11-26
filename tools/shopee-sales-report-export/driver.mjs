@@ -58,6 +58,7 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
     });
 
     let uploaded = null;
+    let driveFileAlreadyExisted = false;
     if (!skipUpload) {
       const folderId = driveFolderIdFromUrl(driveFolderUrl || config.driveFolderUrl);
       if (!folderId) throw new Error("請提供 --drive-folder-url，或在 config.json 設定 driveFolderUrl。");
@@ -65,6 +66,7 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
       const token = await accessToken(env);
       const name = path.basename(resolvedOutput);
       const existing = await findByName(token, { parentId: folderId, name });
+      driveFileAlreadyExisted = Boolean(existing);
       uploaded = existing || await uploadXlsx(token, { filePath: resolvedOutput, name, folderId });
       log(existing ? `Drive 已有同名檔案，未重複上傳：${existing.webViewLink ?? name}` : `已上傳到 Drive：${uploaded.webViewLink ?? name}`);
     }
@@ -105,7 +107,7 @@ export async function processShopeeWorkbook({ inputPath, password = "", outputPa
       "",
     ].join("\n"), "utf8");
 
-    return { outputPath: resolvedOutput, summary, uploaded, ingested, range };
+    return { outputPath: resolvedOutput, summary, uploaded, driveFileAlreadyExisted, ingested, range };
   } finally {
     await fs.rm(tempDir, { recursive: true, force: true });
   }

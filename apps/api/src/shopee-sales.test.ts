@@ -21,11 +21,12 @@ function db() {
 }
 
 function stubRunner() {
+  const jobs = new Map<string, Record<string, unknown>>();
   const calls = Object.assign([] as { url: string; body: Record<string, unknown> }[], {
     runnerNames: [] as string[],
     runnerModes: [] as (string | null)[],
+    jobs,
   });
-  const jobs = new Map<string, Record<string, unknown>>();
   const preview = {
     reportMonths: ["2025-02"], dailyPayoutRows: [{ businessDate: "2025-02-14", payoutAmount: 280 }], sourceRowCount: 3, rowCount: 1,
     rows: [{ reportMonth: "2025-02", sku: "SKU-1", productName: "商品一", grossQuantity: 3, returnQuantity: 0, netQuantity: 3, salesAmount: 300 }],
@@ -41,7 +42,9 @@ function stubRunner() {
     calls.push({ url: `${url.pathname}${url.search}`, body });
     if (url.pathname === "/preview" || url.pathname === "/jobs") {
       const requestId = String(body.requestId);
-      jobs.set(requestId, { requestId, status: "succeeded", result: url.pathname === "/preview" ? preview : { salesRows: 1, payoutRows: 1 }, error: "" });
+      jobs.set(requestId, { requestId, status: "succeeded", result: url.pathname === "/preview" ? preview : {
+        driveUrl: "https://drive.google.com/file/d/file-id/view", driveFileAlreadyExisted: false, ingested: true, salesRows: 1, payoutRows: 1,
+      }, error: "" });
       return Response.json(jobs.get(requestId), { status: 202 });
     }
     const requestId = url.pathname.split("/").at(-1) ?? "";
@@ -166,7 +169,16 @@ describe("蝦皮銷售報表", () => {
     expect((await state.json()) as { latestRequestId: string }).toMatchObject({ latestRequestId: expect.any(String) });
     expect((await getShopeeSalesSettings(db())).driveFolderName).toBe("蝦皮新資料夾");
     const status = await as(manager, "manager@ecotech.tw", `/api/tools/shopee-sales/status?requestId=${encodeURIComponent(String(inputs.requestId))}`);
-    expect(await status.json()).toMatchObject({ runs: [{ status: "completed", conclusion: "success" }] });
+    expect(await status.json()).toMatchObject({ runs: [{
+      status: "completed", conclusion: "success", driveUrl: "https://drive.google.com/file/d/file-id/view",
+      driveFileAlreadyExisted: false, ingested: true, salesRows: 1, payoutRows: 1,
+    }] });
+    const requestId = String(inputs.requestId);
+    calls.jobs.set(requestId, { requestId, status: "succeeded", result: { driveUrl: "https://drive.google.com/file/d/file-id/view", salesRows: 1, payoutRows: 1 } });
+    const legacyStatus = await as(manager, "manager@ecotech.tw", `/api/tools/shopee-sales/status?requestId=${encodeURIComponent(requestId)}`);
+    const legacyRun = ((await legacyStatus.json()) as { runs: Record<string, unknown>[] }).runs[0]!;
+    expect(legacyRun).not.toHaveProperty("driveFileAlreadyExisted");
+    expect(legacyRun).not.toHaveProperty("ingested");
 
     const source = await app.fetch(new Request(sourceUrl), env as never);
     expect(source.status).toBe(200);
@@ -174,6 +186,29 @@ describe("蝦皮銷售報表", () => {
     const cleanupUrl = sourceUrl.replace("/source/", "/cleanup/");
     expect((await app.fetch(new Request(cleanupUrl, { method: "POST" }), env as never)).status).toBe(200);
     expect((await app.fetch(new Request(sourceUrl), env as never)).status).toBe(404);
+  });
+
+  it("工作失敗時狀態 API 會傳回錯誤原因", async () => {
+    const calls = stubRunner();
+    const scopeId = "shopee:store:failed-run";
+    await createReportManagementScope(db(), {
+      id: scopeId, sourceType: "shopee", scopeKind: "channel", name: "蝦皮失敗測試",
+      driveFolderUrl: "https://drive.google.com/drive/folders/failed-folder", driveFolderName: "蝦皮失敗測試",
+    });
+    const manager = await seedUser("manager@ecotech.tw", "role-manager");
+    const form = new FormData();
+    form.append("file", new File(["xlsx"], "Order.completed.20250201_20250228.xlsx"));
+    form.append("password", "042213");
+    form.append("scopeId", scopeId);
+    const started = await as(manager, "manager@ecotech.tw", "/api/tools/shopee-sales/upload", { method: "POST", body: form });
+    expect(started.status).toBe(202);
+    const { requestId } = await started.json() as { requestId: string };
+    calls.jobs.set(requestId, { requestId, status: "failed", result: null, error: "搜尋 Drive 檔案失敗（HTTP 403）。" });
+
+    const response = await as(manager, "manager@ecotech.tw", `/api/tools/shopee-sales/status?requestId=${encodeURIComponent(requestId)}`);
+    expect(await response.json()).toMatchObject({ runs: [{
+      status: "completed", conclusion: "failure", error: "搜尋 Drive 檔案失敗（HTTP 403）。",
+    }] });
   });
 
   it("解析預覽不會匯入；確認後才另行啟動整理", async () => {

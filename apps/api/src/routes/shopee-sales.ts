@@ -336,12 +336,38 @@ export const shopeeSales = new Hono<AppEnv>()
   .get("/status", requirePermission("tools:shopee-sales:run"), async (c) => {
     const requestId = c.req.query("requestId") ?? "";
     if (!runnerConfigured(c.env) || !/^[A-Za-z0-9-]{16,80}$/.test(requestId)) return c.json({ runs: [], steps: [] });
-    const result = await runnerJson<{ status: string; result?: { salesRows?: number; payoutRows?: number }; error?: string }>(
-      await runnerRequest(c.env, requestId, `/jobs/${requestId}`),
-    );
+    const result = await runnerJson<{
+      status: string;
+      result?: {
+        driveUrl?: string | null;
+        driveFileAlreadyExisted?: boolean;
+        ingested?: boolean;
+        salesRows?: number;
+        payoutRows?: number;
+      };
+      error?: string;
+    }>(await runnerRequest(c.env, requestId, `/jobs/${requestId}`));
     const completed = result.status === "succeeded" || result.status === "failed";
+    const driveUrl = typeof result.result?.driveUrl === "string"
+      && /^https:\/\/drive\.google\.com\//.test(result.result.driveUrl)
+      ? result.result.driveUrl
+      : undefined;
     return c.json({
-      runs: [{ id: 1, status: completed ? "completed" : "in_progress", conclusion: result.status === "succeeded" ? "success" : result.status === "failed" ? "failure" : null, url: "", title: requestId }],
+      runs: [{
+        id: 1,
+        status: completed ? "completed" : "in_progress",
+        conclusion: result.status === "succeeded" ? "success" : result.status === "failed" ? "failure" : null,
+        url: "",
+        title: requestId,
+        ...(result.status === "failed" && typeof result.error === "string" ? { error: result.error.slice(0, 1_200) } : {}),
+        ...(result.status === "succeeded" ? {
+          driveUrl,
+          ...(typeof result.result?.driveFileAlreadyExisted === "boolean" ? { driveFileAlreadyExisted: result.result.driveFileAlreadyExisted } : {}),
+          ...(typeof result.result?.ingested === "boolean" ? { ingested: result.result.ingested } : {}),
+          salesRows: result.result?.salesRows ?? 0,
+          payoutRows: result.result?.payoutRows ?? 0,
+        } : {}),
+      }],
       steps: [],
     });
   })
