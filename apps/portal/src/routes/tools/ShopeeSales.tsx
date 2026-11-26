@@ -178,7 +178,7 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
     } else {
       toast.show(`蝦皮報表${tracking.mode === "preview" ? "解析" : "匯入"}失敗：${latest.error ?? "請查看執行狀態。"}`, "danger");
     }
-  }, [latest?.conclusion, latest?.driveUrl, latest?.error, latest?.payoutRows, latest?.salesRows, latest?.status, toast, tracking?.mode, tracking?.requestId]);
+  }, [latest?.conclusion, latest?.driveFileAlreadyExisted, latest?.driveUrl, latest?.error, latest?.ingested, latest?.payoutRows, latest?.salesRows, latest?.status, toast, tracking?.mode, tracking?.requestId]);
 
   useEffect(() => {
     if (tracking?.mode === "import" && latest?.status === "completed") setTracking(null);
