@@ -1,0 +1,12 @@
+.git
+**/node_modules
+**/.env
+**/.dev.vars
+**/local.sqlite
+**/local.sqlite-*
+**/chrome-profile
+**/staging
+**/reports
+**/screenshots
+**/.wrangler
+apps/*/dist

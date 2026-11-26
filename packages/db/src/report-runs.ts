@@ -1,5 +1,7 @@
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
+import { toDbTimestamp } from "./db-timestamp.js";
 import type { Database } from "./client.js";
+import { reportRuns, type ReportRunStatus } from "./schema/reports.js";
 import { SHOP_REQUEST_PREFIX } from "./shop-report.js";
 
 /**
@@ -41,6 +43,25 @@ export interface ReportRunListRow {
  * 就可能含那些符號，拿它們當分隔會把一家店切成兩家。
  */
 const SCOPE_NAME_SEPARATOR = String.fromCharCode(31);
+
+export async function updateReportRun(
+  db: Database,
+  input: {
+    requestId: string;
+    status: ReportRunStatus;
+    lastError?: string;
+    importedSalesRows?: number;
+    importedPayoutRows?: number;
+  },
+): Promise<void> {
+  await db.update(reportRuns).set({
+    status: input.status,
+    lastError: input.lastError?.slice(0, 2_000) ?? "",
+    ...(input.importedSalesRows === undefined ? {} : { importedSalesRows: input.importedSalesRows }),
+    ...(input.importedPayoutRows === undefined ? {} : { importedPayoutRows: input.importedPayoutRows }),
+    updatedAt: toDbTimestamp(),
+  }).where(eq(reportRuns.requestId, input.requestId));
+}
 
 /** 種類判斷。順序有意義：官網兩個旗標都是 1，要在銷售那條之前先認出來。 */
 const KIND_SQL = sql`CASE

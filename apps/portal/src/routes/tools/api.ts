@@ -22,8 +22,9 @@ export interface PayoutState {
   stores: PayoutStoreSummary[];
   defaultStart: string;
   defaultEnd: string;
-  /** 後端有沒有 GitHub token。沒有的話畫面要說得出原因，不是等按下去才報錯。 */
+  /** 目前選用的 runner 是否已具備執行設定。 */
   configured: boolean;
+  runnerMode: "github" | "container";
   /** 最近一次執行；重新整理或離開再回來時，畫面靠它自己接回去問狀態。 */
   latestRequestId: string | null;
   runs: PayoutRunRecord[];
@@ -33,7 +34,7 @@ export interface WorkflowRun {
   id: number;
   status: string;
   conclusion: string | null;
-  url: string;
+  url?: string;
   title: string;
   error?: string;
   driveUrl?: string;
@@ -41,6 +42,7 @@ export interface WorkflowRun {
   ingested?: boolean;
   salesRows?: number;
   payoutRows?: number;
+  reportMarkdown?: string;
 }
 
 export interface WorkflowStep {
@@ -99,6 +101,7 @@ export interface CyberbizSalesState {
   defaultStart: string;
   defaultEnd: string;
   configured: boolean;
+  runnerMode: "github" | "container";
   latestRequestId: string | null;
   runs: CyberbizReportRunRecord[];
 }

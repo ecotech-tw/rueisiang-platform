@@ -92,7 +92,7 @@ remote = true
 name = "REPORT_RUNNER"
 class_name = "ReportRunner"
 
-# Shopee 工作共用單一 ReportRunner DO，依序使用可重用的 Container；保留 2 個 instance 上限供舊工作遷移期間使用。
+# Shopee 與選用中的 CYBERBIZ 工作共用單一 ReportRunner DO，依序使用可重用的 Container。
 [[containers]]
 class_name = "ReportRunner"
 image = "../../tools/report-runner/Dockerfile"
@@ -132,6 +132,7 @@ PAYOUT_WORKFLOW_FILE = "payout.yml"
 PAYOUT_GITHUB_REF = "main"
 CYBERBIZ_SALES_WORKFLOW_FILE = "cyberbiz-sales-report.yml"
 CYBERBIZ_SALES_GITHUB_REF = "main"
+CYBERBIZ_REPORT_RUNNER_MODE = "github"
 PI_AGENT_MODEL = "gpt-6-luna"
 CYBERBIZ_API_RELAY_URL = "https://cyberbiz-relay.rueisiang.com"
 NAS_STORAGE_URL = "https://storage.rueisiang.com"
@@ -158,8 +159,11 @@ GOOGLE_REPORTS_OAUTH_CLIENT_ID = "757056407078-6c0nqglhi8gib6ge7bkh7hup3rq1mses.
 #   REPORT_RUNNER_TOKEN                    Worker 與報表 Container 之間的獨立 bearer token
 #   GOOGLE_REPORTS_OAUTH_CLIENT_SECRET     報表 OAuth 用戶端密鑰（與平台登入用戶端分開）
 #   GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN     報表 Google Drive 帳號授權
-#   CYBERBIZ_REPORT_INGEST_TOKEN           共用報表匯入 API；完整月份 Shopee 寫入 D1 會用到
-#   GITHUB_TOKEN                           暫時保留給尚未遷移的 CYBERBIZ runner
+#   CYBERBIZ_REPORT_INGEST_TOKEN           共用報表匯入 API；Shopee 與 CYBERBIZ 完整月份寫入 D1 會用到
+#   CYBERBIZ_USERNAME                      CYBERBIZ Container runner 登入帳號；僅切換 Container mode 時需要
+#   CYBERBIZ_PASSWORD                      CYBERBIZ Container runner 登入密碼；僅切換 Container mode 時需要
+#   GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN     CYBERBIZ Container runner 讀取 2FA 郵件用（與 Drive refresh token 分開）
+#   GITHUB_TOKEN                           CYBERBIZ fallback runner 的 GitHub Actions 權限；驗證完 Container 前保留
 #   UPSTASH_REDIS_REST_URL     商品目錄與營運報表查詢的快取，沿用舊 WMS 的同一個實例
 #   UPSTASH_REDIS_REST_TOKEN   （沒設定時改成直接查資料來源，只是比較慢）
 #

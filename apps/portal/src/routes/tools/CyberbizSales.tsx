@@ -56,7 +56,9 @@ export function CyberbizSales() {
       />
 
       {!state.data?.configured ? (
-        <Alert tone="danger">平台還沒設定商品銷售報表的 GitHub workflow，現在無法執行。</Alert>
+        <Alert tone="danger">{state.data?.runnerMode === "container"
+          ? "Cloudflare Container 或 CYBERBIZ／Google 報表憑證尚未設定，目前無法執行。"
+          : "平台還沒設定商品銷售報表的 GitHub workflow，現在無法執行。"}</Alert>
       ) : null}
 
       <Panel grows>
@@ -138,7 +140,9 @@ export function CyberbizSales() {
           latest={latest}
           steps={status.data?.steps ?? []}
           failureLabel="未完成"
-          artifactNote="執行完成的 xlsx 與報告會保留在這次 GitHub Actions 的 Artifacts。"
+          artifactNote={state.data?.runnerMode === "container"
+            ? "原始 XLSX 會上傳到各店 Google Drive；Container 不提供 GitHub Artifacts。"
+            : "執行完成的 xlsx 與報告會保留在這次 GitHub Actions 的 Artifacts。"}
         />
       ) : null}
 

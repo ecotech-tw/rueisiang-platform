@@ -10,6 +10,8 @@ export class Container<Env extends { containerFetch?: (request: Request) => Prom
 
   async startAndWaitForPorts(): Promise<void> {}
 
+  async destroy(): Promise<void> {}
+
   async containerFetch(request: Request): Promise<Response> {
     if (!this.env.containerFetch) throw new Error("No test containerFetch configured");
     return this.env.containerFetch(request);

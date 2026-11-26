@@ -14,9 +14,9 @@ import { STORE_TABLE, useStoreSelection } from "./store-selection.js";
 /**
  * 出金表執行頁。
  *
- * 真正的流程跑在帳務 repo 的 GitHub Actions 上：開 Chrome、登 CYBERBIZ、從 Gmail
- * 取回報表、寫欄位、上傳 Drive。這一頁只做兩件事——送出，然後把狀態問回來。
- * 送出之後可以直接關掉分頁，工作在 GitHub 那邊照樣跑完。
+ * GitHub Actions fallback 與 Cloudflare Container 共用同一個執行入口；這一頁只負責
+ * 送出工作並追蹤狀態，不直接接觸 CYBERBIZ 或 Google 憑證。
+ * 送出之後可以直接關掉分頁，背景 runner 會照常執行。
  */
 
 export function Payout() {
@@ -46,7 +46,9 @@ export function Payout() {
   const { selectedNames, allSelected, toggle, toggleAll } = useStoreSelection(stores);
   const latest = status.data?.runs[0];
   const followed = tracking ?? state.data?.latestRequestId ?? null;
-  const running = Boolean(latest) && latest!.status !== "completed";
+  // GitHub 建立 run 需要幾秒，Container 的狀態查詢也可能晚於送出回應；這段時間不能再送第二次。
+  const awaitingRegistration = Boolean(tracking && !status.data?.runs.length);
+  const running = awaitingRegistration || (Boolean(latest) && latest!.status !== "completed");
   const rangeError = start && end && start > end ? "起日不能晚於迄日。" : "";
   const blocked = running || run.isPending || !start || !end || Boolean(rangeError) || !state.data?.configured;
 
@@ -67,7 +69,9 @@ export function Payout() {
       />
 
       {!state.data?.configured ? (
-        <Alert tone="danger">平台還沒設定 GITHUB_TOKEN，目前無法觸發執行。</Alert>
+        <Alert tone="danger">{state.data?.runnerMode === "container"
+          ? "Cloudflare Container 或 CYBERBIZ／Google 報表憑證尚未設定，目前無法執行。"
+          : "平台還沒設定 GITHUB_TOKEN，目前無法觸發執行。"}</Alert>
       ) : null}
 
       <Panel grows>
@@ -166,7 +170,9 @@ export function Payout() {
           latest={latest}
           steps={status.data?.steps ?? []}
           failureLabel="有項目未完成"
-          artifactNote="執行完的 xlsx 與報告放在該次工作的 Artifacts（保留 30 天）。"
+          artifactNote={state.data?.runnerMode === "container"
+            ? "原始 XLSX 會上傳到各店 Google Drive；Container 不提供 GitHub Artifacts。"
+            : "執行完的 xlsx 與報告放在該次工作的 Artifacts（保留 30 天）。"}
         />
       ) : null}
 

@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@rueisiang/db", () => ({
   createDatabase: vi.fn((db) => db),
-  updateShopeeSalesRun: vi.fn().mockResolvedValue(undefined),
+  updateReportRun: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { updateShopeeSalesRun } from "@rueisiang/db";
+import { updateReportRun } from "@rueisiang/db";
 import { ReportRunner } from "./report-runner-container.js";
 
 const RUNNER_TOKEN = "runner-secret";
@@ -62,7 +62,7 @@ function runnerRequest(path: string, method = "GET", body?: unknown, shared = fa
 
 describe("ReportRunner Durable Object", () => {
   beforeEach(() => {
-    vi.mocked(updateShopeeSalesRun).mockReset().mockResolvedValue(undefined);
+    vi.mocked(updateReportRun).mockReset().mockResolvedValue(undefined);
   });
 
   it("將舊版 requestId 專屬工作的狀態持久化，並由 alarm 保存終態", async () => {
@@ -74,6 +74,9 @@ describe("ReportRunner Durable Object", () => {
       GOOGLE_REPORTS_OAUTH_CLIENT_ID: "reports-client-id",
       GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-client-secret",
       GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh-token",
+      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "gmail-refresh-token",
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
       DB: {},
       containerFetch: async () => {
         containerCalls += 1;
@@ -85,6 +88,9 @@ describe("ReportRunner Durable Object", () => {
       GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-client-secret",
       GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh-token",
     });
+    expect(runner.envVars).not.toHaveProperty("GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN");
+    expect(runner.envVars).not.toHaveProperty("CYBERBIZ_USERNAME");
+    expect(runner.envVars).not.toHaveProperty("CYBERBIZ_PASSWORD");
     const requestId = "request-1234567890";
 
     const accepted = await runner.fetch(runnerRequest("/jobs", "POST", { requestId }));
@@ -99,6 +105,37 @@ describe("ReportRunner Durable Object", () => {
     const completed = await runner.fetch(runnerRequest(`/jobs/${requestId}`));
     expect(await completed.json()).toMatchObject({ status: "succeeded", result: { salesRows: 3 } });
     expect(containerCalls).toBe(2);
+  });
+
+  it("超過 60 分鐘的 active job 會終止 Container 並釋放共享佇列", async () => {
+    const durable = fakeStorage();
+    const runner = new ReportRunner({ storage: durable.storage } as never, {
+      REPORT_RUNNER_TOKEN: RUNNER_TOKEN,
+      DB: {},
+    } as never);
+    const destroy = vi.spyOn(runner, "destroy").mockResolvedValue(undefined);
+    const requestId = "stalled-request-12345";
+    const startedAt = Date.now() - 61 * 60_000;
+    durable.values.set("report-runner:active-job", { requestId, phase: "running", attempts: 0, startedAt });
+    durable.values.set(`queue:${requestId}`, {
+      requestId,
+      pathname: "/jobs",
+      payload: { requestId },
+      queuedAt: startedAt,
+      attempts: 0,
+      retryAt: startedAt,
+    });
+    durable.values.set(`job:${requestId}`, { requestId, status: "running" });
+
+    await runner.processQueuedJobs();
+
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(durable.values.get(`job:${requestId}`)).toMatchObject({
+      status: "failed",
+      error: "報表執行超過 60 分鐘，已停止；請查看摘要、分批或重新提交。",
+    });
+    expect(durable.values.has(`queue:${requestId}`)).toBe(false);
+    expect(durable.values.has("report-runner:active-job")).toBe(false);
   });
 
   it("共享 DO 會把多筆工作排隊，並只讓一筆工作占用 Container", async () => {
@@ -146,6 +183,42 @@ describe("ReportRunner Durable Object", () => {
     await runner.processQueuedJobs();
     expect(calls).toEqual([`start:${firstId}`, `poll:${firstId}`, `start:${secondId}`]);
     expect(durable.values.get("report-runner:active-job")).toMatchObject({ requestId: secondId, phase: "running" });
+  });
+
+  it("只對 CYBERBIZ job 短暫注入帳密與 Gmail token，且不持久化在 DO queue", async () => {
+    const durable = fakeStorage();
+    const sentPayloads: Record<string, unknown>[] = [];
+    const runner = new ReportRunner({ storage: durable.storage } as never, {
+      REPORT_RUNNER_TOKEN: RUNNER_TOKEN,
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
+      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "gmail-refresh-token",
+      DB: {},
+      containerFetch: async (request: Request) => {
+        if (request.method === "POST") sentPayloads.push(await request.json() as Record<string, unknown>);
+        return Response.json({ requestId: "cyberbiz-request-123", status: "running" }, { status: 202 });
+      },
+    } as never);
+    const payload = {
+      kind: "cyberbiz-sales",
+      requestId: "cyberbiz-request-123",
+      stores: [{ scopeId: "scope-1", name: "測試店", driveFolderUrl: "https://drive.google.com/drive/folders/id", driveFolderName: "測試" }],
+      start: "2026-07-01",
+      end: "2026-07-31",
+    };
+
+    await runner.fetch(runnerRequest("/jobs", "POST", payload, true));
+    const queued = [...durable.values.entries()].find(([key]) => key.startsWith("queue:"))?.[1] as { payload?: Record<string, unknown> } | undefined;
+    expect(queued?.payload).not.toHaveProperty("credentials");
+
+    await runner.processQueuedJobs();
+    expect(sentPayloads[0]?.credentials).toEqual({
+      cyberbizUsername: "cyberbiz-user",
+      cyberbizPassword: "cyberbiz-password",
+      gmailRefreshToken: "gmail-refresh-token",
+    });
+    expect(JSON.stringify([...durable.values.values()])).not.toContain("cyberbiz-password");
+    expect(JSON.stringify([...durable.values.values()])).not.toContain("gmail-refresh-token");
   });
 
   it("重疊的排程回呼不會重複啟動同一筆工作", async () => {
@@ -252,7 +325,7 @@ describe("ReportRunner Durable Object", () => {
     await runner.fetch(runnerRequest("/jobs", "POST", { requestId }, true));
     await runner.processQueuedJobs();
     remoteJobs.set(requestId, { requestId, status: "succeeded", result: { salesRows: 3 } });
-    vi.mocked(updateShopeeSalesRun).mockRejectedValueOnce(new Error("temporary D1 failure"));
+    vi.mocked(updateReportRun).mockRejectedValueOnce(new Error("temporary D1 failure"));
 
     await runner.processQueuedJobs();
     expect(durable.values.get(`job:${requestId}`)).toMatchObject({ status: "succeeded" });
@@ -262,7 +335,7 @@ describe("ReportRunner Durable Object", () => {
     await runner.processQueuedJobs();
     expect(durable.values.get(`job:${requestId}`)).toMatchObject({ status: "succeeded" });
     expect(durable.values.get("report-runner:active-job")).toBeUndefined();
-    expect(vi.mocked(updateShopeeSalesRun)).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(updateReportRun)).toHaveBeenCalledTimes(3);
   });
 
   it("未知工作的狀態查詢不啟動 Container", async () => {

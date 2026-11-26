@@ -18,7 +18,7 @@ export async function loadEnv(file = skillPath(".env")) {
   try {
     text = await fs.readFile(file, "utf8");
   } catch {
-    return {};
+    return { ...process.env };
   }
   const env = {};
   for (const line of text.split(/\r?\n/)) {
@@ -36,7 +36,7 @@ export async function loadEnv(file = skillPath(".env")) {
     }
     env[key] = value;
   }
-  return env;
+  return { ...env, ...process.env };
 }
 
 /** 寫回 .env，保留既有註解與順序，只覆寫指定的 key。 */
@@ -233,9 +233,16 @@ export function storeScopeId(store) {
 }
 
 const SECRET_KEYS = [
+  "CYBERBIZ_USERNAME",
   "CYBERBIZ_PASSWORD",
   "GOOGLE_CLIENT_SECRET",
   "GOOGLE_REFRESH_TOKEN",
+  "GMAIL_REFRESH_TOKEN",
+  "CYBERBIZ_REPORT_INGEST_TOKEN",
+  "REPORT_RUNNER_TOKEN",
+  "GOOGLE_REPORTS_OAUTH_CLIENT_SECRET",
+  "GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN",
+  "GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN",
 ];
 
 /** 任何要印出來的字串都先過這裡，避免密碼或驗證碼外洩到 log 與報告。 */

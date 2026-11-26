@@ -8,9 +8,9 @@ import { cyberbizScopeIdFromStoreName } from "./scope-id.js";
 /**
  * 出金表的店別與執行紀錄。
  *
- * 這裡不執行任何東西——真正的流程跑在 GitHub Actions 的 runner 上（開 Chrome、
- * 登 CYBERBIZ、讀 Gmail、寫 Drive）。平台只負責「有哪些店」「誰按過執行」，憑證
- * 一個都不碰；店別與報表匯入共用 target scopes／report_runs。
+ * 這裡不執行任何東西——真正的流程由 Worker 選用的 GitHub Actions 或 ReportRunner
+ * Container 執行（開 Chrome、登 CYBERBIZ、讀 Gmail、寫 Drive）。店別與執行紀錄共用
+ * target scopes／report_runs。
  */
 
 export interface PayoutRun {

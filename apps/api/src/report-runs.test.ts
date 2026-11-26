@@ -1,5 +1,5 @@
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, listReportRuns, syncSystemRoles, upsertReportScope } from "@rueisiang/db";
+import { createDatabase, listReportRuns, syncSystemRoles, updateReportRun, upsertReportScope } from "@rueisiang/db";
 import { reportRunScopes, reportRuns, rolePermissionGrants, roles, userRoleAssignments, users } from "@rueisiang/db/schema";
 import { beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
@@ -81,6 +81,21 @@ beforeEach(async () => {
 });
 
 describe("報表執行紀錄", () => {
+  it("共用 runner 可更新 CYBERBIZ 執行狀態與匯入列數", async () => {
+    await seedRun({ id: "runner-run", requestId: "cf-request-123456", sourceType: "cyberbiz", importsSales: 1, importsPayout: 0, createdAt: "2026-09-01 01:00:00" });
+
+    await updateReportRun(db(), {
+      requestId: "cf-request-123456",
+      status: "succeeded",
+      importedSalesRows: 17,
+      importedPayoutRows: 0,
+    });
+
+    const [run] = await db().select().from(reportRuns);
+    expect(run).toMatchObject({ status: "succeeded", importedSalesRows: 17, importedPayoutRows: 0 });
+    expect(run?.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}$/);
+  });
+
   it("不同報表來源各自分得出來，官網不會被算成商品銷售或出金", async () => {
     // 官網兩個旗標都是 1，所以種類判斷一定要先認出它，否則會同時落進另外兩類。
     await seedRun({ id: "r1", requestId: "a", sourceType: "cyberbiz", importsSales: 0, importsPayout: 1, scopeIds: ["cyberbiz:store:a"], createdAt: "2026-09-01 01:00:00" });

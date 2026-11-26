@@ -1,5 +1,5 @@
 import { Container } from "@cloudflare/containers";
-import { createDatabase, updateShopeeSalesRun } from "@rueisiang/db";
+import { createDatabase, updateReportRun } from "@rueisiang/db";
 import type { Env } from "./env.js";
 
 const RUNNER_PORT = 8080;
@@ -11,6 +11,7 @@ const QUEUE_PREFIX = "queue:";
 const QUEUE_CALLBACK = "processQueuedJobs";
 const MAX_QUEUED_JOBS = 20;
 const MAX_ACTIVE_POLL_RETRIES = 12;
+const MAX_ACTIVE_JOB_MS = 60 * 60_000;
 const MAX_QUEUE_AGE_MS = 24 * 60 * 60_000;
 const MAX_RETRY_DELAY_MS = 5 * 60_000;
 const POLL_INTERVAL_MS = 10_000;
@@ -37,6 +38,7 @@ interface ActiveJob {
   requestId: string;
   phase: "starting" | "running";
   attempts: number;
+  startedAt: number;
 }
 
 export class ReportRunner extends Container<Env> {
@@ -55,6 +57,9 @@ export class ReportRunner extends Container<Env> {
       new URL(env.SHOPEE_SOURCE_BASE_URL ?? env.PUBLIC_APP_URL ?? "https://platform.rueisiang.com").hostname,
       "oauth2.googleapis.com",
       "www.googleapis.com",
+      "gmail.googleapis.com",
+      "drive.google.com",
+      "*.cyberbiz.co",
     ];
     this.envVars = {
       REPORT_RUNNER_TOKEN: env.REPORT_RUNNER_TOKEN ?? "",
@@ -136,7 +141,7 @@ export class ReportRunner extends Container<Env> {
       return;
     }
 
-    const starting: ActiveJob = { requestId: item.requestId, phase: "starting", attempts: 0 };
+    const starting: ActiveJob = { requestId: item.requestId, phase: "starting", attempts: 0, startedAt: Date.now() };
     await this.durableState.storage.put(ACTIVE_JOB_KEY, starting);
     await this.startQueuedJob(queueKey, item, starting);
   }
@@ -212,13 +217,24 @@ export class ReportRunner extends Container<Env> {
   private async startQueuedJob(queueKey: string, item: QueueItem, active: ActiveJob): Promise<void> {
     try {
       await this.startAndWaitForPorts();
+      const isCyberbizJob = item.payload.kind === "cyberbiz-payout" || item.payload.kind === "cyberbiz-sales";
+      const containerPayload = isCyberbizJob
+        ? {
+          ...item.payload,
+          credentials: {
+            cyberbizUsername: this.env.CYBERBIZ_USERNAME ?? "",
+            cyberbizPassword: this.env.CYBERBIZ_PASSWORD ?? "",
+            gmailRefreshToken: this.env.GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN ?? "",
+          },
+        }
+        : item.payload;
       const response = await this.containerFetch(new Request(`http://report-runner${item.pathname}`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${this.env.REPORT_RUNNER_TOKEN ?? ""}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(item.payload),
+        body: JSON.stringify(containerPayload),
       }));
       if (!response.ok) {
         const result = await response.json().catch(() => null) as { error?: string; message?: string } | null;
@@ -261,6 +277,13 @@ export class ReportRunner extends Container<Env> {
     }
     if (storedJob && isTerminal(storedJob.status)) {
       await this.finishTerminalJob(requestId, storedJob);
+      return;
+    }
+
+    const startedAt = Number.isFinite(active.startedAt) ? active.startedAt : item.queuedAt;
+    if (Date.now() - startedAt >= MAX_ACTIVE_JOB_MS) {
+      await this.destroy();
+      await this.failJob(requestId, "報表執行超過 60 分鐘，已停止；請查看摘要、分批或重新提交。");
       return;
     }
 
@@ -315,6 +338,7 @@ export class ReportRunner extends Container<Env> {
         requestId,
         phase: "running",
         attempts: (active?.attempts ?? 0) + 1,
+        startedAt: active?.startedAt ?? Date.now(),
       } satisfies ActiveJob);
       await this.scheduleQueueProcessing(retryDelay((active?.attempts ?? 0) + 1));
       return;
@@ -386,7 +410,7 @@ export class ReportRunner extends Container<Env> {
   private async persistRunningSafely(requestId: string): Promise<void> {
     if (!this.env.DB) return;
     try {
-      await updateShopeeSalesRun(createDatabase(this.env.DB), { requestId, status: "running" });
+      await updateReportRun(createDatabase(this.env.DB), { requestId, status: "running" });
     } catch (error) {
       console.error("report runner running status persistence failed", { errorName: error instanceof Error ? error.name : "unknown" });
     }
@@ -395,7 +419,7 @@ export class ReportRunner extends Container<Env> {
   private async persistTerminal(requestId: string, job: RunnerJob): Promise<void> {
     if (!this.env.DB) return;
     const result = job.result as { salesRows?: number; payoutRows?: number } | null;
-    await updateShopeeSalesRun(createDatabase(this.env.DB), {
+    await updateReportRun(createDatabase(this.env.DB), {
       requestId,
       status: job.status === "succeeded" ? "succeeded" : "failed",
       lastError: typeof job.error === "string" ? job.error : "",
