@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
@@ -11,6 +12,7 @@ import { createLocalR2 } from "../local-d1/r2.js";
 import { AssistantCredentialVault } from "../pi-agent-credentials.js";
 import { AssistantChatAgent } from "../pi-agent-do.js";
 import { processLineAssistantQueueMessage } from "../routes/webhooks.js";
+import { devAppOrigins } from "./dev-origins.js";
 import { DEV_ACCOUNTS, seedDevData } from "./fixtures.js";
 import { LocalDurableObjectNamespace } from "./local-durable-objects.js";
 
@@ -94,11 +96,8 @@ const env = {
   GOOGLE_OAUTH_CLIENT_ID: "local-client-id",
   GOOGLE_OAUTH_CLIENT_SECRET: "local-client-secret",
   PUBLIC_APP_URL: `http://localhost:${PORTAL_PORT}`,
-  // 讓本機也能使用自訂 PORTAL_PORT／HR_PORT 的 CORS 設定；正式 Worker 由 runtime vars 提供同名欄位。
-  AUTH_APP_ORIGINS: process.env.AUTH_APP_ORIGINS?.trim() || [
-    `http://localhost:${PORTAL_PORT}`, `http://127.0.0.1:${PORTAL_PORT}`,
-    `http://localhost:${process.env.HR_PORT ?? 5176}`, `http://127.0.0.1:${process.env.HR_PORT ?? 5176}`,
-  ].join(","),
+  // 讓本機也能使用自訂 PORTAL_PORT／HR_PORT 的 CORS 設定，並放行區網 IP（手機實測）；正式 Worker 由 runtime vars 提供同名欄位。
+  AUTH_APP_ORIGINS: process.env.AUTH_APP_ORIGINS?.trim() || devAppOrigins(os.networkInterfaces(), [PORTAL_PORT, process.env.HR_PORT ?? 5176]).join(","),
   // 讀取其他本機設定，但登入密鑰固定使用 DEV_SECRET，確保 /dev/login 發出的 cookie 能被 API 驗證。
   ...loadDevVars(),
   AUTH_SESSION_SECRET: DEV_SECRET,
