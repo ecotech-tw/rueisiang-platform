@@ -253,7 +253,7 @@ CYBERBIZ、等 2FA 驗證信、下載 xlsx、寫欄位、上傳 Drive——一�
 Actions 執行，或在明確啟用後交給共用 ReportRunner DO／Container 序列執行。
 
 目前 `CYBERBIZ_REPORT_RUNNER_MODE` 預設為 `github`；GitHub Actions 是未切換前的執行路徑與備援。
-Container 模式需先由管理者配置 Cloudflare secrets 並完成受控 smoke test，不會因部署程式碼自動啟用。
+Container 模式需先由管理者配置 Cloudflare secrets 並完成受控 smoke test，不會因部署程式碼自動啟用。共用佇列每筆工作最多執行 60 分鐘；CYBERBIZ driver 會在 55 分鐘先終止子程序，超過 60 分鐘則 DO 強制停止 Container 並釋放佇列，較長期間請分批執行。
 
 | 誰 | 做什麼 | 碰得到憑證嗎 |
 |---|---|---|

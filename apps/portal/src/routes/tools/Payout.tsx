@@ -16,7 +16,7 @@ import { STORE_TABLE, useStoreSelection } from "./store-selection.js";
  *
  * GitHub Actions fallback 與 Cloudflare Container 共用同一個執行入口；這一頁只負責
  * 送出工作並追蹤狀態，不直接接觸 CYBERBIZ 或 Google 憑證。
- * 送出之後可以直接關掉分頁，工作在 GitHub 那邊照樣跑完。
+ * 送出之後可以直接關掉分頁，背景 runner 會照常執行。
  */
 
 export function Payout() {

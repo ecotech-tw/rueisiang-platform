@@ -107,6 +107,37 @@ describe("ReportRunner Durable Object", () => {
     expect(containerCalls).toBe(2);
   });
 
+  it("超過 60 分鐘的 active job 會終止 Container 並釋放共享佇列", async () => {
+    const durable = fakeStorage();
+    const runner = new ReportRunner({ storage: durable.storage } as never, {
+      REPORT_RUNNER_TOKEN: RUNNER_TOKEN,
+      DB: {},
+    } as never);
+    const destroy = vi.spyOn(runner, "destroy").mockResolvedValue(undefined);
+    const requestId = "stalled-request-12345";
+    const startedAt = Date.now() - 61 * 60_000;
+    durable.values.set("report-runner:active-job", { requestId, phase: "running", attempts: 0, startedAt });
+    durable.values.set(`queue:${requestId}`, {
+      requestId,
+      pathname: "/jobs",
+      payload: { requestId },
+      queuedAt: startedAt,
+      attempts: 0,
+      retryAt: startedAt,
+    });
+    durable.values.set(`job:${requestId}`, { requestId, status: "running" });
+
+    await runner.processQueuedJobs();
+
+    expect(destroy).toHaveBeenCalledOnce();
+    expect(durable.values.get(`job:${requestId}`)).toMatchObject({
+      status: "failed",
+      error: "報表執行超過 60 分鐘，已停止；請查看摘要、分批或重新提交。",
+    });
+    expect(durable.values.has(`queue:${requestId}`)).toBe(false);
+    expect(durable.values.has("report-runner:active-job")).toBe(false);
+  });
+
   it("共享 DO 會把多筆工作排隊，並只讓一筆工作占用 Container", async () => {
     const durable = fakeStorage();
     const remoteJobs = new Map<string, Record<string, unknown>>();

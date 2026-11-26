@@ -11,6 +11,7 @@ const QUEUE_PREFIX = "queue:";
 const QUEUE_CALLBACK = "processQueuedJobs";
 const MAX_QUEUED_JOBS = 20;
 const MAX_ACTIVE_POLL_RETRIES = 12;
+const MAX_ACTIVE_JOB_MS = 60 * 60_000;
 const MAX_QUEUE_AGE_MS = 24 * 60 * 60_000;
 const MAX_RETRY_DELAY_MS = 5 * 60_000;
 const POLL_INTERVAL_MS = 10_000;
@@ -37,6 +38,7 @@ interface ActiveJob {
   requestId: string;
   phase: "starting" | "running";
   attempts: number;
+  startedAt: number;
 }
 
 export class ReportRunner extends Container<Env> {
@@ -139,7 +141,7 @@ export class ReportRunner extends Container<Env> {
       return;
     }
 
-    const starting: ActiveJob = { requestId: item.requestId, phase: "starting", attempts: 0 };
+    const starting: ActiveJob = { requestId: item.requestId, phase: "starting", attempts: 0, startedAt: Date.now() };
     await this.durableState.storage.put(ACTIVE_JOB_KEY, starting);
     await this.startQueuedJob(queueKey, item, starting);
   }
@@ -278,6 +280,13 @@ export class ReportRunner extends Container<Env> {
       return;
     }
 
+    const startedAt = Number.isFinite(active.startedAt) ? active.startedAt : item.queuedAt;
+    if (Date.now() - startedAt >= MAX_ACTIVE_JOB_MS) {
+      await this.destroy();
+      await this.failJob(requestId, "報表執行超過 60 分鐘，已停止；請查看摘要、分批或重新提交。");
+      return;
+    }
+
     if (active.phase === "starting") {
       await this.startQueuedJob(queueKey, item, active);
       return;
@@ -329,6 +338,7 @@ export class ReportRunner extends Container<Env> {
         requestId,
         phase: "running",
         attempts: (active?.attempts ?? 0) + 1,
+        startedAt: active?.startedAt ?? Date.now(),
       } satisfies ActiveJob);
       await this.scheduleQueueProcessing(retryDelay((active?.attempts ?? 0) + 1));
       return;

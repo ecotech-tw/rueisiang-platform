@@ -122,8 +122,8 @@ export function containerJobStatus(job: ReportRunnerJob | null, requestId = ""):
   const conclusion = job.status === "succeeded" ? "success" : job.status === "failed" ? "failure" : null;
   const steps = (job.result?.stores ?? []).flatMap((store) => Object.entries(store.steps ?? {}).map(([key, value]) => ({
     name: `${store.store}・${STEP_LABELS[key] ?? key}`,
-    status: value === "fail" || value === "partial" ? "completed" : value === "ok" || value === "skip" ? "completed" : "in_progress",
-    conclusion: value === "fail" || value === "partial" ? "failure" : value === "ok" || value === "skip" ? "success" : null,
+    status: value === "skip" ? "skipped" : value === "fail" || value === "partial" || value === "ok" ? "completed" : "in_progress",
+    conclusion: value === "fail" || value === "partial" ? "failure" : value === "ok" ? "success" : value === "skip" ? "skipped" : null,
   })));
   if (!terminal && job.progress) steps.push({ name: job.progress, status: "in_progress", conclusion: null });
   return {

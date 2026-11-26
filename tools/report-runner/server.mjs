@@ -9,6 +9,8 @@ import { loadConfig } from "../shopee-sales-report-export/lib/common.mjs";
 const PORT = 8080;
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_STORES = 20;
+const MAX_CYBERBIZ_JOB_RUNTIME_MS = 55 * 60_000;
+const CHILD_TERMINATION_GRACE_MS = 10_000;
 const jobs = new Map();
 const SECRET_ENV_NAMES = [
   "REPORT_RUNNER_TOKEN",
@@ -180,6 +182,7 @@ async function runCyberbizJob(payload, job) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd: toolDir,
+      detached: process.platform !== "win32",
       env: {
         ...process.env,
         CI: "true",
@@ -199,6 +202,25 @@ async function runCyberbizJob(payload, job) {
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     let pending = "";
+    let timedOut = false;
+    let spawnError;
+    let forceKillTimer;
+    const terminate = (signal) => {
+      if (!child.pid) return;
+      try {
+        if (process.platform === "win32") child.kill(signal);
+        else process.kill(-child.pid, signal);
+      } catch (error) {
+        if (error?.code !== "ESRCH") child.kill(signal);
+      }
+    };
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      terminate("SIGTERM");
+      forceKillTimer = setTimeout(() => terminate("SIGKILL"), CHILD_TERMINATION_GRACE_MS);
+      forceKillTimer.unref();
+    }, MAX_CYBERBIZ_JOB_RUNTIME_MS);
+    timeout.unref();
     child.stdout.on("data", (chunk) => {
       pending += chunk;
       const lines = pending.split(/\r?\n/);
@@ -206,8 +228,15 @@ async function runCyberbizJob(payload, job) {
       for (const line of lines) updateCyberbizProgress(job, line);
     });
     child.stderr.on("data", () => {});
-    child.once("error", (error) => reject(error));
+    child.once("error", (error) => { spawnError = error; });
     child.once("close", async (code) => {
+      clearTimeout(timeout);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      if (spawnError) {
+        await rm(resultDir, { recursive: true, force: true }).catch(() => undefined);
+        reject(spawnError);
+        return;
+      }
       try {
         let report = null;
         try { report = JSON.parse(await readFile(resultPath, "utf8")); } catch {}
@@ -230,12 +259,14 @@ async function runCyberbizJob(payload, job) {
         };
         const errors = stores.filter((item) => !item.done && item.error?.message)
           .map((item) => `${item.store}：${item.error.message}`);
-        if (code === 0) {
+        if (!timedOut && code === 0) {
           job.status = "succeeded";
           job.error = "";
         } else {
           job.status = "failed";
-          job.error = errors.join("；").slice(0, 2_000) || "報表未完成，請查看執行摘要並重新提交。";
+          job.error = timedOut
+            ? "CYBERBIZ 報表執行超過 55 分鐘，已停止；請查看摘要、分批或重新提交。"
+            : errors.join("；").slice(0, 2_000) || "報表未完成，請查看執行摘要並重新提交。";
         }
         job.finishedAt = new Date().toISOString();
         resolve(job);

@@ -29,7 +29,7 @@ interface WorkflowRunPanelProps {
   artifactNote?: ReactNode;
 }
 
-const STEP_MARK: Record<string, string> = { completed: "✓", in_progress: "▶" };
+const STEP_MARK: Record<string, string> = { completed: "✓", in_progress: "▶", skipped: "—" };
 
 // 做完的淡掉，正在跑的用品牌色標出來。
 function stepClass(step: WorkflowStepSummary): string {

@@ -93,7 +93,7 @@ describe("CYBERBIZ report runner routing", () => {
       runs: [{ id: 0, status: "completed", conclusion: "success", title: "cf-id", reportMarkdown: "完成" }],
       steps: [
         { name: "宏匯・匯出", status: "completed", conclusion: "success" },
-        { name: "宏匯・匯入 D1", status: "completed", conclusion: "success" },
+        { name: "宏匯・匯入 D1", status: "skipped", conclusion: "skipped" },
       ],
     });
   });
