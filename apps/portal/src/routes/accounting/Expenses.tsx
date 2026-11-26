@@ -104,9 +104,9 @@ export function AccountingExpenses() {
   const [params, setParams] = useSearchParams();
   const status = (STATUS_TABS.find((tab) => tab.value === params.get("status"))?.value ?? "pending");
   const query = useAccountingQuery<{ expenses: ReviewExpense[] }>(`/expenses?status=${status}`);
-  const [viewingId, setViewingId] = useState<string | null>(null);
+  // 打開時存一份快照：核准、退回後那張單會從目前分頁的清單消失，從清單裡找的話明細會直接卸載、沒有退場動畫。
+  const [viewing, setViewing] = useState<ReviewExpense | null>(null);
   const expenses = query.data?.expenses ?? [];
-  const viewing = expenses.find((expense) => expense.id === viewingId) ?? null;
   const canReview = permissions.has("accounting:expense:review");
 
   return <Page layout="fills">
@@ -138,12 +138,12 @@ export function AccountingExpenses() {
                 <td data-label="用途"><span className="line-clamp-2 wrap-anywhere">{expense.description}</span>{expense.duplicateInvoiceCount > 0 ? <StatusBadge tone="warning" className="mt-1">發票號碼重複</StatusBadge> : null}</td>
                 <td data-label="金額" className="numeric">{dollars(expense.amountMinor)}</td>
                 <td data-label="狀態"><StatusBadge tone={badge.tone}>{badge.label}</StatusBadge></td>
-                <td data-label="操作"><Button variant="secondary" onClick={() => setViewingId(expense.id)}>查看</Button></td>
+                <td data-label="操作"><Button variant="secondary" onClick={() => setViewing(expense)}>查看</Button></td>
               </tr>;
             })}
           </tbody>
         </DataTable>}
     </Panel>
-    {viewing ? <ExpenseDetail expense={viewing} canReview={canReview} isOwn={viewing.submitterUserId === user?.id} onClose={() => setViewingId(null)} /> : null}
+    {viewing ? <ExpenseDetail expense={viewing} canReview={canReview} isOwn={viewing.submitterUserId === user?.id} onClose={() => setViewing(null)} /> : null}
   </Page>;
 }

@@ -15,20 +15,20 @@ export function AppShell() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [pageTitle, setPageTitle] = useState<string>();
   const { user, permissions } = useSession();
-  const isHrModule = isSystemPath(useLocation().pathname);
+  const isSystemModule = isSystemPath(useLocation().pathname);
 
   // 新畫面已經進 DOM、還沒上色：這時放行 View Transition 拍「新狀態」才拍得到。
-  useLayoutEffect(() => settleSystemTransition(isHrModule), [isHrModule]);
+  useLayoutEffect(() => settleSystemTransition(isSystemModule), [isSystemModule]);
 
-  // 左欄寬度：HRIS 沒有 sidebar（自己有一套導覽），收合時只剩圖示欄。手機一律單欄；非 HRIS 上面另有一條 topbar。
-  const columns = isHrModule ? "grid-cols-[minmax(0,1fr)]" : collapsed ? "grid-cols-[76px_minmax(0,1fr)]" : "grid-cols-[252px_minmax(0,1fr)]";
+  // 左欄寬度：HRIS、會計這類系統沒有 sidebar（自己有一套導覽），收合時只剩圖示欄。手機一律單欄；非 HRIS 上面另有一條 topbar。
+  const columns = isSystemModule ? "grid-cols-[minmax(0,1fr)]" : collapsed ? "grid-cols-[76px_minmax(0,1fr)]" : "grid-cols-[252px_minmax(0,1fr)]";
   // 手機上方列只有非 HRIS 才有；HRIS 也切兩列的話，唯一的 main 會掉進 auto 那列，只撐到內容高，底下露出一塊空白。
-  const rows = isHrModule ? "grid-rows-[minmax(0,1fr)]" : "max-[900px]:grid-rows-[auto_minmax(0,1fr)]";
+  const rows = isSystemModule ? "grid-rows-[minmax(0,1fr)]" : "max-[900px]:grid-rows-[auto_minmax(0,1fr)]";
   /*
    * 內容區自己捲，整頁不捲（html/body 看 data-shell 鎖住）。
    * fills 的頁面只讓表格捲、bleed 的頁面（地圖）連內距都不要；小香測試台自己分兩欄各自捲。
    */
-  const content = isHrModule
+  const content = isSystemModule
     ? "p-0"
     : "px-9 py-8 max-[900px]:px-4 max-[900px]:py-5 max-[760px]:[--page-gutter:16px] max-[760px]:[--page-pad-top:20px] max-[760px]:[--page-pad-bottom:20px] max-[760px]:has-[[data-grows]_[data-pager]]:pb-0 max-[760px]:has-[[data-grows]_[data-pager]]:[--page-pad-bottom:0px]";
 
@@ -41,7 +41,7 @@ export function AppShell() {
       * 最底下的分頁列會被工具列蓋住而且捲不到。員工 HR 站的外框也是這樣寫。
       */}
     <div data-shell="" className={`grid h-screen [background:radial-gradient(circle_at_top_left,--alpha(var(--color-brand)/8%),transparent_34rem),var(--color-canvas)] min-h-screen overflow-hidden max-[760px]:h-dvh max-[760px]:min-h-dvh ${columns} transition-[grid-template-columns] duration-220 ease-out motion-reduce:transition-none max-[900px]:grid-cols-1 ${rows}`}>
-      {!isHrModule ? <>
+      {!isSystemModule ? <>
         <GlassDefs />
         {/*
           * 手機上 sidebar 收成抽屜，靠這條上方列開關。長得跟 HRIS 的頁首一樣：品牌膠囊＋圓形選單鈕。
