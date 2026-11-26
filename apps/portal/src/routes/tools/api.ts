@@ -35,6 +35,12 @@ export interface WorkflowRun {
   conclusion: string | null;
   url: string;
   title: string;
+  error?: string;
+  driveUrl?: string;
+  driveFileAlreadyExisted?: boolean;
+  ingested?: boolean;
+  salesRows?: number;
+  payoutRows?: number;
 }
 
 export interface WorkflowStep {

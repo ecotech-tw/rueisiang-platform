@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
+import { useToast } from "../../shell/Toast.js";
 import { Alert, Button, DataTable, ExternalLink, Field, FORM_ROW_SPACING, FormHint, FormRow, Input, Page, PageHeader, PageStatus, Panel, ReportSummary, SegmentedControl, SelectField, TableNote, TextField, WorkflowRunPanel } from "../../ui/index.js";
 import {
   useConfirmShopeeSales,
@@ -124,6 +125,8 @@ function savedTracking(): ShopeeTracking | null {
 
 export function ShopeeSales({ embedded = false, sourceField }: { embedded?: boolean; sourceField?: ReactNode } = {}) {
   usePageTitle("蝦皮商品銷售");
+  const toast = useToast();
+  const notifiedTerminalRun = useRef<string | null>(null);
   const state = useShopeeSalesState();
   const previewRun = usePreviewShopeeSales();
   const confirmRun = useConfirmShopeeSales();
@@ -147,6 +150,30 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
   const previewToken = tracking?.mode === "preview" ? tracking.previewToken ?? null : null;
   const previewStatusActive = Boolean(tracking?.mode === "preview" && (!latest || latest.status !== "completed" || latest.conclusion === "success"));
   const previewQuery = useShopeePreview(tracking?.mode === "preview" ? tracking.requestId : null, previewToken, previewStatusActive);
+  useEffect(() => {
+    if (!tracking || latest?.status !== "completed" || notifiedTerminalRun.current === tracking.requestId) return;
+    if (tracking.mode === "preview" && latest.conclusion !== "failure") return;
+
+    notifiedTerminalRun.current = tracking.requestId;
+    if (latest.conclusion === "success") {
+      const driveStatus = latest.driveFileAlreadyExisted ? "Drive 已有同名檔案，未重複上傳" : "已上傳到 Drive";
+      const counts = [
+        typeof latest.salesRows === "number" ? `商品 ${number(latest.salesRows)} 筆` : "",
+        typeof latest.payoutRows === "number" ? `出金 ${number(latest.payoutRows)} 筆` : "",
+      ].filter(Boolean).join("、");
+      const importStatus = latest.ingested
+        ? `，並匯入 D1${counts ? `（${counts}）` : ""}`
+        : "；此自訂區間未匯入 D1";
+      const action = latest.driveUrl ? {
+        label: "開啟 Drive",
+        onClick: () => window.open(latest.driveUrl, "_blank", "noopener,noreferrer"),
+      } : undefined;
+      toast.show(`蝦皮報表完成：${driveStatus}${importStatus}`, "success", action);
+    } else {
+      toast.show(`蝦皮報表${tracking.mode === "preview" ? "解析" : "匯入"}失敗：${latest.error ?? "請查看執行狀態。"}`, "danger");
+    }
+  }, [latest?.conclusion, latest?.driveUrl, latest?.error, latest?.payoutRows, latest?.salesRows, latest?.status, toast, tracking?.mode, tracking?.requestId]);
+
   useEffect(() => {
     if (tracking?.mode === "import" && latest?.status === "completed") setTracking(null);
   }, [latest?.status, tracking?.mode]);
@@ -278,7 +305,8 @@ export function ShopeeSales({ embedded = false, sourceField }: { embedded?: bool
           {confirmRun.error ? <Alert tone="danger">{confirmRun.error.message}</Alert> : null}
           {status.error ? <Alert tone="danger">{status.error.message}</Alert> : null}
           {previewQuery.error ? <Alert tone="danger">{previewQuery.error.message}</Alert> : null}
-          {previewFailed ? <Alert tone="danger">蝦皮報表解析失敗，請確認檔案與密碼後重新選擇檔案。</Alert> : null}
+          {previewFailed && !latest?.error ? <Alert tone="danger">蝦皮報表解析失敗，請確認檔案與密碼後重新選擇檔案。</Alert> : null}
+          {latest?.status === "completed" && latest.conclusion === "failure" && latest.error ? <Alert tone="danger">{latest.error}</Alert> : null}
           {discardPreview.error ? <Alert tone="danger">{discardPreview.error.message}</Alert> : null}
           {preview ? (
             <div className="flex flex-col gap-4">

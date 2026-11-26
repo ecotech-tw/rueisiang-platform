@@ -90,8 +90,10 @@ async function processWorkbook(payload, { previewOnly = false } = {}) {
     return previewOnly ? previewFromSummary(result.summary) : {
       outputFilename: path.basename(result.outputPath),
       driveUrl: result.uploaded?.webViewLink ?? null,
+      driveFileAlreadyExisted: result.driveFileAlreadyExisted,
+      ingested: Boolean(result.ingested),
       salesRows: result.ingested?.salesRowCount ?? 0,
-      payoutRows: result.ingested?.payoutRowCount ?? result.summary.dailyPayoutRows.length,
+      payoutRows: result.ingested?.payoutRowCount ?? 0,
       skippedSkus: result.ingested?.skippedSkus ?? [],
       summary: {
         totalPerformance: result.summary.totalPerformance,
