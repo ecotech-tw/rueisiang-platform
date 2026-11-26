@@ -80,6 +80,9 @@ jobs:
           npm ci
           node selftest.mjs
 
+      - name: Report Runner 錯誤診斷測試
+        run: node --test tools/report-runner/*.test.mjs
+
       - name: 蝦皮銷售報表工具的自我檢查
         working-directory: tools/shopee-sales-report-export
         run: |

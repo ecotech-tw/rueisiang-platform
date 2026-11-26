@@ -5,36 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import { processShopeeWorkbook, previewFromSummary } from "../shopee-sales-report-export/driver.mjs";
 import { loadConfig } from "../shopee-sales-report-export/lib/common.mjs";
+import { appendTail, cyberbizFailureMessage, safeErrorMessage } from "./diagnostics.mjs";
 
 const PORT = 8080;
 const MAX_BODY_BYTES = 1_000_000;
 const MAX_STORES = 20;
 const MAX_CYBERBIZ_JOB_RUNTIME_MS = 55 * 60_000;
 const CHILD_TERMINATION_GRACE_MS = 10_000;
+const MAX_CHILD_STDERR_CHARS = 16_000;
+const MAX_CHILD_STDOUT_ERROR_CHARS = 2_000;
 const jobs = new Map();
-const SECRET_ENV_NAMES = [
-  "REPORT_RUNNER_TOKEN",
-  "CYBERBIZ_USERNAME",
-  "CYBERBIZ_PASSWORD",
-  "GOOGLE_REPORTS_OAUTH_CLIENT_SECRET",
-  "GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN",
-  "GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN",
-  "CYBERBIZ_REPORT_INGEST_TOKEN",
-];
-
-function safeErrorMessage(error, additionalSecrets = {}) {
-  let message = error instanceof Error ? error.message : "報表處理失敗。";
-  const secrets = [
-    ...SECRET_ENV_NAMES.map((key) => [key, process.env[key]]),
-    ...Object.entries(additionalSecrets),
-  ];
-  for (const [key, value] of secrets) {
-    if (typeof value === "string" && value.length > 3) message = message.split(value).join(`«${key}»`);
-  }
-  message = message.replace(/["']?\b(request[_ -]?id)["']?\s*[:=]\s*["']?[^"'&\s,;]+["']?/gi, "$1=«request-id»");
-  message = message.replace(/\b(?:cf-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "«request-id»");
-  return message.replace(/\b\d{6}\b/g, "«otp»").slice(0, 2_000);
-}
 
 function send(response, status, value) {
   response.writeHead(status, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -204,6 +184,8 @@ async function runCyberbizJob(payload, job) {
     child.stdout.setEncoding("utf8");
     child.stderr.setEncoding("utf8");
     let pending = "";
+    let driverStdoutError = "";
+    let childStderr = "";
     let timedOut = false;
     let spawnError;
     let forceKillTimer;
@@ -227,9 +209,16 @@ async function runCyberbizJob(payload, job) {
       pending += chunk;
       const lines = pending.split(/\r?\n/);
       pending = lines.pop() ?? "";
-      for (const line of lines) updateCyberbizProgress(job, line);
+      for (const line of lines) {
+        if (line.startsWith("執行失敗：")) {
+          driverStdoutError = appendTail(driverStdoutError, line, MAX_CHILD_STDOUT_ERROR_CHARS);
+        }
+        updateCyberbizProgress(job, line);
+      }
     });
-    child.stderr.on("data", () => {});
+    child.stderr.on("data", (chunk) => {
+      childStderr = appendTail(childStderr, chunk, MAX_CHILD_STDERR_CHARS);
+    });
     child.once("error", (error) => { spawnError = error; });
     child.once("close", async (code) => {
       clearTimeout(timeout);
@@ -260,13 +249,19 @@ async function runCyberbizJob(payload, job) {
           payoutRows,
         };
         const errors = stores.filter((item) => !item.done && item.error?.message)
-          .map((item) => `${item.store}：${item.error.message}`);
+          .map((item) => `${item.store}：${safeErrorMessage(new Error(item.error.message), credentials)}`);
         const failureCode = typeof report?.failure?.code === "string"
           && /^[A-Z][A-Z0-9_]{0,63}$/.test(report.failure.code)
           ? `[${report.failure.code}] `
           : "";
         const driverFailure = typeof report?.failure?.message === "string"
           ? `${failureCode}${safeErrorMessage(new Error(report.failure.message), credentials)}`
+          : "";
+        const stdoutFailure = driverStdoutError
+          ? safeErrorMessage(new Error(driverStdoutError), credentials)
+          : "";
+        const stderrFailure = childStderr.trim()
+          ? safeErrorMessage(new Error(childStderr.trim()), credentials)
           : "";
         if (!timedOut && code === 0) {
           job.status = "succeeded";
@@ -275,7 +270,7 @@ async function runCyberbizJob(payload, job) {
           job.status = "failed";
           job.error = timedOut
             ? "CYBERBIZ 報表執行超過 55 分鐘，已停止；請查看摘要、分批或重新提交。"
-            : errors.join("；").slice(0, 2_000) || driverFailure || "報表未完成，請查看執行摘要並重新提交。";
+            : cyberbizFailureMessage({ errors, driverFailure, stdoutFailure, stderrFailure });
         }
         job.finishedAt = new Date().toISOString();
         resolve(job);
