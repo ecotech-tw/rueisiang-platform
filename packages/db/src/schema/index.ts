@@ -1,6 +1,7 @@
 // 每個模組一個 schema 檔。activity 是跨模組共用的操作紀錄，不屬於任何一個。
 import { itemCategories, itemComponents, items } from "./items.js";
 
+export * from "./accounting.js";
 export * from "./activity.js";
 export * from "./assistant.js";
 export {

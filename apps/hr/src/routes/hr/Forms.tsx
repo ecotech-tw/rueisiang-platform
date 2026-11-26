@@ -17,11 +17,11 @@ import { HrBackBar } from "./HrBackBar.js";
 /*
  * 申請頁的面板在手機上改成比較圓、比較淡的卡片，內距也縮小。表單頁下面留 116px 給固定在底部的送出列。
  */
-const MOBILE_CARD = "max-[760px]:px-3.5 max-[760px]:py-4 max-[760px]:rounded-[18px] max-[760px]:[box-shadow:0_8px_24px_color-mix(in_oklab,var(--color-ink)_7%,transparent)]";
-const FORM_PANEL = `${MOBILE_CARD} max-[760px]:pb-[116px]`;
-const FORM_FIELDS = "grid gap-4 max-[760px]:gap-3.5";
+export const MOBILE_CARD = "max-[760px]:px-3.5 max-[760px]:py-4 max-[760px]:rounded-[18px] max-[760px]:[box-shadow:0_8px_24px_color-mix(in_oklab,var(--color-ink)_7%,transparent)]";
+export const FORM_PANEL = `${MOBILE_CARD} max-[760px]:pb-[116px]`;
+export const FORM_FIELDS = "grid gap-4 max-[760px]:gap-3.5";
 // 手機上開始／結束這類成對欄位疊成一欄，datetime-local 才放得下。
-const FORM_FIELD_ROW = "grid grid-cols-[1fr_1fr] gap-3 max-[760px]:grid-cols-[1fr] max-[760px]:gap-3.5";
+export const FORM_FIELD_ROW = "grid grid-cols-[1fr_1fr] gap-3 max-[760px]:grid-cols-[1fr] max-[760px]:gap-3.5";
 const SUMMARY_CARD_TONE = {
   neutral: { card: "border-soft-line bg-canvas", value: "text-ink" },
   // 額度卡用品牌色調跟試算卡區分：試算是「這次要請多少」，額度是「還剩多少」。
@@ -131,7 +131,7 @@ function matchesRequest(searchText: string, status: string, search: string, stat
 }
 
 // data-form-page 讓外層（HrLayout 的底部導覽）認得出表單填寫頁。
-function FormPage({ children }: { children: ReactNode }) {
+export function FormPage({ children }: { children: ReactNode }) {
   return <Page data-form-page="" className="w-full max-w-[760px] mx-auto min-h-[calc(100dvh-48px)] max-[760px]:max-w-none [&>[data-page-head]]:mt-2">{children}</Page>;
 }
 
@@ -139,7 +139,7 @@ function FormPage({ children }: { children: ReactNode }) {
  * 送出列只放在表單填寫頁的面板裡。手機上固定在畫面底部讓拇指按得到，FORM_PANEL 的 116px 下內距就是替它留的；
  * 下內距用 --hr-safe-bottom，跟底部導覽一樣避開 Home 橫條。
  */
-function FormActions({ children }: { children: ReactNode }) {
+export function FormActions({ children }: { children: ReactNode }) {
   return <div className="flex justify-end gap-2 pt-[18px] max-[760px]:fixed max-[760px]:inset-x-0 max-[760px]:bottom-0 max-[760px]:z-20 max-[760px]:m-0 max-[760px]:grid max-[760px]:w-full max-[760px]:grid-cols-2 max-[760px]:border-t max-[760px]:border-t-soft-line max-[760px]:bg-paper/96 max-[760px]:px-3.5 max-[760px]:pt-3 max-[760px]:pb-(--hr-safe-bottom) max-[760px]:[box-shadow:0_-8px_20px_--alpha(var(--color-ink)/10%)] max-[760px]:[-webkit-backdrop-filter:blur(12px)_saturate(140%)] max-[760px]:[backdrop-filter:blur(12px)_saturate(140%)]">{children}</div>;
 }
 
@@ -150,10 +150,10 @@ function SummaryCard({ tone = "neutral", label, value, note }: { tone?: keyof ty
   </div>;
 }
 
-function FormPageHeader({ title, description, returnTo = "/forms" }: { title: string; description: string; returnTo?: string }) {
+export function FormPageHeader({ title, description, returnTo = "/forms", backLabel = "返回表單" }: { title: string; description: string; returnTo?: string; backLabel?: string }) {
   const navigate = useNavigate();
   return <>
-    <HrBackBar label="返回表單" onBack={() => navigate(returnTo)} />
+    <HrBackBar label={backLabel} onBack={() => navigate(returnTo)} />
     <PageHeader title={title} description={description} className="max-[760px]:[&_h1]:text-[22px] max-[760px]:[&_p]:text-[13px] max-[760px]:[&_p]:leading-[1.55]" />
   </>;
 }

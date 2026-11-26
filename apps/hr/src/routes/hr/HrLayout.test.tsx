@@ -9,7 +9,7 @@ import { HrLayout } from "./HrLayout.js";
 afterEach(() => { vi.unstubAllGlobals(); notifyManager.setScheduler((callback) => setTimeout(callback, 0)); });
 
 describe("HR 手機導覽", () => {
-  it("支援人員只顯示兩項等寬導覽，不讀取通知或顯示工作與個人中心", async () => {
+  it("支援人員只顯示打卡、薪資袋與報帳三項等寬導覽，不讀取通知或顯示工作與個人中心", async () => {
     Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     client.setQueryData(["session"], { id: "worker", isEmployee: false, hrSelfServiceKind: "worker", lineLiffAuthenticated: true });
@@ -21,9 +21,9 @@ describe("HR 手機導覽", () => {
         <Route element={<HrLayout />}><Route path="*" element={<p>本人功能</p>} /></Route>
       </Routes></MemoryRouter></QueryClientProvider>));
       const nav = container.querySelector<HTMLElement>("nav[data-nav=bottom]")!;
-      expect([...nav.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual(["/payroll", "/clock"]);
+      expect([...nav.querySelectorAll("a")].map((link) => link.getAttribute("href"))).toEqual(["/payroll", "/clock", "/expenses"]);
       expect(nav.querySelector('a[href="/clock"]')?.getAttribute("aria-current")).toBe("page");
-      expect(nav.style.gridTemplateColumns).toBe("repeat(2, minmax(0, 1fr))");
+      expect(nav.style.gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
       expect(container.textContent).not.toMatch(/通知|個人中心|工作/);
       expect(fetch).not.toHaveBeenCalled();
     } finally { await act(async () => root.unmount()); client.clear(); container.remove(); }
