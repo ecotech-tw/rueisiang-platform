@@ -24,6 +24,8 @@ tools/        跑在 GitHub Actions runner 上的東西，刻意不在 pnpm work
 
 **platform 與 CDN 共用一個 Worker**：`apps/api/wrangler.toml` 的 `[assets]` 指向 `../portal/dist`，`run_worker_first = true` 先依 hostname 分流。CDN 只提供公開圖片與自動產生的[官網據點 JSON 快照](./tools/cyberbiz-blocks/store-locator/README.md)，platform 的 `/api/*` 進 Hono，其餘交給 Static Assets。多媒體的儲存、快取與設定契約見 [`docs/media-cdn.md`](./docs/media-cdn.md)。`apps/hr` 是獨立的靜態前端部署單位，透過 `VITE_API_BASE_URL` 呼叫共用 API。
 
+**時間欄位一律存 UTC 的 `YYYY-MM-DD HH:MM:SS`**，寫入、讀取與比較各有固定的工具，見 [`docs/database-conventions.md`](./docs/database-conventions.md)。
+
 **安全性全部在 API。** 前端的權限判斷（sidebar 顯示哪些項目、按鈕要不要出現）純粹是外觀——SPA 的 JavaScript 全在使用者手上，藏起來的按鈕不是安全機制。每一條 API 路由都必須自己驗權限。
 
 ## 開發
@@ -220,15 +222,6 @@ Open Platform 是另一條路：一次性授權換 refresh token，之後程式�
 R2 是倉位照片在沒有 NAS 時的 fallback，目前**還沒開通**（要在 Cloudflare 走一次訂閱流程）。
 兩種儲存都沒設定時，上傳照片會回「尚未設定照片儲存空間」，地圖與庫存不受影響。
 開通步驟見 `platform-deploy` skill 的 5.1。
-
-### 資料庫：時間欄位統一成一種格式
-
-目標格式是 UTC 的 `YYYY-MM-DD HH:MM:SS`（D1 的 `CURRENT_TIMESTAMP`），程式寫入的多帶毫秒 `.SSS`。
-讀用 `parseDbTimestamp`、寫用 `toDbTimestamp`（`packages/db/src/db-timestamp.ts`），SQL 裡拿時間比大小用
-`julian()`（`packages/db/src/db-time-sql.ts`）。舊資料還混著 `toISOString()` 的 ISO，所以 SQL 裡直接拿字串排序的地方，
-同一天裡新舊兩種格式的先後會錯，要等下面這步做完才會對。
-
-- [ ] 加一支資料 migration 把既有的 ISO 值轉成目標格式（先用正式庫備份重播驗證），順便刪掉跟唯一索引重複的 `idx_hr_annual_leave_bracket_policy`。
 
 ### Production smoke 與 CYBERBIZ webhook
 

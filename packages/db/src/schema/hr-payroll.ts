@@ -320,7 +320,6 @@ export const hrAnnualLeaveBrackets = sqliteTable("hr_annual_leave_brackets", {
   label: text("label").notNull().default(""),
 }, (table) => [
   uniqueIndex("idx_hr_annual_leave_bracket_start").on(table.policyVersionId, table.minServiceMonths),
-  index("idx_hr_annual_leave_bracket_policy").on(table.policyVersionId, table.minServiceMonths),
   check("ck_hr_annual_leave_bracket_range", sql`${table.minServiceMonths} >= 6 AND (${table.maxServiceMonths} IS NULL OR ${table.maxServiceMonths} > ${table.minServiceMonths})`),
   check("ck_hr_annual_leave_bracket_days", sql`${table.entitledDays} > 0 AND ${table.entitledDays} <= 30`),
   check("ck_hr_annual_leave_bracket_label", sql`length(${table.label}) <= 100`),
