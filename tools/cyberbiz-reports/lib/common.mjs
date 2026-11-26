@@ -254,11 +254,37 @@ export function redact(text, env = {}) {
       output = output.split(value).join(`«${key}»`);
     }
   }
+  output = output.replace(/["']?\b(request[_ -]?id)["']?\s*[:=]\s*["']?[^"'&\s,;]+["']?/gi, "$1=«request-id»");
+  output = output.replace(/\b(?:cf-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "«request-id»");
   return output.replace(/\b\d{6}\b/g, "«otp»");
 }
 
 export function log(message) {
   process.stdout.write(`${message}\n`);
+}
+
+export async function writeRunnerFailureResult(error, env = {}) {
+  const code = typeof error?.code === "string" && /^[A-Z][A-Z0-9_]{0,63}$/.test(error.code)
+    ? error.code
+    : "UNEXPECTED_ERROR";
+  const failure = {
+    code,
+    message: redact(error instanceof Error ? error.message : "報表處理失敗。", env).slice(0, 2_000),
+  };
+  log(`執行失敗：[${failure.code}] ${failure.message}`);
+
+  const resultPath = process.env.REPORT_RUNNER_RESULT_PATH;
+  if (!resultPath) return;
+  let result = {};
+  try {
+    const saved = JSON.parse(await fs.readFile(resultPath, "utf8"));
+    if (saved && typeof saved === "object" && !Array.isArray(saved)) result = saved;
+  } catch {}
+  try {
+    await fs.writeFile(resultPath, JSON.stringify({ ...result, failure }), "utf8");
+  } catch {
+    log("無法保存報表錯誤摘要。");
+  }
 }
 
 export async function ensureDir(dir) {
