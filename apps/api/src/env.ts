@@ -89,6 +89,8 @@ export interface Env {
   CYBERBIZ_API_BASE_URL?: string;
   /** 驗證 CYBERBIZ webhook 用。沒設定時那條路由一律回 401。 */
   CYBERBIZ_WEBHOOK_SECRET?: string;
+  /** 預設只觀察；apply 必須在核對公司倉連結、基準庫存與實體異動流程後才開啟。 */
+  CYBERBIZ_ORDER_RESTOCK_MODE?: "observe" | "apply";
 
   /*
    * Upstash Redis。快取 CYBERBIZ 商品目錄與報表查詢結果，讓庫存頁不必每次翻 API，

@@ -23,6 +23,9 @@ import {
   linkItemToCyberbiz,
   listActivity,
   listCompanyLinks,
+  getOrderRestock,
+  resolveOrderRestock,
+  hasUnresolvedOrderRestock,
   loadWarehouse,
   recordCyberbizSyncFailed,
   recordCyberbizSyncSucceeded,
@@ -385,6 +388,21 @@ export const wms = new Hono<AppEnv>()
     return c.json(result);
   })
 
+  .get("/order-restocks/:id", requirePermission("wms:activity:read"), async (c) => {
+    c.header("Cache-Control", "no-store");
+    return c.json(await getOrderRestock(c.get("db"), c.req.param("id")));
+  })
+  .post("/order-restocks/:id/resolve", requirePermission("wms:sync:trigger"), async (c) => {
+    const input = await body(c);
+    if (input.resolution !== "applied" && input.resolution !== "skipped") {
+      throw new HTTPException(400, { message: "請指定已確認完成或確認未執行。" });
+    }
+    const user = c.get("user");
+    return c.json(await resolveOrderRestock(c.get("db"), {
+      id: c.req.param("id"), resolution: input.resolution, reason: requireString(input, "reason", "查核說明"), actor: { id: user.id, email: user.email },
+    }));
+  })
+
   // ───────────────────────── 倉位現場照片 ─────────────────────────
 
   .get("/zones/:id/images", requirePermission("wms:map:read"), async (c) => {
@@ -619,6 +637,11 @@ export const wms = new Hono<AppEnv>()
         variantId: mine.cyberbizVariantId,
         sku: mine.linkedSku,
         targetQuantity: result.quantity,
+        beforeAdjust: async () => {
+          if (await hasUnresolvedOrderRestock(c.get("db"), id)) {
+            throw new HTTPException(409, { message: "有待確認訂單回補，盤點結果不推送官網。" });
+          }
+        },
       });
       await recordCyberbizSyncSucceeded(c.get("db"), {
         inventoryItemId: id,

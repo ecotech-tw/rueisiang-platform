@@ -3,6 +3,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, CellError, DataTable, FilterInput, FilterSelect, FilterToolbar, Page, PageHeader, Panel, SEARCH_INPUT_WIDTH, StatusBadge, type StatusTone, TableNote } from "../../ui/index.js";
+import { OrderRestockDetails } from "./OrderRestockDetails.js";
 
 /**
  * 倉儲的操作紀錄。
@@ -32,6 +33,7 @@ interface ActivityRow {
   status: string;
   error: string | null;
   createdAt: string;
+  orderRestockId: string | null;
 }
 
 interface ActivityList {
@@ -42,6 +44,7 @@ interface ActivityList {
 }
 
 const ENTITY_LABEL: Record<string, string> = {
+  cyberbiz_order_restock: "官網訂單回補",
   wms_zone: "倉位",
   item: "商品",
   product_category: "舊版分類",
@@ -169,8 +172,8 @@ export function Activity() {
         title="操作紀錄"
         description={
           <>
-          誰在什麼時候動了倉位、商品或分類。盤點即使數量沒變也會留一筆——
-          「今天數過、結果沒變」跟「今天沒數」是兩件事。
+          查閱倉儲異動與官網訂單回補，可搜尋訂單編號或 SKU。
+          回補明細包含模式、調整前後庫存、WMS 目標、處理次數及待確認原因。
           </>
         }
       />
@@ -181,7 +184,7 @@ export function Activity() {
             label="搜尋"
             className={SEARCH_INPUT_WIDTH}
             type="search"
-            placeholder="搜尋倉位、商品、摘要或操作者"
+            placeholder="搜尋訂單、SKU、商品或操作者"
             value={filters.search}
             onChange={(event) => update({ search: event.target.value })}
           />
@@ -200,6 +203,9 @@ export function Activity() {
             onChange={(event) => update({ pageSize: Number(event.target.value) })}
             options={[25, 50, 100].map((size) => ({ value: String(size), label: `每頁 ${size} 筆` }))}
           />
+          <Button variant="secondary" disabled={query.isFetching} onClick={() => { void query.refetch(); }}>
+            {query.isFetching ? "更新中…" : "重新整理"}
+          </Button>
         </FilterToolbar>
 
         {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
@@ -231,6 +237,7 @@ export function Activity() {
                     <div>{event.summary}</div>
                     <div className="text-[12px] text-muted">{event.eventType}</div>
                     {event.error ? <CellError>{event.error}</CellError> : null}
+                    {event.orderRestockId ? <OrderRestockDetails id={event.orderRestockId} /> : null}
                   </td>
                   {/*
                     * 欄位級的變更。倉儲的紀錄大多是這種——「數量 48 → 50」比

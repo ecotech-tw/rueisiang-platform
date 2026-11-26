@@ -2,7 +2,7 @@ import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { cyberbizWebhookEvents } from "./schema/crm.js";
 
-export type CyberbizWebhookEntityType = "customer" | "product";
+export type CyberbizWebhookEntityType = "customer" | "product" | "order" | "stock";
 
 export interface ClaimWebhookEventInput {
   id: string;

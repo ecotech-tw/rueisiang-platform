@@ -113,6 +113,10 @@ export interface CyberbizInventoryClient {
     variantId: string;
     sku: string;
     targetQuantity: number;
+    /** 有提供時，送差額前必須仍符合預期現值；不是遠端 CAS。 */
+    expectedQuantity?: number;
+    /** 在非冪等 POST 前先持久化「可能已送出」，中斷後不可盲目重播。 */
+    beforeAdjust?: () => Promise<void>;
   }): Promise<{ previousQuantity: number; quantity: number; safetyQuantity: number; changed: boolean }>;
 }
 
@@ -166,7 +170,7 @@ export function createInventoryClient(
      *    調整、可能它自己夾了值）。對不上就丟錯，讓呼叫端把這個連結標成失敗，
      *    而不是留下一個「以為同步過了」的狀態。
      */
-    async setCompanyQuantity({ productId, variantId, sku, targetQuantity }) {
+    async setCompanyQuantity({ productId, variantId, sku, targetQuantity, expectedQuantity, beforeAdjust }) {
       const target = Math.max(0, Math.round(targetQuantity));
       const wanted = sku.trim().toUpperCase();
 
@@ -180,6 +184,9 @@ export function createInventoryClient(
         throw new Error("CYBERBIZ 的商品連結已失效：找不到原本的 product_id、variant_id 與 SKU。");
       }
 
+      if (expectedQuantity !== undefined && current.quantity !== expectedQuantity) {
+        throw new Error(`CYBERBIZ 庫存在調整前已變動：預期 ${expectedQuantity}，目前 ${current.quantity}；未送出調整。`);
+      }
       const delta = target - current.quantity;
       if (delta === 0) {
         return {
@@ -193,6 +200,7 @@ export function createInventoryClient(
       // stock_adjustments 是差額 API，不是冪等的 absolute update。若上游已套用
       // 但 response 遺失，重送同一 delta 會把庫存加倍；模糊失敗交給呼叫端
       // 重新讀取並 reconcile，不能由通用 HTTP client 自動 retry。
+      await beforeAdjust?.();
       await request("/v1/stock_adjustments", {
         method: "POST",
         retries: 0,

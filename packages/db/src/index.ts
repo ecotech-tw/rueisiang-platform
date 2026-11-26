@@ -541,5 +541,15 @@ export {
   type ClaimWebhookEventResult,
   type CyberbizWebhookEntityType,
 } from "./webhook-events.js";
+export {
+  receiveOrderRestock,
+  retryOrderRestockWebhooks,
+  drainOrderRestocks,
+  getOrderRestock,
+  resolveOrderRestock,
+  orderRestockMode,
+  type OrderWebhookOutcome,
+} from "./order-restock.js";
+export { hasUnresolvedOrderRestock } from "./order-restock-state.js";
 export type { ScopeKind } from "./schema/reports.js";
 export { chunks } from "./sql-lists.js";

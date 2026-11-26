@@ -21,6 +21,7 @@ export {
   type UserRoleAssignment,
 } from "./auth.js";
 export * from "./crm.js";
+export * from "./cyberbiz-order-restocks.js";
 export * from "./hr-people.js";
 export * from "./hr-attendance.js";
 export * from "./hr-rfid.js";

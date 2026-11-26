@@ -2,6 +2,8 @@ import { readCyberbizTopic, verifyCyberbizWebhook } from "@rueisiang/cyberbiz";
 import {
   createDatabase,
   dispatchCyberbizWebhook,
+  drainOrderRestocks,
+  orderRestockMode,
   ensureAssistantDefaults,
   getAssistantConfig,
   getActiveAssistantPrompt,
@@ -68,7 +70,7 @@ import type { HrDeliveryAuthorization } from "../assistant-hr.js";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { forgetCatalog } from "../cyberbiz-catalog.js";
-import { cyberbizClient, cyberbizInventoryClient } from "../cyberbiz.js";
+import { cyberbizClient, cyberbizInventoryClient, cyberbizOrderClient } from "../cyberbiz.js";
 import type { AppEnv, Env } from "../env.js";
 import { decryptLineSecret, encryptLineSecret } from "../line-secrets.js";
 import { isLineAssistantQueueMessage, type LineAssistantQueueMessage } from "../line-queue.js";
@@ -1483,7 +1485,22 @@ async function receive(c: Context<AppEnv>) {
     topic: readCyberbizTopic(c.req.raw, payload),
     customerClient: cyberbizClient(c.env),
     inventoryClient: cyberbizInventoryClient(c.env),
+    restockMode: orderRestockMode(c.env.CYBERBIZ_ORDER_RESTOCK_MODE),
   });
+
+  if (outcome.kind === "order" && outcome.queued) {
+    const task = drainOrderRestocks(c.get("db"), {
+      mode: orderRestockMode(c.env.CYBERBIZ_ORDER_RESTOCK_MODE),
+      inventoryClient: cyberbizInventoryClient(c.env),
+      orderClient: cyberbizOrderClient(c.env),
+    }).then(async () => { await forgetCatalog(cacheClient(c.env)); })
+      .catch((error) => assistantLog("error", "cyberbiz.order_restock_failed", { error: assistantErrorDetails(error) }));
+    // 本機與未提供 ExecutionContext 的測試也要完整等待，不留下 floating promise。
+    let execution: Pick<ExecutionContext, "waitUntil"> | undefined;
+    try { execution = c.executionCtx; } catch { /* 本機 fetch handler 沒有背景執行環境。 */ }
+    if (execution) execution.waitUntil(task);
+    else await task;
+  }
 
   /*
    * 官網那邊的庫存動了，快取的目錄就過期了——後續用 SKU 連結品項或做目錄鏡像時，
@@ -1777,6 +1794,8 @@ function probe(c: Context<AppEnv>) {
     events: [
       "會員註冊、會員修改、會員 UID 資料新增／更新、更新會員標籤",
       "商品款式更新（variants/update）",
+      "官網下單／取消（orders/create、orders/cancelled）；預設僅觀察回補",
+      "進出倉／調倉事件（保存原始單據，不直接改庫存）",
     ],
   });
 }

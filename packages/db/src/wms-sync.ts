@@ -7,6 +7,7 @@ import { cyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { activityEvents } from "./schema/activity.js";
 import { cyberbizSyncLocks, wmsItems } from "./schema/wms.js";
 import { WmsError } from "./wms.js";
+import { hasUnresolvedOrderRestock } from "./order-restock-state.js";
 
 /** WMS 裡實際有庫存、而且在 CYBERBIZ 有外部身分的品項。 */
 export interface LinkedItem {
@@ -183,6 +184,11 @@ function updateLinkedItem(
         AND cyberbiz_products.cyberbiz_variant_id = ${link.cyberbizVariantId}
     )`,
     ...(link.updatedAt ? [eq(wmsItems.updatedAt, link.updatedAt)] : []),
+    sql`NOT EXISTS (
+      SELECT 1 FROM cyberbiz_order_restocks r
+      WHERE r.item_id = ${wmsItems.itemId} AND r.mode = 'apply'
+        AND r.state IN ('pending', 'checking', 'applying', 'review')
+    )`,
   );
   return db.update(wmsItems)
     .set(values as never)
@@ -209,6 +215,15 @@ export async function applySyncPlan(
       .limit(1);
     if (!currentLink) {
       unchanged += 1;
+      continue;
+    }
+    if (await hasUnresolvedOrderRestock(db, entry.link.inventoryItemId)) {
+      failed += 1;
+      await db.insert(activityEvents).values(activityRow({
+        entityType: "item", entityId: entry.link.inventoryItemId, entityLabel: label,
+        eventType: "cyberbiz_sync_deferred", source: "cyberbiz_sync", status: "failed",
+        summary: "此品項有待處理或待確認的訂單回補，暫不以官網快照覆蓋 WMS。",
+      }));
       continue;
     }
     if (entry.status === "failed" || !entry.remote) {
@@ -645,7 +660,7 @@ export async function retryFailedCyberbizPushes(
     if (!lockToken) continue;
     try {
       const [link] = await listCompanyLinks(db, { inventoryItemId: itemId });
-      if (!link) continue;
+      if (!link || await hasUnresolvedOrderRestock(db, itemId)) continue;
       await client.setCompanyQuantity({
         productId: link.cyberbizProductId,
         variantId: link.cyberbizVariantId,

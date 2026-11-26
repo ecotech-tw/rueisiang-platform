@@ -133,6 +133,8 @@ PAYOUT_GITHUB_REF = "main"
 CYBERBIZ_SALES_WORKFLOW_FILE = "cyberbiz-sales-report.yml"
 CYBERBIZ_SALES_GITHUB_REF = "main"
 CYBERBIZ_REPORT_RUNNER_MODE = "github"
+# 官網回補先蒐集真實證據，不因部署自動寫入正式庫存。
+CYBERBIZ_ORDER_RESTOCK_MODE = "observe"
 PI_AGENT_MODEL = "gpt-6-luna"
 CYBERBIZ_API_RELAY_URL = "https://cyberbiz-relay.rueisiang.com"
 NAS_STORAGE_URL = "https://storage.rueisiang.com"

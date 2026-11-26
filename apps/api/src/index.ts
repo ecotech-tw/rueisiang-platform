@@ -9,6 +9,9 @@ import {
   purgeSettledWebhookEvents,
   retryFailedProductWebhooks,
   retryFailedCyberbizPushes,
+  retryOrderRestockWebhooks,
+  drainOrderRestocks,
+  orderRestockMode,
   retryFailedWebhooks,
   syncCyberbizProducts,
 } from "@rueisiang/db";
@@ -16,7 +19,7 @@ import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { createMiddleware } from "hono/factory";
 import { forgetCatalog, loadCatalog } from "./cyberbiz-catalog.js";
-import { cyberbizClient, cyberbizInventoryClient } from "./cyberbiz.js";
+import { cyberbizClient, cyberbizInventoryClient, cyberbizOrderClient } from "./cyberbiz.js";
 import { cacheClient } from "./upstash.js";
 import { NasStorageConfigError, NasStorageError, nasStorageClient } from "./nas-storage.js";
 import type { AppEnv, Env } from "./env.js";
@@ -295,6 +298,19 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
       .catch((error) => assistantLog("error", "scheduled.product_webhook_retry_failed", {
         error: assistantErrorDetails(error),
       })),
+  );
+
+  ctx.waitUntil(
+    retryOrderRestockWebhooks(db, orderRestockMode(env.CYBERBIZ_ORDER_RESTOCK_MODE))
+      .then(() => drainOrderRestocks(db, {
+        mode: orderRestockMode(env.CYBERBIZ_ORDER_RESTOCK_MODE),
+        inventoryClient: cyberbizInventoryClient(env), orderClient: cyberbizOrderClient(env),
+      }))
+      .then(async (result) => {
+        if (result.attempted || result.interrupted) assistantLog("info", "scheduled.order_restock", result);
+        if (result.attempted) await forgetCatalog(cacheClient(env));
+      })
+      .catch((error) => assistantLog("error", "scheduled.order_restock_failed", { error: assistantErrorDetails(error) })),
   );
 
   // 盤點推送失敗不是 webhook，不能只靠上面的 webhook retry；用 activity log

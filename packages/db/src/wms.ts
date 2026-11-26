@@ -5,6 +5,7 @@ import { activityEvents } from "./schema/activity.js";
 import { cyberbizProducts, itemComponents, items as itemMasters } from "./schema/items.js";
 import { reportExternalProducts } from "./schema/reports.js";
 import { mediaObjects } from "./schema/media.js";
+import { hasUnresolvedOrderRestock } from "./order-restock-state.js";
 import {
   wmsCategories,
   wmsItems,
@@ -304,6 +305,7 @@ export async function deleteItem(db: Database, id: string, actor: Actor) {
 }
 
 export async function countItem(db: Database, id: string, quantity: unknown, actor: Actor, note?: string) {
+  if (await hasUnresolvedOrderRestock(db, id)) throw new WmsError("conflict", "此品項有待處理或待確認的訂單回補，請先查核回補紀錄再盤點。");
   const parsed = Number(quantity);
   if (!Number.isFinite(parsed) || parsed < 0) throw new WmsError("invalid", "盤點數量必須是 0 或正整數。");
   const [current] = await db.select({ item: itemMasters, wms: wmsItems }).from(wmsItems).innerJoin(itemMasters, eq(itemMasters.id, wmsItems.itemId)).where(eq(wmsItems.itemId, id)).limit(1);
