@@ -31,8 +31,8 @@ export function safeErrorMessage(error, additionalSecrets = {}, env = process.en
     if (typeof value === "string" && value.length > 3) message = message.split(value).join(`«${key}»`);
   }
   message = message.replace(/["']?\b(cookie|set-cookie|authorization)["']?\s*[:=]\s*[^\r\n]*/gi, "$1=«redacted»");
-  message = message.replace(/["']?\b(access[_ -]?token|refresh[_ -]?token|token|client[_ -]?secret|password)["']?\s*[:=]\s*["']?[^"'&\s,;}]+["']?/gi, "$1=«redacted»");
-  message = message.replace(/([?&](?:access_token|refresh_token|token|client_secret|password|code)=)[^&#\s]*/gi, "$1«redacted»");
+  message = message.replace(/["']?\b(access[_ -]?token|refresh[_ -]?token|id[_ -]?token|token|api[_ -]?key|client[_ -]?secret|secret|jwt|key|password)["']?\s*[:=]\s*["']?[^"'&\s,;}]+["']?/gi, "$1=«redacted»");
+  message = message.replace(/([?&](?:access_token|refresh_token|id_token|token|api_key|key|client_secret|password|code)=)[^&#\s]*/gi, "$1«redacted»");
   message = message.replace(/["']?\b(request[_ -]?id)["']?\s*[:=]\s*["']?[^"'&\s,;]+["']?/gi, "$1=«request-id»");
   message = message.replace(/\b(?:cf-)?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "«request-id»");
   return message.replace(/\b\d{6}\b/g, "«otp»").slice(0, 2_000);
