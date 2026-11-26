@@ -11,6 +11,7 @@
 |---|---|---|---|
 | 營運平台 | `platform.rueisiang.com` | 總部同仁：客服、倉管、營運、管理者 | Google 帳號或邀請時設定的 email／密碼（都是邀請制），側邊選單 |
 | HRIS | 同一個 portal 的 `/hr` | 人資與管理者 | 側邊選單左下角的 HRIS 入口（`SystemSwitcher`），有任一 HR 讀取權限才出現 |
+| 會計 | 同一個 portal 的 `/accounting` | 會計 | 同一個位置的會計入口，有任一 `accounting:*` 權限才出現；頁首與導覽用 HRIS 那一套 |
 | 員工自助 | `hr.rueisiang.com`（`apps/hr`） | 每一位員工與支援人員 | 手機、LINE 內建瀏覽器 |
 
 三個入口共用一個 API、一份 schema、一次登入，**權限也只有一套**：鍵值都在

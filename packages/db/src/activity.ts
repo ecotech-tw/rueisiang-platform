@@ -16,6 +16,8 @@ import { activityEvents } from "./schema/activity.js";
  */
 export type ActivityEntityType =
   | "customer"
+  | "accounting_expense"
+  | "accounting_expense_category"
   | "hr_personnel"
   | "assistant_hr_sandbox"
   | "wms_zone"
@@ -39,7 +41,7 @@ export type ActivityEntityType =
  * cyberbiz 拆成 webhook 與 sync 兩種：一個是官網即時推過來的，一個是我們主動
  * 去拉的。排查「這筆資料怎麼變成這樣」時，這兩者的意義完全不同。
  */
-type ActivitySource = "crm" | "wms" | "cyberbiz_webhook" | "cyberbiz_sync" | "reports" | "hr";
+type ActivitySource = "crm" | "wms" | "cyberbiz_webhook" | "cyberbiz_sync" | "reports" | "hr" | "accounting";
 
 export interface ActivityInput {
   entityType: ActivityEntityType;

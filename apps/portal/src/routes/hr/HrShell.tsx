@@ -33,11 +33,12 @@ export function HrHeader({ compact = false, ref, onBlur, children }: { compact?:
  * 手機上頁面不顯示 h1（見 HrSkins 的 MobilePageTitle），改由這裡寫出目前在哪一頁：logo 縮小、
  * 「HRIS」字樣讓位給頁名。桌機照舊是「HRIS ＋ 所在大項」。
  */
-export function HrBrand({ current, page, compact = false }: { current: string; page?: string; compact?: boolean }) {
+/** system 是系統名稱：HRIS 與會計共用這套頁首，只換名字。 */
+export function HrBrand({ current, page, compact = false, system = "HRIS" }: { current: string; page?: string; compact?: boolean; system?: string }) {
   return (
     <div className={`${GLASS_BRAND_CHIP} max-[900px]:col-[1] [:root[data-hr-transition]_&]:[view-transition-name:hr-brand]`}>
       <img className={`h-auto flex-none object-contain ${compact ? "w-[min(142px,25vw)]" : "w-[142px] max-[760px]:w-[92px]"}`} src="/ruei-siang-logo-dark.png" alt="RUEI SIANG" width={150} height={38} />
-      <span className={`inline-grid min-h-[30px] place-items-center border-l border-l-ink/6 pr-[11px] pl-[13px] text-[15px] font-black tracking-[.12em] text-brand-dark ${compact || !page ? "" : "max-[760px]:hidden"}`.trim()}>HRIS</span>
+      <span className={`inline-grid min-h-[30px] place-items-center border-l border-l-ink/6 pr-[11px] pl-[13px] text-[15px] font-black tracking-[.12em] text-brand-dark ${compact || !page ? "" : "max-[760px]:hidden"}`.trim()}>{system}</span>
       <strong className={`truncate text-[12px] font-extrabold text-muted ${compact ? "max-[720px]:hidden" : "max-[760px]:hidden"}`}>{current}</strong>
       {page && !compact ? <strong className="hidden min-w-0 truncate border-l border-l-ink/6 pl-3 text-[15px] font-black text-ink max-[760px]:block">{page}</strong> : null}
     </div>

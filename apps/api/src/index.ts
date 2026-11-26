@@ -21,6 +21,7 @@ import { cacheClient } from "./upstash.js";
 import { NasStorageConfigError, NasStorageError, nasStorageClient } from "./nas-storage.js";
 import type { AppEnv, Env } from "./env.js";
 import { admin } from "./routes/admin.js";
+import { accounting } from "./routes/accounting.js";
 import { assistant } from "./routes/assistant.js";
 import { auth } from "./routes/auth.js";
 import { crm } from "./routes/crm.js";
@@ -110,6 +111,7 @@ const routes = app
   .route("/health", health)
   .route("/auth", auth)
   .route("/admin", admin)
+  .route("/accounting", accounting)
   .route("/hr", hr)
   .route("/assistant", assistant)
   .route("/crm", crm)

@@ -61,6 +61,11 @@ export const PERMISSIONS = {
   "assistant:line:read": "檢視小香 LINE 前台",
   "assistant:line:write": "修改小香 LINE 前台設定",
 
+  // 會計（內帳）。員工送報帳不需要權限，能登入員工自助就能送自己的單。
+  "accounting:expense:read": "檢視所有報帳",
+  "accounting:expense:review": "審核報帳與標記撥款",
+  "accounting:category:write": "管理支出類別",
+
   // 人事：全平台人事管理權限，不隨既有主管角色授予。
   "hr:employee:read": "檢視全平台員工與任職資料",
   "hr:employee:write": "管理全平台員工與任職資料",

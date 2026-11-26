@@ -6,7 +6,7 @@
 }
 
 /*
- * 進出 HRIS 的沉浸式轉場（shell/hr-transition.ts 用 View Transition 觸發）。
+ * 進出 HRIS／會計等系統的沉浸式轉場（shell/system-transition.ts 用 View Transition 觸發）。
  *
  * 進入：平台像隔著一層玻璃往前推散、糊掉，HRIS 從玻璃後面浮上來；接著 header 三塊依序落定。
  * 離開：比進入短、幅度小，焦點已經要回平台了，不跟它搶。
