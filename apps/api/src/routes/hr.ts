@@ -1,5 +1,6 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie, verifySession } from "@rueisiang/auth";
 import {
+  AccountingError, cancelMyExpense, listExpenseFormOptions, listMyExpenses, resolveExpenseSubmitter,
   HrError, HrInsuranceRateError, HrRfidError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, beginHrRfidEnrollment, cancelHrRfidEnrollment, checkHrClockLocation, confirmHrRfidEnrollment, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
   cancelHrFormRequest, createHrCompensationVersion, deleteHrFormRequestDraft, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview, getHrPerson,
   createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
@@ -23,6 +24,7 @@ import {
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { employeePhotoBodyLimit, readEmployeePhoto, uploadEmployeePhoto, removeEmployeePhoto } from "../employee-photo-storage.js";
+import { expenseBodyLimit, readMyExpenseReceipt, submitMyExpense } from "../expense-receipts.js";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
 import { enqueuePayrollJob } from "../payroll-queue.js";
@@ -600,13 +602,14 @@ export const hr = new Hono<AppEnv>()
     const path = c.req.path.replace(/^\/api\/hr/, "");
     const logout = path === "/me/device" && c.req.method === "DELETE";
     if (worker.archivedAt !== null && !logout) throw new HTTPException(403, { message: "支援人員已停用，無法使用本人功能。" });
-    const allowed = c.req.method === "GET" && /^\/me\/(session|clock-events|attendance-calendar|attendance-map(?:\/locations)?|payroll-history(?:\/[^/]+\/[^/]+)?|my-schedules)$/.test(path)
-      || c.req.method === "POST" && ["/me/device", "/me/clock-events", "/me/attendance-location/check"].includes(path)
+    const allowed = c.req.method === "GET" && /^\/me\/(session|clock-events|attendance-calendar|attendance-map(?:\/locations)?|payroll-history(?:\/[^/]+\/[^/]+)?|my-schedules|expense-options|expenses|expenses\/[^/]+\/receipts\/[^/]+)$/.test(path)
+      || c.req.method === "POST" && (["/me/device", "/me/clock-events", "/me/attendance-location/check", "/me/expenses"].includes(path) || /^\/me\/expenses\/[^/]+\/cancel$/.test(path))
       || c.req.method === "DELETE" && ["/me/device", "/me/liff-link"].includes(path);
-    if (!allowed) throw new HTTPException(403, { message: "支援人員目前僅開放打卡與已發放薪資袋。" });
+    if (!allowed) throw new HTTPException(403, { message: "支援人員目前僅開放打卡、已發放薪資袋與報帳。" });
     return next();
   })
   .onError((error, c) => {
+    if (error instanceof AccountingError) return c.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, error.status);
     if (error instanceof HrError || error instanceof HrRfidError || error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     throw error;
   })
@@ -716,6 +719,20 @@ export const hr = new Hono<AppEnv>()
   })
   // 本人資格來自員工關聯而不是手動授權；requireAuth 仍每次檢查帳號是否啟用。
   .get("/me", async (c) => c.json({ profile: await getHrSelf(c.get("db"), c.get("user").id) }))
+  // 報公帳的送件端。邏輯在 packages/db/src/accounting-expenses.ts；照片的 R2 生命週期在 expense-receipts.ts。
+  .get("/me/expense-options", async (c) => {
+    await resolveExpenseSubmitter(c.get("db"), c.get("user").id);
+    return c.json(await listExpenseFormOptions(c.get("db")));
+  })
+  .get("/me/expenses", async (c) => c.json({ expenses: await listMyExpenses(c.get("db"), c.get("user").id) }))
+  .post("/me/expenses", expenseBodyLimit, async (c) => submitMyExpense(c))
+  .post("/me/expenses/:id/cancel", async (c) => {
+    const input = await body(c);
+    const revision = input.revision;
+    if (typeof revision !== "number" || !Number.isSafeInteger(revision) || revision < 1) throw new HTTPException(400, { message: "請提供有效版本，並重新整理後操作。" });
+    return c.json(await cancelMyExpense(c.get("db"), c.get("user").id, c.req.param("id"), revision));
+  })
+  .get("/me/expenses/:id/receipts/:receiptId", async (c) => readMyExpenseReceipt(c, c.req.param("id"), c.req.param("receiptId")))
   .get("/me/photo", async (c) => {
     const employee = await requireHrSelfEmployment(c.get("db"), c.get("user").id);
     return readEmployeePhoto(c, employee.employmentId);

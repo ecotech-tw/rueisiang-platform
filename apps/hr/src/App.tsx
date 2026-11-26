@@ -9,6 +9,7 @@ import { HrClock, HrClockCalendar, HrClockLogs } from "./routes/hr/Clock.js";
 import { HrClockCorrectionForm, HrForms, HrLeaveForm, HrOvertimeForm } from "./routes/hr/Forms.js";
 import { HrLeaveSummary } from "./routes/hr/Leave.js";
 import { HrNotifications } from "./routes/hr/Notifications.js";
+import { HrExpenseForm, HrExpenses } from "./routes/hr/Expenses.js";
 import { HrPayrollHistory, HrPayslipDetail } from "./routes/hr/Payroll.js";
 import { HrScheduling } from "./routes/hr/Scheduling.js";
 import { HrMySchedule } from "./routes/hr/MySchedule.js";
@@ -29,7 +30,7 @@ function RequireSession({ children }: { children: React.ReactNode }) {
   if (checkLineLink && lineLink.isPending) return <PageStatus>確認 LINE 綁定狀態…</PageStatus>;
   if (checkLineLink && lineLink.error) return <PageStatus role="alert"><p>{lineLink.error instanceof Error ? lineLink.error.message : "讀取 LINE 綁定狀態失敗。"}</p><button type="button" onClick={() => void lineLink.refetch()}>重新嘗試</button></PageStatus>;
   if (checkLineLink) return <LiffAccountLinkPage replaceExisting={Boolean(lineLink.data?.replaceRequired)} intentExpired={!lineLink.data?.pending} />;
-  if (user.hrSelfServiceKind === "worker" && !/^\/(?:clock(?:\/(?:calendar|logs))?|payroll(?:\/[^/]+\/[^/]+)?|my-schedule)$/.test(location.pathname)) {
+  if (user.hrSelfServiceKind === "worker" && !/^\/(?:clock(?:\/(?:calendar|logs))?|payroll(?:\/[^/]+\/[^/]+)?|my-schedule|expenses(?:\/new)?)$/.test(location.pathname)) {
     return <Navigate to="/clock" replace />;
   }
   return <>{children}</>;
@@ -69,6 +70,8 @@ export function App() {
         <Route path="forms/new" element={<HrClockCorrectionForm />} />
         <Route path="forms/overtime" element={<HrOvertimeForm />} />
         <Route path="forms/leave" element={<HrLeaveForm />} />
+        <Route path="expenses" element={<HrExpenses />} />
+        <Route path="expenses/new" element={<HrExpenseForm />} />
         <Route path="scheduling" element={<HrScheduling />} />
         <Route path="my-schedule" element={<HrMySchedule />} />
         <Route path="profile" element={<HrProfile />} />

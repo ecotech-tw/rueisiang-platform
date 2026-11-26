@@ -13,6 +13,7 @@ vi.mock("./routes/hr/Clock.js", () => ({ HrClock: () => <p>打卡入口</p>, HrC
 vi.mock("./routes/hr/Forms.js", () => ({ HrForms: () => <p>表單申請入口</p>, HrClockCorrectionForm: () => null, HrLeaveForm: () => null, HrOvertimeForm: () => null }));
 vi.mock("./routes/hr/Payroll.js", () => ({ HrPayrollHistory: () => <p>薪資袋入口</p>, HrPayslipDetail: () => null }));
 vi.mock("./routes/hr/Notifications.js", () => ({ HrNotifications: () => <p>通知入口</p> }));
+vi.mock("./routes/hr/Expenses.js", () => ({ HrExpenses: () => <p>報帳入口</p>, HrExpenseForm: () => <p>新增報帳入口</p> }));
 vi.mock("./routes/Profile.js", () => ({ HrProfile: () => <p>個人中心入口</p> }));
 vi.mock("./routes/hr/HrLayout.js", async () => {
   const { Outlet } = await import("react-router");
@@ -152,12 +153,25 @@ describe("LIFF 與一般 HR 登入流程", () => {
     await expectText("薪資袋入口");
   });
 
+  it.each([["/expenses", "報帳入口"], ["/expenses/new", "新增報帳入口"]])("支援人員可以進入報帳 %s", async (path, text) => {
+    supportWorker = true;
+    await renderApp(path);
+    await expectText(text);
+  });
+
   it("工作分類沿用本人登入 gate，連結排班與既有申請路徑", async () => {
     await renderApp("/work"); await expectText("可使用的工作項目集中在這裡");
     expect(container.querySelector('a[href="/scheduling"]')?.textContent).toContain("排班");
     const forms = container.querySelector<HTMLAnchorElement>('a[href="/forms"]')!;
     expect(forms.textContent).toContain("表單申請");
     await act(async () => forms.click()); await expectText("表單申請入口");
+  });
+
+  it("正式員工從工作分類進入報帳", async () => {
+    await renderApp("/work"); await expectText("可使用的工作項目集中在這裡");
+    const expenses = container.querySelector<HTMLAnchorElement>('a[href="/expenses"]')!;
+    expect(expenses.textContent).toContain("報帳");
+    await act(async () => expenses.click()); await expectText("報帳入口");
   });
 
   it("主動登出的 LINE 登入頁不 bootstrap 或導回打卡，並提供明確重新登入入口", async () => {

@@ -238,12 +238,35 @@ export interface HrPayslipDetailResponse {
 export interface HrOvertimeDay { date: string; shiftEnd: string | null; existing: Array<{ requestedStart: string; requestedEnd: string; status: string }> }
 export interface OvertimeRequest { request: { id: string; requestedStart: string; requestedEnd: string; actualStart?: string | null; actualEnd?: string | null; settlementKind: "pay" | "compensatory"; ratePpm: number; reason: string; approverUserId: string | null; status: "draft" | "pending" | "approved" | "rejected" | "cancelled"; decisionReason: string; batchId: string | null; revision: number; createdAt: string }; employeeUserId: string; employeeName: string | null }
 
+/** 帶著 HTTP 狀態與 API 給的 code；需要分辨「可以確認後重送」這類情況的畫面讀它，其餘照舊只看 message。 */
+export class HrApiError extends Error {
+  constructor(message: string, readonly status: number, readonly code?: string) { super(message); }
+}
+
+export interface ExpenseOptionsResponse { categories: Array<{ id: string; name: string }>; scopes: Array<{ id: string; name: string }> }
+export interface MyExpense {
+  id: string;
+  status: "pending" | "approved" | "rejected" | "cancelled" | "paid";
+  categoryName: string;
+  scopeName: string | null;
+  spentOn: string;
+  amountMinor: number;
+  invoiceNumber: string;
+  sellerTaxId: string;
+  description: string;
+  payoutMethod: "direct" | "payroll" | null;
+  reviewNote: string;
+  revision: number;
+  createdAt: string;
+  receiptIds: string[];
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined && !(init.body instanceof FormData)) headers.set("Content-Type", "application/json");
   const response = await fetch(`${API_BASE_URL}/hr${path}`, { ...init, credentials: "include", headers });
-  const result = await response.json() as T & { error?: string };
-  if (!response.ok) throw new Error(result.error ?? `操作失敗（${response.status}）`);
+  const result = await response.json() as T & { error?: string; code?: string };
+  if (!response.ok) throw new HrApiError(result.error ?? `操作失敗（${response.status}）`, response.status, result.code);
   return result;
 }
 /** keepPrevious：換 path（例如切換年份）時先留著上一份資料，依賴它的控制項才不會閃掉；用 isPlaceholderData 判斷是不是舊的。 */

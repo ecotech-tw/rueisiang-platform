@@ -34,7 +34,7 @@ export async function validateRasterImage(bytes: Uint8Array, contentType: string
   const type = types.find((value) => value === contentType);
   if (!type || bytes.length === 0 || bytes.length > limits.maxInputBytes) throw new HTTPException(400, { message: `只能上傳 ${policy.maxInputBytes / 1024 / 1024} MB 以內的 JPEG、PNG 或 WebP 靜態圖片。` });
   const codec = codecs[type];
-  if (type === "image/jpeg" && hasJpegMpf(bytes)) throw new HTTPException(400, { message: "大頭貼不支援 MPF／MPO 多影像 JPEG，請另存成單張圖片後再上傳。" });
+  if (type === "image/jpeg" && hasJpegMpf(bytes)) throw new HTTPException(400, { message: "不支援 MPF／MPO 多影像 JPEG，請另存成單張圖片後再上傳。" });
   try {
     if (!codec.detect(bytes) || !codec.createDecoder) throw new Error("invalid image");
     const source = new MemorySource(bytes);
