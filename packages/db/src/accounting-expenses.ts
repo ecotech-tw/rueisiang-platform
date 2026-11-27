@@ -12,6 +12,7 @@ import {
   type ExpenseReceiptType,
   type ExpenseStatus,
 } from "./accounting-expense-fields.js";
+import { effectiveExpenseStatus, payrollPeriodKey } from "./accounting-payroll.js";
 import { toDbTimestamp } from "./db-timestamp.js";
 import { getHrWorkerAccount, listHrScopes } from "./hr-people.js";
 import { accountingExpenseCategories, accountingExpenseReceipts, accountingExpenses } from "./schema/accounting.js";
@@ -197,6 +198,8 @@ export interface MyExpense {
   sellerTaxId: string;
   description: string;
   payoutMethod: "direct" | "payroll" | null;
+  /** 併入月薪的單掛在哪個月的薪資。 */
+  payrollPeriodKey: string | null;
   reviewNote: string;
   revision: number;
   createdAt: string;
@@ -207,7 +210,8 @@ export async function listMyExpenses(db: Database, userId: string): Promise<MyEx
   // 新表只有一種時間格式，可以直接拿欄位排序。
   const rows = await db.select({
     id: accountingExpenses.id,
-    status: accountingExpenses.status,
+    // 併入月薪的單在那個月結帳後算已付款，跟會計那邊看到的一樣。
+    status: effectiveExpenseStatus,
     categoryName: accountingExpenseCategories.name,
     scopeName: scopes.name,
     spentOn: accountingExpenses.spentOn,
@@ -216,6 +220,7 @@ export async function listMyExpenses(db: Database, userId: string): Promise<MyEx
     sellerTaxId: accountingExpenses.sellerTaxId,
     description: accountingExpenses.description,
     payoutMethod: accountingExpenses.payoutMethod,
+    payrollPeriodKey,
     reviewNote: accountingExpenses.reviewNote,
     revision: accountingExpenses.revision,
     createdAt: accountingExpenses.createdAt,

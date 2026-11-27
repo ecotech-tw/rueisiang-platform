@@ -2,8 +2,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
-import { createDatabase, formatTaipeiDate, syncSystemRoles } from "@rueisiang/db";
-import { hrEmployments, userPermissionGrants, users } from "@rueisiang/db/schema";
+import { createDatabase, deleteHrPayrollAdjustment, formatTaipeiDate, listHrPayrollAdjustments, syncSystemRoles, updateHrPayrollAdjustment } from "@rueisiang/db";
+import { hrEmployments, hrPayrollPeriods, userPermissionGrants, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -36,13 +36,23 @@ async function submit(actor: string, overrides: Record<string, string> = {}) {
   return (await response.json() as { id: string }).id;
 }
 
-type ReviewRow = { id: string; status: string; revision: number; submitterName: string; employeeNumber: string; receiptIds: string[]; duplicateInvoiceCount: number; reviewNote: string; payoutMethod: string | null; reviewerName: string | null; paidAt: string | null };
+type ReviewRow = { id: string; status: string; revision: number; submitterName: string; employeeNumber: string; receiptIds: string[]; duplicateInvoiceCount: number; reviewNote: string; payoutMethod: string | null; payrollPeriodKey: string | null; payrollOption: string | null; reviewerName: string | null; paidAt: string | null };
 async function list(actor: string, status = "pending") {
   const response = await api(`/accounting/expenses?status=${status}`, actor);
   expect(response.status, await response.clone().text()).toBe(200);
   return (await response.json() as { expenses: ReviewRow[] }).expenses;
 }
 const row = (id: string) => d1.sqlite.prepare("SELECT * FROM accounting_expenses WHERE id = ?").get(id) as Record<string, unknown>;
+/** 台北的這個月與下個月 YYYY-MM。 */
+function months() {
+  const [year, month] = formatTaipeiDate(new Date()).split("-").map(Number) as [number, number];
+  const key = (offset: number) => new Date(Date.UTC(year, month - 1 + offset, 1)).toISOString().slice(0, 7);
+  return { current: key(0), next: key(1) };
+}
+async function closePeriod(periodKey: string) {
+  await db().insert(hrPayrollPeriods).values({ id: `period-${periodKey}`, periodKey, attendanceStart: `${periodKey}-01`, attendanceEnd: `${periodKey}-28`, status: "closed", createdBy: "accountant" });
+}
+const adjustments = () => d1.sqlite.prepare("SELECT a.id, a.employment_id, a.effective_period_key, a.reason, i.item_name, i.amount_minor FROM hr_payroll_adjustments a JOIN hr_payroll_adjustment_items i ON i.adjustment_id = a.id").all();
 
 beforeEach(async () => {
   d1 = createTargetOnlyD1();
@@ -121,10 +131,13 @@ describe("報公帳：會計審核", () => {
     expect((await api("/accounting/expenses/missing/approve", "accountant", "POST", { revision: 1 })).status).toBe(404);
   });
 
-  it("併入月薪還沒開放，明確拒絕而不是改成直接撥款", async () => {
+  it("發放方式只收直接撥款或併入月薪；併入月薪要帶月份", async () => {
     const id = await submit("employee");
+    expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "cash" })).status).toBe(400);
     expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll" })).status).toBe(400);
+    expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: "2020-01" })).status).toBe(409);
     expect(row(id)).toMatchObject({ status: "pending" });
+    expect(adjustments()).toEqual([]);
   });
 
   it("權限：沒有會計權限看不到也不能審；只有檢視權限可以看、不能審", async () => {
@@ -175,6 +188,92 @@ describe("報公帳：審核結果通知送件人", () => {
     const body = await response.json() as { notifications: Array<{ entityKind: string; entityId: string }>; unreadCount: number };
     expect(body.unreadCount).toBe(1);
     expect(body.notifications[0]).toMatchObject({ entityKind: "expense", entityId: id });
+  });
+});
+
+describe("報公帳：併入月薪", () => {
+  it("核准時同一批產生「代墊款」加扣項；HRIS 唯讀；員工與會計都看得到月份", async () => {
+    const { current } = months();
+    const id = await submit("employee", { description: "門市拖把" });
+    expect((await list("accountant"))[0]).toMatchObject({ id, payrollOption: current });
+    expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: current })).status).toBe(200);
+    const linked = row(id);
+    expect(linked).toMatchObject({ status: "approved", payout_method: "payroll", revision: 2 });
+    expect(adjustments()).toEqual([{ id: linked.payroll_adjustment_id, employment_id: "employment-employee", effective_period_key: current, reason: "報帳代墊款：門市拖把", item_name: "代墊款", amount_minor: 35000 }]);
+    expect((await list("accountant", "approved"))[0]).toMatchObject({ id, payrollPeriodKey: current, payrollOption: null });
+    const mine = await app.fetch(new Request("https://test.local/api/hr/me/expenses", { headers: { Origin: "https://hr.rueisiang.com", Cookie: cookies.employee! } }), env() as never);
+    expect((await mine.json() as { expenses: Array<{ status: string; payrollPeriodKey: string | null }> }).expenses[0]).toMatchObject({ status: "approved", payrollPeriodKey: current });
+    expect(d1.sqlite.prepare("SELECT body FROM hr_notifications WHERE entity_id = ?").get(id)).toMatchObject({ body: expect.stringContaining("的薪資一起發") });
+
+    const adjustmentId = String(linked.payroll_adjustment_id);
+    const [hris] = await listHrPayrollAdjustments(db(), current);
+    expect(hris).toMatchObject({ fromExpense: true, canEdit: false });
+    const actor = { id: "accountant", email: "accountant@example.test" };
+    await expect(updateHrPayrollAdjustment(db(), adjustmentId, { employmentId: "employment-employee", effectivePeriodKey: current, reason: "改金額", items: [{ itemName: "代墊款", amountMinor: 99900 }], revision: 1 }, actor)).rejects.toThrow("來自報帳");
+    await expect(deleteHrPayrollAdjustment(db(), adjustmentId, 1, actor)).rejects.toThrow("來自報帳");
+    expect(adjustments()).toHaveLength(1);
+    expect(d1.sqlite.prepare("SELECT event_type, source, actor_id FROM activity_events WHERE entity_type = 'hr_personnel' AND entity_id = ?").all(adjustmentId))
+      .toEqual([{ event_type: "payroll_adjustment_created", source: "accounting", actor_id: "accountant" }]);
+  });
+
+  it("這個月結帳了就掛下個月；會計看到的月份過期時不偷偷改月，兩邊都不寫", async () => {
+    const { current, next } = months();
+    const id = await submit("employee");
+    await closePeriod(current);
+    expect((await list("accountant"))[0]).toMatchObject({ payrollOption: next });
+    expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: current })).status).toBe(409);
+    expect(row(id)).toMatchObject({ status: "pending", payroll_adjustment_id: null });
+    expect(adjustments()).toEqual([]);
+    expect(d1.sqlite.prepare("SELECT count(*) AS n FROM activity_events WHERE entity_type = 'hr_personnel'").get()).toEqual({ n: 0 });
+    expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: next })).status).toBe(200);
+    expect(adjustments()).toMatchObject([{ effective_period_key: next }]);
+  });
+
+  it("任職資料封存的人只能直接撥款", async () => {
+    const { current } = months();
+    const id = await submit("employee");
+    d1.sqlite.prepare("UPDATE hr_employments SET archived_at = '2026-01-01 00:00:00' WHERE id = 'employment-employee'").run();
+    expect((await list("accountant"))[0]).toMatchObject({ payrollOption: null });
+    expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: current })).status).toBe(409);
+    expect(adjustments()).toEqual([]);
+    expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "direct" })).status).toBe(200);
+  });
+
+  it("不能把自己的報帳併入月薪", async () => {
+    const { current } = months();
+    const own = await submit("accountant");
+    expect((await api(`/accounting/expenses/${own}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: current })).status).toBe(403);
+    expect(adjustments()).toEqual([]);
+  });
+
+  it("結帳前退回會一起拿掉加扣項；結帳後算已付款、不能退回", async () => {
+    const { current } = months();
+    const first = await submit("employee");
+    await api(`/accounting/expenses/${first}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: current });
+    expect((await api(`/accounting/expenses/${first}/reject`, "accountant", "POST", { revision: 2, note: "金額打錯，請重送" })).status).toBe(200);
+    expect(row(first)).toMatchObject({ status: "rejected", payroll_adjustment_id: null, review_note: "金額打錯，請重送", revision: 3 });
+    expect(adjustments()).toEqual([]);
+    expect(d1.sqlite.prepare("SELECT event_type FROM activity_events WHERE entity_type = 'hr_personnel' ORDER BY rowid").all())
+      .toEqual([{ event_type: "payroll_adjustment_created" }, { event_type: "payroll_adjustment_deleted" }]);
+
+    const second = await submit("employee");
+    await api(`/accounting/expenses/${second}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: current });
+    await closePeriod(current);
+    expect((await list("accountant", "paid")).map((expense) => expense.id)).toEqual([second]);
+    expect(await list("accountant", "approved")).toEqual([]);
+    const reject = await api(`/accounting/expenses/${second}/reject`, "accountant", "POST", { revision: 2, note: "退回" });
+    expect(reject.status).toBe(409);
+    expect((await reject.json() as { error: string }).error).toContain("結帳");
+    expect(row(second)).toMatchObject({ status: "approved" });
+    expect(adjustments()).toHaveLength(1);
+    expect((await api(`/accounting/expenses/${second}/paid`, "accountant", "POST", { revision: 2 })).status).toBe(409);
+  });
+
+  it("直接撥款核准後、還沒撥款前也能退回", async () => {
+    const id = await submit("employee");
+    await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1 });
+    expect((await api(`/accounting/expenses/${id}/reject`, "accountant", "POST", { revision: 2, note: "核准錯了" })).status).toBe(200);
+    expect(row(id)).toMatchObject({ status: "rejected", revision: 3 });
   });
 });
 

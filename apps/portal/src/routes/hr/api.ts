@@ -320,6 +320,8 @@ export interface PayrollAdjustment {
   updatedAt: string;
   revision: number;
   canEdit: boolean;
+  /** 會計核准報帳「併入月薪」時產生的；HRIS 唯讀，要改由會計退回那張報帳單。 */
+  fromExpense: boolean;
   employeeName: string;
   employeeNumber?: string;
   items: PayrollAdjustmentItem[];

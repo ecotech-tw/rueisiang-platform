@@ -17,6 +17,8 @@ export interface ReviewExpense {
   sellerTaxId: string;
   description: string;
   payoutMethod: "direct" | "payroll" | null;
+  payrollPeriodKey: string | null;
+  payrollOption: string | null;
   reviewNote: string;
   reviewerName: string | null;
   reviewedAt: string | null;

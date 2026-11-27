@@ -19,7 +19,7 @@ const employee: Employee = {
 const adjustment: PayrollAdjustment = {
   id: "adjustment-1", employmentId: employee.employmentId!, effectivePeriodKey: "2026-09", reason: "補發",
   createdBy: "admin", createdAt: "2026-09-01", updatedBy: "admin", updatedAt: "2026-09-01", revision: 1,
-  canEdit: true, employeeName: employee.legalName, employeeNumber: employee.employeeNumber,
+  canEdit: true, fromExpense: false, employeeName: employee.legalName, employeeNumber: employee.employeeNumber,
   items: [{ id: "item-1", adjustmentId: "adjustment-1", itemName: "獎金", amountMinor: 10000, createdAt: "2026-09-01" }],
 };
 let root: Root;

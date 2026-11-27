@@ -8,6 +8,7 @@ import {
   markExpensePaid,
   rejectExpense,
   updateExpenseCategory,
+  type ExpensePayout,
   type ReviewStatusFilter,
 } from "@rueisiang/db";
 import { Hono } from "hono";
@@ -26,6 +27,13 @@ function revision(input: Record<string, unknown>) {
   const value = input.revision;
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw new HTTPException(400, { message: "請提供有效版本，並重新整理後操作。" });
   return value;
+}
+
+function payout(input: Record<string, unknown>): ExpensePayout {
+  if (input.payoutMethod === undefined || input.payoutMethod === "direct") return { method: "direct" };
+  if (input.payoutMethod !== "payroll") throw new HTTPException(400, { message: "發放方式只能是直接撥款或併入月薪。" });
+  if (typeof input.payrollPeriodKey !== "string" || !/^\d{4}-(0[1-9]|1[0-2])$/.test(input.payrollPeriodKey)) throw new HTTPException(400, { message: "請選擇要併入的薪資月份。" });
+  return { method: "payroll", periodKey: input.payrollPeriodKey };
 }
 
 function categoryInput(input: Record<string, unknown>) {
@@ -50,9 +58,7 @@ export const accounting = new Hono<AppEnv>()
   .get("/expenses/:id/receipts/:receiptId", requirePermission("accounting:expense:read"), async (c) => readExpenseReceiptForReview(c, c.req.param("id"), c.req.param("receiptId")))
   .post("/expenses/:id/approve", requirePermission("accounting:expense:review"), async (c) => {
     const input = await body(c);
-    // 第一版只有直接撥款；併入月薪要一起產生薪資加扣項，下一批才開放，先明確拒絕而不是默默改成直接撥款。
-    if (input.payoutMethod !== undefined && input.payoutMethod !== "direct") throw new HTTPException(400, { message: "目前只開放直接撥款。" });
-    return c.json(await approveExpense(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
+    return c.json(await approveExpense(c.get("db"), c.req.param("id"), revision(input), c.get("user"), payout(input)));
   })
   .post("/expenses/:id/reject", requirePermission("accounting:expense:review"), async (c) => {
     const input = await body(c);

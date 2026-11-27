@@ -35,6 +35,12 @@ export function normalizeInvoiceNumber(value: string): string {
   return value.replace(/[\s-]/g, "").toUpperCase();
 }
 
+/** 併入月薪的月份「2026-12」→「2026 年 12 月」；會計、員工畫面與通知用同一種寫法。 */
+export function payrollPeriodLabel(periodKey: string) {
+  const [year, month] = periodKey.split("-");
+  return `${year} 年 ${Number(month)} 月`;
+}
+
 export const EXPENSE_STATUS_LABELS = {
   pending: "待審核",
   approved: "已核准",
