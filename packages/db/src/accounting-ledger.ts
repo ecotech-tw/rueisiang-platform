@@ -2,7 +2,7 @@ import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { AccountingError, listExpenseFormOptions, validateExpenseFields, type ExpenseFieldsInput } from "./accounting-expenses.js";
-import { payrollPeriodKey } from "./accounting-payroll.js";
+import { effectiveExpenseStatus, payrollPeriodKey } from "./accounting-payroll.js";
 import { guardedWrite, type AccountingActor } from "./accounting-review.js";
 import { toDbTimestamp } from "./db-timestamp.js";
 import { hrEmployeeName, listHrScopes } from "./hr-people.js";
@@ -10,6 +10,7 @@ import { accountingExpenseCategories, accountingExpenseReceipts, accountingExpen
 import { users } from "./schema/auth.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { scopes } from "./schema/reports.js";
+import { inJsonArray } from "./sql-lists.js";
 
 /*
  * 支出帳：一個月所有算數的支出，兩種付款人放在一起看、一起匯出。規格見 docs/accounting-prd.md 第 2 節。
@@ -65,7 +66,8 @@ export async function listLedger(db: Database, filter: LedgerFilter): Promise<{ 
   const rows = await db.select({
     id: accountingExpenses.id,
     payerKind: accountingExpenses.payerKind,
-    status: accountingExpenses.status,
+    // 併入月薪的單在那個月結帳後算已付款（資料庫裡還是 approved），跟報帳頁看到的一樣。
+    status: effectiveExpenseStatus,
     spentOn: accountingExpenses.spentOn,
     amountMinor: accountingExpenses.amountMinor,
     categoryId: accountingExpenses.categoryId,
@@ -90,7 +92,8 @@ export async function listLedger(db: Database, filter: LedgerFilter): Promise<{ 
   if (rows.length > LEDGER_LIMIT) throw new AccountingError(400, `這個月超過 ${LEDGER_LIMIT.toLocaleString("zh-TW")} 筆，請用類別或店別縮小範圍。`);
   const receipts = rows.length
     ? await db.select({ id: accountingExpenseReceipts.id, expenseId: accountingExpenseReceipts.expenseId }).from(accountingExpenseReceipts)
-      .where(inArray(accountingExpenseReceipts.expenseId, rows.map((row) => row.id)))
+      // 一個月常常上百筆；inArray 每個 id 佔一個綁定參數，超過 D1 的 100 個整句被拒。
+      .where(inJsonArray(accountingExpenseReceipts.expenseId, rows.map((row) => row.id)))
       .orderBy(asc(accountingExpenseReceipts.sortOrder))
     : [];
   const entries = rows.map((row) => ({
@@ -113,6 +116,7 @@ async function currentCompanyExpense(db: Database, id: string) {
   const [current] = await db.select({
     status: accountingExpenses.status,
     payerKind: accountingExpenses.payerKind,
+    categoryId: accountingExpenses.categoryId,
     clientRequestId: accountingExpenses.clientRequestId,
     receiptCount: sql<number>`(SELECT count(*) FROM accounting_expense_receipts WHERE accounting_expense_receipts.expense_id = accounting_expenses.id)`,
   }).from(accountingExpenses).where(eq(accountingExpenses.id, id)).limit(1);
@@ -134,7 +138,8 @@ const companyWritable = (id: string, expectedRevision: number) => and(
  */
 export async function updateCompanyExpense(db: Database, id: string, expectedRevision: number, input: CompanyExpenseUpdate, actor: AccountingActor) {
   const current = await currentCompanyExpense(db, id);
-  const fields = await validateExpenseFields(db, { ...input, clientRequestId: current.clientRequestId, receiptCount: Number(current.receiptCount) }, { tooOldHint: "。", excludeExpenseId: id });
+  // 類別之後被停用的話，照原本的類別儲存仍然可以；只是改金額，不該被逼著換類別。
+  const fields = await validateExpenseFields(db, { ...input, clientRequestId: current.clientRequestId, receiptCount: Number(current.receiptCount) }, { tooOldHint: "。", excludeExpenseId: id, keepCategoryId: current.categoryId });
   const now = toDbTimestamp();
   const changed = await guardedWrite(db, db.update(accountingExpenses).set({
     categoryId: fields.categoryId,

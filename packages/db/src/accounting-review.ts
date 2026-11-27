@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
@@ -11,6 +11,7 @@ import { activityEvents } from "./schema/activity.js";
 import { accountingExpenseCategories, accountingExpenseReceipts, accountingExpenses } from "./schema/accounting.js";
 import { users } from "./schema/auth.js";
 import { hrEmployments } from "./schema/hr-people.js";
+import { inJsonArray } from "./sql-lists.js";
 
 /*
  * 報公帳的會計那一端：看所有報帳、核准、退回、標記撥款，以及維護支出類別。規格見 docs/accounting-prd.md。
@@ -122,7 +123,8 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     .limit(300);
   if (!rows.length) return [];
   const receipts = await db.select({ id: accountingExpenseReceipts.id, expenseId: accountingExpenseReceipts.expenseId }).from(accountingExpenseReceipts)
-    .where(inArray(accountingExpenseReceipts.expenseId, rows.map((row) => row.id)))
+    // 最多 300 筆；inArray 每個 id 佔一個綁定參數，超過 D1 的 100 個整句被拒。
+    .where(inJsonArray(accountingExpenseReceipts.expenseId, rows.map((row) => row.id)))
     .orderBy(asc(accountingExpenseReceipts.sortOrder));
   return rows.map((row) => ({
     ...row,

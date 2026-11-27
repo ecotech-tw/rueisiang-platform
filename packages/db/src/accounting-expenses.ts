@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, isNull, ne } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import {
@@ -20,6 +20,7 @@ import { activityEvents } from "./schema/activity.js";
 import { accountingExpenseCategories, accountingExpenseReceipts, accountingExpenses } from "./schema/accounting.js";
 import { hrEmployments } from "./schema/hr-people.js";
 import { scopes } from "./schema/reports.js";
+import { inJsonArray } from "./sql-lists.js";
 import { formatTaipeiDate } from "./taipei-time.js";
 
 /*
@@ -97,7 +98,7 @@ function validCalendarDate(value: string) {
  * 同一個發票號碼已經報過時預設擋下並回 `duplicate_invoice`，送件人確認後帶 confirmDuplicate 重送；
  * 不直接拒絕，因為一張發票可能拆給兩個人報。修改既有的單時用 excludeExpenseId 排除它自己。
  */
-export async function validateExpenseFields(db: Database, input: ExpenseFieldsInput, options: { now?: Date; tooOldHint: string; excludeExpenseId?: string }): Promise<ExpenseFields> {
+export async function validateExpenseFields(db: Database, input: ExpenseFieldsInput, options: { now?: Date; tooOldHint: string; excludeExpenseId?: string; keepCategoryId?: string }): Promise<ExpenseFields> {
   const now = options.now ?? new Date();
   if (!/^[A-Za-z0-9-]{8,100}$/.test(input.clientRequestId)) throw new AccountingError(400, "送件識別碼格式不正確，請重新整理後再送一次。");
   if (input.receiptCount > EXPENSE_RECEIPT_MAX_FILES) throw new AccountingError(400, `單據照片最多 ${EXPENSE_RECEIPT_MAX_FILES} 張。`);
@@ -119,7 +120,7 @@ export async function validateExpenseFields(db: Database, input: ExpenseFieldsIn
   if (!description || description.length > EXPENSE_DESCRIPTION_MAX) throw new AccountingError(400, `用途說明必須是 1～${EXPENSE_DESCRIPTION_MAX} 字。`);
 
   const [category] = await db.select({ id: accountingExpenseCategories.id }).from(accountingExpenseCategories)
-    .where(and(eq(accountingExpenseCategories.id, input.categoryId), isNull(accountingExpenseCategories.archivedAt))).limit(1);
+    .where(and(eq(accountingExpenseCategories.id, input.categoryId), input.categoryId === options.keepCategoryId ? undefined : isNull(accountingExpenseCategories.archivedAt))).limit(1);
   if (!category) throw new AccountingError(400, "請選擇有效的支出類別。");
   if (input.scopeId !== null) {
     const stores = await listHrScopes(db);
@@ -262,7 +263,8 @@ export async function listMyExpenses(db: Database, userId: string): Promise<MyEx
     .limit(200);
   if (!rows.length) return [];
   const receipts = await db.select({ id: accountingExpenseReceipts.id, expenseId: accountingExpenseReceipts.expenseId }).from(accountingExpenseReceipts)
-    .where(inArray(accountingExpenseReceipts.expenseId, rows.map((row) => row.id)))
+    // 最多 200 筆；inArray 每個 id 佔一個綁定參數，超過 D1 的 100 個整句被拒。
+    .where(inJsonArray(accountingExpenseReceipts.expenseId, rows.map((row) => row.id)))
     .orderBy(asc(accountingExpenseReceipts.sortOrder));
   return rows.map((row) => ({ ...row, receiptIds: receipts.filter((receipt) => receipt.expenseId === row.id).map((receipt) => receipt.id) }));
 }

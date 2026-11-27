@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { SESSION_COOKIE, newSessionClaims, signSession } from "@rueisiang/auth";
 import { createDatabase, formatTaipeiDate, syncSystemRoles } from "@rueisiang/db";
-import { hrEmployments, scopes, userPermissionGrants, users } from "@rueisiang/db/schema";
+import { hrEmployments, hrPayrollPeriods, scopes, userPermissionGrants, users } from "@rueisiang/db/schema";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import app from "./index.js";
 import { createTargetOnlyD1, type LocalD1 } from "./local-d1/d1.js";
@@ -52,7 +52,7 @@ async function submit(actor: string, overrides: Record<string, string> = {}) {
   return (await response.json() as { id: string }).id;
 }
 
-type Entry = { id: string; payerKind: string; status: string; amountMinor: number; personName: string; scopeName: string | null; revision: number; receiptIds: string[] };
+type Entry = { id: string; payerKind: string; status: string; amountMinor: number; personName: string; scopeName: string | null; revision: number; receiptIds: string[]; payrollPeriodKey: string | null };
 async function ledger(query: Record<string, string> = {}, actor = "accountant") {
   const response = await api(`/accounting/ledger?${new URLSearchParams({ month: month(), ...query }).toString()}`, actor);
   expect(response.status, await response.clone().text()).toBe(200);
@@ -152,6 +152,26 @@ describe("會計：支出帳", () => {
     expect((await api("/accounting/ledger?month=2026-13", "accountant")).status).toBe(400);
     expect((await api(`/accounting/ledger?month=${month()}&payer=friend`, "accountant")).status).toBe(400);
   });
+
+  it("一個月上百筆也讀得出來（D1 一句最多 100 個綁定參數），報帳頁與我的報帳也一樣", async () => {
+    const insert = d1.sqlite.prepare("INSERT INTO accounting_expenses (id, payer_kind, status, submitter_user_id, employment_id, client_request_id, category_id, spent_on, amount_minor, description) VALUES (?, ?, ?, ?, ?, ?, 'expense-category-supplies', ?, 10000, '大量')");
+    for (let index = 0; index < 120; index += 1) {
+      insert.run(`bulk-company-${index}`, "company", "paid", "accountant", null, `bulk-company-${index}`, today());
+      insert.run(`bulk-claim-${index}`, "employee_advance", "pending", "employee", "employment-employee", `bulk-claim-${index}`, today());
+    }
+    expect((await ledger()).entries).toHaveLength(120);
+    expect((await api("/accounting/expenses?status=pending", "accountant")).status).toBe(200);
+    const mine = await app.fetch(new Request("https://test.local/api/hr/me/expenses", { headers: { Origin: "https://hr.rueisiang.com", Cookie: cookies.employee! } }), env() as never);
+    expect(mine.status).toBe(200);
+  });
+
+  it("併入月薪的報帳在那個月結帳後顯示已付款", async () => {
+    const claim = await submit("employee");
+    await api(`/accounting/expenses/${claim}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: month() });
+    expect((await ledger()).entries[0]).toMatchObject({ id: claim, status: "approved", payrollPeriodKey: month() });
+    await db().insert(hrPayrollPeriods).values({ id: "period-now", periodKey: month(), attendanceStart: `${month()}-01`, attendanceEnd: `${month()}-28`, status: "closed", createdBy: "accountant" });
+    expect((await ledger()).entries[0]).toMatchObject({ id: claim, status: "paid" });
+  });
 });
 
 describe("會計：修改與作廢公司支出", () => {
@@ -175,6 +195,14 @@ describe("會計：修改與作廢公司支出", () => {
     expect(response.status).toBe(400);
     expect(row(id)).toMatchObject({ invoice_number: "AB12345678", revision: 1 });
     expect((await api(`/accounting/company-expenses/${id}`, "accountant", "PATCH", { ...edit, invoiceNumber: "AB12345678", spentOn: today(), revision: 1 })).status).toBe(200);
+  });
+
+  it("類別停用後照原類別仍可儲存；換成另一個停用的類別會擋", async () => {
+    const id = await recorded();
+    d1.sqlite.prepare("INSERT INTO accounting_expense_categories (id, name) VALUES ('category-old', '舊類別')").run();
+    d1.sqlite.prepare("UPDATE accounting_expense_categories SET archived_at = '2026-01-01 00:00:00' WHERE id = 'expense-category-supplies' OR name = '舊類別'").run();
+    expect((await api(`/accounting/company-expenses/${id}`, "accountant", "PATCH", { ...edit, spentOn: today(), revision: 1 })).status).toBe(200);
+    expect((await api(`/accounting/company-expenses/${id}`, "accountant", "PATCH", { ...edit, categoryId: "category-old", spentOn: today(), revision: 2 })).status).toBe(400);
   });
 
   it("作廢後不算進支出帳，也不能再改或再作廢", async () => {

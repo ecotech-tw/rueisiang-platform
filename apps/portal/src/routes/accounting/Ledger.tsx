@@ -91,7 +91,11 @@ function CompanyExpenseDialog({ entry, options, onClose }: { entry: LedgerEntry 
       <FieldGrid columns={2}>
         <TextField label="消費日期" required type="date" max={today} value={spentOn} onChange={(event) => setSpentOn(event.target.value)} />
         <TextField label="金額（元）" required inputMode="numeric" value={amount} onChange={(event) => setAmount(event.target.value.replace(/[^\d]/g, "").slice(0, String(EXPENSE_AMOUNT_MAX_DOLLARS).length))} />
-        <TextField label="發票號碼" value={invoiceNumber} maxLength={12} placeholder="收據就留空" onChange={(event) => setInvoiceNumber(event.target.value)} />
+        <TextField label="發票號碼" value={invoiceNumber} maxLength={12} placeholder="收據就留空" onChange={(event) => {
+          // 換了號碼就重新檢查重複，不沿用上一個號碼的「仍要儲存」。
+          if (duplicate) write.reset();
+          setInvoiceNumber(event.target.value);
+        }} />
         <TextField label="賣方統編" inputMode="numeric" value={sellerTaxId} maxLength={8} onChange={(event) => setSellerTaxId(event.target.value.replace(/[^\d]/g, ""))} />
         <SelectField label="類別" required placeholder="選擇類別" value={categoryId} onValueChange={setCategoryId} options={categories.map((category) => ({ value: category.id, label: category.name }))} />
         <SelectField label="店別" value={scopeId} onValueChange={setScopeId} options={[{ value: "", label: "不指定" }, ...options.scopes.map((scope) => ({ value: scope.id, label: scope.name }))]} />
