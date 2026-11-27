@@ -1,5 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { datesInRange, defaultActiveRuleId, effectiveSpecialWorkdayVersion, filterSpecialWorkdayAssignments, fromHoursText, nextOvertimeRule, parseFromHours, parseToHours, remapAllowanceQuantities, toHoursText, type OvertimeRuleDraft } from "./SpecialWorkdays.js";
+import type { SpecialWorkdayAssignment } from "./api.js";
+import { datesInRange, defaultActiveRuleId, effectiveSpecialWorkdayVersion, filterSpecialWorkdayAssignments, fromHoursText, nextOvertimeRule, parseFromHours, parseToHours, remapAllowanceQuantities, sortSpecialWorkdayAssignments, toHoursText, type OvertimeRuleDraft } from "./SpecialWorkdays.js";
+
+const sortingRows: SpecialWorkdayAssignment[] = [
+  { assignment: { id: "later", ruleId: "rule-10", employmentId: null, workerId: "worker-1", workDate: "2026-10-10", allowanceSnapshotJson: '[{"itemName":"餐費","quantity":4},{"itemName":"交通","quantity":6}]', allowanceQuantity: 0, appliedAt: "2026-09-02 09:00:00" }, ruleName: "規則10", includedInPayroll: true, currentVersionNumber: 1, currentVersionVoidedAt: null, currentWageKind: "multiplier", employeeNumber: null, employeeName: null, workerName: "人員10" },
+  { assignment: { id: "earlier", ruleId: "rule-2", employmentId: "employment-1", workerId: null, workDate: "2026-02-02", allowanceSnapshotJson: '[{"itemName":"餐費","quantity":2}]', allowanceQuantity: 0, appliedAt: "2026-09-01 17:00:00" }, ruleName: "規則2", includedInPayroll: false, currentVersionNumber: 1, currentVersionVoidedAt: null, currentWageKind: "fixed_hourly", employeeNumber: "E002", employeeName: "人員2", workerName: null },
+];
+describe("特殊上班日套用紀錄排序", () => {
+  it.each(["person", "workDate", "ruleName", "wageKind", "allowance", "appliedAt", "payrollStatus"])("%s 支援遞增與遞減，不修改來源", (field) => {
+    expect(sortSpecialWorkdayAssignments(sortingRows, field, "asc").map((row) => row.assignment.id)).toEqual(["earlier", "later"]);
+    expect(sortSpecialWorkdayAssignments(sortingRows, field, "desc").map((row) => row.assignment.id)).toEqual(["later", "earlier"]);
+    expect(sortingRows.map((row) => row.assignment.id)).toEqual(["later", "earlier"]);
+  });
+
+  it("同值保持原順序，缺少人員與薪資設定時兩方向都排最後", () => {
+    const missing: SpecialWorkdayAssignment = { ...sortingRows[0]!, employeeName: null, workerName: null, currentWageKind: null };
+    for (const field of ["person", "wageKind"]) {
+      for (const direction of ["asc", "desc"] as const) expect(sortSpecialWorkdayAssignments([missing, sortingRows[1]!], field, direction).at(-1)).toBe(missing);
+    }
+    expect(sortSpecialWorkdayAssignments(sortingRows, "payrollStatus", "asc")[0]).toBe(sortingRows[1]);
+    const same = sortingRows.map((row) => ({ ...row, includedInPayroll: false }));
+    expect(sortSpecialWorkdayAssignments(same, "payrollStatus", "desc")).toEqual(same);
+    expect(sortSpecialWorkdayAssignments([], "workDate", "asc")).toEqual([]);
+  });
+
+  it("補貼按合計數量而非文字排序，舊資料與損壞快照沿用共用數量", () => {
+    const legacy = { ...sortingRows[0]!, assignment: { ...sortingRows[0]!.assignment, id: "legacy", allowanceSnapshotJson: "損壞 JSON", allowanceQuantity: 5 } };
+    const zero = { ...legacy, assignment: { ...legacy.assignment, id: "zero", allowanceSnapshotJson: '[{"itemName":"餐費","quantity":0}]', allowanceQuantity: 0 } };
+    expect(sortSpecialWorkdayAssignments([sortingRows[0]!, legacy, sortingRows[1]!, zero], "allowance", "asc").map((row) => row.assignment.id)).toEqual(["zero", "earlier", "legacy", "later"]);
+  });
+});
 
 describe("特殊上班日加班級距的時數邊界", () => {
   it("把資料庫的第一個半小時索引顯示為 0.0 小時起算", () => {
