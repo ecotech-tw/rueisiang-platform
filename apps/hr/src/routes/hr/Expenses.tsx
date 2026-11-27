@@ -153,7 +153,6 @@ export function HrExpenses() {
   return <Page className="grid gap-3 [&>*+*]:!mt-0">
     <PageHeader
       title="報帳"
-      description="先付了公司的錢，拍下發票送出；會計審核後會撥款，或跟月薪一起發。"
       actions={<Button tone="success" icon="plus" onClick={() => navigate("/expenses/new")}>新增報帳</Button>}
     />
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
