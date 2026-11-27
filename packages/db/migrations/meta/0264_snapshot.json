@@ -1,6 +1,6 @@
 {
-  "id": "cb6cf1f4-6224-4679-88cb-47b47e59536b",
-  "prevId": "1650545a-1fc6-4134-9d1b-1ddf1dc454d6",
+  "id": "440675c8-3939-4f32-b3f8-9786c9ca6de7",
+  "prevId": "8f89c6fe-79ac-4876-9d42-9d8aaed8d822",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -2545,7 +2545,7 @@
         },
         "ck_accounting_petty_cash_sign": {
           "name": "ck_accounting_petty_cash_sign",
-          "value": "(\"accounting_petty_cash_entries\".\"kind\" IN ('top_up', 'refund') AND \"accounting_petty_cash_entries\".\"amount_minor\" > 0) OR (\"accounting_petty_cash_entries\".\"kind\" IN ('payout', 'correction') AND \"accounting_petty_cash_entries\".\"amount_minor\" < 0)"
+          "value": "(\"accounting_petty_cash_entries\".\"kind\" IN ('top_up', 'refund') AND \"accounting_petty_cash_entries\".\"amount_minor\" > 0) OR (\"accounting_petty_cash_entries\".\"kind\" = 'payout' AND \"accounting_petty_cash_entries\".\"amount_minor\" < 0) OR (\"accounting_petty_cash_entries\".\"kind\" = 'correction' AND \"accounting_petty_cash_entries\".\"amount_minor\" <> 0)"
         },
         "ck_accounting_petty_cash_expense": {
           "name": "ck_accounting_petty_cash_expense",

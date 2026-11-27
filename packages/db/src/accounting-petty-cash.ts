@@ -62,8 +62,9 @@ export interface PettyCashEntry {
   balanceAfterMinor: number;
   expenseId: string | null;
   expenseDescription: string | null;
-  /** 更正的那一筆指向被更正的增加。 */
+  /** 更正的那一筆指向被更正的增加，並帶那筆原本的金額（畫面寫「原本 → 正確」）。 */
   correctsEntryId: string | null;
+  correctsAmountMinor: number | null;
   /** 這一筆增加已經被更正過（只能更正一次）。 */
   corrected: boolean;
   note: string;
@@ -72,6 +73,7 @@ export interface PettyCashEntry {
 }
 
 const correction = alias(accountingPettyCashEntries, "petty_correction");
+const corrected = alias(accountingPettyCashEntries, "petty_corrected");
 
 /** 最近的紀錄放前面。每一筆之後的餘額從目前餘額往回推，不必掃整張表。 */
 export async function listPettyCash(db: Database, limit = 300): Promise<{ balanceMinor: number; entries: PettyCashEntry[] }> {
@@ -83,6 +85,7 @@ export async function listPettyCash(db: Database, limit = 300): Promise<{ balanc
     expenseId: accountingPettyCashEntries.expenseId,
     expenseDescription: accountingExpenses.description,
     correctsEntryId: accountingPettyCashEntries.correctsEntryId,
+    correctsAmountMinor: corrected.amountMinor,
     correctionId: correction.id,
     note: accountingPettyCashEntries.note,
     actorName: sql<string>`coalesce(nullif(${users.displayName}, ''), ${users.email})`,
@@ -91,6 +94,7 @@ export async function listPettyCash(db: Database, limit = 300): Promise<{ balanc
     .innerJoin(users, eq(users.id, accountingPettyCashEntries.actorUserId))
     .leftJoin(accountingExpenses, eq(accountingExpenses.id, accountingPettyCashEntries.expenseId))
     .leftJoin(correction, eq(correction.correctsEntryId, accountingPettyCashEntries.id))
+    .leftJoin(corrected, eq(corrected.id, accountingPettyCashEntries.correctsEntryId))
     // 同一秒寫進來的照寫入順序排，餘額才推得對。
     .orderBy(desc(accountingPettyCashEntries.createdAt), desc(sql`accounting_petty_cash_entries.rowid`))
     .limit(limit);
@@ -119,25 +123,31 @@ export async function topUpPettyCash(db: Database, input: { amountDollars: numbe
 }
 
 /*
- * 「增加」打錯金額時更正：記一筆相反數，指向那一筆增加，原本那筆留著（使用者決定，代替手動減少）。
- * 只能更正「增加」、每筆只能一次（corrects_entry_id 唯一）；扣回來會讓餘額變負（錢已經被報帳用掉）就擋。
+ * 「增加」打錯金額時更正：會計輸入正確金額，記一筆差額（正確 − 原本），指向那一筆增加，原本那筆留著
+ * （使用者決定，代替手動減少）。正確金額可以是 0（整筆都不該加）。
+ * 只能更正「增加」、每筆只能一次（corrects_entry_id 唯一）；差額是負的、扣下去餘額會變負（錢已經被報帳用掉）就擋。
  * 這些條件都寫在同一句 INSERT 的 WHERE 裡，兩個會計同時按也只會有一筆成功。
  */
-export async function correctPettyCashTopUp(db: Database, entryId: string, input: { note: string }, actor: { id: string }) {
+export async function correctPettyCashTopUp(db: Database, entryId: string, input: { amountDollars: number; note: string }, actor: { id: string }) {
+  if (!Number.isSafeInteger(input.amountDollars) || input.amountDollars < 0 || input.amountDollars > PETTY_CASH_MAX_DOLLARS) {
+    throw new AccountingError(400, `正確金額必須是 0～${PETTY_CASH_MAX_DOLLARS.toLocaleString("zh-TW")} 的整數元。`);
+  }
   const note = input.note.trim();
   if (!note || note.length > 500) throw new AccountingError(400, "請寫更正原因（500 字以內）。");
+  const correctMinor = input.amountDollars * 100;
   const id = crypto.randomUUID();
   const inserted = await db.all<{ id: string }>(sql`INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, corrects_entry_id, note, actor_user_id, created_at)
-    SELECT ${id}, 'correction', -original.amount_minor, original.id, ${note}, ${actor.id}, ${toDbTimestamp()}
+    SELECT ${id}, 'correction', ${correctMinor} - original.amount_minor, original.id, ${note}, ${actor.id}, ${toDbTimestamp()}
     FROM accounting_petty_cash_entries AS original
-    WHERE original.id = ${entryId} AND original.kind = 'top_up'
+    WHERE original.id = ${entryId} AND original.kind = 'top_up' AND original.amount_minor <> ${correctMinor}
       AND NOT EXISTS (SELECT 1 FROM accounting_petty_cash_entries AS done WHERE done.corrects_entry_id = original.id)
-      AND ${pettyCashBalance} >= original.amount_minor
+      AND ${pettyCashBalance} + ${correctMinor} - original.amount_minor >= 0
     RETURNING id`);
   if (inserted.length) return { id };
-  const [original] = await db.select({ kind: accountingPettyCashEntries.kind }).from(accountingPettyCashEntries).where(eq(accountingPettyCashEntries.id, entryId)).limit(1);
+  const [original] = await db.select({ kind: accountingPettyCashEntries.kind, amountMinor: accountingPettyCashEntries.amountMinor }).from(accountingPettyCashEntries).where(eq(accountingPettyCashEntries.id, entryId)).limit(1);
   if (!original || original.kind !== "top_up") throw new AccountingError(404, "只能更正「增加」的紀錄。");
   const [done] = await db.select({ id: accountingPettyCashEntries.id }).from(accountingPettyCashEntries).where(eq(accountingPettyCashEntries.correctsEntryId, entryId)).limit(1);
   if (done) throw new AccountingError(409, "這筆已經更正過了。");
-  throw new AccountingError(409, "這筆錢已經有一部分被報帳用掉，扣回來餘額會不夠，不能更正。");
+  if (original.amountMinor === correctMinor) throw new AccountingError(400, "金額跟原本一樣，不用更正。");
+  throw new AccountingError(409, "這筆錢已經有一部分被報帳用掉，改成這個金額餘額會不夠。");
 }

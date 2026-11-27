@@ -94,8 +94,8 @@ export const accountingExpenseReceipts = sqliteTable("accounting_expense_receipt
  * 撥款（payout）與退回（refund）指向那張報帳單；同一張單的撥款與退回加起來就是「目前從零用金付出去多少」，
  * 已付款退回待撥款時照這個數字退錢。
  *
- * 沒有手動減少（使用者決定）。「增加」打錯金額時用更正（correction）：指向那一筆增加、金額是它的相反數，
- * 每一筆增加只能更正一次（corrects_entry_id 唯一），原本那筆照樣留著。
+ * 沒有手動減少（使用者決定）。「增加」打錯金額時用更正（correction）：指向那一筆增加，金額是「正確金額 − 原本金額」
+ * 的差額（打多了是負的、打少了是正的），每一筆增加只能更正一次（corrects_entry_id 唯一），原本那筆照樣留著。
  */
 export const accountingPettyCashEntries = sqliteTable("accounting_petty_cash_entries", {
   id: text("id").primaryKey(),
@@ -111,8 +111,8 @@ export const accountingPettyCashEntries = sqliteTable("accounting_petty_cash_ent
   index("idx_accounting_petty_cash_expense").on(table.expenseId),
   uniqueIndex("idx_accounting_petty_cash_corrects").on(table.correctsEntryId).where(sql`${table.correctsEntryId} IS NOT NULL`),
   check("ck_accounting_petty_cash_kind", sql`${table.kind} IN ('top_up', 'payout', 'refund', 'correction')`),
-  // 增加與退回是錢進來，撥款與更正是錢出去。
-  check("ck_accounting_petty_cash_sign", sql`(${table.kind} IN ('top_up', 'refund') AND ${table.amountMinor} > 0) OR (${table.kind} IN ('payout', 'correction') AND ${table.amountMinor} < 0)`),
+  // 增加與退回是錢進來，撥款是錢出去；更正是差額，正負都可以但不能是 0。
+  check("ck_accounting_petty_cash_sign", sql`(${table.kind} IN ('top_up', 'refund') AND ${table.amountMinor} > 0) OR (${table.kind} = 'payout' AND ${table.amountMinor} < 0) OR (${table.kind} = 'correction' AND ${table.amountMinor} <> 0)`),
   check("ck_accounting_petty_cash_expense", sql`(${table.kind} IN ('payout', 'refund')) = (${table.expenseId} IS NOT NULL)`),
   check("ck_accounting_petty_cash_correction", sql`(${table.kind} = 'correction') = (${table.correctsEntryId} IS NOT NULL)`),
   // 更正要寫原因，之後查得到為什麼扣回來。

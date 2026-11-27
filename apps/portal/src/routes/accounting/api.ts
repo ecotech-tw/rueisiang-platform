@@ -64,6 +64,7 @@ export interface PettyCashEntry {
   expenseId: string | null;
   expenseDescription: string | null;
   correctsEntryId: string | null;
+  correctsAmountMinor: number | null;
   corrected: boolean;
   note: string;
   actorName: string;

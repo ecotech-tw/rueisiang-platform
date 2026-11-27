@@ -1,7 +1,6 @@
 import { taipeiMinuteFromUtcWallClock } from "@rueisiang/db/taipei-time";
 import { useRef, useState } from "react";
 import { useSession } from "../../auth/session.js";
-import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, StatusBadge, TextField } from "../../ui/index.js";
 import { useAccountingQuery, useAccountingWrite, type PettyCashEntry, type PettyCashLedger } from "./api.js";
@@ -9,7 +8,7 @@ import { useAccountingQuery, useAccountingWrite, type PettyCashEntry, type Petty
 /*
  * 零用金：全公司一個錢箱。餘額與每一筆進出（增加、報帳撥款、退回）都在這一頁。
  * 紀錄不能改、不能刪；會計只能增加，錢只會因為報帳撥款出去（使用者決定不要手動減少）。
- * 「增加」打錯金額就按那一筆的「更正」：記一筆相反數扣回來，原本那筆標成已更正，再重新增加正確的金額。
+ * 「增加」打錯金額就按那一筆的「更正」輸入正確金額：記一筆差額，原本那筆標成已更正。
  */
 
 type CloseRef = { current: ((afterClose?: () => void) => void) | null };
@@ -56,14 +55,33 @@ function TopUpDialog({ onClose }: { onClose: () => void }) {
 }
 
 function CorrectDialog({ entry, onClose }: { entry: PettyCashEntry; onClose: () => void }) {
+  const closeRef: CloseRef = useRef(null);
   const write = useAccountingWrite();
+  const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
-  return <ConfirmDialog title="更正這筆增加？" confirmLabel="更正" pending={write.isPending} onCancel={() => { if (!write.isPending) onClose(); }}
-    onConfirm={() => write.mutate({ path: `/petty-cash/${encodeURIComponent(entry.id)}/correct`, method: "POST", values: { note } }, { onSuccess: onClose })}>
-    <p>{`${taipeiMinuteFromUtcWallClock(entry.createdAt)}・${signed(entry.amountMinor)}`}</p>
-    <p>會記一筆 {signed(-entry.amountMinor)} 扣回來，之後再增加正確的金額。</p>
-    <TextField label="更正原因" required autoFocus maxLength={500} value={note} placeholder="例如：多打了一個 0" onChange={(event) => setNote(event.target.value)} />
-  </ConfirmDialog>;
+  const correctMinor = /^\d+$/.test(amount) ? Number(amount) * 100 : null;
+  const delta = correctMinor === null ? null : correctMinor - entry.amountMinor;
+  const ready = delta !== null && delta !== 0 && note.trim();
+  const close = () => (closeRef.current ?? ((after?: () => void) => after?.()))(onClose);
+  return <Dialog
+    title="更正金額"
+    onClose={onClose}
+    closeRequestRef={closeRef}
+    closeDisabled={write.isPending}
+    actions={<>
+      <Button variant="secondary" disabled={write.isPending} onClick={close}>取消</Button>
+      <Button tone="success" loading={write.isPending} disabled={!ready}
+        onClick={() => write.mutate({ path: `/petty-cash/${encodeURIComponent(entry.id)}/correct`, method: "POST", values: { amountDollars: Number(amount), note } }, { onSuccess: close })}>
+        更正
+      </Button>
+    </>}
+  >
+    <p className="m-0 text-[14px] text-muted">{`${taipeiMinuteFromUtcWallClock(entry.createdAt)} 增加了 ${dollars(entry.amountMinor)}`}</p>
+    <TextField label="正確金額（元）" required inputMode="numeric" autoFocus value={amount}
+      hint={delta ? `會記一筆 ${signed(delta)}` : undefined}
+      onChange={(event) => setAmount(event.target.value.replace(/[^\d]/g, "").slice(0, 8))} />
+    <TextField label="更正原因" required maxLength={500} value={note} placeholder="例如：多打了一個 0" onChange={(event) => setNote(event.target.value)} />
+  </Dialog>;
 }
 
 export function AccountingPettyCash() {
@@ -101,7 +119,9 @@ export function AccountingPettyCash() {
             {entries.map((entry) => <tr key={entry.id}>
               <td data-label="時間" className="tabular-nums">{taipeiMinuteFromUtcWallClock(entry.createdAt)}</td>
               <td data-label="種類"><span className="inline-flex flex-wrap items-center gap-1.5"><StatusBadge tone={KIND[entry.kind].tone}>{KIND[entry.kind].label}</StatusBadge>{entry.corrected ? <StatusBadge>已更正</StatusBadge> : null}</span></td>
-              <td data-label="內容"><span className="line-clamp-2 wrap-anywhere">{entry.expenseDescription ?? (entry.note || "—")}</span></td>
+              <td data-label="內容"><span className="line-clamp-2 wrap-anywhere">{entry.kind === "correction" && entry.correctsAmountMinor !== null
+                ? `${dollars(entry.correctsAmountMinor)} → ${dollars(entry.correctsAmountMinor + entry.amountMinor)}・${entry.note}`
+                : entry.expenseDescription ?? (entry.note || "—")}</span></td>
               <td data-label="經手人">{entry.actorName}</td>
               <td data-label="金額" className="numeric">{signed(entry.amountMinor)}</td>
               <td data-label="餘額" className="numeric">{dollars(entry.balanceAfterMinor)}</td>
