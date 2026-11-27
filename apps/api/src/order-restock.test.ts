@@ -490,6 +490,20 @@ describe("回補安全故障與模式切換", () => {
     await run("apply"); expect(writes).toHaveLength(0);
   });
 
+  it("沒有品項 lease 的並行人工結案，即使內容相同也只有成功更新者能回報成功", async () => {
+    currentOrder.line_items[0]!.product_variant_id = 999;
+    await receive(); await run();
+    const row = await job();
+    expect(row).toMatchObject({ itemId: null, state: "review" });
+    const results = await Promise.allSettled(["operator-a", "operator-b"].map((id) => resolveOrderRestock(db, {
+      id: row.id, resolution: "skipped", reason: "確認未曾送出庫存調整", actor: { id, email: `${id}@example.test` },
+    })));
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const rejected = results.find((result) => result.status === "rejected") as PromiseRejectedResult;
+    expect(rejected.reason).toMatchObject({ kind: "conflict" });
+    expect((await db.select().from(activityEvents)).filter((event) => event.actorType === "user")).toHaveLength(1);
+  });
+
   it("初始稽核失敗時帳本一起回滾，補跑只有一筆可查核紀錄", async () => {
     currentOrder.line_items[0]!.related_items = [{ sku: "PART" }] as never[];
     d1.sqlite.exec("CREATE TRIGGER fail_audit BEFORE INSERT ON activity_events BEGIN SELECT RAISE(ABORT, '模擬稽核中斷'); END;");

@@ -89,7 +89,7 @@ async function finish(db: Database, row: CyberbizOrderRestock, patch: Partial<Cy
     // changes() 是同 batch 前一個 UPDATE 的結果，CAS 失敗不得留下虛假的完成稽核。
     auditInsert(db, next, actor, true),
   ]);
-  return updated[0] ?? getOrderRestock(db, row.id);
+  return { row: updated[0] ?? await getOrderRestock(db, row.id), changed: updated.length > 0 };
 }
 
 export interface OrderWebhookOutcome {
@@ -390,8 +390,8 @@ export async function resolveOrderRestock(db: Database, input: {
     const current = await getOrderRestock(db, input.id);
     if (current.state !== "review") throw new WmsError("conflict", "紀錄已被其他操作更新。");
     const reason = `人工確認：${input.reason.trim()}`;
-    const resolved = await finish(db, current, { state: input.resolution, reason }, input.actor);
-    if (resolved.state !== input.resolution || resolved.reason !== reason) throw new WmsError("conflict", "紀錄已被其他操作更新，請重新查核。");
+    const { row: resolved, changed } = await finish(db, current, { state: input.resolution, reason }, input.actor);
+    if (!changed) throw new WmsError("conflict", "紀錄已被其他操作更新，請重新查核。");
     return resolved;
   } finally {
     if (token && row.itemId) await releaseCyberbizSyncLock(db, row.itemId, token);
