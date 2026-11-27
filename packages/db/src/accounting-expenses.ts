@@ -220,6 +220,7 @@ export async function createExpense(db: Database, prepared: PreparedExpense, rec
 export interface MyExpense {
   id: string;
   status: ExpenseStatus;
+  categoryId: string;
   categoryName: string;
   scopeName: string | null;
   spentOn: string;
@@ -242,6 +243,7 @@ export async function listMyExpenses(db: Database, userId: string): Promise<MyEx
     id: accountingExpenses.id,
     // 併入月薪的單在那個月結帳後算已付款，跟會計那邊看到的一樣。
     status: effectiveExpenseStatus,
+    categoryId: accountingExpenses.categoryId,
     categoryName: accountingExpenseCategories.name,
     scopeName: scopes.name,
     spentOn: accountingExpenses.spentOn,

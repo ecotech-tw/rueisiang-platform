@@ -9,6 +9,7 @@ import {
   getPettyCashBalance,
   listCompanyExpenseOptions,
   listExpenseCategories,
+  listExpenseEditHistory,
   listExpensesForReview,
   listLedger,
   markExpensePaid,
@@ -18,6 +19,7 @@ import {
   unapproveExpense,
   updateCompanyExpense,
   updateExpenseCategory,
+  updateExpenseForReview,
   voidCompanyExpense,
   type ExpensePayout,
   type LedgerPayerFilter,
@@ -26,6 +28,7 @@ import {
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
+import { expenseEditInput } from "../expense-edits.js";
 import { expenseBodyLimit, readExpenseReceiptForReview, submitCompanyExpense } from "../expense-receipts.js";
 import { requireAnyPermission, requireAuth, requirePermission } from "../middleware/auth.js";
 import { body } from "../request.js";
@@ -93,6 +96,12 @@ export const accounting = new Hono<AppEnv>()
     const input = await body(c);
     return c.json(await approveExpense(c.get("db"), c.req.param("id"), revision(input), c.get("user"), payout(input)));
   })
+  // 會計修改待審核的報帳：只改文字欄位，不能改自己的單；每次修改留紀錄並通知送件人。
+  .patch("/expenses/:id", requirePermission("accounting:expense:review"), async (c) => {
+    const input = await body(c);
+    return c.json(await updateExpenseForReview(c.get("db"), c.req.param("id"), revision(input), expenseEditInput((key) => text(input, key), input.amountDollars, input.confirmDuplicate === true), c.get("user")));
+  })
+  .get("/expenses/:id/history", requirePermission("accounting:expense:read"), async (c) => c.json({ history: await listExpenseEditHistory(c.get("db"), c.req.param("id")) }))
   .post("/expenses/:id/reject", requirePermission("accounting:expense:review"), async (c) => {
     const input = await body(c);
     return c.json(await rejectExpense(c.get("db"), c.req.param("id"), revision(input), typeof input.note === "string" ? input.note : "", c.get("user")));

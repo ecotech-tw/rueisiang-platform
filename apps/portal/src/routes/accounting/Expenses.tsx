@@ -8,6 +8,8 @@ import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, Field, Page, PageHeader, PageTabControl, Panel, SegmentedControl, StatusBadge, Textarea } from "../../ui/index.js";
 import { receiptUrl, useAccountingQuery, useAccountingWrite, type ApproveResult, type ExpenseStatus, type ExpenseStatusFilter, type ReviewExpense } from "./api.js";
+import { ExpenseEditDialog } from "./ExpenseEditDialog.js";
+import { ExpenseHistory } from "./ExpenseHistory.js";
 
 /*
  * 會計看報帳的唯一一頁：審核、撥款、查紀錄都在這裡，用狀態分頁切，不另開頁面。
@@ -52,7 +54,7 @@ function payoutText(expense: ReviewExpense) {
   return expense.payoutMethod === "direct" ? "直接撥款" : null;
 }
 
-function ExpenseDetail({ expense, canReview, isOwn, onClose }: { expense: ReviewExpense; canReview: boolean; isOwn: boolean; onClose: () => void }) {
+function ExpenseDetail({ expense, canReview, isOwn, onClose, onEdit }: { expense: ReviewExpense; canReview: boolean; isOwn: boolean; onClose: () => void; onEdit: (expense: ReviewExpense) => void }) {
   const closeRef: CloseRef = useRef(null);
   const write = useAccountingWrite<Partial<ApproveResult>>();
   const toast = useToast();
@@ -91,6 +93,7 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose }: { expense: Review
     </>
     : <>
       {rejectable ? <Button variant="secondary" disabled={write.isPending} onClick={() => setRejecting(true)}>駁回</Button> : null}
+      {approving ? <Button variant="secondary" icon="edit" disabled={write.isPending} onClick={() => requestClose(closeRef, () => onEdit(expense))}>修改</Button> : null}
       {approving ? <Button tone="success" loading={write.isPending} onClick={approve}>核准</Button> : null}
       {reviewable && expense.status === "approved" ? <Button variant="secondary" disabled={write.isPending} onClick={() => setReverting("unapprove")}>取消核准</Button> : null}
       {reviewable && expense.status === "paid" && expense.payoutMethod === "direct" ? <Button variant="secondary" disabled={write.isPending} onClick={() => setReverting("revert-payment")}>退回待撥款</Button> : null}
@@ -132,6 +135,7 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose }: { expense: Review
       {payoutLabel && expense.status !== "rejected" ? <DetailRow label="發放方式">{payoutLabel}</DetailRow> : null}
       {expense.paidAt ? <DetailRow label="撥款時間">{taipeiMinuteFromUtcWallClock(expense.paidAt)}</DetailRow> : null}
     </dl>
+    <ExpenseHistory expenseId={expense.id} submitterName={expense.submitterName} />
   </Dialog>
   {reverting ? <ConfirmDialog
     title={reverting === "unapprove" ? "取消核准，回到待審核？" : "退回待撥款？"}
@@ -156,6 +160,8 @@ export function AccountingExpenses() {
   const query = useAccountingQuery<{ expenses: ReviewExpense[] }>(`/expenses?status=${status}`);
   // 打開時存一份快照：核准、退回後那張單會從目前分頁的清單消失，從清單裡找的話明細會直接卸載、沒有退場動畫。
   const [viewing, setViewing] = useState<ReviewExpense | null>(null);
+  // 修改是另一個 Dialog：先讓明細走完退場再開，兩個疊在一起焦點與遮罩會亂。
+  const [editing, setEditing] = useState<ReviewExpense | null>(null);
   const expenses = query.data?.expenses ?? [];
   const canReview = permissions.has("accounting:expense:review");
 
@@ -194,6 +200,7 @@ export function AccountingExpenses() {
           </tbody>
         </DataTable>}
     </Panel>
-    {viewing ? <ExpenseDetail expense={viewing} canReview={canReview} isOwn={viewing.submitterUserId === user?.id} onClose={() => setViewing(null)} /> : null}
+    {viewing ? <ExpenseDetail expense={viewing} canReview={canReview} isOwn={viewing.submitterUserId === user?.id} onClose={() => setViewing(null)} onEdit={(expense) => { setViewing(null); setEditing(expense); }} /> : null}
+    {editing ? <ExpenseEditDialog expense={editing} onClose={() => setEditing(null)} /> : null}
   </Page>;
 }

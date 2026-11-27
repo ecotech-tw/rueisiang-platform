@@ -150,7 +150,7 @@ function SummaryCard({ tone = "neutral", label, value, note }: { tone?: keyof ty
   </div>;
 }
 
-export function FormPageHeader({ title, description, returnTo = "/forms", backLabel = "返回表單" }: { title: string; description: string; returnTo?: string; backLabel?: string }) {
+export function FormPageHeader({ title, description, returnTo = "/forms", backLabel = "返回表單" }: { title: string; description?: string; returnTo?: string; backLabel?: string }) {
   const navigate = useNavigate();
   return <>
     <HrBackBar label={backLabel} onBack={() => navigate(returnTo)} />

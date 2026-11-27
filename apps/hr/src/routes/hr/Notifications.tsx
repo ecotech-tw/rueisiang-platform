@@ -14,6 +14,8 @@ function formatTaipei(value: string) {
 
 function notificationTone(notification: HrNotification) {
   // 沒過都寫「駁回」；改名前的報帳通知寫「退回」，舊通知仍要顯示成沒過。
+  // 會計修改報帳也是 request_reviewed，但那不是審核結果，用資訊色。
+  if (notification.kind === "request_reviewed" && notification.title.includes("修改")) return "info";
   return notification.kind === "request_reviewed" ? (/駁回|退回/.test(notification.title) ? "danger" : "success") : notification.kind === "request_submitted" ? "info" : "neutral";
 }
 

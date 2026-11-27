@@ -14,12 +14,13 @@ import { formatTaipeiDate } from "@rueisiang/db/taipei-time";
 import { prepareReceiptImage, randomId } from "@rueisiang/ui";
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router";
+import { useNavigate, useParams, useSearchParams } from "react-router";
 import { API_BASE_URL } from "../../config.js";
 import { Icon } from "../../shell/icons.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, ConfirmDialog, Dialog, EmptyRecords, Field, Input, Page, PageHeader, Panel, SelectField, StatusBadge, Textarea, TextField } from "../../ui/index.js";
 import { HrApiError, useHrQuery, useHrWrite, type ExpenseOptionsResponse, type MyExpense } from "./api.js";
+import { ExpenseHistory } from "./ExpenseHistory.js";
 import { FORM_FIELD_ROW, FORM_FIELDS, FORM_PANEL, FormActions, FormPage, FormPageHeader, MOBILE_CARD } from "./Forms.js";
 import { NotInvoiceQrError, scanInvoiceQr } from "./invoice-qr.js";
 
@@ -96,7 +97,7 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
   </div>;
 }
 
-function ExpenseDetail({ expense, onClose, onCancel, closeRequestRef }: { expense: MyExpense; onClose: () => void; onCancel: () => void; closeRequestRef: CloseRef }) {
+function ExpenseDetail({ expense, onClose, onCancel, onEdit, closeRequestRef }: { expense: MyExpense; onClose: () => void; onCancel: () => void; onEdit: () => void; closeRequestRef: CloseRef }) {
   const note = payoutNote(expense);
   return <Dialog
     title={dollars(expense.amountMinor)}
@@ -104,7 +105,10 @@ function ExpenseDetail({ expense, onClose, onCancel, closeRequestRef }: { expens
     onClose={onClose}
     closeRequestRef={closeRequestRef}
     actions={<>
-      {expense.status === "pending" ? <Button variant="danger" onClick={onCancel}>撤回</Button> : null}
+      {expense.status === "pending" ? <>
+        <Button variant="danger" onClick={onCancel}>撤回</Button>
+        <Button variant="secondary" icon="edit" onClick={onEdit}>編輯</Button>
+      </> : null}
       <Button variant="secondary" onClick={() => requestClose(closeRequestRef, onClose)}>關閉</Button>
     </>}
   >
@@ -123,6 +127,7 @@ function ExpenseDetail({ expense, onClose, onCancel, closeRequestRef }: { expens
       {expense.invoiceNumber ? <DetailRow label="發票號碼"><span className="tabular-nums">{expense.invoiceNumber}</span></DetailRow> : null}
       {expense.sellerTaxId ? <DetailRow label="賣方統編"><span className="tabular-nums">{expense.sellerTaxId}</span></DetailRow> : null}
     </dl>
+    <ExpenseHistory expenseId={expense.id} />
   </Dialog>;
 }
 
@@ -148,7 +153,6 @@ export function HrExpenses() {
   return <Page className="grid gap-3 [&>*+*]:!mt-0">
     <PageHeader
       title="報帳"
-      description="先付了公司的錢，拍下發票送出；會計審核後會撥款，或跟月薪一起發。"
       actions={<Button tone="success" icon="plus" onClick={() => navigate("/expenses/new")}>新增報帳</Button>}
     />
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
@@ -164,6 +168,7 @@ export function HrExpenses() {
       onClose={() => setViewing(null)}
       // 先讓明細走完退場再開確認框；兩個 Dialog 同時疊著，焦點與背景遮罩都會亂。
       onCancel={() => requestClose(closeDetail, () => { setViewing(null); cancel.reset(); setCancelling(viewing); })}
+      onEdit={() => requestClose(closeDetail, () => { setViewing(null); navigate(`/expenses/${encodeURIComponent(viewing.id)}/edit`); })}
     /> : null}
     {cancelling ? <ConfirmDialog
       title="撤回這張報帳單？"
@@ -197,20 +202,35 @@ function BusyOverlay({ label }: { label: string }) {
 
 interface PendingReceipt { key: string; file: File; preview: string }
 
-export function HrExpenseForm() {
-  usePageTitle("新增報帳");
+/** 待審核的單才能改；從明細的「編輯」進來，資料從清單拿，不另外開一支讀單張的 API。 */
+export function HrExpenseEdit() {
+  const { id = "" } = useParams();
+  const query = useHrQuery<{ expenses: MyExpense[] }>("/me/expenses");
+  const expense = query.data?.expenses.find((item) => item.id === id);
+  if (query.isPending) return <FormPage><p className="text-muted">載入報帳…</p></FormPage>;
+  if (!expense || expense.status !== "pending") return <FormPage>
+    <FormPageHeader title="編輯報帳" returnTo="/expenses" backLabel="返回報帳" />
+    <Alert tone="warning">這張報帳單已經不是待審核，不能修改。</Alert>
+  </FormPage>;
+  return <HrExpenseForm editing={expense} />;
+}
+
+export function HrExpenseForm({ editing }: { editing?: MyExpense } = {}) {
+  usePageTitle(editing ? "編輯報帳" : "新增報帳");
   const navigate = useNavigate();
   const options = useHrQuery<ExpenseOptionsResponse>("/me/expense-options");
   const today = formatTaipeiDate(new Date());
   const earliest = earliestExpenseDate(today);
   // 每次打開表單一個識別碼：連按兩下、或網路斷掉重送，伺服器都只會留一張。
   const [clientRequestId] = useState(randomId);
-  const [categoryId, setCategoryId] = useState("");
-  const [spentOn, setSpentOn] = useState("");
-  const [amount, setAmount] = useState("");
-  const [invoiceNumber, setInvoiceNumber] = useState("");
-  const [sellerTaxId, setSellerTaxId] = useState("");
-  const [description, setDescription] = useState("");
+  const [categoryId, setCategoryId] = useState(editing?.categoryId ?? "");
+  const [spentOn, setSpentOn] = useState(editing?.spentOn ?? "");
+  const [amount, setAmount] = useState(editing ? String(editing.amountMinor / 100) : "");
+  const [invoiceNumber, setInvoiceNumber] = useState(editing?.invoiceNumber ?? "");
+  const [sellerTaxId, setSellerTaxId] = useState(editing?.sellerTaxId ?? "");
+  const [description, setDescription] = useState(editing?.description ?? "");
+  // 編輯時已經在伺服器上的照片：按移除只是記下來，存檔時才真的刪。
+  const [keptReceiptIds, setKeptReceiptIds] = useState<string[]>(editing?.receiptIds ?? []);
   const [receipts, setReceipts] = useState<PendingReceipt[]>([]);
   const [preparing, setPreparing] = useState(false);
   const [localError, setLocalError] = useState("");
@@ -231,7 +251,7 @@ export function HrExpenseForm() {
   async function addFiles(list: FileList | null) {
     if (!list?.length) return;
     setLocalError("");
-    const room = EXPENSE_RECEIPT_MAX_FILES - receipts.length;
+    const room = EXPENSE_RECEIPT_MAX_FILES - keptReceiptIds.length - receipts.length;
     const chosen = [...list].slice(0, room);
     if (list.length > room) setLocalError(`單據照片最多 ${EXPENSE_RECEIPT_MAX_FILES} 張，多的沒有加進來。`);
     setPreparing(true);
@@ -304,7 +324,7 @@ export function HrExpenseForm() {
     if (invoice && !INVOICE_NUMBER_PATTERN.test(invoice)) return "發票號碼應為兩個英文字母加八位數字，例如 AB12345678。";
     if (sellerTaxId.trim() && !SELLER_TAX_ID_PATTERN.test(sellerTaxId.trim())) return "賣方統編應為八位數字。";
     if (!description.trim()) return "請填寫用途。";
-    if (!invoice && !receipts.length) return "沒有發票號碼時，請附上收據照片。";
+    if (!invoice && !receipts.length && !keptReceiptIds.length) return "沒有發票號碼時，請附上收據照片。";
     return "";
   }
 
@@ -313,10 +333,16 @@ export function HrExpenseForm() {
     setLocalError(problem);
     if (problem) return;
     const formData = new FormData();
-    const values: Record<string, string> = { clientRequestId, categoryId, spentOn, amountDollars: amount, invoiceNumber, sellerTaxId, description, confirmDuplicate: String(confirmDuplicate) };
+    const values: Record<string, string> = { categoryId, spentOn, amountDollars: amount, invoiceNumber, sellerTaxId, description, confirmDuplicate: String(confirmDuplicate) };
     for (const [key, value] of Object.entries(values)) formData.set(key, value);
+    if (editing) {
+      formData.set("revision", String(editing.revision));
+      for (const receiptId of editing.receiptIds.filter((receiptId) => !keptReceiptIds.includes(receiptId))) formData.append("removeReceiptIds", receiptId);
+    } else {
+      formData.set("clientRequestId", clientRequestId);
+    }
     for (const receipt of receipts) formData.append("receipts", receipt.file, receipt.file.name);
-    save.mutate({ path: "/me/expenses", method: "POST", formData }, {
+    save.mutate({ path: editing ? `/me/expenses/${encodeURIComponent(editing.id)}/edit` : "/me/expenses", method: "POST", formData }, {
       onSuccess: () => navigate("/expenses", { replace: true }),
       onError: (error) => {
         if (error instanceof HrApiError && error.code === "duplicate_invoice") setDuplicateWarning(error.message);
@@ -326,10 +352,12 @@ export function HrExpenseForm() {
 
   const pending = save.isPending || preparing || scanning;
   const categoryOptions = (options.data?.categories ?? []).map((category) => ({ label: category.name, value: category.id }));
+  // 編輯時原本的類別可能已經停用、不在清單裡；照原類別存仍然可以，所以補回選項，不然下拉會是空白。
+  if (editing && !categoryOptions.some((option) => option.value === editing.categoryId)) categoryOptions.push({ label: editing.categoryName, value: editing.categoryId });
   const saveError = save.error && !(save.error instanceof HrApiError && save.error.code === "duplicate_invoice") ? save.error.message : "";
   return <FormPage>
     {scanning ? <BusyOverlay label="讀取發票中…" /> : preparing ? <BusyOverlay label="處理照片中…" /> : null}
-    <FormPageHeader title="新增報帳" description="送出後由會計審核，結果會顯示在報帳紀錄。" returnTo="/expenses" backLabel="返回報帳" />
+    <FormPageHeader title={editing ? "編輯報帳" : "新增報帳"} returnTo="/expenses" backLabel="返回報帳" />
     {options.error ? <Alert tone="danger">{options.error.message}</Alert> : null}
     <Panel className={FORM_PANEL}>
       <div className={FORM_FIELDS}>
@@ -361,13 +389,19 @@ export function HrExpenseForm() {
         {/* 有發票號碼時照片是補充資料；收據沒有號碼，照片是唯一的憑證，所以這時候才必填。 */}
         <Field label="單據照片" required={!invoiceNumber.trim()} hint={`最多 ${EXPENSE_RECEIPT_MAX_FILES} 張，可以拍照或從相簿選。收據（沒有發票號碼）一定要附；有發票號碼時選填。`}>
           <div className="flex flex-wrap gap-2">
+            {editing ? keptReceiptIds.map((receiptId, index) => <div key={receiptId} className="relative size-20">
+              <img src={receiptUrl(editing.id, receiptId)} alt={`第 ${index + 1} 張單據`} className="size-full rounded-[12px] object-cover outline outline-1 -outline-offset-1 outline-black/10" />
+              <button type="button" aria-label={`移除第 ${index + 1} 張單據`} disabled={pending} onClick={() => setKeptReceiptIds((current) => current.filter((other) => other !== receiptId))} className="absolute -top-2 -right-2 grid size-8 place-items-center rounded-full border-0 bg-ink text-canvas transition-[scale] duration-150 ease-out active:scale-96 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary">
+                <Icon name="close" className="size-4" />
+              </button>
+            </div>) : null}
             {receipts.map((receipt, index) => <div key={receipt.key} className="relative size-20">
-              <img src={receipt.preview} alt={`第 ${index + 1} 張單據`} className="size-full rounded-[12px] object-cover outline outline-1 -outline-offset-1 outline-black/10" />
-              <button type="button" aria-label={`移除第 ${index + 1} 張單據`} disabled={pending} onClick={() => removeReceipt(receipt.key)} className="absolute -top-2 -right-2 grid size-8 place-items-center rounded-full border-0 bg-ink text-canvas transition-[scale] duration-150 ease-out active:scale-96 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary">
+              <img src={receipt.preview} alt={`第 ${keptReceiptIds.length + index + 1} 張單據`} className="size-full rounded-[12px] object-cover outline outline-1 -outline-offset-1 outline-black/10" />
+              <button type="button" aria-label={`移除第 ${keptReceiptIds.length + index + 1} 張單據`} disabled={pending} onClick={() => removeReceipt(receipt.key)} className="absolute -top-2 -right-2 grid size-8 place-items-center rounded-full border-0 bg-ink text-canvas transition-[scale] duration-150 ease-out active:scale-96 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary">
                 <Icon name="close" className="size-4" />
               </button>
             </div>)}
-            {receipts.length < EXPENSE_RECEIPT_MAX_FILES ? <button type="button" disabled={pending} onClick={() => input.current?.click()} className="grid size-20 place-items-center content-center gap-1 rounded-[12px] border border-dashed border-line bg-canvas text-[12px] text-muted transition-[background-color,scale] duration-150 ease-out hover:bg-brand/4 active:scale-96 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary">
+            {keptReceiptIds.length + receipts.length < EXPENSE_RECEIPT_MAX_FILES ? <button type="button" disabled={pending} onClick={() => input.current?.click()} className="grid size-20 place-items-center content-center gap-1 rounded-[12px] border border-dashed border-line bg-canvas text-[12px] text-muted transition-[background-color,scale] duration-150 ease-out hover:bg-brand/4 active:scale-96 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary">
               <Icon name="camera" className="size-6" />
               拍照或選圖
             </button> : null}
@@ -380,7 +414,7 @@ export function HrExpenseForm() {
       {saveError ? <Alert tone="danger">{saveError}</Alert> : null}
       <FormActions>
         <Button size="lg" variant="secondary" disabled={save.isPending} onClick={() => navigate("/expenses")}>取消</Button>
-        <Button size="lg" tone="success" loading={save.isPending} loadingLabel="送出中…" disabled={preparing} onClick={() => submit(Boolean(duplicateWarning))}>{duplicateWarning ? "確定再報一次" : "送出報帳"}</Button>
+        <Button size="lg" tone="success" loading={save.isPending} loadingLabel={editing ? "儲存中…" : "送出中…"} disabled={preparing} onClick={() => submit(Boolean(duplicateWarning))}>{duplicateWarning ? (editing ? "確定儲存" : "確定再報一次") : editing ? "儲存修改" : "送出報帳"}</Button>
       </FormActions>
     </Panel>
   </FormPage>;

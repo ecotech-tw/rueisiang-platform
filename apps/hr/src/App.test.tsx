@@ -13,7 +13,7 @@ vi.mock("./routes/hr/Clock.js", () => ({ HrClock: () => <p>打卡入口</p>, HrC
 vi.mock("./routes/hr/Forms.js", () => ({ HrForms: () => <p>表單申請入口</p>, HrClockCorrectionForm: () => null, HrLeaveForm: () => null, HrOvertimeForm: () => null }));
 vi.mock("./routes/hr/Payroll.js", () => ({ HrPayrollHistory: () => <p>薪資袋入口</p>, HrPayslipDetail: () => null }));
 vi.mock("./routes/hr/Notifications.js", () => ({ HrNotifications: () => <p>通知入口</p> }));
-vi.mock("./routes/hr/Expenses.js", () => ({ HrExpenses: () => <p>報帳入口</p>, HrExpenseForm: () => <p>新增報帳入口</p> }));
+vi.mock("./routes/hr/Expenses.js", () => ({ HrExpenses: () => <p>報帳入口</p>, HrExpenseForm: () => <p>新增報帳入口</p>, HrExpenseEdit: () => <p>編輯報帳入口</p> }));
 vi.mock("./routes/Profile.js", () => ({ HrProfile: () => <p>個人中心入口</p> }));
 vi.mock("./routes/hr/HrLayout.js", async () => {
   const { Outlet } = await import("react-router");
@@ -153,7 +153,7 @@ describe("LIFF 與一般 HR 登入流程", () => {
     await expectText("薪資袋入口");
   });
 
-  it.each([["/expenses", "報帳入口"], ["/expenses/new", "新增報帳入口"], ["/notifications", "通知入口"]])("支援人員可以進入報帳與通知 %s", async (path, text) => {
+  it.each([["/expenses", "報帳入口"], ["/expenses/new", "新增報帳入口"], ["/expenses/expense-1/edit", "編輯報帳入口"], ["/notifications", "通知入口"]])("支援人員可以進入報帳與通知 %s", async (path, text) => {
     supportWorker = true;
     await renderApp(path);
     await expectText(text);

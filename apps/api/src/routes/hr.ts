@@ -1,6 +1,6 @@
 import { DEVICE_SESSION_COOKIE, SESSION_COOKIE, can, clearCookie, readCookie, verifySession } from "@rueisiang/auth";
 import {
-  AccountingError, cancelMyExpense, listExpenseFormOptions, listMyExpenses, resolveExpenseSubmitter,
+  AccountingError, cancelMyExpense, isMyExpense, listExpenseEditHistory, listExpenseFormOptions, listMyExpenses, resolveExpenseSubmitter,
   HrError, HrInsuranceRateError, HrRfidError, HR_ATTENDANCE_LOCATION_PAGE_SIZES, HR_EMPLOYEE_PAGE_SIZES, archiveHrEmployment, assignHrEmployee, beginHrRfidEnrollment, cancelHrRfidEnrollment, checkHrClockLocation, confirmHrRfidEnrollment, createHrAssignment, createHrAttendanceLocation, createHrAttendanceLocationAssignment, createHrClockEvent,
   cancelHrFormRequest, createHrCompensationVersion, deleteHrFormRequestDraft, voidHrCompensationVersion, createHrFormRequest, createHrInsuranceVersions, voidHrInsuranceVersions, endHrAssignment, endHrAttendanceLocationAssignment, getHrAttendanceLocation, getHrClockCalendar, getHrClockMapCenters, getHrOverview, getHrPerson,
   createHrInsuranceContributionRule, createHrManualInsuranceRateTable, deleteHrInsuranceRateTable, estimateHrInsuranceContributions, fetchHrInsuranceBrackets, getHrClockStatus, getHrFormRequest, getHrSelf, listHrInsuranceContributionRules, listHrInsuranceRateTables, syncHrInsuranceRateTables, updateHrInsuranceRateTable, activateHrInsuranceRateTable, setHrAttendanceLocationPrimary, HR_ATTENDANCE_EVENT_PAGE_SIZES, listHrAttendanceEvents,
@@ -24,6 +24,7 @@ import {
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { employeePhotoBodyLimit, readEmployeePhoto, uploadEmployeePhoto, removeEmployeePhoto } from "../employee-photo-storage.js";
+import { editMyExpense } from "../expense-edits.js";
 import { expenseBodyLimit, readMyExpenseReceipt, submitMyExpense } from "../expense-receipts.js";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
@@ -602,8 +603,8 @@ export const hr = new Hono<AppEnv>()
     const path = c.req.path.replace(/^\/api\/hr/, "");
     const logout = path === "/me/device" && c.req.method === "DELETE";
     if (worker.archivedAt !== null && !logout) throw new HTTPException(403, { message: "支援人員已停用，無法使用本人功能。" });
-    const allowed = c.req.method === "GET" && /^\/me\/(session|clock-events|attendance-calendar|attendance-map(?:\/locations)?|payroll-history(?:\/[^/]+\/[^/]+)?|my-schedules|expense-options|expenses|expenses\/[^/]+\/receipts\/[^/]+|notifications)$/.test(path)
-      || c.req.method === "POST" && (["/me/device", "/me/clock-events", "/me/attendance-location/check", "/me/expenses", "/me/notifications/read-all"].includes(path) || /^\/me\/(expenses\/[^/]+\/cancel|notifications\/[^/]+\/read)$/.test(path))
+    const allowed = c.req.method === "GET" && /^\/me\/(session|clock-events|attendance-calendar|attendance-map(?:\/locations)?|payroll-history(?:\/[^/]+\/[^/]+)?|my-schedules|expense-options|expenses|expenses\/[^/]+\/(?:receipts\/[^/]+|history)|notifications)$/.test(path)
+      || c.req.method === "POST" && (["/me/device", "/me/clock-events", "/me/attendance-location/check", "/me/expenses", "/me/notifications/read-all"].includes(path) || /^\/me\/(expenses\/[^/]+\/(?:cancel|edit)|notifications\/[^/]+\/read)$/.test(path))
       || c.req.method === "DELETE" && ["/me/device", "/me/liff-link"].includes(path);
     if (!allowed) throw new HTTPException(403, { message: "支援人員目前僅開放打卡、已發放薪資袋、報帳與報帳通知。" });
     return next();
@@ -735,6 +736,12 @@ export const hr = new Hono<AppEnv>()
     return c.json(await cancelMyExpense(c.get("db"), c.get("user").id, c.req.param("id"), revision));
   })
   .get("/me/expenses/:id/receipts/:receiptId", async (c) => readMyExpenseReceipt(c, c.req.param("id"), c.req.param("receiptId")))
+  // 待審核時送件人可以改自己的單；修改紀錄只給本人看（會計在 /api/accounting 看）。
+  .post("/me/expenses/:id/edit", expenseBodyLimit, async (c) => editMyExpense(c, c.req.param("id")))
+  .get("/me/expenses/:id/history", async (c) => {
+    if (!await isMyExpense(c.get("db"), c.get("user").id, c.req.param("id"))) throw new HTTPException(404, { message: "找不到這張報帳單。" });
+    return c.json({ history: await listExpenseEditHistory(c.get("db"), c.req.param("id")) });
+  })
   .get("/me/photo", async (c) => {
     const employee = await requireHrSelfEmployment(c.get("db"), c.get("user").id);
     return readEmployeePhoto(c, employee.employmentId);
