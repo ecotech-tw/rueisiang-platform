@@ -6,7 +6,7 @@ WORKDIR /app
 
 COPY tools/cyberbiz-reports/requirements-scrapling-probe.txt /tmp/requirements-scrapling-probe.txt
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-pip ca-certificates \
+    && apt-get install -y --no-install-recommends python3 python3-pip ca-certificates libatomic1 \
     && python3 -m pip install --break-system-packages --no-cache-dir \
       msoffcrypto-tool -r /tmp/requirements-scrapling-probe.txt \
     && scrapling install \
