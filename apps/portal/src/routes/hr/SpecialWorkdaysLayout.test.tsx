@@ -33,6 +33,7 @@ beforeEach(() => {
   vi.stubGlobal("fetch", async (input: RequestInfo | URL) => {
     if (String(input).endsWith("/special-workdays/rules")) return Response.json({ rules: ruleRows });
     if (String(input).endsWith("/special-workdays/assignments")) return Response.json({ assignments: assignmentRows });
+    if (String(input).endsWith("/special-workdays/rules/rule-1/status")) return Response.json({ error: "停用規則失敗，請稍後再試。" }, { status: 500 });
     throw new Error(`未預期的請求：${String(input)}`);
   });
   client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity }, mutations: { retry: false } } });
@@ -78,6 +79,22 @@ it("預設只顯示撐滿剩餘高度的套用紀錄，規則檢視也獨立使�
   expect(container.textContent).not.toContain("王小明");
   expect(button("套用到人員日期").disabled).toBe(false);
   expect(button("新增規則")).toBeDefined();
+});
+
+it("操作失敗後切回紀錄仍保留表格保底，頁面捲動不依賴視窗高度門檻", async () => {
+  await mount();
+  await switchView("規則管理");
+  await act(async () => button("停用").click());
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("停用規則失敗");
+  for (const view of ["日期套用紀錄", "規則管理"]) {
+    await switchView(view);
+    expect(container.querySelector('[data-page="fills"]')?.className).toContain("min-[760px]:overflow-y-auto");
+    expect(container.querySelector("[data-grows]")?.className).toContain(":min-h-min");
+    const table = container.querySelector("[data-table-scroll]");
+    expect(table?.className).toContain("min-[760px]:[contain:size]");
+    expect(table?.className).toContain(":min-h-[200px]");
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain("停用規則失敗");
+  }
 });
 
 it("切換到規則管理再回來，日期篩選與空結果仍保留", async () => {
