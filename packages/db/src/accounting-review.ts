@@ -82,6 +82,8 @@ export interface ReviewExpense {
   receiptIds: string[];
   /** 同一個發票號碼還出現在幾張沒撤回的報帳單上；送件時只提醒、不擋，所以要在這裡讓會計看得到。 */
   duplicateInvoiceCount: number;
+  /** 目前有沒有從零用金付出去的錢（撥款減退回 > 0）。退回待撥款前提醒：不是零用金付的，退回不會退錢，之後再標記撥款會從零用金再扣一次。 */
+  paidFromPettyCash: boolean;
 }
 
 const reviewer = sql<string | null>`(SELECT coalesce(nullif(reviewer_user.display_name, ''), reviewer_user.email) FROM users AS reviewer_user WHERE reviewer_user.id = accounting_expenses.reviewer_user_id)`;
@@ -112,6 +114,7 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     revision: accountingExpenses.revision,
     createdAt: accountingExpenses.createdAt,
     duplicateInvoiceCount: duplicateCount,
+    paidFromPettyCash: sql<number>`((SELECT coalesce(sum(petty.amount_minor), 0) FROM accounting_petty_cash_entries AS petty WHERE petty.expense_id = accounting_expenses.id) < 0)`,
   }).from(accountingExpenses)
     .innerJoin(accountingExpenseCategories, eq(accountingExpenseCategories.id, accountingExpenses.categoryId))
     .innerJoin(users, eq(users.id, accountingExpenses.submitterUserId))
@@ -131,6 +134,7 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     ...row,
     employeeNumber: row.employeeNumber ?? "",
     duplicateInvoiceCount: Number(row.duplicateInvoiceCount),
+    paidFromPettyCash: Boolean(row.paidFromPettyCash),
     receiptIds: receipts.filter((receipt) => receipt.expenseId === row.id).map((receipt) => receipt.id),
   }));
 }

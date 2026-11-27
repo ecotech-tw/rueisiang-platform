@@ -196,6 +196,19 @@ describe("狀態退回", () => {
     expect(notifications()).toEqual(["報帳已撥款", "報帳已撥款"]);
   });
 
+  it("報帳清單標出有沒有從零用金付；餘額可以單獨讀", async () => {
+    await topUp(1000);
+    const claim = await submit("employee");
+    await approve(claim);
+    const listed = await (await api("/accounting/expenses?status=paid", "accountant")).json() as { expenses: Array<{ id: string; paidFromPettyCash: boolean }> };
+    expect(listed.expenses.find((expense) => expense.id === claim)).toMatchObject({ paidFromPettyCash: true });
+    expect(await (await api("/accounting/petty-cash/balance", "auditor")).json()).toEqual({ balanceMinor: 65000 });
+    expect((await api("/accounting/petty-cash/balance", "outsider")).status).toBe(403);
+    await api(`/accounting/expenses/${claim}/revert-payment`, "accountant", "POST", { revision: 2 });
+    const reverted = await (await api("/accounting/expenses?status=approved", "accountant")).json() as { expenses: Array<{ id: string; paidFromPettyCash: boolean }> };
+    expect(reverted.expenses.find((expense) => expense.id === claim)).toMatchObject({ paidFromPettyCash: false });
+  });
+
   it("零用金上線前就付掉的單，退回只改狀態、不退錢", async () => {
     const id = await submit("employee");
     d1.sqlite.prepare("UPDATE accounting_expenses SET status = 'paid', payout_method = 'direct', paid_at = '2026-01-01 00:00:00', revision = 3 WHERE id = ?").run(id);

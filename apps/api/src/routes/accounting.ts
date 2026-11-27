@@ -6,6 +6,7 @@ import {
   approveExpense,
   correctPettyCashTopUp,
   createExpenseCategory,
+  getPettyCashBalance,
   listCompanyExpenseOptions,
   listExpenseCategories,
   listExpensesForReview,
@@ -131,6 +132,8 @@ export const accounting = new Hono<AppEnv>()
     return c.json(await unapproveExpense(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
   })
   .get("/petty-cash", requirePermission("accounting:expense:read"), async (c) => c.json(await listPettyCash(c.get("db"))))
+  // 報帳明細只要顯示餘額，不必讀整份紀錄。
+  .get("/petty-cash/balance", requirePermission("accounting:expense:read"), async (c) => c.json({ balanceMinor: await getPettyCashBalance(c.get("db")) }))
   .post("/petty-cash", requirePermission("accounting:petty-cash:write"), async (c) => {
     const input = await body(c);
     return c.json(await topUpPettyCash(c.get("db"), { amountDollars: typeof input.amountDollars === "number" ? input.amountDollars : Number.NaN, note: text(input, "note") }, c.get("user")), 201);

@@ -7,7 +7,7 @@ import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, Field, Page, PageHeader, PageTabControl, Panel, SegmentedControl, StatusBadge, Textarea } from "../../ui/index.js";
-import { receiptUrl, useAccountingQuery, useAccountingWrite, type ApproveResult, type ExpenseStatus, type ExpenseStatusFilter, type PettyCashLedger, type ReviewExpense } from "./api.js";
+import { receiptUrl, useAccountingQuery, useAccountingWrite, type ApproveResult, type ExpenseStatus, type ExpenseStatusFilter, type ReviewExpense } from "./api.js";
 
 /*
  * 會計看報帳的唯一一頁：審核、撥款、查紀錄都在這裡，用狀態分頁切，不另開頁面。
@@ -66,7 +66,7 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose }: { expense: Review
     { path: `/expenses/${encodeURIComponent(expense.id)}/${action}`, method: "POST", values: { revision: expense.revision, ...values } },
     { onSuccess: (result) => {
       // 直接撥款但零用金不夠：單子停在待撥款，要讓會計知道還沒付出去。
-      if (result.pettyCashShort) toast.show("零用金餘額不足，已移到待撥款。", "info");
+      if (result.pettyCashShort) toast.show("零用金餘額不足，已移到待撥款。", "warning");
       setReverting(null);
       requestClose(closeRef, onClose);
     } },
@@ -78,7 +78,7 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose }: { expense: Review
   const rejectable = reviewable && (expense.status === "pending" || expense.status === "approved");
   // 直接撥款會從零用金扣：核准與標記撥款前讓會計看到餘額。
   const usesPettyCash = reviewable && (expense.status === "pending" || (expense.status === "approved" && expense.payoutMethod === "direct"));
-  const pettyCash = useAccountingQuery<PettyCashLedger>("/petty-cash", usesPettyCash);
+  const pettyCash = useAccountingQuery<{ balanceMinor: number }>("/petty-cash/balance", usesPettyCash);
   const balance = pettyCash.data?.balanceMinor;
   const balanceText = balance === undefined ? null
     : `零用金餘額 ${dollars(balance)}${balance >= expense.amountMinor ? "" : "，不夠付這張"}。`;
@@ -142,7 +142,8 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose }: { expense: Review
   >
     <p>{reverting === "unapprove"
       ? (expense.payoutMethod === "payroll" ? "薪資裡的代墊款會一起拿掉。員工不會收到通知。" : "員工不會收到通知。")
-      : "從零用金付的錢會退回零用金。員工不會收到通知。"}</p>
+      : expense.paidFromPettyCash ? "從零用金付的錢會退回零用金。員工不會收到通知。"
+        : "這筆當初不是用零用金付的，退回不會退錢；之後再標記已撥款，會從零用金再扣一次。員工不會收到通知。"}</p>
   </ConfirmDialog> : null}
   </>;
 }

@@ -27,6 +27,7 @@ export interface ReviewExpense {
   createdAt: string;
   receiptIds: string[];
   duplicateInvoiceCount: number;
+  paidFromPettyCash: boolean;
 }
 
 export interface ExpenseCategory { id: string; name: string; sortOrder: number; archived: boolean; expenseCount: number }
