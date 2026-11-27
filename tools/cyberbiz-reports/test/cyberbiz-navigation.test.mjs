@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dismissOverlays, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME } from "../lib/cyberbiz.mjs";
+import { dismissOverlays, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore } from "../lib/cyberbiz.mjs";
 
 test("商品銷售報表連結名稱允許後台插入空白或換行", () => {
   assert.equal(PRODUCT_SALES_REPORT_LINK_NAME.test("商品銷售\n總表"), true);
@@ -39,6 +39,17 @@ test("CYBERBIZ 導航逾時會指出主文件回應狀態，不記錄頁面內�
     navigateToAdmin(pageWithNavigationTimeout(undefined), "https://rueisiang.cyberbiz.co"),
     (error) => error.code === "CYBERBIZ_NAVIGATION_TIMEOUT"
       && error.message.includes("尚未收到主文件回應"),
+  );
+});
+
+test("resolveStore 的管理頁導航也使用逾時診斷", async () => {
+  await assert.rejects(
+    resolveStore(pageWithNavigationTimeout(503), {
+      origin: "https://rueisiang.cyberbiz.co",
+      storeName: "測試店",
+    }),
+    (error) => error.code === "CYBERBIZ_NAVIGATION_TIMEOUT"
+      && error.message.includes("主文件 HTTP 503"),
   );
 });
 
