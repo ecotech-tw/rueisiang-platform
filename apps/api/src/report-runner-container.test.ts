@@ -234,6 +234,55 @@ describe("ReportRunner Durable Object", () => {
     expect(JSON.stringify([...durable.values.values()])).not.toContain("gmail-refresh-token");
   });
 
+  it("登入探測只把 CYBERBIZ 帳密短暫注入 Container，不持久化或傳入 Gmail token", async () => {
+    const durable = fakeStorage();
+    const sentPayloads: Record<string, unknown>[] = [];
+    let remoteStatus = "running";
+    const runner = new ReportRunner({ storage: durable.storage } as never, {
+      REPORT_RUNNER_TOKEN: RUNNER_TOKEN,
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
+      GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "gmail-refresh-token",
+      DB: {},
+      containerFetch: async (request: Request) => {
+        if (request.method === "POST") sentPayloads.push(await request.json() as Record<string, unknown>);
+        return Response.json({ requestId: "cyberbiz-probe-123456", status: remoteStatus }, { status: 202 });
+      },
+    } as never);
+    const requestId = "cyberbiz-probe-123456";
+    const payload = {
+      kind: "cyberbiz-login-probe",
+      requestId,
+      storeName: "中和環球",
+    };
+
+    const accepted = await runner.fetch(runnerRequest("/jobs", "POST", payload, true));
+    const duplicate = await runner.fetch(runnerRequest("/jobs", "POST", { ...payload, requestId: "cyberbiz-probe-duplicate-123" }, true));
+    expect((await accepted.json() as { requestId: string }).requestId).toBe(requestId);
+    expect((await duplicate.json() as { requestId: string }).requestId).toBe(requestId);
+    expect([...durable.values.keys()].filter((key) => key.startsWith("queue:"))).toHaveLength(1);
+
+    const queued = [...durable.values.entries()].find(([key]) => key.startsWith("queue:"))?.[1] as { payload?: Record<string, unknown> } | undefined;
+    expect(queued?.payload).not.toHaveProperty("credentials");
+
+    await runner.processQueuedJobs();
+    expect(sentPayloads[0]?.credentials).toEqual({
+      cyberbizUsername: "cyberbiz-user",
+      cyberbizPassword: "cyberbiz-password",
+    });
+    expect(JSON.stringify([...durable.values.values()])).not.toContain("cyberbiz-password");
+    expect(JSON.stringify([...durable.values.values()])).not.toContain("gmail-refresh-token");
+
+    remoteStatus = "succeeded";
+    await runner.processQueuedJobs();
+    expect(updateReportRun).not.toHaveBeenCalled();
+    expect(durable.values.get(`job:${requestId}`)).toMatchObject({ status: "succeeded", kind: "cyberbiz-login-probe" });
+
+    const rateLimited = await runner.fetch(runnerRequest("/jobs", "POST", { ...payload, requestId: "cyberbiz-probe-after-cooldown" }, true));
+    expect(rateLimited.status).toBe(429);
+    expect(await rateLimited.json()).toMatchObject({ error: "登入測試冷卻中，請稍後再試。" });
+  });
+
   it("重疊的排程回呼不會重複啟動同一筆工作", async () => {
     const durable = fakeStorage();
     let containerCalls = 0;

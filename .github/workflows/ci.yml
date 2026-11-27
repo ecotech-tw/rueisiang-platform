@@ -79,6 +79,7 @@ jobs:
         run: |
           npm ci
           node selftest.mjs
+          python3 -m unittest discover -s test -p 'test_scrapling_login_probe.py'
 
       - name: Report Runner 錯誤診斷測試
         run: node --test tools/report-runner/*.test.mjs

@@ -3,18 +3,26 @@ import type { Env } from "./env.js";
 const SHARED_MODE_HEADER = "x-report-runner-mode";
 const CONTAINER_REQUEST_PREFIX = "cf-";
 
-export interface CyberbizRunnerPayload {
-  kind: "cyberbiz-payout" | "cyberbiz-sales";
-  requestId: string;
-  start: string;
-  end: string;
-  stores: Array<{
-    scopeId: string;
-    name: string;
-    driveFolderUrl: string;
-    driveFolderName: string;
-  }>;
+export interface CyberbizRunnerStore {
+  scopeId: string;
+  name: string;
+  driveFolderUrl: string;
+  driveFolderName: string;
 }
+
+export type CyberbizRunnerPayload =
+  | {
+    kind: "cyberbiz-payout" | "cyberbiz-sales";
+    requestId: string;
+    start: string;
+    end: string;
+    stores: CyberbizRunnerStore[];
+  }
+  | {
+    kind: "cyberbiz-login-probe";
+    requestId: string;
+    storeName: string;
+  };
 
 export interface ReportRunnerJob {
   requestId: string;
@@ -31,11 +39,18 @@ export interface ReportRunnerJob {
     salesRows?: number;
     payoutRows?: number;
     reportMarkdown?: string;
+    probeOutcome?: string;
+    challengeResolutionConfirmed?: boolean;
+    probeSummary?: string;
   } | null;
 }
 
 export function usesContainerRunner(env: Env): boolean {
   return env.CYBERBIZ_REPORT_RUNNER_MODE === "container";
+}
+
+export function containerLoginProbeConfigured(env: Env): boolean {
+  return Boolean(env.REPORT_RUNNER && env.REPORT_RUNNER_TOKEN && env.CYBERBIZ_USERNAME && env.CYBERBIZ_PASSWORD);
 }
 
 export function containerRunnerConfigured(env: Env): boolean {
@@ -135,7 +150,9 @@ export function containerJobStatus(job: ReportRunnerJob | null, requestId = ""):
       ...(typeof job.error === "string" && job.error ? { error: job.error } : {}),
       ...(typeof job.result?.reportMarkdown === "string" && job.result.reportMarkdown
         ? { reportMarkdown: job.result.reportMarkdown }
-        : {}),
+        : typeof job.result?.probeSummary === "string" && job.result.probeSummary
+          ? { reportMarkdown: job.result.probeSummary }
+          : {}),
     }],
     steps,
   };

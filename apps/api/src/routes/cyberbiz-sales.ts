@@ -8,6 +8,7 @@ import { cyberbizSalesGithub } from "../cyberbiz-sales/github.js";
 import { runnerStores } from "../cyberbiz-scope.js";
 import {
   containerJobStatus,
+  containerLoginProbeConfigured,
   containerRunnerConfigured,
   cyberbizRunnerConfigured,
   isContainerRequestId,
@@ -68,6 +69,26 @@ export const cyberbizSales = new Hono<AppEnv>()
       latestRequestId: runs.find((run) => isContainerRequestId(run.requestId) === usesContainerRunner(c.env))?.requestId ?? null,
       runs,
     });
+  })
+  .post("/login-probe", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
+    if (!usesContainerRunner(c.env) || !containerLoginProbeConfigured(c.env)) {
+      throw new HTTPException(503, { message: "登入測試僅能在已設定 CYBERBIZ 憑證的 Container Runner 執行。" });
+    }
+    const testStore = (await listPayoutStores(c.get("db"), { enabledOnly: true }))
+      .find((store) => store.name === "中和環球");
+    if (!testStore) throw new HTTPException(404, { message: "找不到啟用中的測試店別「中和環球」。" });
+    const requestId = newContainerRequestId();
+    const job = await submitContainerJob(c.env, {
+      kind: "cyberbiz-login-probe",
+      requestId,
+      storeName: testStore.name,
+    }).catch((error: unknown) => {
+      if (error instanceof Error && error.message === "登入測試冷卻中，請稍後再試。") {
+        throw new HTTPException(429, { message: error.message });
+      }
+      throw error;
+    });
+    return c.json({ requestId: job.requestId, job, store: testStore.name }, 202);
   })
   .post("/run", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
     const github = cyberbizSalesGithub(c.env);

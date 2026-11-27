@@ -10,6 +10,8 @@ const JOB_PREFIX = "job:";
 const QUEUE_PREFIX = "queue:";
 const QUEUE_CALLBACK = "processQueuedJobs";
 const MAX_QUEUED_JOBS = 20;
+const LOGIN_PROBE_LAST_STARTED_KEY = "report-runner:cyberbiz-login-probe-last-started-at";
+const LOGIN_PROBE_COOLDOWN_MS = 5 * 60_000;
 const MAX_ACTIVE_POLL_RETRIES = 12;
 const MAX_ACTIVE_JOB_MS = 60 * 60_000;
 const MAX_QUEUE_AGE_MS = 24 * 60 * 60_000;
@@ -18,6 +20,7 @@ const POLL_INTERVAL_MS = 10_000;
 
 interface RunnerJob {
   requestId: string;
+  kind?: string;
   status: string;
   error?: string;
   result?: unknown;
@@ -178,20 +181,32 @@ export class ReportRunner extends Container<Env> {
         if (isTerminal(existing.status)) return { kind: "existing" as const, job: existing };
         const existingItem = await transaction.get<QueueItem>(queueKey);
         if (existingItem) return { kind: "existing" as const, job: existing };
-        const requeued: RunnerJob = { ...existing, status: "queued", updatedAtMs: queuedAt };
+        const requeued: RunnerJob = { ...existing, kind: item.payload.kind as string, status: "queued", updatedAtMs: queuedAt };
         await transaction.put(jobKey, requeued);
         await transaction.put(queueKey, item);
         return { kind: "existing" as const, job: requeued };
       }
+      if (body.kind === "cyberbiz-login-probe") {
+        const jobs = await transaction.list<RunnerJob>({ prefix: JOB_PREFIX });
+        const inFlightProbe = [...jobs.values()].find((job) => job.kind === body.kind && !isTerminal(job.status));
+        if (inFlightProbe) return { kind: "existing" as const, job: inFlightProbe };
+        const lastStartedAt = await transaction.get<number>(LOGIN_PROBE_LAST_STARTED_KEY);
+        if (Number.isFinite(lastStartedAt) && queuedAt - Number(lastStartedAt) < LOGIN_PROBE_COOLDOWN_MS) {
+          return { kind: "cooldown" as const };
+        }
+      }
       const queued = await transaction.list<QueueItem>({ prefix: QUEUE_PREFIX });
       if (queued.size >= MAX_QUEUED_JOBS) return { kind: "full" as const };
-      const created: RunnerJob = { requestId, status: "queued", error: "", queuedAt, updatedAtMs: queuedAt };
+      const created: RunnerJob = { requestId, kind: body.kind as string | undefined, status: "queued", error: "", queuedAt, updatedAtMs: queuedAt };
       await transaction.put(jobKey, created);
       await transaction.put(queueKey, item);
       return { kind: "created" as const, job: created };
     });
     if (outcome.kind === "full") {
       return Response.json({ message: "報表執行佇列已滿，請稍後再試。" }, { status: 503 });
+    }
+    if (outcome.kind === "cooldown") {
+      return Response.json({ error: "登入測試冷卻中，請稍後再試。" }, { status: 429 });
     }
     if (isTerminal(outcome.job.status)) return Response.json(outcome.job, { status: 202 });
 
@@ -219,14 +234,18 @@ export class ReportRunner extends Container<Env> {
   private async startQueuedJob(queueKey: string, item: QueueItem, active: ActiveJob): Promise<void> {
     try {
       await this.startAndWaitForPorts();
-      const isCyberbizJob = item.payload.kind === "cyberbiz-payout" || item.payload.kind === "cyberbiz-sales";
-      const containerPayload = isCyberbizJob
+      const isCyberbizReport = item.payload.kind === "cyberbiz-payout" || item.payload.kind === "cyberbiz-sales";
+      const isCyberbizLoginProbe = item.payload.kind === "cyberbiz-login-probe";
+      if (isCyberbizLoginProbe) {
+        await this.durableState.storage.put(LOGIN_PROBE_LAST_STARTED_KEY, Date.now());
+      }
+      const containerPayload = isCyberbizReport || isCyberbizLoginProbe
         ? {
           ...item.payload,
           credentials: {
             cyberbizUsername: this.env.CYBERBIZ_USERNAME ?? "",
             cyberbizPassword: this.env.CYBERBIZ_PASSWORD ?? "",
-            gmailRefreshToken: this.env.GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN ?? "",
+            ...(isCyberbizReport ? { gmailRefreshToken: this.env.GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN ?? "" } : {}),
           },
         }
         : item.payload;
@@ -248,10 +267,10 @@ export class ReportRunner extends Container<Env> {
 
       const job = await response.json() as RunnerJob;
       const running: ActiveJob = { ...active, phase: "running" };
-      const storedJob = { ...job, requestId: item.requestId, updatedAtMs: Date.now() };
+      const storedJob = { ...job, requestId: item.requestId, kind: item.payload.kind as string | undefined, updatedAtMs: Date.now() };
       await this.durableState.storage.put(ACTIVE_JOB_KEY, running);
       await this.durableState.storage.put(`${JOB_PREFIX}${item.requestId}`, storedJob);
-      await this.persistRunningSafely(item.requestId);
+      await this.persistRunningSafely(item.requestId, item.payload.kind as string | undefined);
       if (isTerminal(storedJob.status)) {
         await this.finishTerminalJob(item.requestId, storedJob);
       } else {
@@ -306,12 +325,12 @@ export class ReportRunner extends Container<Env> {
       if (!response.ok) throw new Error(`報表 Container 狀態查詢失敗（HTTP ${response.status}）。`);
 
       const job = await response.json() as RunnerJob;
-      const stored = { ...job, requestId, updatedAtMs: Date.now() };
+      const stored = { ...job, requestId, kind: item.payload.kind as string | undefined, updatedAtMs: Date.now() };
       await this.durableState.storage.put(`${JOB_PREFIX}${requestId}`, stored);
       if (isTerminal(stored.status)) {
         await this.finishTerminalJob(requestId, stored);
       } else {
-        await this.persistRunningSafely(requestId);
+        await this.persistRunningSafely(requestId, item.payload.kind as string | undefined);
         await this.durableState.storage.put(ACTIVE_JOB_KEY, { ...active, attempts: 0 });
         await this.scheduleQueueProcessing(POLL_INTERVAL_MS);
       }
@@ -332,7 +351,7 @@ export class ReportRunner extends Container<Env> {
     await this.durableState.storage.put(`${JOB_PREFIX}${requestId}`, stored);
     if (stored.status === "failed") await this.cleanupQueuedSource(requestId);
     try {
-      await this.persistTerminal(requestId, stored);
+      if (stored.kind !== "cyberbiz-login-probe") await this.persistTerminal(requestId, stored);
     } catch (error) {
       const active = await this.durableState.storage.get<ActiveJob>(ACTIVE_JOB_KEY);
       console.error("report runner terminal persistence failed", { errorName: error instanceof Error ? error.name : "unknown" });
@@ -390,6 +409,7 @@ export class ReportRunner extends Container<Env> {
     await this.durableState.storage.put(queueKey, { ...item, attempts, retryAt });
     await this.durableState.storage.put(`${JOB_PREFIX}${item.requestId}`, {
       requestId: item.requestId,
+      kind: item.payload.kind as string | undefined,
       status: "queued",
       error: "",
       queuedAt: item.queuedAt,
@@ -409,8 +429,8 @@ export class ReportRunner extends Container<Env> {
     await this.schedule(new Date(Date.now() + Math.max(0, delayMs)), QUEUE_CALLBACK);
   }
 
-  private async persistRunningSafely(requestId: string): Promise<void> {
-    if (!this.env.DB) return;
+  private async persistRunningSafely(requestId: string, kind?: string): Promise<void> {
+    if (kind === "cyberbiz-login-probe" || !this.env.DB) return;
     try {
       await updateReportRun(createDatabase(this.env.DB), { requestId, status: "running" });
     } catch (error) {
