@@ -162,7 +162,10 @@ test("Cloudflare success widget 會續等登入結果，不再誤報沒有 check
     url: () => "https://example.cyberbiz.co/user/sign_in",
     waitForURL: async () => { waitForUrlCount += 1; },
     waitForTimeout: async () => { throw new Error("停止已完成 challenge 的背景輪詢"); },
-    getByText: () => ({ first: () => ({ waitFor: async () => new Promise(() => {}) }) }),
+    getByText: () => ({ first: () => ({
+      isVisible: async () => true,
+      waitFor: async () => new Promise(() => {}),
+    }) }),
   };
   const clickConfig = { enabled: true, attempted: false, status: "disabled" };
 
@@ -265,6 +268,18 @@ test("登入結果會等待導頁、POS 商店、2FA 或 Cloudflare 挑戰狀態
     waitForTimeout: async () => {},
   };
   assert.equal(await waitForLoginOutcome(challengePage, { timeout: 10 }), "cloudflare_challenge");
+
+  const textOnlyChallengePage = {
+    waitForURL: never,
+    locator: (selector) => ({
+      first: () => ({ isVisible: async () => false, waitFor: never }),
+      innerText: async () => selector === "body" ? "Verifying..." : "",
+    }),
+    title: async () => "Just a moment",
+    getByText: () => ({ first: () => ({ isVisible: async () => true }) }),
+    waitForTimeout: async () => {},
+  };
+  assert.equal(await waitForLoginOutcome(textOnlyChallengePage, { timeout: 10 }), "cloudflare_challenge");
 
   const signedInPage = {
     waitForURL: async (predicate) => {

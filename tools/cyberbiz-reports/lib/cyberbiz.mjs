@@ -257,6 +257,14 @@ function formatLoginDiagnostics(state) {
   return `診斷：頁面=${state.pageKind}；初始管理頁 HTTP=${state.mainDocumentStatus ?? "未知"}；帳號欄位=${visible(state.usernameField)}；密碼欄位=${visible(state.passwordField)}；2FA 欄位=${visible(state.twoFactorField)}；POS 商店連結=${visible(state.posShopLink)}；Cloudflare challenge=${visible(state.cloudflareChallenge)}${clickStatus}。`;
 }
 
+async function isCloudflareChallengeCopyVisible(page) {
+  try {
+    return await page.getByText(CLOUDFLARE_CHALLENGE_COPY).first().isVisible();
+  } catch {
+    return false;
+  }
+}
+
 async function waitForDelayOrAbort(page, delay, signal) {
   if (signal.aborted) return false;
   return new Promise((resolve) => {
@@ -282,6 +290,8 @@ async function waitForCloudflareChallengeOutcome(page, timeout, signal) {
   do {
     if (signal.aborted) return null;
     if (await isCloudflareChallengePage(page)) return "cloudflare_challenge";
+    if (await isCloudflareChallengeCopyVisible(page)
+      && !await hasCompletedCloudflareChallenge(page)) return "cloudflare_challenge";
     const remaining = deadline - Date.now();
     if (remaining <= 0 || typeof page.waitForTimeout !== "function") return null;
     if (!await waitForDelayOrAbort(page, Math.min(250, remaining), signal)) return null;
