@@ -98,7 +98,7 @@ function validCalendarDate(value: string) {
  * 同一個發票號碼已經報過時預設擋下並回 `duplicate_invoice`，送件人確認後帶 confirmDuplicate 重送；
  * 不直接拒絕，因為一張發票可能拆給兩個人報。修改既有的單時用 excludeExpenseId 排除它自己。
  */
-export async function validateExpenseFields(db: Database, input: ExpenseFieldsInput, options: { now?: Date; tooOldHint: string; excludeExpenseId?: string; keepCategoryId?: string }): Promise<ExpenseFields> {
+export async function validateExpenseFields(db: Database, input: ExpenseFieldsInput, options: { now?: Date; tooOldHint: string; excludeExpenseId?: string; keepCategoryId?: string; receiptOptional?: boolean }): Promise<ExpenseFields> {
   const now = options.now ?? new Date();
   if (!/^[A-Za-z0-9-]{8,100}$/.test(input.clientRequestId)) throw new AccountingError(400, "送件識別碼格式不正確，請重新整理後再送一次。");
   if (input.receiptCount > EXPENSE_RECEIPT_MAX_FILES) throw new AccountingError(400, `單據照片最多 ${EXPENSE_RECEIPT_MAX_FILES} 張。`);
@@ -113,7 +113,8 @@ export async function validateExpenseFields(db: Database, input: ExpenseFieldsIn
   const invoiceNumber = normalizeInvoiceNumber(input.invoiceNumber);
   if (invoiceNumber && !INVOICE_NUMBER_PATTERN.test(invoiceNumber)) throw new AccountingError(400, "發票號碼應為兩個英文字母加八位數字，例如 AB12345678。");
   // 有發票號碼的會計查得到；收據沒有號碼，照片是唯一的憑證，所以一定要附。
-  if (!invoiceNumber && input.receiptCount < 1) throw new AccountingError(400, "沒有發票號碼時，請附上收據照片。");
+  // LINE 送件不收照片（使用者決定），會計從「LINE 送件」的標記知道為什麼沒有單據。
+  if (!invoiceNumber && input.receiptCount < 1 && !options.receiptOptional) throw new AccountingError(400, "沒有發票號碼時，請附上收據照片。");
   const sellerTaxId = input.sellerTaxId.trim();
   if (sellerTaxId && !SELLER_TAX_ID_PATTERN.test(sellerTaxId)) throw new AccountingError(400, "賣方統編應為八位數字。");
   const description = input.description.trim();

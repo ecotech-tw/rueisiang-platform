@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
@@ -22,6 +22,17 @@ import { inJsonArray } from "./sql-lists.js";
  */
 
 export interface AccountingActor { id: string; email: string }
+
+/*
+ * 沒綁定 LINE 的人送的報帳沒有平台帳號（submitter_user_id 是 NULL）。SQL 裡「不是自己的單」要寫成這樣：
+ * 直接寫 `submitter_user_id <> 我` 遇到 NULL 會是 NULL（不成立），這種單就永遠審不了。
+ */
+export function notSubmittedBy(actorId: string) {
+  return sql`(accounting_expenses.submitter_user_id IS NULL OR accounting_expenses.submitter_user_id <> ${actorId})`;
+}
+
+/** 申請人名稱：有帳號用後台名稱（任職資料的正式姓名優先），沒綁定的 LINE 送件用當時的 LINE 名稱。 */
+export const submitterDisplayName = sql<string>`(CASE WHEN accounting_expenses.submitter_user_id IS NULL THEN accounting_expenses.line_display_name ELSE ${hrEmployeeName} END)`;
 
 const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
 
@@ -59,8 +70,11 @@ export type ReviewStatusFilter = typeof REVIEW_STATUS_FILTERS[number];
 export interface ReviewExpense {
   id: string;
   status: ExpenseStatus;
-  submitterUserId: string;
+  /** 沒綁定 LINE 的人送的是 null。 */
+  submitterUserId: string | null;
   submitterName: string;
+  /** platform：HR 員工自助；line：在 LINE @小香 送的。 */
+  source: "platform" | "line";
   employeeNumber: string;
   categoryId: string;
   categoryName: string;
@@ -97,7 +111,8 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     id: accountingExpenses.id,
     status: effectiveExpenseStatus,
     submitterUserId: accountingExpenses.submitterUserId,
-    submitterName: hrEmployeeName,
+    submitterName: submitterDisplayName,
+    source: accountingExpenses.source,
     employeeNumber: hrEmployments.employeeNumber,
     categoryId: accountingExpenses.categoryId,
     categoryName: accountingExpenseCategories.name,
@@ -119,7 +134,7 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     paidFromPettyCash: sql<number>`((SELECT coalesce(sum(petty.amount_minor), 0) FROM accounting_petty_cash_entries AS petty WHERE petty.expense_id = accounting_expenses.id) < 0)`,
   }).from(accountingExpenses)
     .innerJoin(accountingExpenseCategories, eq(accountingExpenseCategories.id, accountingExpenses.categoryId))
-    .innerJoin(users, eq(users.id, accountingExpenses.submitterUserId))
+    .leftJoin(users, eq(users.id, accountingExpenses.submitterUserId))
     .leftJoin(hrEmployments, eq(hrEmployments.id, accountingExpenses.employmentId))
     // 照推導後的狀態篩：已隨月薪發放的單在資料庫裡還是 approved，但要出現在「已付款」。
     // 這一頁只看員工報帳；公司直接付的支出在「支出」頁。
@@ -175,7 +190,7 @@ async function transition(db: Database, input: {
     eq(accountingExpenses.id, input.id),
     eq(accountingExpenses.status, input.from),
     eq(accountingExpenses.revision, input.expectedRevision),
-    ne(accountingExpenses.submitterUserId, input.actor.id),
+    notSubmittedBy(input.actor.id),
     ...(input.extraWhere ? [input.extraWhere] : []),
   ];
   const event = activityRow({ entityType: "accounting_expense", entityId: input.id, source: "accounting", eventType: input.eventType, summary: input.summary, actor: input.actor, ...(input.payload ? { payload: input.payload } : {}) });
@@ -186,6 +201,8 @@ async function transition(db: Database, input: {
     SELECT ${crypto.randomUUID()}, submitter_user_id, ${`expense:${input.id}:${input.notify.event}:${input.expectedRevision + 1}`}, 'request_reviewed', 'expense', id, ${input.notify.title},
       substr('NT$ ' || printf('%,d', amount_minor / 100) || '・' || description || char(10) || ${input.notify.detail}, 1, 1000)
     FROM accounting_expenses WHERE id = ${input.id} AND revision = ${input.expectedRevision + 1} AND status = ${nextStatus}
+      -- 沒綁定 LINE 的人沒有帳號，收不到通知；不擋，只是不寫（user_id 不能是 NULL）。
+      AND submitter_user_id IS NOT NULL
     ON CONFLICT(source_key) DO NOTHING`] : [];
   const changed = await guardedWrite(db, db.update(accountingExpenses).set({ ...input.set, revision: input.expectedRevision + 1, updatedAt: now })
     .where(and(...conditions)).returning({ id: accountingExpenses.id }), event, now, { before: input.before ?? [], after: [...notification, ...(input.after ?? [])] });
@@ -224,7 +241,7 @@ export interface ApproveResult { id: string; status: "approved" | "paid"; pettyC
 
 /** 這張單還能從某個狀態轉換：寫完整表名，給零用金的條件式 INSERT 用。 */
 function convertible(id: string, expectedRevision: number, from: ExpenseStatus, actor: AccountingActor) {
-  return sql`accounting_expenses.id = ${id} AND accounting_expenses.status = ${from} AND accounting_expenses.revision = ${expectedRevision} AND accounting_expenses.submitter_user_id <> ${actor.id}`;
+  return sql`accounting_expenses.id = ${id} AND accounting_expenses.status = ${from} AND accounting_expenses.revision = ${expectedRevision} AND ${notSubmittedBy(actor.id)}`;
 }
 
 /*
@@ -274,7 +291,7 @@ export async function approveExpense(db: Database, id: string, expectedRevision:
     SELECT ${adjustmentId}, accounting_expenses.employment_id, ${periodKey}, substr('報帳代墊款：' || accounting_expenses.description, 1, 1000), ${actor.id}, ${actor.id}
     FROM accounting_expenses
     WHERE accounting_expenses.id = ${id} AND accounting_expenses.status = 'pending' AND accounting_expenses.revision = ${expectedRevision}
-      AND accounting_expenses.submitter_user_id <> ${actor.id} AND ${payrollEmploymentActive} AND ${payrollPeriodEditable(periodKey)}`;
+      AND ${notSubmittedBy(actor.id)} AND ${payrollEmploymentActive} AND ${payrollPeriodEditable(periodKey)}`;
   const createItem = sql`INSERT INTO hr_payroll_adjustment_items (id, adjustment_id, item_name, amount_minor)
     SELECT ${crypto.randomUUID()}, ${adjustmentId}, '代墊款', accounting_expenses.amount_minor FROM accounting_expenses
     WHERE accounting_expenses.id = ${id} AND ${adjustmentExists}`;

@@ -685,3 +685,35 @@ export async function fetchLineUserProfile(
     clearTimeout(timeout);
   }
 }
+
+/**
+ * 群組或多人聊天室裡某位成員的名稱。對方不必加官方帳號好友也查得到（一對一的 profile API 才要），
+ * 所以 LINE 報帳記沒綁定的人時用這個。查不到就回 null，由呼叫端決定退回什麼。
+ */
+export async function fetchLineMemberDisplayName(
+  accessToken: string,
+  source: { sourceType: "group" | "room" | "user"; chatId: string; userId: string },
+  context: LineLogContext = {},
+): Promise<string | null> {
+  if (source.sourceType === "user") return (await fetchLineUserProfile(accessToken, source.userId, context))?.displayName || null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5_000);
+  try {
+    const response = await fetch(`${LINE_BOT_API_BASE}/${source.sourceType}/${encodeURIComponent(source.chatId)}/member/${encodeURIComponent(source.userId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      assistantLog("warn", "line.lookup.failed", { ...context, label: "成員名稱", userId: source.userId, status: response.status });
+      return null;
+    }
+    const body = await response.json() as { displayName?: unknown };
+    const displayName = typeof body.displayName === "string" ? body.displayName.trim() : "";
+    return displayName || null;
+  } catch (error) {
+    assistantLog("warn", "line.lookup.failed", { ...context, label: "成員名稱", userId: source.userId, error: assistantErrorDetails(error) });
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}

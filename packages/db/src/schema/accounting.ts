@@ -28,15 +28,23 @@ export const accountingExpenseCategories = sqliteTable("accounting_expense_categ
  * 報表、匯出與帳期才只有一個來源。
  *
  * 審核與撥款的欄位現在就建好：狀態與發放方式的 CHECK 之後要改的話得重建整張表。
+ *
+ * 送件管道（source）：平台（HR 員工自助、會計系統）或 LINE（在群組 @小香）。LINE 送件的人有綁定平台帳號就跟平台送件一樣；
+ * 沒綁定的人沒有帳號也沒有任職資料（使用者決定照樣收件），submitter_user_id 是 NULL，只記 LINE 的 userId 與名稱，
+ * 而且只能直接撥款——沒有任職資料就沒有薪資可以併入。
  */
 export const accountingExpenses = sqliteTable("accounting_expenses", {
   id: text("id").primaryKey(),
   payerKind: text("payer_kind", { enum: ["employee_advance", "company"] as const }).notNull(),
   status: text("status", { enum: ["pending", "approved", "rejected", "cancelled", "paid"] as const }).notNull().default("pending"),
-  submitterUserId: text("submitter_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  submitterUserId: text("submitter_user_id").references(() => users.id, { onDelete: "restrict" }),
+  source: text("source", { enum: ["platform", "line"] as const }).notNull().default("platform"),
+  // LINE 送件：發話者的 userId（webhook 給的，不是使用者自己填的）與當下的名稱；沒綁定的人靠這兩欄辨識。
+  lineUserId: text("line_user_id"),
+  lineDisplayName: text("line_display_name").notNull().default(""),
   // 員工代墊才有：送件當下的任職資料。員工與支援人員都在 hr_employments，併入月薪的加扣項也綁在這裡。
   employmentId: text("employment_id").references(() => hrEmployments.id, { onDelete: "restrict" }),
-  // 同一位送件人連按兩次送出只會有一張。
+  // 同一位送件人連按兩次送出只會有一張；LINE 送件用 webhook 事件當識別碼，同一則訊息重送也只會有一張。
   clientRequestId: text("client_request_id").notNull(),
   categoryId: text("category_id").notNull().references(() => accountingExpenseCategories.id, { onDelete: "restrict" }),
   scopeId: text("scope_id").references(() => scopes.id, { onDelete: "restrict" }),
@@ -57,12 +65,18 @@ export const accountingExpenses = sqliteTable("accounting_expenses", {
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   uniqueIndex("idx_accounting_expenses_client_request").on(table.submitterUserId, table.clientRequestId),
+  // 沒綁定的人 submitter_user_id 是 NULL，上面那個唯一索引擋不到；LINE 送件另外用識別碼本身擋重複。
+  uniqueIndex("idx_accounting_expenses_line_request").on(table.clientRequestId).where(sql`${table.source} = 'line'`),
   index("idx_accounting_expenses_submitter_created").on(table.submitterUserId, table.createdAt),
   index("idx_accounting_expenses_status_created").on(table.status, table.createdAt),
   index("idx_accounting_expenses_invoice").on(table.invoiceNumber).where(sql`${table.invoiceNumber} <> ''`),
   check("ck_accounting_expenses_payer_kind", sql`${table.payerKind} IN ('employee_advance', 'company')`),
   check("ck_accounting_expenses_status", sql`${table.status} IN ('pending', 'approved', 'rejected', 'cancelled', 'paid')`),
-  check("ck_accounting_expenses_employment", sql`(${table.payerKind} = 'employee_advance') = (${table.employmentId} IS NOT NULL)`),
+  check("ck_accounting_expenses_source", sql`${table.source} IN ('platform', 'line')`),
+  // 沒有平台帳號的只能是 LINE 送件的員工代墊，而且一定要有 LINE 名稱，會計才知道是誰。
+  check("ck_accounting_expenses_submitter", sql`${table.submitterUserId} IS NOT NULL OR (${table.source} = 'line' AND ${table.payerKind} = 'employee_advance' AND ${table.lineUserId} IS NOT NULL AND length(trim(${table.lineDisplayName})) > 0)`),
+  check("ck_accounting_expenses_employment", sql`(${table.payerKind} = 'employee_advance' AND ${table.submitterUserId} IS NOT NULL) = (${table.employmentId} IS NOT NULL)`),
+  check("ck_accounting_expenses_guest_payout", sql`${table.submitterUserId} IS NOT NULL OR ${table.payoutMethod} IS NULL OR ${table.payoutMethod} = 'direct'`),
   check("ck_accounting_expenses_spent_on", sql`${table.spentOn} GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`),
   check("ck_accounting_expenses_amount", sql`${table.amountMinor} > 0`),
   check("ck_accounting_expenses_description", sql`length(trim(${table.description})) BETWEEN 1 AND 500`),

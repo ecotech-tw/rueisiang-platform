@@ -39,8 +39,9 @@ import {
   sameDbTimestamp,
 } from "@rueisiang/db";
 import { can, type Permission } from "@rueisiang/auth";
-import { isHrToolKey, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
+import { isHrToolKey, LINE_EXPENSE_TOOL_KEY, PLATFORM_TOOL_MAP, toolKeysForLineSource } from "@rueisiang/tools";
 import { assertHrSandboxDeliveryAuthorized, assertHrSandboxRunAllowed, assertHrSandboxSubjectStillAllowed, hrToolKeysProblem, HrSelfToolError, LineHrSelfService, SandboxHrSelfService } from "./assistant-hr.js";
+import { LineExpenseSubmitter } from "./assistant-line-expense.js";
 import { Type, type TSchema } from "typebox";
 import type { AssistantRunResult, AssistantToolCall, JsonSchemaProperty } from "@rueisiang/assistant";
 import type { Env } from "./env.js";
@@ -957,7 +958,12 @@ export class AssistantChatAgent {
     if (context.privateHrRun && !isHrToolKey(toolKey)) throw new HrSelfToolError("HR 授權後本輪只能使用本人 HR 工具。" );
     const db = createDatabase(this.env.DB);
     if (isHrToolKey(toolKey)) context.hrSelf ??= new LineHrSelfService(db, this.env, input);
-    const services = { cyberbizReports: lazyCyberbizReportService(db), ...(context.hrSelf ? { hrSelf: context.hrSelf } : {}) };
+    const services = {
+      cyberbizReports: lazyCyberbizReportService(db),
+      ...(context.hrSelf ? { hrSelf: context.hrSelf } : {}),
+      // LINE 報帳：申請人從觸發這一輪的訊息找，不採信模型給的身分。
+      ...(toolKey === LINE_EXPENSE_TOOL_KEY ? { lineExpense: new LineExpenseSubmitter(db, this.env, input) } : {}),
+    };
     const [channel, group] = await Promise.all([
       getAssistantLineChannel(db, input.assistantKey),
       findAssistantLineGroup(db, { channelKey: input.channelKey, id: input.groupRowId }),

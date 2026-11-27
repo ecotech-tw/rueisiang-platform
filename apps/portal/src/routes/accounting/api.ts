@@ -7,7 +7,9 @@ export type ExpenseStatusFilter = ExpenseStatus | "all";
 export interface ReviewExpense {
   id: string;
   status: ExpenseStatus;
-  submitterUserId: string;
+  /** 沒綁定 LINE 的人送的是 null，submitterName 是他的 LINE 名稱。 */
+  submitterUserId: string | null;
+  source: "platform" | "line";
   submitterName: string;
   employeeNumber: string;
   categoryId: string;

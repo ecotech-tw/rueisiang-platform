@@ -105,10 +105,11 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose, onEdit }: { expense
   return <><Dialog title={dollars(expense.amountMinor)} titleMeta={<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>} onClose={onClose} closeRequestRef={closeRef} closeDisabled={write.isPending} actions={actions}>
     <p className="m-0 text-[15px] font-semibold wrap-anywhere">{expense.description}</p>
     {isOwn && canReview && (expense.status === "pending" || expense.status === "approved") ? <Alert tone="info">這是你自己的報帳，請另一位會計或管理者處理。</Alert> : null}
+    {expense.submitterUserId === null ? <Alert tone="info">在 LINE 送出，送件人沒有綁定帳號：名稱是 LINE 上的名稱，只能直接撥款。</Alert> : null}
     {expense.duplicateInvoiceCount > 0 ? <Alert tone="warning">{`這個發票號碼另外還有 ${expense.duplicateInvoiceCount} 張報帳單，核准前請確認不是重複報帳。`}</Alert> : null}
     {expense.status === "rejected" && expense.reviewNote ? <Alert tone="danger">{`駁回原因：${expense.reviewNote}`}</Alert> : null}
     {approving ? <Field as="div" label="發放方式" hint={payout === "direct"
-      ? `${expense.payrollOption ? "" : "沒有在職資料或薪資月份已結帳，只能直接撥款。"}${balanceText ?? ""}`
+      ? `${expense.payrollOption || expense.submitterUserId === null ? "" : "沒有在職資料或薪資月份已結帳，只能直接撥款。"}${balanceText ?? ""}`
       : expense.payrollOption ? `${payrollPeriodLabel(expense.payrollOption)}的薪資會多一筆「代墊款」。` : undefined}>
       <SegmentedControl aria-label="發放方式" value={payout} onChange={(value) => setPayout(value === "payroll" ? "payroll" : "direct")} options={[
         { value: "direct", label: "直接撥款" },
@@ -123,9 +124,10 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose, onEdit }: { expense
       {expense.receiptIds.map((receiptId, index) => <a key={receiptId} href={receiptUrl(expense.id, receiptId)} target="_blank" rel="noreferrer" aria-label={`開啟第 ${index + 1} 張單據`} className="block aspect-square overflow-hidden rounded-[12px] outline outline-1 -outline-offset-1 outline-black/10 transition-[scale] duration-150 ease-out active:scale-96 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary">
         <img src={receiptUrl(expense.id, receiptId)} alt="" loading="lazy" className="size-full object-cover" />
       </a>)}
-    </div> : <p className="m-0 text-[13px] text-muted">沒有附單據照片（有發票號碼時照片是選填）。</p>}
+    </div> : <p className="m-0 text-[13px] text-muted">{expense.source === "line" ? "LINE 送件，沒有單據照片。" : "沒有附單據照片（有發票號碼時照片是選填）。"}</p>}
     <dl className="m-0 grid divide-y divide-soft-line">
       <DetailRow label="送件人">{expense.employeeNumber ? `${expense.employeeNumber}・${expense.submitterName}` : expense.submitterName}</DetailRow>
+      {expense.source === "line" ? <DetailRow label="送件管道">LINE</DetailRow> : null}
       <DetailRow label="消費日期">{expense.spentOn}</DetailRow>
       <DetailRow label="類別">{expense.categoryName}</DetailRow>
       <DetailRow label="發票號碼"><span className="tabular-nums">{expense.invoiceNumber || "—（收據）"}</span></DetailRow>
@@ -189,7 +191,7 @@ export function AccountingExpenses() {
               const badge = STATUS_BADGE[expense.status];
               return <tr key={expense.id}>
                 <td data-label="消費日期" className="tabular-nums">{expense.spentOn}</td>
-                <td data-label="送件人">{expense.submitterName}</td>
+                <td data-label="送件人"><span className="inline-flex flex-wrap items-center gap-1.5">{expense.submitterName}{expense.source === "line" ? <StatusBadge tone="info">LINE</StatusBadge> : null}</span></td>
                 <td data-label="類別">{expense.categoryName}</td>
                 <td data-label="用途"><span className="line-clamp-2 wrap-anywhere">{expense.description}</span>{expense.duplicateInvoiceCount > 0 ? <StatusBadge tone="warning" className="mt-1">發票號碼重複</StatusBadge> : null}</td>
                 <td data-label="金額" className="numeric">{dollars(expense.amountMinor)}</td>
@@ -200,7 +202,7 @@ export function AccountingExpenses() {
           </tbody>
         </DataTable>}
     </Panel>
-    {viewing ? <ExpenseDetail expense={viewing} canReview={canReview} isOwn={viewing.submitterUserId === user?.id} onClose={() => setViewing(null)} onEdit={(expense) => { setViewing(null); setEditing(expense); }} /> : null}
+    {viewing ? <ExpenseDetail expense={viewing} canReview={canReview} isOwn={viewing.submitterUserId !== null && viewing.submitterUserId === user?.id} onClose={() => setViewing(null)} onEdit={(expense) => { setViewing(null); setEditing(expense); }} /> : null}
     {editing ? <ExpenseEditDialog expense={editing} onClose={() => setEditing(null)} /> : null}
   </Page>;
 }

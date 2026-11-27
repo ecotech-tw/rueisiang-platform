@@ -1,8 +1,8 @@
-import { and, asc, eq, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, sql, type SQL } from "drizzle-orm";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { AccountingError, validateExpenseFields, type ExpenseFields, type StoredReceipt } from "./accounting-expenses.js";
-import { guardedWrite, type AccountingActor } from "./accounting-review.js";
+import { guardedWrite, notSubmittedBy, type AccountingActor } from "./accounting-review.js";
 import { toDbTimestamp } from "./db-timestamp.js";
 import { activityEvents } from "./schema/activity.js";
 import { accountingExpenseCategories, accountingExpenseReceipts, accountingExpenses } from "./schema/accounting.js";
@@ -35,8 +35,9 @@ type Editor = "submitter" | "reviewer";
 
 interface PendingExpense {
   id: string;
-  submitterUserId: string;
+  submitterUserId: string | null;
   payerKind: "employee_advance" | "company";
+  source: "platform" | "line";
   status: string;
   revision: number;
   clientRequestId: string;
@@ -69,6 +70,7 @@ async function loadExpense(db: Database, id: string): Promise<PendingExpense | n
     id: accountingExpenses.id,
     submitterUserId: accountingExpenses.submitterUserId,
     payerKind: accountingExpenses.payerKind,
+    source: accountingExpenses.source,
     status: accountingExpenses.status,
     revision: accountingExpenses.revision,
     clientRequestId: accountingExpenses.clientRequestId,
@@ -119,7 +121,9 @@ async function prepare(db: Database, current: PendingExpense, editor: Editor, in
     // 員工報帳不問店別；會計登記公司支出才有，這裡照原本的。
     scopeId: current.scopeId,
     receiptCount,
-  }, { tooOldHint: editor === "submitter" ? "；更早的單據請直接找會計。" : "。", excludeExpenseId: current.id, keepCategoryId: current.categoryId });
+  }, { tooOldHint: editor === "submitter" ? "；更早的單據請直接找會計。" : "。", excludeExpenseId: current.id, keepCategoryId: current.categoryId,
+    // LINE 送件本來就不收照片，改內容時也不要求補照片。
+    receiptOptional: current.source === "line" });
   const changes = await diff(db, current, fields, current.receipts.length, receiptCount, removedReceipts.length > 0 || receiptPlan.addCount > 0);
   return { current, editor, fields, changes, removedReceipts, addCount: receiptPlan.addCount };
 }
@@ -156,7 +160,7 @@ export async function saveExpenseEdit(db: Database, prepared: PreparedExpenseEdi
     eq(accountingExpenses.id, current.id),
     eq(accountingExpenses.status, "pending"),
     eq(accountingExpenses.revision, options.expectedRevision),
-    editor === "submitter" ? eq(accountingExpenses.submitterUserId, options.actor.id) : ne(accountingExpenses.submitterUserId, options.actor.id),
+    editor === "submitter" ? eq(accountingExpenses.submitterUserId, options.actor.id) : notSubmittedBy(options.actor.id),
   ];
   const edited = sql`EXISTS (SELECT 1 FROM accounting_expenses WHERE accounting_expenses.id = ${current.id} AND accounting_expenses.status = 'pending' AND accounting_expenses.revision = ${nextRevision})`;
   const after: SQL[] = [];
@@ -175,6 +179,7 @@ export async function saveExpenseEdit(db: Database, prepared: PreparedExpenseEdi
     after.push(sql`INSERT INTO hr_notifications (id, user_id, source_key, kind, entity_kind, entity_id, title, body)
       SELECT ${crypto.randomUUID()}, submitter_user_id, ${`expense:${current.id}:edited:${nextRevision}`}, 'request_reviewed', 'expense', id, '會計修改了你的報帳', ${body}
       FROM accounting_expenses WHERE accounting_expenses.id = ${current.id} AND accounting_expenses.status = 'pending' AND accounting_expenses.revision = ${nextRevision}
+        AND accounting_expenses.submitter_user_id IS NOT NULL
       ON CONFLICT(source_key) DO NOTHING`);
   }
   const event = activityRow({
