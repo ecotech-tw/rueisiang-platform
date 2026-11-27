@@ -30,7 +30,7 @@ function RequireSession({ children }: { children: React.ReactNode }) {
   if (checkLineLink && lineLink.isPending) return <PageStatus>確認 LINE 綁定狀態…</PageStatus>;
   if (checkLineLink && lineLink.error) return <PageStatus role="alert"><p>{lineLink.error instanceof Error ? lineLink.error.message : "讀取 LINE 綁定狀態失敗。"}</p><button type="button" onClick={() => void lineLink.refetch()}>重新嘗試</button></PageStatus>;
   if (checkLineLink) return <LiffAccountLinkPage replaceExisting={Boolean(lineLink.data?.replaceRequired)} intentExpired={!lineLink.data?.pending} />;
-  if (user.hrSelfServiceKind === "worker" && !/^\/(?:clock(?:\/(?:calendar|logs))?|payroll(?:\/[^/]+\/[^/]+)?|my-schedule|expenses(?:\/new)?)$/.test(location.pathname)) {
+  if (user.hrSelfServiceKind === "worker" && !/^\/(?:clock(?:\/(?:calendar|logs))?|payroll(?:\/[^/]+\/[^/]+)?|my-schedule|expenses(?:\/new)?|notifications)$/.test(location.pathname)) {
     return <Navigate to="/clock" replace />;
   }
   return <>{children}</>;

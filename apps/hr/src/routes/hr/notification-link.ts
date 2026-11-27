@@ -10,6 +10,8 @@ type NotificationLink = Pick<HrNotification, "kind" | "entityKind" | "entityScop
  * - `focus`／`batch`：申請人看自己紀錄裡的那一筆／那一批。
  */
 export function notificationTarget(notification: NotificationLink) {
+  // 報帳的審核結果：直接打開那張報帳單的明細。
+  if (notification.entityKind === "expense") return `/expenses?${new URLSearchParams({ focus: notification.entityId }).toString()}`;
   const tab = notification.entityKind === "leave" ? "leave" : notification.entityKind === "overtime" ? "overtime" : "clock_correction";
   const batch = notification.entityScope === "batch";
   const params = notification.kind === "request_submitted"

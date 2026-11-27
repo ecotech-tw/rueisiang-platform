@@ -93,7 +93,9 @@ describe("支援人員本人服務", () => {
     cookies.liff = cookieFrom(linked, DEVICE_SESSION_COOKIE);
     expect((await request("/hr/me/session", "GET", undefined, "liff")).status).toBe(200);
     expect((await request("/hr/me/payroll-history", "GET", undefined, "liff")).status).toBe(200);
-    expect((await request("/hr/me/notifications", "GET", undefined, "liff")).status).toBe(403);
+    // 通知只開報帳那一種（見 expense-claims.test.ts）；其他本人功能仍然擋。
+    expect((await request("/hr/me/notifications", "GET", undefined, "liff")).status).toBe(200);
+    expect((await request("/hr/me/leave-requests", "GET", undefined, "liff")).status).toBe(403);
     expect((await request("/auth/me", "GET", undefined, "liff")).status).toBe(401);
     const bootstrap = await request("/hr/me/liff-session", "POST", { idToken: "verified-token" }, "anonymous");
     expect(await bootstrap.json()).toEqual({ linked: true });
@@ -161,7 +163,7 @@ describe("支援人員本人服務", () => {
 
   it("封鎖本人其他功能與管理端，停用人員及帳號後立即拒絕", async () => {
     const id = await worker(); await link(id);
-    for (const path of ["/me", "/me/notifications", "/me/leave-requests", "/me/overtime", "/me/form-requests", "/me/schedules", "/overview"]) {
+    for (const path of ["/me", "/me/leave-requests", "/me/overtime", "/me/form-requests", "/me/schedules", "/overview"]) {
       expect((await request(`/hr${path}`, "GET", undefined, "self")).status, path).toBe(403);
     }
     for (const path of ["/me/leave-requests", "/me/overtime", "/me/form-requests", "/me/photo"]) expect((await request(`/hr${path}`, "POST", {}, "self")).status, path).toBe(403);

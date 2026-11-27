@@ -198,6 +198,19 @@ describe("報公帳：誰可以送", () => {
     expect((await requestSelf("/leave-requests", "GET", undefined, "worker-user")).status).toBe(403);
   });
 
+  it("支援人員讀得到報帳通知、可以標成已讀，其他種類的通知不給", async () => {
+    const insert = d1.sqlite.prepare("INSERT INTO hr_notifications (id, user_id, source_key, kind, entity_kind, entity_id, title, body) VALUES (?, ?, ?, 'request_reviewed', ?, 'x', ?, '內文')");
+    insert.run("n-expense", "worker-user", "k-expense", "expense", "報帳已核准");
+    insert.run("n-leave", "worker-user", "k-leave", "leave", "請假已核准");
+    const response = await requestSelf("/notifications", "GET", undefined, "worker-user");
+    expect(response.status).toBe(200);
+    const body = await response.json() as { notifications: Array<{ id: string }>; unreadCount: number };
+    expect(body.notifications.map((notification) => notification.id)).toEqual(["n-expense"]);
+    expect(body.unreadCount).toBe(1);
+    expect((await requestSelf("/notifications/n-expense/read", "POST", JSON.stringify({}), "worker-user")).status).toBe(200);
+    expect((await requestSelf("/notifications/read-all", "POST", JSON.stringify({}), "worker-user")).status).toBe(200);
+  });
+
   it("停用的支援人員與沒有任職資料的人不能送", async () => {
     d1.sqlite.prepare("UPDATE hr_employments SET archived_at = CURRENT_TIMESTAMP WHERE id = 'employment-worker'").run();
     expect((await submit(expenseForm(), "worker-user")).status).toBe(403);

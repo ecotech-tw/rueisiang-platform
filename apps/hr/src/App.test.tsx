@@ -141,7 +141,7 @@ describe("LIFF 與一般 HR 登入流程", () => {
     expect(requested).toContain("POST /api/hr/liff/link");
   });
 
-  it.each(["/work", "/forms", "/forms/new", "/forms/overtime", "/forms/leave", "/scheduling", "/profile", "/notifications"])("支援人員直接開啟未開放路徑 %s 會回到打卡", async (path) => {
+  it.each(["/work", "/forms", "/forms/new", "/forms/overtime", "/forms/leave", "/scheduling", "/profile"])("支援人員直接開啟未開放路徑 %s 會回到打卡", async (path) => {
     supportWorker = true;
     await renderApp(path);
     await expectText("打卡入口");
@@ -153,7 +153,7 @@ describe("LIFF 與一般 HR 登入流程", () => {
     await expectText("薪資袋入口");
   });
 
-  it.each([["/expenses", "報帳入口"], ["/expenses/new", "新增報帳入口"]])("支援人員可以進入報帳 %s", async (path, text) => {
+  it.each([["/expenses", "報帳入口"], ["/expenses/new", "新增報帳入口"], ["/notifications", "通知入口"]])("支援人員可以進入報帳與通知 %s", async (path, text) => {
     supportWorker = true;
     await renderApp(path);
     await expectText(text);

@@ -4,6 +4,7 @@ import { emptyRecordsMessage, notificationTarget } from "./notification-link.js"
 describe("通知導頁", () => {
   it("送出通知帶審核者去待審清單：單筆用 review，整批用 reviewBatch", () => {
     expect(notificationTarget({ kind: "request_submitted", entityKind: "leave", entityScope: "request", entityId: "leave-1" })).toBe("/forms?tab=leave&review=leave-1");
+    expect(notificationTarget({ kind: "request_reviewed", entityKind: "expense", entityScope: "request", entityId: "expense-1" })).toBe("/expenses?focus=expense-1");
     expect(notificationTarget({ kind: "request_submitted", entityKind: "overtime", entityScope: "batch", entityId: "batch-1" })).toBe("/forms?tab=overtime&reviewBatch=batch-1");
   });
 

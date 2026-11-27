@@ -1660,6 +1660,13 @@
       "when": 1795672877595,
       "tag": "0260_seed_expense_categories",
       "breakpoints": true
+    },
+    {
+      "idx": 261,
+      "version": "6",
+      "when": 1795709754588,
+      "tag": "0261_panoramic_daimon_hellstrom",
+      "breakpoints": true
     }
   ]
 }

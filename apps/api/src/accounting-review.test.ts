@@ -138,6 +138,46 @@ describe("報公帳：會計審核", () => {
   });
 });
 
+describe("報公帳：審核結果通知送件人", () => {
+  const notifications = (userId: string) => d1.sqlite.prepare("SELECT kind, entity_kind, entity_id, title, body FROM hr_notifications WHERE user_id = ? ORDER BY created_at, rowid").all(userId) as Array<{ kind: string; entity_kind: string; entity_id: string; title: string; body: string }>;
+
+  it("核准、撥款各通知一次，內文帶金額與用途", async () => {
+    const id = await submit("employee", { amountDollars: "1250" });
+    await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1 });
+    await api(`/accounting/expenses/${id}/paid`, "accountant", "POST", { revision: 2 });
+    const rows = notifications("employee");
+    expect(rows.map((row) => row.title)).toEqual(["報帳已核准", "報帳已撥款"]);
+    expect(rows[0]).toMatchObject({ kind: "request_reviewed", entity_kind: "expense", entity_id: id });
+    expect(rows[0]!.body).toContain("NT$ 1,250・門市清潔用品");
+    expect(notifications("accountant")).toEqual([]);
+  });
+
+  it("退回的通知寫出原因", async () => {
+    const id = await submit("employee");
+    await api(`/accounting/expenses/${id}/reject`, "accountant", "POST", { revision: 1, note: "請附上發票" });
+    expect(notifications("employee")).toEqual([expect.objectContaining({ title: "報帳已退回", body: expect.stringContaining("退回原因：請附上發票") })]);
+  });
+
+  it("被擋下的動作不發通知", async () => {
+    const own = await submit("accountant");
+    expect((await api(`/accounting/expenses/${own}/approve`, "accountant", "POST", { revision: 1 })).status).toBe(403);
+    const id = await submit("employee");
+    expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 9 })).status).toBe(409);
+    expect((await api(`/accounting/expenses/${id}/paid`, "accountant", "POST", { revision: 1 })).status).toBe(409);
+    expect(notifications("employee")).toEqual([]);
+    expect(notifications("accountant")).toEqual([]);
+  });
+
+  it("員工從本人通知 API 讀得到", async () => {
+    const id = await submit("employee");
+    await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1 });
+    const response = await app.fetch(new Request("https://test.local/api/hr/me/notifications", { headers: { Origin: "https://hr.rueisiang.com", Cookie: cookies.employee! } }), env() as never);
+    const body = await response.json() as { notifications: Array<{ entityKind: string; entityId: string }>; unreadCount: number };
+    expect(body.unreadCount).toBe(1);
+    expect(body.notifications[0]).toMatchObject({ entityKind: "expense", entityId: id });
+  });
+});
+
 describe("報公帳：支出類別", () => {
   it("新增、改名排序、停用；同名擋下；停用的員工選不到但歷史還在", async () => {
     const created = await api("/accounting/categories", "accountant", "POST", { name: "清潔用品", sortOrder: 25 });

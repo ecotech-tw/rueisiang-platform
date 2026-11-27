@@ -17,7 +17,7 @@ export const hrNotifications = sqliteTable("hr_notifications", {
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   sourceKey: text("source_key").notNull().unique(),
   kind: text("kind", { enum: ["request_submitted", "request_reviewed", "request_cancelled"] as const }).notNull(),
-  entityKind: text("entity_kind", { enum: ["leave", "overtime", "clock_correction"] as const }).notNull(),
+  entityKind: text("entity_kind", { enum: ["leave", "overtime", "clock_correction", "expense"] as const }).notNull(),
   entityId: text("entity_id").notNull(),
   title: text("title").notNull(),
   body: text("body").notNull(),
@@ -27,7 +27,7 @@ export const hrNotifications = sqliteTable("hr_notifications", {
   index("idx_hr_notifications_user_created").on(table.userId, table.createdAt),
   index("idx_hr_notifications_user_unread").on(table.userId, table.readAt, table.createdAt),
   check("ck_hr_notifications_kind", sql`${table.kind} IN ('request_submitted', 'request_reviewed', 'request_cancelled')`),
-  check("ck_hr_notifications_entity_kind", sql`${table.entityKind} IN ('leave', 'overtime', 'clock_correction')`),
+  check("ck_hr_notifications_entity_kind", sql`${table.entityKind} IN ('leave', 'overtime', 'clock_correction', 'expense')`),
   check("ck_hr_notifications_title", sql`length(trim(${table.title})) BETWEEN 1 AND 120`),
   check("ck_hr_notifications_body", sql`length(${table.body}) BETWEEN 1 AND ${sql.raw(String(HR_NOTIFICATION_BODY_LIMIT))}`),
 ]);

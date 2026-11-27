@@ -13,7 +13,8 @@ function formatTaipei(value: string) {
 }
 
 function notificationTone(notification: HrNotification) {
-  return notification.kind === "request_reviewed" ? (notification.title.includes("駁回") ? "danger" : "success") : notification.kind === "request_submitted" ? "info" : "neutral";
+  // 請假、加班寫「駁回」，報帳寫「退回」，都是沒過。
+  return notification.kind === "request_reviewed" ? (/駁回|退回/.test(notification.title) ? "danger" : "success") : notification.kind === "request_submitted" ? "info" : "neutral";
 }
 
 export function HrNotifications() {
@@ -30,7 +31,7 @@ export function HrNotifications() {
   }
 
   return <Page className="mx-auto w-full max-w-[760px] max-[760px]:max-w-none">
-    <PageHeader title="通知" description="申請送出、審核結果與取消異動會在這裡保留。" className="max-[760px]:items-start" actions={query.data?.unreadCount ? <Button variant="secondary" disabled={write.isPending} onClick={() => write.mutate({ path: "/me/notifications/read-all", method: "POST", values: {} })}>全部標為已讀</Button> : null} />
+    <PageHeader title="通知" description="申請、報帳的審核結果與異動會在這裡保留。" className="max-[760px]:items-start" actions={query.data?.unreadCount ? <Button variant="secondary" disabled={write.isPending} onClick={() => write.mutate({ path: "/me/notifications/read-all", method: "POST", values: {} })}>全部標為已讀</Button> : null} />
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     <Panel className="min-h-0">
       {query.isPending ? <p className="text-muted">載入通知…</p> : query.data?.notifications.length ? <div className="grid gap-2">{query.data.notifications.map((notification) => <button type="button" className={`grid w-full cursor-pointer grid-cols-[38px_minmax(0,1fr)] items-start gap-2.5 rounded-[13px] border p-3 text-left text-ink ${ notification.readAt ? "border-line bg-paper hover:border-brand hover:bg-brand/5" : "border-brand/35 bg-brand-soft" }`} key={notification.id} onClick={() => open(notification)}>

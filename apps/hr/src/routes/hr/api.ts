@@ -205,7 +205,7 @@ export interface FormApproversResponse { approvers: FormApprover[]; defaultAppro
 export interface HrNotification {
   id: string;
   kind: "request_submitted" | "request_reviewed" | "request_cancelled";
-  entityKind: "leave" | "overtime" | "clock_correction";
+  entityKind: "leave" | "overtime" | "clock_correction" | "expense";
   /** batch 時 entityId 是整批加班的批次鍵，不是申請 ID。 */
   entityScope: "request" | "batch";
   entityId: string;
