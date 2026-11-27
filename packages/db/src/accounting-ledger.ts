@@ -3,9 +3,9 @@ import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { AccountingError, listExpenseFormOptions, validateExpenseFields, type ExpenseFieldsInput } from "./accounting-expenses.js";
 import { effectiveExpenseStatus, payrollPeriodKey } from "./accounting-payroll.js";
-import { guardedWrite, type AccountingActor } from "./accounting-review.js";
+import { guardedWrite, submitterDisplayName, type AccountingActor } from "./accounting-review.js";
 import { toDbTimestamp } from "./db-timestamp.js";
-import { hrEmployeeName, listHrScopes } from "./hr-people.js";
+import { listHrScopes } from "./hr-people.js";
 import { accountingExpenseCategories, accountingExpenseReceipts, accountingExpenses } from "./schema/accounting.js";
 import { users } from "./schema/auth.js";
 import { hrEmployments } from "./schema/hr-people.js";
@@ -77,13 +77,13 @@ export async function listLedger(db: Database, filter: LedgerFilter): Promise<{ 
     invoiceNumber: accountingExpenses.invoiceNumber,
     sellerTaxId: accountingExpenses.sellerTaxId,
     description: accountingExpenses.description,
-    personName: hrEmployeeName,
+    personName: submitterDisplayName,
     payoutMethod: accountingExpenses.payoutMethod,
     payrollPeriodKey,
     revision: accountingExpenses.revision,
   }).from(accountingExpenses)
     .innerJoin(accountingExpenseCategories, eq(accountingExpenseCategories.id, accountingExpenses.categoryId))
-    .innerJoin(users, eq(users.id, accountingExpenses.submitterUserId))
+    .leftJoin(users, eq(users.id, accountingExpenses.submitterUserId))
     .leftJoin(hrEmployments, eq(hrEmployments.id, accountingExpenses.employmentId))
     .leftJoin(scopes, eq(scopes.id, accountingExpenses.scopeId))
     .where(and(...conditions))

@@ -416,6 +416,7 @@ describe("只有 LINE 權限的人", () => {
     expect(body.tools.every((tool) => tool.surfaces.includes("line"))).toBe(true);
     expect(body.tools.find((tool) => tool.key === "hr_authorize")).toMatchObject({ lineSourceTypes: ["user"] });
     expect(body.channelTools.sort()).toEqual([
+      "accounting_expense_submit",
       "company_calendar",
       "crm_get_customer",
       "crm_get_orders",

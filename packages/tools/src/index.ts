@@ -33,6 +33,7 @@ import {
   listItems,
 } from "@rueisiang/db";
 import type { ToolContract, ToolContext, ToolSurface, ToolStatus } from "./contract.js";
+import { LINE_EXPENSE_TOOL } from "./accounting.js";
 import { COMPANY_CALENDAR_TOOL, HR_TOOL_DEFINITIONS } from "./hr.js";
 
 export type PlatformToolDefinition = ToolContract;
@@ -1347,6 +1348,7 @@ export const PLATFORM_TOOL_DEFINITIONS: readonly PlatformToolDefinition[] = [
   cyberbizQueryPayoutReportTool,
   ...HR_TOOL_DEFINITIONS,
   COMPANY_CALENDAR_TOOL,
+  LINE_EXPENSE_TOOL,
 ];
 
 export const PLATFORM_TOOL_KEYS = PLATFORM_TOOL_DEFINITIONS.map((tool) => tool.key);
@@ -1366,5 +1368,6 @@ export function toolKeysForLineSource(keys: readonly string[], sourceType: "user
 }
 
 export { HR_TOOL_DEFINITIONS, isHrToolKey, type HrSelfToolService } from "./hr.js";
+export { LINE_EXPENSE_TOOL_KEY, type LineExpenseService, type LineExpenseSubmission } from "./accounting.js";
 export { OPEN_METEO_TOOL_KEY };
 export type { ToolContract, ToolContext, ToolSurface } from "./contract.js";
