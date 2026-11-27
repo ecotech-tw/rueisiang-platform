@@ -10,6 +10,7 @@ export interface ReviewExpense {
   submitterUserId: string;
   submitterName: string;
   employeeNumber: string;
+  categoryId: string;
   categoryName: string;
   spentOn: string;
   amountMinor: number;
@@ -27,6 +28,15 @@ export interface ReviewExpense {
   createdAt: string;
   receiptIds: string[];
   duplicateInvoiceCount: number;
+}
+
+/** 報帳單的一次修改：誰改的、哪些欄位從什麼改成什麼（from／to 是伺服器排好的顯示文字）。 */
+export interface ExpenseEditRecord {
+  id: string;
+  at: string;
+  editor: "submitter" | "reviewer";
+  actorName: string;
+  changes: { field: string; label: string; from: string; to: string }[];
 }
 
 export interface ExpenseCategory { id: string; name: string; sortOrder: number; archived: boolean; expenseCount: number }

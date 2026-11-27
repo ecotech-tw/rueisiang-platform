@@ -61,6 +61,7 @@ export interface ReviewExpense {
   submitterUserId: string;
   submitterName: string;
   employeeNumber: string;
+  categoryId: string;
   categoryName: string;
   spentOn: string;
   amountMinor: number;
@@ -95,6 +96,7 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     submitterUserId: accountingExpenses.submitterUserId,
     submitterName: hrEmployeeName,
     employeeNumber: hrEmployments.employeeNumber,
+    categoryId: accountingExpenses.categoryId,
     categoryName: accountingExpenseCategories.name,
     spentOn: accountingExpenses.spentOn,
     amountMinor: accountingExpenses.amountMinor,

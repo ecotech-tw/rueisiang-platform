@@ -247,6 +247,7 @@ export interface ExpenseOptionsResponse { categories: Array<{ id: string; name: 
 export interface MyExpense {
   id: string;
   status: "pending" | "approved" | "rejected" | "cancelled" | "paid";
+  categoryId: string;
   categoryName: string;
   scopeName: string | null;
   spentOn: string;
@@ -260,6 +261,15 @@ export interface MyExpense {
   revision: number;
   createdAt: string;
   receiptIds: string[];
+}
+
+/** 報帳單的一次修改：誰改的、哪些欄位從什麼改成什麼（from／to 是伺服器排好的顯示文字）。 */
+export interface ExpenseEditRecord {
+  id: string;
+  at: string;
+  editor: "submitter" | "reviewer";
+  actorName: string;
+  changes: { field: string; label: string; from: string; to: string }[];
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
