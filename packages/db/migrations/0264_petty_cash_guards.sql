@@ -1,5 +1,5 @@
 -- 零用金紀錄的守門 trigger（Drizzle 不管 trigger，所以另開這支自訂 migration）。
--- 紀錄只能新增，不改、不刪舊的。
+-- 紀錄只能新增，不改、不刪舊的；「增加」打錯就記一筆更正。
 -- 餘額不能變負數：寫入端已經用條件式 INSERT 檢查餘額，這裡是最後一道保險。
 CREATE TRIGGER `trg_accounting_petty_cash_no_update`
 BEFORE UPDATE ON `accounting_petty_cash_entries`

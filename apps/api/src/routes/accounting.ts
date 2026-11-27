@@ -4,6 +4,7 @@ import {
   listPettyCash,
   REVIEW_STATUS_FILTERS,
   approveExpense,
+  correctPettyCashTopUp,
   createExpenseCategory,
   listCompanyExpenseOptions,
   listExpenseCategories,
@@ -133,6 +134,10 @@ export const accounting = new Hono<AppEnv>()
   .post("/petty-cash", requirePermission("accounting:petty-cash:write"), async (c) => {
     const input = await body(c);
     return c.json(await topUpPettyCash(c.get("db"), { amountDollars: typeof input.amountDollars === "number" ? input.amountDollars : Number.NaN, note: text(input, "note") }, c.get("user")), 201);
+  })
+  .post("/petty-cash/:id/correct", requirePermission("accounting:petty-cash:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await correctPettyCashTopUp(c.get("db"), c.req.param("id"), { note: text(input, "note") }, c.get("user")), 201);
   })
   // 看類別清單的人包含審核者：核准畫面要顯示類別名稱以外，管理頁也要讀。
   .get("/categories", requireAnyPermission("accounting:category:write", "accounting:expense:read"), async (c) => c.json({ categories: await listExpenseCategories(c.get("db")) }))

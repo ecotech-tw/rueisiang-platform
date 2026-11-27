@@ -37,8 +37,16 @@ describe("零用金紀錄的守門 trigger", () => {
     expect(() => insert.run("e5", "payout", -1, null)).toThrow(/CHECK/);
     insert.run("e2", "payout", -10000, "x1");
     expect(() => insert.run("e3", "payout", -1, "x1")).toThrow(/balance_negative/);
+    // 更正一定要指向一筆紀錄、要寫原因，同一筆只能更正一次。
+    sqlite.prepare("INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, actor_user_id) VALUES ('t2', 'top_up', 500, 'u1')").run();
+    const correct = sqlite.prepare("INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, corrects_entry_id, note, actor_user_id) VALUES (?, 'correction', -500, ?, ?, 'u1')");
+    expect(() => correct.run("c0", null, "打錯")).toThrow(/CHECK/);
+    expect(() => correct.run("c0", "t2", " ")).toThrow(/CHECK/);
+    correct.run("c1", "t2", "打錯");
+    sqlite.prepare("INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, actor_user_id) VALUES ('t3', 'top_up', 500, 'u1')").run();
+    expect(() => correct.run("c2", "t2", "再更正")).toThrow(/UNIQUE/);
     expect(() => sqlite.prepare("UPDATE accounting_petty_cash_entries SET note = '改'").run()).toThrow(/append_only/);
     expect(() => sqlite.prepare("DELETE FROM accounting_petty_cash_entries WHERE id = 'e1'").run()).toThrow(/append_only/);
-    expect(sqlite.prepare("SELECT count(*) AS n, sum(amount_minor) AS total FROM accounting_petty_cash_entries").get()).toEqual({ n: 2, total: 0 });
+    expect(sqlite.prepare("SELECT count(*) AS n, sum(amount_minor) AS total FROM accounting_petty_cash_entries").get()).toEqual({ n: 5, total: 500 });
   });
 });

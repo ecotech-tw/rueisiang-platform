@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { check, index, integer, sqliteTable, text, uniqueIndex, type AnySQLiteColumn } from "drizzle-orm/sqlite-core";
 import { users } from "./auth.js";
 import { hrPayrollAdjustments } from "./hr-payroll-runs.js";
 import { hrEmployments } from "./hr-people.js";
@@ -88,28 +88,35 @@ export const accountingExpenseReceipts = sqliteTable("accounting_expense_receipt
 
 /*
  * 零用金：全公司一個錢箱（使用者決定），餘額就是這張表所有金額的總和。
- * 每一筆增加、撥款、退回都是一列，金額帶正負號；紀錄只能新增，改與刪由 0264 的 trigger 擋下，
+ * 每一筆增加、撥款、退回、更正都是一列，金額帶正負號；紀錄只能新增，改與刪由 0264 的 trigger 擋下，
  * 餘額變負數的那一筆也一樣擋（寫入時另外有條件式 INSERT，trigger 是最後一道保險）。
  *
  * 撥款（payout）與退回（refund）指向那張報帳單；同一張單的撥款與退回加起來就是「目前從零用金付出去多少」，
  * 已付款退回待撥款時照這個數字退錢。
+ *
+ * 沒有手動減少（使用者決定）。「增加」打錯金額時用更正（correction）：指向那一筆增加、金額是它的相反數，
+ * 每一筆增加只能更正一次（corrects_entry_id 唯一），原本那筆照樣留著。
  */
 export const accountingPettyCashEntries = sqliteTable("accounting_petty_cash_entries", {
   id: text("id").primaryKey(),
-  kind: text("kind", { enum: ["top_up", "payout", "refund"] as const }).notNull(),
+  kind: text("kind", { enum: ["top_up", "payout", "refund", "correction"] as const }).notNull(),
   amountMinor: integer("amount_minor").notNull(),
   expenseId: text("expense_id").references(() => accountingExpenses.id, { onDelete: "restrict" }),
+  correctsEntryId: text("corrects_entry_id").references((): AnySQLiteColumn => accountingPettyCashEntries.id, { onDelete: "restrict" }),
   note: text("note").notNull().default(""),
   actorUserId: text("actor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [
   index("idx_accounting_petty_cash_created").on(table.createdAt),
   index("idx_accounting_petty_cash_expense").on(table.expenseId),
-  check("ck_accounting_petty_cash_kind", sql`${table.kind} IN ('top_up', 'payout', 'refund')`),
-  // 增加與退回是錢進來，撥款是錢出去。
-  check("ck_accounting_petty_cash_sign", sql`(${table.kind} IN ('top_up', 'refund') AND ${table.amountMinor} > 0) OR (${table.kind} = 'payout' AND ${table.amountMinor} < 0)`),
+  uniqueIndex("idx_accounting_petty_cash_corrects").on(table.correctsEntryId).where(sql`${table.correctsEntryId} IS NOT NULL`),
+  check("ck_accounting_petty_cash_kind", sql`${table.kind} IN ('top_up', 'payout', 'refund', 'correction')`),
+  // 增加與退回是錢進來，撥款與更正是錢出去。
+  check("ck_accounting_petty_cash_sign", sql`(${table.kind} IN ('top_up', 'refund') AND ${table.amountMinor} > 0) OR (${table.kind} IN ('payout', 'correction') AND ${table.amountMinor} < 0)`),
   check("ck_accounting_petty_cash_expense", sql`(${table.kind} IN ('payout', 'refund')) = (${table.expenseId} IS NOT NULL)`),
-  check("ck_accounting_petty_cash_note", sql`length(${table.note}) <= 500`),
+  check("ck_accounting_petty_cash_correction", sql`(${table.kind} = 'correction') = (${table.correctsEntryId} IS NOT NULL)`),
+  // 更正要寫原因，之後查得到為什麼扣回來。
+  check("ck_accounting_petty_cash_note", sql`length(${table.note}) <= 500 AND (${table.kind} <> 'correction' OR length(trim(${table.note})) > 0)`),
 ]);
 
 export type AccountingExpense = typeof accountingExpenses.$inferSelect;

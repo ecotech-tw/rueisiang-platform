@@ -90,6 +90,30 @@ describe("零用金：增加", () => {
     expect(() => d1.sqlite.prepare("INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, actor_user_id) VALUES ('r', 'reduce', -100, 'accountant')").run()).toThrow(/CHECK/);
   });
 
+  it("打錯的增加可以更正一次：記一筆相反數、原本那筆標已更正；要寫原因；只能更正增加；錢被用掉就不能更正", async () => {
+    await topUp(10000);
+    await topUp(500);
+    const list = async () => (await (await api("/accounting/petty-cash", "accountant")).json() as { balanceMinor: number; entries: Array<{ id: string; kind: string; amountMinor: number; corrected: boolean; correctsEntryId: string | null; note: string }> });
+    const wrong = (await list()).entries.find((entry) => entry.amountMinor === 1000000)!;
+    expect((await api(`/accounting/petty-cash/${wrong.id}/correct`, "accountant", "POST", { note: " " })).status).toBe(400);
+    expect((await api(`/accounting/petty-cash/${wrong.id}/correct`, "reviewer", "POST", { note: "多打一個 0" })).status).toBe(403);
+    expect((await api(`/accounting/petty-cash/${wrong.id}/correct`, "accountant", "POST", { note: "多打一個 0" })).status).toBe(201);
+    const after = await list();
+    expect(after.balanceMinor).toBe(50000);
+    expect(after.entries[0]).toMatchObject({ kind: "correction", amountMinor: -1000000, correctsEntryId: wrong.id, note: "多打一個 0" });
+    expect(after.entries.find((entry) => entry.id === wrong.id)).toMatchObject({ corrected: true });
+    expect((await api(`/accounting/petty-cash/${wrong.id}/correct`, "accountant", "POST", { note: "再一次" })).status).toBe(409);
+    expect((await api(`/accounting/petty-cash/${after.entries[0]!.id}/correct`, "accountant", "POST", { note: "更正更正" })).status).toBe(404);
+
+    // 500 元那筆有 350 元被報帳用掉了，扣回 500 會變負數。
+    const small = after.entries.find((entry) => entry.amountMinor === 50000)!;
+    const claim = await submit("employee");
+    expect((await approve(claim)).body).toMatchObject({ status: "paid" });
+    const blocked = await api(`/accounting/petty-cash/${small.id}/correct`, "accountant", "POST", { note: "打錯" });
+    expect(blocked.status).toBe(409);
+    expect(balance()).toBe(15000);
+  });
+
   it("權限：增加要 petty-cash:write；只能看的人看得到餘額", async () => {
     expect((await addCash(100, "", "reviewer")).status).toBe(403);
     expect((await api("/accounting/petty-cash", "auditor")).status).toBe(200);

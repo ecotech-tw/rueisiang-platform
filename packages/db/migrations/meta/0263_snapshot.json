@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8159c02d-92e8-442c-baaa-b14ad8e5bf78",
+  "id": "1650545a-1fc6-4134-9d1b-1ddf1dc454d6",
   "prevId": "12d618bb-70fd-4d60-9785-c91ee51eab03",
   "tables": {
     "auth_device_sessions": {
@@ -2440,6 +2440,13 @@
           "notNull": false,
           "autoincrement": false
         },
+        "corrects_entry_id": {
+          "name": "corrects_entry_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "note": {
           "name": "note",
           "type": "text",
@@ -2478,6 +2485,14 @@
             "expense_id"
           ],
           "isUnique": false
+        },
+        "idx_accounting_petty_cash_corrects": {
+          "name": "idx_accounting_petty_cash_corrects",
+          "columns": [
+            "corrects_entry_id"
+          ],
+          "isUnique": true,
+          "where": "\"accounting_petty_cash_entries\".\"corrects_entry_id\" IS NOT NULL"
         }
       },
       "foreignKeys": {
@@ -2487,6 +2502,19 @@
           "tableTo": "accounting_expenses",
           "columnsFrom": [
             "expense_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "accounting_petty_cash_entries_corrects_entry_id_accounting_petty_cash_entries_id_fk": {
+          "name": "accounting_petty_cash_entries_corrects_entry_id_accounting_petty_cash_entries_id_fk",
+          "tableFrom": "accounting_petty_cash_entries",
+          "tableTo": "accounting_petty_cash_entries",
+          "columnsFrom": [
+            "corrects_entry_id"
           ],
           "columnsTo": [
             "id"
@@ -2513,19 +2541,23 @@
       "checkConstraints": {
         "ck_accounting_petty_cash_kind": {
           "name": "ck_accounting_petty_cash_kind",
-          "value": "\"accounting_petty_cash_entries\".\"kind\" IN ('top_up', 'payout', 'refund')"
+          "value": "\"accounting_petty_cash_entries\".\"kind\" IN ('top_up', 'payout', 'refund', 'correction')"
         },
         "ck_accounting_petty_cash_sign": {
           "name": "ck_accounting_petty_cash_sign",
-          "value": "(\"accounting_petty_cash_entries\".\"kind\" IN ('top_up', 'refund') AND \"accounting_petty_cash_entries\".\"amount_minor\" > 0) OR (\"accounting_petty_cash_entries\".\"kind\" = 'payout' AND \"accounting_petty_cash_entries\".\"amount_minor\" < 0)"
+          "value": "(\"accounting_petty_cash_entries\".\"kind\" IN ('top_up', 'refund') AND \"accounting_petty_cash_entries\".\"amount_minor\" > 0) OR (\"accounting_petty_cash_entries\".\"kind\" IN ('payout', 'correction') AND \"accounting_petty_cash_entries\".\"amount_minor\" < 0)"
         },
         "ck_accounting_petty_cash_expense": {
           "name": "ck_accounting_petty_cash_expense",
           "value": "(\"accounting_petty_cash_entries\".\"kind\" IN ('payout', 'refund')) = (\"accounting_petty_cash_entries\".\"expense_id\" IS NOT NULL)"
         },
+        "ck_accounting_petty_cash_correction": {
+          "name": "ck_accounting_petty_cash_correction",
+          "value": "(\"accounting_petty_cash_entries\".\"kind\" = 'correction') = (\"accounting_petty_cash_entries\".\"corrects_entry_id\" IS NOT NULL)"
+        },
         "ck_accounting_petty_cash_note": {
           "name": "ck_accounting_petty_cash_note",
-          "value": "length(\"accounting_petty_cash_entries\".\"note\") <= 500"
+          "value": "length(\"accounting_petty_cash_entries\".\"note\") <= 500 AND (\"accounting_petty_cash_entries\".\"kind\" <> 'correction' OR length(trim(\"accounting_petty_cash_entries\".\"note\")) > 0)"
         }
       }
     },
