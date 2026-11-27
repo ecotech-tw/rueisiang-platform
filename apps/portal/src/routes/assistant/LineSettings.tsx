@@ -31,7 +31,8 @@ const AVATAR = "size-8 flex-none rounded-[999px]";
  */
 function blockedReason(tool: AssistantTool): string | null {
   if (tool.status === "disabled") return "已停用";
-  if (tool.status === "development") return "開發中，只能在 Sandbox 用";
+  // 只能在 LINE 用的工具（例如 LINE 報帳）在 Sandbox 也測不了，開發中就是哪裡都不能用。
+  if (tool.status === "development") return tool.surfaces.includes("sandbox") ? "開發中，只能在 Sandbox 用" : "開發中，到小香設定啟用後才能用";
   return null;
 }
 

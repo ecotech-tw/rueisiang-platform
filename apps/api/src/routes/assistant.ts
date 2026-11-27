@@ -85,7 +85,6 @@ import { assertHrSandboxDeliveryAuthorized, HR_SANDBOX_CHANNEL_KEY, hrRequestDra
 import type { PiSandboxAgentRunRequest } from "../pi-agent-contract.js";
 import { isNasStorageKey, nasStorageClient } from "../nas-storage.js";
 
-const TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("sandbox"));
 const LINE_TOOL_DEFINITIONS: PlatformToolDefinition[] = PLATFORM_TOOL_DEFINITIONS.filter((tool) => tool.surfaces.includes("line"));
 const LINE_TOOL_KEYS_LIST = LINE_TOOL_DEFINITIONS.map((tool) => tool.key);
 const LINE_TOOL_KEYS = new Set(LINE_TOOL_KEYS_LIST);
@@ -213,7 +212,9 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
   if (fallbackModelNeedsSave) {
     modelNotices.push(`原備援模型 ${configuredFallbackModel} 已不在目前 Pi 目錄，暫停使用；請重新選擇並儲存 fallback。`);
   }
-  const toolOptions = TOOL_DEFINITIONS.map((tool) => {
+  // 設定頁要列出所有工具（包含只能在 LINE 用的，例如 LINE 報帳），不然預設「開發中」的工具沒地方改成已啟用；
+  // Sandbox 的工具選單仍然只給 Sandbox 能跑的。
+  const toolOptions = PLATFORM_TOOL_DEFINITIONS.map((tool) => {
     const configuredStatus = statuses.get(tool.key);
     return {
       key: tool.key, label: tool.label, description: tool.description, surfaces: tool.surfaces,
@@ -242,7 +243,8 @@ async function sandboxConfig(env: AppEnv["Bindings"], db: AppEnv["Variables"]["d
     },
     models,
     // HR 工具只給可以模擬本人的管理者；其他人連目錄都看不到。
-    tools: toolOptions.filter((tool) => hrAvailable || !isHrToolKey(tool.key)),
+    tools: toolOptions.filter((tool) => tool.surfaces.includes("sandbox") && (hrAvailable || !isHrToolKey(tool.key))),
+    allTools: toolOptions.filter((tool) => hrAvailable || !isHrToolKey(tool.key)),
     hrSandbox: {
       available: hrAvailable,
       bindingConfigured: Boolean(env.LINE_LIFF_CHANNEL_ID?.trim()),

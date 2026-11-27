@@ -2659,9 +2659,13 @@ describe("小香 HR 模擬本人 Sandbox", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ toolCalls: [{ toolKey: "company_calendar", status: "success" }] });
     expect(requests.at(-1)).toContain("測試元旦");
-    const config = await (await as("alice", "alice@example.test", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[] };
+    const config = await (await as("alice", "alice@example.test", "/api/assistant/sandbox/config")).json() as { tools: { key: string }[]; allTools: { key: string; status: string }[] };
     expect(config.tools.map((tool) => tool.key)).toContain("company_calendar");
     expect(config.tools.some((tool) => tool.key.startsWith("hr_get_my_"))).toBe(false);
+    // 只能在 LINE 用的工具不進 Sandbox 選單，但設定頁的全部工具要有它，管理者才改得了狀態。
+    expect(config.tools.map((tool) => tool.key)).not.toContain("accounting_expense_submit");
+    expect(config.allTools.find((tool) => tool.key === "accounting_expense_submit")).toMatchObject({ status: "development" });
+    expect(config.allTools.some((tool) => tool.key.startsWith("hr_get_my_"))).toBe(false);
   });
 
   it("送出前才撤銷綁定的回合不留在 session transcript", async () => {

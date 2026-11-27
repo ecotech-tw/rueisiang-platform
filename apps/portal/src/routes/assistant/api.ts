@@ -44,7 +44,10 @@ export interface SandboxConfig {
   activeModelUpdatedAt: string | null;
   credentialStatus: { codex: "unconfigured" | "ready" | "needs_reauth"; codexLastErrorAt: number | null };
   models: AssistantModel[];
+  /** Sandbox 能跑的工具（Sandbox 的工具選單用）。 */
   tools: AssistantTool[];
+  /** 全部工具（設定頁改狀態用），包含只能在 LINE 用的。 */
+  allTools: AssistantTool[];
   hrSandbox: { available: boolean; bindingConfigured: boolean; toolKeys: string[] };
   activePrompt: PromptRevision | null;
   revisions: PromptRevision[];

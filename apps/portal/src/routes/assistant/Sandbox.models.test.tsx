@@ -39,7 +39,7 @@ function configFor(overrides: Partial<SandboxConfig> = {}): SandboxConfig {
       { id: "gpt-6-luna", label: "GPT-6 Luna", category: "GPT", provider: "openai-codex", supported: true, configured: true, supportsVision: true },
       { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", category: "Gemini", provider: "google", supported: true, configured: true, supportsVision: true },
     ],
-    activePrompt: null, revisions: [], tools: [],
+    activePrompt: null, revisions: [], tools: [], allTools: [],
     hrSandbox: { available: false, bindingConfigured: false, toolKeys: [] },
     ...overrides,
   };
