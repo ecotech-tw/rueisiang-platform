@@ -49,10 +49,19 @@ function validCyberbizRequest(value) {
       && typeof store.driveFolderName === "string");
 }
 
+function validCyberbizLoginProbeRequest(value) {
+  return value.kind === "cyberbiz-login-probe"
+    && value.credentials && typeof value.credentials === "object"
+    && typeof value.credentials.cyberbizUsername === "string" && value.credentials.cyberbizUsername.length > 0
+    && typeof value.credentials.cyberbizPassword === "string" && value.credentials.cyberbizPassword.length > 0
+    && value.storeName === "中和環球";
+}
+
 function validRequest(value) {
   if (!value || typeof value !== "object"
     || typeof value.requestId !== "string" || !/^[A-Za-z0-9-]{16,80}$/.test(value.requestId)) return false;
   if (value.kind === "cyberbiz-payout" || value.kind === "cyberbiz-sales") return validCyberbizRequest(value);
+  if (value.kind === "cyberbiz-login-probe") return validCyberbizLoginProbeRequest(value);
   return typeof value.sourceUrl === "string" && value.sourceUrl.startsWith("https://")
     && typeof value.start === "string" && typeof value.end === "string"
     && typeof value.scopeId === "string" && typeof value.scopeName === "string"
@@ -283,7 +292,100 @@ async function runCyberbizJob(payload, job) {
   });
 }
 
+async function runCyberbizLoginProbe(payload, job) {
+  const credentials = payload.credentials;
+  const child = spawn("python3", ["/app/tools/cyberbiz-reports/scrapling_login_probe.py"], {
+    cwd: "/app/tools/cyberbiz-reports",
+    env: {
+      ...process.env,
+      CYBERBIZ_USERNAME: credentials.cyberbizUsername,
+      CYBERBIZ_PASSWORD: credentials.cyberbizPassword,
+      CYBERBIZ_LOGIN_PROBE_STORE: payload.storeName,
+    },
+    detached: process.platform !== "win32",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  child.stdout.setEncoding("utf8");
+  let stdout = "";
+  let timedOut = false;
+  let spawnError;
+  let forceKillTimer;
+  const terminate = (signal) => {
+    if (!child.pid) return;
+    try {
+      if (process.platform === "win32") child.kill(signal);
+      else process.kill(-child.pid, signal);
+    } catch (error) {
+      if (error?.code !== "ESRCH") child.kill(signal);
+    }
+  };
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    terminate("SIGTERM");
+    forceKillTimer = setTimeout(() => terminate("SIGKILL"), CHILD_TERMINATION_GRACE_MS);
+    forceKillTimer.unref();
+  }, 120_000);
+  timeout.unref();
+  child.stdout.on("data", (chunk) => {
+    stdout = appendTail(stdout, chunk, 4_000);
+  });
+  return new Promise((resolve) => {
+    child.once("close", (code) => {
+      clearTimeout(timeout);
+      if (forceKillTimer) clearTimeout(forceKillTimer);
+      let probe = null;
+      for (const line of stdout.trim().split(/\r?\n/).reverse()) {
+        try {
+          const parsed = JSON.parse(line);
+          if (parsed && parsed.store === payload.storeName && typeof parsed.outcome === "string") {
+            probe = parsed;
+            break;
+          }
+        } catch {}
+      }
+      const outcome = typeof probe?.outcome === "string" ? probe.outcome : "probe_failed";
+      const successful = !timedOut && !spawnError && code === 0
+        && ["two_factor_required", "target_store_visible", "signed_in"].includes(outcome);
+      const labels = {
+        two_factor_required: "已到達 2FA，challenge 已通過",
+        target_store_visible: "已登入並找到測試店",
+        signed_in: "已登入，未確認測試店連結",
+        challenge_not_cleared: "載入後仍停在 Cloudflare challenge",
+        cloudflare_challenge: "帳密送出後仍停在 Cloudflare challenge",
+        challenge_after_submit: "帳密送出後仍停在 Cloudflare challenge",
+        login_form: "送出後仍停在登入表單",
+        login_form_remaining: "送出後仍停在登入表單",
+        missing_credentials: "Runner 缺少登入憑證",
+        unsupported_test_store: "不允許的測試店別",
+        automation_error: "登入操作發生錯誤",
+        fetcher_error: "Scrapling 瀏覽器執行失敗",
+        invalid_runner_config: "CYBERBIZ 網址設定無效",
+        unexpected_login_form: "登入欄位與預期不同",
+        unknown: "無法分類登入結果",
+        probe_failed: "無法取得登入探測結果",
+      };
+      const summary = `登入測試（${payload.storeName}）：${labels[outcome] ?? "登入結果未知"}。未執行報表匯出或寫入。`;
+      job.result = { probeOutcome: outcome, probeSummary: summary };
+      if (successful) {
+        job.status = "succeeded";
+        job.error = "";
+      } else {
+        job.status = "failed";
+        job.error = timedOut
+          ? "CYBERBIZ 登入測試逾時；未執行報表匯出或寫入。"
+          : summary;
+      }
+      job.finishedAt = new Date().toISOString();
+      resolve(job);
+    });
+    child.once("error", (error) => {
+      spawnError = error;
+    });
+  });
+}
+
 async function processJob(payload, job, { previewOnly = false } = {}) {
+  if (payload.kind === "cyberbiz-login-probe") return runCyberbizLoginProbe(payload, job);
   if (payload.kind === "cyberbiz-payout" || payload.kind === "cyberbiz-sales") {
     return runCyberbizJob(payload, job);
   }
@@ -303,7 +405,9 @@ async function runJob(payload, { previewOnly = false } = {}) {
     startedAt: new Date().toISOString(),
     result: null,
     error: "",
-    progress: payload.kind?.startsWith("cyberbiz-") ? "啟動 CYBERBIZ 報表…" : "",
+    progress: payload.kind === "cyberbiz-login-probe"
+      ? "執行 CYBERBIZ 登入測試…"
+      : payload.kind?.startsWith("cyberbiz-") ? "啟動 CYBERBIZ 報表…" : "",
   };
   jobs.set(payload.requestId, job);
   void processJob(payload, job, { previewOnly }).catch((error) => {

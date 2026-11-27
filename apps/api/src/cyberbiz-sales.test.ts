@@ -138,6 +138,43 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("登入探測只排入指定測試店的 Container 工作，不建立報表執行或寫入報表資料", async () => {
+    await upsertReportScope(db(), {
+      id: cyberbizScopeIdFromStoreName("中和環球"),
+      scopeKind: "store",
+      sourceType: "cyberbiz",
+      name: "中和環球",
+    });
+    const calls: { url: string; init?: RequestInit }[] = [];
+    const runnerFetch = vi.fn(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return Response.json({ requestId: "cf-12345678-1234-1234-1234-123456789abc", status: "queued" }, { status: 202 });
+    });
+    env = {
+      ...env,
+      CYBERBIZ_REPORT_RUNNER_MODE: "container",
+      REPORT_RUNNER_TOKEN: "runner-token",
+      REPORT_RUNNER: { idFromName: () => "shared", get: () => ({ fetch: runnerFetch }) },
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
+    };
+    const id = await seedUser("manager-probe@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-probe@ecotech.tw", "/api/tools/cyberbiz-sales/login-probe", { method: "POST" });
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toMatchObject({ store: "中和環球", requestId: expect.stringMatching(/^cf-/) });
+    expect(calls[0]?.url).toBe("https://report-runner/jobs");
+    const payload = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
+    expect(payload).toMatchObject({ kind: "cyberbiz-login-probe", storeName: "中和環球" });
+    expect(payload).not.toHaveProperty("stores");
+    expect(payload).not.toHaveProperty("start");
+    expect(payload).not.toHaveProperty("end");
+    expect(JSON.stringify(payload)).not.toContain("cyberbiz-password");
+    expect(await listCyberbizReportRuns(db(), "sales")).toHaveLength(0);
+    expect(await listCyberbizReportRuns(db(), "payout")).toHaveLength(0);
+    expect(await reportSalesRows()).toHaveLength(0);
+  });
+
   it("完整月份可由主管執行，並留下可匯入 D1 的 audit record", async () => {
     const calls = stubGithub();
     const id = await seedUser("manager@ecotech.tw", "role-manager");

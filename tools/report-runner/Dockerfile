@@ -4,10 +4,13 @@ ENV TZ=Asia/Taipei
 
 WORKDIR /app
 
+COPY tools/cyberbiz-reports/requirements-scrapling-probe.txt /tmp/requirements-scrapling-probe.txt
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-pip ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && python3 -m pip install --break-system-packages --no-cache-dir msoffcrypto-tool
+    && python3 -m pip install --break-system-packages --no-cache-dir \
+      msoffcrypto-tool -r /tmp/requirements-scrapling-probe.txt \
+    && scrapling install \
+    && rm -rf /var/lib/apt/lists/* /tmp/requirements-scrapling-probe.txt
 
 COPY tools/shopee-sales-report-export ./tools/shopee-sales-report-export
 COPY tools/cyberbiz-reports/package.json tools/cyberbiz-reports/package-lock.json ./tools/cyberbiz-reports/

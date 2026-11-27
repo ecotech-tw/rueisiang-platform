@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Env } from "./env.js";
 import {
   containerJobStatus,
+  containerLoginProbeConfigured,
   containerRunnerConfigured,
   cyberbizRunnerConfigured,
   isContainerRequestId,
@@ -35,6 +36,8 @@ describe("CYBERBIZ report runner routing", () => {
     expect(usesContainerRunner(env())).toBe(true);
     expect(containerRunnerConfigured(env())).toBe(true);
     expect(containerRunnerConfigured(env({ GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "" }))).toBe(false);
+    expect(containerLoginProbeConfigured(env({ GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN: "" }))).toBe(true);
+    expect(containerLoginProbeConfigured(env({ CYBERBIZ_PASSWORD: "" }))).toBe(false);
     expect(containerRunnerConfigured(env({ REPORT_RUNNER: undefined }))).toBe(false);
     expect(cyberbizRunnerConfigured(env({ CYBERBIZ_REPORT_RUNNER_MODE: "github" }), true)).toBe(true);
   });
@@ -95,6 +98,16 @@ describe("CYBERBIZ report runner routing", () => {
         { name: "宏匯・匯出", status: "completed", conclusion: "success" },
         { name: "宏匯・匯入 D1", status: "skipped", conclusion: "skipped" },
       ],
+    });
+  });
+
+  it("exposes the safe login-probe summary through the existing status panel contract", () => {
+    expect(containerJobStatus({
+      requestId: "cf-probe-123456",
+      status: "succeeded",
+      result: { probeOutcome: "two_factor_required", probeSummary: "登入測試（中和環球）：已到達 2FA，challenge 已通過。未執行報表匯出或寫入。" },
+    })).toMatchObject({
+      runs: [{ conclusion: "success", reportMarkdown: expect.stringContaining("未執行報表匯出或寫入") }],
     });
   });
 
