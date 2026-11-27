@@ -95,6 +95,33 @@ export function loginOptions({ env, config, gmailToken }) {
   };
 }
 
+export async function navigateToAdmin(page, origin) {
+  const mainFrame = page.mainFrame();
+  let mainDocumentStatus;
+  const onResponse = (response) => {
+    const request = response.request();
+    if (!request.isNavigationRequest()) return;
+    try {
+      if (request.frame() === mainFrame) mainDocumentStatus = response.status();
+    } catch {}
+  };
+
+  page.on("response", onResponse);
+  try {
+    await page.goto(`${origin}/admin/pos_shops`, { waitUntil: "domcontentloaded" });
+  } catch (error) {
+    const isTimeout = error?.name === "TimeoutError"
+      || (error instanceof Error && /Timeout \d+ms exceeded/.test(error.message));
+    if (!isTimeout) throw error;
+    const detail = mainDocumentStatus === undefined
+      ? "尚未收到主文件回應"
+      : `主文件 HTTP ${mainDocumentStatus}，但頁面尚未完成載入`;
+    fail("CYBERBIZ_NAVIGATION_TIMEOUT", `CYBERBIZ 管理頁載入逾時（${detail}）。`);
+  } finally {
+    page.off("response", onResponse);
+  }
+}
+
 /**
  * 登入 CYBERBIZ 後台。已登入就直接回傳。
  * 2FA：送出帳密後若出現驗證碼欄位，從 Gmail 分頁讀取驗證碼填入。
@@ -107,7 +134,7 @@ export async function login(page, {
   gmailToken,
   twoFactor,
 }) {
-  await page.goto(`${origin}/admin/pos_shops`, { waitUntil: "domcontentloaded" });
+  await navigateToAdmin(page, origin);
   await page.waitForTimeout(1500);
   await dismissOverlays(page);
 
