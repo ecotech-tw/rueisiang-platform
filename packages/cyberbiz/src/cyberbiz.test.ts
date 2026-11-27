@@ -477,6 +477,11 @@ describe("商品庫存", () => {
 });
 
 describe("訂單與消費紀錄", () => {
+  it("保留正式回報的未出貨狀態 unshipped，不改成其他平台的 unfulfilled", () => {
+    const order = parseCyberbizOrder({ statuses: { order_status: "open", financial_status: "pending", fulfillment_status: "unshipped", return_status: "no_need" } });
+    expect(order.statuses).toEqual({ orderStatus: "open", financialStatus: "pending", fulfillmentStatus: "unshipped", returnStatus: "no_need" });
+  });
+
   it("解析訂單的客戶、狀態、金額與商品明細", () => {
     const order = parseCyberbizOrder({
       id: 99,

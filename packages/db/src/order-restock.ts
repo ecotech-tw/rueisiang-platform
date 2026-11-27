@@ -247,8 +247,9 @@ async function runRestock(db: Database, initial: CyberbizOrderRestock, clients: 
       return;
     }
     if (row.phase === "cancel" && !cancelled) throw new ReviewRequired("訂單尚未確認取消，不扣除取消回補量。");
-    if (row.phase === "create" && latest.statuses.fulfillmentStatus !== "unfulfilled") {
-      throw new ReviewRequired("訂單已出貨或配送狀態不明，可能已實際出庫，不自動回補。");
+    if (row.phase === "create" && latest.statuses.fulfillmentStatus !== "unshipped") {
+      const actual = latest.statuses.fulfillmentStatus ? JSON.stringify(latest.statuses.fulfillmentStatus.slice(0, 80)) : "缺值";
+      throw new ReviewRequired(`訂單配送狀態為 ${actual}，未確認為未出貨（unshipped），不自動回補。`);
     }
     const eventTime = row.phase === "create" ? latest.createdAt : latest.timings.cancelledAt;
     const time = new Date(eventTime).getTime();
