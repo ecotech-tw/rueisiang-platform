@@ -92,6 +92,7 @@ export function loginOptions({ env, config, gmailToken }) {
     password: env.CYBERBIZ_PASSWORD,
     gmailToken,
     twoFactor: config.twoFactor,
+    autoClickCloudflareChallenge: env.CYBERBIZ_CHALLENGE_CLICK_ENABLED === "true",
   };
 }
 
@@ -143,8 +144,43 @@ export async function isCloudflareChallengePage(page) {
   return /cloudflare/i.test(visibleCopy) && CLOUDFLARE_CHALLENGE_COPY.test(visibleCopy);
 }
 
+/** 只在 CB 核准且明確啟用時，對 Cloudflare challenge iframe 的唯一可見 checkbox 點擊一次。 */
+export async function attemptCloudflareChallengeClick(page) {
+  const challengeFrames = page.frames().filter((frame) => {
+    try {
+      const hostname = new URL(frame.url()).hostname;
+      return hostname === "challenges.cloudflare.com" || hostname.endsWith(".challenges.cloudflare.com");
+    } catch {
+      return false;
+    }
+  });
+
+  for (const frame of challengeFrames) {
+    const checkboxes = frame.locator('input[type="checkbox"], [role="checkbox"]');
+    if (await checkboxes.count().catch(() => 0) !== 1) continue;
+    const checkbox = checkboxes.first();
+    if (!await checkbox.isVisible().catch(() => false)) continue;
+    try {
+      await checkbox.click({ timeout: 3000 });
+      return "clicked";
+    } catch {
+      return "click_failed";
+    }
+  }
+  return challengeFrames.length ? "checkbox_not_found" : "frame_not_found";
+}
+
+async function waitForCloudflareChallengeToClear(page, timeout = 10_000) {
+  const deadline = Date.now() + timeout;
+  do {
+    if (!await isCloudflareChallengePage(page)) return true;
+    await page.waitForTimeout(500);
+  } while (Date.now() < deadline);
+  return false;
+}
+
 /** 回傳登入流程的有限狀態，不讀出頁面文字或 URL 參數。 */
-export async function collectLoginDiagnostics(page, mainDocumentStatus) {
+export async function collectLoginDiagnostics(page, mainDocumentStatus, challengeClickStatus) {
   const isVisible = async (selector) => await page.locator(selector).first().isVisible().catch(() => false);
   const [cloudflareChallenge, usernameField, passwordField, twoFactorField, posShopLink] = await Promise.all([
     isCloudflareChallengePage(page),
@@ -169,12 +205,26 @@ export async function collectLoginDiagnostics(page, mainDocumentStatus) {
     twoFactorField,
     posShopLink,
     cloudflareChallenge,
+    ...(challengeClickStatus ? { challengeClickStatus } : {}),
   };
 }
 
 function formatLoginDiagnostics(state) {
   const visible = (value) => value ? "可見" : "未見";
-  return `診斷：頁面=${state.pageKind}；初始管理頁 HTTP=${state.mainDocumentStatus ?? "未知"}；帳號欄位=${visible(state.usernameField)}；密碼欄位=${visible(state.passwordField)}；2FA 欄位=${visible(state.twoFactorField)}；POS 商店連結=${visible(state.posShopLink)}；Cloudflare challenge=${visible(state.cloudflareChallenge)}。`;
+  const clickStatuses = {
+    disabled: "未啟用",
+    clicked: "已點擊",
+    click_failed: "點擊失敗",
+    checkbox_not_found: "找不到唯一可見 checkbox",
+    frame_not_found: "找不到 challenge iframe",
+    challenge_cleared: "challenge 已解除",
+    challenge_remains_after_click: "點擊後 challenge 仍存在",
+    second_challenge_not_clicked: "本次登入已點擊過，不重試",
+  };
+  const clickStatus = state.challengeClickStatus
+    ? `；challenge 點擊=${clickStatuses[state.challengeClickStatus] ?? "狀態未知"}`
+    : "";
+  return `診斷：頁面=${state.pageKind}；初始管理頁 HTTP=${state.mainDocumentStatus ?? "未知"}；帳號欄位=${visible(state.usernameField)}；密碼欄位=${visible(state.passwordField)}；2FA 欄位=${visible(state.twoFactorField)}；POS 商店連結=${visible(state.posShopLink)}；Cloudflare challenge=${visible(state.cloudflareChallenge)}${clickStatus}。`;
 }
 
 /** 等待登入 redirect、POS 清單或 2FA 欄位； timeout 後回傳 null。 */
@@ -205,11 +255,24 @@ export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeo
   return Promise.race(waits);
 }
 
-async function rejectCloudflareChallenge(page, outcome, mainDocumentStatus) {
-  if (outcome === "cloudflare_challenge" || await isCloudflareChallengePage(page)) {
-    const diagnostics = await collectLoginDiagnostics(page, mainDocumentStatus);
-    fail("CYBERBIZ_BOT_CHALLENGE", `偵測到 Cloudflare 驗證頁；Runner 不會自動通過此檢查。${formatLoginDiagnostics(diagnostics)}請確認執行來源 IP 已獲核准。`);
+async function rejectCloudflareChallenge(page, outcome, mainDocumentStatus, clickConfig) {
+  if (outcome !== "cloudflare_challenge" && !await isCloudflareChallengePage(page)) return;
+
+  if (clickConfig.enabled && !clickConfig.attempted) {
+    clickConfig.attempted = true;
+    clickConfig.status = await attemptCloudflareChallengeClick(page);
+    if (clickConfig.status === "clicked") {
+      clickConfig.status = await waitForCloudflareChallengeToClear(page)
+        ? "challenge_cleared"
+        : "challenge_remains_after_click";
+      if (clickConfig.status === "challenge_cleared") return;
+    }
+  } else if (clickConfig.enabled && clickConfig.attempted && clickConfig.status === "challenge_cleared") {
+    clickConfig.status = "second_challenge_not_clicked";
   }
+
+  const diagnostics = await collectLoginDiagnostics(page, mainDocumentStatus, clickConfig.status);
+  fail("CYBERBIZ_BOT_CHALLENGE", `偵測到 Cloudflare 驗證頁；Runner 未能完成驗證。${formatLoginDiagnostics(diagnostics)}請確認 CB 核准設定與 challenge 狀態。`);
 }
 
 /**
@@ -223,10 +286,12 @@ export async function login(page, {
   password,
   gmailToken,
   twoFactor,
+  autoClickCloudflareChallenge = false,
 }) {
   const mainDocumentStatus = await navigateToAdmin(page, origin);
   await page.waitForTimeout(1500);
-  await rejectCloudflareChallenge(page, undefined, mainDocumentStatus);
+  const challengeClick = { enabled: autoClickCloudflareChallenge, attempted: false, status: "disabled" };
+  await rejectCloudflareChallenge(page, undefined, mainDocumentStatus, challengeClick);
   await dismissOverlays(page);
 
   if (!page.url().includes("/user/sign_in")) return { status: "already_signed_in" };
@@ -242,7 +307,7 @@ export async function login(page, {
   await pass.fill(password);
   await page.getByRole("button", { name: "登入", exact: true }).click();
   const outcome = await waitForLoginOutcome(page);
-  await rejectCloudflareChallenge(page, outcome, mainDocumentStatus);
+  await rejectCloudflareChallenge(page, outcome, mainDocumentStatus, challengeClick);
   if (outcome === "signed_in") return { status: "signed_in" };
   if (outcome !== "two_factor") {
     const diagnostics = await collectLoginDiagnostics(page, mainDocumentStatus);
@@ -274,7 +339,7 @@ export async function login(page, {
   await page.getByRole("button", { name: /^(驗證|確認|送出)$/ }).first().click();
 
   const verified = await waitForLoginOutcome(page, { waitForTwoFactor: false });
-  await rejectCloudflareChallenge(page, verified, mainDocumentStatus);
+  await rejectCloudflareChallenge(page, verified, mainDocumentStatus, challengeClick);
   if (verified !== "signed_in") {
     const diagnostics = await collectLoginDiagnostics(page, mainDocumentStatus);
     fail("LOGIN_FAILED", `送出 2FA 驗證碼後仍停留在登入頁。${formatLoginDiagnostics(diagnostics)}請確認驗證碼有效或登入狀態。`);

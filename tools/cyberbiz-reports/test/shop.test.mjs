@@ -326,7 +326,10 @@ test("loginOptions：三支 driver 共用同一份登入參數", () => {
     // 這裡一定是換過的 access token，不是 env.GMAIL_REFRESH_TOKEN。
     gmailToken: "access-token",
     twoFactor: { gmailSearch: "q", codePattern: "\\d{6}" },
+    autoClickCloudflareChallenge: false,
   });
+  env.CYBERBIZ_CHALLENGE_CLICK_ENABLED = "true";
+  assert.equal(loginOptions({ env, config, gmailToken: "access-token" }).autoClickCloudflareChallenge, true);
 });
 
 test("loginOptions：config 少東西就當場說清楚，不要等到 2FA 才 TypeError", () => {

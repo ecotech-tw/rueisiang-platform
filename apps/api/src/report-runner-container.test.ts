@@ -83,14 +83,16 @@ describe("ReportRunner Durable Object", () => {
         return Response.json(remoteJob);
       },
     } as never);
-    expect(runner.envVars).toMatchObject({
+    const runnerEnv = runner.envVars ?? {};
+    expect(runnerEnv).toMatchObject({
       GOOGLE_REPORTS_OAUTH_CLIENT_ID: "reports-client-id",
       GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: "reports-client-secret",
       GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: "drive-refresh-token",
     });
-    expect(runner.envVars).not.toHaveProperty("GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN");
-    expect(runner.envVars).not.toHaveProperty("CYBERBIZ_USERNAME");
-    expect(runner.envVars).not.toHaveProperty("CYBERBIZ_PASSWORD");
+    expect(runnerEnv).not.toHaveProperty("GOOGLE_REPORTS_GMAIL_REFRESH_TOKEN");
+    expect(runnerEnv).not.toHaveProperty("CYBERBIZ_USERNAME");
+    expect(runnerEnv).not.toHaveProperty("CYBERBIZ_PASSWORD");
+    expect(runnerEnv.CYBERBIZ_CHALLENGE_CLICK_ENABLED).toBe("false");
     const requestId = "request-1234567890";
 
     const accepted = await runner.fetch(runnerRequest("/jobs", "POST", { requestId }));
@@ -105,6 +107,17 @@ describe("ReportRunner Durable Object", () => {
     const completed = await runner.fetch(runnerRequest(`/jobs/${requestId}`));
     expect(await completed.json()).toMatchObject({ status: "succeeded", result: { salesRows: 3 } });
     expect(containerCalls).toBe(2);
+  });
+
+  it("只有明確啟用時才把 challenge 點擊測試旗標傳入 Container", () => {
+    const runner = new ReportRunner({ storage: fakeStorage().storage } as never, {
+      REPORT_RUNNER_TOKEN: RUNNER_TOKEN,
+      CYBERBIZ_CHALLENGE_CLICK_ENABLED: "true",
+      DB: {},
+    } as never);
+
+    expect(runner.envVars?.CYBERBIZ_CHALLENGE_CLICK_ENABLED).toBe("true");
+    expect((runner as unknown as { allowedHosts: string[] }).allowedHosts).toContain("challenges.cloudflare.com");
   });
 
   it("超過 60 分鐘的 active job 會終止 Container 並釋放共享佇列", async () => {

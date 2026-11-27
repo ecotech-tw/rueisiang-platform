@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectLoginDiagnostics, dismissOverlays, isCloudflareChallengePage, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore, waitForLoginOutcome } from "../lib/cyberbiz.mjs";
+import { attemptCloudflareChallengeClick, collectLoginDiagnostics, dismissOverlays, isCloudflareChallengePage, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore, waitForLoginOutcome } from "../lib/cyberbiz.mjs";
 
 test("商品銷售報表連結名稱允許後台插入空白或換行", () => {
   assert.equal(PRODUCT_SALES_REPORT_LINK_NAME.test("商品銷售\n總表"), true);
@@ -64,6 +64,44 @@ test("只分類 Cloudflare 驗證頁，不記錄頁面內容", async () => {
   assert.equal(await isCloudflareChallengePage(pageFor({ title: "Just a moment", body: "Verifying... CLOUDFLARE" })), true);
   assert.equal(await isCloudflareChallengePage(pageFor({ selectorVisible: true })), true);
   assert.equal(await isCloudflareChallengePage(pageFor({ title: "CYBERBIZ", body: "登入" })), false);
+});
+
+test("challenge 點擊只作用於 Cloudflare iframe 的唯一可見 checkbox", async () => {
+  const calls = [];
+  const frame = {
+    url: () => "https://challenges.cloudflare.com/turnstile?token=secret",
+    locator: (selector) => {
+      assert.equal(selector, 'input[type="checkbox"], [role="checkbox"]');
+      return {
+        count: async () => 1,
+        first: () => ({
+          isVisible: async () => true,
+          click: async (options) => calls.push(options),
+        }),
+      };
+    },
+  };
+  const unrelatedFrame = {
+    url: () => "https://example.test/frame",
+    locator: () => { throw new Error("非 Cloudflare frame 不得檢查控制項"); },
+  };
+
+  assert.equal(await attemptCloudflareChallengeClick({ frames: () => [unrelatedFrame, frame] }), "clicked");
+  assert.deepEqual(calls, [{ timeout: 3000 }]);
+});
+
+test("challenge 點擊不會碰多個或不可見 checkbox", async () => {
+  const makeFrame = ({ count, visible }) => ({
+    url: () => "https://challenges.cloudflare.com/turnstile",
+    locator: () => ({
+      count: async () => count,
+      first: () => ({ isVisible: async () => visible, click: async () => assert.fail("不得點擊") }),
+    }),
+  });
+
+  assert.equal(await attemptCloudflareChallengeClick({ frames: () => [makeFrame({ count: 2, visible: true })] }), "checkbox_not_found");
+  assert.equal(await attemptCloudflareChallengeClick({ frames: () => [makeFrame({ count: 1, visible: false })] }), "checkbox_not_found");
+  assert.equal(await attemptCloudflareChallengeClick({ frames: () => [] }), "frame_not_found");
 });
 
 test("登入診斷只回傳安全狀態，不包含 URL 參數或頁面文字", async () => {
