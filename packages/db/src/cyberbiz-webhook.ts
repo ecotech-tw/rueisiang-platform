@@ -92,6 +92,7 @@ export async function dispatchCyberbizWebhook(
     const body = (root.order ?? root.data ?? root) as Record<string, unknown>;
     const claim = await claimCyberbizWebhookEvent(db, {
       id: eventId, topic, entityType: kind, externalEntityId: body.id == null ? null : String(body.id), payloadJson: rawBody,
+      orderRestockMode: input.restockMode ?? "observe",
     });
     if (!claim.claimed) return { kind, eventId, topic, status: "duplicate", reason: claim.status };
     if (kind === "order") {

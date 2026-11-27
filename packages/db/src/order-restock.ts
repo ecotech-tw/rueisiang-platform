@@ -1,5 +1,5 @@
-import { parseCyberbizOrder, type CyberbizInventoryClient, type CyberbizOrder, type CyberbizOrderClient } from "@rueisiang/cyberbiz";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { CyberbizApiError, CyberbizInventoryConflictError, parseCyberbizOrder, type CyberbizInventoryClient, type CyberbizOrder, type CyberbizOrderClient } from "@rueisiang/cyberbiz";
+import { and, asc, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { activityRow } from "./activity.js";
 import type { Database } from "./client.js";
 import { parseDbDate, toDbTimestamp } from "./db-timestamp.js";
@@ -87,15 +87,21 @@ export interface OrderWebhookOutcome {
   orderId?: string;
   reason?: string;
   queued?: number;
+  mode?: OrderRestockMode;
 }
 
 /** 只接收、驗證明細並建立防重工作；遠端 I/O 交給 response 後的 bounded drain。 */
 export async function receiveOrderRestock(db: Database, input: {
   rawBody: string; eventId: string; topic: string; mode: OrderRestockMode;
 }): Promise<OrderWebhookOutcome> {
-  const parsed = JSON.parse(input.rawBody) as Record<string, unknown>;
-  const order = parseCyberbizOrder(parsed.order ?? parsed.data ?? parsed);
+  const parsed = JSON.parse(input.rawBody) as Record<string, unknown> | null;
+  const order = parseCyberbizOrder(parsed?.order ?? parsed?.data ?? parsed);
   const phase = input.topic === "orders/create" ? "create" : input.topic === "orders/cancelled" ? "cancel" : null;
+  const originals = order.id && input.topic !== "orders/create" ? await db.select().from(cyberbizOrderRestocks).where(and(
+    eq(cyberbizOrderRestocks.orderId, order.id), eq(cyberbizOrderRestocks.phase, "create"), eq(cyberbizOrderRestocks.mode, "apply"),
+  )) : [];
+  const adjusted = originals.filter((row) => row.state === "applied");
+  const protectedOriginals = originals.filter((row) => ["applied", "applying", "review"].includes(row.state));
   let reason = "已排入回補核對；尚未調整庫存。";
   let state: OrderRestockState = "pending";
   let lines: ReturnType<typeof orderLines> = [];
@@ -123,27 +129,53 @@ export async function receiveOrderRestock(db: Database, input: {
     }
   }
 
+  if (protectedOriginals.length) {
+    let manifestMatches = false;
+    try {
+      const current = orderLines(order);
+      manifestMatches = isWebOrder(order) && current.length === originals.length
+        && (!order.statuses.returnStatus || order.statuses.returnStatus === "no_need")
+        && originals.every((original) => current.some((line) => line.productId === original.productId && line.variantId === original.variantId && line.sku === original.sku && line.quantity === original.quantity));
+    } catch { /* 缺少明細時沿用原帳本圈出品項，不以空身分解除保護。 */ }
+    if (!manifestMatches || (phase === "cancel" && input.mode === "observe")) {
+      state = "review";
+      reason = phase === "cancel" ? "已回補訂單的取消明細／來源不完整、已變更或目前停用寫入，須人工確認。" : "已回補訂單的商品明細／來源或退貨狀態變更，須人工確認。";
+      for (const original of adjusted) await finish(db, original, { state: "review", reason });
+      if (phase === "cancel") {
+        const identities = new Map(lines.map((line) => [line.variantId, line]));
+        for (const original of protectedOriginals) identities.set(original.variantId, { productId: original.productId, variantId: original.variantId, sku: original.sku, quantity: original.quantity });
+        lines = [...identities.values()];
+      }
+    }
+  }
+
   let queued = 0;
   if (phase && order.id) {
     if (!lines.length) lines = [{ productId: "", variantId: "", sku: "", quantity: 0 }];
     for (const line of lines) {
       const links = line.productId ? await listCompanyLinks(db, { productId: line.productId }) : [];
       const link = links.find((value) => value.cyberbizVariantId === line.variantId && value.linkedSku.trim().toUpperCase() === line.sku.toUpperCase());
-      const inserted = await db.insert(cyberbizOrderRestocks).values({
+      const now = toDbTimestamp();
+      const row: CyberbizOrderRestock = {
         id: crypto.randomUUID(), eventId: input.eventId,
         orderId: order.id, orderName: order.orderName || order.orderNumber || order.id,
         phase, source: order.sourceDevice, ...line, itemId: link?.inventoryItemId ?? null,
         mode: input.mode, state, reason, orderCreatedAt: order.createdAt,
-      }).onConflictDoNothing().returning();
-      for (const row of inserted) {
-        if (row.state === "pending") queued += 1;
-        await db.insert(activityEvents).values(audit(row));
-      }
+        targetQuantity: null, remoteBefore: null, remoteAfter: null, attempts: 0, startedAt: null, createdAt: now, updatedAt: now,
+      };
+      const event = { ...audit(row), createdAt: now };
+      const fields = Object.fromEntries(Object.entries(event).map(([key, value]) => [key, sql`${value}`.as(key)])) as { [K in keyof typeof event]: SQL.Aliased<(typeof event)[K]> };
+      // batch 原子寫入；業務鍵衝突時不替未插入的 UUID 產生幽靈稽核。
+      const [inserted] = await db.batch([
+        db.insert(cyberbizOrderRestocks).values(row).onConflictDoNothing().returning(),
+        db.insert(activityEvents).select(db.select(fields).from(cyberbizOrderRestocks).where(eq(cyberbizOrderRestocks.id, row.id))),
+      ]);
+      queued += inserted.filter((value) => value.state === "pending").length;
     }
   }
   const outcome: OrderWebhookOutcome = {
     eventId: input.eventId, topic: input.topic, orderId: order.id || undefined,
-    status: queued ? "processed" : "ignored", queued, ...(reason ? { reason } : {}),
+    status: queued || state === "review" ? "processed" : "ignored", queued, mode: input.mode, ...(reason ? { reason } : {}),
   };
   await db.update(cyberbizWebhookEvents).set({
     status: outcome.status, resultJson: JSON.stringify(outcome), processedAt: toDbTimestamp(), updatedAt: toDbTimestamp(),
@@ -161,14 +193,16 @@ async function runRestock(db: Database, initial: CyberbizOrderRestock, clients: 
   let lock: string | null = null;
   let sending = false;
   try {
-    if (!row.itemId) throw new ReviewRequired("訂單款式未精確連結 WMS 公司倉，請確認商品／款式 ID，不以同 SKU 猜測。");
-    lock = await claimCyberbizSyncLock(db, row.itemId);
-    if (!lock) return;
+    if (row.mode === "apply" && row.itemId) {
+      lock = await claimCyberbizSyncLock(db, row.itemId);
+      if (!lock) return;
+    }
     const claimed = await db.update(cyberbizOrderRestocks).set({
       state: "checking", attempts: sql`${cyberbizOrderRestocks.attempts} + 1`, startedAt: toDbTimestamp(), updatedAt: toDbTimestamp(),
     }).where(and(eq(cyberbizOrderRestocks.id, row.id), eq(cyberbizOrderRestocks.state, "pending"))).returning();
     if (!claimed.length) return;
     row = claimed[0]!;
+    if (!row.itemId) throw new ReviewRequired("訂單款式未精確連結 WMS 公司倉，請確認商品／款式 ID，不以同 SKU 猜測。");
     if (row.mode === "apply" && await hasUnresolvedOrderRestock(db, row.itemId!, row.id)) {
       throw new ReviewRequired("同品項另有未確認回補，不以單張訂單覆蓋可能包含其他異動的庫存。");
     }
@@ -219,6 +253,7 @@ async function runRestock(db: Database, initial: CyberbizOrderRestock, clients: 
     const remotes = await clients.inventoryClient.fetchProduct(row.productId);
     const remote = remotes.find((value) => value.productId === row.productId && value.variantId === row.variantId && value.sku.trim().toUpperCase() === row.sku.toUpperCase());
     if (!remote || remote.posShopId) throw new ReviewRequired("重讀商品並非原公司倉款式，未調整門市庫存。");
+    if (remote.quantityValid === false || !Number.isSafeInteger(remote.quantity)) throw new ReviewRequired("官網庫存數量缺值或不是安全整數，未自動調整。");
     row = { ...row, targetQuantity: link.quantity, remoteBefore: remote.quantity };
     if (!remote.inventoryManagement) {
       await finish(db, row, { state: "skipped", targetQuantity: link.quantity, remoteBefore: remote.quantity, reason: "商品未管理庫存，不進行回補。" });
@@ -259,7 +294,8 @@ async function runRestock(db: Database, initial: CyberbizOrderRestock, clients: 
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "回補失敗";
-    const review = sending || error instanceof ReviewRequired || row.mode === "observe" || row.attempts >= MAX_ATTEMPTS;
+    const review = sending || error instanceof ReviewRequired || error instanceof CyberbizInventoryConflictError
+      || (error instanceof CyberbizApiError && !error.retryable) || row.mode === "observe" || row.attempts >= MAX_ATTEMPTS;
     await finish(db, row, {
       state: review ? "review" : "pending", targetQuantity: row.targetQuantity, remoteBefore: row.remoteBefore,
       reason: sending ? `遠端寫入結果需人工確認，禁止自動重送：${message}` : message,
@@ -276,20 +312,38 @@ export async function drainOrderRestocks(db: Database, clients: OrderRestockClie
     sql`julianday(${cyberbizOrderRestocks.updatedAt}) < julianday('now', '-5 minutes')`,
   )).limit(10);
   for (const row of stale) await finish(db, row, { state: "review", reason: "工作中斷，遠端結果未確認；不自動重播庫存差額。" });
+  if (clients.mode === "observe") {
+    const paused = await db.select().from(cyberbizOrderRestocks).where(and(
+      eq(cyberbizOrderRestocks.state, "pending"), eq(cyberbizOrderRestocks.mode, "apply"),
+    )).limit(10);
+    for (const row of paused) {
+      const token = row.itemId ? await claimCyberbizSyncLock(db, row.itemId) : null;
+      if (row.itemId && !token) continue;
+      try {
+        const current = await getOrderRestock(db, row.id);
+        if (current.state === "pending") await finish(db, current, { state: "review", reason: "庫存寫入已停用；尚未送出的工作轉人工查核，不自動補跑。" });
+      } finally {
+        if (row.itemId && token) await releaseCyberbizSyncLock(db, row.itemId, token);
+      }
+    }
+  }
   const rows = await db.select().from(cyberbizOrderRestocks).where(and(
-    eq(cyberbizOrderRestocks.state, "pending"), eq(cyberbizOrderRestocks.mode, clients.mode),
+    eq(cyberbizOrderRestocks.state, "pending"), inArray(cyberbizOrderRestocks.mode, clients.mode === "apply" ? ["apply", "observe"] : ["observe"]),
   )).orderBy(asc(cyberbizOrderRestocks.createdAt), asc(cyberbizOrderRestocks.id)).limit(Math.min(5, Math.max(1, clients.limit ?? 5)));
   for (const row of rows) await runRestock(db, row, clients);
   return { attempted: rows.length, interrupted: stale.length };
 }
 
-export async function retryOrderRestockWebhooks(db: Database, mode: OrderRestockMode) {
+export async function retryOrderRestockWebhooks(db: Database) {
   await requeueStaleCyberbizWebhookEvents(db, "order");
   const events = await db.select().from(cyberbizWebhookEvents).where(and(
     eq(cyberbizWebhookEvents.entityType, "order"), eq(cyberbizWebhookEvents.status, "failed"),
   )).orderBy(asc(cyberbizWebhookEvents.receivedAt)).limit(5);
   for (const event of events) {
     if (!await claimFailedCyberbizWebhookEvent(db, event.id, "order")) continue;
+    let mode: OrderRestockMode = "observe";
+    try { mode = orderRestockMode((JSON.parse(event.resultJson) as { mode?: string } | null)?.mode); }
+    catch { /* 舊事件沒有可靠的接收模式，不追溯升級寫入。 */ }
     try { await receiveOrderRestock(db, { rawBody: event.payloadJson, topic: event.topic, eventId: event.id, mode }); }
     catch (error) {
       await db.update(cyberbizWebhookEvents).set({ status: "failed", lastError: error instanceof Error ? error.message : "訂單回補排程失敗", updatedAt: toDbTimestamp() }).where(eq(cyberbizWebhookEvents.id, event.id));

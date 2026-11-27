@@ -18,6 +18,8 @@ export interface CyberbizInventoryItem {
   variantName: string;
   sku: string;
   quantity: number;
+  /** 保留原始欄位是否有效，避免既有顯示用的補零／取整被當作可寫入依據。 */
+  quantityValid?: boolean;
   /** 官網那邊的安全庫存。WMS 的 minStock 會跟它對齊。 */
   safetyQuantity: number;
   inventoryManagement: boolean;
@@ -47,6 +49,13 @@ interface RawProduct {
   product_variants?: RawVariant[];
 }
 
+export class CyberbizInventoryConflictError extends Error {}
+
+function validQuantity(value: unknown): boolean {
+  return (typeof value === "number" || (typeof value === "string" && value.trim() !== ""))
+    && Number.isSafeInteger(Number(value));
+}
+
 /**
  * 一個商品可能有很多款式，庫存掛在款式上。攤平成「一列一個款式」——WMS 的
  * 一個品項連結的也是款式（cyberbiz_variant_id），不是商品。
@@ -63,6 +72,7 @@ export function flattenProducts(products: RawProduct[]): CyberbizInventoryItem[]
         variantName: variant.name?.trim() || "單一款式",
         sku: variant.sku?.trim() || "",
         quantity: Math.round(Number(variant.inventory_quantity) || 0),
+        quantityValid: validQuantity(variant.inventory_quantity),
         safetyQuantity: Math.max(0, Math.round(Number(variant.safety_inventory_quantity) || 0)),
         inventoryManagement: Boolean(variant.inventory_management),
         published: Boolean(product.published),
@@ -177,15 +187,21 @@ export function createInventoryClient(
       const before = await fetchProduct(productId);
       const current = before.find(
         (item) => isCompanyProduct(item)
+          && item.productId === productId
           && item.variantId === variantId
           && item.sku.trim().toUpperCase() === wanted,
       );
       if (!current) {
-        throw new Error("CYBERBIZ 的商品連結已失效：找不到原本的 product_id、variant_id 與 SKU。");
+        throw new CyberbizInventoryConflictError("CYBERBIZ 的商品連結已失效：找不到原本的 product_id、variant_id 與 SKU。");
       }
-
+      if (current.quantityValid === false || !Number.isSafeInteger(current.quantity)) {
+        throw new CyberbizInventoryConflictError("CYBERBIZ 庫存數量缺值或不是安全整數，未送出調整。");
+      }
+      if (!current.inventoryManagement) {
+        throw new CyberbizInventoryConflictError("CYBERBIZ 商品未管理庫存，未送出調整。");
+      }
       if (expectedQuantity !== undefined && current.quantity !== expectedQuantity) {
-        throw new Error(`CYBERBIZ 庫存在調整前已變動：預期 ${expectedQuantity}，目前 ${current.quantity}；未送出調整。`);
+        throw new CyberbizInventoryConflictError(`CYBERBIZ 庫存在調整前已變動：預期 ${expectedQuantity}，目前 ${current.quantity}；未送出調整。`);
       }
       const delta = target - current.quantity;
       if (delta === 0) {
@@ -212,8 +228,8 @@ export function createInventoryClient(
       });
 
       const after = await fetchProduct(productId);
-      const verified = after.find((item) => isCompanyProduct(item) && item.variantId === variantId);
-      if (!verified || verified.quantity !== target) {
+      const verified = after.find((item) => isCompanyProduct(item) && item.productId === productId && item.variantId === variantId && item.sku.trim().toUpperCase() === wanted);
+      if (!verified || verified.quantityValid === false || !Number.isSafeInteger(verified.quantity) || verified.quantity !== target) {
         throw new Error(
           `CYBERBIZ 已接受庫存調整，但重新讀取是 ${verified?.quantity ?? "未知"}，預期 ${target}。`,
         );

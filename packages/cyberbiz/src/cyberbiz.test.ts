@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CyberbizApiError, cyberbizRequest, readErrorMessage } from "./http.js";
 import { createCustomerClient, parseCyberbizCustomer } from "./customers.js";
-import { createInventoryClient, flattenProducts, isCompanyProduct } from "./inventory.js";
+import { CyberbizInventoryConflictError, createInventoryClient, flattenProducts, isCompanyProduct } from "./inventory.js";
 import { createOrderClient, parseCyberbizOrder } from "./orders.js";
 import { classifyPayload, parseProductEvent } from "./webhook.js";
 
@@ -374,6 +374,32 @@ describe("商品庫存", () => {
     stubFetch({ body: { product: PRODUCT_WITHOUT_ID } });
     const [item] = await createInventoryClient(config).fetchProduct("56750193");
     expect(item?.variantId).toBe("68463869");
+  });
+
+  it.each([undefined, null, "", "bad", true, 0.4, Number.MAX_SAFE_INTEGER + 1])("寫入前原始數量 %j 無效，不能補零或取整後送出", async (value) => {
+    const calls = stubFetch({ body: { ...PRODUCT_WITHOUT_ID, product_variants: [{ ...PRODUCT_WITHOUT_ID.product_variants[0], inventory_quantity: value }] } });
+    await expect(createInventoryClient(config).setCompanyQuantity({ productId: "56750193", variantId: "68463869", sku: "BPK24004", targetQuantity: 5, expectedQuantity: 0 })).rejects.toBeInstanceOf(CyberbizInventoryConflictError);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("有效數字字串保留有效性，不把合法的零當成缺值", async () => {
+    const [item] = flattenProducts([{ id: 1, product_variants: [{ id: 2, inventory_quantity: "0" }] }]);
+    expect(item).toMatchObject({ quantity: 0, quantityValid: true });
+  });
+
+  it("商品根 ID 改變時也拒絕寫入，不只比對款式與 SKU", async () => {
+    const calls = stubFetch({ body: { ...PRODUCT_WITHOUT_ID, id: 99 } });
+    await expect(createInventoryClient(config).setCompanyQuantity({ productId: "56750193", variantId: "68463869", sku: "BPK24004", targetQuantity: 200 })).rejects.toBeInstanceOf(CyberbizInventoryConflictError);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("目標為零時，寫後缺值不能被當成驗證成功", async () => {
+    const calls = stubFetch(
+      { body: PRODUCT_WITHOUT_ID }, { body: { ok: true } },
+      { body: { ...PRODUCT_WITHOUT_ID, product_variants: [{ ...PRODUCT_WITHOUT_ID.product_variants[0], inventory_quantity: null }] } },
+    );
+    await expect(createInventoryClient(config).setCompanyQuantity({ productId: "56750193", variantId: "68463869", sku: "BPK24004", targetQuantity: 0 })).rejects.toThrow("已接受庫存調整");
+    expect(calls).toHaveLength(3);
   });
 
   it("盤點推得上去：讀現況、送差額、再讀一次驗證", async () => {

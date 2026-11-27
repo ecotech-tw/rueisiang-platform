@@ -301,7 +301,7 @@ async function scheduled(_event: ScheduledController, env: Env, ctx: ExecutionCo
   );
 
   ctx.waitUntil(
-    retryOrderRestockWebhooks(db, orderRestockMode(env.CYBERBIZ_ORDER_RESTOCK_MODE))
+    retryOrderRestockWebhooks(db)
       .then(() => drainOrderRestocks(db, {
         mode: orderRestockMode(env.CYBERBIZ_ORDER_RESTOCK_MODE),
         inventoryClient: cyberbizInventoryClient(env), orderClient: cyberbizOrderClient(env),

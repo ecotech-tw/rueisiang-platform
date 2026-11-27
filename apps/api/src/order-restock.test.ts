@@ -3,7 +3,7 @@ import { createInventoryClient, createOrderClient } from "@rueisiang/cyberbiz";
 import {
   applySyncPlan, buildSyncPlan, claimCyberbizSyncLock, countItem, createDatabase, dispatchCyberbizWebhook,
   drainOrderRestocks, getOrderRestock, hasUnresolvedOrderRestock, listActivity, listCompanyLinks,
-  orderRestockMode, releaseCyberbizSyncLock, resolveOrderRestock, retryFailedCyberbizPushes, syncSystemRoles,
+  orderRestockMode, releaseCyberbizSyncLock, resolveOrderRestock, retryFailedCyberbizPushes, retryOrderRestockWebhooks, syncSystemRoles,
 } from "@rueisiang/db";
 import { activityEvents, cyberbizOrderRestocks, cyberbizProducts, cyberbizWebhookEvents, items, userPermissionGrants, users, wmsItems } from "@rueisiang/db/schema";
 import { eq } from "drizzle-orm";
@@ -25,6 +25,7 @@ let beforeSecondRead: (() => Promise<void>) | undefined;
 let beforeFirstRead: (() => Promise<void>) | undefined;
 let productReads: number;
 let onPost: (() => void) | undefined;
+let rawQuantityOverride: { value: unknown } | undefined;
 
 function orderPayload(overrides: Record<string, unknown> = {}) {
   return {
@@ -43,7 +44,7 @@ const clients = () => ({
   inventoryClient: createInventoryClient(config, { retries: 0, sleep: async () => {} }),
   orderClient: createOrderClient(config, { retries: 0, sleep: async () => {} }),
 });
-async function receive(mode: "observe" | "apply" = "apply", payload = currentOrder, topic = "orders/create") {
+async function receive(mode: "observe" | "apply" = "apply", payload: Record<string, unknown> = currentOrder, topic = "orders/create") {
   return dispatchCyberbizWebhook(db, { rawBody: JSON.stringify(payload), topic, restockMode: mode });
 }
 async function run(mode: "observe" | "apply" = "apply") {
@@ -60,7 +61,7 @@ beforeEach(async () => {
   await db.insert(wmsItems).values({ itemId: "soap", quantity: 12742, updatedAt: new Date(Date.now() - 60_000).toISOString() });
   await db.insert(cyberbizProducts).values({ itemId: "soap", cyberbizProductId: "100", cyberbizVariantId: "200" });
   quantity = 12737; remotePosId = null; managed = true; postFailure = false; readFailure = false;
-  writes = []; productReads = 0; beforeSecondRead = undefined; beforeFirstRead = undefined; onPost = undefined; currentOrder = orderPayload();
+  writes = []; productReads = 0; beforeSecondRead = undefined; beforeFirstRead = undefined; onPost = undefined; rawQuantityOverride = undefined; currentOrder = orderPayload();
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.pathname.startsWith("/v1/orders/")) {
@@ -72,7 +73,7 @@ beforeEach(async () => {
       if (productReads === 1) await beforeFirstRead?.();
       if (productReads === 2) await beforeSecondRead?.();
       return Response.json({ id: 100, title: "香皂", pos_shop: remotePosId ? { id: remotePosId } : null,
-        product_variants: [{ id: 200, sku: "SOAP", inventory_management: managed, inventory_quantity: quantity, safety_inventory_quantity: 5 }],
+        product_variants: [{ id: 200, sku: "SOAP", inventory_management: managed, inventory_quantity: rawQuantityOverride ? rawQuantityOverride.value : quantity, safety_inventory_quantity: 5 }],
       });
     }
     if (url.pathname === "/v1/stock_adjustments") {
@@ -214,7 +215,10 @@ describe("官網下單回補", () => {
     beforeSecondRead = async () => { quantity -= 20; };
     await receive(); await run();
     expect(writes).toHaveLength(0); expect(quantity).toBe(12717);
-    expect((await job()).state).toBe("pending");
+    expect((await job()).state).toBe("review");
+    beforeSecondRead = undefined; quantity = 12737;
+    await run();
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
   });
 
   it("送出前 WMS 被別的操作改過，不採用舊目標", async () => {
@@ -380,6 +384,151 @@ async function authenticatedHeaders(permissions: Array<"wms:activity:read" | "wm
   const token = await signSession(newSessionClaims({ id, email, name: "管理者", pictureUrl: "" }), AUTH_SECRET);
   return { Cookie: `${SESSION_COOKIE}=${encodeURIComponent(token)}`, "Content-Type": "application/json" };
 }
+
+describe("回補安全故障與模式切換", () => {
+  const invalidQuantities = [undefined, null, "", "不是數字", true, 0.4, "0.4", Number.MAX_SAFE_INTEGER + 1].map((value) => ({ value }));
+
+  it.each(invalidQuantities)("第一次讀到無效原始數量 $value，不把補零或取整當作現值", async ({ value }) => {
+    await db.update(wmsItems).set({ quantity: 5 }); quantity = 0;
+    rawQuantityOverride = { value };
+    await receive(); await run();
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+  });
+
+  it.each(invalidQuantities)("送出前第二次讀到無效原始數量 $value，停止而非重試", async ({ value }) => {
+    await db.update(wmsItems).set({ quantity: 5 }); quantity = 0;
+    beforeSecondRead = async () => { rawQuantityOverride = { value }; };
+    await receive(); await run();
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+    rawQuantityOverride = undefined; await run();
+    expect(writes).toHaveLength(0);
+  });
+
+  it("第二次商品讀取管理庫存已停用，不送出或自動重試", async () => {
+    beforeSecondRead = async () => { managed = false; };
+    await receive(); await run();
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+  });
+
+  it.each(["observe", "apply"] as const)("接收 %s 事件失敗，切換當前模式也不改寫接收模式", async (mode) => {
+    currentOrder.created_at = new Date(Date.now() - 7 * 60_000).toISOString();
+    await db.update(wmsItems).set({ updatedAt: new Date(Date.now() - 10 * 60_000).toISOString() });
+    d1.sqlite.exec("CREATE TRIGGER fail_restock BEFORE INSERT ON cyberbiz_order_restocks BEGIN SELECT RAISE(ABORT, '模擬接收中斷'); END;");
+    expect((await receive(mode)).status).toBe("failed");
+    expect(JSON.parse((await db.select().from(cyberbizWebhookEvents))[0]!.resultJson)).toMatchObject({ mode });
+    d1.sqlite.exec("DROP TRIGGER fail_restock; UPDATE cyberbiz_webhook_events SET status='processing', updated_at=datetime('now','-6 minutes');");
+    await retryOrderRestockWebhooks(db); await run("apply");
+    expect(await job()).toMatchObject({ mode, state: mode === "observe" ? "observed" : "applied" });
+    expect(writes).toHaveLength(mode === "observe" ? 0 : 1);
+  });
+
+  it("舊 failed 事件缺少可靠接收模式，補跑只能觀察", async () => {
+    d1.sqlite.exec("CREATE TRIGGER fail_restock BEFORE INSERT ON cyberbiz_order_restocks BEGIN SELECT RAISE(ABORT, '模擬接收中斷'); END;");
+    await receive("apply");
+    d1.sqlite.exec("DROP TRIGGER fail_restock; UPDATE cyberbiz_webhook_events SET result_json='{}';");
+    await retryOrderRestockWebhooks(db); await run("apply");
+    expect(await job()).toMatchObject({ mode: "observe", state: "observed" }); expect(writes).toHaveLength(0);
+  });
+
+  it("接收只完成部分觀察品項，補跑不讓剩下品項升級成 apply 或產生幽靈稽核", async () => {
+    currentOrder.line_items.push({ id: 901, product_id: 101, product_variant_id: 201, sku: "CANDLE", quantity: 1, related_items: [] });
+    d1.sqlite.exec("CREATE TRIGGER fail_second BEFORE INSERT ON cyberbiz_order_restocks WHEN NEW.variant_id='201' BEGIN SELECT RAISE(ABORT, '模擬第二品項中斷'); END;");
+    await receive("observe");
+    expect(await db.select().from(cyberbizOrderRestocks)).toHaveLength(1);
+    d1.sqlite.exec("DROP TRIGGER fail_second;");
+    await retryOrderRestockWebhooks(db);
+    const rows = await db.select().from(cyberbizOrderRestocks);
+    expect(rows).toHaveLength(2); expect(rows.every((row) => row.mode === "observe")).toBe(true);
+    expect(await db.select().from(activityEvents)).toHaveLength(2);
+  });
+
+  it("切回 observe 後，因 lease 忙碌未送出的 apply 工作可人工結案", async () => {
+    await receive();
+    const token = await claimCyberbizSyncLock(db, "soap");
+    await run(); expect((await job()).state).toBe("pending");
+    await run("observe"); expect((await job()).state).toBe("pending");
+    await releaseCyberbizSyncLock(db, "soap", token!);
+    await run("observe");
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+    const row = await job();
+    await resolveOrderRestock(db, { id: row.id, resolution: "skipped", reason: "已停用且確認未送出庫存調整", actor: { id: "operator", email: "operator@example.test" } });
+    expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(false);
+    await run("apply"); expect(writes).toHaveLength(0);
+  });
+
+  it("初始稽核失敗時帳本一起回滾，補跑只有一筆可查核紀錄", async () => {
+    currentOrder.line_items[0]!.related_items = [{ sku: "PART" }] as never[];
+    d1.sqlite.exec("CREATE TRIGGER fail_audit BEFORE INSERT ON activity_events BEGIN SELECT RAISE(ABORT, '模擬稽核中斷'); END;");
+    expect((await receive()).status).toBe("failed");
+    expect(await db.select().from(cyberbizOrderRestocks)).toHaveLength(0);
+    expect(await db.select().from(activityEvents)).toHaveLength(0);
+    d1.sqlite.exec("DROP TRIGGER fail_audit;");
+    await retryOrderRestockWebhooks(db); await retryOrderRestockWebhooks(db);
+    expect(await db.select().from(cyberbizOrderRestocks)).toHaveLength(1);
+    expect((await job()).state).toBe("review"); expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+    const activity = await listActivity(db, { entityType: "cyberbiz_order_restock", source: "all", search: "SOAP", page: 1, pageSize: 50 });
+    expect(activity.events).toHaveLength(1); expect(activity.events[0]!.orderRestockId).toBe((await job()).id);
+  });
+
+  it("observe 讀取期間不占用寫入 lease，既有商品同步仍可完成", async () => {
+    beforeFirstRead = async () => {
+      const links = await listCompanyLinks(db);
+      const result = await applySyncPlan(db, buildSyncPlan(links, [{ productId: "100", variantId: "200", sku: "SOAP", quantity, safetyQuantity: 5 }]), null);
+      expect(result.failed).toBe(0);
+    };
+    await receive("observe"); await run("observe");
+    expect((await job()).state).toBe("observed"); expect(writes).toHaveLength(0);
+    expect((await db.select().from(wmsItems))[0]!.quantity).toBe(12737);
+  });
+
+  it.each([{}, { line_items: [] }, { from_device: "", line_items: [] }])("已回補訂單收到不完整取消 %j，依原帳本保護品項", async (changes) => {
+    await receive(); await run();
+    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unfulfilled" }, timings: { cancelled_at: new Date().toISOString() }, ...changes });
+    const partial = { id: 700, from_device: "手機", ...changes };
+    await receive("apply", partial, "orders/cancelled"); await run();
+    expect(await job("cancel")).toMatchObject({ itemId: "soap", variantId: "200", state: "review" });
+    expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+    quantity = 12747;
+    const links = await listCompanyLinks(db);
+    const result = await applySyncPlan(db, buildSyncPlan(links, [{ productId: "100", variantId: "200", sku: "SOAP", quantity, safetyQuantity: 5 }]), null);
+    expect(result.failed).toBe(1); expect((await db.select().from(wmsItems))[0]!.quantity).toBe(12742);
+    expect(writes).toHaveLength(1);
+  });
+
+  it("取消查核接收中斷後補跑，仍保留原已回補品項身分", async () => {
+    await receive(); await run();
+    d1.sqlite.exec("CREATE TRIGGER fail_cancel BEFORE INSERT ON cyberbiz_order_restocks WHEN NEW.phase='cancel' BEGIN SELECT RAISE(ABORT, '模擬取消接收中斷'); END;");
+    await receive("apply", { id: 700, from_device: "手機" }, "orders/cancelled");
+    d1.sqlite.exec("DROP TRIGGER fail_cancel;");
+    await retryOrderRestockWebhooks(db);
+    expect(await job("cancel")).toMatchObject({ itemId: "soap", variantId: "200", state: "review" });
+  });
+
+  it("已回補訂單改量轉人工，不能把改單回補誤當實體回庫", async () => {
+    await receive(); await run();
+    currentOrder.line_items[0]!.quantity = 3;
+    await receive("apply", currentOrder, "orders/update");
+    expect((await job()).state).toBe("review"); expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+    quantity = 12744;
+    const links = await listCompanyLinks(db);
+    expect((await applySyncPlan(db, buildSyncPlan(links, [{ productId: "100", variantId: "200", sku: "SOAP", quantity, safetyQuantity: 5 }]), null)).failed).toBe(1);
+    expect((await db.select().from(wmsItems))[0]!.quantity).toBe(12742); expect(writes).toHaveLength(1);
+  });
+
+  it("已回補訂單一般付款更新未改明細，不誤鎖品項", async () => {
+    await receive(); await run();
+    await receive("apply", currentOrder, "orders/update");
+    expect((await job()).state).toBe("applied"); expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(false);
+  });
+
+  it("原本已回補、切回 observe 才取消時保留查核，不把原生回補匯回 WMS", async () => {
+    await receive(); await run();
+    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unfulfilled" }, timings: { cancelled_at: new Date().toISOString() } });
+    await receive("observe", currentOrder, "orders/cancelled"); await run("observe");
+    expect((await job()).state).toBe("review"); expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+    expect(writes).toHaveLength(1);
+  });
+});
 
 describe("回補 HTTP 接收及後台權限", () => {
   it("未明確啟用時，真實接收路徑只觀察並保存訂單，不更新 CRM 或庫存", async () => {

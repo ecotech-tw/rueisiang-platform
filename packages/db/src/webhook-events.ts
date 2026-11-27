@@ -11,6 +11,7 @@ export interface ClaimWebhookEventInput {
   externalEntityId?: string | null;
   cyberbizCustomerId?: string | null;
   payloadJson: string;
+  orderRestockMode?: "observe" | "apply";
 }
 
 export type ClaimWebhookEventResult =
@@ -43,6 +44,7 @@ export async function claimCyberbizWebhookEvent(
       externalEntityId: input.externalEntityId ?? null,
       cyberbizCustomerId: input.cyberbizCustomerId ?? null,
       payloadJson: input.payloadJson,
+      resultJson: input.entityType === "order" ? JSON.stringify({ mode: input.orderRestockMode ?? "observe" }) : "{}",
     })
     .onConflictDoNothing();
 
