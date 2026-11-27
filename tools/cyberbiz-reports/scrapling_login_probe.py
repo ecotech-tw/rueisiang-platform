@@ -95,6 +95,10 @@ def wait_for_login_outcome(page, store_name: str, timeout_seconds: float = 20) -
     return outcome
 
 
+def solver_test_succeeded(outcome: str, challenge_resolution_confirmed: bool) -> bool:
+    return challenge_resolution_confirmed and outcome in ("two_factor_required", "target_store_visible", "signed_in")
+
+
 def run_probe() -> tuple[int, dict[str, object]]:
     store_name = os.environ.get("CYBERBIZ_LOGIN_PROBE_STORE", "")
     username = os.environ.get("CYBERBIZ_USERNAME", "")
@@ -115,6 +119,7 @@ def run_probe() -> tuple[int, dict[str, object]]:
 
     def page_action(page) -> None:
         try:
+            result["challengeResolutionConfirmed"] = has_completed_challenge(page)
             initial = classify_page(page, store_name)
             if initial in ("two_factor_required", "target_store_visible", "signed_in"):
                 result["outcome"] = initial
@@ -153,7 +158,7 @@ def run_probe() -> tuple[int, dict[str, object]]:
         result["errorType"] = type(error).__name__
 
     outcome = str(result.get("outcome", "unknown"))
-    succeeded = outcome in ("two_factor_required", "target_store_visible", "signed_in")
+    succeeded = solver_test_succeeded(outcome, result.get("challengeResolutionConfirmed") is True)
     return (0 if succeeded else 1), result
 
 

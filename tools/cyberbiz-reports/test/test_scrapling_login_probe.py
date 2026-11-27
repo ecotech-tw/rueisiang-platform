@@ -67,6 +67,12 @@ class ScraplingLoginProbeTests(unittest.TestCase):
         page = Page(visible=[probe.POS_LINK_SELECTOR], store_labels=[probe.TEST_STORE_NAME])
         self.assertEqual(probe.classify_page(page, probe.TEST_STORE_NAME), "target_store_visible")
 
+    def test_reaching_two_factor_without_turnstile_evidence_is_not_solver_success(self):
+        self.assertFalse(probe.solver_test_succeeded("two_factor_required", False))
+
+    def test_reaching_two_factor_with_turnstile_evidence_confirms_solver_test(self):
+        self.assertTrue(probe.solver_test_succeeded("two_factor_required", True))
+
 
 if __name__ == "__main__":
     unittest.main()

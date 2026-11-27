@@ -40,6 +40,7 @@ export interface ReportRunnerJob {
     payoutRows?: number;
     reportMarkdown?: string;
     probeOutcome?: string;
+    challengeResolutionConfirmed?: boolean;
     probeSummary?: string;
   } | null;
 }

@@ -82,8 +82,13 @@ export const cyberbizSales = new Hono<AppEnv>()
       kind: "cyberbiz-login-probe",
       requestId,
       storeName: testStore.name,
+    }).catch((error: unknown) => {
+      if (error instanceof Error && error.message === "登入測試冷卻中，請稍後再試。") {
+        throw new HTTPException(429, { message: error.message });
+      }
+      throw error;
     });
-    return c.json({ requestId, job, store: testStore.name }, 202);
+    return c.json({ requestId: job.requestId, job, store: testStore.name }, 202);
   })
   .post("/run", requirePermission("tools:cyberbiz-sales:run"), async (c) => {
     const github = cyberbizSalesGithub(c.env);

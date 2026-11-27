@@ -10,6 +10,8 @@ const JOB_PREFIX = "job:";
 const QUEUE_PREFIX = "queue:";
 const QUEUE_CALLBACK = "processQueuedJobs";
 const MAX_QUEUED_JOBS = 20;
+const LOGIN_PROBE_LAST_STARTED_KEY = "report-runner:cyberbiz-login-probe-last-started-at";
+const LOGIN_PROBE_COOLDOWN_MS = 5 * 60_000;
 const MAX_ACTIVE_POLL_RETRIES = 12;
 const MAX_ACTIVE_JOB_MS = 60 * 60_000;
 const MAX_QUEUE_AGE_MS = 24 * 60 * 60_000;
@@ -184,6 +186,15 @@ export class ReportRunner extends Container<Env> {
         await transaction.put(queueKey, item);
         return { kind: "existing" as const, job: requeued };
       }
+      if (body.kind === "cyberbiz-login-probe") {
+        const jobs = await transaction.list<RunnerJob>({ prefix: JOB_PREFIX });
+        const inFlightProbe = [...jobs.values()].find((job) => job.kind === body.kind && !isTerminal(job.status));
+        if (inFlightProbe) return { kind: "existing" as const, job: inFlightProbe };
+        const lastStartedAt = await transaction.get<number>(LOGIN_PROBE_LAST_STARTED_KEY);
+        if (Number.isFinite(lastStartedAt) && queuedAt - Number(lastStartedAt) < LOGIN_PROBE_COOLDOWN_MS) {
+          return { kind: "cooldown" as const };
+        }
+      }
       const queued = await transaction.list<QueueItem>({ prefix: QUEUE_PREFIX });
       if (queued.size >= MAX_QUEUED_JOBS) return { kind: "full" as const };
       const created: RunnerJob = { requestId, kind: body.kind as string | undefined, status: "queued", error: "", queuedAt, updatedAtMs: queuedAt };
@@ -193,6 +204,9 @@ export class ReportRunner extends Container<Env> {
     });
     if (outcome.kind === "full") {
       return Response.json({ message: "報表執行佇列已滿，請稍後再試。" }, { status: 503 });
+    }
+    if (outcome.kind === "cooldown") {
+      return Response.json({ error: "登入測試冷卻中，請稍後再試。" }, { status: 429 });
     }
     if (isTerminal(outcome.job.status)) return Response.json(outcome.job, { status: 202 });
 
@@ -222,6 +236,9 @@ export class ReportRunner extends Container<Env> {
       await this.startAndWaitForPorts();
       const isCyberbizReport = item.payload.kind === "cyberbiz-payout" || item.payload.kind === "cyberbiz-sales";
       const isCyberbizLoginProbe = item.payload.kind === "cyberbiz-login-probe";
+      if (isCyberbizLoginProbe) {
+        await this.durableState.storage.put(LOGIN_PROBE_LAST_STARTED_KEY, Date.now());
+      }
       const containerPayload = isCyberbizReport || isCyberbizLoginProbe
         ? {
           ...item.payload,

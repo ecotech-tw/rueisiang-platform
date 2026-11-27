@@ -256,7 +256,12 @@ describe("ReportRunner Durable Object", () => {
       storeName: "中和環球",
     };
 
-    await runner.fetch(runnerRequest("/jobs", "POST", payload, true));
+    const accepted = await runner.fetch(runnerRequest("/jobs", "POST", payload, true));
+    const duplicate = await runner.fetch(runnerRequest("/jobs", "POST", { ...payload, requestId: "cyberbiz-probe-duplicate-123" }, true));
+    expect((await accepted.json() as { requestId: string }).requestId).toBe(requestId);
+    expect((await duplicate.json() as { requestId: string }).requestId).toBe(requestId);
+    expect([...durable.values.keys()].filter((key) => key.startsWith("queue:"))).toHaveLength(1);
+
     const queued = [...durable.values.entries()].find(([key]) => key.startsWith("queue:"))?.[1] as { payload?: Record<string, unknown> } | undefined;
     expect(queued?.payload).not.toHaveProperty("credentials");
 
@@ -272,6 +277,10 @@ describe("ReportRunner Durable Object", () => {
     await runner.processQueuedJobs();
     expect(updateReportRun).not.toHaveBeenCalled();
     expect(durable.values.get(`job:${requestId}`)).toMatchObject({ status: "succeeded", kind: "cyberbiz-login-probe" });
+
+    const rateLimited = await runner.fetch(runnerRequest("/jobs", "POST", { ...payload, requestId: "cyberbiz-probe-after-cooldown" }, true));
+    expect(rateLimited.status).toBe(429);
+    expect(await rateLimited.json()).toMatchObject({ error: "登入測試冷卻中，請稍後再試。" });
   });
 
   it("重疊的排程回呼不會重複啟動同一筆工作", async () => {

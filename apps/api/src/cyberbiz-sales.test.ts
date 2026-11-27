@@ -162,7 +162,10 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     const response = await as(id, "manager-probe@ecotech.tw", "/api/tools/cyberbiz-sales/login-probe", { method: "POST" });
 
     expect(response.status).toBe(202);
-    expect(await response.json()).toMatchObject({ store: "中和環球", requestId: expect.stringMatching(/^cf-/) });
+    expect(await response.json()).toMatchObject({
+      store: "中和環球",
+      requestId: "cf-12345678-1234-1234-1234-123456789abc",
+    });
     expect(calls[0]?.url).toBe("https://report-runner/jobs");
     const payload = JSON.parse(String(calls[0]?.init?.body)) as Record<string, unknown>;
     expect(payload).toMatchObject({ kind: "cyberbiz-login-probe", storeName: "中和環球" });
@@ -173,6 +176,32 @@ describe("CYBERBIZ 商品銷售報表執行", () => {
     expect(await listCyberbizReportRuns(db(), "sales")).toHaveLength(0);
     expect(await listCyberbizReportRuns(db(), "payout")).toHaveLength(0);
     expect(await reportSalesRows()).toHaveLength(0);
+  });
+
+  it("登入探測冷卻期間將 Runner 的限流回應轉成 429", async () => {
+    await upsertReportScope(db(), {
+      id: cyberbizScopeIdFromStoreName("中和環球"),
+      scopeKind: "store",
+      sourceType: "cyberbiz",
+      name: "中和環球",
+    });
+    const runnerFetch = vi.fn(async () => Response.json(
+      { error: "登入測試冷卻中，請稍後再試。" },
+      { status: 429 },
+    ));
+    env = {
+      ...env,
+      CYBERBIZ_REPORT_RUNNER_MODE: "container",
+      REPORT_RUNNER_TOKEN: "runner-token",
+      REPORT_RUNNER: { idFromName: () => "shared", get: () => ({ fetch: runnerFetch }) },
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
+    };
+    const id = await seedUser("manager-probe-cooldown@ecotech.tw", "role-manager");
+    const response = await as(id, "manager-probe-cooldown@ecotech.tw", "/api/tools/cyberbiz-sales/login-probe", { method: "POST" });
+
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({ error: "登入測試冷卻中，請稍後再試。" });
   });
 
   it("完整月份可由主管執行，並留下可匯入 D1 的 audit record", async () => {

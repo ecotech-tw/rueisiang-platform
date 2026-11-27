@@ -344,10 +344,11 @@ async function runCyberbizLoginProbe(payload, job) {
         } catch {}
       }
       const outcome = typeof probe?.outcome === "string" ? probe.outcome : "probe_failed";
-      const successful = !timedOut && !spawnError && code === 0
-        && ["two_factor_required", "target_store_visible", "signed_in"].includes(outcome);
+      const challengeResolutionConfirmed = probe?.challengeResolutionConfirmed === true;
+      const loginReached = ["two_factor_required", "target_store_visible", "signed_in"].includes(outcome);
+      const successful = !timedOut && !spawnError && code === 0 && loginReached && challengeResolutionConfirmed;
       const labels = {
-        two_factor_required: "已到達 2FA，challenge 已通過",
+        two_factor_required: "已到達 2FA",
         target_store_visible: "已登入並找到測試店",
         signed_in: "已登入，未確認測試店連結",
         challenge_not_cleared: "載入後仍停在 Cloudflare challenge",
@@ -364,8 +365,13 @@ async function runCyberbizLoginProbe(payload, job) {
         unknown: "無法分類登入結果",
         probe_failed: "無法取得登入探測結果",
       };
-      const summary = `登入測試（${payload.storeName}）：${labels[outcome] ?? "登入結果未知"}。未執行報表匯出或寫入。`;
-      job.result = { probeOutcome: outcome, probeSummary: summary };
+      const outcomeLabel = loginReached
+        ? challengeResolutionConfirmed
+          ? `${labels[outcome]}；觀察到 Turnstile 解題回應`
+          : `${labels[outcome]}，但未觀察到解題回應，無法確認 solver 成功`
+        : labels[outcome] ?? "登入結果未知";
+      const summary = `登入測試（${payload.storeName}）：${outcomeLabel}。未執行報表匯出或寫入。`;
+      job.result = { probeOutcome: outcome, challengeResolutionConfirmed, probeSummary: summary };
       if (successful) {
         job.status = "succeeded";
         job.error = "";
