@@ -3,6 +3,7 @@ import {
   EXPENSE_DESCRIPTION_MAX,
   EXPENSE_RECEIPT_MAX_FILES,
   EXPENSE_STATUS_LABELS,
+  payrollPeriodLabel,
   earliestExpenseDate,
   INVOICE_NUMBER_PATTERN,
   SELLER_TAX_ID_PATTERN,
@@ -52,8 +53,9 @@ function receiptUrl(expenseId: string, receiptId: string) {
 }
 
 function payoutNote(expense: MyExpense) {
-  if (expense.status === "approved") return expense.payoutMethod === "payroll" ? "核准，會跟月薪一起發。" : "核准，等會計撥款。";
-  if (expense.status === "paid") return expense.payoutMethod === "payroll" ? "已隨月薪發放。" : "已撥款。";
+  const period = expense.payrollPeriodKey ? payrollPeriodLabel(expense.payrollPeriodKey) : null;
+  if (expense.status === "approved") return period ? `核准，會跟 ${period}的薪資一起發。` : "核准，等會計撥款。";
+  if (expense.status === "paid") return period ? `已隨 ${period}的薪資發放。` : "已撥款。";
   return null;
 }
 

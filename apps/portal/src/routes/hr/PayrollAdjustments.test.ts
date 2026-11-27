@@ -17,7 +17,7 @@ vi.mock("./api.js", async (importOriginal) => ({
 const adjustment: PayrollAdjustment = {
   id: "adjustment-1", employmentId: "employment-1", effectivePeriodKey: "2026-09", reason: "補發",
   createdBy: "admin", createdAt: "2026-09-01", updatedBy: "admin", updatedAt: "2026-09-01", revision: 1,
-  canEdit: true, employeeName: "王小明", employeeNumber: "E036",
+  canEdit: true, fromExpense: false, employeeName: "王小明", employeeNumber: "E036",
   items: [{ id: "item-1", adjustmentId: "adjustment-1", itemName: "獎金", amountMinor: 10000, createdAt: "2026-09-01" }],
 };
 beforeEach(() => {

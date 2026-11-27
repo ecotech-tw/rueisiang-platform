@@ -255,6 +255,7 @@ export interface MyExpense {
   sellerTaxId: string;
   description: string;
   payoutMethod: "direct" | "payroll" | null;
+  payrollPeriodKey: string | null;
   reviewNote: string;
   revision: number;
   createdAt: string;

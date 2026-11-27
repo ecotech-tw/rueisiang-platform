@@ -22,7 +22,8 @@ function validate(input: HrPayrollAdjustmentInput) {
     if (!item.itemName.trim() || item.itemName.length > 100 || !Number.isSafeInteger(item.amountMinor) || item.amountMinor === 0) throw new HrError(400, "薪資加扣項目或金額不正確。 ");
   }
 }
-function payrollAdjustmentCanEdit(employmentId: SQLWrapper | string, effectivePeriodKey: SQLWrapper | string) {
+/** 會計併入月薪時也用這條判斷該月能不能掛加扣項（accounting-payroll.ts）。 */
+export function payrollAdjustmentCanEdit(employmentId: SQLWrapper | string, effectivePeriodKey: SQLWrapper | string) {
   return sql<number>`NOT (
     EXISTS (SELECT 1 FROM hr_payroll_periods p WHERE p.period_key=${effectivePeriodKey} AND p.status='closed')
     OR EXISTS (SELECT 1 FROM hr_payslips s INNER JOIN hr_payroll_runs r ON r.id=s.payroll_run_id INNER JOIN hr_payroll_periods p ON p.id=r.payroll_period_id WHERE s.employment_id=${employmentId} AND p.period_key=${effectivePeriodKey} AND r.status='closed')
@@ -35,6 +36,19 @@ async function ensureEditable(db: Database, employmentId: string, effectivePerio
   const [row] = await db.select({ canEdit: payrollAdjustmentCanEdit(employmentId, effectivePeriodKey) }).from(hrEmployments)
     .where(eq(hrEmployments.id, employmentId)).limit(1);
   if (row && !Boolean(row.canEdit)) throw new HrError(409, "加扣項生效月份已結帳，請建立下一個月份的新加扣項。 ");
+}
+/*
+ * 從報帳產生的加扣項在 HRIS 唯讀：外鍵擋得住刪除、擋不住修改，改了金額就跟支出單對不上。
+ * 支出單指向加扣項（accounting_expenses.payroll_adjustment_id），所以反查它；寫入的 SQL 也帶同一個條件，
+ * 檢查完到寫入之間被會計核准的也擋得住。
+ */
+const FROM_EXPENSE_MESSAGE = "這筆加扣項來自報帳，請由會計退回。";
+function notFromExpense(adjustmentId: SQLWrapper | string) {
+  return sql`NOT EXISTS (SELECT 1 FROM accounting_expenses WHERE accounting_expenses.payroll_adjustment_id = ${adjustmentId})`;
+}
+async function ensureNotFromExpense(db: Database, adjustmentId: string) {
+  const [row] = await db.select({ ok: sql<number>`${notFromExpense(adjustmentId)}` }).from(hrPayrollAdjustments).where(eq(hrPayrollAdjustments.id, adjustmentId)).limit(1);
+  if (row && !Boolean(row.ok)) throw new HrError(409, FROM_EXPENSE_MESSAGE);
 }
 async function ensureEmployment(db: Database, employmentId: string) {
   const [row] = await db.select({ id: hrEmployments.id }).from(hrEmployments).where(and(eq(hrEmployments.id, employmentId), sql`${hrEmployments.archivedAt} IS NULL`)).limit(1);
@@ -70,7 +84,7 @@ export async function listHrPayrollAdjustments(db: Database, effectivePeriodKey?
   const editabilityRows = await db.select({ id: hrPayrollAdjustments.id, canEdit: payrollAdjustmentCanEdit(
     sql`${sql.identifier("hr_payroll_adjustments")}.${sql.identifier("employment_id")}`,
     sql`${sql.identifier("hr_payroll_adjustments")}.${sql.identifier("effective_period_key")}`,
-  ) })
+  ), fromExpense: sql<number>`NOT ${notFromExpense(sql`${sql.identifier("hr_payroll_adjustments")}.${sql.identifier("id")}`)}` })
     .from(hrPayrollAdjustments).where(periodFilter);
   const rows = rawRows.map((row) => joinedAdjustment(row));
   const byId = new Map<string, { adjustment: typeof rows[number]["adjustment"]; employeeNumber: string; employeeName: string; items: typeof rows[number]["item"][] }>();
@@ -78,8 +92,8 @@ export async function listHrPayrollAdjustments(db: Database, effectivePeriodKey?
     const current = byId.get(row.adjustment.id) ?? { adjustment: row.adjustment, employeeNumber: row.employeeNumber, employeeName: row.employeeName, items: [] };
     current.items.push(row.item); byId.set(row.adjustment.id, current);
   }
-  const editability = new Map(editabilityRows.map((row) => [row.id, Boolean(row.canEdit)]));
-  return [...byId.values()].map((row) => ({ ...row, canEdit: editability.get(row.adjustment.id) ?? false }));
+  const editability = new Map(editabilityRows.map((row) => [row.id, { canEdit: Boolean(row.canEdit) && !row.fromExpense, fromExpense: Boolean(row.fromExpense) }]));
+  return [...byId.values()].map((row) => ({ ...row, ...(editability.get(row.adjustment.id) ?? { canEdit: false, fromExpense: false }) }));
 }
 
 export async function createHrPayrollAdjustment(db: Database, input: HrPayrollAdjustmentInput, actor: HrActor) {
@@ -97,10 +111,11 @@ export async function createHrPayrollAdjustment(db: Database, input: HrPayrollAd
 export async function deleteHrPayrollAdjustment(db: Database, id: string, expectedRevision: number, actor: HrActor) {
   const [current] = await db.select({ id: hrPayrollAdjustments.id, employmentId: hrPayrollAdjustments.employmentId, effectivePeriodKey: hrPayrollAdjustments.effectivePeriodKey, reason: hrPayrollAdjustments.reason, revision: hrPayrollAdjustments.revision }).from(hrPayrollAdjustments).where(eq(hrPayrollAdjustments.id, id)).limit(1);
   if (!current || current.revision !== expectedRevision) throw new HrError(409, "薪資加扣項不存在或版本已過期，請重新整理。 ");
+  await ensureNotFromExpense(db, id);
   await ensureEditable(db, current.employmentId, current.effectivePeriodKey);
   const items = await db.select({ itemName: hrPayrollAdjustmentItems.itemName, amountMinor: hrPayrollAdjustmentItems.amountMinor }).from(hrPayrollAdjustmentItems).where(eq(hrPayrollAdjustmentItems.adjustmentId, id));
-  const deleteItems = sql`DELETE FROM hr_payroll_adjustment_items WHERE adjustment_id=${id} AND EXISTS (SELECT 1 FROM hr_payroll_adjustments WHERE id=${id} AND revision=${expectedRevision}) RETURNING id`;
-  const deleteAdjustment = sql`DELETE FROM hr_payroll_adjustments WHERE id=${id} AND revision=${expectedRevision} RETURNING id`;
+  const deleteItems = sql`DELETE FROM hr_payroll_adjustment_items WHERE adjustment_id=${id} AND EXISTS (SELECT 1 FROM hr_payroll_adjustments WHERE id=${id} AND revision=${expectedRevision}) AND ${notFromExpense(id)} RETURNING id`;
+  const deleteAdjustment = sql`DELETE FROM hr_payroll_adjustments WHERE id=${id} AND revision=${expectedRevision} AND ${notFromExpense(id)} RETURNING id`;
   return writeHrMutation(db, [deleteItems, deleteAdjustment], id, actor, "payroll_adjustment_deleted", "薪資加扣項不存在、版本已過期或已結帳，請重新整理。", {
     activity: { summary: "薪資加扣項已刪除", payload: { employmentId: current.employmentId, effectivePeriodKey: current.effectivePeriodKey, reason: current.reason, items } },
   });
@@ -110,9 +125,10 @@ export async function updateHrPayrollAdjustment(db: Database, id: string, input:
   validate(input);
   const [current] = await db.select({ id: hrPayrollAdjustments.id, employmentId: hrPayrollAdjustments.employmentId, effectivePeriodKey: hrPayrollAdjustments.effectivePeriodKey, revision: hrPayrollAdjustments.revision }).from(hrPayrollAdjustments).where(eq(hrPayrollAdjustments.id, id)).limit(1);
   if (!current || current.revision !== input.revision) throw new HrError(409, "薪資加扣項不存在或版本已過期，請重新整理。 ");
+  await ensureNotFromExpense(db, id);
   await ensureEditable(db, current.employmentId, current.effectivePeriodKey);
   await ensureEmployment(db, input.employmentId); await ensureEditable(db, input.employmentId, input.effectivePeriodKey);
-  const update = sql`UPDATE hr_payroll_adjustments SET employment_id=${input.employmentId}, effective_period_key=${input.effectivePeriodKey}, reason=${input.reason.trim()}, updated_by=${actor.id}, updated_at=CURRENT_TIMESTAMP, revision=revision+1 WHERE id=${id} AND revision=${input.revision} RETURNING id`;
+  const update = sql`UPDATE hr_payroll_adjustments SET employment_id=${input.employmentId}, effective_period_key=${input.effectivePeriodKey}, reason=${input.reason.trim()}, updated_by=${actor.id}, updated_at=CURRENT_TIMESTAMP, revision=revision+1 WHERE id=${id} AND revision=${input.revision} AND ${notFromExpense(id)} RETURNING id`;
   const deleteItems = sql`DELETE FROM hr_payroll_adjustment_items WHERE adjustment_id=${id} AND EXISTS (SELECT 1 FROM hr_payroll_adjustments WHERE id=${id} AND revision=${input.revision + 1}) RETURNING id`;
   const insertItems = input.items.map((item) => sql`INSERT INTO hr_payroll_adjustment_items (id, adjustment_id, item_name, amount_minor)
     SELECT ${crypto.randomUUID()}, ${id}, ${item.itemName.trim()}, ${item.amountMinor}
