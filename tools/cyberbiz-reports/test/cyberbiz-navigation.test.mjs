@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dismissOverlays, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore } from "../lib/cyberbiz.mjs";
+import { dismissOverlays, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore, waitForLoginOutcome } from "../lib/cyberbiz.mjs";
 
 test("商品銷售報表連結名稱允許後台插入空白或換行", () => {
   assert.equal(PRODUCT_SALES_REPORT_LINK_NAME.test("商品銷售\n總表"), true);
@@ -51,6 +51,30 @@ test("resolveStore 的管理頁導航也使用逾時診斷", async () => {
     (error) => error.code === "CYBERBIZ_NAVIGATION_TIMEOUT"
       && error.message.includes("主文件 HTTP 503"),
   );
+});
+
+test("登入結果會等到導頁或 2FA 欄位，不再固定等三秒", async () => {
+  const twoFactorPage = {
+    waitForURL: () => new Promise(() => {}),
+    locator: (selector) => {
+      assert.equal(selector, "#otp_attempt, input[autocomplete='one-time-code'], input[name*='otp']");
+      return { first: () => ({ waitFor: async ({ state }) => assert.equal(state, "visible") }) };
+    },
+  };
+  assert.equal(await waitForLoginOutcome(twoFactorPage, { timeout: 10 }), "two_factor");
+
+  const signedInPage = {
+    waitForURL: async (predicate) => {
+      assert.equal(predicate(new URL("https://rueisiang.cyberbiz.co/admin/pos_shops")), true);
+    },
+  };
+  assert.equal(await waitForLoginOutcome(signedInPage, { waitForTwoFactor: false, timeout: 10 }), "signed_in");
+
+  const timeoutPage = {
+    waitForURL: async () => { throw Object.assign(new Error("timed out"), { name: "TimeoutError" }); },
+    locator: () => ({ first: () => ({ waitFor: async () => { throw Object.assign(new Error("timed out"), { name: "TimeoutError" }); } }) }),
+  };
+  assert.equal(await waitForLoginOutcome(timeoutPage, { timeout: 10 }), null);
 });
 
 test("關閉覆蓋頁面的 CYBERBIZ 通知 iframe，不碰其他 iframe", async () => {

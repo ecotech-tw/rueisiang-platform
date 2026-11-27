@@ -127,6 +127,30 @@ export async function navigateToAdmin(page, origin) {
  * 2FA：送出帳密後若出現驗證碼欄位，從 Gmail 分頁讀取驗證碼填入。
  * 驗證碼與密碼都不會被回傳或寫進 log。
  */
+export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeout = 15_000 } = {}) {
+  const isTimeout = (error) => error?.name === "TimeoutError"
+    || (error instanceof Error && /Timeout \d+ms exceeded/.test(error.message));
+  const waitFor = async (promise, outcome) => {
+    try {
+      await promise;
+      return outcome;
+    } catch (error) {
+      if (isTimeout(error)) return null;
+      throw error;
+    }
+  };
+  const waits = [
+    waitFor(page.waitForURL((url) => !url.toString().includes("/user/sign_in"), { timeout }), "signed_in"),
+  ];
+  if (waitForTwoFactor) {
+    const codeField = page
+      .locator("#otp_attempt, input[autocomplete='one-time-code'], input[name*='otp']")
+      .first();
+    waits.push(waitFor(codeField.waitFor({ state: "visible", timeout }), "two_factor"));
+  }
+  return Promise.race(waits);
+}
+
 export async function login(page, {
   origin,
   username,
@@ -150,37 +174,39 @@ export async function login(page, {
   await email.fill(username);
   await pass.fill(password);
   await page.getByRole("button", { name: "登入", exact: true }).click();
-  await page.waitForTimeout(3000);
+  const outcome = await waitForLoginOutcome(page);
+  if (outcome === "signed_in") return { status: "signed_in" };
+  if (outcome !== "two_factor") {
+    fail("LOGIN_FAILED", "送出帳密後仍停留在登入頁，未偵測到 2FA 欄位；請確認 CYBERBIZ 帳密或登入頁的驗證要求。");
+  }
 
   // 2FA：實際欄位是 #otp_attempt（name="user[otp_attempt]"），
   // 頁面會顯示「驗證碼已發送至 <信箱>」
   const codeField = page
     .locator("#otp_attempt, input[autocomplete='one-time-code'], input[name*='otp']")
     .first();
-  if ((await codeField.count()) > 0 && (await codeField.isVisible().catch(() => false))) {
-    if (!gmailToken) {
-      fail("OTP_NO_MAILBOX", "需要 2FA 驗證碼，但沒有 Gmail 授權（跑 node setup.mjs mail）。");
-    }
-    const code = await readTwoFactorCode(gmailToken, {
-      query: twoFactor.gmailSearch,
-      codePattern: twoFactor.codePattern,
-      notBefore: submittedAt,
-    });
-    await codeField.fill(code);
+  if (!gmailToken) {
+    fail("OTP_NO_MAILBOX", "需要 2FA 驗證碼，但沒有 Gmail 授權（跑 node setup.mjs mail）。");
+  }
+  const code = await readTwoFactorCode(gmailToken, {
+    query: twoFactor.gmailSearch,
+    codePattern: twoFactor.codePattern,
+    notBefore: submittedAt,
+  });
+  await codeField.fill(code);
 
-    // 勾「記住此裝置 30 天」：Chrome profile 是持久化的，勾了之後接下來
-    // 30 天內的執行都不用再等驗證信，省掉整段最不穩的流程。
-    const remember = page.locator("#remember_device");
-    if ((await remember.count()) > 0 && !(await remember.isChecked().catch(() => true))) {
-      await remember.check().catch(() => {});
-    }
-
-    await page.getByRole("button", { name: /^(驗證|確認|送出)$/ }).first().click();
-    await page.waitForTimeout(3000);
+  // 勾「記住此裝置 30 天」：Chrome profile 是持久化的，勾了之後接下來
+  // 30 天內的執行都不用再等驗證信，省掉整段最不穩的流程。
+  const remember = page.locator("#remember_device");
+  if ((await remember.count()) > 0 && !(await remember.isChecked().catch(() => true))) {
+    await remember.check().catch(() => {});
   }
 
-  if (page.url().includes("/user/sign_in")) {
-    fail("LOGIN_FAILED", "帳密或 2FA 驗證後仍停留在登入頁。");
+  await page.getByRole("button", { name: /^(驗證|確認|送出)$/ }).first().click();
+
+  const verified = await waitForLoginOutcome(page, { waitForTwoFactor: false });
+  if (verified !== "signed_in") {
+    fail("LOGIN_FAILED", "送出 2FA 驗證碼後仍停留在登入頁；請確認驗證碼有效或登入狀態。");
   }
   return { status: "signed_in" };
 }
