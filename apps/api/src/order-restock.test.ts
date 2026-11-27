@@ -23,6 +23,7 @@ let postFailure: boolean;
 let readFailure: boolean;
 let beforeSecondRead: (() => Promise<void>) | undefined;
 let beforeFirstRead: (() => Promise<void>) | undefined;
+let beforeVerifyRead: (() => Promise<void>) | undefined;
 let productReads: number;
 let onPost: (() => void) | undefined;
 let rawQuantityOverride: { value: unknown } | undefined;
@@ -61,7 +62,7 @@ beforeEach(async () => {
   await db.insert(wmsItems).values({ itemId: "soap", quantity: 12742, updatedAt: new Date(Date.now() - 60_000).toISOString() });
   await db.insert(cyberbizProducts).values({ itemId: "soap", cyberbizProductId: "100", cyberbizVariantId: "200" });
   quantity = 12737; remotePosId = null; managed = true; postFailure = false; readFailure = false;
-  writes = []; productReads = 0; beforeSecondRead = undefined; beforeFirstRead = undefined; onPost = undefined; rawQuantityOverride = undefined; currentOrder = orderPayload();
+  writes = []; productReads = 0; beforeSecondRead = undefined; beforeFirstRead = undefined; beforeVerifyRead = undefined; onPost = undefined; rawQuantityOverride = undefined; currentOrder = orderPayload();
   vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(input instanceof Request ? input.url : String(input));
     if (url.pathname.startsWith("/v1/orders/")) {
@@ -72,8 +73,10 @@ beforeEach(async () => {
       productReads += 1;
       if (productReads === 1) await beforeFirstRead?.();
       if (productReads === 2) await beforeSecondRead?.();
+      const fetchedQuantity = rawQuantityOverride ? rawQuantityOverride.value : quantity;
+      if (productReads === 3) await beforeVerifyRead?.();
       return Response.json({ id: 100, title: "香皂", pos_shop: remotePosId ? { id: remotePosId } : null,
-        product_variants: [{ id: 200, sku: "SOAP", inventory_management: managed, inventory_quantity: rawQuantityOverride ? rawQuantityOverride.value : quantity, safety_inventory_quantity: 5 }],
+        product_variants: [{ id: 200, sku: "SOAP", inventory_management: managed, inventory_quantity: fetchedQuantity, safety_inventory_quantity: 5 }],
       });
     }
     if (url.pathname === "/v1/stock_adjustments") {
@@ -408,6 +411,37 @@ describe("回補安全故障與模式切換", () => {
     beforeSecondRead = async () => { managed = false; };
     await receive(); await run();
     expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+  });
+
+  it("已核對但尚未送出時改單，不能把 checking 的人工查核覆蓋成 applying", async () => {
+    beforeSecondRead = async () => {
+      currentOrder.line_items[0]!.quantity = 3;
+      await receive("apply", currentOrder, "orders/update");
+    };
+    await receive(); await run();
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+    expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+  });
+
+  it.each(["orders/update", "orders/cancelled"])("POST 已送、驗證舊快照回來前收到 %s，writer 不得解除查核或留下假完成稽核", async (topic) => {
+    beforeVerifyRead = async () => {
+      if (topic === "orders/update") {
+        currentOrder.line_items[0]!.quantity = 3; quantity += 2;
+        await receive("apply", currentOrder, topic);
+      } else {
+        quantity += 5;
+        await receive("apply", { id: 700, from_device: "手機", line_items: [] }, topic);
+      }
+      expect((await job()).state).toBe("review");
+    };
+    await receive(); await run();
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(1);
+    expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+    const activity = await db.select().from(activityEvents);
+    expect(activity.some((row) => row.eventType === "order_restock_applied")).toBe(false);
+    const links = await listCompanyLinks(db);
+    expect((await applySyncPlan(db, buildSyncPlan(links, [{ productId: "100", variantId: "200", sku: "SOAP", quantity, safetyQuantity: 5 }]), null)).failed).toBe(1);
+    expect((await db.select().from(wmsItems))[0]!.quantity).toBe(12742);
   });
 
   it.each(["observe", "apply"] as const)("接收 %s 事件失敗，切換當前模式也不改寫接收模式", async (mode) => {

@@ -71,13 +71,25 @@ function audit(row: CyberbizOrderRestock, actor?: { id: string; email: string })
   });
 }
 
-async function finish(db: Database, row: CyberbizOrderRestock, patch: Partial<CyberbizOrderRestock>, actor?: { id: string; email: string }) {
+function auditInsert(db: Database, row: CyberbizOrderRestock, actor?: { id: string; email: string }, afterUpdate = false) {
+  const event = { ...audit(row, actor), createdAt: row.updatedAt };
+  const fields = Object.fromEntries(Object.entries(event).map(([key, value]) => [key, sql`${value}`.as(key)])) as { [K in keyof typeof event]: SQL.Aliased<(typeof event)[K]> };
+  return db.insert(activityEvents).select(db.select(fields).from(cyberbizOrderRestocks).where(and(
+    eq(cyberbizOrderRestocks.id, row.id), ...(afterUpdate ? [sql`changes() > 0`] : []),
+  )));
+}
+
+async function finish(db: Database, row: CyberbizOrderRestock, patch: Partial<CyberbizOrderRestock>, actor?: { id: string; email: string }, expectedStates?: OrderRestockState[]) {
   const next = { ...row, ...patch, updatedAt: toDbTimestamp() };
-  await db.batch([
-    db.update(cyberbizOrderRestocks).set({ ...patch, updatedAt: next.updatedAt }).where(eq(cyberbizOrderRestocks.id, row.id)),
-    db.insert(activityEvents).values(audit(next, actor)),
+  const [updated] = await db.batch([
+    db.update(cyberbizOrderRestocks).set({ ...patch, updatedAt: next.updatedAt }).where(and(
+      eq(cyberbizOrderRestocks.id, row.id), inArray(cyberbizOrderRestocks.state, expectedStates ?? [row.state]),
+      ...(expectedStates ? [] : [eq(cyberbizOrderRestocks.updatedAt, row.updatedAt)]),
+    )).returning(),
+    // changes() 是同 batch 前一個 UPDATE 的結果，CAS 失敗不得留下虛假的完成稽核。
+    auditInsert(db, next, actor, true),
   ]);
-  return next;
+  return updated[0] ?? getOrderRestock(db, row.id);
 }
 
 export interface OrderWebhookOutcome {
@@ -100,8 +112,8 @@ export async function receiveOrderRestock(db: Database, input: {
   const originals = order.id && input.topic !== "orders/create" ? await db.select().from(cyberbizOrderRestocks).where(and(
     eq(cyberbizOrderRestocks.orderId, order.id), eq(cyberbizOrderRestocks.phase, "create"), eq(cyberbizOrderRestocks.mode, "apply"),
   )) : [];
-  const adjusted = originals.filter((row) => row.state === "applied");
-  const protectedOriginals = originals.filter((row) => ["applied", "applying", "review"].includes(row.state));
+  const mutableStates: OrderRestockState[] = ["pending", "checking", "applying", "applied"];
+  const protectedOriginals = originals.filter((row) => row.state === "review" || mutableStates.includes(row.state));
   let reason = "已排入回補核對；尚未調整庫存。";
   let state: OrderRestockState = "pending";
   let lines: ReturnType<typeof orderLines> = [];
@@ -140,7 +152,9 @@ export async function receiveOrderRestock(db: Database, input: {
     if (!manifestMatches || (phase === "cancel" && input.mode === "observe")) {
       state = "review";
       reason = phase === "cancel" ? "已回補訂單的取消明細／來源不完整、已變更或目前停用寫入，須人工確認。" : "已回補訂單的商品明細／來源或退貨狀態變更，須人工確認。";
-      for (const original of adjusted) await finish(db, original, { state: "review", reason });
+      for (const original of protectedOriginals) {
+        if (original.state !== "review") await finish(db, original, { state: "review", reason }, undefined, mutableStates);
+      }
       if (phase === "cancel") {
         const identities = new Map(lines.map((line) => [line.variantId, line]));
         for (const original of protectedOriginals) identities.set(original.variantId, { productId: original.productId, variantId: original.variantId, sku: original.sku, quantity: original.quantity });
@@ -163,12 +177,10 @@ export async function receiveOrderRestock(db: Database, input: {
         mode: input.mode, state, reason, orderCreatedAt: order.createdAt,
         targetQuantity: null, remoteBefore: null, remoteAfter: null, attempts: 0, startedAt: null, createdAt: now, updatedAt: now,
       };
-      const event = { ...audit(row), createdAt: now };
-      const fields = Object.fromEntries(Object.entries(event).map(([key, value]) => [key, sql`${value}`.as(key)])) as { [K in keyof typeof event]: SQL.Aliased<(typeof event)[K]> };
       // batch 原子寫入；業務鍵衝突時不替未插入的 UUID 產生幽靈稽核。
       const [inserted] = await db.batch([
         db.insert(cyberbizOrderRestocks).values(row).onConflictDoNothing().returning(),
-        db.insert(activityEvents).select(db.select(fields).from(cyberbizOrderRestocks).where(eq(cyberbizOrderRestocks.id, row.id))),
+        auditInsert(db, row),
       ]);
       queued += inserted.filter((value) => value.state === "pending").length;
     }
@@ -284,7 +296,11 @@ async function runRestock(db: Database, initial: CyberbizOrderRestock, clients: 
         )).limit(1);
         if (!lease) throw new ReviewRequired("送出前同步 lease 已失效，未調整官網。");
         // 持久化成功後才允許 POST；crash／timeout 後只能人工確認，不重新送差額。
-        await db.update(cyberbizOrderRestocks).set({ state: "applying", targetQuantity: link.quantity, remoteBefore: remote.quantity, updatedAt: toDbTimestamp() }).where(eq(cyberbizOrderRestocks.id, row.id));
+        const [active] = await db.update(cyberbizOrderRestocks).set({ state: "applying", targetQuantity: link.quantity, remoteBefore: remote.quantity, updatedAt: toDbTimestamp() }).where(and(
+          eq(cyberbizOrderRestocks.id, row.id), eq(cyberbizOrderRestocks.state, "checking"), eq(cyberbizOrderRestocks.updatedAt, row.updatedAt),
+        )).returning();
+        if (!active) throw new ReviewRequired("送出前工作已被訂單異動轉人工查核，未調整官網。");
+        row = active;
         sending = true;
       },
     });
@@ -373,7 +389,10 @@ export async function resolveOrderRestock(db: Database, input: {
   try {
     const current = await getOrderRestock(db, input.id);
     if (current.state !== "review") throw new WmsError("conflict", "紀錄已被其他操作更新。");
-    return await finish(db, current, { state: input.resolution, reason: `人工確認：${input.reason.trim()}` }, input.actor);
+    const reason = `人工確認：${input.reason.trim()}`;
+    const resolved = await finish(db, current, { state: input.resolution, reason }, input.actor);
+    if (resolved.state !== input.resolution || resolved.reason !== reason) throw new WmsError("conflict", "紀錄已被其他操作更新，請重新查核。");
+    return resolved;
   } finally {
     if (token && row.itemId) await releaseCyberbizSyncLock(db, row.itemId, token);
   }
