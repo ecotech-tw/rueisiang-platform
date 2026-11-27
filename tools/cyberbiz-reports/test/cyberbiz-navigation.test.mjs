@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dismissOverlays, isCloudflareChallengePage, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore, waitForLoginOutcome } from "../lib/cyberbiz.mjs";
+import { collectLoginDiagnostics, dismissOverlays, isCloudflareChallengePage, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore, waitForLoginOutcome } from "../lib/cyberbiz.mjs";
 
 test("商品銷售報表連結名稱允許後台插入空白或換行", () => {
   assert.equal(PRODUCT_SALES_REPORT_LINK_NAME.test("商品銷售\n總表"), true);
@@ -64,6 +64,33 @@ test("只分類 Cloudflare 驗證頁，不記錄頁面內容", async () => {
   assert.equal(await isCloudflareChallengePage(pageFor({ title: "Just a moment", body: "Verifying... CLOUDFLARE" })), true);
   assert.equal(await isCloudflareChallengePage(pageFor({ selectorVisible: true })), true);
   assert.equal(await isCloudflareChallengePage(pageFor({ title: "CYBERBIZ", body: "登入" })), false);
+});
+
+test("登入診斷只回傳安全狀態，不包含 URL 參數或頁面文字", async () => {
+  const visibleSelectors = new Set(["#login-input", "#password"]);
+  const page = {
+    url: () => "https://rueisiang.cyberbiz.co/user/sign_in?token=secret-value",
+    locator: (selector) => ({
+      first: () => ({
+        isVisible: async () => visibleSelectors.has(selector),
+      }),
+      innerText: async () => "",
+    }),
+    title: async () => "帳號 user@example.test",
+  };
+
+  const diagnostics = await collectLoginDiagnostics(page, 200);
+  assert.deepEqual(diagnostics, {
+    pageKind: "登入頁",
+    mainDocumentStatus: 200,
+    usernameField: true,
+    passwordField: true,
+    twoFactorField: false,
+    posShopLink: false,
+    cloudflareChallenge: false,
+  });
+  assert.equal(JSON.stringify(diagnostics).includes("secret-value"), false);
+  assert.equal(JSON.stringify(diagnostics).includes("user@example.test"), false);
 });
 
 test("登入結果會等待導頁、POS 商店、2FA 或 Cloudflare 挑戰狀態", async () => {
