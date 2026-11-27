@@ -10,6 +10,11 @@ import type { Database } from "./client.js";
 import { processCustomerWebhook, type WebhookOutcome } from "./crm-webhook.js";
 import { processProductWebhook, type ProductWebhookOutcome } from "./wms-webhook.js";
 import { claimCyberbizWebhookEvent } from "./webhook-events.js";
+import { eq } from "drizzle-orm";
+import { toDbTimestamp } from "./db-timestamp.js";
+import { receiveOrderRestock, type OrderWebhookOutcome } from "./order-restock.js";
+import { cyberbizWebhookEvents } from "./schema/crm.js";
+import type { OrderRestockMode } from "./schema/cyberbiz-order-restocks.js";
 
 /**
  * CYBERBIZ 的 webhook 只有一個網址，進來之後在這裡分派。
@@ -32,11 +37,13 @@ export interface DispatchInput {
   customerClient?: CyberbizCustomerClient;
   /** 商品事件要用它回官網重讀庫存數量。 */
   inventoryClient?: CyberbizInventoryClient;
+  restockMode?: OrderRestockMode;
 }
 
 export type DispatchOutcome =
   | ({ kind: "customer" } & WebhookOutcome)
-  | ({ kind: "product" } & ProductWebhookOutcome);
+  | ({ kind: "product" } & ProductWebhookOutcome)
+  | ({ kind: "order" | "stock" } & OrderWebhookOutcome);
 
 /**
  * 這是商品／庫存事件嗎？
@@ -78,6 +85,29 @@ export async function dispatchCyberbizWebhook(
   }
 
   const eventId = await createWebhookEventId(topic, rawBody);
+  // 訂單也包含 customer；必須先按明確 topic 分流，不能被當作會員更新。
+  if (topic.startsWith("orders/") || /^stock_(requisitions|invoices|receipts)\//.test(topic)) {
+    const kind = topic.startsWith("orders/") ? "order" : "stock";
+    const root = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+    const body = (root.order ?? root.data ?? root) as Record<string, unknown>;
+    const claim = await claimCyberbizWebhookEvent(db, {
+      id: eventId, topic, entityType: kind, externalEntityId: body.id == null ? null : String(body.id), payloadJson: rawBody,
+      orderRestockMode: input.restockMode ?? "observe",
+    });
+    if (!claim.claimed) return { kind, eventId, topic, status: "duplicate", reason: claim.status };
+    if (kind === "order") {
+      try { return { kind, ...await receiveOrderRestock(db, { rawBody, eventId, topic, mode: input.restockMode ?? "observe" }) }; }
+      catch (error) {
+        const message = error instanceof Error ? error.message : "訂單回補排程失敗";
+        await db.update(cyberbizWebhookEvents).set({ status: "failed", lastError: message, updatedAt: toDbTimestamp() }).where(eq(cyberbizWebhookEvents.id, eventId));
+        return { kind, eventId, topic, status: "failed", reason: message };
+      }
+    }
+    const reason = "實體進出倉／調倉事件已保存；尚未驗證單據狀態對庫存的影響，不直接改寫 WMS。";
+    await db.update(cyberbizWebhookEvents).set({ status: "ignored", resultJson: JSON.stringify({ reason }), processedAt: toDbTimestamp(), updatedAt: toDbTimestamp() })
+      .where(eq(cyberbizWebhookEvents.id, eventId));
+    return { kind, eventId, topic, status: "ignored", reason };
+  }
   if (looksLikeProduct(payload, topic)) {
     const event = parseProductEvent(payload);
     const claim = await claimCyberbizWebhookEvent(db, {

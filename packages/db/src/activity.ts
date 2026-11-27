@@ -18,6 +18,7 @@ export type ActivityEntityType =
   | "customer"
   | "accounting_expense"
   | "accounting_expense_category"
+  | "cyberbiz_order_restock"
   | "hr_personnel"
   | "assistant_hr_sandbox"
   | "wms_zone"
@@ -57,7 +58,7 @@ export interface ActivityInput {
   newValue?: string | null;
   payload?: unknown;
   actor?: { id?: string | null; email?: string | null } | null;
-  status?: "succeeded" | "failed";
+  status?: "succeeded" | "failed" | "pending";
   error?: string | null;
 }
 
@@ -107,6 +108,7 @@ export interface ActivityQuery {
 
 /** 倉儲會寫到的資料類型。倉儲的操作紀錄頁用它一次篩完。 */
 export const WMS_ENTITY_TYPES = [
+  "cyberbiz_order_restock",
   "wms_zone",
   "item",
   "wms_category",
@@ -135,6 +137,7 @@ export interface ActivityRow {
   status: string;
   error: string | null;
   createdAt: string;
+  orderRestockId: string | null;
 }
 
 export interface ActivityResult {
@@ -195,6 +198,7 @@ export async function listActivity(db: Database, query: ActivityQuery): Promise<
       status: activityEvents.status,
       error: activityEvents.error,
       createdAt: activityEvents.createdAt,
+      orderRestockId: sql<string | null>`CASE WHEN ${activityEvents.entityType} = 'cyberbiz_order_restock' THEN json_extract(${activityEvents.payloadJson}, '$.restockId') ELSE NULL END`,
     })
     .from(activityEvents)
     .where(where)

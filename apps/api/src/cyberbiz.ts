@@ -1,9 +1,11 @@
 import {
   createCustomerClient,
   createInventoryClient,
+  createOrderClient,
   cyberbizConfigFromEnv,
   type CyberbizCustomerClient,
   type CyberbizInventoryClient,
+  type CyberbizOrderClient,
 } from "@rueisiang/cyberbiz";
 import type { Env } from "./env.js";
 
@@ -23,4 +25,9 @@ export function cyberbizClient(env: Env): CyberbizCustomerClient | undefined {
 export function cyberbizInventoryClient(env: Env): CyberbizInventoryClient | undefined {
   if (!env.CYBERBIZ_API_TOKEN) return undefined;
   return createInventoryClient(cyberbizConfigFromEnv(env));
+}
+
+export function cyberbizOrderClient(env: Env): CyberbizOrderClient | undefined {
+  if (!env.CYBERBIZ_API_TOKEN) return undefined;
+  return createOrderClient(cyberbizConfigFromEnv(env));
 }

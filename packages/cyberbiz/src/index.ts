@@ -32,6 +32,7 @@ export {
 
 export {
   MAX_PAGE_SIZE,
+  CyberbizInventoryConflictError,
   createInventoryClient,
   flattenProducts,
   isCompanyProduct,

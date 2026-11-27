@@ -21,6 +21,8 @@ export interface CyberbizOrderLineItem {
   variantTitle: string;
   sku: string;
   quantity: number;
+  /** 有組合內容的訂單不能直接把販售數量當成單品庫存。 */
+  hasRelatedItems: boolean;
   price: number | null;
   totalPriceBeforeDiscounts: number | null;
   totalDiscount: number | null;
@@ -47,6 +49,9 @@ export interface CyberbizOrder {
   orderName: string;
   createdAt: string;
   updatedAt: string;
+  sourceDevice: string;
+  shippingType: string;
+  posShopId: string;
   customer: CyberbizOrderCustomer;
   buyerEmail: string;
   buyerPhone: string;
@@ -171,7 +176,8 @@ function readOrderItems(order: Record<string, unknown>): CyberbizOrderLineItem[]
       title: firstString(item, ["title", "product_title", "name"]),
       variantTitle: firstString(item, ["variant_title", "variantTitle"]),
       sku: firstString(item, ["sku"]),
-      quantity: Math.max(0, Math.round(firstNumber(item, ["quantity"]) ?? 0)),
+      quantity: firstNumber(item, ["quantity"]) ?? 0,
+      hasRelatedItems: Array.isArray(item.related_items) ? item.related_items.length > 0 : Boolean(item.related_items),
       price: firstNumber(item, ["price"]),
       totalPriceBeforeDiscounts: firstNumber(item, ["total_price_before_discounts"]),
       totalDiscount: firstNumber(item, ["total_discount"]),
@@ -196,6 +202,9 @@ export function parseCyberbizOrder(payload: unknown): CyberbizOrder {
     orderName: firstString(order, ["order_name", "name"]),
     createdAt: readTimestamp(order.created_at ?? order.createdAt),
     updatedAt: readTimestamp(order.updated_at ?? order.updatedAt),
+    sourceDevice: firstString(order, ["from_device"]),
+    shippingType: firstString(order, ["shipping_type"]),
+    posShopId: firstString(firstRecord(order.pos_info), ["pos_shop_id"]),
     customer: {
       id: firstString(customer, ["id", "customer_id", "member_id"]),
       name: firstString(customer, ["name", "full_name", "display_name"]),

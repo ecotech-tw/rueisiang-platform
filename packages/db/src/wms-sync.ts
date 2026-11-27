@@ -7,6 +7,7 @@ import { cyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { activityEvents } from "./schema/activity.js";
 import { cyberbizSyncLocks, wmsItems } from "./schema/wms.js";
 import { WmsError } from "./wms.js";
+import { hasUnresolvedOrderRestock, noUnresolvedOrderRestock } from "./order-restock-state.js";
 
 /** WMS 裡實際有庫存、而且在 CYBERBIZ 有外部身分的品項。 */
 export interface LinkedItem {
@@ -183,6 +184,7 @@ function updateLinkedItem(
         AND cyberbiz_products.cyberbiz_variant_id = ${link.cyberbizVariantId}
     )`,
     ...(link.updatedAt ? [eq(wmsItems.updatedAt, link.updatedAt)] : []),
+    noUnresolvedOrderRestock(link.inventoryItemId),
   );
   return db.update(wmsItems)
     .set(values as never)
@@ -209,6 +211,15 @@ export async function applySyncPlan(
       .limit(1);
     if (!currentLink) {
       unchanged += 1;
+      continue;
+    }
+    if (await hasUnresolvedOrderRestock(db, entry.link.inventoryItemId)) {
+      failed += 1;
+      await db.insert(activityEvents).values(activityRow({
+        entityType: "item", entityId: entry.link.inventoryItemId, entityLabel: label,
+        eventType: "cyberbiz_sync_deferred", source: "cyberbiz_sync", status: "failed",
+        summary: "此品項有待處理或待確認的訂單回補，暫不以官網快照覆蓋 WMS。",
+      }));
       continue;
     }
     if (entry.status === "failed" || !entry.remote) {
@@ -645,12 +656,19 @@ export async function retryFailedCyberbizPushes(
     if (!lockToken) continue;
     try {
       const [link] = await listCompanyLinks(db, { inventoryItemId: itemId });
-      if (!link) continue;
+      if (!link || await hasUnresolvedOrderRestock(db, itemId)) continue;
       await client.setCompanyQuantity({
         productId: link.cyberbizProductId,
         variantId: link.cyberbizVariantId,
         sku: link.linkedSku,
         targetQuantity: link.quantity,
+        beforeAdjust: async () => {
+          const [current] = await listCompanyLinks(db, { inventoryItemId: itemId });
+          if (await hasUnresolvedOrderRestock(db, itemId)) throw new Error("讀取官網期間有新訂單回補入帳，未送出盤點補推。");
+          if (!current || current.quantity !== link.quantity || current.updatedAt !== link.updatedAt || current.cyberbizProductId !== link.cyberbizProductId || current.cyberbizVariantId !== link.cyberbizVariantId) {
+            throw new Error("送出前 WMS 數量或連結已變更，未送出舊盤點補推。");
+          }
+        },
       });
       await setCyberbizProductSyncStatus(db, itemId, "synced");
       await recordCyberbizSyncSucceeded(db, {

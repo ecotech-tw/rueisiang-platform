@@ -18,6 +18,8 @@ export interface CyberbizInventoryItem {
   variantName: string;
   sku: string;
   quantity: number;
+  /** 保留原始欄位是否有效，避免既有顯示用的補零／取整被當作可寫入依據。 */
+  quantityValid?: boolean;
   /** 官網那邊的安全庫存。WMS 的 minStock 會跟它對齊。 */
   safetyQuantity: number;
   inventoryManagement: boolean;
@@ -47,6 +49,13 @@ interface RawProduct {
   product_variants?: RawVariant[];
 }
 
+export class CyberbizInventoryConflictError extends Error {}
+
+function validQuantity(value: unknown): boolean {
+  return (typeof value === "number" || (typeof value === "string" && value.trim() !== ""))
+    && Number.isSafeInteger(Number(value));
+}
+
 /**
  * 一個商品可能有很多款式，庫存掛在款式上。攤平成「一列一個款式」——WMS 的
  * 一個品項連結的也是款式（cyberbiz_variant_id），不是商品。
@@ -63,6 +72,7 @@ export function flattenProducts(products: RawProduct[]): CyberbizInventoryItem[]
         variantName: variant.name?.trim() || "單一款式",
         sku: variant.sku?.trim() || "",
         quantity: Math.round(Number(variant.inventory_quantity) || 0),
+        quantityValid: validQuantity(variant.inventory_quantity),
         safetyQuantity: Math.max(0, Math.round(Number(variant.safety_inventory_quantity) || 0)),
         inventoryManagement: Boolean(variant.inventory_management),
         published: Boolean(product.published),
@@ -113,6 +123,10 @@ export interface CyberbizInventoryClient {
     variantId: string;
     sku: string;
     targetQuantity: number;
+    /** 有提供時，送差額前必須仍符合預期現值；不是遠端 CAS。 */
+    expectedQuantity?: number;
+    /** 在非冪等 POST 前先持久化「可能已送出」，中斷後不可盲目重播。 */
+    beforeAdjust?: () => Promise<void>;
   }): Promise<{ previousQuantity: number; quantity: number; safetyQuantity: number; changed: boolean }>;
 }
 
@@ -166,20 +180,29 @@ export function createInventoryClient(
      *    調整、可能它自己夾了值）。對不上就丟錯，讓呼叫端把這個連結標成失敗，
      *    而不是留下一個「以為同步過了」的狀態。
      */
-    async setCompanyQuantity({ productId, variantId, sku, targetQuantity }) {
+    async setCompanyQuantity({ productId, variantId, sku, targetQuantity, expectedQuantity, beforeAdjust }) {
       const target = Math.max(0, Math.round(targetQuantity));
       const wanted = sku.trim().toUpperCase();
 
       const before = await fetchProduct(productId);
       const current = before.find(
         (item) => isCompanyProduct(item)
+          && item.productId === productId
           && item.variantId === variantId
           && item.sku.trim().toUpperCase() === wanted,
       );
       if (!current) {
-        throw new Error("CYBERBIZ 的商品連結已失效：找不到原本的 product_id、variant_id 與 SKU。");
+        throw new CyberbizInventoryConflictError("CYBERBIZ 的商品連結已失效：找不到原本的 product_id、variant_id 與 SKU。");
       }
-
+      if (current.quantityValid === false || !Number.isSafeInteger(current.quantity)) {
+        throw new CyberbizInventoryConflictError("CYBERBIZ 庫存數量缺值或不是安全整數，未送出調整。");
+      }
+      if (!current.inventoryManagement) {
+        throw new CyberbizInventoryConflictError("CYBERBIZ 商品未管理庫存，未送出調整。");
+      }
+      if (expectedQuantity !== undefined && current.quantity !== expectedQuantity) {
+        throw new CyberbizInventoryConflictError(`CYBERBIZ 庫存在調整前已變動：預期 ${expectedQuantity}，目前 ${current.quantity}；未送出調整。`);
+      }
       const delta = target - current.quantity;
       if (delta === 0) {
         return {
@@ -193,6 +216,7 @@ export function createInventoryClient(
       // stock_adjustments 是差額 API，不是冪等的 absolute update。若上游已套用
       // 但 response 遺失，重送同一 delta 會把庫存加倍；模糊失敗交給呼叫端
       // 重新讀取並 reconcile，不能由通用 HTTP client 自動 retry。
+      await beforeAdjust?.();
       await request("/v1/stock_adjustments", {
         method: "POST",
         retries: 0,
@@ -204,8 +228,8 @@ export function createInventoryClient(
       });
 
       const after = await fetchProduct(productId);
-      const verified = after.find((item) => isCompanyProduct(item) && item.variantId === variantId);
-      if (!verified || verified.quantity !== target) {
+      const verified = after.find((item) => isCompanyProduct(item) && item.productId === productId && item.variantId === variantId && item.sku.trim().toUpperCase() === wanted);
+      if (!verified || verified.quantityValid === false || !Number.isSafeInteger(verified.quantity) || verified.quantity !== target) {
         throw new Error(
           `CYBERBIZ 已接受庫存調整，但重新讀取是 ${verified?.quantity ?? "未知"}，預期 ${target}。`,
         );
