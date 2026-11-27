@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
-import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterFields, FilterInput, FilterSelect, FilterToggle, FilterToolbar, FormHint, Page, PageHeader, PageTabControl, Panel, RowActions, SearchFilterInput, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
+import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterFields, FilterInput, FilterSelect, FilterToggle, FilterToolbar, FormHint, Page, PageHeader, PageTabControl, Panel, RowActions, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
 import { useToast } from "../../shell/Toast.js";
 import { useHrEmployeeRoster, useHrQuery, useHrWrite, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";
@@ -475,7 +475,7 @@ export function HrSpecialWorkdays() {
     })}</tbody></DataTable>{!rows.length ? <EmptyState className="mt-[18px]">尚未建立特殊上班日規則。</EmptyState> : null}</Panel> : null}
     {view === "assignments" ? <Panel key="assignments" grows aria-label="日期套用紀錄" className="min-[760px]:[@media(height<560px)]:[[data-page=fills]>&]:min-h-[260px]">
       <FilterToolbar>
-        <SearchFilterInput label="搜尋套用紀錄" placeholder="搜尋人員、員工編號、規則或日期" value={assignmentFilters.search} onSearch={(search) => updateAssignmentFilters({ search })} />
+        <FilterInput type="search" className={SEARCH_INPUT_WIDTH} label="搜尋套用紀錄" placeholder="搜尋人員、員工編號、規則或日期" value={assignmentFilters.search} onChange={(event) => updateAssignmentFilters({ search: event.target.value })} />
         <FilterToggle open={showAssignmentFilters} count={hiddenAssignmentFilterCount} onToggle={() => setShowAssignmentFilters((open) => !open)} />
         {activeAssignmentFilterCount ? <Button variant="link" onClick={() => setAssignmentFilters({ search: "", startDate: "", endDate: "", payrollStatus: "all" })}>清除篩選</Button> : null}
         <FilterFields open={showAssignmentFilters}>

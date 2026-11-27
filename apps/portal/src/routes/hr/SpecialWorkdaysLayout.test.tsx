@@ -97,6 +97,19 @@ it("切換到規則管理再回來，日期篩選與空結果仍保留", async (
   expect(container.textContent).toContain("王小明");
 });
 
+it("輸入搜尋後立即切換分頁，尚未等待 400ms 也不會遺失文字", async () => {
+  await mount();
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="搜尋套用紀錄"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "找不到的人員");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await switchView("規則管理");
+  await switchView("日期套用紀錄");
+  expect(container.querySelector<HTMLInputElement>('input[aria-label="搜尋套用紀錄"]')?.value).toBe("找不到的人員");
+  expect(container.textContent).toContain("沒有符合條件的套用紀錄");
+});
+
 it("沒有規則與套用紀錄時，兩個檢視各自顯示空狀態並停用套用", async () => {
   ruleRows = [];
   assignmentRows = [];
