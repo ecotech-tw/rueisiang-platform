@@ -7,7 +7,7 @@ import { cyberbizProducts, items as itemMasters } from "./schema/items.js";
 import { activityEvents } from "./schema/activity.js";
 import { cyberbizSyncLocks, wmsItems } from "./schema/wms.js";
 import { WmsError } from "./wms.js";
-import { hasUnresolvedOrderRestock } from "./order-restock-state.js";
+import { hasUnresolvedOrderRestock, noUnresolvedOrderRestock } from "./order-restock-state.js";
 
 /** WMS 裡實際有庫存、而且在 CYBERBIZ 有外部身分的品項。 */
 export interface LinkedItem {
@@ -184,11 +184,7 @@ function updateLinkedItem(
         AND cyberbiz_products.cyberbiz_variant_id = ${link.cyberbizVariantId}
     )`,
     ...(link.updatedAt ? [eq(wmsItems.updatedAt, link.updatedAt)] : []),
-    sql`NOT EXISTS (
-      SELECT 1 FROM cyberbiz_order_restocks r
-      WHERE r.item_id = ${wmsItems.itemId} AND r.mode = 'apply'
-        AND r.state IN ('pending', 'checking', 'applying', 'review')
-    )`,
+    noUnresolvedOrderRestock(link.inventoryItemId),
   );
   return db.update(wmsItems)
     .set(values as never)

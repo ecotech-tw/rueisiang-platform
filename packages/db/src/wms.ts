@@ -1,11 +1,11 @@
-import { and, asc, count, eq, notInArray, sql } from "drizzle-orm";
+import { and, asc, count, eq, notInArray, sql, type SQL } from "drizzle-orm";
 import { activityRow, type ActivityEntityType } from "./activity.js";
 import type { Database } from "./client.js";
 import { activityEvents } from "./schema/activity.js";
 import { cyberbizProducts, itemComponents, items as itemMasters } from "./schema/items.js";
 import { reportExternalProducts } from "./schema/reports.js";
 import { mediaObjects } from "./schema/media.js";
-import { hasUnresolvedOrderRestock } from "./order-restock-state.js";
+import { hasUnresolvedOrderRestock, noUnresolvedOrderRestock } from "./order-restock-state.js";
 import {
   wmsCategories,
   wmsItems,
@@ -312,10 +312,13 @@ export async function countItem(db: Database, id: string, quantity: unknown, act
   if (!current) throw new WmsError("not_found", "找不到這項商品。");
   const next = clamp(parsed, 0, QUANTITY);
   const changed = current.wms.quantity !== next;
-  await db.batch([
-    db.update(wmsItems).set({ quantity: next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(eq(wmsItems.itemId, id)),
-    writeEvent(db, { entityType: "item", entityId: id, entityLabel: `${current.item.sku} ${current.item.name}`, eventType: "item_counted", summary: note?.trim() || (changed ? "盤點更新庫存數量" : "盤點確認數量無誤"), field: "quantity", oldValue: String(current.wms.quantity), newValue: String(next), actor }),
-  ] as never);
+  const event = activityRow({ entityType: "item", entityId: id, entityLabel: `${current.item.sku} ${current.item.name}`, eventType: "item_counted", summary: note?.trim() || (changed ? "盤點更新庫存數量" : "盤點確認數量無誤"), field: "quantity", oldValue: String(current.wms.quantity), newValue: String(next), source: "wms", actor });
+  const fields = Object.fromEntries(Object.entries(event).map(([key, value]) => [key, sql`${value}`.as(key)])) as { [K in keyof typeof event]: SQL.Aliased<(typeof event)[K]> };
+  const [updated] = await db.batch([
+    db.update(wmsItems).set({ quantity: next, updatedAt: sql`CURRENT_TIMESTAMP` }).where(and(eq(wmsItems.itemId, id), noUnresolvedOrderRestock(id))).returning({ itemId: wmsItems.itemId }),
+    db.insert(activityEvents).select(db.select({ ...fields, createdAt: sql<string>`CURRENT_TIMESTAMP`.as("createdAt") }).from(wmsItems).where(and(eq(wmsItems.itemId, id), sql`changes() > 0`))),
+  ]);
+  if (!updated.length) throw new WmsError("conflict", "盤點期間出現未確認的訂單回補或商品已移出，未更新數量，請重新查核。");
   return { quantity: next, changed, belowMinimum: next < current.wms.minStock };
 }
 

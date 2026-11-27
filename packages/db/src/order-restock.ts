@@ -32,6 +32,9 @@ function isWebOrder(order: CyberbizOrder): boolean {
 }
 
 function orderLines(order: CyberbizOrder) {
+  if (order.statuses.returnStatus && order.statuses.returnStatus !== "no_need") {
+    throw new ReviewRequired("訂單包含整單退貨或未知退貨狀態，未自動調整。");
+  }
   const groups = new Map<string, { productId: string; variantId: string; sku: string; quantity: number }>();
   if (!order.lineItems.length || order.lineItems.length > 40) throw new ReviewRequired("訂單明細為空或超過 40 筆，未自動調整。");
   for (const line of order.lineItems) {
@@ -109,7 +112,7 @@ export async function receiveOrderRestock(db: Database, input: {
   const parsed = JSON.parse(input.rawBody) as Record<string, unknown> | null;
   const order = parseCyberbizOrder(parsed?.order ?? parsed?.data ?? parsed);
   const phase = input.topic === "orders/create" ? "create" : input.topic === "orders/cancelled" ? "cancel" : null;
-  const originals = order.id && input.topic !== "orders/create" ? await db.select().from(cyberbizOrderRestocks).where(and(
+  const originals = order.id ? await db.select().from(cyberbizOrderRestocks).where(and(
     eq(cyberbizOrderRestocks.orderId, order.id), eq(cyberbizOrderRestocks.phase, "create"), eq(cyberbizOrderRestocks.mode, "apply"),
   )) : [];
   const mutableStates: OrderRestockState[] = ["pending", "checking", "applying", "applied"];
@@ -146,16 +149,15 @@ export async function receiveOrderRestock(db: Database, input: {
     try {
       const current = orderLines(order);
       manifestMatches = isWebOrder(order) && current.length === originals.length
-        && (!order.statuses.returnStatus || order.statuses.returnStatus === "no_need")
         && originals.every((original) => current.some((line) => line.productId === original.productId && line.variantId === original.variantId && line.sku === original.sku && line.quantity === original.quantity));
     } catch { /* 缺少明細時沿用原帳本圈出品項，不以空身分解除保護。 */ }
     if (!manifestMatches || (phase === "cancel" && input.mode === "observe")) {
       state = "review";
-      reason = phase === "cancel" ? "已回補訂單的取消明細／來源不完整、已變更或目前停用寫入，須人工確認。" : "已回補訂單的商品明細／來源或退貨狀態變更，須人工確認。";
+      reason = phase === "cancel" ? "訂單取消明細／來源不完整、已變更或目前停用寫入，回補工作須人工確認。" : "訂單商品明細／來源或退貨狀態變更，回補工作須人工確認。";
       for (const original of protectedOriginals) {
         if (original.state !== "review") await finish(db, original, { state: "review", reason }, undefined, mutableStates);
       }
-      if (phase === "cancel") {
+      if (phase) {
         const identities = new Map(lines.map((line) => [line.variantId, line]));
         for (const original of protectedOriginals) identities.set(original.variantId, { productId: original.productId, variantId: original.variantId, sku: original.sku, quantity: original.quantity });
         lines = [...identities.values()];

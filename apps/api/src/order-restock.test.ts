@@ -413,19 +413,19 @@ describe("回補安全故障與模式切換", () => {
     expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
   });
 
-  it("已核對但尚未送出時改單，不能把 checking 的人工查核覆蓋成 applying", async () => {
+  it.each(["orders/update", "orders/create"])("已核對但尚未送出時由 %s 改單，不能把 checking 的人工查核覆蓋成 applying", async (topic) => {
     beforeSecondRead = async () => {
       currentOrder.line_items[0]!.quantity = 3;
-      await receive("apply", currentOrder, "orders/update");
+      await receive("apply", currentOrder, topic);
     };
     await receive(); await run();
     expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
     expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
   });
 
-  it.each(["orders/update", "orders/cancelled"])("POST 已送、驗證舊快照回來前收到 %s，writer 不得解除查核或留下假完成稽核", async (topic) => {
+  it.each(["orders/update", "orders/create", "orders/cancelled"])("POST 已送、驗證舊快照回來前收到 %s，writer 不得解除查核或留下假完成稽核", async (topic) => {
     beforeVerifyRead = async () => {
-      if (topic === "orders/update") {
+      if (topic !== "orders/cancelled") {
         currentOrder.line_items[0]!.quantity = 3; quantity += 2;
         await receive("apply", currentOrder, topic);
       } else {
@@ -488,6 +488,69 @@ describe("回補安全故障與模式切換", () => {
     await resolveOrderRestock(db, { id: row.id, resolution: "skipped", reason: "已停用且確認未送出庫存調整", actor: { id: "operator", email: "operator@example.test" } });
     expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(false);
     await run("apply"); expect(writes).toHaveLength(0);
+  });
+
+  it("已回補訂單以 create 重入改量，不能略過原已知品項的查核", async () => {
+    await receive(); await run();
+    currentOrder.line_items[0]!.quantity = 3; quantity += 2;
+    await receive(); await run();
+    expect((await job()).state).toBe("review"); expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+    const links = await listCompanyLinks(db);
+    expect((await applySyncPlan(db, buildSyncPlan(links, [{ productId: "100", variantId: "200", sku: "SOAP", quantity, safetyQuantity: 5 }]), null)).failed).toBe(1);
+    expect((await db.select().from(wmsItems))[0]!.quantity).toBe(12742); expect(writes).toHaveLength(1);
+  });
+
+  it.each([{ id: 700, from_device: "手機" }, { id: 700, from_device: "手機", line_items: [] }])("不完整 create 重入 %j，沿用原品項且不產生無連結 sentinel", async (partial) => {
+    await receive(); await run();
+    await receive("apply", partial);
+    expect(await job()).toMatchObject({ state: "review", itemId: "soap", variantId: "200" });
+    expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+    expect(await db.select().from(cyberbizOrderRestocks)).toHaveLength(1);
+  });
+
+  it("create 重入只改非明細欄位仍維持防重，不誤鎖或補寫稽核", async () => {
+    await receive(); await run();
+    const originalActivity = await db.select().from(activityEvents);
+    currentOrder.updated_at = new Date(Date.now() + 1000).toISOString();
+    expect((await receive()).status).toBe("ignored"); await run();
+    expect((await job()).state).toBe("applied"); expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(false);
+    expect(await db.select().from(activityEvents)).toHaveLength(originalActivity.length); expect(writes).toHaveLength(1);
+  });
+
+  it.each(["return_pending", "partially_returned", "unknown_return_state"])("首次整單退貨狀態 %s 不能因列上沒填狀態而自動回補", async (returnStatus) => {
+    currentOrder = orderPayload({ statuses: { ...currentOrder.statuses, return_status: returnStatus } });
+    await receive(); await run();
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+    expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
+  });
+
+  it.each(["return_pending", "partially_returned", "unknown_return_state"])("重讀才出現整單退貨狀態 %s 也不得送出", async (returnStatus) => {
+    await receive();
+    currentOrder = orderPayload({ statuses: { ...currentOrder.statuses, return_status: returnStatus } });
+    await run(); expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0);
+  });
+
+  it("整單 no_need 不影響正常回補", async () => {
+    currentOrder = orderPayload({ statuses: { ...currentOrder.statuses, return_status: "no_need" } });
+    await receive(); await run();
+    expect((await job()).state).toBe("applied"); expect(writes).toHaveLength(1);
+  });
+
+  it.each(["apply", "observe"] as const)("盤點檢查後才插入 %s 工作，以 UPDATE 當下狀態決定且不留假成功稽核", async (mode) => {
+    const token = await claimCyberbizSyncLock(db, "soap");
+    const batch = d1.batch.bind(d1);
+    vi.spyOn(d1, "batch").mockImplementationOnce(async (statements) => {
+      await receive(mode);
+      return batch(statements);
+    });
+    try {
+      const pending = countItem(db, "soap", 12000, { id: "counter", email: "counter@example.test" });
+      if (mode === "apply") await expect(pending).rejects.toMatchObject({ kind: "conflict" });
+      else await expect(pending).resolves.toMatchObject({ quantity: 12000, changed: true });
+      expect((await db.select().from(wmsItems))[0]!.quantity).toBe(mode === "apply" ? 12742 : 12000);
+      expect((await db.select().from(activityEvents)).filter((event) => event.eventType === "item_counted")).toHaveLength(mode === "apply" ? 0 : 1);
+      expect((await job()).state).toBe("pending"); expect(writes).toHaveLength(0);
+    } finally { await releaseCyberbizSyncLock(db, "soap", token!); }
   });
 
   it("沒有品項 lease 的並行人工結案，即使內容相同也只有成功更新者能回報成功", async () => {
