@@ -33,7 +33,7 @@ function orderPayload(overrides: Record<string, unknown> = {}) {
     id: 700, order_name: "#700", order_number: 700,
     created_at: new Date(Date.now() - 10_000).toISOString(), updated_at: new Date().toISOString(),
     from_device: "手機", shipping_type: "family_c2c_prepaid", pos_info: null,
-    statuses: { order_status: "open", fulfillment_status: "unfulfilled", financial_status: "paid" },
+    statuses: { order_status: "open", financial_status: "pending", fulfillment_status: "unshipped", return_status: "no_need" },
     timings: { cancelled_at: null as string | null },
     customer: { id: 500, name: "不應寫入 CRM 的訂單客戶", mobile: "0912345678" },
     line_items: [{ id: 900, product_id: 100, product_variant_id: 200, sku: "SOAP", quantity: 5, related_items: [] }],
@@ -117,6 +117,28 @@ describe("官網下單回補", () => {
     expect(quantity).toBe(12737); expect(writes).toHaveLength(0);
     expect(await job()).toMatchObject({ state: "observed", remoteBefore: 12737, targetQuantity: 12742, remoteAfter: null });
     expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(false);
+  });
+
+  it.each(["observe", "apply"] as const)("正式回報的 open/pending/unshipped/no_need 狀態在 %s 可通過未出貨檢查", async (mode) => {
+    currentOrder = orderPayload({ statuses: { order_status: "open", financial_status: "pending", fulfillment_status: "unshipped", return_status: "no_need" } });
+    await receive(mode); await run(mode);
+    expect(await job()).toMatchObject({ state: mode === "observe" ? "observed" : "applied", remoteBefore: 12737, targetQuantity: 12742 });
+    expect(writes).toHaveLength(mode === "observe" ? 0 : 1);
+  });
+
+  it.each(["fulfilled", "received", "partially_fulfilled", "preparing", "unfulfilled", "unknown", "", null, undefined].flatMap((status) => ["observe", "apply"].map((mode) => ({ status, mode: mode as "observe" | "apply" }))))("$mode 的配送狀態 $status 不得冒充未出貨", async ({ status, mode }) => {
+    currentOrder = orderPayload({ statuses: { ...currentOrder.statuses, fulfillment_status: status } });
+    await receive(mode); await run(mode);
+    expect((await job()).state).toBe("review"); expect(writes).toHaveLength(0); expect(productReads).toBe(0);
+    expect((await job()).reason).toContain(typeof status === "string" && status ? JSON.stringify(status) : "缺值");
+  });
+
+  it("已因配送狀態轉人工的舊工作不會在改回 unshipped 後自動重播", async () => {
+    currentOrder = orderPayload({ statuses: { ...currentOrder.statuses, fulfillment_status: "fulfilled" } });
+    await receive("observe"); await run("observe");
+    const original = await job(); expect(original.state).toBe("review");
+    currentOrder = orderPayload(); await run("observe");
+    expect(await job()).toEqual(original); expect(writes).toHaveLength(0);
   });
 
   it("重送不同 JSON、改用其他訂單狀態或兩個 drain 並行，都不會重複回補", async () => {
@@ -209,7 +231,7 @@ describe("官網下單回補", () => {
   it("官網等於 WMS 不代表本程式曾回補，取消時不反向扣庫存", async () => {
     quantity = 12742; await receive(); await run();
     expect((await job()).state).toBe("unchanged"); expect(writes).toHaveLength(0);
-    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unfulfilled" }, timings: { cancelled_at: new Date().toISOString() } });
+    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unshipped" }, timings: { cancelled_at: new Date().toISOString() } });
     await receive("apply", currentOrder, "orders/cancelled"); await run();
     expect((await job("cancel")).state).toBe("skipped"); expect(writes).toHaveLength(0);
   });
@@ -292,7 +314,7 @@ describe("官網下單回補", () => {
 describe("取消與其他庫存路徑", () => {
   it("只反向校正確實曾回補的訂單，平台 +5 後校正回 WMS，不動實體庫存", async () => {
     await receive(); await run(); quantity += 5;
-    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unfulfilled" }, timings: { cancelled_at: new Date().toISOString() } });
+    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unshipped" }, timings: { cancelled_at: new Date().toISOString() } });
     await receive("apply", currentOrder, "orders/cancelled"); await run(); await run();
     expect(quantity).toBe(12742); expect(writes).toHaveLength(2);
     expect(writes[1]).toMatchObject({ items: [{ quantity: 5, type: "loss" }] });
@@ -301,7 +323,7 @@ describe("取消與其他庫存路徑", () => {
 
   it("取消先到、建立後到：重讀已取消訂單，不會錯補", async () => {
     quantity = 12742;
-    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unfulfilled" }, timings: { cancelled_at: new Date().toISOString() } });
+    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unshipped" }, timings: { cancelled_at: new Date().toISOString() } });
     await receive("apply", currentOrder, "orders/cancelled"); await run();
     await receive(); await run(); expect(writes).toHaveLength(0); expect((await job()).state).toBe("skipped");
   });
@@ -330,7 +352,7 @@ describe("取消與其他庫存路徑", () => {
     expect((await job()).state).toBe("pending");
     await run(); expect((await job()).state).toBe("applied");
     quantity += 5;
-    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unfulfilled" }, timings: { cancelled_at: new Date().toISOString() } });
+    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unshipped" }, timings: { cancelled_at: new Date().toISOString() } });
     await receive("apply", currentOrder, "orders/cancelled"); await run();
     expect(quantity).toBe(12742); expect(writes).toHaveLength(2);
   });
@@ -594,7 +616,7 @@ describe("回補安全故障與模式切換", () => {
 
   it.each([{}, { line_items: [] }, { from_device: "", line_items: [] }])("已回補訂單收到不完整取消 %j，依原帳本保護品項", async (changes) => {
     await receive(); await run();
-    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unfulfilled" }, timings: { cancelled_at: new Date().toISOString() }, ...changes });
+    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unshipped" }, timings: { cancelled_at: new Date().toISOString() }, ...changes });
     const partial = { id: 700, from_device: "手機", ...changes };
     await receive("apply", partial, "orders/cancelled"); await run();
     expect(await job("cancel")).toMatchObject({ itemId: "soap", variantId: "200", state: "review" });
@@ -634,7 +656,7 @@ describe("回補安全故障與模式切換", () => {
 
   it("原本已回補、切回 observe 才取消時保留查核，不把原生回補匯回 WMS", async () => {
     await receive(); await run();
-    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unfulfilled" }, timings: { cancelled_at: new Date().toISOString() } });
+    currentOrder = orderPayload({ statuses: { order_status: "cancelled", fulfillment_status: "unshipped" }, timings: { cancelled_at: new Date().toISOString() } });
     await receive("observe", currentOrder, "orders/cancelled"); await run("observe");
     expect((await job()).state).toBe("review"); expect(await hasUnresolvedOrderRestock(db, "soap")).toBe(true);
     expect(writes).toHaveLength(1);
