@@ -54,3 +54,5 @@ export { useTableBulkSelection, type TableBulkAction } from "./useTableBulkSelec
 export { REVIEW_SNAPSHOT_NOTICE, reviewSnapshotState, type ReviewSnapshotState } from "./review-snapshot.js";
 export { DialogContext, type DialogCloseRef, type DialogCloseRequest, type DialogContextValue } from "./dialog-context.js";
 export { Icon, type IconName } from "./icons.js";
+export { randomId } from "./random-id.js";
+export { prepareReceiptImage } from "./receipt-image.js";

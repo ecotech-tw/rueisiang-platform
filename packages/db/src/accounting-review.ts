@@ -32,7 +32,7 @@ const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
  * after 接在紀錄後面（例如通知送件人），changes() 這時已經是上一句 INSERT 的結果，所以它們要用
  * 「轉換後的狀態與版本」確認 UPDATE 成功了才寫。整批是同一個 transaction，任何一句失敗就全部不算。
  */
-async function guardedWrite(db: Database, mutation: { toSQL(): { sql: string; params: unknown[] } }, event: ReturnType<typeof activityRow>, now: string, steps: { before?: SQL[]; after?: SQL[] } = {}) {
+export async function guardedWrite(db: Database, mutation: { toSQL(): { sql: string; params: unknown[] } }, event: ReturnType<typeof activityRow>, now: string, steps: { before?: SQL[]; after?: SQL[] } = {}) {
   const update = mutation.toSQL();
   const prepare = (statement: SQL) => {
     const query = dialect.sqlToQuery(statement);
@@ -115,7 +115,8 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     .innerJoin(users, eq(users.id, accountingExpenses.submitterUserId))
     .leftJoin(hrEmployments, eq(hrEmployments.id, accountingExpenses.employmentId))
     // 照推導後的狀態篩：已隨月薪發放的單在資料庫裡還是 approved，但要出現在「已付款」。
-    .where(status === "all" ? undefined : sql`${effectiveExpenseStatus} = ${status}`)
+    // 這一頁只看員工報帳；公司直接付的支出在「支出」頁。
+    .where(and(eq(accountingExpenses.payerKind, "employee_advance"), status === "all" ? undefined : sql`${effectiveExpenseStatus} = ${status}`))
     // 待審的照送件先後處理；其他狀態看最新的。新表只有一種時間格式，可以直接拿欄位排序。
     .orderBy(status === "pending" ? asc(accountingExpenses.createdAt) : desc(accountingExpenses.createdAt), asc(accountingExpenses.id))
     .limit(300);
