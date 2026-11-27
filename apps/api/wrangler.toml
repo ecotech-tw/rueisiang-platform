@@ -132,7 +132,9 @@ PAYOUT_WORKFLOW_FILE = "payout.yml"
 PAYOUT_GITHUB_REF = "main"
 CYBERBIZ_SALES_WORKFLOW_FILE = "cyberbiz-sales-report.yml"
 CYBERBIZ_SALES_GITHUB_REF = "main"
-CYBERBIZ_REPORT_RUNNER_MODE = "github"
+# 核准測試用設定：影響所有 CYBERBIZ 報表；測試後需改回 github/false。
+CYBERBIZ_REPORT_RUNNER_MODE = "container"
+CYBERBIZ_CHALLENGE_CLICK_ENABLED = "true"
 # 官網回補先蒐集真實證據，不因部署自動寫入正式庫存。
 CYBERBIZ_ORDER_RESTOCK_MODE = "observe"
 PI_AGENT_MODEL = "gpt-6-luna"
