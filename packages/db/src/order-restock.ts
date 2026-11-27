@@ -144,7 +144,9 @@ export async function receiveOrderRestock(db: Database, input: {
     }
   }
 
-  if (protectedOriginals.length) {
+  // 同一雜湊事件補跑時帳本可能尚未收齊，不能把接收中斷誤判成改單。
+  const resumingReceipt = phase === "create" && originals.every((row) => row.eventId === input.eventId && row.mode === input.mode);
+  if (protectedOriginals.length && !resumingReceipt) {
     let manifestMatches = false;
     try {
       const current = orderLines(order);

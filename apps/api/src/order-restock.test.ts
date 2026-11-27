@@ -464,15 +464,15 @@ describe("回補安全故障與模式切換", () => {
     expect(await job()).toMatchObject({ mode: "observe", state: "observed" }); expect(writes).toHaveLength(0);
   });
 
-  it("接收只完成部分觀察品項，補跑不讓剩下品項升級成 apply 或產生幽靈稽核", async () => {
+  it.each(["observe", "apply"] as const)("同一 %s 事件只完成部分品項，補跑保留模式且不誤判成改單或產生幽靈稽核", async (mode) => {
     currentOrder.line_items.push({ id: 901, product_id: 101, product_variant_id: 201, sku: "CANDLE", quantity: 1, related_items: [] });
     d1.sqlite.exec("CREATE TRIGGER fail_second BEFORE INSERT ON cyberbiz_order_restocks WHEN NEW.variant_id='201' BEGIN SELECT RAISE(ABORT, '模擬第二品項中斷'); END;");
-    await receive("observe");
+    await receive(mode);
     expect(await db.select().from(cyberbizOrderRestocks)).toHaveLength(1);
     d1.sqlite.exec("DROP TRIGGER fail_second;");
     await retryOrderRestockWebhooks(db);
     const rows = await db.select().from(cyberbizOrderRestocks);
-    expect(rows).toHaveLength(2); expect(rows.every((row) => row.mode === "observe")).toBe(true);
+    expect(rows).toHaveLength(2); expect(rows.every((row) => row.mode === mode && row.state === "pending")).toBe(true);
     expect(await db.select().from(activityEvents)).toHaveLength(2);
   });
 
