@@ -122,11 +122,27 @@ export async function navigateToAdmin(page, origin) {
   }
 }
 
-/**
- * 登入 CYBERBIZ 後台。已登入就直接回傳。
- * 2FA：送出帳密後若出現驗證碼欄位，從 Gmail 分頁讀取驗證碼填入。
- * 驗證碼與密碼都不會被回傳或寫進 log。
- */
+const CLOUDFLARE_CHALLENGE_SELECTOR = [
+  'iframe[src*="challenges.cloudflare.com"]',
+  "#challenge-running",
+  "#challenge-stage",
+  ".cf-turnstile",
+  'input[name="cf-turnstile-response"]',
+].join(", ");
+const CLOUDFLARE_CHALLENGE_COPY = /verifying|checking your browser|verify you are human|just a moment/i;
+
+/** 只判斷是否停在 Cloudflare 驗證頁，不讀取或輸出頁面內容。 */
+export async function isCloudflareChallengePage(page) {
+  const challenge = page.locator(CLOUDFLARE_CHALLENGE_SELECTOR).first();
+  if (await challenge.isVisible().catch(() => false)) return true;
+
+  const title = await page.title().catch(() => "");
+  const body = await page.locator("body").innerText().catch(() => "");
+  const visibleCopy = `${title}\n${body}`;
+  return /cloudflare/i.test(visibleCopy) && CLOUDFLARE_CHALLENGE_COPY.test(visibleCopy);
+}
+
+/** 等待登入 redirect、POS 清單或 2FA 欄位； timeout 後回傳 null。 */
 export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeout = 15_000 } = {}) {
   const isTimeout = (error) => error?.name === "TimeoutError"
     || (error instanceof Error && /Timeout \d+ms exceeded/.test(error.message));
@@ -142,6 +158,8 @@ export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeo
   const waits = [
     waitFor(page.waitForURL((url) => !url.toString().includes("/user/sign_in"), { timeout }), "signed_in"),
     waitFor(page.locator("a[href^='/admin/pos_shops/']").first().waitFor({ state: "visible", timeout }), "signed_in"),
+    waitFor(page.locator(CLOUDFLARE_CHALLENGE_SELECTOR).first().waitFor({ state: "visible", timeout }), "cloudflare_challenge"),
+    waitFor(page.getByText(CLOUDFLARE_CHALLENGE_COPY).first().waitFor({ state: "visible", timeout }), "cloudflare_challenge"),
   ];
   if (waitForTwoFactor) {
     const codeField = page
@@ -152,6 +170,17 @@ export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeo
   return Promise.race(waits);
 }
 
+async function rejectCloudflareChallenge(page, outcome) {
+  if (outcome === "cloudflare_challenge" || await isCloudflareChallengePage(page)) {
+    fail("CYBERBIZ_BOT_CHALLENGE", "偵測到 Cloudflare 驗證頁；Runner 不會自動通過此檢查。請確認執行來源 IP 已獲核准。");
+  }
+}
+
+/**
+ * 登入 CYBERBIZ 後台。已登入就直接回傳。
+ * 2FA：送出帳密後若出現驗證碼欄位，從 Gmail 分頁讀取驗證碼填入。
+ * 驗證碼與密碼都不會被回傳或寫進 log。
+ */
 export async function login(page, {
   origin,
   username,
@@ -161,6 +190,7 @@ export async function login(page, {
 }) {
   await navigateToAdmin(page, origin);
   await page.waitForTimeout(1500);
+  await rejectCloudflareChallenge(page);
   await dismissOverlays(page);
 
   if (!page.url().includes("/user/sign_in")) return { status: "already_signed_in" };
@@ -176,6 +206,7 @@ export async function login(page, {
   await pass.fill(password);
   await page.getByRole("button", { name: "登入", exact: true }).click();
   const outcome = await waitForLoginOutcome(page);
+  await rejectCloudflareChallenge(page, outcome);
   if (outcome === "signed_in") return { status: "signed_in" };
   if (outcome !== "two_factor") {
     fail("LOGIN_FAILED", "送出帳密後仍停留在登入頁，未偵測到 2FA 欄位；請確認 CYBERBIZ 帳密或登入頁的驗證要求。");
@@ -206,6 +237,7 @@ export async function login(page, {
   await page.getByRole("button", { name: /^(驗證|確認|送出)$/ }).first().click();
 
   const verified = await waitForLoginOutcome(page, { waitForTwoFactor: false });
+  await rejectCloudflareChallenge(page, verified);
   if (verified !== "signed_in") {
     fail("LOGIN_FAILED", "送出 2FA 驗證碼後仍停留在登入頁；請確認驗證碼有效或登入狀態。");
   }
