@@ -1,9 +1,12 @@
 import {
-  createMyExpense,
+  createExpense,
   findExpenseReceiptForReview,
   findMyExpenseByClientRequest,
   findMyExpenseReceipt,
+  prepareCompanyExpense,
   prepareMyExpense,
+  type ExpenseFieldsInput,
+  type PreparedExpense,
   type StoredReceipt,
 } from "@rueisiang/db";
 import { EXPENSE_RECEIPT_MAX_BYTES, EXPENSE_RECEIPT_MAX_FILES, EXPENSE_RECEIPT_MAX_PIXELS, EXPENSE_RECEIPT_MAX_SIDE } from "@rueisiang/db/accounting-expense-fields";
@@ -38,10 +41,21 @@ function field(form: Record<string, unknown>, key: string): string {
 /*
  * 送件順序：先驗證欄位與照片，再寫 R2，最後一個 batch 寫支出單與照片索引。
  * 照片已經寫進 R2、資料庫卻失敗時要把檔案刪掉，否則私有 bucket 會留下沒人指得到的單據。
+ *
+ * 員工報帳與會計登記公司支出走同一條路，差別只在 prepare（誰付的錢、要不要任職資料）。
  */
 export async function submitMyExpense(c: Context<AppEnv>) {
+  return submitExpense(c, (input) => prepareMyExpense(c.get("db"), c.get("user").id, input));
+}
+
+export async function submitCompanyExpense(c: Context<AppEnv>) {
+  return submitExpense(c, (input) => prepareCompanyExpense(c.get("db"), c.get("user").id, input));
+}
+
+async function submitExpense(c: Context<AppEnv>, prepare: (input: ExpenseFieldsInput) => Promise<PreparedExpense>) {
   const db = c.get("db");
-  const userId = c.get("user").id;
+  const user = c.get("user");
+  const userId = user.id;
   const bucket = requireBucket(c);
   const form = await c.req.parseBody({ all: true });
   const rawFiles = form.receipts;
@@ -49,7 +63,7 @@ export async function submitMyExpense(c: Context<AppEnv>) {
   if (Array.isArray(rawFiles) && files.length !== rawFiles.length) throw new HTTPException(400, { message: "單據照片格式不正確。" });
   const scopeId = field(form, "scopeId");
   const amountText = field(form, "amountDollars");
-  const prepared = await prepareMyExpense(db, userId, {
+  const prepared = await prepare({
     clientRequestId: field(form, "clientRequestId"),
     categoryId: field(form, "categoryId"),
     scopeId: scopeId || null,
@@ -91,7 +105,7 @@ export async function submitMyExpense(c: Context<AppEnv>) {
   }
 
   try {
-    const created = await createMyExpense(db, prepared, receipts);
+    const created = await createExpense(db, prepared, receipts, user);
     return c.json(created, 201);
   } catch (error) {
     // 兩個同時送出的請求只會有一個寫進去（clientRequestId 唯一）；輸的那個回贏的那張。

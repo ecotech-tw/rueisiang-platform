@@ -2,6 +2,7 @@ import {
   EXPENSE_AMOUNT_MAX_DOLLARS,
   EXPENSE_DESCRIPTION_MAX,
   EXPENSE_RECEIPT_MAX_FILES,
+  EXPENSE_RECEIPT_UPLOAD_SIDE,
   EXPENSE_STATUS_LABELS,
   payrollPeriodLabel,
   earliestExpenseDate,
@@ -10,6 +11,7 @@ import {
   normalizeInvoiceNumber,
 } from "@rueisiang/db/accounting-expense-fields";
 import { formatTaipeiDate } from "@rueisiang/db/taipei-time";
+import { prepareReceiptImage, randomId } from "@rueisiang/ui";
 import { useEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
@@ -20,7 +22,6 @@ import { Alert, Button, ConfirmDialog, Dialog, EmptyRecords, Field, Input, Page,
 import { HrApiError, useHrQuery, useHrWrite, type ExpenseOptionsResponse, type MyExpense } from "./api.js";
 import { FORM_FIELD_ROW, FORM_FIELDS, FORM_PANEL, FormActions, FormPage, FormPageHeader, MOBILE_CARD } from "./Forms.js";
 import { NotInvoiceQrError, scanInvoiceQr } from "./invoice-qr.js";
-import { prepareReceiptImage } from "./receipt-image.js";
 
 /*
  * 報公帳的員工端。規格見 docs/accounting-prd.md 第 3 節；審核在會計系統，不在這裡。
@@ -34,15 +35,6 @@ const STATUS_TONE: Record<MyExpense["status"], "info" | "success" | "danger" | "
   cancelled: "neutral",
   paid: "success",
 };
-
-/*
- * crypto.randomUUID 只在安全連線（HTTPS、localhost）存在；用區網 IP 開 dev server 或某些 App 內建瀏覽器會拿不到，
- * 而這頁一打開就要產生送件識別碼。getRandomValues 沒有這個限制。
- */
-function randomId() {
-  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
 
 function dollars(amountMinor: number) {
   return `NT$ ${(amountMinor / 100).toLocaleString("zh-TW")}`;
@@ -247,7 +239,7 @@ export function HrExpenseForm() {
       const prepared: PendingReceipt[] = [];
       for (const file of chosen) {
         try {
-          const resized = await prepareReceiptImage(file);
+          const resized = await prepareReceiptImage(file, EXPENSE_RECEIPT_UPLOAD_SIDE);
           prepared.push({ key: randomId(), file: resized, preview: URL.createObjectURL(resized) });
         } catch {
           setLocalError(`「${file.name}」無法讀取，請換一張照片。`);

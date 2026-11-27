@@ -1,20 +1,26 @@
 import {
   AccountingError,
+  LEDGER_PAYER_FILTERS,
   REVIEW_STATUS_FILTERS,
   approveExpense,
   createExpenseCategory,
+  listCompanyExpenseOptions,
   listExpenseCategories,
   listExpensesForReview,
+  listLedger,
   markExpensePaid,
   rejectExpense,
+  updateCompanyExpense,
   updateExpenseCategory,
+  voidCompanyExpense,
   type ExpensePayout,
+  type LedgerPayerFilter,
   type ReviewStatusFilter,
 } from "@rueisiang/db";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import type { AppEnv } from "../env.js";
-import { readExpenseReceiptForReview } from "../expense-receipts.js";
+import { expenseBodyLimit, readExpenseReceiptForReview, submitCompanyExpense } from "../expense-receipts.js";
 import { requireAnyPermission, requireAuth, requirePermission } from "../middleware/auth.js";
 import { body } from "../request.js";
 
@@ -36,6 +42,25 @@ function payout(input: Record<string, unknown>): ExpensePayout {
   return { method: "payroll", periodKey: input.payrollPeriodKey };
 }
 
+function text(input: Record<string, unknown>, key: string) {
+  const value = input[key];
+  return typeof value === "string" ? value : "";
+}
+
+function companyExpenseInput(input: Record<string, unknown>) {
+  const amount = input.amountDollars;
+  return {
+    categoryId: text(input, "categoryId"),
+    scopeId: text(input, "scopeId") || null,
+    spentOn: text(input, "spentOn"),
+    amountDollars: typeof amount === "number" ? amount : Number.NaN,
+    invoiceNumber: text(input, "invoiceNumber"),
+    sellerTaxId: text(input, "sellerTaxId"),
+    description: text(input, "description"),
+    confirmDuplicate: input.confirmDuplicate === true,
+  };
+}
+
 function categoryInput(input: Record<string, unknown>) {
   const sortOrder = input.sortOrder ?? 0;
   if (typeof input.name !== "string") throw new HTTPException(400, { message: "請填寫類別名稱。" });
@@ -47,7 +72,9 @@ export const accounting = new Hono<AppEnv>()
   .use("*", requireAuth)
   .use("*", async (c, next) => { c.header("Cache-Control", "private, no-store"); await next(); })
   .onError((error, c) => {
-    if (error instanceof AccountingError || error instanceof HTTPException) return c.json({ error: error.message }, error.status);
+    // code 讓前端分得出「發票號碼重複，要確認」跟一般錯誤。
+    if (error instanceof AccountingError) return c.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, error.status);
+    if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);
     throw error;
   })
   .get("/expenses", requirePermission("accounting:expense:read"), async (c) => {
@@ -67,6 +94,27 @@ export const accounting = new Hono<AppEnv>()
   .post("/expenses/:id/paid", requirePermission("accounting:expense:review"), async (c) => {
     const input = await body(c);
     return c.json(await markExpensePaid(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
+  })
+  .get("/ledger", requirePermission("accounting:expense:read"), async (c) => {
+    const payer = c.req.query("payer") ?? "all";
+    if (!LEDGER_PAYER_FILTERS.includes(payer as LedgerPayerFilter)) throw new HTTPException(400, { message: "不認得的付款人篩選。" });
+    return c.json(await listLedger(c.get("db"), {
+      month: c.req.query("month") ?? "",
+      payer: payer as LedgerPayerFilter,
+      categoryId: c.req.query("categoryId") || null,
+      scopeId: c.req.query("scopeId") || null,
+    }));
+  })
+  // 支出帳的篩選也要類別與店別，所以只能看的人也讀得到；名稱清單沒有敏感資料。
+  .get("/company-expenses/options", requireAnyPermission("accounting:expense:read", "accounting:expense:write"), async (c) => c.json(await listCompanyExpenseOptions(c.get("db"))))
+  .post("/company-expenses", requirePermission("accounting:expense:write"), expenseBodyLimit, async (c) => submitCompanyExpense(c))
+  .patch("/company-expenses/:id", requirePermission("accounting:expense:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await updateCompanyExpense(c.get("db"), c.req.param("id"), revision(input), companyExpenseInput(input), c.get("user")));
+  })
+  .post("/company-expenses/:id/void", requirePermission("accounting:expense:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await voidCompanyExpense(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
   })
   // 看類別清單的人包含審核者：核准畫面要顯示類別名稱以外，管理頁也要讀。
   .get("/categories", requireAnyPermission("accounting:category:write", "accounting:expense:read"), async (c) => c.json({ categories: await listExpenseCategories(c.get("db")) }))

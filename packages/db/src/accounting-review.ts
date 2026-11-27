@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, ne, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql, type SQL } from "drizzle-orm";
 import { SQLiteAsyncDialect } from "drizzle-orm/sqlite-core";
 import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
@@ -11,6 +11,7 @@ import { activityEvents } from "./schema/activity.js";
 import { accountingExpenseCategories, accountingExpenseReceipts, accountingExpenses } from "./schema/accounting.js";
 import { users } from "./schema/auth.js";
 import { hrEmployments } from "./schema/hr-people.js";
+import { inJsonArray } from "./sql-lists.js";
 
 /*
  * 報公帳的會計那一端：看所有報帳、核准、退回、標記撥款，以及維護支出類別。規格見 docs/accounting-prd.md。
@@ -32,7 +33,7 @@ const dialect = new SQLiteAsyncDialect({ casing: "snake_case" });
  * after 接在紀錄後面（例如通知送件人），changes() 這時已經是上一句 INSERT 的結果，所以它們要用
  * 「轉換後的狀態與版本」確認 UPDATE 成功了才寫。整批是同一個 transaction，任何一句失敗就全部不算。
  */
-async function guardedWrite(db: Database, mutation: { toSQL(): { sql: string; params: unknown[] } }, event: ReturnType<typeof activityRow>, now: string, steps: { before?: SQL[]; after?: SQL[] } = {}) {
+export async function guardedWrite(db: Database, mutation: { toSQL(): { sql: string; params: unknown[] } }, event: ReturnType<typeof activityRow>, now: string, steps: { before?: SQL[]; after?: SQL[] } = {}) {
   const update = mutation.toSQL();
   const prepare = (statement: SQL) => {
     const query = dialect.sqlToQuery(statement);
@@ -115,13 +116,15 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     .innerJoin(users, eq(users.id, accountingExpenses.submitterUserId))
     .leftJoin(hrEmployments, eq(hrEmployments.id, accountingExpenses.employmentId))
     // 照推導後的狀態篩：已隨月薪發放的單在資料庫裡還是 approved，但要出現在「已付款」。
-    .where(status === "all" ? undefined : sql`${effectiveExpenseStatus} = ${status}`)
+    // 這一頁只看員工報帳；公司直接付的支出在「支出」頁。
+    .where(and(eq(accountingExpenses.payerKind, "employee_advance"), status === "all" ? undefined : sql`${effectiveExpenseStatus} = ${status}`))
     // 待審的照送件先後處理；其他狀態看最新的。新表只有一種時間格式，可以直接拿欄位排序。
     .orderBy(status === "pending" ? asc(accountingExpenses.createdAt) : desc(accountingExpenses.createdAt), asc(accountingExpenses.id))
     .limit(300);
   if (!rows.length) return [];
   const receipts = await db.select({ id: accountingExpenseReceipts.id, expenseId: accountingExpenseReceipts.expenseId }).from(accountingExpenseReceipts)
-    .where(inArray(accountingExpenseReceipts.expenseId, rows.map((row) => row.id)))
+    // 最多 300 筆；inArray 每個 id 佔一個綁定參數，超過 D1 的 100 個整句被拒。
+    .where(inJsonArray(accountingExpenseReceipts.expenseId, rows.map((row) => row.id)))
     .orderBy(asc(accountingExpenseReceipts.sortOrder));
   return rows.map((row) => ({
     ...row,

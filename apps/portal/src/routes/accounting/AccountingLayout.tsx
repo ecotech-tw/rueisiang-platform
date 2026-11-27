@@ -13,9 +13,10 @@ import { HrUserMenu } from "../hr/HrUserMenu.js";
  * 會計系統（內帳）。跟 HRIS 一樣是平台裡的獨立系統：全螢幕、沒有平台側欄，頁首、導覽、帳號選單直接用
  * HRIS 那一套元件，兩個系統長得一樣、轉場也一樣（shell/system-transition.ts）。
  *
- * 頁面刻意少：報帳（審核、撥款、紀錄都在同一頁用狀態分頁切）與支出類別。
+ * 頁面刻意少：支出（一個月所有算數的支出、登記公司支出、匯出）、報帳（審核、撥款、紀錄都在同一頁用狀態分頁切）與支出類別。
  */
 const NAV: { label: string; to: string; icon: IconName; permissions: Permission[] }[] = [
+  { label: "支出", to: "/accounting/ledger", icon: "payments", permissions: ["accounting:expense:read"] },
   { label: "報帳", to: "/accounting/expenses", icon: "report", permissions: ["accounting:expense:read"] },
   { label: "支出類別", to: "/accounting/categories", icon: "category", permissions: ["accounting:category:write"] },
 ];

@@ -30,7 +30,7 @@ const SYSTEMS: SystemEntry[] = [
     title: "會計",
     subtitle: "報帳審核與支出",
     icon: "payments",
-    permissions: ["accounting:expense:read", "accounting:expense:review", "accounting:category:write"],
+    permissions: ["accounting:expense:read", "accounting:expense:review", "accounting:expense:write", "accounting:category:write"],
   },
 ];
 

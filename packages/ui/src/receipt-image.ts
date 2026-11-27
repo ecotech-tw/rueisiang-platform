@@ -1,14 +1,14 @@
-import { EXPENSE_RECEIPT_UPLOAD_SIDE } from "@rueisiang/db/accounting-expense-fields";
-
 /*
  * 手機拍的發票常常是 1200 萬像素、好幾 MB，直接上傳會超過伺服器的上限，在行動網路上也很慢。
- * 送出前在瀏覽器縮到 EXPENSE_RECEIPT_UPLOAD_SIDE 並重新存成 JPEG：發票上的字仍然看得清楚，
+ * 送出前在瀏覽器縮到 maxSide（呼叫端傳 EXPENSE_RECEIPT_UPLOAD_SIDE）並重新存成 JPEG：發票上的字仍然看得清楚，
  * 一張大約幾百 KB。重新編碼也順便把 iPhone 的 HEIC、多影像 JPEG 變成伺服器收得下的單張 JPEG。
+ *
+ * 員工自助報帳與會計登記公司支出都用這一份；ui 套件不依賴 db，所以上限由呼叫端傳進來。
  */
-export async function prepareReceiptImage(file: File): Promise<File> {
+export async function prepareReceiptImage(file: File, maxSide: number): Promise<File> {
   const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" });
   try {
-    const scale = Math.min(1, EXPENSE_RECEIPT_UPLOAD_SIDE / Math.max(bitmap.width, bitmap.height));
+    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
     const width = Math.max(1, Math.round(bitmap.width * scale));
     const height = Math.max(1, Math.round(bitmap.height * scale));
     const canvas = document.createElement("canvas");
