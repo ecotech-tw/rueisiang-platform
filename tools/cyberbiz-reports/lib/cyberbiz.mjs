@@ -132,14 +132,44 @@ const CLOUDFLARE_CHALLENGE_SELECTOR = [
   'input[name="cf-turnstile-response"]',
 ].join(", ");
 const CLOUDFLARE_CHALLENGE_COPY = /verifying|checking your browser|verify you are human|just a moment/i;
+const CLOUDFLARE_SUCCESS_COPY = /success\s*!/i;
+const CLOUDFLARE_RESPONSE_SELECTOR = 'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]';
 
-/** 只判斷是否停在 Cloudflare 驗證頁，不讀取或輸出頁面內容。 */
+async function hasCompletedCloudflareChallenge(page) {
+  try {
+    const hasResponse = await page.locator(CLOUDFLARE_RESPONSE_SELECTOR).evaluateAll((fields) =>
+      fields.some((field) => typeof field.value === "string" && field.value.trim().length > 0));
+    if (hasResponse) return true;
+  } catch {}
+
+  let frames = [];
+  try {
+    frames = page.frames();
+  } catch {}
+  for (const frame of frames) {
+    try {
+      const hostname = new URL(frame.url()).hostname;
+      if (hostname !== "challenges.cloudflare.com" && !hostname.endsWith(".challenges.cloudflare.com")) continue;
+      const copy = await frame.locator("body").innerText();
+      if (CLOUDFLARE_SUCCESS_COPY.test(copy)) return true;
+    } catch {}
+  }
+  return false;
+}
+
+/** 只回傳是否仍待 Cloudflare 驗證；不記錄頁面內容或 response token。 */
 export async function isCloudflareChallengePage(page) {
-  const challenge = page.locator(CLOUDFLARE_CHALLENGE_SELECTOR).first();
-  if (await challenge.isVisible().catch(() => false)) return true;
+  if (await hasCompletedCloudflareChallenge(page)) return false;
 
-  const title = await page.title().catch(() => "");
-  const body = await page.locator("body").innerText().catch(() => "");
+  try {
+    const challenge = page.locator(CLOUDFLARE_CHALLENGE_SELECTOR).first();
+    if (typeof challenge.isVisible === "function" && await challenge.isVisible()) return true;
+  } catch {}
+
+  let title = "";
+  let body = "";
+  try { title = await page.title(); } catch {}
+  try { body = await page.locator("body").innerText(); } catch {}
   const visibleCopy = `${title}\n${body}`;
   return /cloudflare/i.test(visibleCopy) && CLOUDFLARE_CHALLENGE_COPY.test(visibleCopy);
 }
@@ -227,6 +257,48 @@ function formatLoginDiagnostics(state) {
   return `診斷：頁面=${state.pageKind}；初始管理頁 HTTP=${state.mainDocumentStatus ?? "未知"}；帳號欄位=${visible(state.usernameField)}；密碼欄位=${visible(state.passwordField)}；2FA 欄位=${visible(state.twoFactorField)}；POS 商店連結=${visible(state.posShopLink)}；Cloudflare challenge=${visible(state.cloudflareChallenge)}${clickStatus}。`;
 }
 
+async function isCloudflareChallengeCopyVisible(page) {
+  try {
+    return await page.getByText(CLOUDFLARE_CHALLENGE_COPY).first().isVisible();
+  } catch {
+    return false;
+  }
+}
+
+async function waitForDelayOrAbort(page, delay, signal) {
+  if (signal.aborted) return false;
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (continueWaiting) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener("abort", onAbort);
+      resolve(continueWaiting);
+    };
+    const onAbort = () => finish(false);
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      Promise.resolve(page.waitForTimeout(delay)).then(() => finish(true), () => finish(false));
+    } catch {
+      finish(false);
+    }
+  });
+}
+
+async function waitForCloudflareChallengeOutcome(page, timeout, signal) {
+  const deadline = Date.now() + timeout;
+  do {
+    if (signal.aborted) return null;
+    if (await isCloudflareChallengePage(page)) return "cloudflare_challenge";
+    if (await isCloudflareChallengeCopyVisible(page)
+      && !await hasCompletedCloudflareChallenge(page)) return "cloudflare_challenge";
+    const remaining = deadline - Date.now();
+    if (remaining <= 0 || typeof page.waitForTimeout !== "function") return null;
+    if (!await waitForDelayOrAbort(page, Math.min(250, remaining), signal)) return null;
+  } while (Date.now() < deadline);
+  return null;
+}
+
 /** 等待登入 redirect、POS 清單或 2FA 欄位； timeout 後回傳 null。 */
 export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeout = 15_000 } = {}) {
   const isTimeout = (error) => error?.name === "TimeoutError"
@@ -240,11 +312,11 @@ export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeo
       throw error;
     }
   };
+  const challengeAbort = new AbortController();
   const waits = [
     waitFor(page.waitForURL((url) => !url.toString().includes("/user/sign_in"), { timeout }), "signed_in"),
     waitFor(page.locator("a[href^='/admin/pos_shops/']").first().waitFor({ state: "visible", timeout }), "signed_in"),
-    waitFor(page.locator(CLOUDFLARE_CHALLENGE_SELECTOR).first().waitFor({ state: "visible", timeout }), "cloudflare_challenge"),
-    waitFor(page.getByText(CLOUDFLARE_CHALLENGE_COPY).first().waitFor({ state: "visible", timeout }), "cloudflare_challenge"),
+    waitForCloudflareChallengeOutcome(page, timeout, challengeAbort.signal),
   ];
   if (waitForTwoFactor) {
     const codeField = page
@@ -252,11 +324,19 @@ export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeo
       .first();
     waits.push(waitFor(codeField.waitFor({ state: "visible", timeout }), "two_factor"));
   }
-  return Promise.race(waits);
+  try {
+    return await Promise.race(waits);
+  } finally {
+    challengeAbort.abort();
+  }
 }
 
 async function rejectCloudflareChallenge(page, outcome, mainDocumentStatus, clickConfig) {
   if (outcome !== "cloudflare_challenge" && !await isCloudflareChallengePage(page)) return false;
+  if (await hasCompletedCloudflareChallenge(page)) {
+    clickConfig.status = "challenge_cleared";
+    return true;
+  }
 
   if (clickConfig.enabled && !clickConfig.attempted) {
     clickConfig.attempted = true;
