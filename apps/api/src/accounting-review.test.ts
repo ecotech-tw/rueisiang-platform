@@ -43,6 +43,11 @@ async function list(actor: string, status = "pending") {
   return (await response.json() as { expenses: ReviewRow[] }).expenses;
 }
 const row = (id: string) => d1.sqlite.prepare("SELECT * FROM accounting_expenses WHERE id = ?").get(id) as Record<string, unknown>;
+/** 標記已撥款一律從零用金扣，先放錢進去。 */
+async function topUp(dollars: number) {
+  const response = await api("/accounting/petty-cash", "accountant", "POST", { kind: "top_up", amountDollars: dollars, note: "" });
+  expect(response.status, await response.clone().text()).toBe(201);
+}
 /** 台北的這個月與下個月 YYYY-MM。 */
 function months() {
   const [year, month] = formatTaipeiDate(new Date()).split("-").map(Number) as [number, number];
@@ -68,7 +73,7 @@ beforeEach(async () => {
     { id: "employment-employee", employeeUserId: "employee", employeeNumber: "E001", legalName: "王小明" },
     { id: "employment-accountant", employeeUserId: "accountant", employeeNumber: "E002", legalName: "陳會計" },
   ]);
-  const reviewer = ["accounting:expense:read", "accounting:expense:review", "accounting:category:write"] as const;
+  const reviewer = ["accounting:expense:read", "accounting:expense:review", "accounting:category:write", "accounting:petty-cash:write"] as const;
   await db().insert(userPermissionGrants).values([
     ...reviewer.map((permission) => ({ userId: "accountant", permission })),
     ...reviewer.map((permission) => ({ userId: "accountant2", permission })),
@@ -106,6 +111,7 @@ describe("報公帳：會計審核", () => {
     expect(row(id)).toMatchObject({ status: "pending", revision: 1 });
     expect(d1.sqlite.prepare("SELECT count(*) AS n FROM activity_events WHERE entity_type = 'accounting_expense'").get()).toEqual({ n: 0 });
     expect((await api(`/accounting/expenses/${id}/approve`, "accountant2", "POST", { revision: 1 })).status).toBe(200);
+    await topUp(1000);
     expect((await api(`/accounting/expenses/${id}/paid`, "accountant", "POST", { revision: 2 })).status).toBe(403);
     expect((await api(`/accounting/expenses/${id}/paid`, "accountant2", "POST", { revision: 2 })).status).toBe(200);
   });
@@ -124,6 +130,7 @@ describe("報公帳：會計審核", () => {
     expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 9 })).status).toBe(409);
     expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1 })).status).toBe(200);
     expect((await api(`/accounting/expenses/${id}/approve`, "accountant2", "POST", { revision: 1 })).status).toBe(409);
+    await topUp(1000);
     expect((await api(`/accounting/expenses/${id}/paid`, "accountant", "POST", { revision: 2 })).status).toBe(200);
     expect(row(id)).toMatchObject({ status: "paid", revision: 3 });
     expect(row(id).paid_at).toEqual(expect.any(String));
@@ -157,6 +164,7 @@ describe("報公帳：審核結果通知送件人", () => {
   it("核准、撥款各通知一次，內文帶金額與用途", async () => {
     const id = await submit("employee", { amountDollars: "1250" });
     await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1 });
+    await topUp(2000);
     await api(`/accounting/expenses/${id}/paid`, "accountant", "POST", { revision: 2 });
     const rows = notifications("employee");
     expect(rows.map((row) => row.title)).toEqual(["報帳已核准", "報帳已撥款"]);

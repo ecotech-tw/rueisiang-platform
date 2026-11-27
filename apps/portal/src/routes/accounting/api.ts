@@ -53,6 +53,22 @@ export interface LedgerEntry {
   receiptIds: string[];
 }
 
+/** 核准的結果：直接撥款且零用金夠就是 paid；不夠停在 approved，pettyCashShort 讓畫面提示。 */
+export interface ApproveResult { id: string; status: "approved" | "paid"; pettyCashShort: boolean }
+
+export interface PettyCashEntry {
+  id: string;
+  kind: "top_up" | "reduce" | "payout" | "refund";
+  amountMinor: number;
+  balanceAfterMinor: number;
+  expenseId: string | null;
+  expenseDescription: string | null;
+  note: string;
+  actorName: string;
+  createdAt: string;
+}
+export interface PettyCashLedger { balanceMinor: number; entries: PettyCashEntry[] }
+
 export interface CompanyExpenseOptions { categories: { id: string; name: string }[]; scopes: { id: string; name: string }[] }
 
 /** code 讓畫面分得出「發票號碼重複，要確認」跟一般錯誤。 */

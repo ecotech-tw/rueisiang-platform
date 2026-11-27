@@ -86,5 +86,33 @@ export const accountingExpenseReceipts = sqliteTable("accounting_expense_receipt
   check("ck_accounting_expense_receipts_size", sql`${table.byteSize} > 0`),
 ]);
 
+/*
+ * 零用金：全公司一個錢箱（使用者決定），餘額就是這張表所有金額的總和。
+ * 每一筆增加、減少、撥款、退回都是一列，金額帶正負號；紀錄只能新增，改與刪由 0263 的 trigger 擋下，
+ * 餘額變負數的那一筆也一樣擋（寫入時另外有條件式 INSERT，trigger 是最後一道保險）。
+ *
+ * 撥款（payout）與退回（refund）指向那張報帳單；同一張單的撥款與退回加起來就是「目前從零用金付出去多少」，
+ * 已付款退回待撥款時照這個數字退錢。
+ */
+export const accountingPettyCashEntries = sqliteTable("accounting_petty_cash_entries", {
+  id: text("id").primaryKey(),
+  kind: text("kind", { enum: ["top_up", "reduce", "payout", "refund"] as const }).notNull(),
+  amountMinor: integer("amount_minor").notNull(),
+  expenseId: text("expense_id").references(() => accountingExpenses.id, { onDelete: "restrict" }),
+  note: text("note").notNull().default(""),
+  actorUserId: text("actor_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_accounting_petty_cash_created").on(table.createdAt),
+  index("idx_accounting_petty_cash_expense").on(table.expenseId),
+  check("ck_accounting_petty_cash_kind", sql`${table.kind} IN ('top_up', 'reduce', 'payout', 'refund')`),
+  // 增加與退回是錢進來，減少與撥款是錢出去。
+  check("ck_accounting_petty_cash_sign", sql`(${table.kind} IN ('top_up', 'refund') AND ${table.amountMinor} > 0) OR (${table.kind} IN ('reduce', 'payout') AND ${table.amountMinor} < 0)`),
+  check("ck_accounting_petty_cash_expense", sql`(${table.kind} IN ('payout', 'refund')) = (${table.expenseId} IS NOT NULL)`),
+  // 減少是用來修正輸入錯誤，一定要寫原因。
+  check("ck_accounting_petty_cash_note", sql`length(${table.note}) <= 500 AND (${table.kind} <> 'reduce' OR length(trim(${table.note})) > 0)`),
+]);
+
 export type AccountingExpense = typeof accountingExpenses.$inferSelect;
+export type AccountingPettyCashEntry = typeof accountingPettyCashEntries.$inferSelect;
 export type AccountingExpenseCategory = typeof accountingExpenseCategories.$inferSelect;
