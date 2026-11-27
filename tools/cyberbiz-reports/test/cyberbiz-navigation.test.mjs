@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dismissOverlays, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore, waitForLoginOutcome } from "../lib/cyberbiz.mjs";
+import { dismissOverlays, isCloudflareChallengePage, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore, waitForLoginOutcome } from "../lib/cyberbiz.mjs";
 
 test("商品銷售報表連結名稱允許後台插入空白或換行", () => {
   assert.equal(PRODUCT_SALES_REPORT_LINK_NAME.test("商品銷售\n總表"), true);
@@ -53,15 +53,31 @@ test("resolveStore 的管理頁導航也使用逾時診斷", async () => {
   );
 });
 
-test("登入結果會等到導頁、POS 商店或 2FA 欄位，不再固定等三秒", async () => {
+test("只分類 Cloudflare 驗證頁，不記錄頁面內容", async () => {
+  const pageFor = ({ selectorVisible = false, title = "", body = "" } = {}) => ({
+    locator: (selector) => selector === "body"
+      ? { innerText: async () => body }
+      : { first: () => ({ isVisible: async () => selectorVisible }) },
+    title: async () => title,
+  });
+
+  assert.equal(await isCloudflareChallengePage(pageFor({ title: "Just a moment", body: "Verifying... CLOUDFLARE" })), true);
+  assert.equal(await isCloudflareChallengePage(pageFor({ selectorVisible: true })), true);
+  assert.equal(await isCloudflareChallengePage(pageFor({ title: "CYBERBIZ", body: "登入" })), false);
+});
+
+test("登入結果會等待導頁、POS 商店、2FA 或 Cloudflare 挑戰狀態", async () => {
+  const never = () => new Promise(() => {});
+  const textWaiter = () => ({ first: () => ({ waitFor: never }) });
   const twoFactorPage = {
-    waitForURL: () => new Promise(() => {}),
+    waitForURL: never,
+    getByText: textWaiter,
     locator: (selector) => ({
       first: () => ({
         waitFor: async ({ state }) => {
           assert.equal(state, "visible");
-          if (selector === "a[href^='/admin/pos_shops/']") return new Promise(() => {});
-          assert.equal(selector, "#otp_attempt, input[autocomplete='one-time-code'], input[name*='otp']");
+          if (selector === "#otp_attempt, input[autocomplete='one-time-code'], input[name*='otp']") return;
+          return never();
         },
       }),
     }),
@@ -69,29 +85,37 @@ test("登入結果會等到導頁、POS 商店或 2FA 欄位，不再固定等�
   assert.equal(await waitForLoginOutcome(twoFactorPage, { timeout: 10 }), "two_factor");
 
   const posPageWithoutRedirect = {
-    waitForURL: () => new Promise(() => {}),
+    waitForURL: never,
+    getByText: textWaiter,
     locator: (selector) => ({
       first: () => ({
-        waitFor: async () => {
-          if (selector === "a[href^='/admin/pos_shops/']") return;
-          return new Promise(() => {});
-        },
+        waitFor: async () => selector === "a[href^='/admin/pos_shops/']" ? undefined : never(),
       }),
     }),
   };
   assert.equal(await waitForLoginOutcome(posPageWithoutRedirect, { timeout: 10 }), "signed_in");
 
+  const challengePage = {
+    waitForURL: never,
+    getByText: () => ({ first: () => ({ waitFor: async () => {} }) }),
+    locator: () => ({ first: () => ({ waitFor: never }) }),
+  };
+  assert.equal(await waitForLoginOutcome(challengePage, { timeout: 10 }), "cloudflare_challenge");
+
   const signedInPage = {
     waitForURL: async (predicate) => {
       assert.equal(predicate(new URL("https://rueisiang.cyberbiz.co/admin/pos_shops")), true);
     },
-    locator: () => ({ first: () => ({ waitFor: () => new Promise(() => {}) }) }),
+    getByText: textWaiter,
+    locator: () => ({ first: () => ({ waitFor: never }) }),
   };
   assert.equal(await waitForLoginOutcome(signedInPage, { waitForTwoFactor: false, timeout: 10 }), "signed_in");
 
+  const timeoutError = () => { throw Object.assign(new Error("timed out"), { name: "TimeoutError" }); };
   const timeoutPage = {
-    waitForURL: async () => { throw Object.assign(new Error("timed out"), { name: "TimeoutError" }); },
-    locator: () => ({ first: () => ({ waitFor: async () => { throw Object.assign(new Error("timed out"), { name: "TimeoutError" }); } }) }),
+    waitForURL: async () => timeoutError(),
+    getByText: () => ({ first: () => ({ waitFor: async () => timeoutError() }) }),
+    locator: () => ({ first: () => ({ waitFor: async () => timeoutError() }) }),
   };
   assert.equal(await waitForLoginOutcome(timeoutPage, { timeout: 10 }), null);
 });
