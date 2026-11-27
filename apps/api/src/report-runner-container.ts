@@ -258,8 +258,13 @@ export class ReportRunner extends Container<Env> {
         body: JSON.stringify(containerPayload),
       }));
       if (!response.ok) {
-        const result = await response.json().catch(() => null) as { error?: string; message?: string } | null;
-        const message = result?.message ?? result?.error ?? `報表 Container 回應 ${response.status}。`;
+        const result = await response.json().catch(() => null) as { error?: string; message?: string; reason?: string } | null;
+        const reason = typeof result?.reason === "string" && /^[a-z_]{1,64}$/.test(result.reason)
+          ? result.reason
+          : null;
+        const message = isCyberbizLoginProbe && result?.error === "invalid_request" && reason
+          ? `登入探測請求格式錯誤（${reason}）。`
+          : result?.message ?? result?.error ?? `報表 Container 回應 ${response.status}。`;
         if (response.status >= 500 || response.status === 429) throw new Error(message);
         await this.failJob(item.requestId, message);
         return;

@@ -283,6 +283,35 @@ describe("ReportRunner Durable Object", () => {
     expect(await rateLimited.json()).toMatchObject({ error: "登入測試冷卻中，請稍後再試。" });
   });
 
+  it("將 Container 登入探測驗證原因回報給工作狀態而不帶出憑證", async () => {
+    const durable = fakeStorage();
+    const runner = new ReportRunner({ storage: durable.storage } as never, {
+      REPORT_RUNNER_TOKEN: RUNNER_TOKEN,
+      CYBERBIZ_USERNAME: "cyberbiz-user",
+      CYBERBIZ_PASSWORD: "cyberbiz-password",
+      DB: {},
+      containerFetch: async () => Response.json(
+        { error: "invalid_request", reason: "missing_password" },
+        { status: 400 },
+      ),
+    } as never);
+    const requestId = "cyberbiz-probe-invalid-123456";
+
+    await runner.fetch(runnerRequest("/jobs", "POST", {
+      kind: "cyberbiz-login-probe",
+      requestId,
+      storeName: "中和環球",
+    }, true));
+    await runner.processQueuedJobs();
+
+    expect(durable.values.get(`job:${requestId}`)).toMatchObject({
+      status: "failed",
+      error: "登入探測請求格式錯誤（missing_password）。",
+    });
+    expect(JSON.stringify([...durable.values.values()])).not.toContain("cyberbiz-password");
+    expect(updateReportRun).not.toHaveBeenCalled();
+  });
+
   it("重疊的排程回呼不會重複啟動同一筆工作", async () => {
     const durable = fakeStorage();
     let containerCalls = 0;
