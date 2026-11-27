@@ -58,14 +58,13 @@ export interface ApproveResult { id: string; status: "approved" | "paid"; pettyC
 
 export interface PettyCashEntry {
   id: string;
-  kind: "top_up" | "payout" | "refund" | "correction";
+  kind: "top_up" | "payout" | "refund";
   amountMinor: number;
   balanceAfterMinor: number;
   expenseId: string | null;
   expenseDescription: string | null;
-  correctsEntryId: string | null;
-  correctsAmountMinor: number | null;
-  corrected: boolean;
+  /** 增加被更正過的話，每一次的差額與原因（舊的在前）；金額已經是更正後的。 */
+  corrections: { id: string; amountMinor: number; note: string; actorName: string; createdAt: string }[];
   note: string;
   actorName: string;
   createdAt: string;

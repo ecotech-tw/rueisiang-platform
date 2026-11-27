@@ -1,6 +1,6 @@
 {
-  "id": "440675c8-3939-4f32-b3f8-9786c9ca6de7",
-  "prevId": "8f89c6fe-79ac-4876-9d42-9d8aaed8d822",
+  "id": "f97bb9a8-a207-4272-b947-675f9782e7c5",
+  "prevId": "0fb9bcfb-129d-4a45-bd6e-f8236bc4f277",
   "version": "6",
   "dialect": "sqlite",
   "tables": {
@@ -2491,8 +2491,7 @@
           "columns": [
             "corrects_entry_id"
           ],
-          "where": "\"accounting_petty_cash_entries\".\"corrects_entry_id\" IS NOT NULL",
-          "isUnique": true
+          "isUnique": false
         }
       },
       "foreignKeys": {

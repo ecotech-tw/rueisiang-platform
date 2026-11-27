@@ -19,4 +19,4 @@ CREATE TABLE `accounting_petty_cash_entries` (
 --> statement-breakpoint
 CREATE INDEX `idx_accounting_petty_cash_created` ON `accounting_petty_cash_entries` (`created_at`);--> statement-breakpoint
 CREATE INDEX `idx_accounting_petty_cash_expense` ON `accounting_petty_cash_entries` (`expense_id`);--> statement-breakpoint
-CREATE UNIQUE INDEX `idx_accounting_petty_cash_corrects` ON `accounting_petty_cash_entries` (`corrects_entry_id`) WHERE "accounting_petty_cash_entries"."corrects_entry_id" IS NOT NULL;
+CREATE INDEX `idx_accounting_petty_cash_corrects` ON `accounting_petty_cash_entries` (`corrects_entry_id`);

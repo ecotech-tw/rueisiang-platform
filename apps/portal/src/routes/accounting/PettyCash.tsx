@@ -8,7 +8,8 @@ import { useAccountingQuery, useAccountingWrite, type PettyCashEntry, type Petty
 /*
  * 零用金：全公司一個錢箱。餘額與每一筆進出（增加、報帳撥款、退回）都在這一頁。
  * 紀錄不能改、不能刪；會計只能增加，錢只會因為報帳撥款出去（使用者決定不要手動減少）。
- * 「增加」打錯金額就按那一筆的「更正」輸入正確金額：記一筆差額，原本那筆標成已更正。
+ * 「增加」打錯金額就按那一筆的「更正」輸入正確金額：記一筆差額。可以更正很多次；更正不另佔一列，
+ * 那一筆增加直接顯示更正後的金額，每次增減的金額與原因寫在下面當備註（使用者決定）。
  */
 
 type CloseRef = { current: ((afterClose?: () => void) => void) | null };
@@ -17,7 +18,6 @@ const KIND: Record<PettyCashEntry["kind"], { label: string; tone: "success" | "w
   top_up: { label: "增加", tone: "success" },
   payout: { label: "報帳撥款", tone: "info" },
   refund: { label: "退回", tone: "neutral" },
-  correction: { label: "更正", tone: "warning" },
 };
 
 function dollars(amountMinor: number) {
@@ -76,7 +76,7 @@ function CorrectDialog({ entry, onClose }: { entry: PettyCashEntry; onClose: () 
       </Button>
     </>}
   >
-    <p className="m-0 text-[14px] text-muted">{`${taipeiMinuteFromUtcWallClock(entry.createdAt)} 增加了 ${dollars(entry.amountMinor)}`}</p>
+    <p className="m-0 text-[14px] text-muted">{`${taipeiMinuteFromUtcWallClock(entry.createdAt)} 的增加，目前是 ${dollars(entry.amountMinor)}`}</p>
     <TextField label="正確金額（元）" required inputMode="numeric" autoFocus value={amount}
       hint={delta ? `會記一筆 ${signed(delta)}` : undefined}
       onChange={(event) => setAmount(event.target.value.replace(/[^\d]/g, "").slice(0, 8))} />
@@ -118,14 +118,15 @@ export function AccountingPettyCash() {
           <tbody>
             {entries.map((entry) => <tr key={entry.id}>
               <td data-label="時間" className="tabular-nums">{taipeiMinuteFromUtcWallClock(entry.createdAt)}</td>
-              <td data-label="種類"><span className="inline-flex flex-wrap items-center gap-1.5"><StatusBadge tone={KIND[entry.kind].tone}>{KIND[entry.kind].label}</StatusBadge>{entry.corrected ? <StatusBadge>已更正</StatusBadge> : null}</span></td>
-              <td data-label="內容"><span className="line-clamp-2 wrap-anywhere">{entry.kind === "correction" && entry.correctsAmountMinor !== null
-                ? `${dollars(entry.correctsAmountMinor)} → ${dollars(entry.correctsAmountMinor + entry.amountMinor)}・${entry.note}`
-                : entry.expenseDescription ?? (entry.note || "—")}</span></td>
+              <td data-label="種類"><StatusBadge tone={KIND[entry.kind].tone}>{KIND[entry.kind].label}</StatusBadge></td>
+              <td data-label="內容">
+                <span className="line-clamp-2 wrap-anywhere">{entry.expenseDescription ?? (entry.note || "—")}</span>
+                {entry.corrections.map((item) => <span key={item.id} className="block text-[13px] text-muted wrap-anywhere">{`更正 ${signed(item.amountMinor)}：${item.note}`}</span>)}
+              </td>
               <td data-label="經手人">{entry.actorName}</td>
               <td data-label="金額" className="numeric">{signed(entry.amountMinor)}</td>
               <td data-label="餘額" className="numeric">{dollars(entry.balanceAfterMinor)}</td>
-              {canWrite ? <td data-label="操作">{entry.kind === "top_up" && !entry.corrected ? <Button variant="secondary" onClick={() => setCorrecting(entry)}>更正</Button> : null}</td> : null}
+              {canWrite ? <td data-label="操作">{entry.kind === "top_up" ? <Button variant="secondary" onClick={() => setCorrecting(entry)}>更正</Button> : null}</td> : null}
             </tr>)}
           </tbody>
         </DataTable>}

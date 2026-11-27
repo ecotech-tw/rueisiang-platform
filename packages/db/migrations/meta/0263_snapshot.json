@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8f89c6fe-79ac-4876-9d42-9d8aaed8d822",
+  "id": "0fb9bcfb-129d-4a45-bd6e-f8236bc4f277",
   "prevId": "12d618bb-70fd-4d60-9785-c91ee51eab03",
   "tables": {
     "auth_device_sessions": {
@@ -2491,8 +2491,7 @@
           "columns": [
             "corrects_entry_id"
           ],
-          "isUnique": true,
-          "where": "\"accounting_petty_cash_entries\".\"corrects_entry_id\" IS NOT NULL"
+          "isUnique": false
         }
       },
       "foreignKeys": {
