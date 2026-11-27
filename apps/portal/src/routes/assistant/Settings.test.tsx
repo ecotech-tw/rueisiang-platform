@@ -22,6 +22,12 @@ function configFor(status: AssistantTool["status"], available = true): SandboxCo
       { key: "weather_open_meteo", label: "天氣查詢", description: "測試天氣", surfaces: ["sandbox", "line"], requiredPermissions: [], status: "enabled" },
       ...(available ? hrTools.map(([key, label]) => ({ key, label, description: "本人唯讀", surfaces: ["sandbox" as const, "line" as const], requiredPermissions: [], status })) : []),
     ],
+    allTools: [
+      { key: "weather_open_meteo", label: "天氣查詢", description: "測試天氣", surfaces: ["sandbox", "line"], requiredPermissions: [], status: "enabled" },
+      ...(available ? hrTools.map(([key, label]) => ({ key, label, description: "本人唯讀", surfaces: ["sandbox" as const, "line" as const], requiredPermissions: [], status })) : []),
+      // 只能在 LINE 用的工具不在 Sandbox 選單，但設定頁一定要看得到，才改得了狀態。
+      { key: "accounting_expense_submit", label: "LINE 報帳", description: "測試", surfaces: ["line"], requiredPermissions: [], status: "development" },
+    ],
     hrSandbox: { available, bindingConfigured: true, toolKeys: available ? hrTools.map(([key]) => key) : [] },
   };
 }
@@ -77,5 +83,10 @@ describe("小香設定頁的 HR 工具控制", () => {
     const html = render(configFor("enabled", false));
     expect(html).toContain('aria-label="天氣查詢 狀態"');
     for (const [key] of hrTools) expect(html).not.toContain(key);
+  });
+
+  it("只能在 LINE 用的工具（LINE 報帳）出現在設定頁，可以改狀態；Sandbox 的工具選單沒有它", () => {
+    expect(render(configFor("enabled", false))).toContain('aria-label="LINE 報帳 狀態"');
+    expect(render(configFor("enabled", false), "sandbox")).not.toContain("LINE 報帳");
   });
 });

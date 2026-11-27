@@ -80,7 +80,7 @@ export function AssistantSettings() {
       <Panel title="Tools" description="已啟用才可在線上 channel 使用；開發中只能在 Sandbox 測試；已停用不會提供給模型。">
 
         <ToolList>
-          {data.tools.map((tool) => (
+          {data.allTools.map((tool) => (
             <ToolStatusRow
               key={tool.key}
               label={tool.label}
