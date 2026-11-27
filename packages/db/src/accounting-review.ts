@@ -190,6 +190,17 @@ async function transition(db: Database, input: {
 export type ExpensePayout = { method: "direct" } | { method: "payroll"; periodKey: string };
 
 /*
+ * 從報帳產生或拿掉的加扣項，也在 HRIS 的人事紀錄（hr_personnel，跟 HRIS 自己新增、刪除加扣項同一種）留一筆，
+ * HR 查加扣項的來龍去脈時不必跑去會計那邊找。跟通知一樣接在 batch 後面，用轉換後的狀態與版本確認支出單真的改了才寫。
+ */
+function hrAdjustmentLog(input: { adjustmentId: string; expenseId: string; status: ExpenseStatus; revision: number; actor: AccountingActor; eventType: string; summary: string; payload: Record<string, unknown> }) {
+  const row = activityRow({ entityType: "hr_personnel", entityId: input.adjustmentId, source: "accounting", eventType: input.eventType, summary: input.summary, actor: input.actor, payload: { ...input.payload, expenseId: input.expenseId } });
+  return sql`INSERT INTO activity_events (id, entity_type, entity_id, entity_label, event_type, summary, source, actor_type, actor_id, actor_email, payload_json)
+    SELECT ${row.id}, ${row.entityType}, ${row.entityId}, ${row.entityLabel}, ${row.eventType}, ${row.summary}, ${row.source}, ${row.actorType}, ${row.actorId}, ${row.actorEmail}, ${row.payloadJson}
+    WHERE EXISTS (SELECT 1 FROM accounting_expenses WHERE accounting_expenses.id = ${input.expenseId} AND accounting_expenses.status = ${input.status} AND accounting_expenses.revision = ${input.revision})`;
+}
+
+/*
  * 併入月薪：同一個 batch 先建加扣項（項目「代墊款」，金額照支出單），再把支出單指過去。
  * 加扣項的 INSERT 自己帶「這張單還待審、不是自己的、這個人在職、這個月還沒結帳」，UPDATE 再要求加扣項存在；
  * 任何一個條件不成立就兩邊都不寫，不會留下沒有支出單的加扣項。
@@ -225,6 +236,10 @@ export async function approveExpense(db: Database, id: string, expectedRevision:
     set: { ...reviewed, payoutMethod: "payroll", payrollAdjustmentId: adjustmentId },
     extraWhere: adjustmentExists,
     before: [createAdjustment, createItem],
+    after: [hrAdjustmentLog({
+      adjustmentId, expenseId: id, status: "approved", revision: expectedRevision + 1, actor,
+      eventType: "payroll_adjustment_created", summary: "薪資加扣項建立（報帳代墊款）", payload: { effectivePeriodKey: periodKey },
+    })],
     eventType: "expense_approved", summary: `報帳核准（併入 ${label}薪資）`,
     payload: { payoutMethod: "payroll", periodKey, payrollAdjustmentId: adjustmentId },
     notify: { event: "approved", title: "報帳已核准", detail: `會併入 ${label}的薪資一起發。` },
@@ -257,6 +272,10 @@ export async function rejectExpense(db: Database, id: string, expectedRevision: 
     set: { ...rejected, payrollAdjustmentId: null },
     extraWhere: and(eq(accountingExpenses.payrollAdjustmentId, adjustmentId), linkedAdjustmentEditable),
     after: [
+      hrAdjustmentLog({
+        adjustmentId, expenseId: id, status: "rejected", revision: expectedRevision + 1, actor,
+        eventType: "payroll_adjustment_deleted", summary: "薪資加扣項已刪除（報帳退回）", payload: { reason },
+      }),
       sql`DELETE FROM hr_payroll_adjustment_items WHERE adjustment_id = ${adjustmentId} AND ${nowRejected}`,
       sql`DELETE FROM hr_payroll_adjustments WHERE id = ${adjustmentId} AND ${nowRejected}`,
     ],

@@ -212,6 +212,8 @@ describe("報公帳：併入月薪", () => {
     await expect(updateHrPayrollAdjustment(db(), adjustmentId, { employmentId: "employment-employee", effectivePeriodKey: current, reason: "改金額", items: [{ itemName: "代墊款", amountMinor: 99900 }], revision: 1 }, actor)).rejects.toThrow("來自報帳");
     await expect(deleteHrPayrollAdjustment(db(), adjustmentId, 1, actor)).rejects.toThrow("來自報帳");
     expect(adjustments()).toHaveLength(1);
+    expect(d1.sqlite.prepare("SELECT event_type, source, actor_id FROM activity_events WHERE entity_type = 'hr_personnel' AND entity_id = ?").all(adjustmentId))
+      .toEqual([{ event_type: "payroll_adjustment_created", source: "accounting", actor_id: "accountant" }]);
   });
 
   it("這個月結帳了就掛下個月；會計看到的月份過期時不偷偷改月，兩邊都不寫", async () => {
@@ -222,6 +224,7 @@ describe("報公帳：併入月薪", () => {
     expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: current })).status).toBe(409);
     expect(row(id)).toMatchObject({ status: "pending", payroll_adjustment_id: null });
     expect(adjustments()).toEqual([]);
+    expect(d1.sqlite.prepare("SELECT count(*) AS n FROM activity_events WHERE entity_type = 'hr_personnel'").get()).toEqual({ n: 0 });
     expect((await api(`/accounting/expenses/${id}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: next })).status).toBe(200);
     expect(adjustments()).toMatchObject([{ effective_period_key: next }]);
   });
@@ -250,6 +253,8 @@ describe("報公帳：併入月薪", () => {
     expect((await api(`/accounting/expenses/${first}/reject`, "accountant", "POST", { revision: 2, note: "金額打錯，請重送" })).status).toBe(200);
     expect(row(first)).toMatchObject({ status: "rejected", payroll_adjustment_id: null, review_note: "金額打錯，請重送", revision: 3 });
     expect(adjustments()).toEqual([]);
+    expect(d1.sqlite.prepare("SELECT event_type FROM activity_events WHERE entity_type = 'hr_personnel' ORDER BY rowid").all())
+      .toEqual([{ event_type: "payroll_adjustment_created" }, { event_type: "payroll_adjustment_deleted" }]);
 
     const second = await submit("employee");
     await api(`/accounting/expenses/${second}/approve`, "accountant", "POST", { revision: 1, payoutMethod: "payroll", payrollPeriodKey: current });
