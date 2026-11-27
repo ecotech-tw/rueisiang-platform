@@ -202,7 +202,7 @@ async function expandTable(page) {
 
 /** 讀出後台「POS 商店列表」上的所有商店名稱與連結。 */
 export async function listStores(page, { origin }) {
-  await page.goto(`${origin}/admin/pos_shops`, { waitUntil: "domcontentloaded" });
+  await navigateToAdmin(page, origin);
   await page.waitForTimeout(1500);
   await dismissOverlays(page);
   const heading = await page.locator("body").innerText();
@@ -237,7 +237,7 @@ export async function listStores(page, { origin }) {
 
 /** 找出單一商店的後台路徑，例如 /admin/pos_shops/123 */
 export async function resolveStore(page, { origin, storeName }) {
-  await page.goto(`${origin}/admin/pos_shops`, { waitUntil: "domcontentloaded" });
+  await navigateToAdmin(page, origin);
   await page.waitForTimeout(1000);
   await dismissOverlays(page);
   await expandTable(page);
