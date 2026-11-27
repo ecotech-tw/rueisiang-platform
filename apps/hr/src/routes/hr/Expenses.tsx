@@ -209,7 +209,7 @@ export function HrExpenseEdit() {
   const expense = query.data?.expenses.find((item) => item.id === id);
   if (query.isPending) return <FormPage><p className="text-muted">載入報帳…</p></FormPage>;
   if (!expense || expense.status !== "pending") return <FormPage>
-    <FormPageHeader title="編輯報帳" description="會計審核前都可以改。" returnTo="/expenses" backLabel="返回報帳" />
+    <FormPageHeader title="編輯報帳" returnTo="/expenses" backLabel="返回報帳" />
     <Alert tone="warning">這張報帳單已經不是待審核，不能修改。</Alert>
   </FormPage>;
   return <HrExpenseForm editing={expense} />;
@@ -357,7 +357,7 @@ export function HrExpenseForm({ editing }: { editing?: MyExpense } = {}) {
   const saveError = save.error && !(save.error instanceof HrApiError && save.error.code === "duplicate_invoice") ? save.error.message : "";
   return <FormPage>
     {scanning ? <BusyOverlay label="讀取發票中…" /> : preparing ? <BusyOverlay label="處理照片中…" /> : null}
-    <FormPageHeader title={editing ? "編輯報帳" : "新增報帳"} description={editing ? "會計審核前都可以改。" : "送出後由會計審核，結果會顯示在報帳紀錄。"} returnTo="/expenses" backLabel="返回報帳" />
+    <FormPageHeader title={editing ? "編輯報帳" : "新增報帳"} returnTo="/expenses" backLabel="返回報帳" />
     {options.error ? <Alert tone="danger">{options.error.message}</Alert> : null}
     <Panel className={FORM_PANEL}>
       <div className={FORM_FIELDS}>
