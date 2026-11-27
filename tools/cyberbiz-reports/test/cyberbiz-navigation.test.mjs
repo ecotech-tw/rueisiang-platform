@@ -64,6 +64,15 @@ test("只分類 Cloudflare 驗證頁，不記錄頁面內容", async () => {
   assert.equal(await isCloudflareChallengePage(pageFor({ title: "Just a moment", body: "Verifying... CLOUDFLARE" })), true);
   assert.equal(await isCloudflareChallengePage(pageFor({ selectorVisible: true })), true);
   assert.equal(await isCloudflareChallengePage(pageFor({ title: "CYBERBIZ", body: "登入" })), false);
+
+  const completedWidget = {
+    ...pageFor({ selectorVisible: true }),
+    frames: () => [{
+      url: () => "https://challenges.cloudflare.com/turnstile?token=not-for-logs",
+      locator: () => ({ innerText: async () => "Success! Privacy • Help" }),
+    }],
+  };
+  assert.equal(await isCloudflareChallengePage(completedWidget), false);
 });
 
 test("challenge 點擊只作用於 Cloudflare iframe 的唯一可見 checkbox", async () => {
@@ -128,6 +137,49 @@ test("challenge 解除後會重新等待登入結果，而非沿用舊的 challe
   assert.equal(clickCount, 1);
   assert.equal(waitForUrlCount, 1);
   assert.equal(outcome, "signed_in");
+});
+
+test("Cloudflare success widget 會續等登入結果，不再誤報沒有 checkbox", async () => {
+  let waitForUrlCount = 0;
+  const page = {
+    frames: () => [{
+      url: () => "https://challenges.cloudflare.com/turnstile?token=not-for-logs",
+      locator: () => ({ innerText: async () => "Success! Privacy • Help" }),
+    }],
+    locator: (selector) => {
+      if (selector === 'input[name="cf-turnstile-response"], textarea[name="cf-turnstile-response"]') {
+        return { evaluateAll: async (callback) => callback([{ value: "opaque-response-token" }]) };
+      }
+      return {
+        first: () => ({
+          isVisible: async () => selector.includes("challenges.cloudflare.com"),
+          waitFor: async () => new Promise(() => {}),
+        }),
+        innerText: async () => "",
+      };
+    },
+    title: async () => "CYBERBIZ",
+    url: () => "https://example.cyberbiz.co/user/sign_in",
+    waitForURL: async () => { waitForUrlCount += 1; },
+    waitForTimeout: async () => { throw new Error("停止已完成 challenge 的背景輪詢"); },
+    getByText: () => ({ first: () => ({ waitFor: async () => new Promise(() => {}) }) }),
+  };
+  const clickConfig = { enabled: true, attempted: false, status: "disabled" };
+
+  const outcome = await resumeLoginAfterCloudflareChallenge(
+    page,
+    "cloudflare_challenge",
+    200,
+    clickConfig,
+  );
+
+  assert.equal(outcome, "signed_in");
+  assert.equal(waitForUrlCount, 1);
+  assert.equal(clickConfig.attempted, false);
+  assert.equal(clickConfig.status, "challenge_cleared");
+  const diagnostics = await collectLoginDiagnostics(page, 200);
+  assert.equal(JSON.stringify(diagnostics).includes("opaque-response-token"), false);
+  assert.equal(JSON.stringify(diagnostics).includes("not-for-logs"), false);
 });
 
 test("challenge 點擊不會碰多個或不可見 checkbox", async () => {
@@ -203,7 +255,14 @@ test("登入結果會等待導頁、POS 商店、2FA 或 Cloudflare 挑戰狀態
   const challengePage = {
     waitForURL: never,
     getByText: () => ({ first: () => ({ waitFor: async () => {} }) }),
-    locator: () => ({ first: () => ({ waitFor: never }) }),
+    locator: (selector) => ({
+      first: () => ({
+        isVisible: async () => selector.includes("challenges.cloudflare.com"),
+        waitFor: never,
+      }),
+    }),
+    title: async () => "Cloudflare",
+    waitForTimeout: async () => {},
   };
   assert.equal(await waitForLoginOutcome(challengePage, { timeout: 10 }), "cloudflare_challenge");
 
