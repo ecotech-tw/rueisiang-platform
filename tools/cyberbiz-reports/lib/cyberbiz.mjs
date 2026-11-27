@@ -256,7 +256,7 @@ export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeo
 }
 
 async function rejectCloudflareChallenge(page, outcome, mainDocumentStatus, clickConfig) {
-  if (outcome !== "cloudflare_challenge" && !await isCloudflareChallengePage(page)) return;
+  if (outcome !== "cloudflare_challenge" && !await isCloudflareChallengePage(page)) return false;
 
   if (clickConfig.enabled && !clickConfig.attempted) {
     clickConfig.attempted = true;
@@ -265,7 +265,7 @@ async function rejectCloudflareChallenge(page, outcome, mainDocumentStatus, clic
       clickConfig.status = await waitForCloudflareChallengeToClear(page)
         ? "challenge_cleared"
         : "challenge_remains_after_click";
-      if (clickConfig.status === "challenge_cleared") return;
+      if (clickConfig.status === "challenge_cleared") return true;
     }
   } else if (clickConfig.enabled && clickConfig.attempted && clickConfig.status === "challenge_cleared") {
     clickConfig.status = "second_challenge_not_clicked";
@@ -273,6 +273,14 @@ async function rejectCloudflareChallenge(page, outcome, mainDocumentStatus, clic
 
   const diagnostics = await collectLoginDiagnostics(page, mainDocumentStatus, clickConfig.status);
   fail("CYBERBIZ_BOT_CHALLENGE", `偵測到 Cloudflare 驗證頁；Runner 未能完成驗證。${formatLoginDiagnostics(diagnostics)}請確認 CB 核准設定與 challenge 狀態。`);
+  return false;
+}
+
+export async function resumeLoginAfterCloudflareChallenge(page, outcome, mainDocumentStatus, clickConfig, waitOptions) {
+  if (!await rejectCloudflareChallenge(page, outcome, mainDocumentStatus, clickConfig)) return outcome;
+  const resumedOutcome = await waitForLoginOutcome(page, waitOptions);
+  await rejectCloudflareChallenge(page, resumedOutcome, mainDocumentStatus, clickConfig);
+  return resumedOutcome;
 }
 
 /**
@@ -306,8 +314,12 @@ export async function login(page, {
   await email.fill(username);
   await pass.fill(password);
   await page.getByRole("button", { name: "登入", exact: true }).click();
-  const outcome = await waitForLoginOutcome(page);
-  await rejectCloudflareChallenge(page, outcome, mainDocumentStatus, challengeClick);
+  const outcome = await resumeLoginAfterCloudflareChallenge(
+    page,
+    await waitForLoginOutcome(page),
+    mainDocumentStatus,
+    challengeClick,
+  );
   if (outcome === "signed_in") return { status: "signed_in" };
   if (outcome !== "two_factor") {
     const diagnostics = await collectLoginDiagnostics(page, mainDocumentStatus);
@@ -338,9 +350,13 @@ export async function login(page, {
 
   await page.getByRole("button", { name: /^(驗證|確認|送出)$/ }).first().click();
 
-  const verified = await waitForLoginOutcome(page, { waitForTwoFactor: false });
-  await rejectCloudflareChallenge(page, verified, mainDocumentStatus, challengeClick);
-  if (verified !== "signed_in") {
+  const verified = await resumeLoginAfterCloudflareChallenge(
+    page,
+    await waitForLoginOutcome(page, { waitForTwoFactor: false }),
+    mainDocumentStatus,
+    challengeClick,
+    { waitForTwoFactor: false },
+  );  if (verified !== "signed_in") {
     const diagnostics = await collectLoginDiagnostics(page, mainDocumentStatus);
     fail("LOGIN_FAILED", `送出 2FA 驗證碼後仍停留在登入頁。${formatLoginDiagnostics(diagnostics)}請確認驗證碼有效或登入狀態。`);
   }
