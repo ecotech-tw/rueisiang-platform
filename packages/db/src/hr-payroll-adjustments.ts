@@ -42,7 +42,7 @@ async function ensureEditable(db: Database, employmentId: string, effectivePerio
  * 支出單指向加扣項（accounting_expenses.payroll_adjustment_id），所以反查它；寫入的 SQL 也帶同一個條件，
  * 檢查完到寫入之間被會計核准的也擋得住。
  */
-const FROM_EXPENSE_MESSAGE = "這筆加扣項來自報帳，請由會計退回。";
+const FROM_EXPENSE_MESSAGE = "這筆加扣項來自報帳，請由會計處理。";
 function notFromExpense(adjustmentId: SQLWrapper | string) {
   return sql`NOT EXISTS (SELECT 1 FROM accounting_expenses WHERE accounting_expenses.payroll_adjustment_id = ${adjustmentId})`;
 }

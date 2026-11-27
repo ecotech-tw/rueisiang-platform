@@ -109,7 +109,7 @@ function ExpenseDetail({ expense, onClose, onCancel, closeRequestRef }: { expens
     </>}
   >
     <p className="m-0 text-[15px] font-semibold wrap-anywhere">{expense.description}</p>
-    {expense.status === "rejected" && expense.reviewNote ? <Alert tone="danger">{`退回原因：${expense.reviewNote}`}</Alert> : null}
+    {expense.status === "rejected" && expense.reviewNote ? <Alert tone="danger">{`駁回原因：${expense.reviewNote}`}</Alert> : null}
     {note ? <Alert tone="info">{note}</Alert> : null}
     {expense.receiptIds.length ? <div className="grid grid-cols-3 gap-2">
       {expense.receiptIds.map((receiptId, index) => <a key={receiptId} href={receiptUrl(expense.id, receiptId)} target="_blank" rel="noreferrer" aria-label={`開啟第 ${index + 1} 張單據`} className={`block aspect-square overflow-hidden rounded-[12px] transition-[scale] duration-150 ease-out active:scale-96 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-secondary ${RECEIPT_OUTLINE}`}>

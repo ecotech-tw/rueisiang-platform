@@ -176,7 +176,7 @@ describe("報公帳：審核結果通知送件人", () => {
   it("退回的通知寫出原因", async () => {
     const id = await submit("employee");
     await api(`/accounting/expenses/${id}/reject`, "accountant", "POST", { revision: 1, note: "請附上發票" });
-    expect(notifications("employee")).toEqual([expect.objectContaining({ title: "報帳已退回", body: expect.stringContaining("退回原因：請附上發票") })]);
+    expect(notifications("employee")).toEqual([expect.objectContaining({ title: "報帳已駁回", body: expect.stringContaining("駁回原因：請附上發票") })]);
   });
 
   it("被擋下的動作不發通知", async () => {

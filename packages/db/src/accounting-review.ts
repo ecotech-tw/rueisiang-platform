@@ -290,18 +290,19 @@ export async function approveExpense(db: Database, id: string, expectedRevision:
 }
 
 /*
- * 待審的直接退回。已核准、還沒付出去的也能退回（核准錯了、金額要改）：直接撥款的還沒轉帳；
- * 併入月薪的要那個月這個人還沒結帳，同一個 batch 把加扣項拿掉。已付款（含已隨月薪發放）的不能退回，只能沖銷。
+ * 駁回（不通過，要寫原因）。待審的直接駁回；已核准、還沒付出去的也能駁回（核准錯了、金額要改）：直接撥款的還沒轉帳；
+ * 併入月薪的要那個月這個人還沒結帳，同一個 batch 把加扣項拿掉。已付款（含已隨月薪發放）的不能駁回。
+ * 用詞跟請假、加班一樣叫「駁回」，跟「退回待撥款」「取消核准」這兩種狀態退回分開（使用者決定）。
  */
 export async function rejectExpense(db: Database, id: string, expectedRevision: number, note: string, actor: AccountingActor) {
   const reason = note.trim();
-  if (!reason || reason.length > 500) throw new AccountingError(400, "請寫退回原因（500 字以內），員工才知道要怎麼改。");
+  if (!reason || reason.length > 500) throw new AccountingError(400, "請寫駁回原因（500 字以內），員工才知道要怎麼改。");
   const [current] = await db.select({ status: accountingExpenses.status, payrollAdjustmentId: accountingExpenses.payrollAdjustmentId })
     .from(accountingExpenses).where(eq(accountingExpenses.id, id)).limit(1);
   const base = {
     id, expectedRevision, actor,
-    eventType: "expense_rejected", summary: "報帳退回",
-    notify: { event: "rejected", title: "報帳已退回", detail: `退回原因：${reason}` },
+    eventType: "expense_rejected", summary: "報帳駁回",
+    notify: { event: "rejected", title: "報帳已駁回", detail: `駁回原因：${reason}` },
   };
   const rejected = { status: "rejected" as const, reviewerUserId: actor.id, reviewedAt: toDbTimestamp(), reviewNote: reason };
   if (current?.status !== "approved") return transition(db, { ...base, from: "pending", set: rejected });
@@ -316,13 +317,13 @@ export async function rejectExpense(db: Database, id: string, expectedRevision: 
     after: [
       hrAdjustmentLog({
         adjustmentId, expenseId: id, status: "rejected", revision: expectedRevision + 1, actor,
-        eventType: "payroll_adjustment_deleted", summary: "薪資加扣項已刪除（報帳退回）", payload: { reason },
+        eventType: "payroll_adjustment_deleted", summary: "薪資加扣項已刪除（報帳駁回）", payload: { reason },
       }),
       sql`DELETE FROM hr_payroll_adjustment_items WHERE adjustment_id = ${adjustmentId} AND ${nowRejected}`,
       sql`DELETE FROM hr_payroll_adjustments WHERE id = ${adjustmentId} AND ${nowRejected}`,
     ],
     payload: { removedPayrollAdjustmentId: adjustmentId },
-    blockedMessage: "這筆已經隨月薪結帳，不能退回。",
+    blockedMessage: "這筆已經隨月薪結帳，不能駁回。",
   });
 }
 

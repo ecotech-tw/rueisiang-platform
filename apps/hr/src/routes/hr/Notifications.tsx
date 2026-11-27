@@ -13,7 +13,7 @@ function formatTaipei(value: string) {
 }
 
 function notificationTone(notification: HrNotification) {
-  // 請假、加班寫「駁回」，報帳寫「退回」，都是沒過。
+  // 沒過都寫「駁回」；改名前的報帳通知寫「退回」，舊通知仍要顯示成沒過。
   return notification.kind === "request_reviewed" ? (/駁回|退回/.test(notification.title) ? "danger" : "success") : notification.kind === "request_submitted" ? "info" : "neutral";
 }
 

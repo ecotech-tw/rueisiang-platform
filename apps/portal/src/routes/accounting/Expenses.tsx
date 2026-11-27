@@ -18,7 +18,7 @@ const STATUS_TABS: { value: ExpenseStatusFilter; label: string }[] = [
   { value: "pending", label: "待審核" },
   { value: "approved", label: "待撥款" },
   { value: "paid", label: "已付款" },
-  { value: "rejected", label: "已退回" },
+  { value: "rejected", label: "已駁回" },
   { value: "all", label: "全部" },
 ];
 
@@ -26,7 +26,7 @@ const STATUS_BADGE: Record<ExpenseStatus, { label: string; tone: "info" | "warni
   pending: { label: "待審核", tone: "info" },
   approved: { label: "待撥款", tone: "warning" },
   paid: { label: "已付款", tone: "success" },
-  rejected: { label: "已退回", tone: "danger" },
+  rejected: { label: "已駁回", tone: "danger" },
   cancelled: { label: "已撤回", tone: "neutral" },
 };
 
@@ -87,10 +87,10 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose }: { expense: Review
   const actions = rejecting
     ? <>
       <Button variant="secondary" disabled={write.isPending} onClick={() => setRejecting(false)}>取消</Button>
-      <Button variant="danger" loading={write.isPending} disabled={!note.trim()} onClick={() => act("reject", { note })}>確認退回</Button>
+      <Button variant="danger" loading={write.isPending} disabled={!note.trim()} onClick={() => act("reject", { note })}>確認駁回</Button>
     </>
     : <>
-      {rejectable ? <Button variant="secondary" disabled={write.isPending} onClick={() => setRejecting(true)}>退回</Button> : null}
+      {rejectable ? <Button variant="secondary" disabled={write.isPending} onClick={() => setRejecting(true)}>駁回</Button> : null}
       {approving ? <Button tone="success" loading={write.isPending} onClick={approve}>核准</Button> : null}
       {reviewable && expense.status === "approved" ? <Button variant="secondary" disabled={write.isPending} onClick={() => setReverting("unapprove")}>取消核准</Button> : null}
       {reviewable && expense.status === "paid" && expense.payoutMethod === "direct" ? <Button variant="secondary" disabled={write.isPending} onClick={() => setReverting("revert-payment")}>退回待撥款</Button> : null}
@@ -103,7 +103,7 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose }: { expense: Review
     <p className="m-0 text-[15px] font-semibold wrap-anywhere">{expense.description}</p>
     {isOwn && canReview && (expense.status === "pending" || expense.status === "approved") ? <Alert tone="info">這是你自己的報帳，請另一位會計或管理者處理。</Alert> : null}
     {expense.duplicateInvoiceCount > 0 ? <Alert tone="warning">{`這個發票號碼另外還有 ${expense.duplicateInvoiceCount} 張報帳單，核准前請確認不是重複報帳。`}</Alert> : null}
-    {expense.status === "rejected" && expense.reviewNote ? <Alert tone="danger">{`退回原因：${expense.reviewNote}`}</Alert> : null}
+    {expense.status === "rejected" && expense.reviewNote ? <Alert tone="danger">{`駁回原因：${expense.reviewNote}`}</Alert> : null}
     {approving ? <Field as="div" label="發放方式" hint={payout === "direct"
       ? `${expense.payrollOption ? "" : "沒有在職資料或薪資月份已結帳，只能直接撥款。"}${balanceText ?? ""}`
       : expense.payrollOption ? `${payrollPeriodLabel(expense.payrollOption)}的薪資會多一筆「代墊款」。` : undefined}>
@@ -113,7 +113,7 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose }: { expense: Review
       ]} />
     </Field> : null}
     {reviewable && expense.status === "approved" && expense.payoutMethod === "direct" && balanceText ? <p className="m-0 text-[13px] text-muted">{balanceText}</p> : null}
-    {rejecting ? <Field label="退回原因" required hint={expense.payoutMethod === "payroll" ? "員工會看到這段話；薪資裡的代墊款會一起拿掉。" : "員工會看到這段話，寫清楚要怎麼改。"}>
+    {rejecting ? <Field label="駁回原因" required hint={expense.payoutMethod === "payroll" ? "員工會看到這段話；薪資裡的代墊款會一起拿掉。" : "員工會看到這段話，寫清楚要怎麼改。"}>
       <Textarea autoFocus maxLength={500} rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：發票抬頭不是公司，請重新開立。" />
     </Field> : null}
     {expense.receiptIds.length ? <div className="grid grid-cols-3 gap-2">
