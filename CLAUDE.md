@@ -345,8 +345,15 @@ KPI 卡與資料表為了做省略號都有 `overflow: hidden`，相對定位的
      `DROP TABLE` 父表會被子表的 `RESTRICT` 外鍵擋下（`PRAGMA foreign_keys=OFF` 無效），Drizzle 產的單表重建在正式站一定失敗。
      允許：照常改 schema 並用 `pnpm generate` 產生（保留它的 snapshot 與 journal），再把那支 migration 的 SQL 本體換成手寫的
      多表重建——父表與所有指著它的子表都建 `__new_` 版本、子表的外鍵指向 `__new_` 父表、依序搬資料、先刪舊子表再刪舊父表、
-     最後改名（SQLite 改名時會一併改寫其他表外鍵裡的表名），並補回被刪掉的 trigger。限制：
-     - 只能做 schema 已經宣告的變更；手寫 SQL 建出來的表結構要跟 Drizzle 產的一致，測試要比對 `sqlite_master` 的 DDL。
+     最後改名（SQLite 改名時會一併改寫其他表外鍵裡的表名），並補回被刪掉的 trigger。例子見 `0265` 與
+     `expense-line-source-migration.test.ts`。照做時有兩個坑：
+     - Drizzle 產的 `INSERT INTO __new_… SELECT …` 會去舊表選新欄位，照抄就失敗；搬資料只列舊表已有的欄位，新欄位交給 DEFAULT。
+     - 子表自己指著自己（`RESTRICT`）時，`DROP TABLE` 的隱含 DELETE 會逐列檢查，先刪到被參照的列就被擋下。資料搬完後，
+       先 `DROP TRIGGER` 舊表擋刪除的 trigger（隱含 DELETE 不會觸發 trigger，手動 `DELETE` 會），再照參照順序 `DELETE`
+       參照別列的那些列，最後才 `DROP TABLE`；trigger 在新表改名後補回。
+     限制：
+     - 只能做 schema 已經宣告的變更；手寫 SQL 建出來的表結構要跟 Drizzle 產的一致，測試要比對 `sqlite_master` 的 DDL
+       （去掉引號、合併空白後比對，改名後 SQLite 寫回的引號風格可能不同）。
      - 不得用 `CASCADE`、不得丟資料：migration 測試以 D1 方式（每支一個 transaction、`foreign_keys=ON`）套用，父表與子表都要有資料，
        驗證每張表筆數不變、`PRAGMA foreign_key_check` 為空、trigger 仍存在且行為不變。
      - 開 PR 前用手邊最新的正式庫備份照 D1 方式重播一次，結果寫在 PR 說明。
