@@ -3,6 +3,7 @@ import { useSession } from "../../auth/session.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, DropdownSelect, EmptyState, FieldGrid, FilterFields, FilterInput, FilterSelect, FilterToggle, FilterToolbar, FormHint, Page, PageHeader, PageTabControl, Panel, RowActions, SEARCH_INPUT_WIDTH, SelectField, StatusBadge, TextField, Tooltip } from "../../ui/index.js";
 import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
+import { SortableHeader } from "../../shell/SortableHeader.js";
 import { useToast } from "../../shell/Toast.js";
 import { useHrEmployeeRoster, useHrQuery, useHrWrite, type ScheduleWorkerRecord, type SpecialWorkdayRule, type SpecialWorkdayAssignment, type SpecialWorkdayRuleVersion } from "./api.js";
 import { HrPageSkeleton } from "./HrSkeleton.js";
@@ -41,15 +42,47 @@ function allowanceSummary(item: SpecialWorkdayAssignment) {
       const quantities = snapshot.flatMap((value) => {
         if (!value || typeof value !== "object" || Array.isArray(value)) return [];
         const allowance = value as { itemName?: unknown; quantity?: unknown };
-        return typeof allowance.itemName === "string" && typeof allowance.quantity === "number" && allowance.quantity > 0 ? [`${allowance.itemName} × ${allowance.quantity}`] : [];
+        return typeof allowance.itemName === "string" && typeof allowance.quantity === "number" && Number.isFinite(allowance.quantity) && allowance.quantity > 0 ? [{ itemName: allowance.itemName, quantity: allowance.quantity }] : [];
       });
-      if (quantities.length) return quantities.join("、");
-      if (snapshot.length && item.assignment.allowanceQuantity === 0) return "0";
+      if (quantities.length) return { text: quantities.map((allowance) => `${allowance.itemName} × ${allowance.quantity}`).join("、"), total: quantities.reduce((total, allowance) => total + allowance.quantity, 0) };
+      if (snapshot.length && item.assignment.allowanceQuantity === 0) return { text: "0", total: 0 };
     }
   } catch {
     // 舊資料損壞時仍顯示資料庫保留的共用數量，不讓歷史表整頁失效。
   }
-  return item.assignment.allowanceQuantity > 0 ? `${item.assignment.allowanceQuantity} 次（所有補貼）` : "0";
+  const total = Math.max(0, item.assignment.allowanceQuantity);
+  return { text: total > 0 ? `${total} 次（所有補貼）` : "0", total };
+}
+const ASSIGNMENT_SORT_OPTIONS = [
+  { value: "person", label: "人員" },
+  { value: "workDate", label: "日期" },
+  { value: "ruleName", label: "規則" },
+  { value: "wageKind", label: "目前薪資方式" },
+  { value: "allowance", label: "補貼數量" },
+  { value: "appliedAt", label: "套用時間" },
+  { value: "payrollStatus", label: "薪資狀態" },
+];
+const WAGE_LABEL = { fixed_hourly: "固定每小時", multiplier: "總倍率" };
+const assignmentCollator = new Intl.Collator("zh-Hant", { numeric: true, sensitivity: "base" });
+function assignmentSortValue(item: SpecialWorkdayAssignment, field: string): string | number | null {
+  switch (field) {
+    case "person": return item.employeeName ?? item.workerName;
+    case "ruleName": return item.ruleName;
+    case "wageKind": return item.currentWageKind ? WAGE_LABEL[item.currentWageKind] : null;
+    case "allowance": return allowanceSummary(item).total;
+    case "appliedAt": return item.assignment.appliedAt || null;
+    case "payrollStatus": return Number(item.includedInPayroll);
+    default: return item.assignment.workDate || null;
+  }
+}
+export function sortSpecialWorkdayAssignments(items: SpecialWorkdayAssignment[], field: string, direction: "asc" | "desc") {
+  return items.map((item) => ({ item, value: assignmentSortValue(item, field) })).sort((left, right) => {
+    if (left.value === null || right.value === null) return left.value === right.value ? 0 : left.value === null ? 1 : -1;
+    const result = typeof left.value === "number" && typeof right.value === "number"
+      ? left.value - right.value
+      : assignmentCollator.compare(String(left.value), String(right.value));
+    return direction === "asc" ? result : -result;
+  }).map(({ item }) => item);
 }
 function parseHours(value: string, minimumHours: number) {
   if (!value.trim()) return null;
@@ -427,12 +460,14 @@ export function HrSpecialWorkdays() {
   const [deletingRule, setDeletingRule] = useState<SpecialWorkdayRule | null>(null);
   const [deletingAssignment, setDeletingAssignment] = useState<SpecialWorkdayAssignment | null>(null);
   const [view, setView] = useState("assignments");
+  const [assignmentSort, setAssignmentSort] = useState({ field: "workDate", direction: "asc" as "asc" | "desc" });
   const [assignmentFilters, setAssignmentFilters] = useState<SpecialWorkdayAssignmentFilters>({ search: "", startDate: "", endDate: "", payrollStatus: "all" });
   const deleteCloseRequestRef = useRef<((afterClose?: () => void) => void) | null>(null);
   const deleteAssignmentCloseRequestRef = useRef<((afterClose?: () => void) => void) | null>(null);
   const rows = useMemo(() => rules.data?.rules ?? [], [rules.data]);
   const assignmentRows = useMemo(() => assignments.data?.assignments ?? [], [assignments.data?.assignments]);
   const visibleAssignments = useMemo(() => filterSpecialWorkdayAssignments(assignmentRows, assignmentFilters), [assignmentFilters, assignmentRows]);
+  const sortedAssignments = useMemo(() => sortSpecialWorkdayAssignments(visibleAssignments, assignmentSort.field, assignmentSort.direction), [visibleAssignments, assignmentSort]);
   const assignableRules = useMemo(() => rows.filter((item) => item.rule.active && item.versions.some((version) => !version.voidedAt)), [rows]);
   // 手機上日期與薪資狀態收在「篩選」按鈕後面；按鈕上的數字不算搜尋，搜尋框一直看得到。
   const [showAssignmentFilters, setShowAssignmentFilters] = useState(false);
@@ -485,9 +520,13 @@ export function HrSpecialWorkdays() {
         <FilterInput label="結束日期" type="date" value={assignmentFilters.endDate} onChange={(event) => updateAssignmentFilters({ endDate: event.target.value })} />
         <FilterSelect label="薪資計算狀態" value={assignmentFilters.payrollStatus} options={[{ value: "all", label: "全部薪資狀態" }, { value: "not_included", label: "尚未納入試算" }, { value: "included", label: "已納入試算" }]} onChange={(event) => updateAssignmentFilters({ payrollStatus: event.target.value as SpecialWorkdayAssignmentPayrollFilter })} />
         </FilterFields>
+        <div className="hidden w-full items-center gap-2 max-[760px]:flex">
+          <FilterSelect label="排序欄位" value={assignmentSort.field} options={ASSIGNMENT_SORT_OPTIONS} onChange={(event) => setAssignmentSort({ field: event.target.value, direction: "asc" })} />
+          <Button variant="secondary" icon={assignmentSort.direction === "asc" ? "chevronUp" : "chevronDown"} aria-label="切換排序方向" onClick={() => setAssignmentSort((current) => ({ ...current, direction: current.direction === "asc" ? "desc" : "asc" }))}>{assignmentSort.direction === "asc" ? "遞增" : "遞減"}</Button>
+        </div>
       </FilterToolbar>
       {assignmentDateError ? <Alert tone="warning">{assignmentDateError}</Alert> : null}
-      <DataTable containerClassName={TABLE_VIEWPORT_LAYOUT}><thead><tr><th>人員</th><th>日期</th><th>規則</th><th>目前薪資方式</th><th>補貼數量</th><th>套用時間</th><th>薪資狀態</th><th>操作</th></tr></thead><tbody>{visibleAssignments.map((item) => <tr key={item.assignment.id}><td>{item.employeeName ?? item.workerName ?? "—"}</td><td>{item.assignment.workDate}</td><td>{item.ruleName}{item.currentVersionNumber ? <><br /><span className="text-muted">目前設定 v{item.currentVersionNumber}{item.currentVersionVoidedAt ? "（已解除）" : ""}</span></> : null}</td><td>{item.currentWageKind === "fixed_hourly" ? "固定每小時" : item.currentWageKind === "multiplier" ? "總倍率" : "無目前設定"}</td><td>{allowanceSummary(item)}</td><td>{item.assignment.appliedAt}</td><td><StatusBadge tone={item.includedInPayroll ? "neutral" : "info"}>{item.includedInPayroll ? "已納入試算" : "尚未納入"}</StatusBadge></td><td>{canWrite ? <RowActions spacing="wide"><Tooltip label={`編輯 ${item.employeeName ?? item.workerName ?? "這筆套用"} 的特殊上班日`} focusable={false}><Button variant="icon" icon="edit" aria-label={`編輯${item.employeeName ?? item.workerName ?? "這筆套用"} ${item.assignment.workDate} 的特殊上班日`} onClick={() => setEditingAssignment(item)} /></Tooltip><Tooltip label={item.includedInPayroll ? "已納入薪資試算版本，不能刪除" : `刪除 ${item.employeeName ?? item.workerName ?? "這筆套用"} 的特殊上班日`} focusable={false}><Button variant="icon" icon="trash" tone="danger" aria-label={`刪除${item.employeeName ?? item.workerName ?? "這筆套用"} ${item.assignment.workDate} 的特殊上班日`} disabled={deleteAssignment.isPending || item.includedInPayroll} onClick={() => { deleteAssignment.reset(); setDeletingAssignment(item); }} /></Tooltip></RowActions> : <span className="text-muted">—</span>}</td></tr>)}</tbody></DataTable>{!assignmentRows.length ? <EmptyState className="mt-[18px]">尚未有日期套用紀錄。</EmptyState> : assignmentRows.length && !visibleAssignments.length ? <EmptyState className="mt-[18px]">沒有符合條件的套用紀錄，請調整篩選。</EmptyState> : null}</Panel> : null}
+      <DataTable containerClassName={TABLE_VIEWPORT_LAYOUT}><thead><tr>{ASSIGNMENT_SORT_OPTIONS.map((option) => <SortableHeader key={option.value} label={option.label} field={option.value} active={assignmentSort.field} direction={assignmentSort.direction} onSort={(field, direction) => setAssignmentSort({ field, direction })} />)}<th>操作</th></tr></thead><tbody>{sortedAssignments.map((item) => <tr key={item.assignment.id}><td>{item.employeeName ?? item.workerName ?? "—"}</td><td>{item.assignment.workDate}</td><td>{item.ruleName}{item.currentVersionNumber ? <><br /><span className="text-muted">目前設定 v{item.currentVersionNumber}{item.currentVersionVoidedAt ? "（已解除）" : ""}</span></> : null}</td><td>{item.currentWageKind ? WAGE_LABEL[item.currentWageKind] : "無目前設定"}</td><td>{allowanceSummary(item).text}</td><td>{item.assignment.appliedAt}</td><td><StatusBadge tone={item.includedInPayroll ? "neutral" : "info"}>{item.includedInPayroll ? "已納入試算" : "尚未納入"}</StatusBadge></td><td>{canWrite ? <RowActions spacing="wide"><Tooltip label={`編輯 ${item.employeeName ?? item.workerName ?? "這筆套用"} 的特殊上班日`} focusable={false}><Button variant="icon" icon="edit" aria-label={`編輯${item.employeeName ?? item.workerName ?? "這筆套用"} ${item.assignment.workDate} 的特殊上班日`} onClick={() => setEditingAssignment(item)} /></Tooltip><Tooltip label={item.includedInPayroll ? "已納入薪資試算版本，不能刪除" : `刪除 ${item.employeeName ?? item.workerName ?? "這筆套用"} 的特殊上班日`} focusable={false}><Button variant="icon" icon="trash" tone="danger" aria-label={`刪除${item.employeeName ?? item.workerName ?? "這筆套用"} ${item.assignment.workDate} 的特殊上班日`} disabled={deleteAssignment.isPending || item.includedInPayroll} onClick={() => { deleteAssignment.reset(); setDeletingAssignment(item); }} /></Tooltip></RowActions> : <span className="text-muted">—</span>}</td></tr>)}</tbody></DataTable>{!assignmentRows.length ? <EmptyState className="mt-[18px]">尚未有日期套用紀錄。</EmptyState> : assignmentRows.length && !visibleAssignments.length ? <EmptyState className="mt-[18px]">沒有符合條件的套用紀錄，請調整篩選。</EmptyState> : null}</Panel> : null}
     {editor === "new" ? <RuleDialog onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor && editor !== "new" && editor !== "assign" ? <RuleDialog rule={editor} onClose={() => { setEditor(null); void rules.refetch(); }} /> : null}{editor === "assign" ? <AssignDialog rules={assignableRules} onClose={() => { setEditor(null); void assignments.refetch(); }} /> : null}{editingAssignment ? <EditAssignmentDialog assignment={editingAssignment} rules={rows} onClose={() => { setEditingAssignment(null); void assignments.refetch(); void rules.refetch(); }} /> : null}
     {/* 跟同一頁的「解除版本」用同一個元件：兩個破壞性動作不該一個吃 Escape、一個不吃。 */}
     {deletingRule ? <ConfirmDialog title="刪除特殊上班日規則？" confirmLabel="刪除規則" pending={deleteRule.isPending} closeRequestRef={deleteCloseRequestRef} onCancel={() => { deleteRule.reset(); setDeletingRule(null); }} onConfirm={confirmDelete}>

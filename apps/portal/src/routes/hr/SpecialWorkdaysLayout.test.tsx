@@ -59,6 +59,11 @@ function button(label: string) {
 async function switchView(label: string) {
   await act(async () => button(label).click());
 }
+async function clickSort(label: string) {
+  const header = [...container.querySelectorAll<HTMLButtonElement>("thead button")].find((node) => node.textContent === label);
+  expect(header).toBeDefined();
+  await act(async () => header!.click());
+}
 
 it("預設只顯示撐滿剩餘高度的套用紀錄，規則檢視也獨立使用剩餘高度", async () => {
   await mount();
@@ -136,6 +141,37 @@ it("沒有規則與套用紀錄時，兩個檢視各自顯示空狀態並停用�
   await switchView("規則管理");
   expect(container.textContent).toContain("尚未建立特殊上班日規則");
   expect(button("新增規則")).toBeDefined();
+});
+
+it("資料表頭可切換排序，篩選與分頁切換不清除排序設定", async () => {
+  assignmentRows = [
+    { ...assignment, employeeName: "測試10", assignment: { ...assignment.assignment, id: "late", workDate: "2026-10-10" } },
+    { ...assignment, employeeName: "測試2", assignment: { ...assignment.assignment, id: "early", workDate: "2026-02-02" } },
+  ];
+  await mount();
+  const names = () => [...container.querySelectorAll("tbody tr")].map((row) => row.querySelector("td")?.textContent);
+  expect(names()).toEqual(["測試2", "測試10"]);
+  expect(container.querySelector('th[aria-sort="ascending"]')?.textContent).toBe("日期");
+  await clickSort("日期");
+  expect(names()).toEqual(["測試10", "測試2"]);
+  expect(container.querySelector('th[aria-sort="descending"]')?.textContent).toBe("日期");
+  await switchView("規則管理");
+  await switchView("日期套用紀錄");
+  expect(names()).toEqual(["測試10", "測試2"]);
+  const input = container.querySelector<HTMLInputElement>('input[aria-label="搜尋套用紀錄"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "測試2");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(names()).toEqual(["測試2"]);
+  await act(async () => button("清除篩選").click());
+  expect(names()).toEqual(["測試10", "測試2"]);
+  for (const label of ["人員", "規則", "目前薪資方式", "補貼數量", "套用時間", "薪資狀態"]) {
+    await clickSort(label);
+    expect(container.querySelector('th[aria-sort="ascending"]')?.textContent).toBe(label);
+    await clickSort(label);
+    expect(container.querySelector('th[aria-sort="descending"]')?.textContent).toBe(label);
+  }
 });
 
 it("唯讀使用者可切換檢視，但不顯示寫入操作", async () => {
