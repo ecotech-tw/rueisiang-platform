@@ -59,6 +59,7 @@ export class ReportRunner extends Container<Env> {
       "www.googleapis.com",
       "gmail.googleapis.com",
       "drive.google.com",
+      "challenges.cloudflare.com",
       "*.cyberbiz.co",
     ];
     this.envVars = {
@@ -67,6 +68,7 @@ export class ReportRunner extends Container<Env> {
       GOOGLE_REPORTS_OAUTH_CLIENT_SECRET: env.GOOGLE_REPORTS_OAUTH_CLIENT_SECRET ?? "",
       GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN: env.GOOGLE_REPORTS_DRIVE_REFRESH_TOKEN ?? "",
       CYBERBIZ_REPORT_INGEST_TOKEN: env.CYBERBIZ_REPORT_INGEST_TOKEN ?? "",
+      CYBERBIZ_CHALLENGE_CLICK_ENABLED: env.CYBERBIZ_CHALLENGE_CLICK_ENABLED === "true" ? "true" : "false",
       PLATFORM_API_URL: env.PUBLIC_APP_URL ?? "https://platform.rueisiang.com",
     };
   }

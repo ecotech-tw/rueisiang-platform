@@ -24,6 +24,8 @@ export interface Env {
   CYBERBIZ_PASSWORD?: string;
   /** cyberbiz runner rollout selector; keep GitHub Actions until the Container path is verified. */
   CYBERBIZ_REPORT_RUNNER_MODE?: "github" | "container";
+  /** 只有 CYBERBIZ 核准的測試期間設為 true；對 challenge iframe 內唯一可見 checkbox 點擊一次。 */
+  CYBERBIZ_CHALLENGE_CLICK_ENABLED?: string;
   /** 正式環境一定會綁定；本機 Node server 與不碰 LINE 的測試可以省略。 */
   ASSISTANT_CHAT_AGENT?: DurableObjectNamespace;
   /** 全平台共用一個 credential vault，避免多個 chat 同時旋轉同一支 refresh token。 */

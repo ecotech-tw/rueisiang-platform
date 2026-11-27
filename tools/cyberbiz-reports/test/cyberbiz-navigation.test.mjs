@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { collectLoginDiagnostics, dismissOverlays, isCloudflareChallengePage, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore, waitForLoginOutcome } from "../lib/cyberbiz.mjs";
+import { attemptCloudflareChallengeClick, collectLoginDiagnostics, dismissOverlays, isCloudflareChallengePage, navigateToAdmin, PRODUCT_SALES_REPORT_LINK_NAME, resolveStore, resumeLoginAfterCloudflareChallenge, waitForLoginOutcome } from "../lib/cyberbiz.mjs";
 
 test("商品銷售報表連結名稱允許後台插入空白或換行", () => {
   assert.equal(PRODUCT_SALES_REPORT_LINK_NAME.test("商品銷售\n總表"), true);
@@ -64,6 +64,84 @@ test("只分類 Cloudflare 驗證頁，不記錄頁面內容", async () => {
   assert.equal(await isCloudflareChallengePage(pageFor({ title: "Just a moment", body: "Verifying... CLOUDFLARE" })), true);
   assert.equal(await isCloudflareChallengePage(pageFor({ selectorVisible: true })), true);
   assert.equal(await isCloudflareChallengePage(pageFor({ title: "CYBERBIZ", body: "登入" })), false);
+});
+
+test("challenge 點擊只作用於 Cloudflare iframe 的唯一可見 checkbox", async () => {
+  const calls = [];
+  const frame = {
+    url: () => "https://challenges.cloudflare.com/turnstile?token=secret",
+    locator: (selector) => {
+      assert.equal(selector, 'input[type="checkbox"], [role="checkbox"]');
+      return {
+        count: async () => 1,
+        first: () => ({
+          isVisible: async () => true,
+          click: async (options) => calls.push(options),
+        }),
+      };
+    },
+  };
+  const unrelatedFrame = {
+    url: () => "https://example.test/frame",
+    locator: () => { throw new Error("非 Cloudflare frame 不得檢查控制項"); },
+  };
+
+  assert.equal(await attemptCloudflareChallengeClick({ frames: () => [unrelatedFrame, frame] }), "clicked");
+  assert.deepEqual(calls, [{ timeout: 3000 }]);
+});
+
+test("challenge 解除後會重新等待登入結果，而非沿用舊的 challenge 結果", async () => {
+  let challengeVisible = true;
+  let clickCount = 0;
+  let waitForUrlCount = 0;
+  const challengeSelector = 'iframe[src*="challenges.cloudflare.com"], #challenge-running, #challenge-stage, .cf-turnstile, input[name="cf-turnstile-response"]';
+  const page = {
+    frames: () => [{
+      url: () => "https://challenges.cloudflare.com/turnstile",
+      locator: () => ({
+        count: async () => 1,
+        first: () => ({ isVisible: async () => true, click: async () => { clickCount += 1; } }),
+      }),
+    }],
+    locator: (selector) => ({
+      first: () => ({
+        isVisible: async () => selector === challengeSelector && challengeVisible,
+        waitFor: async () => new Promise(() => {}),
+      }),
+      innerText: async () => "",
+    }),
+    title: async () => "",
+    url: () => "https://example.cyberbiz.co/user/sign_in",
+    waitForTimeout: async () => { challengeVisible = false; },
+    waitForURL: async () => { waitForUrlCount += 1; },
+    getByText: () => ({ first: () => ({ waitFor: async () => new Promise(() => {}) }) }),
+  };
+  const clickConfig = { enabled: true, attempted: false, status: "disabled" };
+
+  const outcome = await resumeLoginAfterCloudflareChallenge(
+    page,
+    "cloudflare_challenge",
+    200,
+    clickConfig,
+  );
+
+  assert.equal(clickCount, 1);
+  assert.equal(waitForUrlCount, 1);
+  assert.equal(outcome, "signed_in");
+});
+
+test("challenge 點擊不會碰多個或不可見 checkbox", async () => {
+  const makeFrame = ({ count, visible }) => ({
+    url: () => "https://challenges.cloudflare.com/turnstile",
+    locator: () => ({
+      count: async () => count,
+      first: () => ({ isVisible: async () => visible, click: async () => assert.fail("不得點擊") }),
+    }),
+  });
+
+  assert.equal(await attemptCloudflareChallengeClick({ frames: () => [makeFrame({ count: 2, visible: true })] }), "checkbox_not_found");
+  assert.equal(await attemptCloudflareChallengeClick({ frames: () => [makeFrame({ count: 1, visible: false })] }), "checkbox_not_found");
+  assert.equal(await attemptCloudflareChallengeClick({ frames: () => [] }), "frame_not_found");
 });
 
 test("登入診斷只回傳安全狀態，不包含 URL 參數或頁面文字", async () => {
