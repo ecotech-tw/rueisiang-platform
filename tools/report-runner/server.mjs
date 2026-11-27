@@ -6,6 +6,7 @@ import path from "node:path";
 import { processShopeeWorkbook, previewFromSummary } from "../shopee-sales-report-export/driver.mjs";
 import { loadConfig } from "../shopee-sales-report-export/lib/common.mjs";
 import { appendTail, cyberbizFailureMessage, safeErrorMessage } from "./diagnostics.mjs";
+import { cyberbizLoginProbeValidationReason } from "./request-validation.mjs";
 
 const PORT = 8080;
 const MAX_BODY_BYTES = 1_000_000;
@@ -50,11 +51,7 @@ function validCyberbizRequest(value) {
 }
 
 function validCyberbizLoginProbeRequest(value) {
-  return value.kind === "cyberbiz-login-probe"
-    && value.credentials && typeof value.credentials === "object"
-    && typeof value.credentials.cyberbizUsername === "string" && value.credentials.cyberbizUsername.length > 0
-    && typeof value.credentials.cyberbizPassword === "string" && value.credentials.cyberbizPassword.length > 0
-    && value.storeName === "中和環球";
+  return cyberbizLoginProbeValidationReason(value) === null;
 }
 
 function validRequest(value) {
@@ -438,7 +435,12 @@ const server = createServer(async (request, response) => {
     }
     if (request.url === "/jobs" && request.method === "POST") {
       const payload = await readJson(request);
-      if (!validRequest(payload)) return send(response, 400, { error: "invalid_request" });
+      if (!validRequest(payload)) {
+        const reason = payload?.kind === "cyberbiz-login-probe"
+          ? cyberbizLoginProbeValidationReason(payload)
+          : null;
+        return send(response, 400, { error: "invalid_request", ...(reason ? { reason } : {}) });
+      }
       return send(response, 202, await runJob(payload));
     }
     const match = /^\/jobs\/([A-Za-z0-9-]{16,80})$/.exec(request.url ?? "");
