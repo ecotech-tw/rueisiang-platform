@@ -9,12 +9,12 @@ import { users } from "./schema/auth.js";
  * 零用金：全公司一個錢箱。規格見 docs/accounting-prd.md 第 3 節「零用金」。
  *
  * 餘額就是 accounting_petty_cash_entries 的總和，不另存一個「目前餘額」欄位——存兩份就會有對不上的一天。
- * 會扣錢的寫入（減少、撥款）都用條件式 INSERT：「餘額夠」寫在同一句的 WHERE 裡，D1 的 batch 是依序執行的，
+ * 會扣錢的寫入（撥款）用條件式 INSERT：「餘額夠」寫在同一句的 WHERE 裡，D1 的 batch 是依序執行的，
  * 兩個會計同時按也不會扣成負數；0264 的 trigger 是最後一道保險。
  */
 
 export const PETTY_CASH_SHORT_MESSAGE = "零用金餘額不足，請先增加零用金。";
-/** 一次增加或減少的上限；打錯多一個 0 時擋得下來。 */
+/** 一次增加的上限；打錯多一個 0 時擋得下來。 */
 const PETTY_CASH_MAX_DOLLARS = 10_000_000;
 
 export const pettyCashBalance = sql<number>`(SELECT coalesce(sum(petty_balance.amount_minor), 0) FROM accounting_petty_cash_entries AS petty_balance)`;
@@ -55,7 +55,7 @@ export async function getPettyCashBalance(db: Database) {
 
 export interface PettyCashEntry {
   id: string;
-  kind: "top_up" | "reduce" | "payout" | "refund";
+  kind: "top_up" | "payout" | "refund";
   amountMinor: number;
   /** 這一筆之後的餘額。 */
   balanceAfterMinor: number;
@@ -94,22 +94,16 @@ export async function listPettyCash(db: Database, limit = 300): Promise<{ balanc
 }
 
 /*
- * 會計手動增加或減少零用金。減少是用來修正輸入錯誤，一定要寫原因；減少後不能變負數。
+ * 會計增加零用金。只有增加，沒有手動減少（使用者決定）：錢只會因為報帳撥款出去。
  * 權限由路由的 accounting:petty-cash:write 把關。
  */
-export async function adjustPettyCash(db: Database, input: { kind: "top_up" | "reduce"; amountDollars: number; note: string }, actor: { id: string }) {
+export async function topUpPettyCash(db: Database, input: { amountDollars: number; note: string }, actor: { id: string }) {
   if (!Number.isSafeInteger(input.amountDollars) || input.amountDollars < 1 || input.amountDollars > PETTY_CASH_MAX_DOLLARS) {
     throw new AccountingError(400, `金額必須是 1～${PETTY_CASH_MAX_DOLLARS.toLocaleString("zh-TW")} 的整數元。`);
   }
   const note = input.note.trim();
-  if (note.length > 500) throw new AccountingError(400, "原因最多 500 字。");
-  if (input.kind === "reduce" && !note) throw new AccountingError(400, "減少零用金要寫原因。");
+  if (note.length > 500) throw new AccountingError(400, "備註最多 500 字。");
   const id = crypto.randomUUID();
-  const amountMinor = (input.kind === "top_up" ? 1 : -1) * input.amountDollars * 100;
-  const inserted = await db.all<{ id: string }>(sql`INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, note, actor_user_id, created_at)
-    SELECT ${id}, ${input.kind}, ${amountMinor}, ${note}, ${actor.id}, ${toDbTimestamp()}
-    WHERE ${pettyCashBalance} + ${amountMinor} >= 0
-    RETURNING id`);
-  if (!inserted.length) throw new AccountingError(409, "零用金餘額不夠減這麼多。");
+  await db.insert(accountingPettyCashEntries).values({ id, kind: "top_up", amountMinor: input.amountDollars * 100, note, actorUserId: actor.id, createdAt: toDbTimestamp() });
   return { id };
 }

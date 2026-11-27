@@ -6,15 +6,14 @@ import { Alert, Button, DataTable, Dialog, EmptyState, Page, PageHeader, Panel, 
 import { useAccountingQuery, useAccountingWrite, type PettyCashEntry, type PettyCashLedger } from "./api.js";
 
 /*
- * 零用金：全公司一個錢箱。餘額與每一筆進出（增加、減少、報帳撥款、退回）都在這一頁。
- * 紀錄不能改、不能刪；輸入錯了就再記一筆「減少」或「增加」並寫原因。
+ * 零用金：全公司一個錢箱。餘額與每一筆進出（增加、報帳撥款、退回）都在這一頁。
+ * 紀錄不能改、不能刪；會計只能增加，錢只會因為報帳撥款出去（使用者決定不要手動減少）。
  */
 
 type CloseRef = { current: ((afterClose?: () => void) => void) | null };
 
 const KIND: Record<PettyCashEntry["kind"], { label: string; tone: "success" | "warning" | "info" | "neutral" }> = {
   top_up: { label: "增加", tone: "success" },
-  reduce: { label: "減少", tone: "warning" },
   payout: { label: "報帳撥款", tone: "info" },
   refund: { label: "退回", tone: "neutral" },
 };
@@ -27,29 +26,28 @@ function signed(amountMinor: number) {
   return `${amountMinor > 0 ? "+" : "−"}${dollars(Math.abs(amountMinor))}`;
 }
 
-function AdjustDialog({ kind, onClose }: { kind: "top_up" | "reduce"; onClose: () => void }) {
+function TopUpDialog({ onClose }: { onClose: () => void }) {
   const closeRef: CloseRef = useRef(null);
   const write = useAccountingWrite();
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
-  const reduce = kind === "reduce";
-  const ready = /^\d+$/.test(amount) && Number(amount) >= 1 && (!reduce || note.trim());
+  const ready = /^\d+$/.test(amount) && Number(amount) >= 1;
   const close = () => (closeRef.current ?? ((after?: () => void) => after?.()))(onClose);
   return <Dialog
-    title={reduce ? "減少零用金" : "增加零用金"}
+    title="增加零用金"
     onClose={onClose}
     closeRequestRef={closeRef}
     closeDisabled={write.isPending}
     actions={<>
       <Button variant="secondary" disabled={write.isPending} onClick={close}>取消</Button>
-      <Button tone={reduce ? undefined : "success"} variant={reduce ? "danger" : undefined} loading={write.isPending} disabled={!ready}
-        onClick={() => write.mutate({ path: "/petty-cash", method: "POST", values: { kind, amountDollars: Number(amount), note } }, { onSuccess: close })}>
-        {reduce ? "減少" : "增加"}
+      <Button tone="success" loading={write.isPending} disabled={!ready}
+        onClick={() => write.mutate({ path: "/petty-cash", method: "POST", values: { amountDollars: Number(amount), note } }, { onSuccess: close })}>
+        增加
       </Button>
     </>}
   >
     <TextField label="金額（元）" required inputMode="numeric" autoFocus value={amount} onChange={(event) => setAmount(event.target.value.replace(/[^\d]/g, "").slice(0, 8))} />
-    <TextField label="原因" required={reduce} maxLength={500} value={note} placeholder={reduce ? "例如：上一筆多打了一個 0" : "選填"} onChange={(event) => setNote(event.target.value)} />
+    <TextField label="備註" maxLength={500} value={note} placeholder="選填" onChange={(event) => setNote(event.target.value)} />
     {write.error ? <Alert tone="danger">{write.error.message}</Alert> : null}
   </Dialog>;
 }
@@ -59,14 +57,11 @@ export function AccountingPettyCash() {
   const { permissions } = useSession();
   const canWrite = permissions.has("accounting:petty-cash:write");
   const query = useAccountingQuery<PettyCashLedger>("/petty-cash");
-  const [adjusting, setAdjusting] = useState<"top_up" | "reduce" | null>(null);
+  const [toppingUp, setToppingUp] = useState(false);
   const entries = query.data?.entries ?? [];
 
   return <Page layout="fills">
-    <PageHeader title="零用金" actions={canWrite ? <>
-      <Button variant="secondary" disabled={!query.data} onClick={() => setAdjusting("reduce")}>減少</Button>
-      <Button tone="success" icon="plus" disabled={!query.data} onClick={() => setAdjusting("top_up")}>增加</Button>
-    </> : null} />
+    <PageHeader title="零用金" actions={canWrite ? <Button tone="success" icon="plus" disabled={!query.data} onClick={() => setToppingUp(true)}>增加</Button> : null} />
     {query.error ? <Alert tone="danger">{query.error.message}</Alert> : null}
     <Panel grows>
       {query.data ? <p className="m-0 mb-4 flex items-baseline gap-3">
@@ -98,6 +93,6 @@ export function AccountingPettyCash() {
           </tbody>
         </DataTable>}
     </Panel>
-    {adjusting ? <AdjustDialog kind={adjusting} onClose={() => setAdjusting(null)} /> : null}
+    {toppingUp ? <TopUpDialog onClose={() => setToppingUp(false)} /> : null}
   </Page>;
 }

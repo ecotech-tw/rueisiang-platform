@@ -22,7 +22,7 @@ function applyLikeD1(sqlite: DatabaseSync, to: string): void {
 }
 
 describe("零用金紀錄的守門 trigger", () => {
-  it("D1 方式套完後：紀錄只能新增，餘額不能變負，正常的增加與減少照寫", () => {
+  it("D1 方式套完後：紀錄只能新增，餘額不能變負，沒有手動減少，正常的增加與撥款照寫", () => {
     const sqlite = new DatabaseSync(":memory:");
     sqlite.exec("PRAGMA foreign_keys = ON;");
     applyLikeD1(sqlite, GUARDS);
@@ -30,12 +30,13 @@ describe("零用金紀錄的守門 trigger", () => {
     expect(triggers).toEqual(["trg_accounting_petty_cash_no_delete", "trg_accounting_petty_cash_no_update", "trg_accounting_petty_cash_not_negative"]);
 
     sqlite.prepare("INSERT INTO users (id, email, status) VALUES ('u1', 'a@example.test', 'active')").run();
-    const insert = sqlite.prepare("INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, note, actor_user_id) VALUES (?, ?, ?, ?, 'u1')");
-    insert.run("e1", "top_up", 10000, "");
-    expect(() => insert.run("e4", "reduce", -1, "  ")).toThrow(/CHECK/);
-    expect(() => insert.run("e5", "payout", -1, "")).toThrow(/CHECK/);
-    insert.run("e2", "reduce", -10000, "全部減掉");
-    expect(() => insert.run("e3", "reduce", -1, "再減一塊")).toThrow(/balance_negative/);
+    sqlite.prepare("INSERT INTO accounting_expenses (id, payer_kind, status, submitter_user_id, client_request_id, category_id, spent_on, amount_minor, description) VALUES ('x1', 'company', 'paid', 'u1', 'x1', 'expense-category-supplies', '2026-11-01', 10000, '測試')").run();
+    const insert = sqlite.prepare("INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, expense_id, actor_user_id) VALUES (?, ?, ?, ?, 'u1')");
+    insert.run("e1", "top_up", 10000, null);
+    expect(() => insert.run("e4", "reduce", -1, null)).toThrow(/CHECK/);
+    expect(() => insert.run("e5", "payout", -1, null)).toThrow(/CHECK/);
+    insert.run("e2", "payout", -10000, "x1");
+    expect(() => insert.run("e3", "payout", -1, "x1")).toThrow(/balance_negative/);
     expect(() => sqlite.prepare("UPDATE accounting_petty_cash_entries SET note = '改'").run()).toThrow(/append_only/);
     expect(() => sqlite.prepare("DELETE FROM accounting_petty_cash_entries WHERE id = 'e1'").run()).toThrow(/append_only/);
     expect(sqlite.prepare("SELECT count(*) AS n, sum(amount_minor) AS total FROM accounting_petty_cash_entries").get()).toEqual({ n: 2, total: 0 });

@@ -58,7 +58,7 @@ export interface ApproveResult { id: string; status: "approved" | "paid"; pettyC
 
 export interface PettyCashEntry {
   id: string;
-  kind: "top_up" | "reduce" | "payout" | "refund";
+  kind: "top_up" | "payout" | "refund";
   amountMinor: number;
   balanceAfterMinor: number;
   expenseId: string | null;

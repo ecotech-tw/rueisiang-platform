@@ -1,7 +1,6 @@
 import {
   AccountingError,
   LEDGER_PAYER_FILTERS,
-  adjustPettyCash,
   listPettyCash,
   REVIEW_STATUS_FILTERS,
   approveExpense,
@@ -13,6 +12,7 @@ import {
   markExpensePaid,
   rejectExpense,
   revertExpensePayment,
+  topUpPettyCash,
   unapproveExpense,
   updateCompanyExpense,
   updateExpenseCategory,
@@ -132,8 +132,7 @@ export const accounting = new Hono<AppEnv>()
   .get("/petty-cash", requirePermission("accounting:expense:read"), async (c) => c.json(await listPettyCash(c.get("db"))))
   .post("/petty-cash", requirePermission("accounting:petty-cash:write"), async (c) => {
     const input = await body(c);
-    if (input.kind !== "top_up" && input.kind !== "reduce") throw new HTTPException(400, { message: "請選擇增加或減少。" });
-    return c.json(await adjustPettyCash(c.get("db"), { kind: input.kind, amountDollars: typeof input.amountDollars === "number" ? input.amountDollars : Number.NaN, note: text(input, "note") }, c.get("user")), 201);
+    return c.json(await topUpPettyCash(c.get("db"), { amountDollars: typeof input.amountDollars === "number" ? input.amountDollars : Number.NaN, note: text(input, "note") }, c.get("user")), 201);
   })
   // 看類別清單的人包含審核者：核准畫面要顯示類別名稱以外，管理頁也要讀。
   .get("/categories", requireAnyPermission("accounting:category:write", "accounting:expense:read"), async (c) => c.json({ categories: await listExpenseCategories(c.get("db")) }))

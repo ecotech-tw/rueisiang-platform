@@ -37,11 +37,11 @@ async function submit(actor: string, amountDollars = "350") {
   return (await response.json() as { id: string }).id;
 }
 
-async function adjust(kind: "top_up" | "reduce", amountDollars: number, note = "", actor = "accountant") {
-  return api("/accounting/petty-cash", actor, "POST", { kind, amountDollars, note });
+async function addCash(amountDollars: number, note = "", actor = "accountant") {
+  return api("/accounting/petty-cash", actor, "POST", { amountDollars, note });
 }
 async function topUp(dollars: number) {
-  const response = await adjust("top_up", dollars);
+  const response = await addCash(dollars);
   expect(response.status, await response.clone().text()).toBe(201);
 }
 async function approve(id: string, revision = 1, actor = "accountant") {
@@ -75,23 +75,23 @@ beforeEach(async () => {
 });
 afterEach(() => { d1.sqlite.close(); rmSync(directory, { recursive: true, force: true }); });
 
-describe("零用金：增加與減少", () => {
-  it("增加、減少都留紀錄，每一筆帶當下餘額；減少要寫原因、不能減成負數", async () => {
+describe("零用金：增加", () => {
+  it("每次增加都留紀錄，每一筆帶當下餘額；金額要是正整數；沒有手動減少", async () => {
     await topUp(5000);
-    expect((await adjust("reduce", 300)).status).toBe(400);
-    expect((await adjust("reduce", 6000, "打錯")).status).toBe(409);
-    expect((await adjust("reduce", 300, "多打了 300")).status).toBe(201);
-    expect((await adjust("top_up", 0)).status).toBe(400);
+    expect((await addCash(300, "週轉金")).status).toBe(201);
+    expect((await addCash(0)).status).toBe(400);
+    expect((await addCash(-300)).status).toBe(400);
     const body = await (await api("/accounting/petty-cash", "accountant")).json() as { balanceMinor: number; entries: Array<{ kind: string; amountMinor: number; balanceAfterMinor: number; note: string; actorName: string }> };
-    expect(body.balanceMinor).toBe(470000);
+    expect(body.balanceMinor).toBe(530000);
     expect(body.entries).toMatchObject([
-      { kind: "reduce", amountMinor: -30000, balanceAfterMinor: 470000, note: "多打了 300", actorName: "accountant" },
+      { kind: "top_up", amountMinor: 30000, balanceAfterMinor: 530000, note: "週轉金", actorName: "accountant" },
       { kind: "top_up", amountMinor: 500000, balanceAfterMinor: 500000 },
     ]);
+    expect(() => d1.sqlite.prepare("INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, actor_user_id) VALUES ('r', 'reduce', -100, 'accountant')").run()).toThrow(/CHECK/);
   });
 
-  it("權限：增加減少要 petty-cash:write；只能看的人看得到餘額", async () => {
-    expect((await adjust("top_up", 100, "", "reviewer")).status).toBe(403);
+  it("權限：增加要 petty-cash:write；只能看的人看得到餘額", async () => {
+    expect((await addCash(100, "", "reviewer")).status).toBe(403);
     expect((await api("/accounting/petty-cash", "auditor")).status).toBe(200);
     expect((await api("/accounting/petty-cash", "outsider")).status).toBe(403);
   });
@@ -100,7 +100,8 @@ describe("零用金：增加與減少", () => {
     await topUp(100);
     expect(() => d1.sqlite.prepare("UPDATE accounting_petty_cash_entries SET amount_minor = 1").run()).toThrow(/append_only/);
     expect(() => d1.sqlite.prepare("DELETE FROM accounting_petty_cash_entries").run()).toThrow(/append_only/);
-    expect(() => d1.sqlite.prepare("INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, note, actor_user_id) VALUES ('x', 'reduce', -20000, '測試', 'accountant')").run()).toThrow(/balance_negative/);
+    const expense = await submit("employee");
+    expect(() => d1.sqlite.prepare("INSERT INTO accounting_petty_cash_entries (id, kind, amount_minor, expense_id, actor_user_id) VALUES ('x', 'payout', -20000, ?, 'accountant')").run(expense)).toThrow(/balance_negative/);
     expect(balance()).toBe(10000);
   });
 });
