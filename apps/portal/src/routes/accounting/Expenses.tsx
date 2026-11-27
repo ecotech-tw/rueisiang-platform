@@ -3,9 +3,11 @@ import { taipeiMinuteFromUtcWallClock } from "@rueisiang/db/taipei-time";
 import { useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { useSession } from "../../auth/session.js";
+import { ConfirmDialog } from "../../shell/ConfirmDialog.js";
+import { useToast } from "../../shell/Toast.js";
 import { usePageTitle } from "../../shell/usePageTitle.js";
 import { Alert, Button, DataTable, Dialog, EmptyState, Field, Page, PageHeader, PageTabControl, Panel, SegmentedControl, StatusBadge, Textarea } from "../../ui/index.js";
-import { receiptUrl, useAccountingQuery, useAccountingWrite, type ExpenseStatus, type ExpenseStatusFilter, type ReviewExpense } from "./api.js";
+import { receiptUrl, useAccountingQuery, useAccountingWrite, type ApproveResult, type ExpenseStatus, type ExpenseStatusFilter, type ReviewExpense } from "./api.js";
 import { ExpenseEditDialog } from "./ExpenseEditDialog.js";
 import { ExpenseHistory } from "./ExpenseHistory.js";
 
@@ -18,7 +20,7 @@ const STATUS_TABS: { value: ExpenseStatusFilter; label: string }[] = [
   { value: "pending", label: "待審核" },
   { value: "approved", label: "待撥款" },
   { value: "paid", label: "已付款" },
-  { value: "rejected", label: "已退回" },
+  { value: "rejected", label: "已駁回" },
   { value: "all", label: "全部" },
 ];
 
@@ -26,7 +28,7 @@ const STATUS_BADGE: Record<ExpenseStatus, { label: string; tone: "info" | "warni
   pending: { label: "待審核", tone: "info" },
   approved: { label: "待撥款", tone: "warning" },
   paid: { label: "已付款", tone: "success" },
-  rejected: { label: "已退回", tone: "danger" },
+  rejected: { label: "已駁回", tone: "danger" },
   cancelled: { label: "已撤回", tone: "neutral" },
 };
 
@@ -54,51 +56,67 @@ function payoutText(expense: ReviewExpense) {
 
 function ExpenseDetail({ expense, canReview, isOwn, onClose, onEdit }: { expense: ReviewExpense; canReview: boolean; isOwn: boolean; onClose: () => void; onEdit: (expense: ReviewExpense) => void }) {
   const closeRef: CloseRef = useRef(null);
-  const write = useAccountingWrite();
+  const write = useAccountingWrite<Partial<ApproveResult>>();
+  const toast = useToast();
   const [rejecting, setRejecting] = useState(false);
   const [note, setNote] = useState("");
   const [payout, setPayout] = useState<"direct" | "payroll">("direct");
+  const [reverting, setReverting] = useState<"revert-payment" | "unapprove" | null>(null);
   const payoutLabel = payoutText(expense);
   const badge = STATUS_BADGE[expense.status];
-  const act = (action: "approve" | "reject" | "paid", values: Record<string, unknown> = {}) => write.mutate(
+  const act = (action: "approve" | "reject" | "paid" | "revert-payment" | "unapprove", values: Record<string, unknown> = {}) => write.mutate(
     { path: `/expenses/${encodeURIComponent(expense.id)}/${action}`, method: "POST", values: { revision: expense.revision, ...values } },
-    { onSuccess: () => requestClose(closeRef, onClose) },
+    { onSuccess: (result) => {
+      // 直接撥款但零用金不夠：單子停在待撥款，要讓會計知道還沒付出去。
+      if (result.pettyCashShort) toast.show("零用金餘額不足，已移到待撥款。", "warning");
+      setReverting(null);
+      requestClose(closeRef, onClose);
+    } },
   );
   const close = () => requestClose(closeRef, onClose);
   const reviewable = canReview && !isOwn;
   const approving = reviewable && expense.status === "pending" && !rejecting;
-  // 待撥款（含併入月薪、那個月還沒結帳）的也能退回；已付款的只能沖銷。
+  // 待撥款（含併入月薪、那個月還沒結帳）的也能退回；已付款的要先退回待撥款。
   const rejectable = reviewable && (expense.status === "pending" || expense.status === "approved");
+  // 直接撥款會從零用金扣：核准與標記撥款前讓會計看到餘額。
+  const usesPettyCash = reviewable && (expense.status === "pending" || (expense.status === "approved" && expense.payoutMethod === "direct"));
+  const pettyCash = useAccountingQuery<{ balanceMinor: number }>("/petty-cash/balance", usesPettyCash);
+  const balance = pettyCash.data?.balanceMinor;
+  const balanceText = balance === undefined ? null
+    : `零用金餘額 ${dollars(balance)}${balance >= expense.amountMinor ? "" : "，不夠付這張"}。`;
   const approve = () => act("approve", payout === "payroll" && expense.payrollOption ? { payoutMethod: "payroll", payrollPeriodKey: expense.payrollOption } : { payoutMethod: "direct" });
 
   const actions = rejecting
     ? <>
       <Button variant="secondary" disabled={write.isPending} onClick={() => setRejecting(false)}>取消</Button>
-      <Button variant="danger" loading={write.isPending} disabled={!note.trim()} onClick={() => act("reject", { note })}>確認退回</Button>
+      <Button variant="danger" loading={write.isPending} disabled={!note.trim()} onClick={() => act("reject", { note })}>確認駁回</Button>
     </>
     : <>
-      {rejectable ? <Button variant="secondary" disabled={write.isPending} onClick={() => setRejecting(true)}>退回</Button> : null}
+      {rejectable ? <Button variant="secondary" disabled={write.isPending} onClick={() => setRejecting(true)}>駁回</Button> : null}
       {approving ? <Button variant="secondary" icon="edit" disabled={write.isPending} onClick={() => requestClose(closeRef, () => onEdit(expense))}>修改</Button> : null}
       {approving ? <Button tone="success" loading={write.isPending} onClick={approve}>核准</Button> : null}
+      {reviewable && expense.status === "approved" ? <Button variant="secondary" disabled={write.isPending} onClick={() => setReverting("unapprove")}>取消核准</Button> : null}
+      {reviewable && expense.status === "paid" && expense.payoutMethod === "direct" ? <Button variant="secondary" disabled={write.isPending} onClick={() => setReverting("revert-payment")}>退回待撥款</Button> : null}
       {reviewable && expense.status === "approved" && expense.payoutMethod === "direct"
         ? <Button tone="success" loading={write.isPending} onClick={() => act("paid")}>標記已撥款</Button> : null}
       <Button variant="secondary" disabled={write.isPending} onClick={close}>關閉</Button>
     </>;
 
-  return <Dialog title={dollars(expense.amountMinor)} titleMeta={<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>} onClose={onClose} closeRequestRef={closeRef} closeDisabled={write.isPending} actions={actions}>
+  return <><Dialog title={dollars(expense.amountMinor)} titleMeta={<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>} onClose={onClose} closeRequestRef={closeRef} closeDisabled={write.isPending} actions={actions}>
     <p className="m-0 text-[15px] font-semibold wrap-anywhere">{expense.description}</p>
     {isOwn && canReview && (expense.status === "pending" || expense.status === "approved") ? <Alert tone="info">這是你自己的報帳，請另一位會計或管理者處理。</Alert> : null}
     {expense.duplicateInvoiceCount > 0 ? <Alert tone="warning">{`這個發票號碼另外還有 ${expense.duplicateInvoiceCount} 張報帳單，核准前請確認不是重複報帳。`}</Alert> : null}
-    {expense.status === "rejected" && expense.reviewNote ? <Alert tone="danger">{`退回原因：${expense.reviewNote}`}</Alert> : null}
-    {approving ? <Field as="div" label="發放方式" hint={expense.payrollOption
-      ? (payout === "payroll" ? `${payrollPeriodLabel(expense.payrollOption)}的薪資會多一筆「代墊款」。` : undefined)
-      : "沒有在職資料或薪資月份已結帳，只能直接撥款。"}>
+    {expense.status === "rejected" && expense.reviewNote ? <Alert tone="danger">{`駁回原因：${expense.reviewNote}`}</Alert> : null}
+    {approving ? <Field as="div" label="發放方式" hint={payout === "direct"
+      ? `${expense.payrollOption ? "" : "沒有在職資料或薪資月份已結帳，只能直接撥款。"}${balanceText ?? ""}`
+      : expense.payrollOption ? `${payrollPeriodLabel(expense.payrollOption)}的薪資會多一筆「代墊款」。` : undefined}>
       <SegmentedControl aria-label="發放方式" value={payout} onChange={(value) => setPayout(value === "payroll" ? "payroll" : "direct")} options={[
         { value: "direct", label: "直接撥款" },
         { value: "payroll", label: expense.payrollOption ? `併入 ${payrollPeriodLabel(expense.payrollOption)}薪資` : "併入月薪", disabled: !expense.payrollOption },
       ]} />
     </Field> : null}
-    {rejecting ? <Field label="退回原因" required hint={expense.payoutMethod === "payroll" ? "員工會看到這段話；薪資裡的代墊款會一起拿掉。" : "員工會看到這段話，寫清楚要怎麼改。"}>
+    {reviewable && expense.status === "approved" && expense.payoutMethod === "direct" && balanceText ? <p className="m-0 text-[13px] text-muted">{balanceText}</p> : null}
+    {rejecting ? <Field label="駁回原因" required hint={expense.payoutMethod === "payroll" ? "員工會看到這段話；薪資裡的代墊款會一起拿掉。" : "員工會看到這段話，寫清楚要怎麼改。"}>
       <Textarea autoFocus maxLength={500} rows={3} value={note} onChange={(event) => setNote(event.target.value)} placeholder="例如：發票抬頭不是公司，請重新開立。" />
     </Field> : null}
     {expense.receiptIds.length ? <div className="grid grid-cols-3 gap-2">
@@ -118,7 +136,20 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose, onEdit }: { expense
       {expense.paidAt ? <DetailRow label="撥款時間">{taipeiMinuteFromUtcWallClock(expense.paidAt)}</DetailRow> : null}
     </dl>
     <ExpenseHistory expenseId={expense.id} submitterName={expense.submitterName} />
-  </Dialog>;
+  </Dialog>
+  {reverting ? <ConfirmDialog
+    title={reverting === "unapprove" ? "取消核准，回到待審核？" : "退回待撥款？"}
+    confirmLabel={reverting === "unapprove" ? "取消核准" : "退回待撥款"}
+    pending={write.isPending}
+    onCancel={() => { if (!write.isPending) setReverting(null); }}
+    onConfirm={() => act(reverting)}
+  >
+    <p>{reverting === "unapprove"
+      ? (expense.payoutMethod === "payroll" ? "薪資裡的代墊款會一起拿掉。員工不會收到通知。" : "員工不會收到通知。")
+      : expense.paidFromPettyCash ? "從零用金付的錢會退回零用金。員工不會收到通知。"
+        : "這筆當初不是用零用金付的，退回不會退錢；之後再標記已撥款，會從零用金再扣一次。員工不會收到通知。"}</p>
+  </ConfirmDialog> : null}
+  </>;
 }
 
 export function AccountingExpenses() {

@@ -1,9 +1,12 @@
 import {
   AccountingError,
   LEDGER_PAYER_FILTERS,
+  listPettyCash,
   REVIEW_STATUS_FILTERS,
   approveExpense,
+  correctPettyCashTopUp,
   createExpenseCategory,
+  getPettyCashBalance,
   listCompanyExpenseOptions,
   listExpenseCategories,
   listExpenseEditHistory,
@@ -11,6 +14,9 @@ import {
   listLedger,
   markExpensePaid,
   rejectExpense,
+  revertExpensePayment,
+  topUpPettyCash,
+  unapproveExpense,
   updateCompanyExpense,
   updateExpenseCategory,
   updateExpenseForReview,
@@ -124,6 +130,26 @@ export const accounting = new Hono<AppEnv>()
   .post("/company-expenses/:id/void", requirePermission("accounting:expense:write"), async (c) => {
     const input = await body(c);
     return c.json(await voidCompanyExpense(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
+  })
+  // 狀態退回（統計用的內部操作）：已付款退回待撥款、待撥款取消核准回到待審核。
+  .post("/expenses/:id/revert-payment", requirePermission("accounting:expense:review"), async (c) => {
+    const input = await body(c);
+    return c.json(await revertExpensePayment(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
+  })
+  .post("/expenses/:id/unapprove", requirePermission("accounting:expense:review"), async (c) => {
+    const input = await body(c);
+    return c.json(await unapproveExpense(c.get("db"), c.req.param("id"), revision(input), c.get("user")));
+  })
+  .get("/petty-cash", requirePermission("accounting:expense:read"), async (c) => c.json(await listPettyCash(c.get("db"))))
+  // 報帳明細只要顯示餘額，不必讀整份紀錄。
+  .get("/petty-cash/balance", requirePermission("accounting:expense:read"), async (c) => c.json({ balanceMinor: await getPettyCashBalance(c.get("db")) }))
+  .post("/petty-cash", requirePermission("accounting:petty-cash:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await topUpPettyCash(c.get("db"), { amountDollars: typeof input.amountDollars === "number" ? input.amountDollars : Number.NaN, note: text(input, "note") }, c.get("user")), 201);
+  })
+  .post("/petty-cash/:id/correct", requirePermission("accounting:petty-cash:write"), async (c) => {
+    const input = await body(c);
+    return c.json(await correctPettyCashTopUp(c.get("db"), c.req.param("id"), { amountDollars: typeof input.amountDollars === "number" ? input.amountDollars : Number.NaN, note: text(input, "note") }, c.get("user")), 201);
   })
   // 看類別清單的人包含審核者：核准畫面要顯示類別名稱以外，管理頁也要讀。
   .get("/categories", requireAnyPermission("accounting:category:write", "accounting:expense:read"), async (c) => c.json({ categories: await listExpenseCategories(c.get("db")) }))

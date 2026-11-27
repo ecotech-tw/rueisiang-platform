@@ -20,6 +20,7 @@ import { AccountingLanding, AccountingLayout } from "./routes/accounting/Account
 import { AccountingCategories } from "./routes/accounting/Categories.js";
 import { AccountingExpenses } from "./routes/accounting/Expenses.js";
 import { AccountingLedger } from "./routes/accounting/Ledger.js";
+import { AccountingPettyCash } from "./routes/accounting/PettyCash.js";
 import { HrAttendanceSettings } from "./routes/hr/AttendanceSettings.js";
 import { HrAttendanceScopeManagement } from "./routes/hr/Locations.js";
 import { HrInsuranceManagement } from "./routes/hr/InsuranceManagement.js";
@@ -186,6 +187,7 @@ export function App() {
           <Route index element={<AccountingLanding />} />
           <Route path="ledger" element={<AccountingLedger />} />
           <Route path="expenses" element={<AccountingExpenses />} />
+          <Route path="petty-cash" element={<AccountingPettyCash />} />
           <Route path="categories" element={<AccountingCategories />} />
         </Route>
 

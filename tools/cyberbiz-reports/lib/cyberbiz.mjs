@@ -141,6 +141,7 @@ export async function waitForLoginOutcome(page, { waitForTwoFactor = true, timeo
   };
   const waits = [
     waitFor(page.waitForURL((url) => !url.toString().includes("/user/sign_in"), { timeout }), "signed_in"),
+    waitFor(page.locator("a[href^='/admin/pos_shops/']").first().waitFor({ state: "visible", timeout }), "signed_in"),
   ];
   if (waitForTwoFactor) {
     const codeField = page

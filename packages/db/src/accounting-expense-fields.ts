@@ -44,7 +44,7 @@ export function payrollPeriodLabel(periodKey: string) {
 export const EXPENSE_STATUS_LABELS = {
   pending: "待審核",
   approved: "已核准",
-  rejected: "已退回",
+  rejected: "已駁回",
   cancelled: "已撤回",
   paid: "已付款",
 } as const;

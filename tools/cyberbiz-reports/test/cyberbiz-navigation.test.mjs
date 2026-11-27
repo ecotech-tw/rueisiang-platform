@@ -53,20 +53,39 @@ test("resolveStore 的管理頁導航也使用逾時診斷", async () => {
   );
 });
 
-test("登入結果會等到導頁或 2FA 欄位，不再固定等三秒", async () => {
+test("登入結果會等到導頁、POS 商店或 2FA 欄位，不再固定等三秒", async () => {
   const twoFactorPage = {
     waitForURL: () => new Promise(() => {}),
-    locator: (selector) => {
-      assert.equal(selector, "#otp_attempt, input[autocomplete='one-time-code'], input[name*='otp']");
-      return { first: () => ({ waitFor: async ({ state }) => assert.equal(state, "visible") }) };
-    },
+    locator: (selector) => ({
+      first: () => ({
+        waitFor: async ({ state }) => {
+          assert.equal(state, "visible");
+          if (selector === "a[href^='/admin/pos_shops/']") return new Promise(() => {});
+          assert.equal(selector, "#otp_attempt, input[autocomplete='one-time-code'], input[name*='otp']");
+        },
+      }),
+    }),
   };
   assert.equal(await waitForLoginOutcome(twoFactorPage, { timeout: 10 }), "two_factor");
+
+  const posPageWithoutRedirect = {
+    waitForURL: () => new Promise(() => {}),
+    locator: (selector) => ({
+      first: () => ({
+        waitFor: async () => {
+          if (selector === "a[href^='/admin/pos_shops/']") return;
+          return new Promise(() => {});
+        },
+      }),
+    }),
+  };
+  assert.equal(await waitForLoginOutcome(posPageWithoutRedirect, { timeout: 10 }), "signed_in");
 
   const signedInPage = {
     waitForURL: async (predicate) => {
       assert.equal(predicate(new URL("https://rueisiang.cyberbiz.co/admin/pos_shops")), true);
     },
+    locator: () => ({ first: () => ({ waitFor: () => new Promise(() => {}) }) }),
   };
   assert.equal(await waitForLoginOutcome(signedInPage, { waitForTwoFactor: false, timeout: 10 }), "signed_in");
 

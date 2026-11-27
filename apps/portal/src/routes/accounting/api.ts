@@ -28,6 +28,7 @@ export interface ReviewExpense {
   createdAt: string;
   receiptIds: string[];
   duplicateInvoiceCount: number;
+  paidFromPettyCash: boolean;
 }
 
 /** 報帳單的一次修改：誰改的、哪些欄位從什麼改成什麼（from／to 是伺服器排好的顯示文字）。 */
@@ -62,6 +63,24 @@ export interface LedgerEntry {
   revision: number;
   receiptIds: string[];
 }
+
+/** 核准的結果：直接撥款且零用金夠就是 paid；不夠停在 approved，pettyCashShort 讓畫面提示。 */
+export interface ApproveResult { id: string; status: "approved" | "paid"; pettyCashShort: boolean }
+
+export interface PettyCashEntry {
+  id: string;
+  kind: "top_up" | "payout" | "refund";
+  amountMinor: number;
+  balanceAfterMinor: number;
+  expenseId: string | null;
+  expenseDescription: string | null;
+  /** 增加被更正過的話，每一次的差額與原因（舊的在前）；金額已經是更正後的。 */
+  corrections: { id: string; amountMinor: number; note: string; actorName: string; createdAt: string }[];
+  note: string;
+  actorName: string;
+  createdAt: string;
+}
+export interface PettyCashLedger { balanceMinor: number; entries: PettyCashEntry[] }
 
 export interface CompanyExpenseOptions { categories: { id: string; name: string }[]; scopes: { id: string; name: string }[] }
 

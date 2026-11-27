@@ -4,6 +4,7 @@ import type { Database } from "./client.js";
 import { activityRow } from "./activity.js";
 import { AccountingError } from "./accounting-expenses.js";
 import { payrollPeriodLabel, type ExpenseStatus } from "./accounting-expense-fields.js";
+import { PETTY_CASH_SHORT_MESSAGE, pettyCashBalance, pettyCashEntryExists, pettyCashPayout, pettyCashRefund } from "./accounting-petty-cash.js";
 import { effectiveExpenseStatus, linkedAdjustmentEditable, payrollCandidateMonths, payrollEmploymentActive, payrollOption, payrollPeriodEditable, payrollPeriodKey } from "./accounting-payroll.js";
 import { toDbTimestamp } from "./db-timestamp.js";
 import { hrEmployeeName } from "./hr-people.js";
@@ -82,6 +83,8 @@ export interface ReviewExpense {
   receiptIds: string[];
   /** 同一個發票號碼還出現在幾張沒撤回的報帳單上；送件時只提醒、不擋，所以要在這裡讓會計看得到。 */
   duplicateInvoiceCount: number;
+  /** 目前有沒有從零用金付出去的錢（撥款減退回 > 0）。退回待撥款前提醒：不是零用金付的，退回不會退錢，之後再標記撥款會從零用金再扣一次。 */
+  paidFromPettyCash: boolean;
 }
 
 const reviewer = sql<string | null>`(SELECT coalesce(nullif(reviewer_user.display_name, ''), reviewer_user.email) FROM users AS reviewer_user WHERE reviewer_user.id = accounting_expenses.reviewer_user_id)`;
@@ -113,6 +116,7 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     revision: accountingExpenses.revision,
     createdAt: accountingExpenses.createdAt,
     duplicateInvoiceCount: duplicateCount,
+    paidFromPettyCash: sql<number>`((SELECT coalesce(sum(petty.amount_minor), 0) FROM accounting_petty_cash_entries AS petty WHERE petty.expense_id = accounting_expenses.id) < 0)`,
   }).from(accountingExpenses)
     .innerJoin(accountingExpenseCategories, eq(accountingExpenseCategories.id, accountingExpenses.categoryId))
     .innerJoin(users, eq(users.id, accountingExpenses.submitterUserId))
@@ -132,6 +136,7 @@ export async function listExpensesForReview(db: Database, status: ReviewStatusFi
     ...row,
     employeeNumber: row.employeeNumber ?? "",
     duplicateInvoiceCount: Number(row.duplicateInvoiceCount),
+    paidFromPettyCash: Boolean(row.paidFromPettyCash),
     receiptIds: receipts.filter((receipt) => receipt.expenseId === row.id).map((receipt) => receipt.id),
   }));
 }
@@ -162,8 +167,8 @@ async function transition(db: Database, input: {
   payload?: Record<string, unknown>;
   /** 狀態、版本都對卻沒改到時（extraWhere 擋下）要講的原因。 */
   blockedMessage?: string;
-  /** 通知送件人：標題，以及接在「金額・用途」後面的一句話。 */
-  notify: { event: string; title: string; detail: string };
+  /** 通知送件人：標題，以及接在「金額・用途」後面的一句話。狀態退回（統計用的內部操作）不通知。 */
+  notify?: { event: string; title: string; detail: string };
 }) {
   const now = toDbTimestamp();
   const conditions = [
@@ -176,13 +181,14 @@ async function transition(db: Database, input: {
   const event = activityRow({ entityType: "accounting_expense", entityId: input.id, source: "accounting", eventType: input.eventType, summary: input.summary, actor: input.actor, ...(input.payload ? { payload: input.payload } : {}) });
   const nextStatus = input.set.status ?? input.from;
   // 通知在員工自助的「通知」裡；內文的金額與用途在 SQL 裡從支出單組出來，不必先讀一次。
-  const notification = sql`INSERT INTO hr_notifications (id, user_id, source_key, kind, entity_kind, entity_id, title, body)
-    SELECT ${crypto.randomUUID()}, submitter_user_id, ${`expense:${input.id}:${input.notify.event}`}, 'request_reviewed', 'expense', id, ${input.notify.title},
+  // source_key 帶轉換後的版本：狀態退回後再核准是另一次事件，不能被第一次的通知擋掉（ON CONFLICT DO NOTHING）。
+  const notification = input.notify ? [sql`INSERT INTO hr_notifications (id, user_id, source_key, kind, entity_kind, entity_id, title, body)
+    SELECT ${crypto.randomUUID()}, submitter_user_id, ${`expense:${input.id}:${input.notify.event}:${input.expectedRevision + 1}`}, 'request_reviewed', 'expense', id, ${input.notify.title},
       substr('NT$ ' || printf('%,d', amount_minor / 100) || '・' || description || char(10) || ${input.notify.detail}, 1, 1000)
     FROM accounting_expenses WHERE id = ${input.id} AND revision = ${input.expectedRevision + 1} AND status = ${nextStatus}
-    ON CONFLICT(source_key) DO NOTHING`;
+    ON CONFLICT(source_key) DO NOTHING`] : [];
   const changed = await guardedWrite(db, db.update(accountingExpenses).set({ ...input.set, revision: input.expectedRevision + 1, updatedAt: now })
-    .where(and(...conditions)).returning({ id: accountingExpenses.id }), event, now, { before: input.before ?? [], after: [notification, ...(input.after ?? [])] });
+    .where(and(...conditions)).returning({ id: accountingExpenses.id }), event, now, { before: input.before ?? [], after: [...notification, ...(input.after ?? [])] });
   if (changed) return { id: input.id };
   const [current] = await db.select({ status: accountingExpenses.status, revision: accountingExpenses.revision, submitterUserId: accountingExpenses.submitterUserId })
     .from(accountingExpenses).where(eq(accountingExpenses.id, input.id)).limit(1);
@@ -213,16 +219,52 @@ function hrAdjustmentLog(input: { adjustmentId: string; expenseId: string; statu
  * 月份由會計在畫面上看到的那個值送來（清單的 payrollOption），伺服器只接受候選月份，
  * 掛不上就請他重新整理，不偷偷改掛別的月——錢會在哪個月發，要是會計看過的那個月。
  */
-export async function approveExpense(db: Database, id: string, expectedRevision: number, actor: AccountingActor, payout: ExpensePayout = { method: "direct" }) {
-  const reviewed = { status: "approved" as const, reviewerUserId: actor.id, reviewedAt: toDbTimestamp(), reviewNote: "" };
-  if (payout.method === "direct") {
-    return transition(db, {
-      id, expectedRevision, actor, from: "pending",
-      set: { ...reviewed, payoutMethod: "direct" },
-      eventType: "expense_approved", summary: "報帳核准（直接撥款）",
-      notify: { event: "approved", title: "報帳已核准", detail: "會計審核通過，等待撥款。" },
-    });
+/** 核准的結果：直接撥款且零用金夠就是 paid；不夠就停在 approved（待撥款），pettyCashShort 讓畫面提示會計。 */
+export interface ApproveResult { id: string; status: "approved" | "paid"; pettyCashShort: boolean }
+
+/** 這張單還能從某個狀態轉換：寫完整表名，給零用金的條件式 INSERT 用。 */
+function convertible(id: string, expectedRevision: number, from: ExpenseStatus, actor: AccountingActor) {
+  return sql`accounting_expenses.id = ${id} AND accounting_expenses.status = ${from} AND accounting_expenses.revision = ${expectedRevision} AND accounting_expenses.submitter_user_id <> ${actor.id}`;
+}
+
+/*
+ * 直接撥款（使用者決定）：零用金夠就跳過待撥款，同一個 batch 從零用金扣一筆、直接到已付款；
+ * 不夠就照舊停在待撥款，回應帶 pettyCashShort 讓畫面提示。先讀一次餘額只是決定走哪條路，
+ * 真正的判斷在扣款那句的 WHERE 裡——讀完到寫入之間被別人用掉了，扣款不寫、UPDATE 不成立，再改走待撥款。
+ */
+async function approveDirect(db: Database, id: string, expectedRevision: number, actor: AccountingActor): Promise<ApproveResult> {
+  const reviewed = { reviewerUserId: actor.id, reviewedAt: toDbTimestamp(), reviewNote: "", payoutMethod: "direct" as const };
+  const [current] = await db.select({ amountMinor: accountingExpenses.amountMinor, balance: pettyCashBalance }).from(accountingExpenses).where(eq(accountingExpenses.id, id)).limit(1);
+  if (current && Number(current.balance) >= current.amountMinor) {
+    const entryId = crypto.randomUUID();
+    try {
+      await transition(db, {
+        id, expectedRevision, actor, from: "pending",
+        set: { ...reviewed, status: "paid", paidAt: toDbTimestamp() },
+        extraWhere: pettyCashEntryExists(entryId),
+        before: [pettyCashPayout(entryId, convertible(id, expectedRevision, "pending", actor), actor.id)],
+        eventType: "expense_approved", summary: "報帳核准，從零用金撥款",
+        payload: { payoutMethod: "direct", pettyCashEntryId: entryId },
+        notify: { event: "paid", title: "報帳已撥款", detail: "會計審核通過，已經撥款。" },
+        blockedMessage: PETTY_CASH_SHORT_MESSAGE,
+      });
+      return { id, status: "paid", pettyCashShort: false };
+    } catch (error) {
+      if (!(error instanceof AccountingError && error.message === PETTY_CASH_SHORT_MESSAGE)) throw error;
+    }
   }
+  await transition(db, {
+    id, expectedRevision, actor, from: "pending",
+    set: { ...reviewed, status: "approved" },
+    eventType: "expense_approved", summary: "報帳核准（直接撥款，零用金不足，待撥款）",
+    notify: { event: "approved", title: "報帳已核准", detail: "會計審核通過，等待撥款。" },
+  });
+  return { id, status: "approved", pettyCashShort: true };
+}
+
+export async function approveExpense(db: Database, id: string, expectedRevision: number, actor: AccountingActor, payout: ExpensePayout = { method: "direct" }): Promise<ApproveResult> {
+  const reviewed = { status: "approved" as const, reviewerUserId: actor.id, reviewedAt: toDbTimestamp(), reviewNote: "" };
+  if (payout.method === "direct") return approveDirect(db, id, expectedRevision, actor);
   const { periodKey } = payout;
   if (!payrollCandidateMonths().includes(periodKey)) throw new AccountingError(409, "可以併入的薪資月份變了，請重新整理後再核准。");
   const adjustmentId = crypto.randomUUID();
@@ -236,7 +278,7 @@ export async function approveExpense(db: Database, id: string, expectedRevision:
   const createItem = sql`INSERT INTO hr_payroll_adjustment_items (id, adjustment_id, item_name, amount_minor)
     SELECT ${crypto.randomUUID()}, ${adjustmentId}, '代墊款', accounting_expenses.amount_minor FROM accounting_expenses
     WHERE accounting_expenses.id = ${id} AND ${adjustmentExists}`;
-  return transition(db, {
+  await transition(db, {
     id, expectedRevision, actor, from: "pending",
     set: { ...reviewed, payoutMethod: "payroll", payrollAdjustmentId: adjustmentId },
     extraWhere: adjustmentExists,
@@ -250,21 +292,23 @@ export async function approveExpense(db: Database, id: string, expectedRevision:
     notify: { event: "approved", title: "報帳已核准", detail: `會併入 ${label}的薪資一起發。` },
     blockedMessage: `${label}這個人的薪資已經結帳，或任職資料已封存，請重新整理後再選。`,
   });
+  return { id, status: "approved", pettyCashShort: false };
 }
 
 /*
- * 待審的直接退回。已核准、還沒付出去的也能退回（核准錯了、金額要改）：直接撥款的還沒轉帳；
- * 併入月薪的要那個月這個人還沒結帳，同一個 batch 把加扣項拿掉。已付款（含已隨月薪發放）的不能退回，只能沖銷。
+ * 駁回（不通過，要寫原因）。待審的直接駁回；已核准、還沒付出去的也能駁回（核准錯了、金額要改）：直接撥款的還沒轉帳；
+ * 併入月薪的要那個月這個人還沒結帳，同一個 batch 把加扣項拿掉。已付款（含已隨月薪發放）的不能駁回。
+ * 用詞跟請假、加班一樣叫「駁回」，跟「退回待撥款」「取消核准」這兩種狀態退回分開（使用者決定）。
  */
 export async function rejectExpense(db: Database, id: string, expectedRevision: number, note: string, actor: AccountingActor) {
   const reason = note.trim();
-  if (!reason || reason.length > 500) throw new AccountingError(400, "請寫退回原因（500 字以內），員工才知道要怎麼改。");
+  if (!reason || reason.length > 500) throw new AccountingError(400, "請寫駁回原因（500 字以內），員工才知道要怎麼改。");
   const [current] = await db.select({ status: accountingExpenses.status, payrollAdjustmentId: accountingExpenses.payrollAdjustmentId })
     .from(accountingExpenses).where(eq(accountingExpenses.id, id)).limit(1);
   const base = {
     id, expectedRevision, actor,
-    eventType: "expense_rejected", summary: "報帳退回",
-    notify: { event: "rejected", title: "報帳已退回", detail: `退回原因：${reason}` },
+    eventType: "expense_rejected", summary: "報帳駁回",
+    notify: { event: "rejected", title: "報帳已駁回", detail: `駁回原因：${reason}` },
   };
   const rejected = { status: "rejected" as const, reviewerUserId: actor.id, reviewedAt: toDbTimestamp(), reviewNote: reason };
   if (current?.status !== "approved") return transition(db, { ...base, from: "pending", set: rejected });
@@ -279,27 +323,82 @@ export async function rejectExpense(db: Database, id: string, expectedRevision: 
     after: [
       hrAdjustmentLog({
         adjustmentId, expenseId: id, status: "rejected", revision: expectedRevision + 1, actor,
-        eventType: "payroll_adjustment_deleted", summary: "薪資加扣項已刪除（報帳退回）", payload: { reason },
+        eventType: "payroll_adjustment_deleted", summary: "薪資加扣項已刪除（報帳駁回）", payload: { reason },
       }),
       sql`DELETE FROM hr_payroll_adjustment_items WHERE adjustment_id = ${adjustmentId} AND ${nowRejected}`,
       sql`DELETE FROM hr_payroll_adjustments WHERE id = ${adjustmentId} AND ${nowRejected}`,
     ],
     payload: { removedPayrollAdjustmentId: adjustmentId },
-    blockedMessage: "這筆已經隨月薪結帳，不能退回。",
+    blockedMessage: "這筆已經隨月薪結帳，不能駁回。",
   });
 }
 
 /*
- * 撥款是會計轉帳之後回來標記；核准與撥款可以是同一位會計。仍然不讓人標記自己的單已撥款：
- * 錢是不是真的進了自己的帳戶，不該由自己說了算。
+ * 待撥款（直接撥款）標記已撥款：一律從零用金扣（使用者決定），不夠就擋下，要先增加零用金。
+ * 核准與撥款可以是同一位會計，但仍然不讓人標記自己的單：錢是不是真的進了自己的口袋，不該由自己說了算。
  */
 export async function markExpensePaid(db: Database, id: string, expectedRevision: number, actor: AccountingActor) {
+  const [current] = await db.select({ payoutMethod: accountingExpenses.payoutMethod }).from(accountingExpenses).where(eq(accountingExpenses.id, id)).limit(1);
+  if (current?.payoutMethod === "payroll") throw new AccountingError(409, "併入月薪的報帳會隨薪資發放，不用標記撥款。");
+  const entryId = crypto.randomUUID();
   return transition(db, {
     id, expectedRevision, actor, from: "approved",
     set: { status: "paid", paidAt: toDbTimestamp() },
+    extraWhere: and(eq(accountingExpenses.payoutMethod, "direct"), pettyCashEntryExists(entryId)),
+    before: [pettyCashPayout(entryId, sql`${convertible(id, expectedRevision, "approved", actor)} AND accounting_expenses.payout_method = 'direct'`, actor.id)],
+    eventType: "expense_paid", summary: "報帳已撥款（零用金）",
+    payload: { pettyCashEntryId: entryId },
+    notify: { event: "paid", title: "報帳已撥款", detail: "會計已經撥款。" },
+    blockedMessage: PETTY_CASH_SHORT_MESSAGE,
+  });
+}
+
+/*
+ * 狀態退回是為了統計方便的內部操作（使用者決定），不通知員工，只留操作紀錄。
+ *
+ * 已付款 → 待撥款：只有直接撥款的會在資料庫裡是 paid；從零用金付的同一個 batch 把錢退回零用金。
+ * 隨月薪發放的「已付款」是讀的時候推出來的（那個月薪資結帳了），錢已經隨薪資發出去，不能退回。
+ */
+export async function revertExpensePayment(db: Database, id: string, expectedRevision: number, actor: AccountingActor) {
+  const [current] = await db.select({ status: effectiveExpenseStatus, payoutMethod: accountingExpenses.payoutMethod }).from(accountingExpenses).where(eq(accountingExpenses.id, id)).limit(1);
+  if (current?.status === "paid" && current.payoutMethod === "payroll") throw new AccountingError(409, "這筆已經隨月薪發放，不能退回。");
+  const entryId = crypto.randomUUID();
+  const reverted = sql`EXISTS (SELECT 1 FROM accounting_expenses WHERE accounting_expenses.id = ${id} AND accounting_expenses.status = 'approved' AND accounting_expenses.revision = ${expectedRevision + 1})`;
+  return transition(db, {
+    id, expectedRevision, actor, from: "paid",
+    set: { status: "approved", paidAt: null },
     extraWhere: eq(accountingExpenses.payoutMethod, "direct"),
-    eventType: "expense_paid", summary: "報帳已撥款",
-    notify: { event: "paid", title: "報帳已撥款", detail: "會計已經轉帳，請留意帳戶。" },
+    after: [pettyCashRefund(entryId, id, reverted, actor.id)],
+    eventType: "expense_payment_reverted", summary: "已付款退回待撥款",
+  });
+}
+
+/*
+ * 待撥款 → 待審核（取消核准）：核准的結果全部清掉，回到員工剛送出的樣子。
+ * 併入月薪的同一個 batch 拿掉加扣項，那個月這個人的薪資已經結帳就擋（跟退回同一個條件）。
+ */
+export async function unapproveExpense(db: Database, id: string, expectedRevision: number, actor: AccountingActor) {
+  const [current] = await db.select({ payrollAdjustmentId: accountingExpenses.payrollAdjustmentId }).from(accountingExpenses).where(eq(accountingExpenses.id, id)).limit(1);
+  const reset = { status: "pending" as const, payoutMethod: null, reviewerUserId: null, reviewedAt: null, reviewNote: "" };
+  const base = { id, expectedRevision, actor, from: "approved" as const, eventType: "expense_unapproved", summary: "取消核准，回到待審核" };
+  const adjustmentId = current?.payrollAdjustmentId;
+  if (!adjustmentId) return transition(db, { ...base, set: reset, extraWhere: eq(accountingExpenses.payoutMethod, "direct") });
+  const nowPending = sql`EXISTS (SELECT 1 FROM accounting_expenses WHERE accounting_expenses.id = ${id} AND accounting_expenses.status = 'pending' AND accounting_expenses.revision = ${expectedRevision + 1})`;
+  return transition(db, {
+    ...base,
+    // 先放開支出單的指向，外鍵 RESTRICT 才讓加扣項刪得掉。
+    set: { ...reset, payrollAdjustmentId: null },
+    extraWhere: and(eq(accountingExpenses.payrollAdjustmentId, adjustmentId), linkedAdjustmentEditable),
+    after: [
+      hrAdjustmentLog({
+        adjustmentId, expenseId: id, status: "pending", revision: expectedRevision + 1, actor,
+        eventType: "payroll_adjustment_deleted", summary: "薪資加扣項已刪除（報帳取消核准）", payload: {},
+      }),
+      sql`DELETE FROM hr_payroll_adjustment_items WHERE adjustment_id = ${adjustmentId} AND ${nowPending}`,
+      sql`DELETE FROM hr_payroll_adjustments WHERE id = ${adjustmentId} AND ${nowPending}`,
+    ],
+    payload: { removedPayrollAdjustmentId: adjustmentId },
+    blockedMessage: "這筆已經隨月薪結帳，不能取消核准。",
   });
 }
 
