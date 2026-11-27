@@ -109,7 +109,7 @@ function ExpenseDetail({ expense, canReview, isOwn, onClose, onEdit }: { expense
     {expense.duplicateInvoiceCount > 0 ? <Alert tone="warning">{`這個發票號碼另外還有 ${expense.duplicateInvoiceCount} 張報帳單，核准前請確認不是重複報帳。`}</Alert> : null}
     {expense.status === "rejected" && expense.reviewNote ? <Alert tone="danger">{`駁回原因：${expense.reviewNote}`}</Alert> : null}
     {approving ? <Field as="div" label="發放方式" hint={payout === "direct"
-      ? `${expense.payrollOption ? "" : "沒有在職資料或薪資月份已結帳，只能直接撥款。"}${balanceText ?? ""}`
+      ? `${expense.payrollOption || expense.submitterUserId === null ? "" : "沒有在職資料或薪資月份已結帳，只能直接撥款。"}${balanceText ?? ""}`
       : expense.payrollOption ? `${payrollPeriodLabel(expense.payrollOption)}的薪資會多一筆「代墊款」。` : undefined}>
       <SegmentedControl aria-label="發放方式" value={payout} onChange={(value) => setPayout(value === "payroll" ? "payroll" : "direct")} options={[
         { value: "direct", label: "直接撥款" },
