@@ -12,7 +12,7 @@ import { Icon } from "./icons.js";
  * 讓使用者知道剛剛那次操作已經被系統拒絕，不必猜是不是沒有按到。
  */
 
-export type ToastTone = "success" | "info" | "danger";
+export type ToastTone = "success" | "info" | "warning" | "danger";
 
 export interface ToastAction {
   label: string;
@@ -43,6 +43,7 @@ const DISMISS_AFTER_MS = 3200;
 const TINT: Record<ToastTone, string> = {
   success: "[--toast-tint:var(--color-ok)]",
   info: "[--toast-tint:var(--color-info)]",
+  warning: "[--toast-tint:var(--color-warn)]",
   danger: "[--toast-tint:var(--color-brand-dark)]",
 };
 const TOAST = "pointer-events-auto relative isolate flex max-w-[min(400px,calc(100vw-32px))] items-center gap-2.5 overflow-hidden rounded-[18px] border border-paper/56 py-3 pr-3 pl-3.5 text-[13.5px] text-(--toast-tint) [background:linear-gradient(135deg,--alpha(var(--toast-tint)/16%),transparent_42%),--alpha(var(--color-paper)/58%)] [box-shadow:0_1px_0_--alpha(var(--color-paper)/72%)_inset,0_0_0_1px_--alpha(var(--color-paper)/18%)_inset,0_-12px_28px_--alpha(var(--toast-tint)/7%)_inset,0_18px_46px_--alpha(var(--color-ink)/20%)] [-webkit-backdrop-filter:blur(18px)_saturate(180%)_contrast(106%)] [backdrop-filter:blur(18px)_saturate(180%)_contrast(106%)] animate-[toast-in_220ms_cubic-bezier(0.2,0,0,1)_both] motion-reduce:animate-none before:absolute before:inset-0 before:-z-1 before:[background:radial-gradient(circle_at_16px_0,--alpha(var(--color-paper)/68%),transparent_38%)] max-[760px]:max-w-none";

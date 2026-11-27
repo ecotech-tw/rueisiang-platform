@@ -66,6 +66,7 @@ export const PERMISSIONS = {
   "accounting:expense:review": "審核報帳與標記撥款",
   "accounting:expense:write": "登記、修改與作廢公司支出",
   "accounting:category:write": "管理支出類別",
+  "accounting:petty-cash:write": "增加與更正零用金",
 
   // 人事：全平台人事管理權限，不隨既有主管角色授予。
   "hr:employee:read": "檢視全平台員工與任職資料",
