@@ -24,6 +24,14 @@ run_case \
   $'platform=true\nmigrations=false\nhr=false' \
   "apps/portal/src/App.tsx"
 run_case \
+  "CYBERBIZ report runner source" \
+  $'platform=true\nmigrations=false\nhr=false' \
+  "tools/cyberbiz-reports/lib/cyberbiz.mjs"
+run_case \
+  "Container runner source" \
+  $'platform=true\nmigrations=false\nhr=false' \
+  "tools/report-runner/server.mjs"
+run_case \
   "migration" \
   $'platform=false\nmigrations=true\nhr=false' \
   "packages/db/migrations/0202_new_table.sql"
