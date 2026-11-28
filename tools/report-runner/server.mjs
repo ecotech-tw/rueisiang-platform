@@ -342,6 +342,9 @@ async function runCyberbizLoginProbe(payload, job) {
       }
       const outcome = typeof probe?.outcome === "string" ? probe.outcome : "probe_failed";
       const challengeResolutionConfirmed = probe?.challengeResolutionConfirmed === true;
+      const probeErrorType = typeof probe?.errorType === "string" && /^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(probe.errorType)
+        ? probe.errorType
+        : null;
       const loginReached = ["two_factor_required", "target_store_visible", "signed_in"].includes(outcome);
       const successful = !timedOut && !spawnError && code === 0 && loginReached && challengeResolutionConfirmed;
       const labels = {
@@ -356,7 +359,9 @@ async function runCyberbizLoginProbe(payload, job) {
         missing_credentials: "Runner 缺少登入憑證",
         unsupported_test_store: "不允許的測試店別",
         automation_error: "登入操作發生錯誤",
-        fetcher_error: "Scrapling 瀏覽器執行失敗",
+        fetcher_error: probeErrorType
+          ? `Scrapling 瀏覽器執行失敗（${probeErrorType}）`
+          : "Scrapling 瀏覽器執行失敗",
         invalid_runner_config: "CYBERBIZ 網址設定無效",
         unexpected_login_form: "登入欄位與預期不同",
         unknown: "無法分類登入結果",
@@ -368,7 +373,12 @@ async function runCyberbizLoginProbe(payload, job) {
           : `${labels[outcome]}，但未觀察到解題回應，無法確認 solver 成功`
         : labels[outcome] ?? "登入結果未知";
       const summary = `登入測試（${payload.storeName}）：${outcomeLabel}。未執行報表匯出或寫入。`;
-      job.result = { probeOutcome: outcome, challengeResolutionConfirmed, probeSummary: summary };
+      job.result = {
+        probeOutcome: outcome,
+        challengeResolutionConfirmed,
+        probeSummary: summary,
+        ...(probeErrorType ? { probeErrorType } : {}),
+      };
       if (successful) {
         job.status = "succeeded";
         job.error = "";
