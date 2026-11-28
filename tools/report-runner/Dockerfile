@@ -16,7 +16,9 @@ COPY tools/shopee-sales-report-export ./tools/shopee-sales-report-export
 COPY tools/cyberbiz-reports/package.json tools/cyberbiz-reports/package-lock.json ./tools/cyberbiz-reports/
 WORKDIR /app/tools/cyberbiz-reports
 RUN npm ci --omit=dev \
-    && npx playwright install --with-deps chromium
+    && npx playwright install --with-deps chromium \
+    && python3 -m patchright install chromium \
+    && python3 -c 'from patchright.sync_api import sync_playwright; p=sync_playwright().start(); browser=p.chromium.launch(headless=True); browser.close(); p.stop()'
 COPY tools/cyberbiz-reports ./
 
 WORKDIR /app
