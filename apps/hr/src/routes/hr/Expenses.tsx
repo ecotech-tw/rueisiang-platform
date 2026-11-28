@@ -82,7 +82,7 @@ function ExpenseRow({ expense, onOpen }: { expense: MyExpense; onOpen: (expense:
         <strong className="line-clamp-2 text-[15px] leading-[1.4] font-semibold wrap-anywhere">{expense.description}</strong>
         <span className="truncate text-[13px] leading-[1.45] text-muted">{expenseMeta(expense)}</span>
       </span>
-      <span className="grid justify-items-end gap-1.5">
+      <span className="flex flex-col items-end gap-1.5">
         <strong className="text-[15px] leading-[1.4] font-semibold whitespace-nowrap tabular-nums">{dollars(expense.amountMinor)}</strong>
         <StatusBadge tone={STATUS_TONE[expense.status]}>{EXPENSE_STATUS_LABELS[expense.status]}</StatusBadge>
       </span>
